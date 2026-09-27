@@ -1,9 +1,8 @@
 import Table from "@mui/material/Table";
+import { DividedStack } from "@/components/app/divided-stack";
 import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
 import Grid from "@mui/material/Grid";
-import Stack from "@mui/material/Stack";
-import Divider from "@mui/material/Divider";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
@@ -527,10 +526,10 @@ export async function AnimalPurchasesPage({
                     media={<AnimalPurchaseMedia slots={animal.media_slots ?? []} copy={sopCopy} />}
                     sx={{ height: 1 }}
                   >
-                    <Stack spacing={2.5} divider={<Divider sx={{ borderStyle: "dashed" }} />}>
+                    <DividedStack flexItem={false} spacing={2.5}>
                       <AnimalPurchaseAnswers rows={animal.answer_rows ?? []} copy={sopCopy} />
                       {decisionBlock}
-                    </Stack>
+                    </DividedStack>
                   </JobItem>
                 </article>
               );

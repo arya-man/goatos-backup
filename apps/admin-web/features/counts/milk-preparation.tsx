@@ -1,4 +1,5 @@
 import Table from "@mui/material/Table";
+import { DividedStack } from "@/components/app/divided-stack";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { PanelSkeleton } from "@/components/app/panel-skeleton";
 import { TableSkeleton } from "@/components/app/skeletons";
@@ -11,7 +12,6 @@ import { redirect } from "next/navigation";
 
 import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
-import Divider from "@mui/material/Divider";
 import Grid from "@mui/material/Grid";
 import Stack from "@mui/material/Stack";
 import AlertTitle from "@mui/material/AlertTitle";
@@ -212,7 +212,7 @@ export async function MilkPreparationPage({
       {summary ? (
         <Card>
           <Scrollbar sx={{ minHeight: 108 }}>
-            <Stack direction="row" divider={<Divider orientation="vertical" flexItem sx={{ borderStyle: "dashed" }} />} sx={{ py: 2 }}>
+            <DividedStack dividerOrientation="vertical" direction="row" sx={{ py: 2 }}>
               {farmStates.map((state) => (
                 <InvoiceAnalytic
                   key={state.key}
@@ -225,7 +225,7 @@ export async function MilkPreparationPage({
                   color={state.color}
                 />
               ))}
-            </Stack>
+            </DividedStack>
           </Scrollbar>
         </Card>
       ) : null}

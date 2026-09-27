@@ -1,5 +1,6 @@
 // A GET form through next/form: Apply is a soft navigation (the page stays on screen), not a document reload.
 import { UrlSuspense } from "@/components/app/url-suspense";
+import { DividedStack } from "@/components/app/divided-stack";
 import { StatStripSkeleton, TableSkeleton } from "@/components/app/skeletons";
 import Form from "next/form";
 import { Label } from "@/components/minimal/label";
@@ -60,7 +61,6 @@ import Alert from "@mui/material/Alert";
 import Avatar from "@mui/material/Avatar";
 import Badge from "@mui/material/Badge";
 import Button from "@mui/material/Button";
-import Divider from "@mui/material/Divider";
 import { TemplateTabs } from "@/components/app/template-tabs";
 import { Iconify, type IconifyName } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
@@ -446,7 +446,7 @@ export async function VerificationReviewPage({
       {queue.ok && statusOptionsWithStatus.length ? (
         <Card>
           <Scrollbar sx={{ minHeight: 108 }}>
-            <Stack divider={<Divider orientation="vertical" flexItem sx={{ borderStyle: "dashed" }} />} sx={{ py: 2, flexDirection: "row" }}>
+            <DividedStack dividerOrientation="vertical" sx={{ py: 2, flexDirection: "row" }}>
               {allStatusOption ? (
                 <InvoiceAnalytic
                   title={allStatusOption.label}
@@ -468,7 +468,7 @@ export async function VerificationReviewPage({
                   caption={fPercent(statusTotal ? ((statusCounts[option.status] ?? 0) / statusTotal) * 100 : 0)}
                 />
               ))}
-            </Stack>
+            </DividedStack>
           </Scrollbar>
         </Card>
       ) : null}

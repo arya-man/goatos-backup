@@ -1,4 +1,5 @@
 import Box from "@mui/material/Box";
+import { DividedStack } from "@/components/app/divided-stack";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { StatStripSkeleton, TableSkeleton } from "@/components/app/skeletons";
 import Card from "@mui/material/Card";
@@ -7,7 +8,6 @@ import Stack from "@mui/material/Stack";
 import Table from "@mui/material/Table";
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
-import Divider from "@mui/material/Divider";
 import TableRow from "@mui/material/TableRow";
 import TableBody from "@mui/material/TableBody";
 import TableCell from "@mui/material/TableCell";
@@ -198,9 +198,9 @@ export async function FeedPurchasesPage({
       <UrlSuspense searchParams={sp} watch={AGGREGATE_WATCH} fallback={<Box sx={{ mb: { xs: 3, md: 5 } }}><StatStripSkeleton count={2} /></Box>}>
       <Card sx={{ mb: { xs: 3, md: 5 } }}>
         <Scrollbar sx={{ minHeight: 108 }}>
-          <Stack
+          <DividedStack
+            dividerOrientation="vertical"
             direction="row"
-            divider={<Divider orientation="vertical" flexItem sx={{ borderStyle: "dashed" }} />}
             sx={{ py: 2 }}
           >
             <InvoiceAnalytic
@@ -221,7 +221,7 @@ export async function FeedPurchasesPage({
               icon="solar:cart-3-bold"
               color="success.main"
             />
-          </Stack>
+          </DividedStack>
         </Scrollbar>
       </Card>
       </UrlSuspense>

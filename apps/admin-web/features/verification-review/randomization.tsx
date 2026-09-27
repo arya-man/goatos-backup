@@ -1,12 +1,11 @@
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { DividedStack } from "@/components/app/divided-stack";
 import { getVerificationSampling } from "@/lib/api/server";
 import { setVerificationSamplingPoliciesAction } from "./randomization-actions";
 import { InfoHint } from "@/components/app/info-hint";
 import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
-import Stack from "@mui/material/Stack";
 import Button from "@mui/material/Button";
-import Divider from "@mui/material/Divider";
 import TextField from "@mui/material/TextField";
 import CardHeader from "@mui/material/CardHeader";
 import LinearProgress from "@mui/material/LinearProgress";
@@ -70,7 +69,7 @@ export async function Randomization({
             ) : null
           }
         />
-        <Stack divider={<Divider sx={{ borderStyle: "dashed" }} />} sx={{ gap: 3, px: 3, py: 3 }}>
+        <DividedStack flexItem={false} sx={{ gap: 3, px: 3, py: 3 }}>
           {categories.map((row) => {
             // Captured, selected and reviewed are NOT disjoint -- selected is a subset of captured,
             // reviewed a subset of selected -- so they are read out separately and never summed.
@@ -147,7 +146,7 @@ export async function Randomization({
               </div>
             );
           })}
-        </Stack>
+        </DividedStack>
       </Card>
     </form>
   );

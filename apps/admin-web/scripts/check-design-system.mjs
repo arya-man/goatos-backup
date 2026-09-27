@@ -215,6 +215,7 @@ const CHECKS = {
   "section-server-fn-sx": { tier: "p0", why: "a template section under components/minimal/sections/ that styles with a function sx ((theme) => …) must start with 'use client': a Server Component page renders it, and a function prop cannot cross to the client MUI part (\"Functions cannot be passed directly to Client Components\", the whole page falls back to client rendering or 500s)" },
   "page-template-map": { tier: "p0", why: "every route row in docs/design/page-template-map.md names the feature files that render it and the template section modules they must compose; a mapped page that stops importing one of its template sections (or maps to a file that no longer exists) has drifted back to hand-made UI" },
   "legacy-kit-import": { tier: "p0", why: "the hand-built components/kit is retired; import the template (components/minimal), MUI, or a components/app behaviour wrapper instead — components/kit must not come back" },
+  "server-element-prop": { tier: "p0", why: "a SERVER module passes a JSX element in an MUI prop that MUI clones (Stack divider, Tab/Chip icon, Chip avatar/deleteIcon, Checkbox/Radio checkedIcon): it arrives as a lazy RSC reference while its client chunk loads, cloneElement yields an undefined type and the page crashes on some loads (FJ1 P0-1 /goats/[goat_id]); use components/app/divided-stack (client) or move the element into a \"use client\" leaf" },
   "server-function-prop": { tier: "p0", why: "a SERVER module (reachable from an app/ page/layout/loading without crossing a \"use client\" file) passes a function sx / (theme) => callback to an MUI element: MUI parts are client components, so the render crashes with 'Functions cannot be passed directly to Client Components' (/sales/sold, digest 3801663639) while typecheck and next build stay green. Mark the module \"use client\" or use an object sx with theme tokens" },
   "client-api-without-use-client": { tier: "p0", why: "a module that calls a client-only React/Next API (useState/useEffect/useRef/useTransition/useRouter/useSearchParams/usePathname/useLinkStatus …) or wires a JSX event handler (onClick={…}) must start with \"use client\"; otherwise a server component that imports it breaks `next build` (typecheck does not catch it)" },
   "hand-drawn-skeleton": { tier: "p0", why: "loading shapes come only from the shared blocks in components/app/skeletons (they render the same Card/Grid/Tabs/Table parts as the page): a loading.tsx or a features/**/*skeleton*.tsx composes those blocks and nothing else (no MUI Skeleton, no raw elements, no inline style, no legacy .skel/.kit-sk classes), and no other app code draws its own MUI Skeleton" },
@@ -249,6 +250,26 @@ const FUNCTION_SX = /\bsx=\{\s*\(|\bsx=\{\s*\[[^\]]*=>|\(\s*theme\s*\)\s*=>/;
 // ("{$$typeof, render: function}", FJ1 P0-1 /goats/[goat_id]).
 // A "use client" module export is a client reference and crosses fine; a forwardRef from a server
 // module (or defined in the page itself) does not. Package imports (next/link, @mui/*) are clients.
+// MUI clones these element props (Stack joins `divider`; Tab / Chip / Checkbox / Radio clone `icon`,
+// `avatar`, `deleteIcon`, `checkedIcon`). From a server module the element arrives as a lazy RSC
+// reference while its client chunk loads, cloneElement yields an undefined type and the page shows
+// "Something went wrong" on some loads only (FJ1 P0-1 /goats/[goat_id], Stack divider in the
+// streamed vaccination strip). Children and directly-rendered props (startIcon, action, title) are safe.
+const SERVER_CLONED_ELEMENT_PROP = /\b(divider|control|icon|avatar|deleteIcon|checkedIcon|indeterminateIcon)=\{\s*</g;
+// Only the MUI parts that cloneElement the prop; our own components (EmptyState icon, …) render it as-is.
+const CLONING_MUI_TAGS = new Set(["Stack", "FormControlLabel", "Chip", "Tab", "Checkbox", "Radio", "Switch", "BottomNavigationAction", "SpeedDialAction", "StepLabel", "Rating"]);
+function serverClonedElementLines(text, lines) {
+  const hits = [];
+  for (const m of text.matchAll(SERVER_CLONED_ELEMENT_PROP)) {
+    const before = text.slice(0, m.index);
+    const tag = [...before.matchAll(/<([A-Z]\w*)\b/g)].at(-1)?.[1];
+    if (!tag || !CLONING_MUI_TAGS.has(tag)) continue;
+    const line = before.split("\n").length - 1;
+    if (/^\s*(\/\/|\*|\/\*)/.test(lines[line])) continue;
+    hits.push(line);
+  }
+  return hits;
+}
 const COMPONENT_REF_PROP = /\bcomponent=\{\s*([A-Z]\w*)[\w.]*\s*\}/g;
 function serverComponentRefLine(text, lines, abs, resolveSpec) {
   const imported = new Map();
@@ -295,6 +316,7 @@ function serverFunctionPropFindings(root) {
       if (at >= 0) out.push({ file: toRel(root, abs), line: at + 1, snippet: lines[at] });
       const ref = at >= 0 ? -1 : serverComponentRefLine(text, lines, abs, resolveSpec);
       if (ref >= 0) out.push({ file: toRel(root, abs), line: ref + 1, snippet: lines[ref] });
+      for (const cloned of serverClonedElementLines(text, lines)) out.push({ file: toRel(root, abs), line: cloned + 1, snippet: lines[cloned], check: "server-element-prop" });
     }
     for (const m of text.matchAll(/(?:import|export)\s[^'"`;]*?from\s*["']([^"']+)["']/g)) {
       if (/^\s*import\s+type\s/.test(m[0]) || /^\s*export\s+type\s/.test(m[0])) continue;
@@ -464,7 +486,7 @@ function runGuard(root, { themeDiff }) {
   // app/ route entry (page/layout/loading/template/not-found/default), stopping at "use client"
   // files, and refuse a function sx / (theme) => callback in any server module: it is a function
   // handed to an MUI client component. Generalises section-client-boundary to every folder.
-  for (const hit of serverFunctionPropFindings(root)) findings.push(finding("server-function-prop", hit.file, hit.line, hit.snippet));
+  for (const hit of serverFunctionPropFindings(root)) findings.push(finding(hit.check ?? "server-function-prop", hit.file, hit.line, hit.snippet));
 
   // Pages mapped in docs/design/page-template-map.md must not fall back to the pastel KpiCard
   // tint/gradient or AnalyticsWidgetSummary (the look Ravi rejected on /sales/sold). The import
@@ -1128,6 +1150,12 @@ async function selfTest() {
   put("features/sfp/tabs-row.tsx", 'import Tab from "@mui/material/Tab";\nimport NextLink from "next/link";\nimport ClientLink from "./client-link";\nimport ServerLink from "./server-link";\nexport const TabsRow = () => (\n  <>\n    <Tab component={NextLink} href="/a" />\n    <Tab component={ClientLink} href="/b" />\n    <Tab component={ServerLink} href="/c" />\n  </>\n);\n');
   put("features/sfp/client-link.tsx", '"use client";\nimport { forwardRef } from "react";\nexport default forwardRef<HTMLAnchorElement>(function L(p, ref) { return <a ref={ref} {...p} />; });\n');
   put("features/sfp/server-link.tsx", 'import { forwardRef } from "react";\nexport default forwardRef<HTMLAnchorElement>(function L(p, ref) { return <a ref={ref} {...p} />; });\n');
+  // server-element-prop: a server module hands Stack a divider element (flagged, /goats/[goat_id]);
+  // the same prop in a "use client" module, and an element as children, stay clean.
+  put("app/(admin)/sep/page.tsx", 'import { Rows } from "@/features/sep/rows";\nimport { ClientRows } from "@/features/sep/client-rows";\nexport default function Page() { return <div className="kit-page"><Rows /><ClientRows /></div>; }\n');
+  put("app/(admin)/sep/loading.tsx", "export default function L() { return null; }\n");
+  put("features/sep/rows.tsx", 'import Stack from "@mui/material/Stack";\nimport Divider from "@mui/material/Divider";\nexport const Rows = () => (\n  <Stack>\n    <Divider />\n    <Stack divider={<Divider />} />\n  </Stack>\n);\n');
+  put("features/sep/client-rows.tsx", '"use client";\nimport Stack from "@mui/material/Stack";\nimport Divider from "@mui/material/Divider";\nexport const ClientRows = () => <Stack divider={<Divider />} />;\n');
   // template-verbatim: tpl-ok.tsx differs only by import path + "use client" (clean); tpl-drift.tsx
   // changed a copy string (flagged); tpl-pkg.tsx swapped a package import (flagged); tpl-listed.tsx
   // drifts but is in the baseline with its current sha256 (allowed); tpl-healed.tsx is in the baseline
@@ -1205,6 +1233,11 @@ async function selfTest() {
   const wantVerbatim = ["components/minimal/tpl-drift.tsx:", "components/minimal/tpl-edited.tsx:", "components/minimal/tpl-pkg.tsx:", "docs/design/template-verbatim-baseline.json:healed"];
   if (verbatimHits.join("|") !== wantVerbatim.join("|")) {
     console.error(`design_system_self_test=FAIL template-verbatim flagged=${verbatimHits.join(",") || "none"} (want ${wantVerbatim.join(",")})`);
+    process.exit(1);
+  }
+  const sepHits = findings.filter((f) => f.check === "server-element-prop").map((f) => `${f.file}:${f.line}`);
+  if (sepHits.join("|") !== "features/sep/rows.tsx:6") {
+    console.error(`design_system_self_test=FAIL server-element-prop flagged=${sepHits.join(",") || "none"} (want features/sep/rows.tsx:6)`);
     process.exit(1);
   }
   const tplRatchet = findings.filter((f) => f.file === "components/minimal/tpl.tsx" && CHECKS[f.check].tier === "ratchet");

@@ -1,4 +1,5 @@
 import Button from "@mui/material/Button";
+import { DividedStack } from "@/components/app/divided-stack";
 import TextField from "@mui/material/TextField";
 
 import Link from "@/components/no-prefetch-link";
@@ -7,7 +8,6 @@ import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
 import Paper from "@mui/material/Paper";
 import CardHeader from "@mui/material/CardHeader";
-import Divider from "@mui/material/Divider";
 import Grid from "@mui/material/Grid";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
@@ -128,13 +128,13 @@ export function MarketConfigSection({
           {config.cities.length === 0 ? (
             <EmptyState title={copy(pageContract, "market.empty.cities")} />
           ) : (
-            <Stack divider={<Divider flexItem sx={{ borderStyle: "dashed" }} />} spacing={1.5}>
+            <DividedStack spacing={1.5}>
               {config.cities.map((city) => (
                 <Box key={city.id} sx={{ opacity: city.status === "active" ? 1 : 0.64 }}>
                   <CityRow city={city} pageContract={pageContract} canConfigure={canConfigure} outcomes={outcomes} />
                 </Box>
               ))}
-            </Stack>
+            </DividedStack>
           )}
           {canConfigure ? (
             <Box sx={{ mt: 2.5, pt: 2.5, borderTop: "1px dashed", borderColor: "divider" }}>
@@ -163,13 +163,13 @@ export function MarketConfigSection({
           {config.questions.length === 0 ? (
             <EmptyState title={copy(pageContract, "market.empty.questions")} />
           ) : (
-            <Stack divider={<Divider flexItem sx={{ borderStyle: "dashed" }} />} spacing={1.5}>
+            <DividedStack spacing={1.5}>
               {config.questions.map((question) => (
                 <Box key={question.id} sx={{ opacity: question.status === "active" ? 1 : 0.64 }}>
                   <QuestionRow question={question} pageContract={pageContract} canConfigure={canConfigure} outcomes={outcomes} />
                 </Box>
               ))}
-            </Stack>
+            </DividedStack>
           )}
           {canConfigure ? (
             <Box sx={{ mt: 2.5, pt: 2.5, borderTop: "1px dashed", borderColor: "divider" }}>

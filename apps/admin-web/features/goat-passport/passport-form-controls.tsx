@@ -8,6 +8,8 @@ import DialogContent from "@mui/material/DialogContent";
 import DialogActions from "@mui/material/DialogActions";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
+import Checkbox from "@mui/material/Checkbox";
+import FormControlLabel from "@mui/material/FormControlLabel";
 
 type SelectOption = { value: string; label: string };
 
@@ -115,4 +117,13 @@ export function PassportConfirmSubmitButton({
       </Dialog>
     </>
   );
+}
+
+/**
+ * Labelled checkbox for a server-action <form>. FormControlLabel clones its `control` element, so the
+ * Checkbox must be created on the client: from the server page it arrives as a lazy RSC reference and
+ * the clone has an undefined type (the /goats/[goat_id] crash class). Guard: server-element-prop.
+ */
+export function PassportFormCheckbox({ name, label }: { name: string; label: string }) {
+  return <FormControlLabel control={<Checkbox name={name} />} label={label} sx={{ minHeight: "var(--tap-min)" }} />;
 }

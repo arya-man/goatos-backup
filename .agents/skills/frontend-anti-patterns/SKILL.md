@@ -232,6 +232,14 @@ chapters below; do not review from the summary.
   module, so /goats/[goat_id] crashed at every size while no-prefetch-link lacked the directive
   (FJ1 P0-1). The guard resolves every `component={X}` in a server module and fails when X is
   defined locally or imported from a non-client local module.
+- **No cloned element prop from a server module (guard: `server-element-prop`, design:guard p0).** A
+  SERVER module never passes a JSX element in a prop that the MUI part `cloneElement`s: Stack
+  `divider`, FormControlLabel `control`, Tab/Chip `icon`/`avatar`/`deleteIcon`, Checkbox/Radio
+  `checkedIcon`. The element crosses as a lazy RSC reference, the clone gets an undefined type and the
+  page shows "Something went wrong" ("Element type is invalid ... got: undefined", /goats/[goat_id]
+  from `<Stack divider={<Divider />}>` in the vaccination passport strip). Use
+  `components/app/divided-stack` (`<DividedStack dividerOrientation="vertical">`) or a `"use client"`
+  leaf that builds the element (PassportFormCheckbox). Children and directly-rendered props are fine.
 - **The shell is gated on every push (guard: r2 visual gate `shell|*`, scripts/r2-audit-checks/shell.mjs).**
   Sidebar root items + subheaders start at nav.left + 16px with padding-left 12px (template
   NavSectionVertical: content on the logo column), the active item is a translucent primary tint,

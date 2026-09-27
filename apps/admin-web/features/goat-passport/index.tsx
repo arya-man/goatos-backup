@@ -1,8 +1,9 @@
 import Table from "@mui/material/Table";
+import { DividedStack } from "@/components/app/divided-stack";
 import type { ReactNode } from "react";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { PanelSkeleton } from "@/components/app/panel-skeleton";
-import { DetailCardSkeleton, ListCardSkeleton, StackSkeleton, TableSkeleton } from "@/components/app/skeletons";
+import { BlockSkeleton, ListCardSkeleton, StackSkeleton, TableSkeleton } from "@/components/app/skeletons";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
@@ -27,18 +28,15 @@ import { Label } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { TableHeadCustom } from "@/components/app/table";
-import { OrderDetailsDelivery } from "@/components/minimal/sections/order/order-details-delivery";
 import { OrderDetailsHistory } from "@/components/minimal/sections/order/order-details-history";
-import { PassportCover } from "./passport-cover";
+import { PassportTabs } from "./passport-tabs";
 import { firstAuthRequiredError, getGoatPassport, getGoatTimeline } from "@/lib/api/server";
 import { hrefWithoutAction, one, type RouteSearchParams } from "@/lib/search-params";
 import { actionFeedbackCopy, copy, optionGroup, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { addIdentifierAction, retireIdentifierAction } from "./actions";
-import { PassportConfirmSubmitButton, PassportFormSelect } from "./passport-form-controls";
+import { PassportConfirmSubmitButton, PassportFormCheckbox, PassportFormSelect } from "./passport-form-controls";
 import TextField from "@mui/material/TextField";
 import Alert from "@mui/material/Alert";
-import Checkbox from "@mui/material/Checkbox";
-import FormControlLabel from "@mui/material/FormControlLabel";
 
 function identifierTypeLabel(type: string, pageContract: AdminUiPageContract): string {
   if (type === "animal_identifier_1") return copy(pageContract, "label.tag_1");
@@ -198,67 +196,74 @@ export async function GoatPassportPage({
   const placeholder = dash(null);
   const mono = { fontFamily: "monospace" } as const;
 
-  const coverCard = (
-    <PassportCover
-      displayId={goat.display_id}
-      secondaryLine={secondaryLine}
+  const tabsRow = (
+    <PassportTabs
       selectedTab={selectedTab}
+      ariaLabel={copy(pageContract, "fallback.title")}
       tabs={[
-        { value: "", href: tabHref(passportPath, searchParams, ""), label: copy(pageContract, "section.summary.title") },
-        { value: "identifiers", href: tabHref(passportPath, searchParams, "identifiers"), label: copy(pageContract, "section.identifiers.title") },
-        { value: "evidence", href: tabHref(passportPath, searchParams, "evidence"), label: copy(pageContract, "section.evidence.title") },
-        { value: "history", href: tabHref(passportPath, searchParams, "history"), label: copy(pageContract, "section.timeline.title") },
+        { value: "", href: tabHref(passportPath, searchParams, ""), label: copy(pageContract, "section.summary.title"), icon: "solar:user-id-bold" },
+        { value: "identifiers", href: tabHref(passportPath, searchParams, "identifiers"), label: copy(pageContract, "section.identifiers.title"), icon: "solar:tag-horizontal-bold-duotone" },
+        { value: "evidence", href: tabHref(passportPath, searchParams, "evidence"), label: copy(pageContract, "section.evidence.title"), icon: "solar:file-text-bold" },
+        { value: "history", href: tabHref(passportPath, searchParams, "history"), label: copy(pageContract, "section.timeline.title"), icon: "solar:clock-circle-bold" },
       ]}
     />
   );
 
-  // Template order details: label / value rows under a CardHeader (OrderDetailsDelivery anatomy).
-  const summaryCard = (
-    <MuiCard aria-label={copy(pageContract, "section.summary.title")}>
-      <OrderDetailsDelivery
-        title={copy(pageContract, "section.summary.title")}
-        labelWidth={132}
-        rows={[
-          { key: "display", label: copy(pageContract, "label.display_id"), value: <Label variant="soft" color="primary">{goat.display_id}</Label> },
-          { key: "tag1", label: copy(pageContract, "label.tag_1"), value: <Box component="span" sx={mono}>{dash(goat.summary.animal_identifier_1)}</Box> },
-          { key: "tag2", label: copy(pageContract, "label.tag_2"), value: <Box component="span" sx={mono}>{dash(goat.summary.animal_identifier_2)}</Box> },
-          { key: "breed", label: copy(pageContract, "label.breed_sex"), value: secondaryLine || placeholder },
-          {
-            key: "location",
-            label: copy(pageContract, "label.location"),
-            value: (
-              <>
-                <Box component="span" sx={{ fontWeight: "fontWeightSemiBold" }}>{dash(goat.summary.location_path.operational_location_display)}</Box>
-                {goat.merged_into_goat_id ? (
-                  <>
-                    {" "}
-                    · {copy(pageContract, "label.merged_into")} <Box component="span" sx={mono}>{shortId(goat.merged_into_goat_id)}</Box>
-                  </>
-                ) : null}
-              </>
-            ),
-          },
-        ]}
-      />
-      <Divider sx={{ borderStyle: "dashed" }} />
-      <Stack spacing={1.5} sx={{ p: 3, typography: "body2" }}>
-        {[
-          { key: "lifecycle", label: copy(pageContract, "label.lifecycle"), value: <Tag tone={lifecycleTone(lifecycle)}>{humanizeEnum(lifecycle)}</Tag> },
-          { key: "health", label: copy(pageContract, "label.health"), value: health ? <Tag tone={healthTone(health)}>{humanizeEnum(health)}</Tag> : placeholder },
-          { key: "repro", label: copy(pageContract, "label.reproductive"), value: goat.summary.reproductive_status ? humanizeEnum(goat.summary.reproductive_status) : placeholder },
-          { key: "cohort", label: copy(pageContract, "label.growth_cohort"), value: dash(goat.summary.growth_cohort_tag) },
-          { key: "management", label: copy(pageContract, "label.management"), value: dash(goat.summary.management_stage) },
-        ].map((row) => (
-          <Box key={row.key} sx={{ display: "flex", alignItems: "center", minWidth: 0 }}>
-            <Box component="span" sx={{ color: "text.secondary", width: 132, flexShrink: 0 }}>
-              {row.label}
-            </Box>
-            <Box component="span" sx={{ minWidth: 0, overflowWrap: "anywhere" }}>
-              {row.value}
-            </Box>
-          </Box>
-        ))}
+  // Template account general (sections/account/account-general.tsx), left column: the centred
+  // profile Card (pt 10 / pb 5, 144px avatar in the dashed upload ring, caption, status row).
+  const profileCard = (
+    <MuiCard sx={{ pt: 10, pb: 5, px: 3, textAlign: "center" }}>
+      <Box sx={{ p: 1, mx: "auto", width: 144, height: 144, borderRadius: "50%", borderWidth: 1, borderStyle: "dashed", borderColor: "divider" }}>
+        <Avatar alt={goat.display_id} sx={{ width: 1, height: 1, bgcolor: "primary.lighter", color: "primary.darker" }}>
+          <Iconify icon="solar:user-id-bold" width={56} />
+        </Avatar>
+      </Box>
+      <Typography variant="h6" sx={{ mt: 3 }}>
+        {goat.display_id}
+      </Typography>
+      <Typography variant="caption" component="div" sx={{ mt: 1, color: "text.disabled" }}>
+        {secondaryLine || placeholder}
+        <br />
+        {dash(goat.summary.location_path.operational_location_display)}
+      </Typography>
+      <Stack direction="row" spacing={1} sx={{ mt: 5, justifyContent: "center", flexWrap: "wrap" }}>
+        <Tag tone={lifecycleTone(lifecycle)}>{humanizeEnum(lifecycle)}</Tag>
+        {health ? <Tag tone={healthTone(health)}>{humanizeEnum(health)}</Tag> : null}
       </Stack>
+      {goat.merged_into_goat_id ? (
+        <Typography variant="caption" component="div" sx={{ mt: 3, color: "text.secondary" }}>
+          {copy(pageContract, "label.merged_into")} <Box component="span" sx={mono}>{shortId(goat.merged_into_goat_id)}</Box>
+        </Typography>
+      ) : null}
+    </MuiCard>
+  );
+
+  // Right column: the account form Card (p 3, two-column field grid) with the passport facts as
+  // read-only outlined fields, so the page reads exactly like the template form.
+  const readOnly = (key: string, label: string, value: string | null | undefined, opts: { full?: boolean; mono?: boolean } = {}) => (
+    <TextField
+      key={key}
+      label={label}
+      value={value ? value : placeholder}
+      fullWidth
+      sx={opts.full ? { gridColumn: "1 / -1" } : undefined}
+      slotProps={{ inputLabel: { shrink: true }, htmlInput: { readOnly: true, "aria-readonly": true, style: opts.mono ? mono : undefined } }}
+    />
+  );
+  const summaryCard = (
+    <MuiCard aria-label={copy(pageContract, "section.summary.title")} sx={{ p: 3 }}>
+      <Box sx={{ rowGap: 3, columnGap: 2, display: "grid", gridTemplateColumns: { xs: "repeat(1, 1fr)", sm: "repeat(2, 1fr)" } }}>
+        {readOnly("display", copy(pageContract, "label.display_id"), goat.display_id)}
+        {readOnly("breed", copy(pageContract, "label.breed_sex"), secondaryLine)}
+        {readOnly("tag1", copy(pageContract, "label.tag_1"), goat.summary.animal_identifier_1, { mono: true })}
+        {readOnly("tag2", copy(pageContract, "label.tag_2"), goat.summary.animal_identifier_2, { mono: true })}
+        {readOnly("location", copy(pageContract, "label.location"), goat.summary.location_path.operational_location_display, { full: true })}
+        {readOnly("lifecycle", copy(pageContract, "label.lifecycle"), lifecycle ? humanizeEnum(lifecycle) : null)}
+        {readOnly("health", copy(pageContract, "label.health"), health ? humanizeEnum(health) : null)}
+        {readOnly("repro", copy(pageContract, "label.reproductive"), goat.summary.reproductive_status ? humanizeEnum(goat.summary.reproductive_status) : null)}
+        {readOnly("cohort", copy(pageContract, "label.growth_cohort"), goat.summary.growth_cohort_tag)}
+        {readOnly("management", copy(pageContract, "label.management"), goat.summary.management_stage)}
+      </Box>
     </MuiCard>
   );
 
@@ -372,7 +377,7 @@ export async function GoatPassportPage({
           <FormField name="identifier_value" label={copy(pageContract, "field.identifier_value")} required />
           <FormField name="scope_key" label={copy(pageContract, "field.scope_key")} required placeholder={copy(pageContract, "placeholder.scope_key")} />
           <EvidenceFields defaultType="goat" defaultID={goat.goat_id} pageContract={pageContract} />
-          <FormControlLabel control={<Checkbox name="is_primary_for_goat" />} label={copy(pageContract, "label.primary")} sx={{ minHeight: 44 }} />
+          <PassportFormCheckbox name="is_primary_for_goat" label={copy(pageContract, "label.primary")} />
         </Box>
         <Box sx={{ mt: 3, display: "flex", justifyContent: "flex-end" }}>
           <Button type="submit" variant="contained" color="primary">
@@ -388,7 +393,7 @@ export async function GoatPassportPage({
   const evidenceBody = (
     <MuiCard aria-label={copy(pageContract, "section.evidence.title")}>
       <CardHeader title={copy(pageContract, "section.evidence.title")} action={<Label variant="soft">{goat.evidence_refs.length}</Label>} />
-      <Stack spacing={2.5} divider={<Divider sx={{ borderStyle: "dashed" }} />} sx={{ p: 3 }}>
+      <DividedStack flexItem={false} spacing={2.5} sx={{ p: 3 }}>
         {goat.evidence_refs.length === 0 ? (
           <Typography variant="body2" sx={{ color: "text.secondary" }}>
             {copy(pageContract, "empty.evidence")}
@@ -413,7 +418,7 @@ export async function GoatPassportPage({
             </Box>
           ))
         )}
-      </Stack>
+      </DividedStack>
     </MuiCard>
   );
 
@@ -450,31 +455,30 @@ export async function GoatPassportPage({
       <PageHeader
         title={goat.display_id}
         crumbs={[{ label: copy(pageContract, "fallback.title") }, { label: goat.display_id }]}
-        actions={
-          <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap" }}>
-            <Tag tone={lifecycleTone(lifecycle)}>{humanizeEnum(lifecycle)}</Tag>
-            {health ? <Tag tone={healthTone(health)}>{humanizeEnum(health)}</Tag> : null}
-          </Stack>
-        }
       />
 
       <Notice status={actionStatus} actionKey={actionKey} pageContract={pageContract} />
 
-      {coverCard}
+      {tabsRow}
 
       {/* The tab body (guard: url-keyed-panel): a tab click shows the clicked tab's skeleton at once;
-          header and profile cover (with its tabs) stay on screen. */}
+          header and tabs stay on screen. */}
       <UrlSuspense searchParams={searchParams} watch={[TAB_PARAM]} fallback={PASSPORT_TAB_SKELETON[selectedTab]} fallbackBy={{ param: TAB_PARAM, shapes: PASSPORT_TAB_SKELETON }}>
       {selectedTab === "" ? (
-        // Template user profile: About column (md 4) beside the main column (md 8).
+        // Template account general: profile Card (md 4) beside the form Card (md 8).
         <Grid container spacing={3}>
-          <Grid size={{ xs: 12, md: 5, lg: 4 }}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <Stack spacing={3}>
-              {summaryCard}
+              {profileCard}
               {warningsCard}
             </Stack>
           </Grid>
-          <Grid size={{ xs: 12, md: 7, lg: 8 }}>{vaccination}</Grid>
+          <Grid size={{ xs: 12, md: 8 }}>
+            <Stack spacing={3}>
+              {summaryCard}
+              {vaccination}
+            </Stack>
+          </Grid>
         </Grid>
       ) : (
         <Stack spacing={3}>
@@ -493,11 +497,14 @@ export async function GoatPassportPage({
 const PASSPORT_TAB_SKELETON: Record<PassportTab, ReactNode> = {
   "": (
     <Grid container spacing={3}>
-      <Grid size={{ xs: 12, md: 5, lg: 4 }}>
-        <DetailCardSkeleton rows={6} />
+      <Grid size={{ xs: 12, md: 4 }}>
+        <BlockSkeleton height={420} />
       </Grid>
-      <Grid size={{ xs: 12, md: 7, lg: 8 }}>
-        <TableSkeleton columns={5} rows={6} />
+      <Grid size={{ xs: 12, md: 8 }}>
+        <StackSkeleton spacing={3}>
+          <BlockSkeleton height={400} />
+          <TableSkeleton columns={5} rows={4} pager={false} />
+        </StackSkeleton>
       </Grid>
     </Grid>
   ),

@@ -1,4 +1,5 @@
 import Table from "@mui/material/Table";
+import { DividedStack } from "@/components/app/divided-stack";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
@@ -7,9 +8,7 @@ import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
-import Divider from "@mui/material/Divider";
 import Paper from "@mui/material/Paper";
-import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import { Label } from "@/components/minimal/label";
 import { Scrollbar } from "@/components/minimal/scrollbar";
@@ -119,7 +118,7 @@ export async function VaccinationPassportSection({ goatId, pageContract }: { goa
       />
 
       <Paper variant="outlined" sx={{ mx: 3, mt: 3, py: 2, borderStyle: "dashed" }}>
-      <Stack direction={{ xs: "column", sm: "row" }} divider={<Divider flexItem orientation="vertical" sx={{ borderStyle: "dashed" }} />}>
+      <DividedStack dividerOrientation="vertical" direction={{ xs: "column", sm: "row" }}>
         {stats.map((stat) => (
           <Box key={stat.key} sx={{ flex: "1 1 0", px: 2.5, py: { xs: 1, sm: 0 }, minWidth: 0 }}>
             <Typography variant="body2" sx={{ color: "text.secondary", mb: 0.5 }}>
@@ -131,7 +130,7 @@ export async function VaccinationPassportSection({ goatId, pageContract }: { goa
             </Box>
           </Box>
         ))}
-      </Stack>
+      </DividedStack>
       </Paper>
 
       {blockTitle(copy(pageContract, "vaccination.open_due_rows"))}

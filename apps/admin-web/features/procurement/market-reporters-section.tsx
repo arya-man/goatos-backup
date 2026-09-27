@@ -1,4 +1,5 @@
 import { listOrEmpty } from "@/lib/list-or-empty";
+import { DividedStack } from "@/components/app/divided-stack";
 
 import Link from "@/components/no-prefetch-link";
 import Accordion from "@mui/material/Accordion";
@@ -7,7 +8,6 @@ import AccordionSummary from "@mui/material/AccordionSummary";
 import Button from "@mui/material/Button";
 import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
-import Divider from "@mui/material/Divider";
 import ListItemText from "@mui/material/ListItemText";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
@@ -45,11 +45,11 @@ export function MarketReportersSection({
   const reporters = people.filter((p) => p.reporter);
   const others = people.filter((p) => !p.reporter);
   const rowList = (list: MarketReporter[]) => (
-    <Stack divider={<Divider flexItem sx={{ borderStyle: "dashed" }} />} spacing={1.5}>
+    <DividedStack spacing={1.5}>
       {list.map((p) => (
         <ReporterRow key={p.person_id} person={p} pageContract={pageContract} canConfigure={canConfigure} outcomes={outcomes} />
       ))}
-    </Stack>
+    </DividedStack>
   );
   return (
     // Template account card: CardHeader (+ People link), current reporters list, the rest of the
