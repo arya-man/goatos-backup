@@ -1,6 +1,7 @@
 import Table from "@mui/material/Table";
 import { UrlSuspense } from "@/components/app/url-suspense";
-import { PanelSkeleton } from "@/components/app/panel-skeleton";
+import { HERD_KPI_SIZE } from "./counts-layout";
+import { HerdKpiSkeleton } from "./counts-skeletons";
 import { TableSkeleton } from "@/components/app/skeletons";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import TableBody from "@mui/material/TableBody";
@@ -318,10 +319,10 @@ export async function HerdRegisterPage({
       {/* KPI row: three template CourseWidgetSummary (KpiWidget) tiles, the live herd's make-up. */}
       {/* KPI deck (guard: url-keyed-panel): a filter / page change swaps it to its skeleton at once;
           opening a goat passport (goat_passport) never does. */}
-      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={HERD_KPI_IGNORE} fallback={<PanelSkeleton kpis={summaryCards.length} />}>
+      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={HERD_KPI_IGNORE} fallback={<HerdKpiSkeleton />}>
       <Grid container spacing={3} component="section" aria-label={copy(pageContract, "section.herd.title")}>
         {summaryCards.map((card) => (
-          <Grid key={card.label} size={{ xs: 12, sm: 4 }}>
+          <Grid key={card.label} size={HERD_KPI_SIZE}>
             <KpiWidget title={card.label} total={card.value} caption={card.sub} color={kpiColor(card.tone)} sx={{ height: 1 }} />
           </Grid>
         ))}

@@ -1,6 +1,6 @@
 import Table from "@mui/material/Table";
 import { DividedStack } from "@/components/app/divided-stack";
-import { MILK_DEFAULT_PAGE_SIZE, MILK_KPI_SIZE } from "./milk-preparation-layout";
+import { MILK_DEFAULT_PAGE_SIZE, MILK_FARM_STATE_KEYS, MILK_KPIS, MILK_KPI_SIZE } from "./milk-preparation-layout";
 import { MilkPreparationPanelSkeleton } from "./milk-preparation-skeletons";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { TableSkeleton } from "@/components/app/skeletons";
@@ -148,14 +148,16 @@ export async function MilkPreparationPage({
     ? summary.not_submitted_farm_count + summary.pending_verification_farm_count + summary.completed_farm_count + summary.rework_farm_count
     : 0;
   const farmShare = (n: number) => (farmTotal > 0 ? Math.round((n / farmTotal) * 100) : 0);
-  const farmStates = summary
-    ? [
-        { key: "not_submitted", count: summary.not_submitted_farm_count, icon: "solar:clock-circle-bold", color: "text.secondary" },
-        { key: "pending_verification", count: summary.pending_verification_farm_count, icon: "solar:bell-bing-bold", color: "warning.main" },
-        { key: "verified", count: summary.completed_farm_count, icon: "solar:verified-check-bold", color: "success.main" },
-        { key: "rework", count: summary.rework_farm_count, icon: "solar:restart-bold", color: "error.main" },
-      ] as const
-    : [];
+  const farmStateOf = summary
+    ? {
+        not_submitted: { count: summary.not_submitted_farm_count, icon: "solar:clock-circle-bold", color: "text.secondary" },
+        pending_verification: { count: summary.pending_verification_farm_count, icon: "solar:bell-bing-bold", color: "warning.main" },
+        verified: { count: summary.completed_farm_count, icon: "solar:verified-check-bold", color: "success.main" },
+        rework: { count: summary.rework_farm_count, icon: "solar:restart-bold", color: "error.main" },
+      } as const
+    : null;
+  // The strip's cells, in MILK_FARM_STATE_KEYS order (its loading twin counts the same list).
+  const farmStates = farmStateOf ? MILK_FARM_STATE_KEYS.map((key) => ({ key, ...farmStateOf[key] })) : [];
 
   return (
     <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
@@ -192,17 +194,12 @@ export async function MilkPreparationPage({
       <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
       {summary ? (
         <Grid container spacing={3} component="section" aria-label={copy(pageContract, "section.preparation.title")}>
-          {[
-            { key: "sheds", total: summary.shed_count },
-            { key: "kids", total: summary.head_count },
-            { key: "milk", total: summary.total_required_ml / 1000, unit },
-            { key: "citric", total: summary.citric_acid_grams, unit: copy(pageContract, "label.grams") },
-          ].map((kpi) => (
+          {MILK_KPIS.map((kpi) => (
             <Grid key={kpi.key} size={MILK_KPI_SIZE}>
               <KpiWidget
                 title={copy(pageContract, `kpi.${kpi.key}.label`)}
-                total={kpi.total}
-                caption={kpi.unit}
+                total={{ sheds: summary.shed_count, kids: summary.head_count, milk: summary.total_required_ml / 1000, citric: summary.citric_acid_grams }[kpi.key]}
+                caption={kpi.unit ? (kpi.key === "citric" ? copy(pageContract, "label.grams") : unit) : undefined}
                 sx={{ height: 1 }}
               />
             </Grid>

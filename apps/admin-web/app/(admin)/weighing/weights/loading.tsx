@@ -1,3 +1,4 @@
+import { WEIGHTS_HEADER } from "@/features/weighing/weights-analytics-layout";
 import { PageHeaderSkeleton, PageSkeleton } from "@/components/app/skeletons";
 import { WeightsFilterSkeleton, WeightsKidsPanelSkeleton } from "@/features/weighing/weights-skeletons";
 
@@ -9,7 +10,7 @@ import { WeightsFilterSkeleton, WeightsKidsPanelSkeleton } from "@/features/weig
 export default function Loading() {
   return (
     <PageSkeleton gap={3} root="">
-      <PageHeaderSkeleton crumbLink={false} titleWidth={150} actionWidths={[112]} />
+      <PageHeaderSkeleton crumbLink={false} titleWidth={WEIGHTS_HEADER.kidsTitleWidth} actionWidths={[WEIGHTS_HEADER.downloadWidth]} />
       <WeightsFilterSkeleton />
       <WeightsKidsPanelSkeleton />
     </PageSkeleton>

@@ -21,3 +21,7 @@ export const EARLIER_HEAD_CELLS = [
   { id: "changed", label: "What changed" },
   { id: "action", label: "", width: 140 },
 ];
+
+// Loading-twin estimates of rendered sizes the page does not set itself (copy-driven).
+/** Header action ("Start a new version") width; the live card's "Published" Label; the earlier card's count Label; Label height. */
+export const PLAN_SKELETON = { headerActionWidths: [176], publishedLabelWidth: 91, countLabelWidth: 40, labelHeight: 24, earlierRows: 3 } as const;

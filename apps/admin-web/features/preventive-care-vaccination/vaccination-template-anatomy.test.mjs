@@ -39,8 +39,8 @@ test("vaccination-template-anatomy: every matrix is a template table card with L
   assert.doesNotMatch(view, /variant=\{statuses\.has\(key\) \? "soft" : "outlined"\}/);
   assert.match(view, /variant="soft"\s+color=\{statuses\.has\(key\) \? STATUS_COLOR\[key\] : "default"\}/);
   // The skeleton mirrors the cards: legend rows, one table card per matrix, farm tabs.
-  assert.match(skeleton, /<OptionalSkeleton>\s*<TableSkeleton columns=\{7\}/);
-  assert.match(skeleton, /tabs=\{<TabsSkeleton count=\{2\} counts \/>\}/);
+  assert.match(skeleton, /<OptionalSkeleton>\s*<TableSkeleton columns=\{CB_MATRIX\.penVaccineColumns\}/);
+  assert.match(skeleton, /tabs=\{<TabsSkeleton count=\{CB_MATRIX\.cohortFarmTabs\} counts \/>\}/);
 });
 
 test("vaccination-template-anatomy: the legacy cbm rules and their off-palette colours are deleted", () => {

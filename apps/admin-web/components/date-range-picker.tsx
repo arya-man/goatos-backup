@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { DATE_RANGE_PICKER_MIN } from "@/components/app/filter-field-widths";
 import dayjs from "dayjs";
 import { varAlpha } from "minimal-shared/utils";
 import Badge from "@mui/material/Badge";
@@ -292,7 +293,7 @@ export function DateRangePicker({
           }
         }}
         data-testid="date-range-picker-trigger"
-        sx={{ minWidth: { xs: 1, sm: 300 }, cursor: "pointer", "& *": { cursor: "pointer" } }}
+        sx={{ minWidth: { xs: 1, sm: DATE_RANGE_PICKER_MIN }, cursor: "pointer", "& *": { cursor: "pointer" } }}
         slotProps={{
           inputLabel: { shrink: true },
           htmlInput: { readOnly: true, "aria-label": labels.aria, "aria-haspopup": "dialog", "aria-expanded": open },

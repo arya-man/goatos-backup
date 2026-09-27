@@ -1,6 +1,18 @@
 import Stack from "@mui/material/Stack";
 import { ChartCardSkeleton, FilterCardSkeleton, GridSkeleton, KpiCardSkeleton, TableSkeleton } from "@/components/app/skeletons";
-import { GENERAL_GRID, GENERAL_KPI_COUNT, KIDS_GRID, KIDS_KPI_COUNT, PENS_FILTER_FIELDS, WEIGHTS_DEFAULT_LIMIT, WEIGHTS_FILTER_FIELDS } from "./weights-analytics-layout";
+import {
+  GENERAL_CHART_PLOT,
+  GENERAL_GRID,
+  GENERAL_KPI_COUNT,
+  KIDS_CHART_PLOT,
+  KIDS_GRID,
+  KIDS_KPI_CAPTION_LINES,
+  KIDS_KPI_COUNT,
+  PENS_FILTER_FIELDS,
+  PENS_TABLE_COLUMNS,
+  WEIGHTS_DEFAULT_LIMIT,
+  WEIGHTS_FILTER_FIELDS,
+} from "./weights-analytics-layout";
 
 // Loading twins for /weighing/weights and /weighing/analytics, composed ONLY from the shared skeleton
 // blocks. The route loading.tsx files and the pages' in-page UrlSuspense fallbacks render the SAME
@@ -21,16 +33,16 @@ export function WeightsKidsPanelSkeleton() {
   return (
     <GridSkeleton
       items={[
-        ...Array.from({ length: KIDS_KPI_COUNT }, () => ({ size: KIDS_GRID.kpi, node: <KpiCardSkeleton hint hintLines={{ xs: 1, lg: 2 }} /> })),
-        { size: KIDS_GRID.ring, node: <ChartCardSkeleton height={420} subheader /> },
-        { size: KIDS_GRID.breedGain, node: <ChartCardSkeleton height={420} subheader legend /> },
-        { size: KIDS_GRID.breed, node: <ChartCardSkeleton height={360} action /> },
+        ...Array.from({ length: KIDS_KPI_COUNT }, () => ({ size: KIDS_GRID.kpi, node: <KpiCardSkeleton hint hintLines={KIDS_KPI_CAPTION_LINES} /> })),
+        { size: KIDS_GRID.ring, node: <ChartCardSkeleton height={KIDS_CHART_PLOT.ring} subheader /> },
+        { size: KIDS_GRID.breedGain, node: <ChartCardSkeleton height={KIDS_CHART_PLOT.breedGain} subheader legend /> },
+        { size: KIDS_GRID.breed, node: <ChartCardSkeleton height={KIDS_CHART_PLOT.breed} action /> },
         {
           size: KIDS_GRID.sexStage,
           node: (
             <Stack spacing={3} direction={{ xs: "column", sm: "row", lg: "column" }}>
-              <ChartCardSkeleton height={120} action />
-              <ChartCardSkeleton height={120} action />
+              <ChartCardSkeleton height={KIDS_CHART_PLOT.sexStage} action />
+              <ChartCardSkeleton height={KIDS_CHART_PLOT.sexStage} action />
             </Stack>
           ),
         },
@@ -49,11 +61,11 @@ export function WeightsGeneralPanelSkeleton() {
     <GridSkeleton
       items={[
         ...Array.from({ length: GENERAL_KPI_COUNT }, () => ({ size: GENERAL_GRID.kpi, node: <KpiCardSkeleton hint /> })),
-        { size: GENERAL_GRID.ring, node: <ChartCardSkeleton height={{ xs: 358, lg: 382 }} subheader /> },
-        { size: GENERAL_GRID.weekly, node: <ChartCardSkeleton height={382} subheader /> },
-        { size: GENERAL_GRID.rank, node: <ChartCardSkeleton height={320} subheader /> },
-        { size: GENERAL_GRID.parkGain, node: <ChartCardSkeleton height={320} /> },
-        { size: 12, node: <TableSkeleton columns={9} rows={WEIGHTS_DEFAULT_LIMIT} headerAction toolbar={<FilterCardSkeleton inCard fold fields={PENS_FILTER_FIELDS} />} /> },
+        { size: GENERAL_GRID.ring, node: <ChartCardSkeleton height={GENERAL_CHART_PLOT.ring} subheader /> },
+        { size: GENERAL_GRID.weekly, node: <ChartCardSkeleton height={GENERAL_CHART_PLOT.weekly} subheader /> },
+        { size: GENERAL_GRID.rank, node: <ChartCardSkeleton height={GENERAL_CHART_PLOT.rank} subheader /> },
+        { size: GENERAL_GRID.parkGain, node: <ChartCardSkeleton height={GENERAL_CHART_PLOT.parkGain} /> },
+        { size: GENERAL_GRID.pens, node: <TableSkeleton columns={PENS_TABLE_COLUMNS} rows={WEIGHTS_DEFAULT_LIMIT} headerAction toolbar={<FilterCardSkeleton inCard fold fields={PENS_FILTER_FIELDS} />} /> },
       ]}
     />
   );

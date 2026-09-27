@@ -1,6 +1,6 @@
 import { FilterCardSkeleton, KpiRowSkeleton, StackSkeleton, TableSkeleton } from "@/components/app/skeletons";
 import { LIMIT_DEFAULT } from "./params";
-import { HERD_SIGNALS_BAR_FIELDS } from "./herd-signals-layout";
+import { HERD_SIGNALS_BAR_FIELDS, HERD_SIGNALS_KPI_CAPTION_LINES, HERD_SIGNALS_KPI_WRAPPED_KEYS, HERD_SIGNALS_KPI_WRAPPED_LINES, HERD_SIGNALS_LIVE_COLUMNS } from "./herd-signals-layout";
 import { KPI_DEFS } from "./herd-signals-kpi-defs";
 
 // Loading twins for /herd-signals' Live Monitor, composed ONLY from the shared skeleton blocks. The
@@ -20,9 +20,11 @@ export function HerdSignalsFilterSkeleton() {
 export function HerdSignalsLivePanelSkeleton() {
   return (
     <StackSkeleton spacing={6}>
-      {/* KPI_DEFS: the second card's detail ("… in the last minute") wraps to two lines even full width. */}
-      <KpiRowSkeleton count={KPI_DEFS.length} shapes={KPI_DEFS.map((_, i) => ({ hint: true, hintLines: i === 1 ? 2 : { xs: 1, md: 2 } }))} />
-      <TableSkeleton columns={21} rows={LIMIT_DEFAULT} subheader />
+      <KpiRowSkeleton
+        count={KPI_DEFS.length}
+        shapes={KPI_DEFS.map((def) => ({ hint: true, hintLines: HERD_SIGNALS_KPI_WRAPPED_KEYS.includes(def.key) ? HERD_SIGNALS_KPI_WRAPPED_LINES : HERD_SIGNALS_KPI_CAPTION_LINES }))}
+      />
+      <TableSkeleton columns={HERD_SIGNALS_LIVE_COLUMNS} rows={LIMIT_DEFAULT} subheader />
     </StackSkeleton>
   );
 }

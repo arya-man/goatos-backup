@@ -26,5 +26,5 @@ test("herd-register-list-anatomy: tabs, URL sort, lead cell, table in card", () 
   assert.doesNotMatch(head, /router\.replace|useRouter/);
   assert.match(page, /HERD_KPI_IGNORE = \[[^\]]*"order"[^\]]*\]/);
   assert.match(page, /HERD_KPI_IGNORE = \[[^\]]*"status"[^\]]*\]/);
-  assert.match(page, /ignore=\{HERD_KPI_IGNORE\} fallback=\{<PanelSkeleton/);
+  assert.match(page, /ignore=\{HERD_KPI_IGNORE\} fallback=\{<HerdKpiSkeleton/);
 });

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
+import { FILTER_DATE_MIN, FILTER_SELECT_MIN } from "@/components/app/filter-field-widths";
 import Badge from "@mui/material/Badge";
 import Box from "@mui/material/Box";
 import MuiButton from "@mui/material/Button";
@@ -706,7 +707,7 @@ export function WorklistFilters({
               (busy ? copy(pageContract, "state.loading") : undefined)
             }
             onChange={({ target: { value } }) => applyFilter(effectiveField.param, value, effectiveField.clears)}
-            sx={{ minWidth: { xs: 0, sm: 160 }, flexShrink: 0, maxWidth: 1 }}
+            sx={{ minWidth: { xs: 0, sm: FILTER_SELECT_MIN }, flexShrink: 0, maxWidth: 1 }}
             slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
           >
             {effectiveField.allowAll === false ? null : <MenuItem value="">{allLabel}</MenuItem>}
@@ -746,7 +747,7 @@ export function WorklistFilters({
                 textField: {
                   name: effectiveField.param,
                   title: effectiveField.disabledReason || (busy ? copy(pageContract, "state.loading") : undefined),
-                  sx: { minWidth: { xs: 0, sm: 180 }, maxWidth: 1 },
+                  sx: { minWidth: { xs: 0, sm: FILTER_DATE_MIN }, maxWidth: 1 },
                 },
                 previousIconButton: { "aria-label": copy(pageContract, "filter.date.previous_month", "Previous month") } as never,
                 nextIconButton: { "aria-label": copy(pageContract, "filter.date.next_month", "Next month") } as never,
@@ -994,7 +995,7 @@ function MultiSelectFilter({
   // CustomPopover MenuList of checkbox items; ticks are staged until Apply (or the bar's Apply).
   return (
     <>
-      <FormControl sx={{ minWidth: { xs: 0, sm: 160 }, flexShrink: 0 }} disabled={disabled} title={field.disabledReason ?? field.note}>
+      <FormControl sx={{ minWidth: { xs: 0, sm: FILTER_SELECT_MIN }, flexShrink: 0 }} disabled={disabled} title={field.disabledReason ?? field.note}>
         <InputLabel shrink>{field.label}</InputLabel>
         <Select
           multiple
@@ -1151,7 +1152,7 @@ function CompareFilter({
           if (deferApply || nextOp === "") commit(nextOp, valueDraft);
         }}
         // Wide enough for the metric name ("Average weight") -- at 120px the label was cut mid-word.
-        sx={{ minWidth: { xs: 0, sm: 180 }, flexShrink: 0, maxWidth: 1 }}
+        sx={{ minWidth: { xs: 0, sm: FILTER_DATE_MIN }, flexShrink: 0, maxWidth: 1 }}
         slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
       >
         <MenuItem value="">{allLabel}</MenuItem>

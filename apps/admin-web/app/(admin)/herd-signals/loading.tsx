@@ -1,5 +1,6 @@
 import { PageHeaderSkeleton, PageSkeleton, TabsSkeleton } from "@/components/app/skeletons";
 import { HERD_SIGNALS_TABS } from "@/features/herd-signals/params";
+import { HERD_SIGNALS_HEADER_ACTION_WIDTHS } from "@/features/herd-signals/herd-signals-layout";
 import { HerdSignalsFilterSkeleton, HerdSignalsLivePanelSkeleton } from "@/features/herd-signals/herd-signals-skeletons";
 
 /**
@@ -10,7 +11,7 @@ import { HerdSignalsFilterSkeleton, HerdSignalsLivePanelSkeleton } from "@/featu
 export default function Loading() {
   return (
     <PageSkeleton root="herd-signals-page">
-      <PageHeaderSkeleton crumbLink={false} actionWidths={[150]} tabs={<TabsSkeleton count={HERD_SIGNALS_TABS.length} counts />} />
+      <PageHeaderSkeleton crumbLink={false} actionWidths={HERD_SIGNALS_HEADER_ACTION_WIDTHS} tabs={<TabsSkeleton count={HERD_SIGNALS_TABS.length} counts />} />
       <HerdSignalsFilterSkeleton />
       <HerdSignalsLivePanelSkeleton />
     </PageSkeleton>

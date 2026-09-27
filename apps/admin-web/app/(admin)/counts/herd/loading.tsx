@@ -1,13 +1,15 @@
-import { FilterCardSkeleton, GridSkeleton, KpiCardSkeleton, PageHeaderSkeleton, PageSkeleton, TableSkeleton, TabsSkeleton } from "@/components/app/skeletons";
+import { FilterCardSkeleton, PageHeaderSkeleton, PageSkeleton, TableSkeleton, TabsSkeleton } from "@/components/app/skeletons";
+import { COUNTS_HEADER, HERD_TABLE } from "@/features/counts/counts-layout";
+import { HerdKpiSkeleton } from "@/features/counts/counts-skeletons";
 
-/** /counts/herd: header + actions, three KPI tiles, the register card (status tabs with counts, search + filters, lead-cell table, cursor pager). */
+/** /counts/herd: header + actions, the SAME KPI cards its UrlSuspense shows, the register card (status tabs with counts, search + filters, lead-cell table, cursor pager). */
 export default function Loading() {
   return (
     <PageSkeleton gap={3} root="">
-      <PageHeaderSkeleton crumbLink={false} actionWidths={[154, 154]} />
-      <GridSkeleton items={Array.from({ length: 3 }, () => ({ size: { xs: 12, sm: 4 }, node: <KpiCardSkeleton hint /> }))} />
+      <PageHeaderSkeleton crumbLink={false} actionWidths={[...COUNTS_HEADER.herdActionWidths]} />
+      <HerdKpiSkeleton />
       {/* Contract table "herd-register": 11 labels, the first three folded into the avatar lead cell. */}
-      <TableSkeleton columns={9} rows={10} header={false} tabs={<TabsSkeleton count={5} counts />} toolbar={<FilterCardSkeleton inCard fields={["search", 120]} />} />
+      <TableSkeleton columns={HERD_TABLE.columns} rows={HERD_TABLE.rows} header={false} tabs={<TabsSkeleton count={HERD_TABLE.statusTabs} counts />} toolbar={<FilterCardSkeleton inCard fields={HERD_TABLE.searchFields} />} />
     </PageSkeleton>
   );
 }

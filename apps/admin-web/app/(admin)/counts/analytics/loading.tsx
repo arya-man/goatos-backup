@@ -1,41 +1,17 @@
-import { ChartCardSkeleton, ControlRowSkeleton, FieldSkeleton, GridSkeleton, KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton, StackSkeleton } from "@/components/app/skeletons";
+import { PageHeaderSkeleton, PageSkeleton } from "@/components/app/skeletons";
+import { COUNTS_HEADER } from "@/features/counts/counts-layout";
+import { CountsWindowSkeleton, HerdAnalyticsPanelSkeleton } from "@/features/counts/counts-skeletons";
 
 /**
- * /counts/analytics: header + export, date range, six EcommerceWidgetSummary cards, the flow chart
- * (lg 8) beside the sex radial (lg 4), then breed mix beside the stacked stage / age / park mixes.
+ * /counts/analytics: the page's Stack spacing 3 — header + Export ("Herd Analytics" is short: Export
+ * sits beside it on a phone), the window control, then the SAME panel its UrlSuspense shows.
  */
 export default function Loading() {
   return (
     <PageSkeleton gap={3} root="">
-      {/* "Herd Analytics" is short: on a phone Export sits beside it. */}
-      <PageHeaderSkeleton crumbLink={false} titleWidth={150} actionWidths={[89]} />
-      {/* The small Window select: full width on a phone (44px tap floor), 300 x 56 from md. */}
-      <ControlRowSkeleton>
-        <FieldSkeleton width={{ xs: "100%", sm: 300 }} height={{ xs: 44, md: 56 }} />
-      </ControlRowSkeleton>
-      {/* KpiWidget course cards (no weekly series is served, so no ecommerce sparkline); only the
-          second carries a caption line. */}
-      <KpiRowSkeleton count={6} shapes={[{}, { hint: true }, {}, {}, {}, {}]} />
-      <GridSkeleton
-        items={[
-          { size: { xs: 12, lg: 8 }, node: <ChartCardSkeleton height={364} /> },
-          { size: { xs: 12, lg: 4 }, node: <ChartCardSkeleton height={364} /> },
-        ]}
-      />
-      <GridSkeleton
-        items={[
-          { size: { xs: 12, md: 6 }, node: <ChartCardSkeleton height={520} /> },
-          {
-            size: { xs: 12, md: 6 },
-            node: (
-              <StackSkeleton>
-                <ChartCardSkeleton height={160} />
-                <ChartCardSkeleton height={100} />
-              </StackSkeleton>
-            ),
-          },
-        ]}
-      />
+      <PageHeaderSkeleton crumbLink={false} titleWidth={COUNTS_HEADER.analyticsTitleWidth} actionWidths={[COUNTS_HEADER.exportWidth]} />
+      <CountsWindowSkeleton />
+      <HerdAnalyticsPanelSkeleton />
     </PageSkeleton>
   );
 }

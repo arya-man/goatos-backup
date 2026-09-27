@@ -1,5 +1,5 @@
 import { FilterCardSkeleton, KpiRowSkeleton, StackSkeleton, StatStripSkeleton, TableSkeleton } from "@/components/app/skeletons";
-import { MILK_DEFAULT_PAGE_SIZE, MILK_FARM_STATE_KEYS, MILK_FILTER_FIELDS, MILK_KPIS, MILK_KPI_SIZE } from "./milk-preparation-layout";
+import { MILK_DEFAULT_PAGE_SIZE, MILK_FARM_STATE_KEYS, MILK_FILTER_FIELDS, MILK_KPIS, MILK_KPI_SIZE, MILK_TABLE_COLUMNS } from "./milk-preparation-layout";
 
 // Loading twins for /counts/milk-preparation, composed ONLY from the shared skeleton blocks and the
 // page's milk-preparation-layout.ts. The route loading.tsx and the page's UrlSuspense fallback render
@@ -17,5 +17,5 @@ export function MilkPreparationPanelSkeleton() {
 
 /** The worklist card: title + prepared-for subheader, the park WorklistFilters (folded below md), the table (contract "milk-preparation": 10 columns), pager. */
 export function MilkPreparationTableSkeleton() {
-  return <TableSkeleton columns={10} rows={MILK_DEFAULT_PAGE_SIZE} subheader toolbar={<FilterCardSkeleton inCard fold fields={MILK_FILTER_FIELDS} />} />;
+  return <TableSkeleton columns={MILK_TABLE_COLUMNS} rows={MILK_DEFAULT_PAGE_SIZE} subheader toolbar={<FilterCardSkeleton inCard fold fields={MILK_FILTER_FIELDS} />} />;
 }

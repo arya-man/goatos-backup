@@ -70,16 +70,37 @@ test("/vaccination/plan loading reads plan-layout.ts, as PlanConsole does", () =
 test("/counts/milk-preparation twin reads milk-preparation-layout.ts, as the page does", () => {
   const twin = read("counts/milk-preparation-skeletons.tsx");
   assert.match(twin, /from "\.\/milk-preparation-layout"/);
-  assert.doesNotMatch(twin, LITERAL_SIZE);
   const page = read("counts/milk-preparation.tsx");
+  assert.match(page, /\{MILK_KPIS\.map\(\(kpi\) =>/, "the page renders its KPI cards from MILK_KPIS");
+  assert.match(page, /caption=\{kpi\.unit \?/, "the unit caption follows MILK_KPIS[].unit");
+  assert.match(page, /MILK_FARM_STATE_KEYS\.map\(/, "the farm-state strip renders MILK_FARM_STATE_KEYS");
   assert.match(page, /size=\{MILK_KPI_SIZE\}/);
   assert.match(page, /fallback=\{<MilkPreparationPanelSkeleton \/>\}/);
   assert.match(app("counts/milk-preparation/loading.tsx"), /<MilkPreparationPanelSkeleton \/>/);
-  // The page's KPI keys and which carry a unit caption equal the layout's list.
-  const layout = read("counts/milk-preparation-layout.ts");
-  const want = [...layout.matchAll(/\{ key: "([a-z]+)", unit: (true|false) \}/g)].map((m) => `${m[1]}:${m[2]}`);
-  const got = [...page.matchAll(/\{ key: "([a-z]+)", total: [^}]*?(, unit[^}]*)? \}/g)].map((m) => `${m[1]}:${Boolean(m[2])}`);
-  assert.deepEqual(got, want);
+});
+
+test("/counts twins read counts-layout.ts, as the pages do", () => {
+  assert.match(read("counts/counts-skeletons.tsx"), /from "\.\/counts-layout"/);
+  const ha = read("counts/herd-analytics.tsx");
+  for (const k of ["size={HA_GRID.flow}", "size={HA_GRID.sex}", "size={HA_GRID.mix}", "fallback={<HerdAnalyticsPanelSkeleton />}"]) assert.ok(ha.includes(k), `herd-analytics: ${k}`);
+  const bd = read("counts/counts-breakdown.tsx");
+  for (const k of ["size={BD_GRID.breed}", "size={BD_GRID.stageSex}", "size={BD_GRID.pens}", "fallback={<BreakdownKpiSkeleton />}", "fallback={<BreakdownChartsSkeleton />}"]) assert.ok(bd.includes(k), `counts-breakdown: ${k}`);
+  const hr = read("counts/herd-register.tsx");
+  for (const k of ["size={HERD_KPI_SIZE}", "fallback={<HerdKpiSkeleton />}"]) assert.ok(hr.includes(k), `herd-register: ${k}`);
+  const mo = read("counts/mortality.tsx");
+  for (const k of ["MORTALITY_RATE_SIZE", "fallback={<MortalityPanelSkeleton />}"]) assert.ok(mo.includes(k), `mortality: ${k}`);
+  assert.match(app("counts/analytics/loading.tsx"), /<HerdAnalyticsPanelSkeleton \/>/);
+  assert.match(app("counts/mortality/loading.tsx"), /<MortalityPanelSkeleton \/>/);
+  assert.match(app("counts/breakdown/loading.tsx"), /<BreakdownKpiSkeleton \/>[\s\S]*<BreakdownChartsSkeleton \/>/);
+  assert.match(app("counts/herd/loading.tsx"), /<HerdKpiSkeleton \/>/);
+});
+
+test("filter controls read the shared width floors their twins use", () => {
+  const wf = readFileSync(new URL("../components/worklist-filters.tsx", import.meta.url), "utf8");
+  assert.match(wf, /sm: FILTER_SELECT_MIN/);
+  assert.match(wf, /sm: FILTER_DATE_MIN/);
+  assert.doesNotMatch(wf, /minWidth: \{ xs: 0, sm: (160|180) \}/);
+  assert.match(readFileSync(new URL("../components/date-range-picker.tsx", import.meta.url), "utf8"), /sm: DATE_RANGE_PICKER_MIN/);
 });
 
 test("/vaccination/live-tracker twin reads live-tracker-layout.ts, as the board does", () => {
@@ -95,4 +116,36 @@ test("/vaccination/live-tracker twin reads live-tracker-layout.ts, as the board 
   const keys = [...layout.match(/LT_KPI_KEYS = \[([^\]]*)\]/)[1].matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
   assert.deepEqual([...read("vaccination-live-tracker/live-tracker-kpis.tsx").matchAll(/key: "([a-z_]+)"/g)].map((m) => m[1]), keys);
   assert.match(app("vaccination/live-tracker/loading.tsx"), /<LiveTrackerPageSkeleton \/>/);
+});
+
+// REVIEW-49: no number typed into a twin. Sizes, counts, widths, heights and caption lines come from the
+// feature's *-layout.ts (page-read where the page sets them, a named measured estimate where it does
+// not); only layout spacing (spacing / gap / sx) may be literal.
+const NUMERIC_PROP_VALUE = /\b(?:columns|rows|count|width|widths|height|titleWidth|actionWidths|crumbWidths|hintLines|fields|lanes|pages|size)=\{((?:[^{}]|\{[^{}]*\})*)\}/g;
+const hasNumber = (value) => /(^|[^\w.$])\d/.test(value);
+const NUMERIC_PROP = { test: (line) => [...line.matchAll(NUMERIC_PROP_VALUE)].some((m) => hasNumber(m[1])) };
+const NUMERIC_KEY = /\b(?:hintLines|height|width|size|length):\s*(?:\d|\{\s*xs:\s*\d)/;
+export function numericLiterals(src) {
+  return src.split("\n").map((line, i) => [i + 1, line]).filter(([, line]) => !/^\s*(\/\/|\*|\/\*)/.test(line) && (NUMERIC_PROP.test(line) || NUMERIC_KEY.test(line))).map(([n, line]) => `${n}: ${line.trim()}`);
+}
+test("self-test: numeric literal props are caught, layout constants and spacing pass", () => {
+  assert.equal(numericLiterals('<TableSkeleton columns={10} rows={ROWS} />').length, 1);
+  assert.equal(numericLiterals('<ChartCardSkeleton height={{ xs: 358, lg: PLOT }} />').length, 1);
+  assert.equal(numericLiterals('shapes={K.map(() => ({ hint: true, hintLines: 2 }))}').length, 1);
+  assert.equal(numericLiterals('<PageHeaderSkeleton actionWidths={[150, 151]} />').length, 1);
+  assert.equal(numericLiterals('<TableSkeleton columns={LT_TABLES.pens.columns} rows={LT_TABLES.pens.rows} />').length, 0);
+  assert.equal(numericLiterals('<StackSkeleton spacing={3}><Box sx={{ px: 3, pb: 2 }} /></StackSkeleton>').length, 0);
+});
+test("SK3 twins type no numbers", () => {
+  const twins = [
+    "weighing/weights-skeletons.tsx",
+    "herd-signals/herd-signals-skeletons.tsx",
+    "preventive-care-vaccination/vaccination-skeletons.tsx",
+    "counts/milk-preparation-skeletons.tsx",
+    "counts/counts-skeletons.tsx",
+    "vaccination-live-tracker/live-tracker-skeleton.tsx",
+  ].map((f) => [f, read(f)]);
+  const loadings = ["vaccination", "vaccination/plan", "herd-signals", "weighing/weights", "weighing/analytics", "counts/analytics", "counts/breakdown", "counts/herd", "counts/mortality", "counts/milk-preparation", "vaccination/live-tracker"].map((r) => [`app/(admin)/${r}/loading.tsx`, app(`${r}/loading.tsx`)]);
+  const hits = [...twins, ...loadings].flatMap(([f, src]) => numericLiterals(src).map((h) => `${f}:${h}`));
+  assert.deepEqual(hits, []);
 });

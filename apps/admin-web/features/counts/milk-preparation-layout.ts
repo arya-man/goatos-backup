@@ -1,3 +1,4 @@
+import { FILTER_SELECT_MIN } from "@/components/app/filter-field-widths";
 // Layout constants shared by /counts/milk-preparation (milk-preparation.tsx) and its loading twin
 // (milk-preparation-skeletons.tsx), so the skeleton cannot drift from the page.
 /** The KPI cards, in order; `unit` = the card prints its unit as the KpiWidget caption line. */
@@ -13,5 +14,9 @@ export const MILK_KPI_SIZE = { xs: 12, sm: 6, md: 3 } as const;
 export const MILK_FARM_STATE_KEYS = ["not_submitted", "pending_verification", "verified", "rework"] as const;
 /** Worklist rows per page when the URL names no page size. */
 export const MILK_DEFAULT_PAGE_SIZE = 10;
-/** The worklist's WorklistFilters from md up: the park select (WorklistFilters' 160 floor). */
-export const MILK_FILTER_FIELDS = [160];
+/** The worklist's WorklistFilters from md up: the park select (the control's own floor). */
+export const MILK_FILTER_FIELDS = [FILTER_SELECT_MIN];
+/** The worklist table's columns (contract table "milk-preparation"). */
+export const MILK_TABLE_COLUMNS = 10;
+/** Loading-twin estimates (copy-driven): Export's width; the short title lets it sit beside the title on a phone. */
+export const MILK_HEADER = { titleWidth: 150, exportWidth: 89 } as const;

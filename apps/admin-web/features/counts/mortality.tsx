@@ -1,5 +1,7 @@
 import Table from "@mui/material/Table";
 import { UrlSuspense } from "@/components/app/url-suspense";
+import { MORTALITY_RATE_SIZE } from "./counts-layout";
+import { MortalityPanelSkeleton } from "./counts-skeletons";
 import { PanelSkeleton } from "@/components/app/panel-skeleton";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import TableHead from "@mui/material/TableHead";
@@ -115,7 +117,7 @@ function withStageNames(buckets: MortalityBucket[], names: StageNameMap): Mortal
 function ChartCard({ title, hint, children, wide }: { title: string; hint?: string; children: React.ReactNode; wide?: boolean }) {
   // Two to a row from lg; the cross tabs take the full width because their column count is data-driven.
   return (
-    <Grid size={wide ? 12 : { xs: 12, lg: 6 }} sx={{ minWidth: 0 }}>
+    <Grid size={wide ? 12 : MORTALITY_RATE_SIZE} sx={{ minWidth: 0 }}>
       <Card sx={{ height: 1 }}>
         <CardHeader title={title} subheader={hint} sx={{ mb: 2 }} />
         {children}
@@ -549,7 +551,7 @@ export async function MortalityPage({
 
       {/* Everything the window reads (guard: url-keyed-panel): a date / park change swaps it to its
           skeleton at once; header and date filter stay on screen. The recent-deaths pager does not. */}
-      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PAGER_PARAMS} fallback={<PanelSkeleton kpis={kpis.length} charts={3} />}>
+      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PAGER_PARAMS} fallback={<MortalityPanelSkeleton />}>
       <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
       {/* KPI row: template CourseWidgetSummary (KpiWidget); backend window totals. */}
       <Box component="section" aria-label={mc(pageContract, "section.kpi.aria")}>

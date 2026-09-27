@@ -1,5 +1,6 @@
 import { UrlSuspense } from "@/components/app/url-suspense";
-import { PanelSkeleton } from "@/components/app/panel-skeleton";
+import { BD_GRID } from "./counts-layout";
+import { BreakdownChartsSkeleton, BreakdownKpiSkeleton } from "./counts-skeletons";
 import { TableSkeleton } from "@/components/app/skeletons";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import { listOrEmpty } from "@/lib/list-or-empty";
@@ -524,7 +525,7 @@ export async function CountsBreakdownPage({
           read shows a dash. */}
       {/* KPI deck (guard: url-keyed-panel): a filter change swaps it to its skeleton at once; a page
           change of the pen table leaves it on screen. */}
-      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={BD_PAGER_PARAMS} fallback={<PanelSkeleton kpis={2 + summaryCards.length} />}>
+      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={BD_PAGER_PARAMS} fallback={<BreakdownKpiSkeleton />}>
       <Box component="section" aria-label={copy(pageContract, "kpi.matching.label")}>
         <KpiGrid>
           <KpiWidget
@@ -638,7 +639,7 @@ export async function CountsBreakdownPage({
       {/* A dimension where every animal has a blank value is a source-data gap, not a bug. Say so
           plainly instead of leaving the operator staring at a uniformly-empty column and chart
           and concluding the screen is broken. Never fabricate values to fill it. */}
-      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={BD_PAGER_PARAMS} fallback={<PanelSkeleton charts={2} />}>
+      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={BD_PAGER_PARAMS} fallback={<BreakdownChartsSkeleton />}>
       <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
       {stageUnrecorded ? (
         <Alert severity="info" variant="outlined">{copy(pageContract, "state.stage_unrecorded")}</Alert>
@@ -648,7 +649,7 @@ export async function CountsBreakdownPage({
           AnalyticsWebsiteVisits, sheds → AnalyticsConversionRates (horizontal, paged ten bars at a time).
           No truncation: the series PARTITION the herd, so each chart sums to the KPI above it. */}
       <Grid container spacing={3} component="section" aria-label={copy(pageContract, "section.charts.aria")}>
-        <Grid size={{ xs: 12, md: 5 }}>
+        <Grid size={BD_GRID.breed}>
           <EcommerceSalesOverview
             title={breedChart.title}
             aria-label={breedChart.title}
@@ -658,7 +659,7 @@ export async function CountsBreakdownPage({
             {(breedChart.data ?? []).length === 0 ? <EmptyContent title={emptyChartLabel} sx={{ py: 3 }} /> : null}
           </EcommerceSalesOverview>
         </Grid>
-        <Grid size={{ xs: 12, md: 7 }}>
+        <Grid size={BD_GRID.stageSex}>
           <ColumnChartCard
             title={stageChart.title}
             aria-label={stageChart.title}
@@ -676,7 +677,7 @@ export async function CountsBreakdownPage({
             sx={{ height: 1 }}
           />
         </Grid>
-        <Grid size={12}>
+        <Grid size={BD_GRID.pens}>
           <CountsShedChart title={shedChart.title} bars={shedChart.data ?? []} unit={animalsNoun} emptyLabel={emptyChartLabel} />
         </Grid>
       </Grid>

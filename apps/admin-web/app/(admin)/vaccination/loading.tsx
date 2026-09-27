@@ -1,3 +1,4 @@
+import { VACCINATION_HEADER_ACTION_WIDTHS } from "@/features/preventive-care-vaccination/command-board-layout";
 import { PageHeaderSkeleton, PageSkeleton, StackSkeleton } from "@/components/app/skeletons";
 import {
   VaccinationCommandBoardSkeleton,
@@ -12,7 +13,7 @@ import {
 export default function Loading() {
   return (
     <PageSkeleton gap={3}>
-      <PageHeaderSkeleton crumbLink={false} actionWidths={[140]} />
+      <PageHeaderSkeleton crumbLink={false} actionWidths={VACCINATION_HEADER_ACTION_WIDTHS} />
       <StackSkeleton spacing={2}>
         <VaccinationCommandBoardSkeleton />
         <VaccinationInventorySkeleton />

@@ -1,6 +1,18 @@
 import Box from "@mui/material/Box";
 import { BlockSkeleton, FilterCardSkeleton, GridSkeleton, KpiRowSkeleton, ListCardSkeleton, OptionalSkeleton, PageHeaderSkeleton, PageSkeleton, StackSkeleton, TableSkeleton } from "@/components/app/skeletons";
-import { LT_BLOCK_MB, LT_FILTER_IDS, LT_FILTER_MIN, LT_HEADER_MB, LT_KPI_KEYS, LT_MAIN_SIZE, LT_RAIL_SIZE } from "./live-tracker-layout";
+import {
+  LT_BLOCK_MB,
+  LT_FILTER_IDS,
+  LT_FILTER_MIN,
+  LT_HEADER,
+  LT_HEADER_MB,
+  LT_KPI_KEYS,
+  LT_MAIN_SIZE,
+  LT_RAIL_ROWS,
+  LT_RAIL_SIZE,
+  LT_TABLES,
+  LT_WELCOME_HEIGHT,
+} from "./live-tracker-layout";
 
 // Loading twins for /vaccination/live-tracker, composed ONLY from the shared skeleton blocks and the
 // board's live-tracker-layout.ts (margins, filter list, Grid sizes, KPI keys), which the board reads too.
@@ -22,9 +34,9 @@ export function LiveTrackerBodySkeleton() {
             size: LT_MAIN_SIZE,
             node: (
               <StackSkeleton spacing={3}>
-                <TableSkeleton columns={10} rows={5} subheader />
-                <TableSkeleton columns={10} rows={10} headerAction />
-                <TableSkeleton columns={4} rows={3} subheader pager={false} />
+                <TableSkeleton columns={LT_TABLES.operators.columns} rows={LT_TABLES.operators.rows} subheader />
+                <TableSkeleton columns={LT_TABLES.pens.columns} rows={LT_TABLES.pens.rows} headerAction />
+                <TableSkeleton columns={LT_TABLES.combo.columns} rows={LT_TABLES.combo.rows} subheader pager={false} />
               </StackSkeleton>
             ),
           },
@@ -32,9 +44,9 @@ export function LiveTrackerBodySkeleton() {
             size: LT_RAIL_SIZE,
             node: (
               <StackSkeleton spacing={3}>
-                <ListCardSkeleton rows={6} avatar={false} />
-                <ListCardSkeleton rows={2} avatar={false} />
-                <ListCardSkeleton rows={3} avatar={false} />
+                <ListCardSkeleton rows={LT_RAIL_ROWS.activity} avatar={false} />
+                <ListCardSkeleton rows={LT_RAIL_ROWS.attention} avatar={false} />
+                <ListCardSkeleton rows={LT_RAIL_ROWS.verification} avatar={false} />
               </StackSkeleton>
             ),
           },
@@ -53,11 +65,10 @@ export function LiveTrackerPageSkeleton() {
   return (
     <PageSkeleton root="">
       <Box sx={{ mb: LT_HEADER_MB }}>
-        {/* "Preventive Care (PC) · operations" • "Live Drive Tracker": two crumb lines on a phone. */}
-        <PageHeaderSkeleton crumbLink={false} crumbWidths={[230, 130]} actionWidths={[150, 151]} />
+        <PageHeaderSkeleton crumbLink={false} crumbWidths={LT_HEADER.crumbWidths} actionWidths={[...LT_HEADER.actionWidths]} />
       </Box>
       <Box sx={{ mb: LT_BLOCK_MB }}>
-        <BlockSkeleton height={{ xs: 374, md: 324 }} />
+        <BlockSkeleton height={LT_WELCOME_HEIGHT} />
       </Box>
       <Box sx={{ mb: LT_BLOCK_MB }}>
         <FilterCardSkeleton fields={LT_FILTER_IDS.map(() => LT_FILTER_MIN)} />

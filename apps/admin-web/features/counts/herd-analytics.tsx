@@ -1,7 +1,8 @@
 import { redirect } from "next/navigation";
 
 import { UrlSuspense } from "@/components/app/url-suspense";
-import { PanelSkeleton } from "@/components/app/panel-skeleton";
+import { HA_GRID } from "./counts-layout";
+import { HerdAnalyticsPanelSkeleton } from "./counts-skeletons";
 import Alert from "@mui/material/Alert";
 import AlertTitle from "@mui/material/AlertTitle";
 import Box from "@mui/material/Box";
@@ -292,7 +293,7 @@ export async function HerdAnalyticsPage({
 
       {/* Everything the window reads (guard: url-keyed-panel): a date / park change swaps it to its
           skeleton at once; header and date filter stay on screen. */}
-      <UrlSuspense searchParams={sp} watch={WINDOW_WATCH} fallback={<PanelSkeleton kpis={6} charts={2} />}>
+      <UrlSuspense searchParams={sp} watch={WINDOW_WATCH} fallback={<HerdAnalyticsPanelSkeleton />}>
       <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
       {nothingRecorded ? (
         <Card>
@@ -321,7 +322,7 @@ export async function HerdAnalyticsPage({
 
       <Grid container spacing={3}>
         {/* Flow by month: template AnalyticsWebsiteVisits (grouped columns, legend, tooltip). */}
-        <Grid size={{ xs: 12, lg: 8 }}>
+        <Grid size={HA_GRID.flow}>
           <ColumnChartCard
             aria-label={ha(pageContract, "chart.flow.title")}
             title={ha(pageContract, "chart.flow.title")}
@@ -336,7 +337,7 @@ export async function HerdAnalyticsPage({
           />
         </Grid>
         {/* Sex split: template EcommerceSaleByGender radial (share of the live herd). */}
-        <Grid size={{ xs: 12, lg: 4 }}>
+        <Grid size={HA_GRID.sex}>
           <RingCard
             aria-label={ha(pageContract, "chart.sex.title")}
             title={ha(pageContract, "chart.sex.title")}
@@ -356,10 +357,10 @@ export async function HerdAnalyticsPage({
           section keeps its accessible name so the grouping is still announced. */}
       <Grid container spacing={3} component="section" aria-label={ha(pageContract, "section.mix.aria")}>
         {/* Breed is the long list: it takes the left column, the short mixes stack on the right. */}
-        <Grid size={{ xs: 12, md: 6 }}>
+        <Grid size={HA_GRID.mix}>
           <MixCard title={ha(pageContract, "chart.breed.title")} bars={toBars(data.breed, ha(pageContract, "label.unassigned_breed"))} emptyLabel={emptyChart} />
         </Grid>
-        <Grid size={{ xs: 12, md: 6 }}>
+        <Grid size={HA_GRID.mix}>
           <Stack spacing={3}>
             <MixCard title={ha(pageContract, "chart.stage.title")} bars={toBars(data.stage, ha(pageContract, "label.unassigned_stage"))} emptyLabel={emptyChart} />
             <MixCard title={ha(pageContract, "chart.age.title")} bars={ageBars} emptyLabel={emptyChart} />

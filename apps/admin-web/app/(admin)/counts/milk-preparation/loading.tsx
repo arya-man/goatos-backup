@@ -1,4 +1,5 @@
 import { PageHeaderSkeleton, PageSkeleton } from "@/components/app/skeletons";
+import { MILK_HEADER } from "@/features/counts/milk-preparation-layout";
 import { MilkPreparationPanelSkeleton, MilkPreparationTableSkeleton } from "@/features/counts/milk-preparation-skeletons";
 
 /**
@@ -8,7 +9,7 @@ import { MilkPreparationPanelSkeleton, MilkPreparationTableSkeleton } from "@/fe
 export default function Loading() {
   return (
     <PageSkeleton gap={3} root="">
-      <PageHeaderSkeleton titleWidth={150} actionWidths={[89]} />
+      <PageHeaderSkeleton titleWidth={MILK_HEADER.titleWidth} actionWidths={[MILK_HEADER.exportWidth]} />
       <MilkPreparationPanelSkeleton />
       <MilkPreparationTableSkeleton />
     </PageSkeleton>

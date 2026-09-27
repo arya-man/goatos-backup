@@ -919,7 +919,7 @@ function GeneralTab({
         />
       </Grid>
 
-      <Grid size={12}>
+      <Grid size={GENERAL_GRID.pens}>
         <Card aria-label={copy(pageContract, "section.sheds.aria")}>
           <CardHeader
             title={copy(pageContract, "section.sheds.title")}

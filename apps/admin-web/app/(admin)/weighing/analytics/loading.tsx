@@ -1,5 +1,5 @@
 import { PageHeaderSkeleton, PageSkeleton, TabsSkeleton } from "@/components/app/skeletons";
-import { WEIGHTS_TABS } from "@/features/weighing/weights-analytics-layout";
+import { WEIGHTS_HEADER, WEIGHTS_TABS } from "@/features/weighing/weights-analytics-layout";
 import { WeightsFilterSkeleton, WeightsGeneralPanelSkeleton } from "@/features/weighing/weights-skeletons";
 
 /**
@@ -9,7 +9,7 @@ import { WeightsFilterSkeleton, WeightsGeneralPanelSkeleton } from "@/features/w
 export default function Loading() {
   return (
     <PageSkeleton gap={3} root="">
-      <PageHeaderSkeleton crumbLink={false} actionWidths={[112]} tabs={<TabsSkeleton count={WEIGHTS_TABS.length} />} />
+      <PageHeaderSkeleton crumbLink={false} actionWidths={[WEIGHTS_HEADER.downloadWidth]} tabs={<TabsSkeleton count={WEIGHTS_TABS.length} />} />
       <WeightsFilterSkeleton />
       <WeightsGeneralPanelSkeleton />
     </PageSkeleton>
