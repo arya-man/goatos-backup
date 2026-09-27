@@ -56,7 +56,6 @@ const UNRESOLVED = {
   "/sales/market-analytics": { linked: true, reason: "SalesChrome (see /sales/buyer-analytics)" },
   "/sales/sold": { linked: true, reason: "SalesChrome (see /sales/buyer-analytics)" },
   "/sales/config": { linked: true, reason: "SalesPageHeader (SalesChrome, see /sales/buyer-analytics)" },
-  "/procurement/source-entry/loads/[load_id]": { linked: null, reason: "OrderDetailsToolbar with a back link, no PageHeader trail" },
 };
 
 function resolveImport(spec, from) {

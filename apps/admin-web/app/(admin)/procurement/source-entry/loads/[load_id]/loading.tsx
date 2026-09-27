@@ -1,10 +1,10 @@
-import { DetailCardSkeleton, GridSkeleton, PageHeaderSkeleton, PageSkeleton, StackSkeleton, TableSkeleton } from "@/components/app/skeletons";
+import { DetailCardSkeleton, GridSkeleton, OrderDetailsToolbarSkeleton, PageSkeleton, StackSkeleton, TableSkeleton } from "@/components/app/skeletons";
 
-/** /procurement/source-entry/loads/[load_id]: back header, then the 8/4 grid: goats table + action cards beside the load facts card. */
+/** /procurement/source-entry/loads/[load_id]: the OrderDetailsToolbar (back arrow, title + status Label, date line), then the 8/4 grid: goats table + action cards beside the load facts card. */
 export default function Loading() {
   return (
     <PageSkeleton>
-      <PageHeaderSkeleton />
+      <OrderDetailsToolbarSkeleton />
       <GridSkeleton
         items={[
           {

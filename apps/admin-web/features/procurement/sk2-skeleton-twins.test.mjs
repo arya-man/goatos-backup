@@ -47,7 +47,7 @@ test("pages read their tab lists, widths and page sizes from the same layout fil
   const dlqPage = read("../operations-dlq/index.tsx");
   assert.match(dlqPage, /const STATUS_KEYS = DLQ_STATUS_KEYS;/);
   assert.equal((dlqPage.match(/md: DLQ_FIELD_WIDTH/g) ?? []).length, 2);
-  assert.match(read("./feed-purchases.tsx"), /import \{ DEFAULT_DELIVERY, DEFAULT_LIMIT \} from "\.\/feed-purchases-layout";/);
+  assert.match(read("./feed-purchases.tsx"), /import \{ DEFAULT_DELIVERY, DEFAULT_LIMIT[^}]*\} from "\.\/feed-purchases-layout";/);
 });
 
 test("the twins retype no layout number", () => {
@@ -69,4 +69,22 @@ test("the twins retype no layout number", () => {
   assert.match(animalPage, /size=\{ANIMAL_KPI_SIZE\}/);
   assert.match(read("../../app/(admin)/procurement/animal-purchases/loading.tsx"), /<AnimalPurchasesSkeleton \/>/);
   assert.match(read("../../app/(admin)/procurement/source-entry/loading.tsx"), /<SourceEntrySkeleton \/>/);
+});
+
+// REVIEW-49 O77 / REVIEW-50 O82.
+test("pages consume the layout constants their twins count; the load detail twins OrderDetailsToolbar", () => {
+  const audit = read("../operations-audit/audit-log.tsx");
+  assert.match(audit, /size=\{AUDIT_SIDE_GRID\.operators\}/);
+  assert.match(audit, /size=\{AUDIT_SIDE_GRID\.advanced\}/);
+  assert.doesNotMatch(audit, /size=\{\{ xs: 12, md: [57] \}\}/);
+  const feed = read("./feed-purchases.tsx");
+  assert.match(feed, /FEED_STRIP_CELLS\.map\(/);
+  assert.match(feed, /filters=\{FEED_TOOLBAR_FILTERS\.map\(/);
+  const feedTwin = read("./feed-purchases-skeletons.tsx");
+  assert.match(feedTwin, /count=\{FEED_STRIP_CELLS\.length\}/);
+  assert.match(feedTwin, /filters=\{FEED_TOOLBAR_FILTERS\.length\}/);
+  assert.match(read("./load-detail.tsx"), /<OrderDetailsToolbar\b/);
+  const loadLoading = read("../../app/(admin)/procurement/source-entry/loads/[load_id]/loading.tsx");
+  assert.match(loadLoading, /<OrderDetailsToolbarSkeleton \/>/);
+  assert.doesNotMatch(loadLoading, /PageHeaderSkeleton/);
 });

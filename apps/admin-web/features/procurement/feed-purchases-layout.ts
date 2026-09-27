@@ -9,7 +9,9 @@ export const FEED_DELIVERY_STATUS_KEYS = ["purchased", "reached"] as const;
 export const FEED_DELIVERY_TAB_COUNT = 1 + FEED_DELIVERY_STATUS_KEYS.length;
 /** The contract's `feed-purchases` table columns (backend adminui service), in order. */
 export const FEED_PURCHASE_COLUMNS = ["purchase_date", "farm", "feed_item", "batch_no", "quantity_kg", "delivery_status", "total_cost", "per_kg_cost", "vendor", "payment_status", "payment_balance"] as const;
-/** The farm LinkSelect is the toolbar's one template select. */
-export const FEED_TOOLBAR_SELECTS = 1;
-/** InvoiceAnalytic cells in the aggregate strip (spend, quantity). */
-export const FEED_STRIP_CELLS = 2;
+/** The toolbar's template selects, in order (the farm LinkSelect). */
+export const FEED_TOOLBAR_FILTERS = ["farm"] as const;
+/** The aggregate strip's InvoiceAnalytic cells, in order. */
+export const FEED_STRIP_CELLS = ["purchases", "quantity"] as const;
+/** Placeholder width of the header's Record purchase button (its label's width; skeleton only). */
+export const FEED_RECORD_BUTTON_TWIN_WIDTH = 160;

@@ -956,6 +956,35 @@ export function OrderToolbarSkeleton({
   );
 }
 
+/**
+ * Loading twin of `OrderDetailsToolbar` (components/app/sections/order, the template order-details
+ * toolbar): the back arrow, the h4 title with its status Label, the body2 date line, and the
+ * right-aligned actions (`actionWidths`); a column below md.
+ */
+export function OrderDetailsToolbarSkeleton({ back = true, status = true, titleWidth = 220, actionWidths = [] }: { back?: boolean; status?: boolean; titleWidth?: number; actionWidths?: number[] }) {
+  return (
+    <Box aria-hidden="true" data-skel="header" sx={{ gap: "var(--sp-3)", display: "flex", mb: { xs: 3, md: 5 }, flexDirection: { xs: "column", md: "row" } }}>
+      <Box sx={{ gap: 1, display: "flex", alignItems: "flex-start" }}>
+        {back ? <Skeleton variant="circular" sx={{ width: tapHeight(36), height: tapHeight(36), flexShrink: 0 }} /> : null}
+        <Stack spacing={0.5} sx={{ minWidth: 0 }}>
+          <Box sx={{ gap: 1, display: "flex", alignItems: "center" }}>
+            <Box sx={{ typography: "h4", width: titleWidth, maxWidth: 1 }}>
+              <Skeleton variant="text" />
+            </Box>
+            {status ? <ChipSkeleton width={96} height={24} /> : null}
+          </Box>
+          <SkeletonLine variant="body2" width={180} />
+        </Stack>
+      </Box>
+      <Box sx={{ gap: 1.5, flexGrow: 1, display: "flex", alignItems: "center", justifyContent: "flex-end" }}>
+        {actionWidths.map((w, i) => (
+          <Skeleton key={i} variant="rounded" width={w} sx={{ height: tapHeight(36) }} />
+        ))}
+      </Box>
+    </Box>
+  );
+}
+
 /** Loading twin of a controls card: a tab strip and / or a toolbar in one Card, no table (audit, DLQ). */
 export function ControlsCardSkeleton({ tabs, toolbar, header = false }: { tabs?: ReactNode; toolbar?: ReactNode; /** A CardHeader title over the controls (template `CardHeader sx={{ mb: 2.5 }}`). */ header?: boolean }) {
   return (

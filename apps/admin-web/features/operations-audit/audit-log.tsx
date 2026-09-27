@@ -67,7 +67,7 @@ import { LinkFiltersResult, type LinkFilterChip } from "@/components/app/link-fi
 import { AuditAnalytics } from "./audit-analytics";
 import { AuditLogLocalDrawer, type AuditDrawerRecord } from "./audit-log-local-drawer";
 import Alert from "@mui/material/Alert";
-import { AUDIT_FAMILY_SELECT_WIDTH, AUDIT_OPERATOR_SKELETON_ROWS, AUDIT_STATUS_TABS, AUDIT_STRIP_CELLS, PAGE_SIZE } from "./audit-layout";
+import { AUDIT_FAMILY_SELECT_WIDTH, AUDIT_OPERATOR_SKELETON_ROWS, AUDIT_SIDE_GRID, AUDIT_STATUS_TABS, AUDIT_STRIP_CELLS, PAGE_SIZE } from "./audit-layout";
 
 const PATHNAME = "/operations/audit";
 const ACTOR_TYPES = ["human", "system", "worker", "service", "user"] as const;
@@ -307,7 +307,7 @@ export async function OperationsAuditPage({
       <Grid container spacing={3}>
         {/* Operators in this page of the trail: the template list-card anatomy (avatar, name,
             caption, count Label); a row narrows the trail to that operator. */}
-        <Grid size={{ xs: 12, md: 5 }}>
+        <Grid size={AUDIT_SIDE_GRID.operators}>
           <Card component="section" sx={{ height: 1 }}>
             <CardHeader
               title={copy(pageContract, "section.span.title")}
@@ -365,7 +365,7 @@ export async function OperationsAuditPage({
 
         {/* Raw developer fields are NOT the primary UX. They live here for entity-history deep links
             (resource_type / resource_id) and power-user filtering, preserving the selections above. */}
-        <Grid size={{ xs: 12, md: 7 }}>
+        <Grid size={AUDIT_SIDE_GRID.advanced}>
           <Card>
             <Accordion>
               <AccordionSummary expandIcon={<Iconify icon="eva:arrow-ios-downward-fill" />} sx={{ px: 3, py: 1.5 }}>
