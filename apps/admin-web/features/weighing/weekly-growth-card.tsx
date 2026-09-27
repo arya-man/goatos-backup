@@ -10,7 +10,7 @@
 import type { SxProps, Theme } from "@mui/material/styles";
 
 import { EmptyState } from "@/components/app/empty-state";
-import { AnalyticsWebsiteVisits } from "@/components/minimal/sections/overview/analytics/analytics-website-visits";
+import { ColumnChartCard } from "@/components/app/column-chart-card";
 
 export type WeeklyGrowthPoint = { label: string; gain: number | null; animalsLabel: string };
 
@@ -35,7 +35,7 @@ export function WeeklyGrowthCard({
   sx?: SxProps<Theme>;
 }) {
   return (
-    <AnalyticsWebsiteVisits
+    <ColumnChartCard
       aria-label={ariaLabel}
       title={title}
       subheader={subheader}

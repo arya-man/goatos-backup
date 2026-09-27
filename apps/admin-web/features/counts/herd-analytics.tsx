@@ -17,7 +17,7 @@ import {
   EcommerceSalesOverview,
   type EcommerceSalesOverviewItem,
 } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sales-overview";
-import { AnalyticsWebsiteVisits } from "@/components/minimal/sections/overview/analytics/analytics-website-visits";
+import { ColumnChartCard } from "@/components/app/column-chart-card";
 import type { DateRangePickerLabels } from "@/components/date-range-picker";
 import type { SvgBarDatum } from "@/components/svg-bars";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -322,7 +322,7 @@ export async function HerdAnalyticsPage({
       <Grid container spacing={3}>
         {/* Flow by month: template AnalyticsWebsiteVisits (grouped columns, legend, tooltip). */}
         <Grid size={{ xs: 12, lg: 8 }}>
-          <AnalyticsWebsiteVisits
+          <ColumnChartCard
             aria-label={ha(pageContract, "chart.flow.title")}
             title={ha(pageContract, "chart.flow.title")}
             empty={<EmptyContent title={emptyChart} />}

@@ -16,7 +16,7 @@ import {
   EcommerceSalesOverview,
   type EcommerceSalesOverviewItem,
 } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sales-overview";
-import { AnalyticsWebsiteVisits } from "@/components/minimal/sections/overview/analytics/analytics-website-visits";
+import { ColumnChartCard } from "@/components/app/column-chart-card";
 import { CountsShedChart } from "./counts-shed-chart";
 import { PageHeader } from "@/components/app/page-header";
 import { KpiGrid } from "@/components/app/kpi-grid";
@@ -659,7 +659,7 @@ export async function CountsBreakdownPage({
           </EcommerceSalesOverview>
         </Grid>
         <Grid size={{ xs: 12, md: 7 }}>
-          <AnalyticsWebsiteVisits
+          <ColumnChartCard
             title={stageChart.title}
             aria-label={stageChart.title}
             valueNoun={animalsNoun}

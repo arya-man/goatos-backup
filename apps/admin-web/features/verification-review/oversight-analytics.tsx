@@ -12,7 +12,7 @@ import { Scrollbar } from "@/components/minimal/scrollbar";
 import { EmptyContent } from "@/components/minimal/empty-content";
 import { TableHeadCustom } from "@/components/app/table";
 import { EcommerceSalesOverview, type EcommerceSalesOverviewItem } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sales-overview";
-import { AnalyticsWebsiteVisits } from "@/components/minimal/sections/overview/analytics/analytics-website-visits";
+import { ColumnChartCard } from "@/components/app/column-chart-card";
 import { OversightKpis, type OversightKpi } from "./oversight-kpis";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { getVerificationOversightAnalytics } from "@/lib/api/server";
@@ -216,7 +216,7 @@ export async function OversightAnalytics({
       {/* Verdicts beside arrivals, one pair of columns per day on one shared scale: keeping up looks
           like pairs of equal height, and falling behind is visible without reading a number. */}
       {dailyVolume.length ? (
-        <AnalyticsWebsiteVisits
+        <ColumnChartCard
           title={copy(pageContract, "oversight_analytics.trend")}
           subheader={trendSubheader}
           chart={{

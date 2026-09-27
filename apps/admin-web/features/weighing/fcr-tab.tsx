@@ -8,7 +8,7 @@ import Typography from "@mui/material/Typography";
 import { EmptyState } from "@/components/app/empty-state";
 import { WorklistPager } from "@/components/worklist-pager";
 import { ConversionRatesCard } from "@/components/app/conversion-rates-card";
-import { AnalyticsWebsiteVisits } from "@/components/minimal/sections/overview/analytics/analytics-website-visits";
+import { ColumnChartCard } from "@/components/app/column-chart-card";
 import { BankingBalanceStatistics } from "@/components/minimal/sections/overview/banking/banking-balance-statistics";
 import { KpiWidget } from "@/components/app/kpi-widget";
 import { FCRPensTable } from "./fcr-pens-table";
@@ -307,7 +307,7 @@ export function FCRTab({
         </ConversionRatesCard>
       </Grid>
       <Grid size={{ xs: 12, lg: 5 }}>
-        <AnalyticsWebsiteVisits
+        <ColumnChartCard
           aria-label={copy(pageContract, "section.fcr.weekly.aria")}
           title={copy(pageContract, "section.fcr.weekly.title")}
           subheader={copy(pageContract, "section.fcr.weekly.caption")}

@@ -24,7 +24,7 @@ import { EmptyContent } from "@/components/minimal/empty-content";
 import { Label } from "@/components/minimal/label";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { KpiWidget, completeMonthPercent, type KpiTrend } from "@/components/app/kpi-widget";
-import { AnalyticsWebsiteVisits } from "@/components/minimal/sections/overview/analytics/analytics-website-visits";
+import { ColumnChartCard } from "@/components/app/column-chart-card";
 import { PageHeader } from "@/components/app/page-header";
 import type { PaletteColorKey } from "@/theme/core";
 import { KpiGrid } from "@/components/app/kpi-grid";
@@ -569,7 +569,7 @@ export async function MortalityPage({
       </Box>
 
       {/* Deaths by month, kids over adults: template AnalyticsWebsiteVisits stacked. */}
-      <AnalyticsWebsiteVisits
+      <ColumnChartCard
         aria-label={mc(pageContract, "chart.months.title")}
         title={mc(pageContract, "chart.months.title")}
         valueNoun={deathsNoun}
