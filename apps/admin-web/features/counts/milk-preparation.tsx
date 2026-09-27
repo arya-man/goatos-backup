@@ -199,8 +199,9 @@ export async function MilkPreparationPage({
           ].map((kpi) => (
             <Grid key={kpi.key} size={{ xs: 12, sm: 6, md: 3 }}>
               <KpiWidget
-                title={kpi.unit ? `${copy(pageContract, `kpi.${kpi.key}.label`)} (${kpi.unit})` : copy(pageContract, `kpi.${kpi.key}.label`)}
+                title={copy(pageContract, `kpi.${kpi.key}.label`)}
                 total={kpi.total}
+                caption={kpi.unit}
                 sx={{ height: 1 }}
               />
             </Grid>

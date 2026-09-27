@@ -21,7 +21,7 @@ import { GrowthDirectorSection } from "./growth-director";
 import { Label } from "@/components/minimal/label";
 import { BankingBalanceStatistics } from "@/components/minimal/sections/overview/banking/banking-balance-statistics";
 import { EcommerceSaleByGender } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sale-by-gender";
-import { KpiWidget } from "@/components/app/kpi-widget";
+import { KpiWidget, lastStepPercent } from "@/components/app/kpi-widget";
 import { MetricChart, ShedMetricChart } from "./metric-chart";
 import { SegmentedLinks } from "@/components/segmented-links";
 import { GAIN_STEP_COLOR, type GainThresholdRow } from "./gain-threshold-bars";
@@ -572,10 +572,8 @@ export async function WeighingWeightsPage({
   const weeklyGainSpark = (growth.ok ? (growth.data.weekly_gain ?? []) : []).map((point) =>
     Math.round(point.average_adg_g_per_day),
   );
-  const weeklyGainDelta =
-    weeklyGainSpark.length >= 2
-      ? weeklyGainSpark[weeklyGainSpark.length - 1] - weeklyGainSpark[weeklyGainSpark.length - 2]
-      : null;
+  const weeklyGainPercent = lastStepPercent(weeklyGainSpark);
+  const weeklyGainLabels = (growth.ok ? (growth.data.weekly_gain ?? []) : []).map((point) => fmtDate(point.week_start));
 
   // Daily gain per shed comes from the growth read's own shed leaderboard, which is already
   // restricted to per-animal sheds — a whole-shed total can never produce a per-kid gain.
@@ -953,36 +951,38 @@ export async function WeighingWeightsPage({
           <KpiWidget
             title={`${copy(pageContract, "kpi.kids.label")} ${copy(pageContract, "kpi.kids.sub")}`}
             total={hasSummary ? summary.animals_weighed : null}
-            caption={hasSummary ? kidsSplit : undefined}
+            caption={hasSummary ? kidsSplit : noData}
             sx={{ height: 1 }}
           />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <KpiWidget
-            title={`${copy(pageContract, "kpi.total.label")} (kg)`}
+            title={copy(pageContract, "kpi.total.label")}
             total={hasSummary ? Math.round(summary.total_weight_kg) : null}
-            caption={copy(pageContract, "kpi.total.sub")}
+            caption={hasSummary ? `kg · ${copy(pageContract, "kpi.total.sub")}` : `${noData} · ${copy(pageContract, "kpi.total.sub")}`}
             sx={{ height: 1 }}
           />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <KpiWidget
-            title={`${copy(pageContract, "kpi.average.label")} (kg)`}
+            title={copy(pageContract, "kpi.average.label")}
             total={summary.average_weight_kg == null ? null : Math.round(summary.average_weight_kg * 10) / 10}
-            caption={copy(pageContract, "kpi.average.sub")}
+            caption={`${summary.average_weight_kg == null ? noData : "kg"} · ${copy(pageContract, "kpi.average.sub")}`}
             sx={{ height: 1 }}
           />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <KpiWidget
             aria-label={copy(pageContract, "section.park_gain.aria")}
-            title={`${selectedParkName || copy(pageContract, "kpi.park_gain.all")} ${copy(pageContract, "kpi.park_gain.suffix")} (g)`}
+            title={`${selectedParkName || copy(pageContract, "kpi.park_gain.all")} ${copy(pageContract, "kpi.park_gain.suffix")}`}
             total={headlineGain == null ? null : Math.round(headlineGain)}
             caption={
               headlineGain == null
                 ? copy(pageContract, "kpi.gain.none")
-                : `${weeklyGainDelta == null ? "" : `${weeklyGainDelta > 0 ? "+" : ""}${Math.round(weeklyGainDelta)} g · `}${copy(pageContract, "kpi.gain.blended")} · ${headlineWeight.toLocaleString("en-IN")}`
+                : `g · ${copy(pageContract, "kpi.gain.blended")} · ${headlineWeight.toLocaleString("en-IN")}`
             }
+            // The weekly gain series + its week-on-week change (EcommerceWidgetSummary, "last week").
+            trend={weeklyGainPercent == null ? null : { percent: weeklyGainPercent, period: "week", series: weeklyGainSpark, categories: weeklyGainLabels }}
             sx={{ height: 1 }}
           />
         </Grid>

@@ -11,7 +11,7 @@ import Stack from "@mui/material/Stack";
 import { PageHeader } from "@/components/app/page-header";
 import { KpiGrid } from "@/components/app/kpi-grid";
 import { EmptyContent } from "@/components/minimal/empty-content";
-import { KpiWidget, splitParts } from "@/components/app/kpi-widget";
+import { KpiWidget, lastStepPercent, splitParts } from "@/components/app/kpi-widget";
 import { EcommerceSaleByGender } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sale-by-gender";
 import {
   EcommerceSalesOverview,
@@ -240,6 +240,12 @@ export async function HerdAnalyticsPage({
 
   const totals = data.totals;
   const monthLabels = data.months.map((month) => month.label);
+  // Births / deaths / sold tiles carry the month-on-month change (BookingWidgetSummary: percent, no
+  // period text); the monthly series is the flow chart below.
+  const monthTrend = (key: "births" | "deaths" | "sold") => {
+    const percent = data.months.length >= 2 ? lastStepPercent(data.months.map((m) => m[key])) : null;
+    return percent == null ? null : { percent, period: "month" as const };
+  };
   // Colour follows the SERIES (births green, deaths red) on the flow chart and the KPI sparklines.
   const flowKeys = ["births", "deaths", "sold", "other_exits"] as const;
   const flowSeries = flowKeys.map((key) => ({ name: ha(pageContract, `series.${key}`), data: data.months.map((m) => m[key]) }));
@@ -306,9 +312,9 @@ export async function HerdAnalyticsPage({
               .join(" \u00b7 ")}
             sx={{ height: 1 }}
           />
-          <KpiWidget title={ha(pageContract, "kpi.births.label")} total={totals.births} sx={{ height: 1 }} />
-          <KpiWidget title={ha(pageContract, "kpi.deaths.label")} total={totals.deaths} sx={{ height: 1 }} />
-          <KpiWidget title={ha(pageContract, "kpi.sold.label")} total={totals.sold} sx={{ height: 1 }} />
+          <KpiWidget title={ha(pageContract, "kpi.births.label")} total={totals.births} trend={monthTrend("births")} sx={{ height: 1 }} />
+          <KpiWidget title={ha(pageContract, "kpi.deaths.label")} total={totals.deaths} trend={monthTrend("deaths")} sx={{ height: 1 }} />
+          <KpiWidget title={ha(pageContract, "kpi.sold.label")} total={totals.sold} trend={monthTrend("sold")} sx={{ height: 1 }} />
           <KpiWidget title={ha(pageContract, "kpi.net.label")} total={totals.net_change} sx={{ height: 1 }} />
         </KpiGrid>
       </Box>

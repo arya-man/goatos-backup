@@ -258,14 +258,15 @@ function FarmBornSections({
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <KpiWidget
             color="success"
-            title={`${copy(pageContract, "kpi.revenue")} (₹)`}
+            title={copy(pageContract, "kpi.revenue")}
             total={s.revenue}
-            caption={unpriced > 0 ? `${num(s.sold_priced)} / ${num(s.sold)}` : undefined}
+            caption={[`₹`, unpriced > 0 ? `${num(s.sold_priced)} / ${num(s.sold)}` : undefined].filter(Boolean).join(" · ")}
             sx={{ height: 1 }}
           />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <KpiWidget color="secondary" title={`${copy(pageContract, "kpi.avg_price")} (₹)`} total={s.sold_priced > 0 ? s.avg_price : null} sx={{ height: 1 }} />
+          <KpiWidget color="secondary" title={copy(pageContract, "kpi.avg_price")}
+ caption={`${(s.sold_priced > 0 ? s.avg_price : null) == null ? "—" : `₹`}`} total={s.sold_priced > 0 ? s.avg_price : null} sx={{ height: 1 }} />
         </Grid>
       </Grid>
 

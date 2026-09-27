@@ -197,33 +197,33 @@ export function FCRTab({
   const kpis = [
     {
       key: "farm",
-      title: `${copy(pageContract, "kpi.fcr.farm.label")} (${copy(pageContract, "kpi.fcr.farm.unit")})`,
+      title: copy(pageContract, "kpi.fcr.farm.label"),
       total: s.fcr == null ? null : Number(s.fcr.toFixed(2)),
-      caption: `${penCount(pageContract, s.pens_with_fcr)} · ${s.animals.toLocaleString("en-IN")} ${copy(pageContract, "value.fcr.kids")}`,
+      caption: `${s.fcr == null ? none : copy(pageContract, "kpi.fcr.farm.unit")} · ${penCount(pageContract, s.pens_with_fcr)} · ${s.animals.toLocaleString("en-IN")} ${copy(pageContract, "value.fcr.kids")}`,
     },
     {
       key: "gain",
-      title: `${copy(pageContract, "kpi.fcr.gain_value.label")} (${rupee})`,
+      title: copy(pageContract, "kpi.fcr.gain_value.label"),
       total: s.gain_value_inr == null ? null : Math.round(s.gain_value_inr),
-      caption: `${num(s.gain_kg, 0)} kg · ${copy(pageContract, "kpi.fcr.gain_value.sub")}`,
+      caption: `${s.gain_value_inr == null ? none : rupee} · ${num(s.gain_kg, 0)} kg · ${copy(pageContract, "kpi.fcr.gain_value.sub")}`,
     },
     {
       key: "feed",
-      title: `${copy(pageContract, "kpi.fcr.feed_cost.label")} (${rupee})`,
+      title: copy(pageContract, "kpi.fcr.feed_cost.label"),
       total: s.feed_cost_inr == null ? null : Math.round(s.feed_cost_inr),
-      caption: `${num(s.feed_kg, 0)} kg${s.wastage_kg > 0 ? ` (${num(s.wastage_kg, 0)} ${copy(pageContract, "table.fcr.wasted")})` : ""} · ${money(s.feed_cost_per_kg_gain_inr)} ${copy(pageContract, "kpi.fcr.cost_gain.label").toLowerCase()}`,
+      caption: `${s.feed_cost_inr == null ? none : rupee} · ${num(s.feed_kg, 0)} kg${s.wastage_kg > 0 ? ` (${num(s.wastage_kg, 0)} ${copy(pageContract, "table.fcr.wasted")})` : ""} · ${money(s.feed_cost_per_kg_gain_inr)} ${copy(pageContract, "kpi.fcr.cost_gain.label").toLowerCase()}`,
     },
     {
       key: "margin",
-      title: `${copy(pageContract, "kpi.fcr.margin.label")} (${rupee})`,
+      title: copy(pageContract, "kpi.fcr.margin.label"),
       total: s.margin_inr == null ? null : Math.round(s.margin_inr),
-      caption: s.margin_inr != null && s.margin_inr < 0 ? copy(pageContract, "kpi.fcr.margin.loss") : copy(pageContract, "kpi.fcr.margin.sub"),
+      caption: `${s.margin_inr == null ? none : rupee} · ${s.margin_inr != null && s.margin_inr < 0 ? copy(pageContract, "kpi.fcr.margin.loss") : copy(pageContract, "kpi.fcr.margin.sub")}`,
     },
     {
       key: "break_even",
       title: copy(pageContract, "kpi.fcr.break_even.label"),
       total: s.break_even_fcr == null ? null : Number(s.break_even_fcr.toFixed(1)),
-      caption: copy(pageContract, "kpi.fcr.break_even.sub"),
+      caption: s.break_even_fcr == null ? `${none} · ${copy(pageContract, "kpi.fcr.break_even.sub")}` : copy(pageContract, "kpi.fcr.break_even.sub"),
     },
   ];
 

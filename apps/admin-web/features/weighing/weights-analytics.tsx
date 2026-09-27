@@ -826,23 +826,23 @@ function GeneralTab({
         <KpiWidget
           title={`${copy(pageContract, "kpi.kids.label")} ${copy(pageContract, "kpi.kids.sub")}`}
           total={hasAnyData ? summary.animals_weighed : null}
-          caption={hasAnyData ? kidsSplit : undefined}
+          caption={hasAnyData ? kidsSplit : noData}
           sx={{ height: 1 }}
         />
       </Grid>
       <Grid size={{ xs: 12, md: 4 }}>
         <KpiWidget
-          title={`${copy(pageContract, "kpi.total.label")} (kg)`}
+          title={copy(pageContract, "kpi.total.label")}
           total={hasAnyData ? Math.round(summary.total_weight_kg) : null}
-          caption={copy(pageContract, "kpi.total.sub")}
+          caption={hasAnyData ? `kg · ${copy(pageContract, "kpi.total.sub")}` : `${noData} · ${copy(pageContract, "kpi.total.sub")}`}
           sx={{ height: 1 }}
         />
       </Grid>
       <Grid size={{ xs: 12, md: 4 }}>
         <KpiWidget
-          title={`${copy(pageContract, "kpi.average.label")} (kg)`}
+          title={copy(pageContract, "kpi.average.label")}
           total={summary.average_weight_kg == null ? null : Math.round(summary.average_weight_kg * 10) / 10}
-          caption={copy(pageContract, "kpi.average.sub")}
+          caption={`${summary.average_weight_kg == null ? noData : "kg"} · ${copy(pageContract, "kpi.average.sub")}`}
           sx={{ height: 1 }}
         />
       </Grid>

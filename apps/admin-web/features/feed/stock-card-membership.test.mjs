@@ -33,7 +33,7 @@ test("the plain Concentrate card is hidden by catalog key, days left or not", ()
 // stock -- a full untouched load is the opposite of nearly out.
 test("a not-started card shows kg in store, never a days-left or a low-stock tag", () => {
   // Template widget: the figure is kg in store (unit in the title) for a not-started feed.
-  assert.match(stockCards, /item\.not_started \? fa\(pageContract, "unit\.kg"\) : fa\(pageContract, "stock\.days_left"\)/);
+  assert.match(stockCards, /item\.not_started \? fa\(pageContract, "unit\.kg"\) : item\.days_left == null \? "—" : fa\(pageContract, "stock\.days_left"\)/);
   assert.match(stockCards, /total=\{item\.not_started \? num\(item\.balance_kg\) :/);
   assert.match(stockCards, /item\.not_started \? fa\(pageContract, "stock\.not_started"\) : null/);
   assert.match(stockCards, /item\.low_stock \? fa\(pageContract, "stock\.low"\) : null/);

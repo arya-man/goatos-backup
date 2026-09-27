@@ -218,7 +218,7 @@ export async function VaccinationWorkflowsPage({
           { key: "workflows", title: copy(pageContract, "label.workflows"), total: totalWorkflows, caption: copy(pageContract, "label.vaccination_chain") },
           { key: "active", title: copy(pageContract, "label.active_runs"), total: activeRuns, caption: copy(pageContract, "label.scheduled_in_progress") },
           { key: "blocked", title: copy(pageContract, "label.blocked_gated"), total: blocked, caption: copy(pageContract, "label.awaiting_proof_owner") },
-          { key: "progress", title: `${copy(pageContract, "label.avg_progress")} (%)`, total: avgProgress, caption: copy(pageContract, "label.across_shown") },
+          { key: "progress", title: copy(pageContract, "label.avg_progress"), total: avgProgress, caption: `% · ${copy(pageContract, "label.across_shown")}` },
         ]}
       />
       </UrlSuspense>

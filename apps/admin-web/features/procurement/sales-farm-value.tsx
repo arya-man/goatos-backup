@@ -107,10 +107,12 @@ function FarmValueSections({
       <Grid size={12}>
         <Grid container spacing={3} component="section" aria-label={copy(pageContract, "section.farm_value.aria")}>
           <Grid size={{ xs: 12, md: 4 }}>
-            <KpiWidget color="primary" title={`${copy(pageContract, "kpi.farm_value")} (₹)`} total={overview.farm_valuation.total_value_rupees} icon="certificates" />
+            <KpiWidget color="primary" title={copy(pageContract, "kpi.farm_value")}
+ caption={`₹`} total={overview.farm_valuation.total_value_rupees} icon="certificates" />
           </Grid>
           <Grid size={{ xs: 12, md: 4 }}>
-            <KpiWidget color="info" title={`${copy(pageContract, "kpi.total_meat")} (${kgSuffix})`} total={overview.farm_valuation.total_meat_kg} />
+            <KpiWidget color="info" title={copy(pageContract, "kpi.total_meat")}
+ caption={`${kgSuffix}`} total={overview.farm_valuation.total_meat_kg} />
           </Grid>
           <Grid size={{ xs: 12, md: 4 }}>
             {/* Over 35 kg belongs with the valuation, not the ledger (maintainer decision

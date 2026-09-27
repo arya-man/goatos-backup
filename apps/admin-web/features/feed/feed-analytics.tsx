@@ -24,7 +24,7 @@ import Typography from "@mui/material/Typography";
 import Alert from "@mui/material/Alert";
 import AlertTitle from "@mui/material/AlertTitle";
 import { EmptyContent } from "@/components/minimal/empty-content";
-import { KpiWidget } from "@/components/app/kpi-widget";
+import { KpiWidget, sevenDayPercent } from "@/components/app/kpi-widget";
 import { FeedMixCard } from "./feed-mix-card";
 import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
 
@@ -1062,6 +1062,18 @@ function DirectedTabs({
     if (spentDay) costPerAnimal = Math.round((num(spentDay.rupees) / latest.head_days) * 100) / 100;
   }
 
+  // Daily tiles (AppWidgetSummary: bar sparkline + "<±x%> last 7 days"): the last 14 complete served
+  // feed days of the SAME daily figures the tiles headline; the percent is those days' last 7 against
+  // the 7 before (display only). The series stops at the settled day and drops a trailing half-issued
+  // day (completeDaySeries on directed kg), so every tile ends on the same complete day.
+  const recentDays = data.days.filter((d) => view.settledDay >= d.feed_day).slice(-14);
+  const completeDays = completeDaySeries(recentDays.map((d) => num(d.directed_kg)))?.length ?? 0;
+  const sparkDays = recentDays.slice(0, completeDays);
+  const dayTrend = (pick: (d: (typeof data.days)[number]) => number | null) => {
+    const series = sparkDays.map((d) => pick(d) ?? 0);
+    const percent = sevenDayPercent(series);
+    return percent == null ? null : { percent, period: "7d" as const, series, categories: sparkDays.map((d) => fmtDate(d.feed_day)) };
+  };
   return (
     <>
       {coverageNote !== null ? (
@@ -1071,21 +1083,27 @@ function DirectedTabs({
         // KPI row: template CourseWidgetSummary (KpiWidget) (overview/e-commerce), three per row.
         <Grid container spacing={3} component="section" aria-label={fa(pageContract, "chart.daily.title")}>
           {[
-            { key: "directed", unit: fa(pageContract, "unit.kg"), total: latest ? num(latest.directed_kg) : null },
-            { key: "head_days", unit: "", total: latest ? latest.head_days : null },
-            { key: "per_head", unit: "g", total: latest && latest.per_head_grams !== "" ? num(latest.per_head_grams) : null },
-            { key: "adherence", unit: "%", total: adherence },
-            { key: "cost_per_animal", unit: "₹", total: costPerAnimal },
-          ].map((kpi) => (
-            <Grid key={kpi.key} size={{ xs: 12, sm: 6, md: 4 }}>
-              <KpiWidget
-                title={kpi.unit ? `${fa(pageContract, `kpi.${kpi.key}.label`)} (${kpi.unit})` : fa(pageContract, `kpi.${kpi.key}.label`)}
-                total={kpi.total}
-                caption={fa(pageContract, `kpi.${kpi.key}.sub`)}
-                sx={{ height: 1 }}
-              />
-            </Grid>
-          ))}
+            { key: "directed", unit: fa(pageContract, "unit.kg"), total: latest ? num(latest.directed_kg) : null, trend: dayTrend((d) => num(d.directed_kg)) },
+            { key: "head_days", unit: "", total: latest ? latest.head_days : null, trend: dayTrend((d) => d.head_days) },
+            { key: "per_head", unit: "g", total: latest && latest.per_head_grams !== "" ? num(latest.per_head_grams) : null, trend: dayTrend((d) => (d.per_head_grams === "" ? null : num(d.per_head_grams))) },
+            { key: "adherence", unit: "%", total: adherence, trend: null },
+            { key: "cost_per_animal", unit: "₹", total: costPerAnimal, trend: null },
+          ].map((kpi) => {
+            // The unit (or "—" when the figure is missing) leads the visible sub-line.
+            const lead = kpi.total == null ? "—" : kpi.unit;
+            const sub = fa(pageContract, `kpi.${kpi.key}.sub`);
+            return (
+              <Grid key={kpi.key} size={{ xs: 12, sm: 6, md: 4 }}>
+                <KpiWidget
+                  title={fa(pageContract, `kpi.${kpi.key}.label`)}
+                  total={kpi.total}
+                  caption={lead ? `${lead} · ${sub}` : sub}
+                  trend={kpi.trend}
+                  sx={{ height: 1 }}
+                />
+              </Grid>
+            );
+          })}
         </Grid>
       ) : null}
 
@@ -1126,9 +1144,9 @@ function DirectedTabs({
           ] as const).map(([period, rupees]) => (
             <Grid key={period} size={{ xs: 12, sm: 6, md: 3 }}>
               <KpiWidget
-                title={`${fa(pageContract, `spend.${period}.label`)} (₹)`}
+                title={fa(pageContract, `spend.${period}.label`)}
                 total={num(rupees)}
-                caption={fa(pageContract, `spend.${period}.sub`)}
+                caption={`₹ · ${fa(pageContract, `spend.${period}.sub`)}`}
                 sx={{ height: 1 }}
               />
             </Grid>
@@ -1439,7 +1457,7 @@ function ExecutionTab({
           { key: "latency", unit: fa(pageContract, "unit.minutes"), total: latestLatency, caption: fa(pageContract, "kpi.latency.sub") },
         ].map((kpi: { key: string; unit?: string; total: number | null; caption: string }) => (
           <Grid key={kpi.key} size={{ xs: 12, sm: 6, md: 3 }}>
-            <KpiWidget title={`${fa(pageContract, `kpi.${kpi.key}.label`)} (${kpi.unit ?? "%"})`} total={kpi.total} caption={kpi.caption} sx={{ height: 1 }} />
+            <KpiWidget title={fa(pageContract, `kpi.${kpi.key}.label`)} total={kpi.total} caption={`${kpi.total == null ? "—" : (kpi.unit ?? "%")} · ${kpi.caption}`} sx={{ height: 1 }} />
           </Grid>
         ))}
       </Grid>
@@ -1848,12 +1866,11 @@ function StockCards({
             {active.map((item) => (
               <Grid key={`${item.farm_label}|${item.feed_item_key}`} size={{ xs: 12, sm: 6, md: 4 }}>
                 <KpiWidget
-                  title={`${item.farm_label} · ${item.feed_item_label} (${
-                    item.not_started ? fa(pageContract, "unit.kg") : fa(pageContract, "stock.days_left")
-                  })`}
+                  title={`${item.farm_label} · ${item.feed_item_label}`}
                   total={item.not_started ? num(item.balance_kg) : item.days_left == null ? null : Math.max(item.days_left, 0)}
                   color={item.low_stock ? "error" : item.not_started ? "success" : "primary"}
                   caption={[
+                    item.not_started ? fa(pageContract, "unit.kg") : item.days_left == null ? "—" : fa(pageContract, "stock.days_left"),
                     item.not_started ? fa(pageContract, "stock.not_started") : null,
                     item.low_stock ? fa(pageContract, "stock.low") : null,
                     item.not_started

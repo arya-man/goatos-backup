@@ -227,31 +227,31 @@ export function LoadwiseSection({
                 />
                 <KpiWidget
                   color="info"
-                  title={`${copy(pageContract, "loadwise.kpi.purchase_value")} (₹)`}
+                  title={copy(pageContract, "loadwise.kpi.purchase_value")}
                   total={summary.costed_loads > 0 ? summary.purchase_value : null}
-                  caption={`${num(summary.costed_loads)} / ${num(loads.length)} ${copy(pageContract, "loadwise.kpi.purchase_value.hint")}`}
+                  caption={[`${(summary.costed_loads > 0 ? summary.purchase_value : null) == null ? "—" : `₹`}`, `${num(summary.costed_loads)} / ${num(loads.length)} ${copy(pageContract, "loadwise.kpi.purchase_value.hint")}`].filter(Boolean).join(" · ")}
                   icon="certificates"
                 />
                 <KpiWidget
                   color="success"
-                  title={`${copy(pageContract, "loadwise.kpi.sold_value")} (₹)`}
+                  title={copy(pageContract, "loadwise.kpi.sold_value")}
                   total={summary.sold_value > 0 ? summary.sold_value : null}
-                  caption={summary.sold_value > 0 ? undefined : none}
+                  caption={[`${(summary.sold_value > 0 ? summary.sold_value : null) == null ? "—" : `₹`}`, summary.sold_value > 0 ? undefined : none].filter(Boolean).join(" · ")}
                 />
                 {/* Signed and toned: a loss must not read like a profit at a glance. The caption is
                     how much of that figure happened and how much is assumed -- the backend's own
                     sentence, verbatim (main 7765efb29/c0b3a659f). */}
                 <KpiWidget
                   color={summary.profit_loss < 0 ? "error" : "success"}
-                  title={`${copy(pageContract, "loadwise.kpi.profit")} (₹)`}
+                  title={copy(pageContract, "loadwise.kpi.profit")}
                   total={summary.costed_loads > 0 ? summary.profit_loss : null}
-                  caption={
+                  caption={[`${(summary.costed_loads > 0 ? summary.profit_loss : null) == null ? "—" : `₹`}`, 
                     summary.costed_loads > 0
                       ? `${copy(pageContract, "loadwise.realised.label")} ${signedInrCompact(summary.realised_profit_loss)} · ${copy(pageContract, "loadwise.assumed.label")} ${
                           summary.assumed_value > 0 ? inrCompact(summary.assumed_value) : copy(pageContract, "loadwise.assumed.none")
                         }${summary.assumed_value > 0 && summary.assumed_value_basis ? ` · ${summary.assumed_value_basis}` : ""}`
                       : none
-                  }
+                  ].filter(Boolean).join(" · ")}
                 />
               </KpiGrid>
 

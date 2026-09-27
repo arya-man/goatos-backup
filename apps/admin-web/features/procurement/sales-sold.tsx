@@ -121,6 +121,7 @@ function SoldSections({
   const animalMonths = trimEmptyMonthlyStart(overview.monthly, monthlyAnimalsTotal);
   const manureMonths = trimEmptyMonthlyStart(overview.monthly, (month) => month.manure_kg);
   const sum = (values: number[]) => values.reduce((total, value) => total + value, 0);
+  const pricedMonths = overview.monthly.filter((month) => month.realized_price_per_kg > 0);
   const monthlySeries = [
     {
       name: copy(pageContract, "chart.monthly_revenue.value"),
@@ -150,6 +151,16 @@ function SoldSections({
       notes: manureMonths.map((month) => `${copy(pageContract, "chart.monthly_manure.sub")} ${inrCompact(month.manure_revenue)}`),
       empty: copy(pageContract, "chart.monthly_manure.empty"),
     },
+    {
+      // Realized price per kg by month (the headline price tile's monthly series; months with no
+      // weighed live sale have no price and are left out rather than drawn as ₹0).
+      name: copy(pageContract, "kpi.realized_price"),
+      categories: pricedMonths.map((month) => monthLabel(month.month)),
+      format: "inr" as const,
+      totals: [summary.realized_price_per_kg > 0 ? inr(Math.round(summary.realized_price_per_kg)) : none],
+      data: [{ name: copy(pageContract, "kpi.realized_price"), data: pricedMonths.map((month) => Math.round(month.realized_price_per_kg)) }],
+      empty: copy(pageContract, "chart.monthly_revenue.empty"),
+    },
   ];
 
   return (
@@ -159,9 +170,9 @@ function SoldSections({
         <Grid container spacing={3} component="section" aria-label={copy(pageContract, "section.sold.aria")} sx={{ height: 1 }}>
           <Grid size={{ xs: 12, sm: 6 }}>
             <KpiWidget
-              title={`${copy(pageContract, "kpi.revenue")} (₹)`}
+              title={copy(pageContract, "kpi.revenue")}
               total={summary.revenue}
-              caption={`${num(summary.deals)} ${copy(pageContract, "kpi.deals")}`}
+              caption={[`₹`, `${num(summary.deals)} ${copy(pageContract, "kpi.deals")}`].filter(Boolean).join(" · ")}
               icon="completed"
               color="primary"
               sx={{ height: 1 }}
@@ -180,18 +191,18 @@ function SoldSections({
             {/* Zero means no weighed live sale exists — printing ₹0 per kg would claim we give
                 animals away (null renders an empty figure). */}
             <KpiWidget
-              title={`${copy(pageContract, "kpi.realized_price")} (₹ ${perKgSuffix})`}
+              title={copy(pageContract, "kpi.realized_price")}
               total={summary.realized_price_per_kg > 0 ? summary.realized_price_per_kg : null}
-              caption={summary.realized_price_per_kg > 0 ? undefined : none}
+              caption={summary.realized_price_per_kg > 0 ? `₹ ${perKgSuffix}` : none}
               color="secondary"
               sx={{ height: 1 }}
             />
           </Grid>
           <Grid size={{ xs: 12, sm: 6 }}>
             <KpiWidget
-              title={`${copy(pageContract, "kpi.manure")} (${kgSuffix})`}
+              title={copy(pageContract, "kpi.manure")}
               total={summary.manure_kg}
-              caption={`${inr(summary.manure_revenue)} · ${copy(pageContract, "kpi.manure.detail")}`}
+              caption={[`${kgSuffix}`, `${inr(summary.manure_revenue)} · ${copy(pageContract, "kpi.manure.detail")}`].filter(Boolean).join(" · ")}
               color="warning"
               sx={{ height: 1 }}
             />
@@ -202,9 +213,9 @@ function SoldSections({
           {showFeed ? (
             <Grid size={12}>
               <KpiWidget
-                title={`${copy(pageContract, "kpi.feed")} (${kgSuffix})`}
+                title={copy(pageContract, "kpi.feed")}
                 total={summary.feed_kg}
-                caption={`${inr(summary.feed_revenue)} · ${copy(pageContract, "kpi.feed.detail")}`}
+                caption={[`${kgSuffix}`, `${inr(summary.feed_revenue)} · ${copy(pageContract, "kpi.feed.detail")}`].filter(Boolean).join(" · ")}
               />
             </Grid>
           ) : null}

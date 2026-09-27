@@ -23,7 +23,7 @@ import { varAlpha } from "minimal-shared/utils";
 import { EmptyContent } from "@/components/minimal/empty-content";
 import { Label } from "@/components/minimal/label";
 import { Scrollbar } from "@/components/minimal/scrollbar";
-import { KpiWidget } from "@/components/app/kpi-widget";
+import { KpiWidget, lastStepPercent, type KpiTrend } from "@/components/app/kpi-widget";
 import { AnalyticsWebsiteVisits } from "@/components/minimal/sections/overview/analytics/analytics-website-visits";
 import { PageHeader } from "@/components/app/page-header";
 import type { PaletteColorKey } from "@/theme/core";
@@ -492,24 +492,33 @@ export async function MortalityPage({
   const stageBuckets = withStageNames(data.stage, stageNames);
   const seasonByStage = data.season_by_stage.map((cell) => ({ ...cell, col_label: stageDisplayLabel(cell.col_label, stageNames) }));
   // Template CourseWidgetSummary takes a number: units go in the title, detail in the caption.
-  const kpis: { key: string; tone: PaletteColorKey; label: string; value: number | null; hint: string }[] = [
-    { key: "deaths", tone: "error", label: mc(pageContract, "kpi.deaths.label"), value: totals.deaths, hint: "" },
+  // Template widgets print a number: the unit / remainder leads the visible sub-line. Deaths, kids
+  // and adults carry the month-on-month change (BookingWidgetSummary: percent, no period text); the
+  // monthly series itself is the kids / adults chart below.
+  const monthTrend = (series: number[]) => {
+    const percent = data.months.length >= 2 ? lastStepPercent(series) : null;
+    return percent == null ? null : { percent, period: "month" as const };
+  };
+  const pctSub = (rate: number | null | undefined, rest: string) => (rate == null ? noRate : `% · ${rest}`);
+  const kpis: { key: string; tone: PaletteColorKey; label: string; value: number | null; hint: string; trend?: KpiTrend | null }[] = [
+    { key: "deaths", tone: "error", label: mc(pageContract, "kpi.deaths.label"), value: totals.deaths, hint: "", trend: monthTrend(data.months.map((m) => m.deaths)) },
     {
       key: "rate",
       tone: "primary",
-      label: `${mc(pageContract, "kpi.rate.label")} (%)`,
+      label: mc(pageContract, "kpi.rate.label"),
       value: totals.rate_pct == null ? null : Math.round(totals.rate_pct * 10) / 10,
-      hint: totals.rate_pct == null ? noRate : `${nf(totals.animals)} ${animalsWord} · ${mc(pageContract, "kpi.rate.sub")}`,
+      hint: pctSub(totals.rate_pct, `${nf(totals.animals)} ${animalsWord} · ${mc(pageContract, "kpi.rate.sub")}`),
     },
-    { key: "kids", tone: "warning", label: mc(pageContract, "kpi.kids.label"), value: totals.kid_deaths, hint: rateWithAnimals(totals.kid_rate_pct, totals.kid_animals) },
-    { key: "adults", tone: "secondary", label: mc(pageContract, "kpi.adults.label"), value: totals.adult_deaths, hint: rateWithAnimals(totals.adult_rate_pct, totals.adult_animals) },
+    { key: "kids", tone: "warning", label: mc(pageContract, "kpi.kids.label"), value: totals.kid_deaths, hint: rateWithAnimals(totals.kid_rate_pct, totals.kid_animals), trend: monthTrend(data.months.map((m) => m.kids)) },
+    { key: "adults", tone: "secondary", label: mc(pageContract, "kpi.adults.label"), value: totals.adult_deaths, hint: rateWithAnimals(totals.adult_rate_pct, totals.adult_animals), trend: monthTrend(data.months.map((m) => m.adults)) },
     { key: "first_week", tone: "info", label: mc(pageContract, "kpi.first_week.label"), value: totals.first_week_deaths, hint: "" },
     {
+      // "12 / 30": the figure is 12, the sub-line reads "of 30".
       key: "cause",
       tone: "success",
-      label: totals.deaths === 0 ? mc(pageContract, "kpi.cause.label") : `${mc(pageContract, "kpi.cause.label")} / ${nf(totals.deaths)}`,
+      label: mc(pageContract, "kpi.cause.label"),
       value: totals.deaths === 0 ? null : causeEstablished,
-      hint: "",
+      hint: totals.deaths === 0 ? "—" : `of ${nf(totals.deaths)}`,
     },
   ];
 
@@ -548,6 +557,7 @@ export async function MortalityPage({
               total={kpi.value}
               color={kpi.tone}
               caption={kpi.hint || undefined}
+              trend={kpi.trend}
               sx={{ height: 1 }}
             />
           ))}

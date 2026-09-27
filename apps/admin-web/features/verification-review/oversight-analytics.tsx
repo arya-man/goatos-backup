@@ -109,7 +109,8 @@ export async function OversightAnalytics({
     },
     {
       key: "oldest_pending",
-      title: `${copy(pageContract, "oversight_analytics.oldest_pending")} (h)`,
+      title: copy(pageContract, "oversight_analytics.oldest_pending"),
+      unit: "h",
       total: kpis.oldest_pending_age_hours == null ? null : Math.round(kpis.oldest_pending_age_hours * 10) / 10,
       hint: `${formatHours(kpis.oldest_pending_age_hours)} · ${copy(pageContract, "oversight_analytics.oldest_hint")}`,
       color: "warning",
@@ -117,7 +118,8 @@ export async function OversightAnalytics({
     },
     {
       key: "review_speed",
-      title: `${copy(pageContract, "oversight_analytics.review_speed")} (/day)`,
+      title: copy(pageContract, "oversight_analytics.review_speed"),
+      unit: "/day",
       total: Math.round(kpis.verdicts_per_active_day_last_7d * 10) / 10,
       hint: copy(pageContract, "oversight_analytics.speed_hint"),
       color: "success",
@@ -125,7 +127,8 @@ export async function OversightAnalytics({
     },
     {
       key: "est_days_to_clear",
-      title: `${copy(pageContract, "oversight_analytics.est_days_to_clear")} (d)`,
+      title: copy(pageContract, "oversight_analytics.est_days_to_clear"),
+      unit: "d",
       total: kpis.est_days_to_clear_backlog != null ? Math.round(kpis.est_days_to_clear_backlog * 10) / 10 : null,
       hint: copy(pageContract, "oversight_analytics.clear_hint"),
       color: "info",
@@ -133,7 +136,8 @@ export async function OversightAnalytics({
     },
     {
       key: "reject_rate",
-      title: `${copy(pageContract, "oversight_analytics.reject_rate")} (%)`,
+      title: copy(pageContract, "oversight_analytics.reject_rate"),
+      unit: "%",
       total: kpis.reject_rate_last_30d != null ? Math.round(kpis.reject_rate_last_30d * 1000) / 10 : null,
       hint:
         kpis.reject_rate_last_30d != null

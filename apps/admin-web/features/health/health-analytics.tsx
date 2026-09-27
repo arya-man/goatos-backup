@@ -17,7 +17,7 @@ import Grid from "@mui/material/Grid";
 import Stack from "@mui/material/Stack";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
-import { KpiWidget, kpiColor } from "@/components/app/kpi-widget";
+import { KpiWidget, kpiColor, lastStepPercent } from "@/components/app/kpi-widget";
 import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
 import { copy, table, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
@@ -224,6 +224,7 @@ function Kpi({
   value,
   unit,
   sub,
+  monthly,
   md = 4,
 }: {
   accent: string;
@@ -232,12 +233,23 @@ function Kpi({
   value: number | null;
   unit?: string;
   sub: string;
+  /** Month-on-month change of the monthly series behind the figure (drawn in the chart below). */
+  monthly?: number[];
   md?: number;
 }) {
   const tone = ACCENT_TONE[accent];
+  const percent = monthly && monthly.length >= 2 ? lastStepPercent(monthly) : null;
+  const lead = value == null ? "—" : unit;
   return (
     <Grid size={{ xs: 12, sm: 6, md }}>
-      <KpiWidget title={unit ? `${label} (${unit})` : label} total={value} caption={sub} color={kpiColor(tone)} sx={{ height: 1 }} />
+      <KpiWidget
+        title={label}
+        total={value}
+        caption={lead ? `${lead} · ${sub}` : sub}
+        color={kpiColor(tone)}
+        trend={percent == null ? null : { percent, period: "month" }}
+        sx={{ height: 1 }}
+      />
     </Grid>
   );
 }
@@ -457,6 +469,7 @@ export async function HealthAnalyticsPage({
           accent="var(--brand)"
           label={ha(pageContract, "kpi.new.label")}
           value={totals.new_cases}
+          monthly={newCaseRowsByMonth.map((m) => m.new_cases)}
           sub={ha(pageContract, "kpi.new.sub")}
         />
         <Kpi
@@ -472,6 +485,7 @@ export async function HealthAnalyticsPage({
           accent="var(--danger)"
           label={ha(pageContract, "kpi.deaths.label")}
           value={totals.deaths}
+          monthly={deathRowsByMonth.map((m) => m.attributed + m.unattributed)}
           sub={ha(pageContract, "kpi.deaths.sub")}
         />
         <Kpi

@@ -181,18 +181,18 @@ function BuyerSections({
           <Grid size={{ xs: 12, sm: 6 }}>
             <KpiWidget
               color="success"
-              title={`${copy(pageContract, "kpi.repeat_revenue")} (₹)`}
+              title={copy(pageContract, "kpi.repeat_revenue")}
               total={summary.repeat_revenue}
-              caption={`${num(summary.repeat_revenue_pct, 0)}% ${copy(pageContract, "kpi.repeat_revenue.detail")} · ${num(summary.purchases)} ${copy(pageContract, "kpi.purchases.detail")}`}
+              caption={[`₹`, `${num(summary.repeat_revenue_pct, 0)}% ${copy(pageContract, "kpi.repeat_revenue.detail")} · ${num(summary.purchases)} ${copy(pageContract, "kpi.purchases.detail")}`].filter(Boolean).join(" · ")}
               sx={{ height: 1 }}
             />
           </Grid>
           <Grid size={{ xs: 12, sm: 6 }}>
             <KpiWidget
               color="warning"
-              title={`${copy(pageContract, "kpi.outstanding")} (₹)`}
+              title={copy(pageContract, "kpi.outstanding")}
               total={summary.outstanding}
-              caption={copy(pageContract, "kpi.outstanding.detail")}
+              caption={[`₹`, copy(pageContract, "kpi.outstanding.detail")].filter(Boolean).join(" · ")}
               sx={{ height: 1 }}
             />
           </Grid>

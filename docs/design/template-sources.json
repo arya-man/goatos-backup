@@ -199,7 +199,9 @@
     "layouts/template/svg-color/index.ts": "src/components/svg-color/index.ts",
     "layouts/template/svg-color/svg-color.tsx": "src/components/svg-color/svg-color.tsx",
     "layouts/template/svg-color/types.ts": "src/components/svg-color/types.ts",
-    "components/minimal/sections/overview/course/course-widget-summary.tsx": "src/sections/overview/course/course-widget-summary.tsx"
+    "components/minimal/sections/overview/course/course-widget-summary.tsx": "src/sections/overview/course/course-widget-summary.tsx",
+    "components/minimal/sections/overview/app/app-widget-summary.tsx": "src/sections/overview/app/app-widget-summary.tsx",
+    "components/minimal/sections/overview/booking/booking-widget-summary.tsx": "src/sections/overview/booking/booking-widget-summary.tsx"
   },
   "verbatim": {
     "components/minimal/_shared/config.ts": {
@@ -1017,6 +1019,19 @@
         "src/components/chart"
       ]
     },
+    "components/minimal/sections/overview/app/app-widget-summary.tsx": {
+      "sha256": "0955bbf117e178520838003a538cc7553a0adedb9a21391f440f552afb04dbdb",
+      "imports": [
+        "@mui/material/Card",
+        "src/components/chart",
+        "@mui/material/Box",
+        "@mui/material/Card",
+        "@mui/material/styles",
+        "src/utils/format-number",
+        "src/components/iconify",
+        "src/components/chart"
+      ]
+    },
     "components/minimal/sections/overview/banking/banking-balance-statistics.tsx": {
       "sha256": "2b2a2a92ac1e349ed5cf454c8c8f93b652a7c5aca8cd4a62d2c7c97d71a81901",
       "imports": [
@@ -1042,6 +1057,16 @@
         "@mui/material/CardHeader",
         "src/utils/format-number",
         "src/components/chart"
+      ]
+    },
+    "components/minimal/sections/overview/booking/booking-widget-summary.tsx": {
+      "sha256": "7508c0706dc55899baeb8a7cc1d3e0825b4b9febc6a45723b3859a7c56791f80",
+      "imports": [
+        "@mui/material/Card",
+        "@mui/material/Box",
+        "@mui/material/Card",
+        "src/utils/format-number",
+        "src/components/iconify"
       ]
     },
     "components/minimal/sections/overview/course/course-widget-summary.tsx": {

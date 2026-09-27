@@ -10,7 +10,7 @@ import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
 import { InfoHint } from "@/components/app/info-hint";
 import { PageHeader, type PageCrumb } from "@/components/app/page-header";
-import { CourseWidgetSummary } from "@/components/minimal/sections/overview/course/course-widget-summary";
+import { KpiWidget } from "@/components/app/kpi-widget";
 import { TableHeadCustom } from "@/components/minimal/table";
 import { Label } from "@/components/minimal/label";
 import { Scrollbar } from "@/components/minimal/scrollbar";
@@ -23,7 +23,6 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import type { PaletteColorKey } from "@/theme/core";
 import { UrlTabs } from "@/components/app/url-tabs";
-import { COURSE_WIDGET_ICONS } from "@/lib/minimal-icons";
 import { getVaccinationAdherence } from "@/lib/api/server";
 import type { AdherenceRow, ProcessIntegritySeverity, WorkState } from "@/lib/api/server";
 import { copy, optionalCopy, optionGroup, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -291,19 +290,20 @@ export async function ProtocolAdherencePage({
     { label: pageContract.title },
   ];
 
-  // Template overview/course tiles: a count and its title (CourseWidgetSummary takes numbers only).
-  const kpis: { key: string; title: string; total: number; icon: string; color: PaletteColorKey }[] = summary
+  // Template overview/course tiles (KpiWidget -> CourseWidgetSummary): the figure is a number; the
+  // unit and the contract hint are the visible sub-line under it.
+  const kpis: { key: string; title: string; total: number; caption: string; color: PaletteColorKey }[] = summary
     ? [
         {
           key: "adherence",
-          title: `${copy(pageContract, "label.overall_adherence")} (%)`,
+          title: copy(pageContract, "label.overall_adherence"),
           total: Math.round(summary.adherence_percent),
-          icon: COURSE_WIDGET_ICONS.progress,
+          caption: `% · ${copy(pageContract, "label.on_time_correct")}`,
           color: summary.adherence_percent >= 90 ? "success" : summary.adherence_percent >= 70 ? "warning" : "error",
         },
-        { key: "gaps", title: copy(pageContract, "label.open_process_gaps"), total: summary.open_gap_count, icon: COURSE_WIDGET_ICONS.certificates, color: summary.open_gap_count > 0 ? "warning" : "info" },
-        { key: "deferred", title: copy(pageContract, "label.deferred_explained"), total: summary.deferred_count, icon: COURSE_WIDGET_ICONS.progress, color: "info" },
-        { key: "on-track", title: `${copy(pageContract, "label.on_track")} · ${summary.completed_count}/${summary.expected_count} ${copy(pageContract, "label.done_suffix")}`, total: summary.process_intact_count, icon: COURSE_WIDGET_ICONS.completed, color: "success" },
+        { key: "gaps", title: copy(pageContract, "label.open_process_gaps"), total: summary.open_gap_count, caption: copy(pageContract, "label.across_rules"), color: summary.open_gap_count > 0 ? "warning" : "info" },
+        { key: "deferred", title: copy(pageContract, "label.deferred_explained"), total: summary.deferred_count, caption: copy(pageContract, "label.deferred_scope"), color: "info" },
+        { key: "on-track", title: copy(pageContract, "label.on_track"), total: summary.process_intact_count, caption: `${summary.completed_count}/${summary.expected_count} ${copy(pageContract, "label.done_suffix")}`, color: "success" },
       ]
     : [];
   const head = ledgerLabels.map((label, index) => ({ id: `c${index}`, label, width: LEDGER_WIDTHS[index] }));
@@ -317,14 +317,14 @@ export async function ProtocolAdherencePage({
       />
 
       <Stack spacing={3}>
-        {/* Template overview/course: CourseWidgetSummary tiles (Grid spacing 3). Park/date scope lives in the top bar only. */}
+        {/* Template overview/course: CourseWidgetSummary tiles via KpiWidget (Grid spacing 3). Park/date scope lives in the top bar only. */}
         {/* KPI tiles and ledger rows + pager swap to their skeleton on a tab / filter / page click
             (guard: url-keyed-panel); the ledger card head, tabs and toolbar stay on screen. */}
         <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<KpiRowSkeleton count={4} icon />}>
         <Grid container spacing={3}>
           {kpis.map((kpi) => (
             <Grid key={kpi.key} size={{ xs: 12, sm: 6, md: 3 }}>
-              <CourseWidgetSummary title={kpi.title} total={kpi.total} icon={kpi.icon} color={kpi.color} />
+              <KpiWidget title={kpi.title} total={kpi.total} caption={kpi.caption} color={kpi.color} />
             </Grid>
           ))}
         </Grid>

@@ -129,17 +129,18 @@ export async function MarketAnalyticsPage({
       <KpiGrid>
         <KpiWidget color="primary" title={copy(pageContract, "kpi.cities.label")} total={cities.length} />
         <KpiWidget color="info" title={copy(pageContract, "kpi.days.label")} total={analytics.days} icon="certificates" />
-        {/* The template widget figure is a number: the latest survey date is the card title's tail. */}
+        {/* The template widget figure is a number: the latest survey date is the visible sub-line. */}
         <KpiWidget
           color="secondary"
-          title={`${copy(pageContract, "kpi.latest.label")}: ${latestDate ? humanDate(latestDate) : none}`}
+          title={copy(pageContract, "kpi.latest.label")}
           total={null}
+          caption={latestDate ? humanDate(latestDate) : none}
         />
         <KpiWidget
           color="success"
-          title={`${copy(pageContract, "kpi.coverage.label")} (${day ? num(day.done + day.pending) : none})`}
+          title={copy(pageContract, "kpi.coverage.label")}
           total={day ? day.done : null}
-          caption={day ? `${num(day.done)} / ${num(day.done + day.pending)}` : none}
+          caption={day ? `of ${num(day.done + day.pending)}` : none}
           icon="completed"
         />
       </KpiGrid>

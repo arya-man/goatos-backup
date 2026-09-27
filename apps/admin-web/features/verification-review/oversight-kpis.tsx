@@ -7,8 +7,9 @@ import type { PaletteColorKey } from "@/theme/core";
 
 export type OversightKpi = {
   key: string;
-  /** Units ride in the title ("Oldest pending (h)"): the template widget prints a number. */
   title: string;
+  /** Leads the visible sub-line ("h · …"): the template widget prints a bare number. */
+  unit?: string;
   total: number | null;
   hint?: string;
   color: PaletteColorKey;
@@ -24,7 +25,7 @@ export function OversightKpis({ items }: { items: OversightKpi[] }) {
     <Grid container spacing={3}>
       {items.map((item) => (
         <Grid key={item.key} size={{ xs: 12, sm: 6 }}>
-          <KpiWidget title={item.title} total={item.total} caption={item.hint} color={item.color} sx={{ height: 1 }} />
+          <KpiWidget title={item.title} total={item.total} caption={[item.total == null ? "—" : item.unit, item.hint].filter(Boolean).join(" · ") || undefined} color={item.color} sx={{ height: 1 }} />
         </Grid>
       ))}
     </Grid>
