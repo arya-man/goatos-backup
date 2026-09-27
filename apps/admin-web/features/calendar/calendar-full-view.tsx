@@ -25,7 +25,7 @@ import { BlockSkeleton } from "@/components/app/skeletons";
  */
 const GRID_IGNORE = ["event", "targets_cursor", "targets_page", "targets_cursor_stack", "action_status", "action_key", "as_of"] as const;
 
-import { CalendarRoot, CalendarToolbar, type CalendarView } from "@/components/minimal/calendar";
+import { CalendarRoot, CalendarToolbar, type CalendarView } from "@/components/app/calendar";
 import { pushLocalOverlayUrl } from "@/components/local-overlay-link";
 import { scopeHref, type Scope } from "@/lib/scope";
 import { fmtDate } from "@/lib/format";

@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ConfigurationImportJob, ConfigurationImportRow, ConfigurationRegister } from "@/lib/api/configuration-server";
-import { UploadFile } from "@/components/minimal/upload";
+import { UploadFile } from "@/components/app/upload-file";
 import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
 

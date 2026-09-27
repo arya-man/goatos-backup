@@ -10,11 +10,13 @@ const read = (p) => readFileSync(new URL(p, import.meta.url), "utf8");
 test("guard: config-drawer-upload-template -- file pickers are the template Upload area, actions kit Buttons", () => {
   for (const file of ["./sheet-drawer.tsx", "./workbook-drawer.tsx"]) {
     const src = read(file);
-    assert.match(src, /import \{ UploadFile \} from "@\/components\/minimal\/upload";/, file);
+    assert.match(src, /import \{ UploadFile \} from "@\/components\/app\/upload-file";/, file);
     assert.doesNotMatch(src, /type="file"/, `${file} renders a bare file input`);
     assert.doesNotMatch(src, /className="btn sm b"[^>]*data-testid="(sheet|workbook)-upload"/, file);
   }
-  const upload = read("../../components/minimal/upload/upload-file.tsx");
+  const upload = read("../../components/app/upload-file.tsx");
+  // The area itself is the verbatim template UploadArea.
+  assert.match(upload, /import \{ UploadArea \} from '@\/components\/minimal\/upload\/default\/styles';/);
   assert.match(upload, /type="file"/);
   assert.match(upload, /data-testid=\{testId\}/);
 });

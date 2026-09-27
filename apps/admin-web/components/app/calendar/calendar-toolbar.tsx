@@ -16,7 +16,7 @@ import { Iconify } from "@/components/minimal/iconify";
 import type { IconifyName } from "@/layouts/template/iconify";
 import { CustomPopover } from "@/components/minimal/custom-popover";
 
-// CalendarToolbar — copied from Minimal_TypeScript_v7.7.0 next-ts
+// CalendarToolbar (components/app, NOT a template file) — built on Minimal_TypeScript_v7.7.0 next-ts
 // src/sections/calendar/calendar-toolbar.tsx and adapted for our read-only
 // /calendar (no "Add event" button, no filters drawer button — those template
 // affordances belong to the editable demo). Prev / Today / Next, the date

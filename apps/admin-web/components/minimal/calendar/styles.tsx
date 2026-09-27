@@ -1,93 +1,58 @@
-import type { CSSObject } from "@mui/material/styles";
+'use client';
 
-import { varAlpha } from "minimal-shared/utils";
+import type { CSSObject } from '@mui/material/styles';
 
-import { styled } from "@mui/material/styles";
+import { varAlpha } from 'minimal-shared/utils';
 
-// CalendarRoot — copied verbatim from Minimal_TypeScript_v7.7.0 next-ts
-// src/sections/calendar/styles.tsx. The token palette is Mesha (theme.vars),
-// so the shape/spacing/typography track the template while the colour comes
-// from the locked Mesha theme.
-export const CalendarRoot = styled("div")(({ theme }) => {
+import { styled } from '@mui/material/styles';
+
+// ----------------------------------------------------------------------
+
+export const CalendarRoot = styled('div')(({ theme }) => {
   const cssVars: CSSObject = {
-    "--fc-small-font-size": "0.813rem",
-    "--fc-border-color": theme.vars.palette.TableCell.border,
-    "--fc-page-bg-color": theme.vars.palette.background.default,
-    "--fc-neutral-text-color": theme.vars.palette.text.secondary,
-    "--fc-neutral-bg-color": theme.vars.palette.background.neutral,
-    "--fc-more-link-bg-color": "var(--fc-neutral-bg-color)",
-    "--fc-more-link-text-color": "var(--fc-neutral-text-color)",
-    "--fc-bg-event-opacity": 0.48,
-    "--fc-bg-event-color": "transparent",
-    "--fc-event-selected-overlay-color": "transparent",
-    "--fc-list-event-hover-bg-color": theme.vars.palette.action.hover,
-    "--fc-today-bg-color": "transparent",
-    "--fc-now-indicator-color": theme.vars.palette.error.main,
-    "--fc-highlight-color": varAlpha(theme.vars.palette.grey["500Channel"], 0.12),
-    "--fc-non-business-color": varAlpha(theme.vars.palette.grey["500Channel"], 0.08),
-    "--custom-event-bg-opacity": 0.24,
-    "--custom-day-number-py": "4px",
-    "--custom-day-number-px": "8px",
-    "--custom-day-number-active-size": "26px",
-    "--custom-day-other-color": theme.vars.palette.action.disabled,
-    "--custom-day-business-color": theme.vars.palette.text.secondary,
-    "--custom-today-color": theme.vars.palette.error.contrastText,
-    "--custom-today-bg": theme.vars.palette.error.main,
+    '--fc-small-font-size': '0.813rem',
+    '--fc-border-color': theme.vars.palette.TableCell.border,
+    '--fc-page-bg-color': theme.vars.palette.background.default,
+    '--fc-neutral-text-color': theme.vars.palette.text.secondary,
+    '--fc-neutral-bg-color': theme.vars.palette.background.neutral,
+    /********/
+    '--fc-more-link-bg-color': 'var(--fc-neutral-bg-color)',
+    '--fc-more-link-text-color': 'var(--fc-neutral-text-color)',
+    /********/
+    '--fc-bg-event-opacity': 0.48, // Apply for eventDisplay="background"
+    '--fc-bg-event-color': 'transparent',
+    '--fc-event-selected-overlay-color': 'transparent',
+    '--fc-list-event-hover-bg-color': theme.vars.palette.action.hover,
+    /********/
+    '--fc-today-bg-color': 'transparent',
+    '--fc-now-indicator-color': theme.vars.palette.error.main,
+    '--fc-highlight-color': varAlpha(theme.vars.palette.grey['500Channel'], 0.12),
+    '--fc-non-business-color': varAlpha(theme.vars.palette.grey['500Channel'], 0.08),
+    /********/
+    '--custom-event-bg-opacity': 0.24,
+    '--custom-day-number-py': '4px',
+    '--custom-day-number-px': '8px',
+    '--custom-day-number-active-size': '26px',
+    '--custom-day-other-color': theme.vars.palette.action.disabled,
+    '--custom-day-business-color': theme.vars.palette.text.secondary,
+    '--custom-today-color': theme.vars.palette.error.contrastText,
+    '--custom-today-bg': theme.vars.palette.error.main,
   };
 
   const containerStyles: CSSObject = {
-    "& .fc-license-message": { display: "none" },
-    "& .fc-media-screen": {
-      flex: "1 1 auto",
+    '& .fc-license-message': { display: 'none' },
+    '& .fc-media-screen': {
+      flex: '1 1 auto',
       marginLeft: -1,
       marginBottom: -1,
-      width: "calc(100% + 2px)",
+      width: 'calc(100% + 2px)',
     },
-  };
-
-  // The page shell's legacy table rules (`.wrap/.screen/.main th|td`: paper-2 fill, 48-57px heights,
-  // 16-24px padding, sticky thead, dashed / removed bottom borders, corner radii) also match
-  // FullCalendar's structural cells: that drew the tall grey weekday band and inset the weekend
-  // shading. `.fc.fc th|td` (0,3,1) outranks them and puts back FullCalendar's own values for exactly
-  // those properties; FullCalendar's more specific cell rules that the reset would otherwise beat
-  // are re-stated after it (0,4,x).
-  const legacyTableReset: CSSObject = {
-    "& .fc.fc th, & .fc.fc td": {
-      padding: 0,
-      height: "auto",
-      lineHeight: "normal",
-      background: "transparent",
-      position: "static",
-      borderRadius: 0,
-      borderBottom: "1px solid var(--fc-border-color)",
-      textTransform: "none",
-      letterSpacing: "normal",
-    },
-    "& .fc.fc th": { textAlign: "center", verticalAlign: "middle" },
-    "& .fc.fc .fc-scrollgrid-section > td": { height: "1px" },
-    "& .fc.fc .fc-scrollgrid-section-liquid > td": { height: "100%" },
-    "& .fc.fc .fc-scrollgrid-section-header > *, & .fc.fc .fc-scrollgrid-section-footer > *": { borderBottomWidth: 0 },
-    "& .fc.fc .fc-timegrid-slot": { height: "1.5em", borderBottom: 0 },
-    "& .fc.fc .fc-list-table td": { padding: "8px 14px" },
   };
 
   const tableHeadStyles: CSSObject = {
-    // Reset legacy admin-web selectors that leak into FullCalendar's raw <th> elements and make
-    // the weekday row a thick tinted band. Match `.wrap thead th` (frame.css) specificity with
-    // `.fc thead th.fc-col-header-cell` (three classes + two tags) so this override wins in
-    // production too. Cushion below owns the real padding/typography so the header stays thin.
-    "& .fc thead th.fc-col-header-cell": {
-      borderRightColor: "transparent",
-      padding: 0,
-      background: "transparent",
-      textTransform: "none",
-      letterSpacing: "normal",
-      color: theme.vars.palette.text.primary,
-      "&.fc-day-sat, &.fc-day-sun": { color: "var(--custom-day-business-color)" },
-      fontSize: "inherit",
-      fontWeight: "inherit",
-      position: "static",
-      "& .fc-col-header-cell-cushion": {
+    '& .fc-col-header-cell': {
+      borderRightColor: 'transparent',
+      '& .fc-col-header-cell-cushion': {
         ...theme.typography.subtitle2,
         paddingTop: 12.5,
         paddingBottom: 12.5,
@@ -96,148 +61,150 @@ export const CalendarRoot = styled("div")(({ theme }) => {
   };
 
   const tableBodyStyles: CSSObject = {
-    "& .fc-daygrid-day-number": {
+    // base day
+    '& .fc-daygrid-day-number': {
       ...theme.typography.body2,
-      lineHeight: "var(--custom-day-number-active-size)",
-      padding: "var(--custom-day-number-py) var(--custom-day-number-px)",
+      lineHeight: 'var(--custom-day-number-active-size)',
+      padding: 'var(--custom-day-number-py) var(--custom-day-number-px)',
     },
-    "& .fc-day-today .fc-daygrid-day-number": {
-      display: "inline-flex",
-      justifyContent: "center",
-      color: "var(--custom-today-color)",
+    // today
+    '& .fc-day-today .fc-daygrid-day-number': {
+      display: 'inline-flex',
+      justifyContent: 'center',
+      color: 'var(--custom-today-color)',
       fontWeight: theme.typography.fontWeightSemiBold,
-      width: "calc(var(--custom-day-number-active-size) + var(--custom-day-number-px))",
-      "&::before": {
+      width: 'calc(var(--custom-day-number-active-size) + var(--custom-day-number-px))',
+      '&::before': {
         zIndex: -1,
         content: '""',
-        borderRadius: "50%",
-        position: "absolute",
-        backgroundColor: "var(--custom-today-bg)",
-        width: "var(--custom-day-number-active-size)",
-        height: "var(--custom-day-number-active-size)",
+        borderRadius: '50%',
+        position: 'absolute',
+        backgroundColor: 'var(--custom-today-bg)',
+        width: 'var(--custom-day-number-active-size)',
+        height: 'var(--custom-day-number-active-size)',
       },
     },
-    "& .fc-day-sat, & .fc-day-sun": {
-      "&.fc-col-header-cell, & .fc-daygrid-day-top": {
-        color: "var(--custom-day-business-color)",
+    // sat & sun days
+    '& .fc-day-sat, & .fc-day-sun': {
+      '&.fc-col-header-cell, & .fc-daygrid-day-top': {
+        color: 'var(--custom-day-business-color)',
       },
     },
-    "& .fc-day-other .fc-daygrid-day-top": {
+    // other days
+    '& .fc-day-other .fc-daygrid-day-top': {
       opacity: 1,
-      color: "var(--custom-day-other-color)",
+      color: 'var(--custom-day-other-color)',
     },
   };
 
   const eventStyles: CSSObject = {
-    "& .fc-event": {
+    '& .fc-event': {
       borderWidth: 0,
       borderRadius: 6,
-      boxShadow: "none",
-      cursor: "pointer",
-      "& .fc-event-main": {
-        padding: "2px 6px",
-        borderRadius: "inherit",
-        border: `solid 1px ${varAlpha("currentColor", 0.16)}`,
-        transition: theme.transitions.create(["background-color"]),
+      boxShadow: 'none',
+      '& .fc-event-main': {
+        padding: '2px 6px',
+        borderRadius: 'inherit',
+        border: `solid 1px ${varAlpha('currentColor', 0.16)}`,
+        transition: theme.transitions.create(['background-color']),
         backgroundColor: varAlpha(
           theme.vars.palette.common.whiteChannel,
-          "calc(1 - var(--custom-event-bg-opacity))",
+          'calc(1 - var(--custom-event-bg-opacity))'
         ),
-        "&:hover": {
+        '&:hover': {
           backgroundColor: varAlpha(
             theme.vars.palette.common.whiteChannel,
-            "calc(1 - var(--custom-event-bg-opacity) * 1.5)",
+            'calc(1 - var(--custom-event-bg-opacity) * 1.5)'
           ),
         },
       },
-      "& .fc-event-main-frame": {
+      '& .fc-event-main-frame': {
         lineHeight: 20 / 13,
-        filter: "brightness(0.48)",
+        filter: 'brightness(0.48)',
       },
-      "& .fc-event-title": {
-        textOverflow: "ellipsis",
+      '& .fc-event-title': {
+        textOverflow: 'ellipsis',
       },
-      "& .fc-event-time": {
-        overflow: "unset",
+      '& .fc-event-time': {
+        overflow: 'unset',
         fontWeight: theme.typography.fontWeightBold,
       },
     },
-    "& .fc-daygrid-event": {
+    '& .fc-daygrid-event': {
       marginTop: 0,
       marginBottom: 4,
     },
-    "& .fc-daygrid-event.fc-event-end, & .fc-daygrid-event.fc-event-start": {
+    '& .fc-daygrid-event.fc-event-end, & .fc-daygrid-event.fc-event-start': {
       marginLeft: 4,
       marginRight: 4,
     },
   };
 
   const timeGridStyles: CSSObject = {
-    "& .fc-timegrid-axis-cushion": {
+    '& .fc-timegrid-axis-cushion': {
       ...theme.typography.body2,
       color: theme.vars.palette.text.secondary,
     },
-    "& .fc-timegrid-slot-label-cushion": {
+    '& .fc-timegrid-slot-label-cushion': {
       ...theme.typography.body2,
     },
   };
 
   const listViewStyles: CSSObject = {
-    "& .fc-list-day-text, & .fc-list-day-side-text": {
+    '& .fc-list-day-text, & .fc-list-day-side-text': {
       ...theme.typography.subtitle2,
     },
-    "& .fc-list-event": {
+    '& .fc-list-event': {
       ...theme.typography.body2,
-      cursor: "pointer",
     },
-    "& .fc-list-event-time": {
+    '& .fc-list-event-time': {
       color: theme.vars.palette.text.secondary,
     },
-    "& .fc-list-empty": {
+    '& .fc-list-empty': {
       ...theme.typography.h6,
-      backgroundColor: "transparent",
+      backgroundColor: 'transparent',
       color: theme.vars.palette.text.disabled,
     },
   };
 
   const popoverStyles: CSSObject = {
-    "& .fc-popover": {
+    '& .fc-popover': {
       borderWidth: 0,
       boxShadow: theme.vars.customShadows.dropdown,
       borderRadius: Number(theme.shape.borderRadius) * 1.5,
     },
-    "& .fc-popover-header": {
+    '& .fc-popover-header': {
       ...theme.typography.subtitle2,
       padding: theme.spacing(1),
-      borderTopLeftRadius: "inherit",
-      borderTopRightRadius: "inherit",
+      borderTopLeftRadius: 'inherit',
+      borderTopRightRadius: 'inherit',
     },
-    "& .fc-more-popover .fc-popover-body": {
+    '& .fc-more-popover .fc-popover-body': {
       padding: theme.spacing(0.5),
     },
-    "& .fc-popover-close": {
+    '& .fc-popover-close': {
       opacity: 0.48,
-      transition: theme.transitions.create(["opacity"]),
-      "&:hover": {
+      transition: theme.transitions.create(['opacity']),
+      '&:hover': {
         opacity: 0.8,
       },
     },
   };
 
   const moreLinkStyles: CSSObject = {
-    "& .fc-daygrid-more-link": {
+    '& .fc-daygrid-more-link': {
       ...theme.typography.caption,
       padding: theme.spacing(0, 1),
       color: theme.vars.palette.text.secondary,
       fontWeight: theme.typography.fontWeightMedium,
-      transition: theme.transitions.create(["color"]),
-      "&:hover": {
-        textDecoration: "underline",
-        backgroundColor: "transparent",
+      transition: theme.transitions.create(['color']),
+      '&:hover': {
+        textDecoration: 'underline',
+        backgroundColor: 'transparent',
         color: theme.vars.palette.text.primary,
       },
     },
-    "& .fc-timegrid-more-link": {
+    '& .fc-timegrid-more-link': {
       padding: theme.spacing(0.5),
       fontWeight: theme.typography.fontWeightSemiBold,
     },
@@ -246,7 +213,6 @@ export const CalendarRoot = styled("div")(({ theme }) => {
   return {
     ...cssVars,
     ...containerStyles,
-    ...legacyTableReset,
     ...tableHeadStyles,
     ...tableBodyStyles,
     ...timeGridStyles,

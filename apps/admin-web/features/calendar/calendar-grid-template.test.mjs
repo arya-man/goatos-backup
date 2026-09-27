@@ -10,7 +10,9 @@ import test from "node:test";
 const read = (p) => readFileSync(new URL(p, import.meta.url), "utf8");
 
 test("guard: calendar-legacy-table-reset -- FullCalendar cells outrank the shell's legacy th/td rules", () => {
-  const styles = read("../../components/minimal/calendar/styles.tsx");
+  // The reset lives in the app adapter layered on the verbatim template CalendarRoot.
+  const styles = read("../../components/app/calendar/calendar-root.tsx");
+  assert.match(styles, /styled\(TemplateCalendarRoot\)/);
   assert.match(styles, /"& \.fc\.fc th, & \.fc\.fc td": \{\s*padding: 0,\s*height: "auto",/);
   assert.match(styles, /background: "transparent",\s*position: "static",/);
   assert.match(styles, /\.\.\.legacyTableReset,\s*\.\.\.tableHeadStyles,/);

@@ -614,12 +614,22 @@ function runGuard(root, { themeDiff }) {
           imports += text;
           // components/app adapters only pass our data into template sections (e.g. kpi-widget ->
           // CourseWidgetSummary / EcommerceWidgetSummary), so their imports count one level deep.
-          for (const m of text.matchAll(/from\s+["']@\/(components\/app\/[\w/.-]+)["']/g)) {
-            for (const ext of [".tsx", ".ts", "/index.ts", "/index.tsx"]) {
-              const adapter = join(root, m[1] + ext);
-              if (existsSync(adapter)) imports += readFileSync(adapter, "utf8");
+          // Two levels, so an adapter folder's index re-exporting its own files (./calendar-root) counts.
+          const follow = (source, fromDir, depth) => {
+            const specs = [...source.matchAll(/from\s+["'](@\/components\/app\/[\w/.-]+|\.\.?\/[\w/.-]+)["']/g)].map((m) => m[1]);
+            for (const spec of specs) {
+              if (spec.startsWith(".") && !fromDir) continue;
+              const base = spec.startsWith("@/") ? join(root, spec.slice(2)) : join(fromDir, spec);
+              for (const ext of [".tsx", ".ts", "/index.ts", "/index.tsx"]) {
+                const adapter = base + ext;
+                if (!existsSync(adapter)) continue;
+                const body = readFileSync(adapter, "utf8");
+                imports += body;
+                if (depth > 1) follow(body, dirname(adapter), depth - 1);
+              }
             }
-          }
+          };
+          follow(text, null, 2);
         }
         for (const mod of modules) {
           const spec = new RegExp(`from\\s+["']@/${mod.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:["'/])`);

@@ -1,36 +1,18 @@
 'use client';
 
-// Ported from the licensed MUI Minimal template (components/upload/default: UploadArea +
-// PlaceholderContainer styles, and the single-file state). The template drives it with
-// react-dropzone; here the dropzone is the native file input itself (visually hidden inside the
-// area), so a form or a ref reads the chosen file exactly as it read the old bare input, and a
-// dropped file is written onto that same input.
+// File picker adapter (components/app): the VERBATIM template upload area
+// (components/minimal/upload/default/styles.tsx UploadArea, template state classes) rendered as a
+// <label> around the native file input (visually hidden inside), so a form or a ref reads the chosen
+// file exactly as it read the old bare input, and a dropped file is written onto that same input.
+// The template drives the area with react-dropzone; the native input keeps form behaviour unchanged.
 import { useRef, useState } from 'react';
 
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
-import { styled } from '@mui/material/styles';
 
-import { Iconify } from '../iconify';
-
-const UploadArea = styled('label')(({ theme }) => ({
-  minHeight: 160,
-  outline: 'none',
-  display: 'flex',
-  cursor: 'pointer',
-  overflow: 'hidden',
-  position: 'relative',
-  alignItems: 'center',
-  justifyContent: 'center',
-  padding: theme.spacing(3),
-  borderRadius: theme.shape.borderRadius,
-  transition: theme.transitions.create(['opacity']),
-  backgroundColor: `rgba(${theme.vars.palette.grey['500Channel']} / 0.08)`,
-  border: `1px dashed rgba(${theme.vars.palette.grey['500Channel']} / 0.2)`,
-  '&:hover, &.drag-active': { opacity: 0.72 },
-  '&.disabled': { opacity: 0.48, pointerEvents: 'none' },
-  '&:focus-within': { outline: `2px solid ${theme.vars.palette.primary.main}`, outlineOffset: 2 },
-}));
+import { Iconify } from '@/components/minimal/iconify';
+import { uploadClasses } from '@/components/minimal/upload/classes';
+import { UploadArea } from '@/components/minimal/upload/default/styles';
 
 const HIDDEN_INPUT: React.CSSProperties = {
   border: 0,
@@ -77,7 +59,10 @@ export function UploadFile({ accept, disabled, name, inputRef, title, descriptio
 
   return (
     <UploadArea
-      className={[dragActive ? 'drag-active' : '', disabled ? 'disabled' : ''].filter(Boolean).join(' ')}
+      as="label"
+      className={[dragActive ? uploadClasses.state.dragActive : '', disabled ? uploadClasses.state.disabled : ''].filter(Boolean).join(' ')}
+      // Drawer-sized (template default is the 280px page dropzone); keyboard focus shows on the area.
+      sx={{ minHeight: 'calc(var(--sp-2) * 10)', '&:focus-within': { outline: 2, outlineStyle: 'solid', outlineColor: 'primary.main', outlineOffset: 2 } }}
       onDragOver={(event) => {
         event.preventDefault();
         setDragActive(true);
@@ -91,9 +76,8 @@ export function UploadFile({ accept, disabled, name, inputRef, title, descriptio
         pick(event.dataTransfer.files);
       }}
     >
-      <input
+      <input type="file"
         ref={setRefs}
-        type="file"
         name={name}
         accept={accept}
         disabled={disabled}

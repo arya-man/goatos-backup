@@ -31,9 +31,7 @@
     "components/minimal/_shared/format-time.ts": "src/utils/format-time.ts",
     "components/minimal/_shared/tap.ts": "src/theme/core/components/button.tsx",
     "components/minimal/_shared/phone-tap-styles.tsx": "src/theme/core/components/button.tsx",
-    "components/minimal/calendar/calendar-toolbar.tsx": "src/sections/calendar/calendar-toolbar.tsx",
     "components/minimal/calendar/styles.tsx": "src/sections/calendar/styles.tsx",
-    "components/minimal/calendar/index.ts": "src/sections/calendar/index.ts",
     "components/minimal/chart/chart.tsx": "src/components/chart/chart.tsx",
     "components/minimal/chart/classes.ts": "src/components/chart/classes.ts",
     "components/minimal/chart/index.ts": "src/components/chart/index.ts",
@@ -59,8 +57,6 @@
     "components/minimal/custom-popover/index.ts": "src/components/custom-popover/index.ts",
     "components/minimal/drawer/minimal-drawer.tsx": "src/sections/calendar/calendar-filters.tsx",
     "components/minimal/drawer/index.ts": "src/sections/calendar/index.ts",
-    "components/minimal/upload/upload-file.tsx": "src/components/upload/default/upload-default.tsx",
-    "components/minimal/upload/index.ts": "src/components/upload/index.ts",
     "components/minimal/empty-content/empty-content.tsx": "src/components/empty-content/empty-content.tsx",
     "components/minimal/empty-content/index.ts": "src/components/empty-content/index.ts",
     "components/minimal/filters-result/filters-block.tsx": "src/components/filters-result/filters-block.tsx",
@@ -193,7 +189,9 @@
     "layouts/template/svg-color/types.ts": "src/components/svg-color/types.ts",
     "components/minimal/sections/overview/course/course-widget-summary.tsx": "src/sections/overview/course/course-widget-summary.tsx",
     "components/minimal/sections/overview/app/app-widget-summary.tsx": "src/sections/overview/app/app-widget-summary.tsx",
-    "components/minimal/sections/overview/booking/booking-widget-summary.tsx": "src/sections/overview/booking/booking-widget-summary.tsx"
+    "components/minimal/sections/overview/booking/booking-widget-summary.tsx": "src/sections/overview/booking/booking-widget-summary.tsx",
+    "components/minimal/upload/classes.ts": "src/components/upload/classes.ts",
+    "components/minimal/upload/default/styles.tsx": "src/components/upload/default/styles.tsx"
   },
   "verbatim": {
     "components/minimal/_shared/config.ts": {
@@ -235,27 +233,6 @@
         "minimal-shared/utils",
         "@mui/material/Button",
         "../palette"
-      ]
-    },
-    "components/minimal/calendar/calendar-toolbar.tsx": {
-      "sha256": "ea76bf085a2204ed444b867347552c2ca9ba527f2ffcf27354045337a4106a14",
-      "imports": [
-        "src/types/calendar",
-        "src/components/iconify",
-        "./hooks/use-calendar",
-        "minimal-shared/hooks",
-        "@mui/material/Box",
-        "@mui/material/Badge",
-        "@mui/material/Button",
-        "@mui/material/Tooltip",
-        "@mui/material/MenuList",
-        "@mui/material/MenuItem",
-        "@mui/material/IconButton",
-        "@mui/material/ToggleButton",
-        "@mui/material/LinearProgress",
-        "@mui/material/ToggleButtonGroup",
-        "src/components/iconify",
-        "src/components/custom-popover"
       ]
     },
     "components/minimal/calendar/styles.tsx": {
@@ -1179,35 +1156,19 @@
       "sha256": "2ee3f980dc6316f091f1ffba5d2111f430ab7c13be1150f825b089d0369c4e1b",
       "imports": []
     },
-    "components/minimal/upload/index.ts": {
-      "sha256": "5f0049e24840473bb9baae45c0a3d9160d51ede2f5bec8b4d2e06b4da7985f24",
+    "components/minimal/upload/classes.ts": {
+      "sha256": "80417bdedf77eb4af0b5e3298a5775ea5b4a838a31fb232f478f9b88b9ed623d",
       "imports": [
-        "./box/upload-box",
-        "./avatar/upload-avatar",
-        "./default/upload-default",
-        "./components/rejected-files",
-        "./components/multi-file-preview",
-        "./components/single-file-preview",
-        "./types"
+        "src/theme/create-classes"
       ]
     },
-    "components/minimal/upload/upload-file.tsx": {
-      "sha256": "13a521047f07434921f5141af22433952f9c035370dfba0493b7fd35416df2da",
+    "components/minimal/upload/default/styles.tsx": {
+      "sha256": "384381977170efeb249760c97dff5389dc8d5a858836095255250f972b1ecca1",
       "imports": [
-        "../types",
-        "react-dropzone",
         "minimal-shared/utils",
-        "@mui/material/Box",
-        "@mui/material/Button",
-        "@mui/material/FormHelperText",
-        "@mui/material/CircularProgress",
-        "src/assets/illustrations",
-        "../../iconify",
-        "../classes",
-        "../components/rejected-files",
-        "../components/multi-file-preview",
-        "../components/single-file-preview",
-        "./styles"
+        "@mui/material/styles",
+        "@mui/material/IconButton",
+        "../classes"
       ]
     },
     "layouts/auth-split/content.tsx": {
