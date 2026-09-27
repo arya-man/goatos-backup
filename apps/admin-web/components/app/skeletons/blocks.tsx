@@ -72,9 +72,6 @@ export function PageSkeleton({ children, root = "screen on", className, gap }: {
   if (gap != null && screen) {
     return (
       <Box className={[root, className].filter(Boolean).join(" ")} aria-busy="true" data-skel-root="">
-        {/* A grid, not a flex column: `.screen[aria-busy="true"] div { flex-wrap: wrap }` turns a
-            flex column multi-line, and Chrome then sizes each card at its min-content width (a
-            one-row filter card measured two rows tall). */}
         <Box sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap }}>{children}</Box>
       </Box>
     );
@@ -97,6 +94,7 @@ export function PageHeaderSkeleton({
   titleWidth = 260,
   actions = 0,
   actionWidths,
+  actionHeights,
   tabs,
   toolbar,
 }: {
@@ -113,11 +111,13 @@ export function PageHeaderSkeleton({
   titleWidth?: number;
   /** Number of header action buttons (right-aligned, 36px template Button). */
   actions?: number;
-  actionWidths?: number[];
+  actionWidths?: (number | Record<string, number>)[];
+  /** Per-action height when it is not a 36px Button (a view ToggleButtonGroup: 40, 54 on a phone). */
+  actionHeights?: (number | Record<string, number> | undefined)[];
   tabs?: ReactNode;
   toolbar?: ReactNode;
 }) {
-  const widths = actionWidths ?? Array.from({ length: actions }, (_, i) => (i === actions - 1 ? 128 : 104));
+  const widths: (number | Record<string, number>)[] = actionWidths ?? Array.from({ length: actions }, (_, i) => (i === actions - 1 ? 128 : 104));
   // The verbatim template CustomBreadcrumbs, as PageHeader renders it: the heading slot (h4
   // typography, full row width) holds a text Skeleton, the crumb slot is the same MUI Breadcrumbs
   // (dot separators, body2 line) with Skeleton crumbs, the actions sit in the same right-hand Box.
@@ -149,7 +149,7 @@ export function PageHeaderSkeleton({
           widths.length ? (
             <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5, alignItems: "center" }}>
               {widths.map((w, i) => (
-                <Skeleton key={i} variant="rounded" width={w} sx={{ height: tapHeight(36) }} />
+                <Skeleton key={i} variant="rounded" sx={{ width: w, height: actionHeights?.[i] ?? tapHeight(36) }} />
               ))}
             </Box>
           ) : undefined
@@ -171,8 +171,7 @@ export function TabsSkeleton({ count, variant = "underline", counts = false, wid
       aria-hidden="true"
       data-skel="tabs"
       indicatorColor={variant === "pill" ? ("custom" as never) : undefined}
-      // The strip scrolls, never wraps: `&&` outranks frame.css `.screen[aria-busy="true"] div { flex-wrap: wrap }`.
-      sx={[{ "&& .MuiTabs-list": { flexWrap: "nowrap" } }, variant === "pill" ? { width: "fit-content", maxWidth: "100%", borderRadius: "var(--r-md)" } : {}, ...(Array.isArray(sx) ? sx : [sx])]}
+      sx={[variant === "pill" ? { width: "fit-content", maxWidth: "100%", borderRadius: "var(--r-md)" } : {}, ...(Array.isArray(sx) ? sx : [sx])]}
     >
       {Array.from({ length: count }, (_, i) => (
         <Tab
@@ -801,9 +800,7 @@ export function HeadingSkeleton({ variant = "h6", width = 180 }: { variant?: Typ
 /** The page's own `Stack spacing={3}` wrapper when its blocks live inside one (leave, routines, ceo-ai-admin). */
 export function StackSkeleton({ children, spacing = 3 }: { children: ReactNode; spacing?: number }) {
   return (
-    // `&&&` outranks frame.css `.screen[aria-busy="true"] div { flex-wrap: wrap }`: a wrapping flex
-    // column sizes its items at max-content, so a wide tab strip pushed the whole column past a phone.
-    <Stack spacing={spacing} aria-hidden="true" data-skel="stack" sx={{ minWidth: 0, "&&&": { flexWrap: "nowrap" } }}>
+    <Stack spacing={spacing} aria-hidden="true" data-skel="stack" sx={{ minWidth: 0 }}>
       {children}
     </Stack>
   );
@@ -828,7 +825,18 @@ export function GridSkeleton({ items, spacing = 3, fill = false }: { items: { si
  * neutral lane paper, 16px item gap — the work board); `layout="grid"` is an equal-column board that
  * fills the width (action center / tasks boards), collapsing to 2 then 1 column like theirs.
  */
-export function KanbanSkeleton({ lanes, layout = "kanban", minHeight }: { lanes: number[]; layout?: "kanban" | "grid"; minHeight?: number }) {
+export function KanbanSkeleton({
+  lanes,
+  layout = "kanban",
+  minHeight,
+  laneWidth,
+}: {
+  lanes: number[];
+  layout?: "kanban" | "grid";
+  minHeight?: number;
+  /** The board's own `--kanban-column-width` when it sets one (the /tasks board fills four lanes, 86vw on a phone). */
+  laneWidth?: string | Record<string, string>;
+}) {
   const lane = (cards: number, i: number) => (
     <Box
       key={i}
@@ -841,7 +849,7 @@ export function KanbanSkeleton({ lanes, layout = "kanban", minHeight }: { lanes:
         borderRadius: "var(--r-xl)",
         bgcolor: "background.neutral",
         minWidth: 0,
-        ...(layout === "kanban" ? { width: "min(calc(var(--sp-6) * 7), calc(100vw - var(--sp-6)))" } : {}),
+        ...(layout === "kanban" ? { width: laneWidth ? capLane(laneWidth) : "min(calc(var(--sp-6) * 7), calc(100vw - var(--sp-6)))" } : {}),
         ...(minHeight ? { minHeight } : {}),
       }}
     >
@@ -876,6 +884,12 @@ export function KanbanSkeleton({ lanes, layout = "kanban", minHeight }: { lanes:
       {lanes.map((cards, i) => lane(cards, i))}
     </Box>
   );
+}
+
+/** The template ColumnRoot width rule: the board's column width, never wider than the phone less its gutters. */
+function capLane(width: string | Record<string, string>) {
+  const cap = (v: string) => `min(${v}, calc(100vw - var(--sp-3) * 2))`;
+  return typeof width === "string" ? cap(width) : Object.fromEntries(Object.entries(width).map(([bp, v]) => [bp, cap(v)]));
 }
 
 /**
@@ -918,13 +932,11 @@ export function OrderToolbarSkeleton({
   search?: boolean;
   menu?: boolean;
 }) {
-  // `&&&` outranks frame.css `.screen[aria-busy="true"] div { flex-wrap: wrap }`: the loaded row never wraps.
-  const noWrap = { "&&&": { flexWrap: "nowrap" } } as const;
   return (
     <Box
       aria-hidden="true"
       data-skel="toolbar"
-      sx={{ p: 2.5, gap: 2, display: "flex", pr: { xs: 2.5, md: 1 }, flexDirection: { xs: "column", md: "row" }, alignItems: { xs: "flex-end", md: "center" }, ...noWrap }}
+      sx={{ p: 2.5, gap: 2, display: "flex", pr: { xs: 2.5, md: 1 }, flexDirection: { xs: "column", md: "row" }, alignItems: { xs: "flex-end", md: "center" } }}
     >
       {Array.from({ length: filters }, (_, i) => (
         <Skeleton key={i} variant="rounded" sx={{ ...orderToolbarFilterSx, height: FIELD_H }} />
@@ -938,7 +950,7 @@ export function OrderToolbarSkeleton({
       {(trailingTall ? trailing : []).map((w, i) => (
         <Skeleton key={`t${i}`} variant="rounded" sx={{ height: "var(--input-h)", width: w, flexShrink: 0 }} />
       ))}
-      <Box sx={{ gap: 2, width: 1, flexGrow: 1, display: "flex", alignItems: "center", ...noWrap }}>
+      <Box sx={{ gap: 2, width: 1, flexGrow: 1, display: "flex", alignItems: "center" }}>
         {search ? <Skeleton variant="rounded" sx={{ ...orderToolbarSearchSx, height: FIELD_H }} /> : <Box sx={{ flexGrow: 1 }} />}
         {menu ? <Skeleton variant="circular" sx={{ width: tapHeight(36), height: tapHeight(36), flexShrink: 0 }} /> : null}
       </Box>

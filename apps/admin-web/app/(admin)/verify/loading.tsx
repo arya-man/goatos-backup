@@ -1,21 +1,22 @@
-import { ChipRowSkeleton, FilterCardSkeleton, PageHeaderSkeleton, PageSkeleton, StackSkeleton, TableSkeleton } from "@/components/app/skeletons";
-import { QUEUE_LIMIT } from "@/features/verification-review/verification-layout";
+import { FilterCardSkeleton, PageHeaderSkeleton, PageSkeleton, StatStripSkeleton, TableSkeleton, TabsSkeleton } from "@/components/app/skeletons";
+import { BOARD_TOOLBAR_FIELDS, HEADER_ACTION_WIDTHS, QUEUE_LIMIT, STATUS_STRIP_CELLS, STATUS_TABS } from "@/features/verification-review/verification-layout";
 
-/** /verify: header + panel buttons, then the one verification board card (module chips, date / pen filters, status chips, table, pager). */
+/**
+ * /verify, block for block with the page (template InvoiceListView): header + the panel buttons
+ * (plain crumbs), the status summary strip card, then the board card: status tabs with counts, the
+ * toolbar (module select, capture date), the queue table and its pager.
+ */
 export default function Loading() {
   return (
     <PageSkeleton>
-      <PageHeaderSkeleton actions={3} />
+      <PageHeaderSkeleton crumbLink={false} titleWidth={80} actionWidths={HEADER_ACTION_WIDTHS} />
+      <StatStripSkeleton count={STATUS_STRIP_CELLS} />
       <TableSkeleton
         columns={9}
         rows={QUEUE_LIMIT}
-        toolbar={
-          <StackSkeleton spacing={2}>
-            <ChipRowSkeleton count={5} />
-            <FilterCardSkeleton inCard fields={[240, 180]} actions={2} small />
-            <ChipRowSkeleton count={4} />
-          </StackSkeleton>
-        }
+        header={false}
+        tabs={<TabsSkeleton count={STATUS_TABS} counts />}
+        toolbar={<FilterCardSkeleton inCard fields={BOARD_TOOLBAR_FIELDS} />}
       />
     </PageSkeleton>
   );

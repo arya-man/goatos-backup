@@ -1,5 +1,6 @@
 "use client";
 
+import { FOUR_LANE_COLUMN_WIDTH } from "@/components/app/kanban/board-layout";
 import { visuallyHidden } from "@mui/utils";
 import { useEffect, useState, useTransition } from "react";
 import { faro } from "@grafana/faro-web-sdk";
@@ -265,7 +266,7 @@ export function TaskBoardColumns({
         role="group"
         aria-label={copy(pageContract, "board.aria", "Tasks by status")}
         sx={{
-          "--kanban-column-width": { xs: "86vw", sm: "clamp(calc(var(--sp-5) * 6), calc((100% - 3 * var(--kanban-column-gap)) / 4), var(--kanban-col-w))" },
+          "--kanban-column-width": FOUR_LANE_COLUMN_WIDTH,
           overscrollBehaviorX: "contain",
           scrollSnapType: { xs: "x mandatory", md: "none" },
           "& > section": { scrollSnapAlign: "start" },

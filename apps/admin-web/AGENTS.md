@@ -180,7 +180,7 @@ Spec: `docs/design/mui-minimal-spec.md`. Tokens: `app/minimal-tokens.css`. Gate:
   MUI Breadcrumbs crumb row, action buttons 44px below md); KpiRowSkeleton's default card IS the
   KpiWidget course card (h3 figure, subtitle2 title, 36px corner icon tile; `hint` = the caption
   sub-line; `spark` = the ecommerce card, `booking` = the month card); a `.screen` PageSkeleton puts its
-  gap on an inner grid (`.screen.on { display:block }` and `.screen[aria-busy] div { flex-wrap:wrap }`
+  gap on an inner grid (`.screen.on { display:block }`
   otherwise drop the gap / size cards at min-content). A card grid is judged by its first card (item
   count is data). A page block that renders empty (an always-on filter `summary` strip) is a page bug:
   render it only with content.

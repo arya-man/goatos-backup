@@ -177,8 +177,6 @@ details.top-date-picker:not([open])>.top-date-popover,details.move-date-picker:n
 /* Cards clip (not scroll): `overflow:clip` keeps the rounded corners without ever becoming a scroll container,
    so a card a few px taller than its box can never trap a swipe (webview guard class 5). */
 .card{overflow:clip;display:flow-root}
-/* Route skeletons (loading.tsx) never run past their card or the viewport at 390: fixed-width pills wrap. */
-.screen[aria-busy="true"] div{flex-wrap:wrap;min-width:0}
 /* A table skeleton is a table card: paper, radius, hairline rows, header band — the shape it resolves into. */
 /* Tab-level skeletons sit inside their table card, never wider than it (owner shot ravi-shots/32). */
 /* A status chip is never a bar: it hugs its text even inside a stretched flex column / grid cell. */

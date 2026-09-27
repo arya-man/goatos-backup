@@ -68,7 +68,7 @@ import { TablePaginationLinks } from "@/components/app/table";
 import { fPercent } from "@/components/minimal/_shared/format-number";
 import { InvoiceAnalytic } from "@/components/app/sections/invoice/invoice-analytic";
 import { VrQueueHead } from "./vr-queue-head";
-import { QUEUE_LIMIT } from "./verification-layout";
+import { QUEUE_LIMIT, STATUS_STRIP_CELLS } from "./verification-layout";
 
 const PATHNAME = "/verify";
 
@@ -442,7 +442,7 @@ export async function VerificationReviewPage({
       {/* Status counts + queue rows swap to their skeleton on a tab / module / date / shed / sort /
           page change (guard: url-keyed-panel); the tabs and the filter toolbar stay on screen. The
           drawer / panel params are not watched: opening one never blanks the queue. */}
-      <UrlSuspense searchParams={sp} watch={QUEUE_WATCH} fallback={<Box sx={{ mb: { xs: 3, md: 5 } }}><StatStripSkeleton count={4} meta /></Box>}>
+      <UrlSuspense searchParams={sp} watch={QUEUE_WATCH} fallback={<StatStripSkeleton count={STATUS_STRIP_CELLS} />}>
       {queue.ok && statusOptionsWithStatus.length ? (
         <Card>
           <Scrollbar sx={{ minHeight: 108 }}>

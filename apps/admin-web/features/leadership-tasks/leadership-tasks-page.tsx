@@ -1,4 +1,6 @@
 import Box from "@mui/material/Box";
+import { FOUR_LANE_COLUMN_WIDTH } from "@/components/app/kanban/board-layout";
+import { TASK_BOARD_SKELETON_LANES } from "./tasks-layout";
 import Card from "@mui/material/Card";
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
@@ -47,7 +49,7 @@ import { personOptions, rowFromTask, rowsFromPage, type TaskRow } from "./task-r
 import { TaskDrawerHost } from "./task-drawer-host";
 import { TaskViewBody, TaskViewProvider, TaskViewToggle } from "./task-view-switch";
 import { TaskFeedbackBanner } from "./task-feedback-banner";
-import { TASK_BOARD_COLUMNS, TASK_VIEW_ALIAS, TASK_VIEWS, TASKS_PATHNAME, TASKS_PREVIEW_PATHNAME } from "./task-url";
+import { TASK_VIEW_ALIAS, TASK_VIEWS, TASKS_PATHNAME, TASKS_PREVIEW_PATHNAME } from "./task-url";
 import { withCancelledRows } from "./task-detail-pick";
 
 const TABLE_ID = "leadership-task-progress";
@@ -409,7 +411,7 @@ export function LeadershipTasksPage({
         board={
           <>
             <Card sx={{ mb: 3 }}>{filters}</Card>
-            <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={TASK_PANEL_IGNORE} fallback={<KanbanSkeleton layout="grid" lanes={TASK_BOARD_COLUMNS.map((_, i) => 3 - (i % 2))} minHeight={560} />}>
+            <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={TASK_PANEL_IGNORE} fallback={<KanbanSkeleton lanes={TASK_BOARD_SKELETON_LANES} laneWidth={FOUR_LANE_COLUMN_WIDTH} />}>
             {hasBoardTasks ? (
               <>
                 <LeadershipTasksBoard

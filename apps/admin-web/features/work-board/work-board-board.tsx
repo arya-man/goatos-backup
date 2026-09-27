@@ -1,5 +1,6 @@
 "use client";
 
+import { FOUR_LANE_COLUMN_WIDTH } from "@/components/app/kanban/board-layout";
 import Box from "@mui/material/Box";
 import Select from "@mui/material/Select";
 import Divider from "@mui/material/Divider";
@@ -235,7 +236,7 @@ function WorkCard({ pageContract, row, href }: { pageContract: AdminUiPageContra
 // Board presentation (theme tokens only). Column width follows the template's
 // `--kanban-column-width`, fitted so four lanes share a laptop row and a phone swipes one lane at a time.
 const BOARD_SX = {
-  "--kanban-column-width": { xs: "86vw", sm: "clamp(calc(var(--sp-5) * 6), calc((100% - 3 * var(--kanban-column-gap)) / 4), var(--kanban-col-w))" },
+  "--kanban-column-width": FOUR_LANE_COLUMN_WIDTH,
   overscrollBehaviorX: "contain",
   scrollSnapType: { xs: "x mandatory", md: "none" },
   "& > section": { scrollSnapAlign: "start" },

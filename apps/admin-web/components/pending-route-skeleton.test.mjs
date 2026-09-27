@@ -56,3 +56,13 @@ test("the pending skeleton wrapper restates the page root grid", () => {
   const frame = read("../app/frame.css");
   assert.match(frame, /\.wrap>\.screen[^{]*\{display:grid;gap:24px/, "frame.css page grid changed: update PENDING_ROOT_SX with it");
 });
+
+// guard: skeleton-no-forced-wrap (SK1). frame.css forced `flex-wrap: wrap` on every div of a busy
+// `.screen` skeleton, so rows the loaded page scrolls (the /verify status strip, kanban lanes, tab
+// strips) wrapped into extra rows (strip 256px vs 108px at 390) and every block fought it with `&&&`.
+// The rule is deleted; skeleton rows wrap exactly where the page's rows wrap.
+test("no stylesheet forces flex-wrap on busy skeleton divs", () => {
+  const frame = read("../app/frame.css");
+  assert.doesNotMatch(frame, /\.screen\[aria-busy="true"\]\s+div\s*\{[^}]*flex-wrap/);
+  assert.doesNotMatch(read("./app/skeletons/blocks.tsx"), /"&&&": \{ flexWrap/);
+});
