@@ -25,6 +25,10 @@ const TWINS = {
   "app/(admin)/counts/mortality/loading.tsx": ["features/counts/mortality.tsx"],
   "app/(admin)/counts/milk-preparation/loading.tsx": ["features/counts/milk-preparation.tsx"],
   "features/procurement/vendor-skeletons.tsx": ["features/procurement/vendor-board.tsx"],
+  "features/procurement/feed-purchases-skeletons.tsx": ["features/procurement/feed-purchases.tsx"],
+  "app/(admin)/operations/audit/loading.tsx": ["features/operations-audit/audit-log.tsx"],
+  "app/(admin)/operations/dlq/loading.tsx": ["features/operations-dlq/index.tsx"],
+  "app/(admin)/leave/loading.tsx": ["features/leave/leave-page.tsx"],
 };
 
 /** Whether each `crumbs={[{ … }` literal's first (parent) crumb carries an href. */
