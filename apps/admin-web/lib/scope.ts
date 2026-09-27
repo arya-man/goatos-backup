@@ -152,3 +152,20 @@ export function parkLabel(parks: Park[], parkId: string | undefined): string {
   const park = parks.find((p) => p.id === parkId);
   return park?.code ?? park?.name ?? "";
 }
+
+/**
+ * Header scope switcher selection (O38). `value` is the scope in the URL. A value that matches no option
+ * (a ?park=<id> outside the shell's park list) shows `fallback` on the trigger and marks NO option
+ * selected, so the switcher never claims "All parks" while the page body is scoped to that one park.
+ * No value falls back to the first option, as the template does.
+ */
+export function pickScopeOption<T extends { id: string }, F>(
+  options: readonly T[],
+  value: string | undefined,
+  fallback?: F,
+): { current: T | F | undefined; selectedId: string | undefined } {
+  const matched = options.find((option) => option.id === value);
+  if (matched) return { current: matched, selectedId: matched.id };
+  if (value && fallback !== undefined) return { current: fallback, selectedId: undefined };
+  return { current: options[0], selectedId: options[0]?.id };
+}

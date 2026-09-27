@@ -33,3 +33,14 @@ test("top bar scope changes preserve repeated page filters", () => {
   );
   assert.equal(href, "/counts/breakdown?scope_mode=park&park=new&bd_stage=kid&bd_stage=adult&bd_breed=osmanabadi");
 });
+
+// O38: a ?park=<id> outside the shell's park list must not read (or select) "All parks".
+test("pickScopeOption: unknown value shows the fallback and selects no option", async () => {
+  const { pickScopeOption } = await import("./scope.ts");
+  const options = [{ id: "all", name: "All parks" }, { id: "p1", name: "North park" }];
+  const fallback = { name: "Selected park" };
+  assert.deepEqual(pickScopeOption(options, "p-unknown", fallback), { current: fallback, selectedId: undefined });
+  assert.deepEqual(pickScopeOption(options, "p1", fallback), { current: options[1], selectedId: "p1" });
+  assert.deepEqual(pickScopeOption(options, "all", fallback), { current: options[0], selectedId: "all" });
+  assert.deepEqual(pickScopeOption(options, undefined, fallback), { current: options[0], selectedId: "all" });
+});

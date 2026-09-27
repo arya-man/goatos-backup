@@ -20,13 +20,18 @@ import { Scrollbar } from '@/layouts/template/scrollbar';
 import { RouterLink } from '@/layouts/template/routes/components';
 import { CustomPopover } from '@/layouts/template/custom-popover';
 
+import { pickScopeOption } from '@/lib/scope';
+
 // ----------------------------------------------------------------------
 
 // Template-derived copy of Minimal v7.7.0 next-ts src/layouts/components/workspaces-popover.tsx (anatomy
 // pinned in docs/design/template-derived.json): the header park-scope switcher. The shell owns the
 // selection (value = the scope in the URL) and each option is a link (href, history replace) instead of
 // the template's local demo state; the "Create workspace" demo button is not carried (bottomArea slot
-// in its place); slotProps.menuList carries the listbox role, label and subheader.
+// in its place); slotProps.menuList carries the listbox role, label and subheader. Declared overrides
+// (manifest `replaced`): an option name wraps instead of noWrap and shows the park code as a caption
+// line under it; rows grow from a 48px floor (the xs key outranks MenuItem's own sm minHeight auto);
+// a value outside `data` shows `fallback` on the trigger and selects no option (pickScopeOption).
 
 export type WorkspacesPopoverProps = ButtonBaseProps & {
   data?: {
@@ -35,8 +40,10 @@ export type WorkspacesPopoverProps = ButtonBaseProps & {
     logo: string;
     plan: string;
     href: string;
+    code?: string | null;
   }[];
   value?: string;
+  fallback?: { name: string; logo: string; plan: string };
   slots?: { bottomArea?: React.ReactNode };
   slotProps?: { menuList?: MenuListProps };
 };
@@ -44,6 +51,7 @@ export type WorkspacesPopoverProps = ButtonBaseProps & {
 export function WorkspacesPopover({
   data = [],
   value,
+  fallback,
   slots,
   slotProps,
   sx,
@@ -53,7 +61,7 @@ export function WorkspacesPopover({
 
   const { open, anchorEl, onClose, onOpen } = usePopover();
 
-  const workspace = data.find((option) => option.id === value) ?? data[0];
+  const { current: workspace, selectedId } = pickScopeOption(data, value, fallback);
 
   const handleChangeWorkspace = useCallback(() => {
     onClose();
@@ -145,20 +153,24 @@ export function WorkspacesPopover({
               replace
               scroll={false}
               role="option"
-              aria-selected={option.id === workspace?.id}
-              selected={option.id === workspace?.id}
+              aria-selected={option.id === selectedId}
+              selected={option.id === selectedId}
               onClick={() => handleChangeWorkspace()}
-              sx={{ height: 48 }}
+              sx={{ minHeight: { xs: 48 }, height: 'auto' }}
             >
               <Avatar alt={option.name} src={option.logo} sx={{ width: 24, height: 24 }} />
 
               <Typography
-                noWrap
                 component="span"
                 variant="body2"
-                sx={{ flexGrow: 1, fontWeight: 'fontWeightMedium' }}
+                sx={{ flexGrow: 1, fontWeight: 'fontWeightMedium', minWidth: 0, whiteSpace: 'normal', overflowWrap: 'anywhere' }}
               >
                 {option.name}
+                {option.code ? (
+                  <Box component="span" sx={{ display: 'block', typography: 'caption', color: 'text.secondary' }}>
+                    {option.code}
+                  </Box>
+                ) : null}
               </Typography>
 
               <Label color={option.plan === 'Free' ? 'default' : 'info'}>{option.plan}</Label>

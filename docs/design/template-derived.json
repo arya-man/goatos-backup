@@ -1490,7 +1490,7 @@
     },
     "layouts/app/components/workspaces-popover.tsx": {
       "source": "src/layouts/components/workspaces-popover.tsx",
-      "replaced": "demo local selection (useState(data[0])) -> shell-owned value (the URL scope); options are scope links (MenuItem component RouterLink, href, history replace, no scroll, option role/aria-selected); the \"Create workspace\" demo button and its dashed divider -> bottomArea slot (the shell's empty-tenant note); slotProps.menuList carries the listbox role, label and subheader; declared: trigger aria-haspopup/aria-expanded",
+      "replaced": "demo local selection (useState(data[0])) -> shell-owned value (the URL scope); options are scope links (MenuItem component RouterLink, href, history replace, no scroll, option role/aria-selected); the \"Create workspace\" demo button and its dashed divider -> bottomArea slot (the shell's empty-tenant note); slotProps.menuList carries the listbox role, label and subheader; declared: trigger aria-haspopup/aria-expanded; declared (O37): an option name wraps (noWrap -> whiteSpace normal + overflowWrap anywhere, minWidth 0; rows keep 48px as a minHeight { xs: 48 } with height auto) so long park names are never cut, and the park code shows as a caption line under the name (data[].code from the shell); declared (O38): a value outside data shows the fallback (the shell's selected-park copy) on the trigger and selects no option (pickScopeOption in lib/scope.ts)",
       "allowProps": [
         "ButtonBase:aria-haspopup",
         "ButtonBase:aria-expanded",
@@ -1506,7 +1506,19 @@
         "\\n      <Divider sx=\\{\\{ my: 0\\.5, borderStyle: 'dashed' \\}\\} \\/>\\n\\n      <Button[\\s\\S]*?<\\/Button>\\n"
       ],
       "strip": [
-        "\\n      \\{slots\\?\\.bottomArea\\}\\n"
+        "\\n      \\{slots\\?\\.bottomArea\\}\\n",
+        [
+          "sx=\\{\\{ minHeight: \\{ xs: 48 \\}, height: 'auto' \\}\\}",
+          "sx={{ height: 48 }}"
+        ],
+        [
+          "\\n(\\s*)component=\"span\"\\n(\\s*)variant=\"body2\"\\n(\\s*)sx=\\{\\{ flexGrow: 1, fontWeight: 'fontWeightMedium', minWidth: 0, whiteSpace: 'normal', overflowWrap: 'anywhere' \\}\\}",
+          "\n$1noWrap\n$1component=\"span\"\n$2variant=\"body2\"\n$3sx={{ flexGrow: 1, fontWeight: 'fontWeightMedium' }}"
+        ],
+        [
+          "\\n\\s*\\{option\\.code \\? \\([\\s\\S]*?\\) : null\\}",
+          ""
+        ]
       ],
       "tags": [
         "ButtonBase",

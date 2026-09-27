@@ -837,11 +837,15 @@ export function MeshaShell({
               ...parks.map((p) => ({
                 id: p.id,
                 name: p.name,
+                code: p.code && p.code !== p.name ? p.code : null,
                 logo: PARK_MARK,
                 plan: shellCopy(contract, "scope.all_sheds"),
                 href: currentScopeHref({ park: p.id, mode: "park" }),
               })),
             ]}
+            // O38: a ?park=<id> outside the shell's park list reads "Selected park" (no option selected),
+            // never "All parks" while the page body is scoped to that one park.
+            fallback={{ name: shellCopy(contract, "scope.selected_park"), logo: PARK_MARK, plan: shellCopy(contract, "scope.all_sheds") }}
             aria-label={`${contract.top_bar.park_selector.label}: ${activeParkLabel}`}
             title={contract.top_bar.park_selector.label}
             // WebView tap floor: 44px trigger below sm (the template sx array takes the caller's sx last).
