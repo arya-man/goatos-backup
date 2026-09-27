@@ -29,6 +29,8 @@
     --amber:#E0A53A; --danger-tag-ink:#FFC9C6; --danger-badge-ink:#08130B;
     /* video-proof thumbnail placeholder gradient (kept as tokens after .vr-thumb moved to MUI) */
     --media-thumb-a:#1b2b1e; --media-thumb-b:#233a4d; --media-thumb-c:#12211a;
+    /* plan-editor deadline warning fallback (kept as a token after .vplan .durwhy moved to MUI) */
+    --danger-ink-fallback:#b42318;
     --shadow-rgb:0 0 0;
     /* Minimal customShadows (dark: c = black). */
     --shadow-card:0 0 2px 0 rgb(0 0 0/.2),0 12px 24px -4px rgb(0 0 0/.12);
