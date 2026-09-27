@@ -82,7 +82,7 @@ export function SegmentedLinks({
         disabled: option.disabled,
         onClick: (event: React.MouseEvent<HTMLElement>) => {
           restoreTo.current = window.scrollY;
-          // Fires metricseg:navigate (LinkNavPending dims the body) and pushes in a transition.
+          // Fires metricseg:navigate (the URL panels swap to their skeletons) and pushes in a transition.
           navigate(event, option.value, option.href);
         },
       }))}

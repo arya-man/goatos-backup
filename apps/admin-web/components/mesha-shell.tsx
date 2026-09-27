@@ -2,7 +2,6 @@
 
 import Link from "@/components/no-prefetch-link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { LinkNavPending } from "@/components/app/link-nav-pending";
 import { UrlNavRouter } from "@/components/app/url-nav-router";
 import { URL_NAV_EVENT } from "@/components/app/url-tab-nav";
 import { PendingRouteSkeleton } from "@/components/route-skeleton";
@@ -1007,7 +1006,7 @@ export function MeshaShell({
           className="main msh-content"
           // While the target route's skeleton shows, the page being left stays mounted (a navigation
           // that fails or times out puts it back as it was) but is not painted.
-          sx={{ "& .msh-wrap[data-route-skeleton] > :not([data-route-skeleton-el]):not(.kit-navpend):not(.msh-alert):not(.msh-degraded)": { display: "none !important" } }}
+          sx={{ "& .msh-wrap[data-route-skeleton] > :not([data-route-skeleton-el]):not(.msh-alert):not(.msh-degraded)": { display: "none !important" } }}
         >
           <ScrollEdges />
           {/* `.wrap` keeps the page frame rules (frame.css) the page bodies are built on; the template
@@ -1030,7 +1029,6 @@ export function MeshaShell({
               </Box>
             ) : null}
             <UrlNavRouter>{children}</UrlNavRouter>
-            <LinkNavPending />
           </div>
         </DashboardContent>
       </DashboardLayout>

@@ -1,6 +1,5 @@
 import * as React from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { LinkNavPending } from "@/components/app/link-nav-pending";
 import { BodyPortal } from "@/components/app/body-portal";
 import { ScrollEdges } from "@/components/app/scroll-edges";
 import { Frame, mobile } from "../_fixtures/frame";
@@ -17,7 +16,6 @@ type Story = StoryObj;
 export const Overlays: Story = {
   render: () => (
     <div>
-      <LinkNavPending />
       <ScrollEdges />
       <div className="tablewrap" style={{ overflowX: "auto" }}>
         <div style={{ width: 1400, padding: 16 }}>Wide content scrolls inside its own card; edges fade.</div>

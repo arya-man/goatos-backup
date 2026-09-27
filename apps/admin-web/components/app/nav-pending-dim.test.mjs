@@ -10,9 +10,10 @@ const read = (p) => readFileSync(new URL(p, import.meta.url), "utf8");
 
 // Superseded (Ravi 2026-09-28 "just switch and show shimmer"): the page body is never dimmed while a
 // navigation is in flight; the shell and the URL panels show skeletons (guard: pending-dim).
-test("no data-nav-pending dim rule is left in frame.css", () => {
+test("no data-nav-pending dim rule is left in frame.css, and nothing sets the hook", () => {
   const css = read("../../app/frame.css");
-  assert.equal(css.split("\n").some((l) => l.startsWith(".wrap[data-nav-pending]")), false);
+  assert.doesNotMatch(css, /data-nav-pending|kit-navpend/);
+  assert.doesNotMatch(read("../mesha-shell.tsx"), /LinkNavPending|kit-navpend/);
 });
 
 test("TemplateTabs and UrlTabs set aria-busy while their navigation is pending", () => {
