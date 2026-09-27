@@ -6,7 +6,7 @@ import { mergeClasses } from 'minimal-shared/utils';
 
 import { useTheme } from '@mui/material/styles';
 
-import { NavList } from './nav-list';
+import { NavList } from '@/layouts/app/nav-section/mini/nav-list';
 import { Nav, NavUl, NavLi } from '../components';
 import { navSectionClasses, navSectionCssVars } from '../styles';
 

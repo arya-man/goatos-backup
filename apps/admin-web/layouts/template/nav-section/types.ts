@@ -52,8 +52,6 @@ export type NavItemDataProps = Pick<NavItemStateProps, 'disabled'> & {
   info?: string[] | React.ReactNode;
   caption?: string;
   deepMatch?: boolean;
-  /** Mesha: explicit active state from the shell (overrides the pathname rule). */
-  active?: boolean;
   allowedRoles?: string | string[];
   children?: NavItemDataProps[];
 };

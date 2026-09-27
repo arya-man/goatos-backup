@@ -8,7 +8,7 @@ import { mergeClasses } from 'minimal-shared/utils';
 import Collapse from '@mui/material/Collapse';
 import { useTheme } from '@mui/material/styles';
 
-import { NavList } from './nav-list';
+import { NavList } from '@/layouts/app/nav-section/vertical/nav-list';
 import { Nav, NavUl, NavLi, NavSubheader } from '../components';
 import { navSectionClasses, navSectionCssVars } from '../styles';
 

@@ -1,6 +1,10 @@
 'use client';
 
-import type { NavListProps, NavSubListProps } from '../types';
+// Template-derived (docs/design/template-derived.json): Minimal v7.7.0 next-ts
+// src/components/nav-section/vertical/nav-list.tsx. One change: the shell may set an item's active flag
+// (query-discriminated shared routes, which isActiveLink cannot tell apart); otherwise the template rule.
+
+import type { NavListProps, NavSubListProps } from '@/layouts/template/nav-section/types';
 
 import { useBoolean } from 'minimal-shared/hooks';
 import { useRef, useEffect, useCallback } from 'react';
@@ -8,9 +12,9 @@ import { isActiveLink, isExternalLink } from 'minimal-shared/utils';
 
 import { usePathname } from '@/layouts/template/routes/hooks';
 
-import { NavItem } from './nav-item';
-import { navSectionClasses } from '../styles';
-import { NavUl, NavLi, NavCollapse } from '../components';
+import { NavItem } from '@/layouts/template/nav-section/vertical/nav-item';
+import { navSectionClasses } from '@/layouts/template/nav-section/styles';
+import { NavUl, NavLi, NavCollapse } from '@/layouts/template/nav-section/components';
 
 // ----------------------------------------------------------------------
 
@@ -25,8 +29,7 @@ export function NavList({
   const pathname = usePathname();
   const navItemRef = useRef<HTMLButtonElement>(null);
 
-  // Mesha: the shell owns active state (query-discriminated shared routes); fall back to the template rule.
-  const isActive = data.active ?? isActiveLink(pathname, data.path, data.deepMatch ?? !!data.children);
+  const isActive = (data as { active?: boolean }).active ?? isActiveLink(pathname, data.path, data.deepMatch ?? !!data.children);
 
   const { value: open, onFalse: onClose, onToggle } = useBoolean(isActive);
 

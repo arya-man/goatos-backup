@@ -118,7 +118,6 @@
     "layouts/template/nav-section/components/nav-subheader.tsx": "src/components/nav-section/components/nav-subheader.tsx",
     "layouts/template/nav-section/mini/index.ts": "src/components/nav-section/mini/index.ts",
     "layouts/template/nav-section/mini/nav-item.tsx": "src/components/nav-section/mini/nav-item.tsx",
-    "layouts/template/nav-section/mini/nav-list.tsx": "src/components/nav-section/mini/nav-list.tsx",
     "layouts/template/nav-section/mini/nav-section-mini.tsx": "src/components/nav-section/mini/nav-section-mini.tsx",
     "layouts/template/nav-section/styles/classes.ts": "src/components/nav-section/styles/classes.ts",
     "layouts/template/nav-section/styles/css-vars.ts": "src/components/nav-section/styles/css-vars.ts",
@@ -128,7 +127,6 @@
     "layouts/template/nav-section/utils/index.ts": "src/components/nav-section/utils/index.ts",
     "layouts/template/nav-section/vertical/index.ts": "src/components/nav-section/vertical/index.ts",
     "layouts/template/nav-section/vertical/nav-item.tsx": "src/components/nav-section/vertical/nav-item.tsx",
-    "layouts/template/nav-section/vertical/nav-list.tsx": "src/components/nav-section/vertical/nav-list.tsx",
     "layouts/template/nav-section/vertical/nav-section-vertical.tsx": "src/components/nav-section/vertical/nav-section-vertical.tsx",
     "layouts/template/routes/components/index.ts": "src/routes/components/index.ts",
     "layouts/template/routes/hooks/index.ts": "src/routes/hooks/index.ts",
@@ -1535,20 +1533,6 @@
         "../styles"
       ]
     },
-    "layouts/template/nav-section/mini/nav-list.tsx": {
-      "sha256": "cb27a4c84fd7a2eed139b37d1598f2620187d4f3c6464c381fd8e8dcb23dc2e3",
-      "imports": [
-        "../types",
-        "react",
-        "minimal-shared/hooks",
-        "minimal-shared/utils",
-        "@mui/material/styles",
-        "src/routes/hooks",
-        "./nav-item",
-        "../styles",
-        "../components"
-      ]
-    },
     "layouts/template/nav-section/mini/nav-section-mini.tsx": {
       "sha256": "409fdd8d00697a4fead63863ae56360a6817d5b6c1fe32c0e33aabab3b9a8f27",
       "imports": [
@@ -1627,19 +1611,6 @@
         "../../iconify",
         "../utils",
         "../styles"
-      ]
-    },
-    "layouts/template/nav-section/vertical/nav-list.tsx": {
-      "sha256": "06f3a03493baedde1a817efc3fa4be9f3afeb53774dc87318997d88ce702846c",
-      "imports": [
-        "../types",
-        "minimal-shared/hooks",
-        "react",
-        "minimal-shared/utils",
-        "src/routes/hooks",
-        "./nav-item",
-        "../styles",
-        "../components"
       ]
     },
     "layouts/template/nav-section/vertical/nav-section-vertical.tsx": {

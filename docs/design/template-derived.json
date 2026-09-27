@@ -1142,6 +1142,67 @@
         "Box(component,sx)",
         "Box(component,sx)"
       ]
+    },
+    "layouts/app/nav-section/vertical/nav-list.tsx": {
+      "source": "src/components/nav-section/vertical/nav-list.tsx",
+      "replaced": "isActive: the shell's explicit item.active (query-discriminated routes) before the template isActiveLink rule",
+      "tags": [
+        "NavItem",
+        "NavCollapse",
+        "NavSubList",
+        "NavLi",
+        "NavUl",
+        "NavList"
+      ],
+      "sx": [
+        "'&",
+        "mt",
+        "gap"
+      ],
+      "sxValues": [
+        "{ ...(!!data.children && { [`& .${navSectionClasses.li}`]: { '&:first-of-type': { mt: 'var(--nav-item-gap)' }}})}",
+        "{ gap: 'var(--nav-item-gap)' }"
+      ],
+      "props": [],
+      "propNames": [
+        "NavItem(active,caption,depth,disabled,enabledRootRedirect,externalLink,hasChild,icon,info,onClick,open,path,ref,render,slotProps,title)",
+        "NavCollapse(data-group,depth,in,mountOnEnter,unmountOnExit)",
+        "NavSubList(checkPermissions,data,depth,enabledRootRedirect,render,slotProps)",
+        "NavLi(disabled,sx)",
+        "NavUl(sx)",
+        "NavList(checkPermissions,data,depth,enabledRootRedirect,render,slotProps)"
+      ]
+    },
+    "layouts/app/nav-section/mini/nav-list.tsx": {
+      "source": "src/components/nav-section/mini/nav-list.tsx",
+      "replaced": "isActive: the shell's explicit item.active (query-discriminated routes) before the template isActiveLink rule",
+      "tags": [
+        "NavItem",
+        "NavDropdown",
+        "NavDropdownPaper",
+        "NavSubList",
+        "NavLi",
+        "NavUl",
+        "NavList"
+      ],
+      "sx": [
+        "gap"
+      ],
+      "sxValues": [
+        "{ ...cssVars }",
+        "slotProps?.dropdown?.paper",
+        "{ gap: 0.5 }"
+      ],
+      "props": [],
+      "propNames": [
+        "NavItem(active,aria-describedby,caption,depth,disabled,enabledRootRedirect,externalLink,hasChild,icon,info,onMouseEnter,onMouseLeave,open,path,ref,render,slotProps,title)",
+        "NavDropdown(anchorEl,anchorOrigin,aria-hidden,disableScrollLock,id,open,slotProps,sx,transformOrigin)",
+        "NavDropdownPaper(className,sx)",
+        "NavSubList(checkPermissions,cssVars,data,depth,enabledRootRedirect,render,slotProps)",
+        "NavLi(disabled)",
+        "NavUl(sx)",
+        "NavList(checkPermissions,cssVars,data,depth,enabledRootRedirect,render,slotProps)"
+      ]
     }
   }
 }

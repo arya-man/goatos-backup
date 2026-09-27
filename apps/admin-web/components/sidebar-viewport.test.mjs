@@ -22,7 +22,7 @@ for (const [name, text] of [["layout", layout], ["shell", shell], ["navMobile", 
   assert.doesNotMatch(text, /navBottom|msh-foot|navigation\.footer/, `${name}: no custom nav footer`);
   assert.doesNotMatch(text, /defaultOpen|default_open/, `${name}: no default-open nav groups`);
 }
-const navList = readFileSync(new URL("../layouts/template/nav-section/vertical/nav-list.tsx", import.meta.url), "utf8");
+const navList = readFileSync(new URL("../layouts/app/nav-section/vertical/nav-list.tsx", import.meta.url), "utf8");
 assert.match(navList, /useBoolean\(isActive\)/, "nav groups open only when active (template rule)");
 
 // Header right order follows the template: notifications, then the Settings slot (theme toggle), then account.

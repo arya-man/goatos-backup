@@ -10,9 +10,6 @@
     "layouts/dashboard/layout.tsx": "2cfd8cbffcc2df64d60e216b85f4746dacb6f356e6bced2b99a7ef42df7d55b7",
     "layouts/dashboard/nav-mobile.tsx": "30026bee9a9b218328ec21653cc50034ca7b8a66cfe93aec57975aaf16c56512",
     "layouts/dashboard/nav-vertical.tsx": "36bdad6ce364898d6dfbeddab2cd33ad07d316d9028dc74c08af8efa62a3e771",
-    "layouts/template/logo/logo.tsx": "a9be023bc6c4c226336b6f69214a946fb86a849fe5860d3638664228d3baf12f",
-    "layouts/template/nav-section/mini/nav-list.tsx": "c6c586785945768d5c81c50c8cb459227e138d095a1108fa0288116c255d1e49",
-    "layouts/template/nav-section/types.ts": "e9f43eb25e8cba4e346550e1c0f2ab346ba57d0a4f968fb7d0f40817bbccf05f",
-    "layouts/template/nav-section/vertical/nav-list.tsx": "60fef469c26534697b8548017de4a2b824ad80a70d9848bbd1b904c79455306c"
+    "layouts/template/logo/logo.tsx": "a9be023bc6c4c226336b6f69214a946fb86a849fe5860d3638664228d3baf12f"
   }
 }
