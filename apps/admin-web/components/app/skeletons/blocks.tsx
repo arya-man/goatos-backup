@@ -413,14 +413,22 @@ export function KpiRowSkeleton({
  * optional body2 meta, subtitle2 figure; one row of dashed-divided cells up to four, rows of three or
  * four after that (the same `stripColumns` rule).
  */
-export function StatStripSkeleton({ count, meta = false, card = true }: { count: number; meta?: boolean; card?: boolean }) {
+export function StatStripSkeleton({ count, meta = false, card = true, wrapBelowMd = false }: { count: number; meta?: boolean; card?: boolean; /** The cells' title and meta lines wrap to two lines each on a phone (200px cells, long copy). */ wrapBelowMd?: boolean }) {
   const cols = count <= 4 ? Math.max(count, 1) : count % 3 === 0 && count % 4 !== 0 ? 3 : 4;
   const cell = (i: number) => (
-    <Box key={i} sx={{ width: 1, gap: 2.5, minWidth: 200, px: 2, display: "flex", alignItems: "center", justifyContent: "center" }}>
+    // `&&&` outranks frame.css `.screen[aria-busy="true"] div { flex-wrap: wrap; min-width: 0 }`, which
+    // squeezed the 200px cells to a quarter of a phone and stacked ring over text.
+    <Box key={i} sx={{ width: 1, gap: 2.5, px: 2, display: "flex", alignItems: "center", justifyContent: "center", "&&&": { minWidth: 200, flexWrap: "nowrap" } }}>
       <Skeleton variant="circular" width={56} height={56} sx={{ flexShrink: 0 }} />
       <Box sx={{ minWidth: 0, flex: "0 1 96px" }}>
         <SkeletonLine variant="subtitle1" width="100%" />
-        {meta ? <SkeletonLine variant="body2" width="80%" sx={{ my: 0.5 }} /> : null}
+        {wrapBelowMd ? <SkeletonLine variant="subtitle1" width="60%" sx={{ display: { md: "none" } }} /> : null}
+        {meta ? (
+          <Box sx={{ my: 0.5 }}>
+            <SkeletonLine variant="body2" width="80%" />
+            {wrapBelowMd ? <SkeletonLine variant="body2" width="50%" sx={{ display: { md: "none" } }} /> : null}
+          </Box>
+        ) : null}
         <SkeletonLine variant="subtitle2" width="56%" />
       </Box>
     </Box>
@@ -432,7 +440,7 @@ export function StatStripSkeleton({ count, meta = false, card = true }: { count:
       </Box>
     ) : (
       <Box sx={{ minHeight: "calc(var(--sp-6) * 2.25)", overflow: "hidden" }}>
-        <Stack direction="row" divider={<Divider orientation="vertical" flexItem sx={{ borderStyle: "dashed" }} />} sx={{ py: 2 }}>
+        <Stack direction="row" divider={<Divider orientation="vertical" flexItem sx={{ borderStyle: "dashed" }} />} sx={{ py: 2, "&&&": { flexWrap: "nowrap" } }}>
           {Array.from({ length: count }, (_, i) => cell(i))}
         </Stack>
       </Box>
@@ -877,7 +885,27 @@ export function OptionalSkeleton({ children }: { children: ReactNode }) {
  * input height, then the search (`orderToolbarSearchSx`) and the ⋮ menu; a column below md, aligned
  * right, as the template order toolbar is.
  */
-export function OrderToolbarSkeleton({ filters, trailing = [], search = true, menu = false }: { filters: number; trailing?: number[]; search?: boolean; menu?: boolean }) {
+export function OrderToolbarSkeleton({
+  filters = 0,
+  fields = [],
+  buttons = [],
+  trailing = [],
+  trailingTall = false,
+  search = true,
+  menu = false,
+}: {
+  /** Template selects on `orderToolbarFilterSx`. */
+  filters?: number;
+  /** Fixed-width fields (md width in px, full width on a phone), after the selects. */
+  fields?: number[];
+  /** Default-size buttons inside the filter group (a form's Apply). */
+  buttons?: number[];
+  /** The toolbar's `trailing` buttons; `trailingTall` when they are size large at the input height. */
+  trailing?: number[];
+  trailingTall?: boolean;
+  search?: boolean;
+  menu?: boolean;
+}) {
   // `&&&` outranks frame.css `.screen[aria-busy="true"] div { flex-wrap: wrap }`: the loaded row never wraps.
   const noWrap = { "&&&": { flexWrap: "nowrap" } } as const;
   return (
@@ -889,7 +917,13 @@ export function OrderToolbarSkeleton({ filters, trailing = [], search = true, me
       {Array.from({ length: filters }, (_, i) => (
         <Skeleton key={i} variant="rounded" sx={{ ...orderToolbarFilterSx, height: FIELD_H }} />
       ))}
-      {trailing.map((w, i) => (
+      {fields.map((w, i) => (
+        <Skeleton key={`f${i}`} variant="rounded" sx={{ height: FIELD_H, width: { xs: 1, md: w }, flexShrink: 0 }} />
+      ))}
+      {[...buttons, ...(trailingTall ? [] : trailing)].map((w, i) => (
+        <Skeleton key={`b${i}`} variant="rounded" sx={{ height: tapHeight(36), width: w, flexShrink: 0 }} />
+      ))}
+      {(trailingTall ? trailing : []).map((w, i) => (
         <Skeleton key={`t${i}`} variant="rounded" sx={{ height: "var(--input-h)", width: w, flexShrink: 0 }} />
       ))}
       <Box sx={{ gap: 2, width: 1, flexGrow: 1, display: "flex", alignItems: "center", ...noWrap }}>

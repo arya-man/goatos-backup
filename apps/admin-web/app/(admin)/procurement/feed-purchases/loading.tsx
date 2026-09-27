@@ -1,14 +1,6 @@
-import { PageHeaderSkeleton, PageSkeleton, TableSkeleton, ToolbarSkeleton } from "@/components/app/skeletons";
-import { DEFAULT_LIMIT } from "@/features/procurement/feed-purchases-layout";
+import { FeedPurchasesSkeleton } from "@/features/procurement/feed-purchases-skeletons";
 
-/** /procurement/feed-purchases: header + Record, the farm / delivery toolbar, the purchases table card. */
+/** /procurement/feed-purchases: the page's own twin (its strip and rows are the UrlSuspense fallbacks too). */
 export default function Loading() {
-  return (
-    <PageSkeleton>
-      <PageHeaderSkeleton actions={1} />
-      <ToolbarSkeleton fields={[200, 200]} />
-      {/* Contract table "feed-purchases": 11 columns. */}
-      <TableSkeleton columns={11} rows={DEFAULT_LIMIT} />
-    </PageSkeleton>
-  );
+  return <FeedPurchasesSkeleton />;
 }

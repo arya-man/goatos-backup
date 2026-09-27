@@ -22,7 +22,7 @@ export function VendorBoardSkeleton() {
         rows={PAGE_SIZE}
         header={false}
         tabs={<TabsSkeleton count={1} counts />}
-        toolbar={<OrderToolbarSkeleton filters={VENDOR_FILTER_KEYS.filter((key) => key !== "status").length} trailing={[120]} menu />}
+        toolbar={<OrderToolbarSkeleton filters={VENDOR_FILTER_KEYS.filter((key) => key !== "status").length} trailing={[120]} trailingTall menu />}
       />
     </PageSkeleton>
   );

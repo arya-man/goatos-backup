@@ -2,7 +2,7 @@ import Box from "@mui/material/Box";
 import { orderToolbarFilterSx } from "@/components/app/order-toolbar-filter";
 import { DividedStack } from "@/components/app/divided-stack";
 import { UrlSuspense } from "@/components/app/url-suspense";
-import { StatStripSkeleton, TableSkeleton } from "@/components/app/skeletons";
+import { FeedPurchasesRowsSkeleton, FeedPurchasesStripSkeleton } from "./feed-purchases-skeletons";
 import Card from "@mui/material/Card";
 import Link from "@mui/material/Link";
 import Stack from "@mui/material/Stack";
@@ -196,7 +196,7 @@ export async function FeedPurchasesPage({
           from the backend, never sums over the rendered page), then the list card. */}
       {/* Whole-filter aggregates and the ledger rows (guard: url-keyed-panel): a delivery tab / farm /
           page change swaps them to their skeleton at once; tabs and toolbar stay on screen. */}
-      <UrlSuspense searchParams={sp} watch={AGGREGATE_WATCH} fallback={<Box sx={{ mb: { xs: 3, md: 5 } }}><StatStripSkeleton count={2} /></Box>}>
+      <UrlSuspense searchParams={sp} watch={AGGREGATE_WATCH} fallback={<FeedPurchasesStripSkeleton />}>
       <Card sx={{ mb: { xs: 3, md: 5 } }}>
         <Scrollbar sx={{ minHeight: 108 }}>
           <DividedStack
@@ -277,7 +277,7 @@ export async function FeedPurchasesPage({
           clearHref={hrefWithQuery(sp, { farm: null, offset: null, purchase_id: null })}
         />
 
-        <UrlSuspense searchParams={sp} watch={LEDGER_WATCH} fallback={<TableSkeleton bare header={false} columns={Math.max(columns.length, 1)} rows={limit} />}>
+        <UrlSuspense searchParams={sp} watch={LEDGER_WATCH} fallback={<FeedPurchasesRowsSkeleton columns={Math.max(columns.length, 1)} rows={limit} />}>
         <Box id="feed-purchases-ledger" tabIndex={0} role="region" aria-label={ledgerTable.title}>
           <Scrollbar>
             <Table sx={{ minWidth: 1100 }} aria-label={ledgerTable.title}>

@@ -128,7 +128,7 @@ export async function OperationsDLQPage({
 
       {/* Summary tiles and event rows swap to their skeleton on a tab / filter / search change (guard:
           url-keyed-panel); tabs and toolbar stay on screen. */}
-      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<StatStripSkeleton count={4} meta />}>
+      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<StatStripSkeleton count={4} />}>
       <DLQAnalytics
         cells={analytics.map((cell) => ({
           key: cell.key,

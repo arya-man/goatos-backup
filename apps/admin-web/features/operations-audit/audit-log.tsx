@@ -201,7 +201,7 @@ export async function OperationsAuditPage({
 
       {/* Summary tiles, trail rows + pager and the operator list swap to their skeletons on a tab /
           filter / search / page click (guard: url-keyed-panel); tabs, toolbar and search stay. */}
-      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<StatStripSkeleton count={4} meta />}>
+      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<StatStripSkeleton count={4} meta wrapBelowMd />}>
       <AuditAnalytics
         cells={[
           { key: "actions", title: copy(pageContract, "label.actions_in_view"), total: copy(pageContract, "label.tap_clear_filters"), price: summary ? String(summary.actions) : "—", percent: summary ? 100 : 0, icon: "solar:bill-list-bold", color: "info", href: clearedHref },
