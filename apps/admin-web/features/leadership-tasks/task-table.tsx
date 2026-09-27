@@ -92,6 +92,7 @@ export function TaskTable({ tasks, selectedId, rowHref, pageSizeOptions, renderC
     // the range filter rather than inventing a second date field.
     const stamp = (label: string): number | null => {
       const m = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(label);
+      // date-format-guard:ignore: parses the dd/mm/yyyy label into ISO for the range filter; never rendered
       return m ? Date.parse(`${m[3]}-${m[2]}-${m[1]}`) : null;
     };
     const fromMs = from ? Date.parse(from) : null;
