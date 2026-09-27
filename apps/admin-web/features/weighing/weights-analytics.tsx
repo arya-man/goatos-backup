@@ -65,7 +65,7 @@ import {
 import { WINDOW_FROM_PARAM, WINDOW_TO_PARAM } from "./landing-window-constants";
 import { SEX_ALL, resolveSexFilter, sexControlValue } from "./sex-filter";
 import { weightsSexChoices } from "./sex-filter-contract";
-import { WEIGHTS_DEFAULT_LIMIT, WEIGHTS_TABS } from "./weights-analytics-layout";
+import { GENERAL_GRID, WEIGHTS_DEFAULT_LIMIT, WEIGHTS_TABS } from "./weights-analytics-layout";
 
 const PAGE_PATH = "/weighing/analytics";
 const SEX_PARAM = "sex";
@@ -823,7 +823,7 @@ function GeneralTab({
 
   return (
     <Grid container spacing={3}>
-      <Grid size={{ xs: 12, md: 4 }}>
+      <Grid size={GENERAL_GRID.kpi}>
         <KpiWidget
           title={`${copy(pageContract, "kpi.kids.label")} ${copy(pageContract, "kpi.kids.sub")}`}
           total={hasAnyData ? summary.animals_weighed : null}
@@ -831,7 +831,7 @@ function GeneralTab({
           sx={{ height: 1 }}
         />
       </Grid>
-      <Grid size={{ xs: 12, md: 4 }}>
+      <Grid size={GENERAL_GRID.kpi}>
         <KpiWidget
           title={copy(pageContract, "kpi.total.label")}
           total={hasAnyData ? Math.round(summary.total_weight_kg) : null}
@@ -839,7 +839,7 @@ function GeneralTab({
           sx={{ height: 1 }}
         />
       </Grid>
-      <Grid size={{ xs: 12, md: 4 }}>
+      <Grid size={GENERAL_GRID.kpi}>
         <KpiWidget
           title={copy(pageContract, "kpi.average.label")}
           total={summary.average_weight_kg == null ? null : Math.round(summary.average_weight_kg * 10) / 10}
@@ -848,7 +848,7 @@ function GeneralTab({
         />
       </Grid>
 
-      <Grid size={{ xs: 12, md: 6, lg: 4 }}>
+      <Grid size={GENERAL_GRID.ring}>
         <RingCard
           aria-label={copy(pageContract, "section.sheds.aria")}
           title={copy(pageContract, "assumption.sale_ready_threshold_kg.label")}
@@ -862,7 +862,7 @@ function GeneralTab({
           sx={{ height: 1 }}
         />
       </Grid>
-      <Grid size={{ xs: 12, md: 6, lg: 8 }}>
+      <Grid size={GENERAL_GRID.weekly}>
         {/* Columns, not an area: a week nobody weighed has no bar, where a line would draw
             straight through it as if the kids had grown on schedule. */}
         <WeeklyGrowthCard
@@ -876,7 +876,7 @@ function GeneralTab({
         />
       </Grid>
 
-      <Grid size={{ xs: 12, md: 6, lg: 8 }}>
+      <Grid size={GENERAL_GRID.rank}>
         <ConversionRatesCard
           aria-label={copy(pageContract, "chart.gain.aria")}
           title={copy(pageContract, "chart.gain.title")}
@@ -896,7 +896,7 @@ function GeneralTab({
           sx={{ height: 1 }}
         />
       </Grid>
-      <Grid size={{ xs: 12, md: 6, lg: 4 }}>
+      <Grid size={GENERAL_GRID.parkGain}>
         {/* No gain is a real state: a period where nothing was weighed twice HAS no gain, and
             printing 0 g/day would read as a herd that stopped growing. */}
         <EcommerceCurrentBalance

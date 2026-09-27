@@ -3,6 +3,7 @@ import TableContainer from "@mui/material/TableContainer";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { LocalViewPane, LocalViewToggle } from "@/components/local-view-switch";
 import { WeightsKidsPanelSkeleton } from "./weights-skeletons";
+import { KIDS_GRID } from "./weights-analytics-layout";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import Typography from "@mui/material/Typography";
 import TableHead from "@mui/material/TableHead";
@@ -953,7 +954,7 @@ export async function WeighingWeightsPage({
         {/* Four widgets, no sixth "median gain" card (maintainer, 2026-08-12): the daily gain is
             stated ONCE, in its own widget naming the CURRENT scope, and always rendered --
             insufficient_data renders the no-data text, never 0 g/day. */}
-        <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+        <Grid size={KIDS_GRID.kpi}>
           <KpiWidget
             title={`${copy(pageContract, "kpi.kids.label")} ${copy(pageContract, "kpi.kids.sub")}`}
             total={hasSummary ? summary.animals_weighed : null}
@@ -961,7 +962,7 @@ export async function WeighingWeightsPage({
             sx={{ height: 1 }}
           />
         </Grid>
-        <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+        <Grid size={KIDS_GRID.kpi}>
           <KpiWidget
             title={copy(pageContract, "kpi.total.label")}
             total={hasSummary ? Math.round(summary.total_weight_kg) : null}
@@ -969,7 +970,7 @@ export async function WeighingWeightsPage({
             sx={{ height: 1 }}
           />
         </Grid>
-        <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+        <Grid size={KIDS_GRID.kpi}>
           <KpiWidget
             title={copy(pageContract, "kpi.average.label")}
             total={summary.average_weight_kg == null ? null : Math.round(summary.average_weight_kg * 10) / 10}
@@ -977,7 +978,7 @@ export async function WeighingWeightsPage({
             sx={{ height: 1 }}
           />
         </Grid>
-        <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+        <Grid size={KIDS_GRID.kpi}>
           <KpiWidget
             aria-label={copy(pageContract, "section.park_gain.aria")}
             title={`${selectedParkName || copy(pageContract, "kpi.park_gain.all")} ${copy(pageContract, "kpi.park_gain.suffix")}`}
@@ -995,7 +996,7 @@ export async function WeighingWeightsPage({
 
         {/* Threshold counts carry their OWN denominator: both sale lines out of the kids the
             counts were taken over, in one template ring card. */}
-        <Grid size={{ xs: 12, md: 6, lg: 4 }}>
+        <Grid size={KIDS_GRID.ring}>
           <RingCard
             title={copy(pageContract, "assumption.sale_ready_threshold_kg.label")}
             subheader={`${thresholdBasis.toLocaleString("en-IN")} ${copy(pageContract, "kpi.threshold.basis")} · ${copy(pageContract, "kpi.sheds.label")}: ${summary.sheds_weighed} / ${summary.sheds_in_scope} · ${fmtDate(periodStart)} – ${fmtDate(periodEnd)}`}
@@ -1020,7 +1021,7 @@ export async function WeighingWeightsPage({
         {/* Kids clearing each daily gain mark, by breed: the four bands are a real distribution
             that adds to the denominator (each kid counted once). Chart first; the exact counts are
             one local switch away (LocalViewToggle writes gain_view, so the choice survives a reload). */}
-        <Grid size={{ xs: 12, md: 6, lg: 8 }}>
+        <Grid size={KIDS_GRID.breedGain}>
           <LocalViewPane param={GAIN_VIEW_PARAM} value="chart" current={gainThresholdView}>
             <BalanceStatisticsCard
               aria-label={copy(pageContract, "section.gain_thresholds.aria")}
@@ -1100,7 +1101,7 @@ export async function WeighingWeightsPage({
 
         {/* The true growth charts: same-tag-twice ADG or weight. Breed (the long list) takes half the
             row; sex and stage, usually one or two bars, stack in the other half (side by side on sm). */}
-        <Grid size={{ xs: 12, lg: 6 }}>
+        <Grid size={KIDS_GRID.breed}>
           <MetricChart
             initialMetric={breedMetric}
             labels={metricLabels}
@@ -1123,7 +1124,7 @@ export async function WeighingWeightsPage({
             size="short"
           />
         </Grid>
-        <Grid size={{ xs: 12, lg: 6 }}>
+        <Grid size={KIDS_GRID.sexStage}>
           <Stack spacing={3} direction={{ xs: "column", sm: "row", lg: "column" }} sx={{ height: 1 }}>
           <Box sx={{ flex: 1, minWidth: 0 }}>
           <MetricChart
