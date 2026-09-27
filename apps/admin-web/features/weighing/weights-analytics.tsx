@@ -13,7 +13,7 @@ import { KpiWidget } from "@/components/app/kpi-widget";
 import { ConversionRatesCard } from "@/components/app/conversion-rates-card";
 import { WeeklyGrowthCard } from "./weekly-growth-card";
 import { BalanceStatisticsCard } from "@/components/app/balance-statistics-card";
-import { EcommerceCurrentBalance } from "@/components/minimal/sections/overview/e-commerce/ecommerce-current-balance";
+import { EcommerceCurrentBalance } from "@/components/app/sections/overview/e-commerce/ecommerce-current-balance";
 import { RingCard } from "@/components/app/ring-card";
 import { LoadComparisonTab } from "./load-comparison-tab";
 import { WeightsExportControl, type WeightsExportShed } from "./weights-export";

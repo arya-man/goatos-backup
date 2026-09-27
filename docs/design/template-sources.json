@@ -58,9 +58,7 @@
     "components/minimal/loading-screen/loading-screen.tsx": "src/components/loading-screen/loading-screen.tsx",
     "components/minimal/sections/overview/banking/banking-expenses-categories.tsx": "src/sections/overview/banking/banking-expenses-categories.tsx",
     "components/minimal/sections/overview/analytics/analytics-conversion-rates.tsx": "src/sections/overview/analytics/analytics-conversion-rates.tsx",
-    "components/minimal/sections/overview/e-commerce/ecommerce-current-balance.tsx": "src/sections/overview/e-commerce/ecommerce-current-balance.tsx",
     "components/minimal/sections/overview/e-commerce/ecommerce-best-salesman.tsx": "src/sections/overview/e-commerce/ecommerce-best-salesman.tsx",
-    "components/minimal/sections/overview/e-commerce/ecommerce-latest-products.tsx": "src/sections/overview/e-commerce/ecommerce-latest-products.tsx",
     "components/minimal/sections/overview/e-commerce/ecommerce-sale-by-gender.tsx": "src/sections/overview/e-commerce/ecommerce-sale-by-gender.tsx",
     "components/minimal/sections/overview/e-commerce/ecommerce-widget-summary.tsx": "src/sections/overview/e-commerce/ecommerce-widget-summary.tsx",
     "components/minimal/scrollbar/index.ts": "src/components/scrollbar/index.ts",
@@ -177,7 +175,11 @@
     "layouts/template/nav-section/horizontal/index.ts": "src/components/nav-section/horizontal/index.ts",
     "layouts/template/nav-section/horizontal/nav-item.tsx": "src/components/nav-section/horizontal/nav-item.tsx",
     "layouts/template/nav-section/horizontal/nav-list.tsx": "src/components/nav-section/horizontal/nav-list.tsx",
-    "layouts/template/nav-section/horizontal/nav-section-horizontal.tsx": "src/components/nav-section/horizontal/nav-section-horizontal.tsx"
+    "layouts/template/nav-section/horizontal/nav-section-horizontal.tsx": "src/components/nav-section/horizontal/nav-section-horizontal.tsx",
+    "components/minimal/color-utils/index.ts": "src/components/color-utils/index.ts",
+    "components/minimal/color-utils/color-preview.tsx": "src/components/color-utils/color-preview.tsx",
+    "components/minimal/color-utils/color-picker.tsx": "src/components/color-utils/color-picker.tsx",
+    "components/minimal/color-utils/classes.ts": "src/components/color-utils/classes.ts"
   },
   "verbatim": {
     "components/minimal/_shared/format-number.ts": {
@@ -294,6 +296,40 @@
         "es-toolkit",
         "minimal-shared/utils",
         "@mui/material/styles"
+      ]
+    },
+    "components/minimal/color-utils/classes.ts": {
+      "sha256": "99bb7df6337005a2df7173792c6a9f3d02f67983a3fa7a7c39dbfdb2958b8e02",
+      "imports": [
+        "src/theme/create-classes"
+      ]
+    },
+    "components/minimal/color-utils/color-picker.tsx": {
+      "sha256": "10788f01af0fce63604b3079cc0f69f0e5fe658a93b454b2f5914a6990b8f243",
+      "imports": [
+        "@mui/material/styles",
+        "react",
+        "minimal-shared/utils",
+        "@mui/material/ButtonBase",
+        "@mui/material/styles",
+        "../iconify",
+        "./classes"
+      ]
+    },
+    "components/minimal/color-utils/color-preview.tsx": {
+      "sha256": "0bc69e049f0a66eeeaa497055e59654c2c3ff71b099baed06bd8c66bae9322b5",
+      "imports": [
+        "minimal-shared/utils",
+        "@mui/material/styles",
+        "./classes"
+      ]
+    },
+    "components/minimal/color-utils/index.ts": {
+      "sha256": "a600b21697e4c8be4ded0503e620bac42823eae8a779e399753d5f61009149aa",
+      "imports": [
+        "./classes",
+        "./color-picker",
+        "./color-preview"
       ]
     },
     "components/minimal/custom-breadcrumbs/back-link.tsx": {
@@ -740,31 +776,6 @@
         "src/components/flag-icon",
         "src/components/scrollbar",
         "src/components/table"
-      ]
-    },
-    "components/minimal/sections/overview/e-commerce/ecommerce-current-balance.tsx": {
-      "sha256": "675876e2d2f4e8824b7c7b3624875fbf01a44daea61246e69395729d68444efd",
-      "imports": [
-        "@mui/material/Card",
-        "@mui/material/Box",
-        "@mui/material/Card",
-        "@mui/material/Button",
-        "src/utils/format-number"
-      ]
-    },
-    "components/minimal/sections/overview/e-commerce/ecommerce-latest-products.tsx": {
-      "sha256": "848a88a1f436e55953969ff2be79913396897d519079710c4db23256c0a535bd",
-      "imports": [
-        "@mui/material/Box",
-        "@mui/material/Card",
-        "@mui/material/Box",
-        "@mui/material/Link",
-        "@mui/material/Card",
-        "@mui/material/Avatar",
-        "@mui/material/CardHeader",
-        "src/utils/format-number",
-        "src/components/scrollbar",
-        "src/components/color-utils"
       ]
     },
     "components/minimal/sections/overview/e-commerce/ecommerce-sale-by-gender.tsx": {

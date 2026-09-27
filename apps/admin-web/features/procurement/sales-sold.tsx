@@ -12,7 +12,7 @@ import { TableHeadCustom } from "@/components/app/table";
 import { KpiWidget } from "@/components/app/kpi-widget";
 import { EcommerceSalesOverview } from "@/components/app/sections/overview/e-commerce/ecommerce-sales-overview";
 import { EcommerceBestSalesman } from "@/components/minimal/sections/overview/e-commerce/ecommerce-best-salesman";
-import { EcommerceLatestProducts } from "@/components/minimal/sections/overview/e-commerce/ecommerce-latest-products";
+import { EcommerceLatestProducts } from "@/components/app/sections/overview/e-commerce/ecommerce-latest-products";
 import { SalesSoldMonthly } from "./sales-sold-monthly";
 import ListItemText from "@mui/material/ListItemText";
 import type { ReactNode } from "react";
@@ -282,18 +282,24 @@ function SoldSections({
       {/* Realized price per kg by breed, ordered as served (highest first) -- template Latest
           products list. */}
       <Grid size={{ xs: 12, lg: 4 }}>
-        <EcommerceLatestProducts
-          component="section"
-          aria-label={copy(pageContract, "section.price_bands.aria")}
-          title={copy(pageContract, "section.price_bands.title")}
-          empty={<EmptyState title={copy(pageContract, "chart.price_bands.empty")} />}
-          list={overview.price_bands.slice(0, 12).map((band) => ({
-            id: `${band.product_type}|${band.breed}`,
-            name: [breedBeyondProduct(band.product_type, band.breed), seriesLabel(band.product_type)].filter(Boolean).join(" · "),
-            display: inr(Math.round(band.avg_price_per_kg)),
-          }))}
-          sx={{ height: 1 }}
-        />
+        {overview.price_bands.length === 0 ? (
+          <Card component="section" aria-label={copy(pageContract, "section.price_bands.aria")} sx={{ height: 1 }}>
+            <CardHeader title={copy(pageContract, "section.price_bands.title")} />
+            <EmptyState title={copy(pageContract, "chart.price_bands.empty")} />
+          </Card>
+        ) : (
+          <EcommerceLatestProducts
+            component="section"
+            aria-label={copy(pageContract, "section.price_bands.aria")}
+            title={copy(pageContract, "section.price_bands.title")}
+            list={overview.price_bands.slice(0, 12).map((band) => ({
+              id: `${band.product_type}|${band.breed}`,
+              name: [breedBeyondProduct(band.product_type, band.breed), seriesLabel(band.product_type)].filter(Boolean).join(" · "),
+              display: inr(Math.round(band.avg_price_per_kg)),
+            }))}
+            sx={{ height: 1 }}
+          />
+        )}
       </Grid>
 
       {/* The market benchmark table was removed from this board (maintainer request

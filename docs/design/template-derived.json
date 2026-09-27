@@ -120,6 +120,86 @@
         "height",
         "bgcolor"
       ]
+    },
+    "components/app/sections/overview/e-commerce/ecommerce-current-balance.tsx": {
+      "source": "src/sections/overview/e-commerce/ecommerce-current-balance.tsx",
+      "replaced": "fCurrency figure -> total; fixed Order total/Earning/Refunded rows -> rows; demo Request/Transfer buttons -> optional actions pair",
+      "tags": [
+        "Box",
+        "Box",
+        "Box",
+        "Card",
+        "Box",
+        "Box",
+        "Box",
+        "Box",
+        "Button",
+        "Button"
+      ],
+      "sx": [
+        "display",
+        "typography",
+        "justifyContent",
+        "color",
+        "p",
+        "sx",
+        "mb",
+        "typography",
+        "gap",
+        "display",
+        "flexDirection",
+        "typography",
+        "gap",
+        "display"
+      ]
+    },
+    "components/app/sections/overview/e-commerce/ecommerce-latest-products.tsx": {
+      "source": "src/sections/overview/e-commerce/ecommerce-latest-products.tsx",
+      "replaced": "fCurrency(price/priceSale) -> page-formatted display/displaySale; avatar initial when no cover; colours optional",
+      "tags": [
+        "Card",
+        "CardHeader",
+        "Scrollbar",
+        "Box",
+        "Item",
+        "Box",
+        "Avatar",
+        "Box",
+        "Link",
+        "Box",
+        "Box",
+        "Box",
+        "ColorPreview"
+      ],
+      "sx": [
+        "minHeight",
+        "p",
+        "gap",
+        "minWidth",
+        "display",
+        "flexDirection",
+        "gap",
+        "display",
+        "alignItems",
+        "sx",
+        "width",
+        "height",
+        "flexShrink",
+        "gap",
+        "minWidth",
+        "display",
+        "flex",
+        "flexDirection",
+        "color",
+        "typography",
+        "gap",
+        "display",
+        "typography",
+        "color",
+        "textDecoration",
+        "color",
+        "error.main"
+      ]
     }
   }
 }
