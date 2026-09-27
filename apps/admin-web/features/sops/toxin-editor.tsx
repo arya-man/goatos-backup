@@ -133,7 +133,8 @@ export function ToxinEditor({ pageContract: pc, basePath, sopId, sopName, versio
             <InlineSelect
               label={copy(pc, "tsop.step.kind")}
               value={step.kind}
-              options={kinds.map((k) => ({ value: k.key, label: k.label }))}
+              title={kinds.find((k) => k.key === step.kind)?.title}
+              options={kinds.map((k) => ({ value: k.key, label: k.label, title: k.title }))}
               onChange={(next) => {
                 const kind = next as ToxinStepKind;
                 patchStep(step.id, {

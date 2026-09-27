@@ -10,7 +10,8 @@ import MenuItem from "@mui/material/MenuItem";
 import type { Theme } from "@mui/material/styles";
 import styles from "./editor-chrome.module.css";
 
-type SelectOption = { value: string; label: string };
+/** `title` is the option's backend description (e.g. a toxin step kind's), shown as the menu item tooltip. */
+type SelectOption = { value: string; label: string; title?: string };
 
 /**
  * Shared chrome for every SOP editor surface (builder, inspection, weighing, feed, operator
@@ -127,7 +128,7 @@ export function InlineSelect({
       slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
     >
       {options.map((option) => (
-        <MenuItem key={option.value} value={option.value}>
+        <MenuItem key={option.value} value={option.value} title={option.title}>
           {option.label}
         </MenuItem>
       ))}
@@ -166,7 +167,7 @@ export function FieldSelect({
       slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
     >
       {options.map((option) => (
-        <MenuItem key={option.value} value={option.value}>
+        <MenuItem key={option.value} value={option.value} title={option.title}>
           {option.label}
         </MenuItem>
       ))}

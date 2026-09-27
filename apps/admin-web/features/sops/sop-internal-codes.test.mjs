@@ -57,3 +57,13 @@ test("SOP editors carry no label-above wrappers, native textareas/selects or leg
     assert.doesNotMatch(src, /className="qcfg-title"/, `${file}: legacy .qcfg-title (use Typography variant="subtitle2")`);
   }
 });
+
+// guard: sop-select-option-title (REVIEW-4 O8). Moving the toxin step-kind native <select> onto
+// InlineSelect dropped each option's backend description (tsop_step_kinds title). Select options
+// carry an optional `title` rendered on the MenuItem, and the toxin kind select passes it.
+test("SOP select options keep their backend description as the menu item title", () => {
+  const chrome = read("./editor-chrome.tsx");
+  assert.match(chrome, /type SelectOption = \{ value: string; label: string; title\?: string \}/);
+  assert.equal((chrome.match(/<MenuItem key=\{option\.value\} value=\{option\.value\} title=\{option\.title\}>/g) ?? []).length, 2);
+  assert.match(read("./toxin-editor.tsx"), /options=\{kinds\.map\(\(k\) => \(\{ value: k\.key, label: k\.label, title: k\.title \}\)\)\}/);
+});
