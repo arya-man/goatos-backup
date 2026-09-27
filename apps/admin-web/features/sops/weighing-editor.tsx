@@ -18,6 +18,7 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle, Check, ChevronDown, ChevronUp, Lock, Plus, X } from "lucide-react";
 import IconButton from "@mui/material/IconButton";
 import MuiTextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import Button from "@mui/material/Button";
 import Card from "@mui/material/Card";
@@ -338,12 +339,7 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
           ) : null}
           <div className="rowf">
             <MuiTextField label={copy(pc, "wsop.capture.lump_sum.slot_min")} size="small" slotProps={{ htmlInput: { inputMode: "numeric" } }} value={p.min} onChange={(e) => updateCounted(p.id, { min: e.target.value })} />
-            <label className="numfield">
-              <span className="numlbl">
-                {copy(pc, "wsop.capture.lump_sum.slot_max")} (≤ {LUMP_SUM_VIDEO_CEILING})
-              </span>
-              <MuiTextField size="small" slotProps={{ htmlInput: { inputMode: "numeric" } }} value={p.max} onChange={(e) => updateCounted(p.id, { max: e.target.value })} />
-            </label>
+            <MuiTextField label={`${copy(pc, "wsop.capture.lump_sum.slot_max")} (≤ ${LUMP_SUM_VIDEO_CEILING})`} size="small" slotProps={{ htmlInput: { inputMode: "numeric" } }} value={p.max} onChange={(e) => updateCounted(p.id, { max: e.target.value })} />
           </div>
         </div>
       </div>
@@ -413,7 +409,7 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
         <div className="bd">
           <div className="qcfg">
             <div className="qcfg-head">
-              <span className="qcfg-title">{copy(pc, "wsop.planning.modes")}</span>
+              <Typography variant="subtitle2" component="span">{copy(pc, "wsop.planning.modes")}</Typography>
             </div>
             {WEIGHING_MODES.map((mode) => (
               <FormControlLabel key={mode} className="chkline" control={<Checkbox checked={rows.modes.includes(mode)} onChange={(e) => toggleMode(mode, e.target.checked)} sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<>{copy(pc, `wsop.planning.mode.${mode}`)}</>} />
@@ -437,7 +433,7 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
         <div className="bd">
           <div className="qcfg">
             <div className="qcfg-head">
-              <span className="qcfg-title">{copy(pc, "wsop.removal.mode")}</span>
+              <Typography variant="subtitle2" component="span">{copy(pc, "wsop.removal.mode")}</Typography>
             </div>
             {removalModes.map((m) => (
               <FormControlLabel key={m.key} className="chkline" control={<Radio name="wsop-removal-mode" value={m.key} checked={rows.removalMode === m.key} onChange={() => setRows((r) => ({ ...r, removalMode: m.key as RemovalMode }))} sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<>{" "}
@@ -448,21 +444,14 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
           {removalOn ? (
             <>
               <div className="qcfg" style={{ marginTop: 10 }}>
-                <label className="numfield">
-                  <span className="numlbl">{copy(pc, "wsop.removal.instruction")}</span>
-                  <textarea className="qhelp" rows={3} value={rows.removalInstruction} onChange={(e) => setRows((r) => ({ ...r, removalInstruction: e.target.value }))} />
-                </label>
+                <MuiTextField label={copy(pc, "wsop.removal.instruction")} fullWidth multiline minRows={3} value={rows.removalInstruction} onChange={(e) => setRows((r) => ({ ...r, removalInstruction: e.target.value }))} />
                 <div className="rowf" style={{ marginTop: 8 }}>
-                  <label className="numfield">
-                    <span className="numlbl">{copy(pc, "wsop.removal.cutoff")}</span>
-                    <MuiTextField size="small" type="time" value={rows.removalCutoffTime} onChange={(e) => setRows((r) => ({ ...r, removalCutoffTime: e.target.value }))} />
-                    <span className="muted small">{copy(pc, "wsop.removal.cutoff.hint")}</span>
-                  </label>
+                  <MuiTextField label={copy(pc, "wsop.removal.cutoff")} helperText={copy(pc, "wsop.removal.cutoff.hint")} size="small" type="time" slotProps={{ inputLabel: { shrink: true } }} value={rows.removalCutoffTime} onChange={(e) => setRows((r) => ({ ...r, removalCutoffTime: e.target.value }))} />
                 </div>
               </div>
               <div className="qcfg" style={{ marginTop: 10 }}>
                 <div className="qcfg-head">
-                  <span className="qcfg-title">{copy(pc, "wsop.removal.proofs")}</span>
+                  <Typography variant="subtitle2" component="span">{copy(pc, "wsop.removal.proofs")}</Typography>
                   <span className="muted small">{copy(pc, "wsop.removal.proofs.subtitle")}</span>
                 </div>
                 <div className="qlist">
@@ -474,7 +463,7 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
               </div>
               <div className="qcfg" style={{ marginTop: 10 }}>
                 <div className="qcfg-head">
-                  <span className="qcfg-title">{copy(pc, "wsop.removal.questions")}</span>
+                  <Typography variant="subtitle2" component="span">{copy(pc, "wsop.removal.questions")}</Typography>
                   <span className="muted small">{copy(pc, "wsop.removal.questions.subtitle")}</span>
                 </div>
                 {questionList("removalQuestions", "wsop.removal.questions.empty")}
@@ -501,7 +490,7 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
           {/* 3a. Per animal */}
           <div className="qcfg">
             <div className="qcfg-head">
-              <span className="qcfg-title">{copy(pc, "wsop.capture.individual.title")}</span>
+              <Typography variant="subtitle2" component="span">{copy(pc, "wsop.capture.individual.title")}</Typography>
               <span className="muted small">{copy(pc, "wsop.capture.individual.subtitle")}</span>
             </div>
             <FormControlLabel className="chkline" disabled control={<Checkbox checked={rows.individualVideoRequired} sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<><span>
@@ -512,7 +501,7 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
               </span></>} />
             <div className="qcfg" style={{ marginTop: 10 }}>
               <div className="qcfg-head">
-                <span className="qcfg-title">{copy(pc, "wsop.capture.individual.proofs")}</span>
+                <Typography variant="subtitle2" component="span">{copy(pc, "wsop.capture.individual.proofs")}</Typography>
                 <span className="muted small">{copy(pc, "wsop.capture.individual.proofs.subtitle")}</span>
               </div>
               <div className="qlist">
@@ -527,7 +516,7 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
             </div>
             <div className="qcfg" style={{ marginTop: 10 }}>
               <div className="qcfg-head">
-                <span className="qcfg-title">{copy(pc, "wsop.capture.individual.questions")}</span>
+                <Typography variant="subtitle2" component="span">{copy(pc, "wsop.capture.individual.questions")}</Typography>
                 <span className="muted small">{copy(pc, "wsop.capture.individual.questions.subtitle")}</span>
               </div>
               {questionList("individualQuestions", "wsop.capture.individual.questions.empty")}
@@ -537,12 +526,12 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
           {/* 3b. Whole pen */}
           <div className="qcfg" style={{ marginTop: 14 }}>
             <div className="qcfg-head">
-              <span className="qcfg-title">{copy(pc, "wsop.capture.lump_sum.title")}</span>
+              <Typography variant="subtitle2" component="span">{copy(pc, "wsop.capture.lump_sum.title")}</Typography>
               <span className="muted small">{copy(pc, "wsop.capture.lump_sum.subtitle")}</span>
             </div>
             <div className="qcfg" style={{ marginTop: 10 }}>
               <div className="qcfg-head">
-                <span className="qcfg-title">{copy(pc, "wsop.capture.lump_sum.proofs")}</span>
+                <Typography variant="subtitle2" component="span">{copy(pc, "wsop.capture.lump_sum.proofs")}</Typography>
                 <span className="muted small">{copy(pc, "wsop.capture.lump_sum.proofs.subtitle")}</span>
               </div>
               <div className="qlist">
@@ -557,7 +546,7 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
             </div>
             <div className="qcfg" style={{ marginTop: 10 }}>
               <div className="qcfg-head">
-                <span className="qcfg-title">{copy(pc, "wsop.capture.lump_sum.questions")}</span>
+                <Typography variant="subtitle2" component="span">{copy(pc, "wsop.capture.lump_sum.questions")}</Typography>
                 <span className="muted small">{copy(pc, "wsop.capture.lump_sum.questions.subtitle")}</span>
               </div>
               {questionList("lumpSumQuestions", "wsop.capture.lump_sum.questions.empty")}
@@ -663,10 +652,7 @@ export function QuestionCard({
               onChange({ title, key: keyForTitle(title, q.key, savedKeys, takenKeys) });
             }}
           />
-        <label className="numfield">
-          <span className="numlbl">{copy(pc, "inspection.question.hint")}</span>
-          <textarea className="qhelp" rows={2} value={q.hint} onChange={(e) => onChange({ hint: e.target.value })} />
-        </label>
+        <MuiTextField label={copy(pc, "inspection.question.hint")} fullWidth multiline minRows={2} value={q.hint} onChange={(e) => onChange({ hint: e.target.value })} />
         {!q.key ? (
           <MuiTextField label={copy(pc, "inspection.question.key")} fullWidth size="small" value={q.key} onChange={(e) => onChange({ key: e.target.value })} />
         ) : null}
@@ -674,7 +660,7 @@ export function QuestionCard({
         {q.kind === "choice" || q.kind === "multi" ? (
           <div className="qcfg">
             <div className="qcfg-head">
-              <span className="qcfg-title">{copy(pc, "inspection.question.options")}</span>
+              <Typography variant="subtitle2" component="span">{copy(pc, "inspection.question.options")}</Typography>
               <Button color="primary" variant="text" size="small" startIcon={<Plus size={14} />} onClick={() => onChange({ options: [...q.options, { value: "", label: "" }] })}>
                 {copy(pc, "inspection.question.add_option")}
               </Button>
