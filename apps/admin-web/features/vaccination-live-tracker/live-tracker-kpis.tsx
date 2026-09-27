@@ -1,5 +1,6 @@
 import Alert from "@mui/material/Alert";
 import type { KitTone } from "@/lib/tone";
+import { LT_KPI_MIN } from "./live-tracker-layout";
 import { KpiGrid } from "@/components/app/kpi-grid";
 import { KpiWidget, kpiColor } from "@/components/app/kpi-widget";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -98,7 +99,7 @@ export function LiveTrackerKpis({
       ) : null}
       {/* A deck of zeros is a wall, not a reading: the tiles render only once the day has counts. */}
       {tiles.some((tile) => Number(tile.value) > 0) ? (
-      <KpiGrid min={200}>
+      <KpiGrid min={LT_KPI_MIN}>
         {tiles.map((tile) => (
           // The mock gives every tile a pointer cursor implying a cross-filter that it never wired.
           // Rendering it inert with a visible reason is the honest form: the control stays where the

@@ -81,3 +81,18 @@ test("/counts/milk-preparation twin reads milk-preparation-layout.ts, as the pag
   const got = [...page.matchAll(/\{ key: "([a-z]+)", total: [^}]*?(, unit[^}]*)? \}/g)].map((m) => `${m[1]}:${Boolean(m[2])}`);
   assert.deepEqual(got, want);
 });
+
+test("/vaccination/live-tracker twin reads live-tracker-layout.ts, as the board does", () => {
+  const twin = read("vaccination-live-tracker/live-tracker-skeleton.tsx");
+  assert.match(twin, /from "\.\/live-tracker-layout"/);
+  assert.doesNotMatch(twin, LITERAL_SIZE);
+  const board = read("vaccination-live-tracker/live-tracker-board.tsx");
+  for (const k of ["mb: LT_HEADER_MB", "mb: LT_BLOCK_MB", "size={LT_MAIN_SIZE}", "size={LT_RAIL_SIZE}", "fallback={<LiveTrackerBodySkeleton />}"]) assert.ok(board.includes(k), `board: ${k}`);
+  assert.match(read("vaccination-live-tracker/live-tracker-filters.tsx"), /minmax\(\$\{LT_FILTER_MIN\}px, 1fr\)/);
+  const layout = read("vaccination-live-tracker/live-tracker-layout.ts");
+  const ids = [...layout.match(/LT_FILTER_IDS = \[([^\]]*)\]/)[1].matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
+  assert.deepEqual([...board.matchAll(/id: "(lt_[a-z_]+)"/g)].map((m) => m[1]), ids);
+  const keys = [...layout.match(/LT_KPI_KEYS = \[([^\]]*)\]/)[1].matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
+  assert.deepEqual([...read("vaccination-live-tracker/live-tracker-kpis.tsx").matchAll(/key: "([a-z_]+)"/g)].map((m) => m[1]), keys);
+  assert.match(app("vaccination/live-tracker/loading.tsx"), /<LiveTrackerPageSkeleton \/>/);
+});

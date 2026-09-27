@@ -1,5 +1,6 @@
 import Alert from "@mui/material/Alert";
 import AlertTitle from "@mui/material/AlertTitle";
+import { LT_BLOCK_MB, LT_HEADER_MB, LT_MAIN_SIZE, LT_RAIL_SIZE } from "./live-tracker-layout";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Grid from "@mui/material/Grid";
@@ -144,7 +145,7 @@ export async function LiveTrackerBoard({
           running and the live poller (LIVE toggle, updated time, interval) live here instead of as
           header chips; an empty day says so in the welcome text with its reset action, never as a
           separate info banner. The wording turns on hasNarrowing, which INCLUDES the top-bar park. */}
-      <Box sx={{ mb: 3 }}>
+      <Box sx={{ mb: LT_BLOCK_MB }}>
         <AppWelcome
           title={`${copy(pageContract, "page.heading_prefix")} — ${data.business_date ? fmtDriveDay(data.business_date) : copy(pageContract, "label.placeholder")}`}
           description={
@@ -205,7 +206,7 @@ export async function LiveTrackerBoard({
 
       {/* Template overview grid: tables md 8, the live rail md 4. */}
       <Grid container spacing={3}>
-        <Grid size={{ xs: 12, lg: 8 }}>
+        <Grid size={LT_MAIN_SIZE}>
         <Stack spacing={3}>
           <LiveTrackerOperators
             rows={data.operators}
@@ -233,7 +234,7 @@ export async function LiveTrackerBoard({
           <LiveTrackerComboCard combo={data.combo} passportHref={passportHref} pageContract={pageContract} />
         </Stack>
         </Grid>
-        <Grid size={{ xs: 12, lg: 4 }}>
+        <Grid size={LT_RAIL_SIZE}>
         <LiveTrackerRail
           activity={data.activity}
           scanCaptureTotal={data.kpis.scan_captures}
@@ -270,7 +271,7 @@ function PageHead({
   commandHref: string;
 }) {
   return (
-    <Box sx={{ mb: { xs: 3, md: 5 } }}>
+    <Box sx={{ mb: LT_HEADER_MB }}>
     <PageHeader
       title={copy(pageContract, "page.title")}
       crumbs={[{ label: copy(pageContract, "crumb") }, { label: copy(pageContract, "page.title") }]}

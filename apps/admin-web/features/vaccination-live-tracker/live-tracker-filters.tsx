@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { LT_BLOCK_MB, LT_FILTER_MIN } from "./live-tracker-layout";
 import { useTransition } from "react";
 import { X } from "lucide-react";
 import Box from "@mui/material/Box";
@@ -53,13 +54,13 @@ export function LiveTrackerFilters({
   // Template list toolbar card (UserTableToolbar + UserTableFiltersResult): outlined TextField
   // selects that stack full-width on a phone, applied filters as MUI Chips with a Clear action.
   return (
-    <Card aria-busy={isPending} sx={{ mb: 3 }}>
+    <Card aria-busy={isPending} sx={{ mb: LT_BLOCK_MB }}>
       <Box
         sx={{
           p: 2.5,
           gap: 2,
           display: "grid",
-          gridTemplateColumns: { xs: "1fr", sm: "repeat(auto-fill, minmax(200px, 1fr))" },
+          gridTemplateColumns: { xs: "1fr", sm: `repeat(auto-fill, minmax(${LT_FILTER_MIN}px, 1fr))` },
           alignItems: "center",
         }}
       >

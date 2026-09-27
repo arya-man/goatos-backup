@@ -93,6 +93,7 @@ export function PageSkeleton({ children, root = "screen on", className, gap }: {
 export function PageHeaderSkeleton({
   crumbs = true,
   crumbLink = true,
+  crumbWidths = [52, 110],
   titleWidth = 260,
   actions = 0,
   actionWidths,
@@ -103,6 +104,8 @@ export function PageHeaderSkeleton({
   crumbs?: boolean;
   /** The parent crumb is a link (it has an href; a 44px tap target below md). */
   crumbLink?: boolean;
+  /** The crumbs' rendered widths (parent, current): long crumbs wrap to a second line on a phone as the page's do. */
+  crumbWidths?: [number, number];
   /**
    * The title's rendered width. On a phone the header's actions sit beside the title block when both
    * fit (a short title) and wrap under it otherwise; the placeholder must wrap the same way.
@@ -131,12 +134,12 @@ export function PageHeaderSkeleton({
                     {/* The parent crumb is a link: PhoneTapStyles grows `li > a` to 44px below md. */}
                     {crumbLink ? (
                       <Box component="a" aria-hidden="true" tabIndex={-1}>
-                        <Skeleton variant="text" width={52} />
+                        <Skeleton variant="text" width={crumbWidths[0]} />
                       </Box>
                     ) : (
-                      <Skeleton variant="text" width={52} />
+                      <Skeleton variant="text" width={crumbWidths[0]} />
                     )}
-                    <Skeleton variant="text" width={110} />
+                    <Skeleton variant="text" width={crumbWidths[1]} />
                   </Breadcrumbs>
                 ),
               }
