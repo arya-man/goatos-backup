@@ -23,7 +23,7 @@ import { varAlpha } from "minimal-shared/utils";
 import { EmptyContent } from "@/components/minimal/empty-content";
 import { Label } from "@/components/minimal/label";
 import { Scrollbar } from "@/components/minimal/scrollbar";
-import { KpiWidget, lastStepPercent, type KpiTrend } from "@/components/app/kpi-widget";
+import { KpiWidget, completeMonthPercent, type KpiTrend } from "@/components/app/kpi-widget";
 import { AnalyticsWebsiteVisits } from "@/components/minimal/sections/overview/analytics/analytics-website-visits";
 import { PageHeader } from "@/components/app/page-header";
 import type { PaletteColorKey } from "@/theme/core";
@@ -497,10 +497,10 @@ export async function MortalityPage({
   const seasonByStage = data.season_by_stage.map((cell) => ({ ...cell, col_label: stageDisplayLabel(cell.col_label, stageNames) }));
   // Template CourseWidgetSummary takes a number: units go in the title, detail in the caption.
   // Template widgets print a number: the unit / remainder leads the visible sub-line. Deaths, kids
-  // and adults carry the month-on-month change (BookingWidgetSummary: percent, no period text); the
+  // and adults carry the change between the last two COMPLETE months (BookingWidgetSummary: percent, no period text); the
   // monthly series itself is the kids / adults chart below.
   const monthTrend = (series: number[]) => {
-    const percent = data.months.length >= 2 ? lastStepPercent(series) : null;
+    const percent = completeMonthPercent(series, data.window_to);
     return percent == null ? null : { percent, period: "month" as const };
   };
   const pctSub = (rate: number | null | undefined, rest: string) => (rate == null ? noRate : `% · ${rest}`);

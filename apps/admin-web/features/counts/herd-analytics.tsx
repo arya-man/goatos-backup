@@ -11,7 +11,7 @@ import Stack from "@mui/material/Stack";
 import { PageHeader } from "@/components/app/page-header";
 import { KpiGrid } from "@/components/app/kpi-grid";
 import { EmptyContent } from "@/components/minimal/empty-content";
-import { KpiWidget, lastStepPercent, splitParts } from "@/components/app/kpi-widget";
+import { KpiWidget, completeMonthPercent, splitParts } from "@/components/app/kpi-widget";
 import { EcommerceSaleByGender } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sale-by-gender";
 import {
   EcommerceSalesOverview,
@@ -240,10 +240,10 @@ export async function HerdAnalyticsPage({
 
   const totals = data.totals;
   const monthLabels = data.months.map((month) => month.label);
-  // Births / deaths / sold tiles carry the month-on-month change (BookingWidgetSummary: percent, no
+  // Births / deaths / sold tiles carry the change between the last two COMPLETE months (BookingWidgetSummary: percent, no
   // period text); the monthly series is the flow chart below.
   const monthTrend = (key: "births" | "deaths" | "sold") => {
-    const percent = data.months.length >= 2 ? lastStepPercent(data.months.map((m) => m[key])) : null;
+    const percent = completeMonthPercent(data.months.map((m) => m[key]), data.window_to);
     return percent == null ? null : { percent, period: "month" as const };
   };
   // Colour follows the SERIES (births green, deaths red) on the flow chart and the KPI sparklines.

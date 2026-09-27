@@ -17,7 +17,7 @@ import Grid from "@mui/material/Grid";
 import Stack from "@mui/material/Stack";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
-import { KpiWidget, kpiColor, lastStepPercent } from "@/components/app/kpi-widget";
+import { KpiWidget, kpiColor, completeMonthPercent } from "@/components/app/kpi-widget";
 import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
 import { copy, table, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
@@ -225,6 +225,7 @@ function Kpi({
   unit,
   sub,
   monthly,
+  windowTo,
   md = 4,
 }: {
   accent: string;
@@ -235,10 +236,12 @@ function Kpi({
   sub: string;
   /** Month-on-month change of the monthly series behind the figure (drawn in the chart below). */
   monthly?: number[];
+  /** The served window's last day: its month is left out of the change while it is running. */
+  windowTo?: string;
   md?: number;
 }) {
   const tone = ACCENT_TONE[accent];
-  const percent = monthly && monthly.length >= 2 ? lastStepPercent(monthly) : null;
+  const percent = monthly ? completeMonthPercent(monthly, windowTo) : null;
   const lead = value == null ? "—" : unit;
   return (
     <Grid size={{ xs: 12, sm: 6, md }}>
@@ -470,6 +473,7 @@ export async function HealthAnalyticsPage({
           label={ha(pageContract, "kpi.new.label")}
           value={totals.new_cases}
           monthly={newCaseRowsByMonth.map((m) => m.new_cases)}
+          windowTo={data.window_to}
           sub={ha(pageContract, "kpi.new.sub")}
         />
         <Kpi
@@ -486,6 +490,7 @@ export async function HealthAnalyticsPage({
           label={ha(pageContract, "kpi.deaths.label")}
           value={totals.deaths}
           monthly={deathRowsByMonth.map((m) => m.attributed + m.unattributed)}
+          windowTo={data.window_to}
           sub={ha(pageContract, "kpi.deaths.sub")}
         />
         <Kpi
