@@ -637,6 +637,30 @@ export function DetailCardSkeleton({ rows = 5, columns = 1, header = true, heigh
   );
 }
 
+/**
+ * Loading twin of a small settings card (the /leave "who approves" card): Card `p { xs 2, sm 3 }`, a
+ * bare CardHeader (`p 0, mb 2`; h6 title, body2 subheader that wraps to a second line on a phone when
+ * `wrap`), then one wrapping row (gap 2.5) of controls (`controls` = their widths: a checkbox label is
+ * the box + its label) and an optional small button.
+ */
+export function FormCardSkeleton({ subheader = true, wrap = false, controls = [], action }: { subheader?: boolean; wrap?: boolean; controls?: number[]; action?: number }) {
+  return (
+    <Card aria-hidden="true" data-skel="form" sx={{ p: { xs: 2, sm: 3 } }}>
+      <Box sx={{ mb: 2 }}>
+        <SkeletonLine variant="h6" width="32%" />
+        {subheader ? <SkeletonLine variant="body2" width="72%" /> : null}
+        {subheader && wrap ? <SkeletonLine variant="body2" width="48%" sx={{ display: { xs: "block", sm: "none" } }} /> : null}
+      </Box>
+      <Box sx={{ display: "flex", gap: 2.5, flexWrap: "wrap", alignItems: "center" }}>
+        {controls.map((w, i) => (
+          <Skeleton key={i} variant="rounded" width={w} sx={{ height: tapHeight(36) }} />
+        ))}
+        {action ? <Skeleton variant="rounded" width={action} sx={{ height: tapHeight(30) }} /> : null}
+      </Box>
+    </Card>
+  );
+}
+
 /** Avatar + two-line rows (a notification list, a people list) with a trailing value; no card. */
 export function ListRowsSkeleton({ rows = 5, avatar = true, trailing = true, spacing = 2 }: { rows?: number; avatar?: boolean; trailing?: boolean; spacing?: number }) {
   return (

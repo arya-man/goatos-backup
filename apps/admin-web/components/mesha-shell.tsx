@@ -275,6 +275,14 @@ function normalizeTrail(items: TrailItem[]): TrailItem[] {
 // Park-scope switcher (template WorkspacesPopover): the "all parks" option id and the park mark image
 // that fills the template's workspace-logo slot.
 const ALL_PARKS_ID = "all";
+// The pending route skeleton's wrapper: layout-transparent, and it gives the page root inside it the
+// SAME grid frame.css gives a `.wrap > .screen` root (display grid, the 3-unit gap), which the extra
+// element would otherwise cut off (`&&` outranks `.screen.on { display: block }`).
+const PENDING_ROOT_SX = {
+  display: "contents",
+  "&& > :is(.screen, .kit-page, .kit-enter, .pagegrid, .herd-signals-page, .lt-page)": { display: "grid", gap: "var(--sp-3)", minWidth: 0, alignContent: "start" },
+  "&& > :is(.screen, .kit-page, .kit-enter, .pagegrid, .herd-signals-page, .lt-page) > *": { mt: 0, mb: 0, minWidth: 0 },
+} as const;
 const PARK_MARK = "/assets/icons/workspaces/park-mark.svg";
 
 const menuRowSx = (theme: Theme) => ({ gap: 1.5, [theme.breakpoints.down("sm")]: { minHeight: TAP_MIN } });
@@ -1026,7 +1034,11 @@ export function MeshaShell({
             )}
             <ShellParksContext.Provider value={parks}>
               {pendingHref ? (
-                <Box data-route-skeleton-el="" sx={{ display: "contents" }}>
+                // guard: pending-skeleton-root-gap. The wrapper is layout-transparent, so the skeleton's
+                // page root is no longer a `.wrap > .screen` child and loses frame.css's page grid
+                // (the pending skeleton stacked its blocks with no gap, then jumped when loading.tsx
+                // took over). Restate that grid for the root it wraps.
+                <Box data-route-skeleton-el="" sx={PENDING_ROOT_SX}>
                   <PendingRouteSkeleton href={pendingHref} />
                 </Box>
               ) : null}

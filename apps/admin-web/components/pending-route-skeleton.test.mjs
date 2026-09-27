@@ -41,3 +41,16 @@ test("every SOP library route (work instructions included) has its skeleton in t
   }
   assert.match(reg, /export function PendingRouteSkeleton/);
 });
+
+// guard: pending-skeleton-root-gap (SK1). The pending skeleton sits in a `display: contents` wrapper,
+// so its page root is not a `.wrap > .screen` child and lost frame.css's 24px page grid: the header
+// and the first card touched, then jumped 24px when the route's loading.tsx took over.
+test("the pending skeleton wrapper restates the page root grid", () => {
+  const shell = read("./mesha-shell.tsx");
+  assert.match(shell, /<Box data-route-skeleton-el="" sx=\{PENDING_ROOT_SX\}>/);
+  const sx = shell.slice(shell.indexOf("const PENDING_ROOT_SX"), shell.indexOf("} as const;", shell.indexOf("const PENDING_ROOT_SX")));
+  assert.match(sx, /display: "contents"/);
+  assert.match(sx, /"&& > :is\(\.screen[^"]*\)": \{ display: "grid", gap: "var\(--sp-3\)"/);
+  const frame = read("../app/frame.css");
+  assert.match(frame, /\.wrap>\.screen[^{]*\{display:grid;gap:24px/, "frame.css page grid changed: update PENDING_ROOT_SX with it");
+});

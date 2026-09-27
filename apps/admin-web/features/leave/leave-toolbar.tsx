@@ -103,6 +103,7 @@ function LeaveToolbar({ value, parkOptions, designationOptions, basePath, curren
         </>
       }
       summary={
+        chips.length ? (
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
           {chips.length ? <Box component="span" sx={{ typography: "body2", color: "text.secondary" }}>{shown} / {total}</Box> : null}
           {/* Template filters-result chip: soft small Chip with its own delete affordance. */}
@@ -118,6 +119,7 @@ function LeaveToolbar({ value, parkOptions, designationOptions, basePath, curren
           ))}
           {chips.length ? <Button color="primary" variant="text" size="small" onClick={clearAll}>{copyFor("action.clear_all")}</Button> : null}
         </Box>
+        ) : null
       }
     >
       <form

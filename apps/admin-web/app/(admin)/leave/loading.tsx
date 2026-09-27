@@ -1,15 +1,21 @@
-import { FilterCardSkeleton, PageHeaderSkeleton, PageSkeleton, StackSkeleton, StatStripSkeleton, TableSkeleton, TabsSkeleton } from "@/components/app/skeletons";
-import { DEFAULT_PAGE_SIZE, STATUS_FILTERS } from "@/features/leave/leave-layout";
+import { FilterCardSkeleton, FormCardSkeleton, KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton, StackSkeleton, TableSkeleton, TabsSkeleton } from "@/components/app/skeletons";
+import { DEFAULT_PAGE_SIZE, LEAVE_TILE_SIZE, LEAVE_TOOLBAR_FIELDS, STATUS_FILTERS } from "@/features/leave/leave-layout";
 
-/** /leave: header, then the page stack: counts strip, approvals queue card, requests card with status tabs. */
+/**
+ * /leave, block for block with LeavePage: header (crumbs), then the page Stack: the four status tiles, the "who approves" settings card, the "Waiting for you" queue card
+ * (header, the toolbar: park + designation selects, the date pair, search and the ⋮, then rows), and
+ * the "All leave requests" card with its status tabs and the same toolbar.
+ */
 export default function Loading() {
+  const toolbar = <FilterCardSkeleton inCard fields={LEAVE_TOOLBAR_FIELDS} actionWidths={[36]} />;
   return (
     <PageSkeleton className="leave-page">
-      <PageHeaderSkeleton />
+      <PageHeaderSkeleton titleWidth={80} />
       <StackSkeleton>
-        <StatStripSkeleton count={4} />
-        <TableSkeleton columns={6} rows={DEFAULT_PAGE_SIZE} headerAction toolbar={<FilterCardSkeleton inCard fields={["search", 160, 160, 240]} />} />
-        <TableSkeleton columns={6} rows={DEFAULT_PAGE_SIZE} tabs={<TabsSkeleton count={STATUS_FILTERS.length} counts />} toolbar={<FilterCardSkeleton inCard fields={["search", 160, 160, 240]} />} />
+        <KpiRowSkeleton count={4} size={LEAVE_TILE_SIZE} />
+        <FormCardSkeleton wrap controls={[232, 56]} action={64} />
+        <TableSkeleton columns={5} rows={DEFAULT_PAGE_SIZE} toolbar={toolbar} pager={false} />
+        <TableSkeleton columns={6} rows={DEFAULT_PAGE_SIZE} tabs={<TabsSkeleton count={STATUS_FILTERS.length} counts />} toolbar={toolbar} pager={false} />
       </StackSkeleton>
     </PageSkeleton>
   );

@@ -38,7 +38,7 @@ import { LeaveConfigPanel } from "./leave-config-panel";
 import { LeaveActionTelemetry } from "./leave-telemetry";
 import { LeaveRejectDialog } from "./leave-reject-dialog";
 import { LeaveDenseScope, LeaveTableChrome, LeaveToolbarRow } from "./leave-toolbar";
-import { DEFAULT_PAGE_SIZE, STATUS_FILTERS } from "./leave-layout";
+import { DEFAULT_PAGE_SIZE, LEAVE_TILE_SIZE, STATUS_FILTERS } from "./leave-layout";
 
 const PATHNAME = "/leave";
 const LEAVE_TILES = [
@@ -153,13 +153,15 @@ export async function LeavePage({
           </Alert>
         ) : null}
 
-        {mayList && Object.values(statusCounts).some((n) => Number(n) > 0) ? (
-          // Counts over the status taxonomy the tabs already use; hidden while every count is 0.
+        {mayList ? (
+          // Counts over the status taxonomy the tabs already use. Shown at zero too (an empty-but-OK
+          // window keeps its section with zero counts), so the loading twin's tile row always lands
+          // on a tile row (guard: leave-loading-mirror).
           // Template overview/course: CourseWidgetSummary count tiles on a spacing-3 Grid.
-          <UrlSuspense searchParams={sp} watch={LIST_WATCH} fallback={<KpiRowSkeleton count={4} icon />}>
+          <UrlSuspense searchParams={sp} watch={LIST_WATCH} fallback={<KpiRowSkeleton count={4} size={LEAVE_TILE_SIZE} />}>
           <Grid container spacing={3}>
             {LEAVE_TILES.map(({ key, icon, color }) => (
-              <Grid key={key} size={{ xs: 12, sm: 6, md: 3 }}>
+              <Grid key={key} size={LEAVE_TILE_SIZE}>
                 <CourseWidgetSummary title={t(`filter.status.${key}`)} total={statusCounts[key]} icon={icon} color={color} />
               </Grid>
             ))}

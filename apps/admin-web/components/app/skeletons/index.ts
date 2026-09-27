@@ -15,6 +15,7 @@ export {
   DetailCardSkeleton,
   FieldSkeleton,
   FilterCardSkeleton,
+  FormCardSkeleton,
   KpiCardSkeleton,
   KpiRowSkeleton,
   ListCardSkeleton,
