@@ -161,69 +161,6 @@ export function PageHeaderSkeleton({
   );
 }
 
-/**
- * Loading twin of the template `OrderDetailsToolbar` (components/app/sections/order), the detail pages'
- * header in place of PageHeader: back IconButton, h4 title with its status Label, body2 subtitle
- * (`subtitleLines` when it wraps), then the actions Box (Labels 24 tall, buttons at the tap height)
- * that grows to the right from md and stacks under the title below md. No bottom margin: frame.css
- * zeroes the toolbar's `mb` on a `.screen` page, where the page gap spaces it.
- */
-export function DetailsToolbarSkeleton({
-  titleWidth,
-  titleLines = 1,
-  status = false,
-  subtitleLines = 1,
-  actions = [],
-  wrapActions = false,
-}: {
-  titleWidth: number | string;
-  /** Lines the h4 title wraps to (per breakpoint), e.g. `{ xs: 2, md: 1 }`. */
-  titleLines?: number | Partial<Record<"xs" | "sm" | "md" | "lg" | "xl", number>>;
-  /** The status Label beside the title. */
-  status?: boolean;
-  subtitleLines?: number | Partial<Record<"xs" | "sm" | "md" | "lg" | "xl", number>>;
-  /** Each action: a Label (`label`, 24 tall) or a Button, at its rendered width. */
-  actions?: { width: number; label?: boolean }[];
-  /** The page's `slotProps.actions` wrap (a phone wraps the chips, left aligned). */
-  wrapActions?: boolean;
-}) {
-  const lines = (spec: number | Partial<Record<string, number>>) => {
-    const perBp = typeof spec === "number" ? { xs: spec } : spec;
-    const most = Math.max(1, ...Object.values(perBp).map((n) => n ?? 1));
-    const display = (i: number) => Object.fromEntries(Object.entries(perBp).map(([bp, n]) => [bp, i < Math.max(1, n ?? 1) ? "block" : "none"]));
-    return { most, display };
-  };
-  const sub = lines(subtitleLines);
-  const head = lines(titleLines);
-  return (
-    <Box aria-hidden="true" data-skel="details-toolbar" sx={{ gap: "var(--sp-3)", display: "flex", flexDirection: { xs: "column", md: "row" } }}>
-      <Box sx={{ gap: 1, display: "flex", alignItems: "flex-start" }}>
-        <Skeleton variant="circular" sx={{ width: tapHeight(36), height: tapHeight(36), flexShrink: 0 }} />
-        <Stack spacing={0.5} sx={{ minWidth: 0 }}>
-          <Box sx={{ gap: 1, display: "flex", alignItems: "center" }}>
-            <Box sx={{ typography: "h4", width: titleWidth, maxWidth: 1 }}>
-              {Array.from({ length: head.most }, (_, i) => (
-                <Skeleton key={i} variant="text" sx={i ? { display: head.display(i) } : undefined} />
-              ))}
-            </Box>
-            {status ? <Skeleton variant="rounded" width={60} height={24} sx={{ flexShrink: 0 }} /> : null}
-          </Box>
-          <Box>
-            {Array.from({ length: sub.most }, (_, i) => (
-              <SkeletonLine key={i} variant="body2" width={i === sub.most - 1 ? "60%" : "100%"} sx={i ? { display: sub.display(i) } : undefined} />
-            ))}
-          </Box>
-        </Stack>
-      </Box>
-      <Box sx={{ gap: 1.5, flexGrow: 1, display: "flex", alignItems: "center", justifyContent: wrapActions ? { xs: "flex-start", md: "flex-end" } : "flex-end", flexWrap: wrapActions ? "wrap" : "nowrap" }}>
-        {actions.map((a, i) => (
-          <Skeleton key={i} variant="rounded" width={a.width} sx={{ height: a.label ? 24 : tapHeight(36), flexShrink: 0 }} />
-        ))}
-      </Box>
-    </Box>
-  );
-}
-
 /** Loading twin of `TemplateTabs`: the template MUI Tabs strip, labels as text Skeletons. */
 export function TabsSkeleton({ count, variant = "underline", counts = false, widths, links = false, sx }: { count: number; variant?: "underline" | "pill"; counts?: boolean; /** Per-tab label widths when the page's labels are known (default: a wobble 56-95). */ widths?: number[]; /** The page's tabs are links (SegmentTabs with hrefs): `a` tabs, which the legacy `.main button` min-height rules do not reach. */ links?: boolean; sx?: SxProps<Theme> }) {
   return (
@@ -1024,24 +961,71 @@ export function OrderToolbarSkeleton({
  * toolbar): the back arrow, the h4 title with its status Label, the body2 date line, and the
  * right-aligned actions (`actionWidths`); a column below md.
  */
-export function OrderDetailsToolbarSkeleton({ back = true, status = true, titleWidth = 220, actionWidths = [] }: { back?: boolean; status?: boolean; titleWidth?: number; actionWidths?: number[] }) {
+export function OrderDetailsToolbarSkeleton({
+  back = true,
+  status = true,
+  titleWidth = 220,
+  titleLines = 1,
+  subtitleWidth = 180,
+  subtitleLines = 1,
+  actionWidths = [],
+  actions,
+  wrapActions = false,
+  flush = false,
+}: {
+  back?: boolean;
+  status?: boolean;
+  titleWidth?: number;
+  /** Lines the h4 title wraps to (per breakpoint), e.g. `{ xs: 2, md: 1 }`. */
+  titleLines?: number | Partial<Record<"xs" | "sm" | "md" | "lg" | "xl", number>>;
+  subtitleWidth?: number | string;
+  /** Lines the body2 subtitle wraps to (per breakpoint); more than one fills the column width. */
+  subtitleLines?: number | Partial<Record<"xs" | "sm" | "md" | "lg" | "xl", number>>;
+  /** Button actions at the tap height (36 from md). */
+  actionWidths?: number[];
+  /** Mixed actions: soft Labels (`label`, 24 tall) and buttons; overrides `actionWidths`. */
+  actions?: readonly { width: number; label?: boolean }[];
+  /** The page's `slotProps.actions` wrap (a phone wraps the chips, left aligned). */
+  wrapActions?: boolean;
+  /** No bottom margin: on a `.screen` page frame.css zeroes the toolbar's `mb` and the page gap spaces it. */
+  flush?: boolean;
+}) {
+  const lines = (spec: number | Partial<Record<string, number>>) => {
+    const perBp = typeof spec === "number" ? { xs: spec } : spec;
+    const most = Math.max(1, ...Object.values(perBp).map((n) => n ?? 1));
+    const display = (i: number) => Object.fromEntries(Object.entries(perBp).map(([bp, n]) => [bp, i < Math.max(1, n ?? 1) ? "block" : "none"]));
+    return { most, display };
+  };
+  const head = lines(titleLines);
+  const sub = lines(subtitleLines);
+  const acts: readonly { width: number; label?: boolean }[] = actions ?? actionWidths.map((width) => ({ width }));
   return (
-    <Box aria-hidden="true" data-skel="header" sx={{ gap: "var(--sp-3)", display: "flex", mb: { xs: 3, md: 5 }, flexDirection: { xs: "column", md: "row" } }}>
+    <Box aria-hidden="true" data-skel="header" sx={{ gap: "var(--sp-3)", display: "flex", ...(flush ? {} : { mb: { xs: 3, md: 5 } }), flexDirection: { xs: "column", md: "row" } }}>
       <Box sx={{ gap: 1, display: "flex", alignItems: "flex-start" }}>
         {back ? <Skeleton variant="circular" sx={{ width: tapHeight(36), height: tapHeight(36), flexShrink: 0 }} /> : null}
         <Stack spacing={0.5} sx={{ minWidth: 0 }}>
           <Box sx={{ gap: 1, display: "flex", alignItems: "center" }}>
             <Box sx={{ typography: "h4", width: titleWidth, maxWidth: 1 }}>
-              <Skeleton variant="text" />
+              {Array.from({ length: head.most }, (_, i) => (
+                <Skeleton key={i} variant="text" sx={i ? { display: head.display(i) } : undefined} />
+              ))}
             </Box>
             {status ? <ChipSkeleton width={96} height={24} /> : null}
           </Box>
-          <SkeletonLine variant="body2" width={180} />
+          {sub.most > 1 ? (
+            <Box>
+              {Array.from({ length: sub.most }, (_, i) => (
+                <SkeletonLine key={i} variant="body2" width={i === sub.most - 1 ? "60%" : "100%"} sx={i ? { display: sub.display(i) } : undefined} />
+              ))}
+            </Box>
+          ) : (
+            <SkeletonLine variant="body2" width={subtitleWidth} />
+          )}
         </Stack>
       </Box>
-      <Box sx={{ gap: 1.5, flexGrow: 1, display: "flex", alignItems: "center", justifyContent: "flex-end" }}>
-        {actionWidths.map((w, i) => (
-          <Skeleton key={i} variant="rounded" width={w} sx={{ height: tapHeight(36) }} />
+      <Box sx={{ gap: 1.5, flexGrow: 1, display: "flex", alignItems: "center", justifyContent: wrapActions ? { xs: "flex-start", md: "flex-end" } : "flex-end", flexWrap: wrapActions ? "wrap" : "nowrap" }}>
+        {acts.map((a, i) => (
+          <Skeleton key={i} variant="rounded" width={a.width} sx={{ height: a.label ? 24 : tapHeight(36), flexShrink: 0 }} />
         ))}
       </Box>
     </Box>
