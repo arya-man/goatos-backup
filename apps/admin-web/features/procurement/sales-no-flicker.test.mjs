@@ -27,9 +27,11 @@ test("Market analytics question and city chips are view-only client state", () =
 
 test("Farm born stages its filters and never dims the whole page", () => {
   const page = read("./sales-farm-born.tsx");
-  assert.match(page, /<WorklistFilters[\s\S]*?deferApply[\s\S]*?holdChildren=\{false\}/);
+  assert.match(page, /<WorklistFilters[\s\S]*?deferApply[\s\S]*?<UrlSuspense /);
+  // REVIEW-43: the bar holds no rows back (the retired `wfbusy` dim kept old rows with no skeleton);
+  // a filter apply swaps the page's UrlSuspense panel to its skeleton instead.
   const bar = read("../../components/worklist-filters.tsx");
-  assert.match(bar, /className=\{busy && holdChildren \? "wfbusy" : undefined\}/);
+  assert.doesNotMatch(bar, /wfbusy|holdChildren/);
 });
 
 test("the Over 35 kg margin re-counts its own card in place", () => {

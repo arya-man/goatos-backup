@@ -197,7 +197,6 @@ export function WorklistFilters({
   fields,
   pageContract,
   deferApply = false,
-  holdChildren = true,
   telemetry,
   trailing,
   search,
@@ -249,13 +248,6 @@ export function WorklistFilters({
    * sets nobody asked for. Off by default, so a light single-filter bar keeps its immediate feel.
    */
   deferApply?: boolean;
-  /**
-   * Whether the rows are DIMMED while an apply is in flight (the default). A page whose whole body
-   * is governed by the bar passes false (Farm born, 2026-09-25): dimming there dimmed the entire
-   * page on every pick. The bar's own busy ring and status word still say an apply is in flight,
-   * and the rows stay marked aria-busy.
-   */
-  holdChildren?: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -874,7 +866,9 @@ export function WorklistFilters({
       <Box sx={{ p: 2.5, display: "flex", flexDirection: "column", gap: 2.5, "& .MuiFormControl-root, & > .MuiTextField-root": { width: 1 } }}>{controls}</Box>
     </MinimalDrawer>
     {children === undefined ? null : (
-      <div className={busy && holdChildren ? "wfbusy" : undefined} aria-busy={busy || undefined}>
+      // Nothing is dimmed or held while an apply is in flight: the page puts its rows in a
+      // UrlSuspense panel, which swaps them to their skeleton at once (REVIEW-43).
+      <div aria-busy={busy || undefined}>
         {children}
       </div>
     )}

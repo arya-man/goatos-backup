@@ -22,9 +22,14 @@ import {
 import type { KpiShape } from "@/components/app/skeletons";
 import Box from "@mui/material/Box";
 import { useShellParks } from "@/components/app/shell-parks";
+import { GROUPED_COLUMNS_HEIGHT } from "@/components/grouped-columns";
+import { FARM_BORN_PEN_PAGE_SIZE, SALES_CHART_TWIN, SALES_DEFAULT_LIMIT, SALES_GRID, SOLD_BUYERS_PAGE_SIZE } from "./sales-layout";
 
-/** Template chart card of LoadwiseSection (`chartCard`): the chart's own height per breakpoint. */
-const loadChart = (height: Record<string, number>) => <ChartCardSkeleton height={height} />;
+/** Template chart card of LoadwiseSection (`chartCard`): GroupedColumns' plot plus its legend rows. */
+const loadChart = (i: number) => {
+  const legend = SALES_CHART_TWIN.loadLegends[i];
+  return <ChartCardSkeleton height={{ xs: GROUPED_COLUMNS_HEIGHT + legend.xs, lg: GROUPED_COLUMNS_HEIGHT + legend.lg }} />;
+};
 
 /** /sales/loads `LoadwiseSection`: KPI row, animals-per-load chart beside the summary, four chart cards, the register. */
 export function SalesLoadsBodySkeleton() {
@@ -33,14 +38,14 @@ export function SalesLoadsBodySkeleton() {
       <KpiRowSkeleton count={4} shapes={[{ hint: true, hintLines: { xs: 1, lg: 2 } }, { hint: true, hintLines: { xs: 1, lg: 2 } }, { hint: true }, { hint: true, hintLines: { xs: 3, lg: 5 } }]} />
       <GridSkeleton
         items={[
-          { size: { xs: 12, lg: 8 }, node: loadChart({ xs: 491, lg: 391 }) },
-          { size: { xs: 12, lg: 4 }, node: <DetailCardSkeleton rows={6} height={{ lg: "100%" }} /> },
+          { size: SALES_GRID.main, node: loadChart(0) },
+          { size: SALES_GRID.side, node: <DetailCardSkeleton rows={6} height={{ lg: "100%" }} /> },
         ]}
       />
-      {loadChart({ xs: 491, lg: 391 })}
-      {loadChart({ xs: 440, lg: 391 })}
-      {loadChart({ xs: 389, lg: 391 })}
-      {loadChart({ xs: 440, lg: 391 })}
+      {loadChart(1)}
+      {loadChart(2)}
+      {loadChart(3)}
+      {loadChart(4)}
       <TableSkeleton columns={12} rows={6} />
     </StackSkeleton>
   );
@@ -56,10 +61,10 @@ export function SalesFarmValueBodySkeleton() {
           node: (
             <GridSkeleton
               items={[
-                { size: { xs: 12, md: 4 }, node: <KpiCardSkeleton hint /> },
-                { size: { xs: 12, md: 4 }, node: <KpiCardSkeleton hint /> },
+                { size: SALES_GRID.valueKpi, node: <KpiCardSkeleton hint /> },
+                { size: SALES_GRID.valueKpi, node: <KpiCardSkeleton hint /> },
                 {
-                  size: { xs: 12, md: 4 },
+                  size: SALES_GRID.valueKpi,
                   node: (
                     <StackSkeleton spacing={1.5}>
                       <KpiCardSkeleton hint hintLines={2} />
@@ -76,9 +81,9 @@ export function SalesFarmValueBodySkeleton() {
             />
           ),
         },
-        { size: { xs: 12, md: 6, lg: 5 }, node: <ChartCardSkeleton height={{ xs: 410, md: 460 }} legend /> },
+        { size: SALES_GRID.valueChart, node: <ChartCardSkeleton height={SALES_CHART_TWIN.valueCategories} legend /> },
         // EcommerceSalesOverview progress rows (label, bar, caption: two detail rows each), stretched beside the chart from md.
-        { size: { xs: 12, md: 6, lg: 7 }, node: <DetailCardSkeleton rows={14} height={{ md: "100%" }} /> },
+        { size: SALES_GRID.valueRows, node: <DetailCardSkeleton rows={14} height={{ md: "100%" }} /> },
       ]}
     />
   );
@@ -98,7 +103,7 @@ export function SalesFarmTabsSkeleton() {
 
 /** Four template CourseWidgetSummary cards two by two, filling the Grid item they sit in (Sold, Buyer analytics). */
 function Kpi2x2Skeleton({ lines = [] }: { lines?: KpiShape["hintLines"][] }) {
-  return <GridSkeleton fill items={Array.from({ length: 4 }, (_, i) => ({ size: { xs: 12, sm: 6 }, node: <KpiCardSkeleton hint hintLines={lines[i] ?? 1} /> }))} />;
+  return <GridSkeleton fill items={Array.from({ length: 4 }, (_, i) => ({ size: SALES_GRID.half, node: <KpiCardSkeleton hint hintLines={lines[i] ?? 1} /> }))} />;
 }
 
 /** /sales/sold `SoldOverviewPanel`: KPIs 2x2 beside sold-by-weight, the monthly chart beside price by breed, the buyers board. */
@@ -106,38 +111,38 @@ export function SalesSoldOverviewSkeleton() {
   return (
     <GridSkeleton
       items={[
-        { size: { xs: 12, lg: 8 }, node: <Kpi2x2Skeleton lines={[1, 1, 1, { xs: 2, sm: 1 }]} /> },
-        { size: { xs: 12, lg: 4 }, node: <DetailCardSkeleton rows={13} /> },
-        { size: { xs: 12, lg: 8 }, node: <ChartCardSkeleton height={{ xs: 329, lg: 380 }} action legend /> },
-        { size: { xs: 12, lg: 4 }, node: <ListCardSkeleton rows={7} /> },
-        // RankedTableCard: ten avatar rows are as tall as ~14 text rows.
-        { size: 12, node: <TableSkeleton columns={7} rows={14} headerAction /> },
+        { size: SALES_GRID.main, node: <Kpi2x2Skeleton lines={[1, 1, 1, { xs: 2, sm: 1 }]} /> },
+        { size: SALES_GRID.side, node: <DetailCardSkeleton rows={13} /> },
+        { size: SALES_GRID.main, node: <ChartCardSkeleton height={SALES_CHART_TWIN.soldMonthly} action legend /> },
+        { size: SALES_GRID.side, node: <ListCardSkeleton rows={7} /> },
+        // RankedTableCard: its avatar rows are ~1.4 text rows each.
+        { size: 12, node: <TableSkeleton columns={7} rows={Math.round(SOLD_BUYERS_PAGE_SIZE * 1.4)} headerAction /> },
       ]}
     />
   );
 }
 
 /** /sales/sold `SoldLedgerPanel`: the deals ledger card (`mt: 3` under the overview grid), one server page of rows. */
-export function SalesSoldLedgerSkeleton() {
+export function SalesSoldLedgerSkeleton({ limit = SALES_DEFAULT_LIMIT }: { limit?: number }) {
   return (
     // Layout-transparent like the page's UrlPanel, so the card's own mt is not reset as a direct
     // `.wrap > .screen > *` child.
     <Box sx={{ display: "contents" }}>
       <Box sx={{ mt: 3 }}>
-        <TableSkeleton columns={9} rows={25} headerAction />
+        <TableSkeleton columns={9} rows={limit} headerAction />
       </Box>
     </Box>
   );
 }
 
 /** /sales/buyer-analytics `BuyerAnalyticsPanel`: KPIs 2x2 beside the repeat-share ring, the buyer table card. */
-export function SalesBuyerAnalyticsBodySkeleton() {
+export function SalesBuyerAnalyticsBodySkeleton({ limit = SALES_DEFAULT_LIMIT }: { limit?: number }) {
   return (
     <GridSkeleton
       items={[
-        { size: { xs: 12, lg: 8 }, node: <Kpi2x2Skeleton /> },
-        { size: { xs: 12, lg: 4 }, node: <ChartCardSkeleton height={403} /> },
-        { size: 12, node: <TableSkeleton columns={9} rows={25} headerAction /> },
+        { size: SALES_GRID.main, node: <Kpi2x2Skeleton /> },
+        { size: SALES_GRID.side, node: <ChartCardSkeleton height={SALES_CHART_TWIN.buyerRing} /> },
+        { size: 12, node: <TableSkeleton columns={9} rows={limit} headerAction /> },
       ]}
     />
   );
@@ -150,16 +155,17 @@ const breakdown = (rows: number, pager = false) => <TableSkeleton columns={6} ro
  * /sales/farm-born `FarmBornSections` inside WorklistFilters' children block: the headline cards, the
  * breakdown grid (breed beside sex over stage, pens across) and the sold-animals card, each `mt: 3`.
  */
-export function SalesFarmBornBodySkeleton({ limit = 25 }: { limit?: number }) {
+export function SalesFarmBornBodySkeleton({ limit = SALES_DEFAULT_LIMIT }: { limit?: number }) {
   return (
     <Box>
-      <KpiRowSkeleton count={4} size={{ xs: 12, sm: 6, md: 3 }} shapes={[{}, { hint: true }, { hint: true }, { hint: true }]} />
+      <KpiRowSkeleton count={4} size={SALES_GRID.bornKpi} shapes={[{}, { hint: true }, { hint: true }, { hint: true }]} />
       <Box sx={{ mt: 3 }}>
         <GridSkeleton
           items={[
-            { size: { xs: 12, md: 6 }, node: breakdown(10) },
-            { size: { xs: 12, md: 6 }, node: <StackSkeleton>{breakdown(2)}{breakdown(2)}</StackSkeleton> },
-            { size: 12, node: breakdown(13, true) },
+            { size: SALES_GRID.bornHalf, node: breakdown(10) },
+            { size: SALES_GRID.bornHalf, node: <StackSkeleton>{breakdown(2)}{breakdown(2)}</StackSkeleton> },
+            // The pen rows carry a caption line: ~1.3 text rows each.
+            { size: 12, node: breakdown(Math.round(FARM_BORN_PEN_PAGE_SIZE * 1.3), true) },
           ]}
         />
       </Box>

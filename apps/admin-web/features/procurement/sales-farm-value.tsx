@@ -24,6 +24,7 @@ import { salesErrorText } from "./sales-error";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
+import { SALES_GRID } from "./sales-layout";
 
 const PAGE_PATH = "/sales/farm-value";
 
@@ -106,15 +107,15 @@ function FarmValueSections({
           cards (figure, title, tone icon; no series exists for a valuation). */}
       <Grid size={12}>
         <Grid container spacing={3} component="section" aria-label={copy(pageContract, "section.farm_value.aria")}>
-          <Grid size={{ xs: 12, md: 4 }}>
+          <Grid size={SALES_GRID.valueKpi}>
             <KpiWidget color="primary" title={copy(pageContract, "kpi.farm_value")}
  caption={`₹`} total={overview.farm_valuation.total_value_rupees} icon="certificates" />
           </Grid>
-          <Grid size={{ xs: 12, md: 4 }}>
+          <Grid size={SALES_GRID.valueKpi}>
             <KpiWidget color="info" title={copy(pageContract, "kpi.total_meat")}
  caption={`${kgSuffix}`} total={overview.farm_valuation.total_meat_kg} />
           </Grid>
-          <Grid size={{ xs: 12, md: 4 }}>
+          <Grid size={SALES_GRID.valueKpi}>
             {/* Over 35 kg belongs with the valuation, not the ledger (maintainer decision
                 2026-09-10): animals STANDING ON THE FARM that have reached sale weight. Gated by
                 the page contract: a role that may not read weights sees the backend's reason,
@@ -163,7 +164,7 @@ function FarmValueSections({
         const animalsLine = `${num(overview.farm_valuation.total_animals)} ${copy(pageContract, countKey(overview.farm_valuation.total_animals, "value.live_animal", "value.live_animals"))}`;
         return (
           <>
-            <Grid size={{ xs: 12, md: 6, lg: 5 }}>
+            <Grid size={SALES_GRID.valueChart}>
               <CategoriesCard
                 component="section"
                 aria-label={copy(pageContract, "section.farm_value.aria")}
@@ -183,7 +184,7 @@ function FarmValueSections({
                 sx={{ height: 1, "& .minimal__chart__legends__root": { gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }, "& .minimal__chart__legends__root > *": { minWidth: 0 } }}
               />
             </Grid>
-            <Grid size={{ xs: 12, md: 6, lg: 7 }}>
+            <Grid size={SALES_GRID.valueRows}>
               <EcommerceSalesOverview
                 component="section"
                 aria-label={copy(pageContract, "section.farm_value.breakdown")}

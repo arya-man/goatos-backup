@@ -58,11 +58,12 @@ import { UrlSuspense } from "@/components/app/url-suspense";
 import { SalesSoldLedgerSkeleton, SalesSoldOverviewSkeleton } from "./sales-skeletons";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
+import { SALES_DEFAULT_LIMIT, SALES_GRID, SOLD_BUYERS_PAGE_SIZE } from "./sales-layout";
 
 const PAGE_PATH = "/sales/sold";
-const DEFAULT_LIMIT = 25;
+const DEFAULT_LIMIT = SALES_DEFAULT_LIMIT;
 /** Only used when an older backend contract has no buyer board table; the contract page size wins. */
-const BUYERS_PAGE_SIZE = 10;
+const BUYERS_PAGE_SIZE = SOLD_BUYERS_PAGE_SIZE;
 
 // Template widget / chart colours from the locked palette (scheme-aware CSS variables the chart
 // resolves at draw time), in the template Ecommerce overview's light→main gradient pairs.
@@ -167,9 +168,9 @@ function SoldSections({
   return (
     <Grid container spacing={3}>
       {/* Headline figures: template CourseWidgetSummary (KpiWidget), two by two beside sold-by-weight. */}
-      <Grid size={{ xs: 12, lg: 8 }}>
+      <Grid size={SALES_GRID.main}>
         <Grid container spacing={3} component="section" aria-label={copy(pageContract, "section.sold.aria")} sx={{ height: 1 }}>
-          <Grid size={{ xs: 12, sm: 6 }}>
+          <Grid size={SALES_GRID.half}>
             <KpiWidget
               title={copy(pageContract, "kpi.revenue")}
               total={summary.revenue}
@@ -179,7 +180,7 @@ function SoldSections({
               sx={{ height: 1 }}
             />
           </Grid>
-          <Grid size={{ xs: 12, sm: 6 }}>
+          <Grid size={SALES_GRID.half}>
             <KpiWidget
               title={copy(pageContract, "kpi.animals")}
               total={summary.animals}
@@ -188,7 +189,7 @@ function SoldSections({
               sx={{ height: 1 }}
             />
           </Grid>
-          <Grid size={{ xs: 12, sm: 6 }}>
+          <Grid size={SALES_GRID.half}>
             {/* Zero means no weighed live sale exists — printing ₹0 per kg would claim we give
                 animals away (null renders an empty figure). */}
             <KpiWidget
@@ -199,7 +200,7 @@ function SoldSections({
               sx={{ height: 1 }}
             />
           </Grid>
-          <Grid size={{ xs: 12, sm: 6 }}>
+          <Grid size={SALES_GRID.half}>
             <KpiWidget
               title={copy(pageContract, "kpi.manure")}
               total={summary.manure_kg}
@@ -228,7 +229,7 @@ function SoldSections({
           overview progress rows. Each band names where its weights came from, because a scale
           reading and a load average are not the same evidence; the unweighed remainder is named
           beside the total rather than hidden in a band. Backend owns every count and word. */}
-      <Grid size={{ xs: 12, lg: 4 }}>
+      <Grid size={SALES_GRID.side}>
         <EcommerceSalesOverview
           component="section"
           aria-label={copy(pageContract, "section.sold_weight.aria")}
@@ -271,7 +272,7 @@ function SoldSections({
 
       {/* Month by month (template Yearly sales): rupees, heads and kg, one at a time. Keyed by farm
           so a filter change remounts the chart and it draws in again with the new figures. */}
-      <Grid size={{ xs: 12, lg: 8 }}>
+      <Grid size={SALES_GRID.main}>
         <SalesSoldMonthly
           key={`monthly-${chartKey}`}
           title={copy(pageContract, "section.monthly.title")}
@@ -282,7 +283,7 @@ function SoldSections({
 
       {/* Realized price per kg by breed, ordered as served (highest first) -- template Latest
           products list. */}
-      <Grid size={{ xs: 12, lg: 4 }}>
+      <Grid size={SALES_GRID.side}>
         {overview.price_bands.length === 0 ? (
           <Card component="section" aria-label={copy(pageContract, "section.price_bands.aria")} sx={{ height: 1 }}>
             <CardHeader title={copy(pageContract, "section.price_bands.title")} />
@@ -404,7 +405,7 @@ export async function SalesSoldPage({
         <SoldOverviewPanel sp={sp} farm={farm} pageContract={pageContract} />
       </UrlSuspense>
 
-      <UrlSuspense searchParams={sp} watch={LEDGER_WATCH} fallback={<SalesSoldLedgerSkeleton />}>
+      <UrlSuspense searchParams={sp} watch={LEDGER_WATCH} fallback={<SalesSoldLedgerSkeleton limit={ledgerLimit(sp, pageContract).limit} />}>
         <SoldLedgerPanel sp={sp} farm={farm} pageContract={pageContract} />
       </UrlSuspense>
     </div>
@@ -440,10 +441,15 @@ async function SoldOverviewPanel({ sp, farm, pageContract }: { sp: RouteSearchPa
 }
 
 /** The deals ledger (one server page) and the read-only deal drawer its rows open. */
-async function SoldLedgerPanel({ sp, farm, pageContract }: { sp: RouteSearchParams; farm: string; pageContract: AdminUiPageContract }) {
+/** The ledger's page size: the URL `limit`, bounded, else the contract's first page size. */
+function ledgerLimit(sp: RouteSearchParams, pageContract: AdminUiPageContract): { limit: number; pageSizes: readonly number[] } {
   const dealsTable = table(pageContract, "sales-deals");
   const pageSizes = dealsTable.page_size_options.length > 0 ? dealsTable.page_size_options : [DEFAULT_LIMIT];
-  const limit = boundedInt(one(sp, "limit"), pageSizes[0], 1, 100);
+  return { limit: boundedInt(one(sp, "limit"), pageSizes[0], 1, 100), pageSizes };
+}
+
+async function SoldLedgerPanel({ sp, farm, pageContract }: { sp: RouteSearchParams; farm: string; pageContract: AdminUiPageContract }) {
+  const { limit, pageSizes } = ledgerLimit(sp, pageContract);
   const offset = boundedInt(one(sp, "offset"), 0, 0, 10000);
 
   // One ledger page and the vendor register the deal drawer names (LocalOverlayLink opens without

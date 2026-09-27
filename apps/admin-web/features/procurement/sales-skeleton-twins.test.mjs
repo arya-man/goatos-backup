@@ -29,6 +29,25 @@ test("each Sales panel's UrlSuspense fallback is the twin its loading.tsx render
   }
 });
 
+// REVIEW-44 O70/O71: the twins take the page's layout from the same constants the pages use.
+test("pages and twins share sales-layout.ts (Grid sizes, page sizes); fallbacks pass the URL limit", () => {
+  const twins = read("./sales-skeletons.tsx");
+  assert.match(twins, /from "\.\/sales-layout"/);
+  assert.doesNotMatch(twins, /size: \{ xs:|rows=\{25\}/, "no retyped Grid size or page size in the twins");
+  assert.match(twins, /GROUPED_COLUMNS_HEIGHT/, "the load charts use GroupedColumns' own plot height");
+  for (const { page } of PAGES) {
+    if (page === "./market-analytics.tsx") continue;
+    // Load wise lays its Grid out in LoadwiseSection.
+    const file = page === "./sales-loads.tsx" ? "./loadwise-section.tsx" : page;
+    assert.match(read(file), /from "\.\/sales-layout"/, `${file} imports its Grid sizes from sales-layout`);
+    assert.doesNotMatch(read(file), /size=\{\{ xs: 12, (lg: [48]|sm: 6|md: [346])/, `${file}: Grid sizes come from SALES_GRID`);
+  }
+  assert.match(read("./sales-sold.tsx"), /fallback=\{<SalesSoldLedgerSkeleton limit=\{ledgerLimit\(sp, pageContract\)\.limit\} \/>\}/);
+  assert.match(read("./sales-buyer-analytics.tsx"), /fallback=\{<SalesBuyerAnalyticsBodySkeleton limit=\{buyerLimit\(sp, pageContract\)\.limit\} \/>\}/);
+  assert.match(read("./sales-farm-born.tsx"), /fallback=\{<SalesFarmBornBodySkeleton limit=\{limit\} \/>\}/);
+  for (const route of ["sales/sold", "sales/buyer-analytics"]) assert.match(loading(route), /limit=\{SALES_DEFAULT_LIMIT\}/, route);
+});
+
 test("the farm tabs placeholder has one tab per park the shell offers (+ All farms)", () => {
   const twins = read("./sales-skeletons.tsx");
   assert.match(twins, /useShellParks\(\)/);

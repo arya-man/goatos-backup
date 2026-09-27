@@ -40,6 +40,7 @@ import { UrlSuspense } from "@/components/app/url-suspense";
 import { SalesBuyerAnalyticsBodySkeleton } from "./sales-skeletons";
 import type { SxProps, Theme } from "@mui/material/styles";
 import { cardTableScrollSx } from "./procurement-sx";
+import { SALES_DEFAULT_LIMIT, SALES_GRID } from "./sales-layout";
 
 // The buyer ledger is a fixed-layout table (template invoice list density) with set column shares;
 // it scrolls inside its card from a 70rem floor (65rem on a phone).
@@ -69,7 +70,7 @@ const BUYER_TABLE_SX: SxProps<Theme> = {
 
 const PAGE_PATH = "/sales/buyer-analytics";
 /** Only used when an older backend contract carries no buyers table; the contract page size wins. */
-const FALLBACK_LIMIT = 25;
+const FALLBACK_LIMIT = SALES_DEFAULT_LIMIT;
 const MAX_OFFSET = 10000;
 
 /** Fills a backend copy template's `{name}` slots; the sentence itself stays backend-owned. */
@@ -155,9 +156,9 @@ function BuyerSections({
     <Grid container spacing={3}>
       {/* Headline figures: template CourseWidgetSummary (KpiWidget), two by two
           beside the repeat-share radial -- the Ecommerce overview's widget + Sale-by-gender row. */}
-      <Grid size={{ xs: 12, lg: 8 }}>
+      <Grid size={SALES_GRID.main}>
         <Grid container spacing={3} sx={{ height: 1 }}>
-          <Grid size={{ xs: 12, sm: 6 }}>
+          <Grid size={SALES_GRID.half}>
             <KpiWidget
               color="primary"
               title={copy(pageContract, "kpi.buyers")}
@@ -168,7 +169,7 @@ function BuyerSections({
               sx={{ height: 1 }}
             />
           </Grid>
-          <Grid size={{ xs: 12, sm: 6 }}>
+          <Grid size={SALES_GRID.half}>
             <KpiWidget
               color="info"
               icon="certificates"
@@ -178,7 +179,7 @@ function BuyerSections({
               sx={{ height: 1 }}
             />
           </Grid>
-          <Grid size={{ xs: 12, sm: 6 }}>
+          <Grid size={SALES_GRID.half}>
             <KpiWidget
               color="success"
               title={copy(pageContract, "kpi.repeat_revenue")}
@@ -187,7 +188,7 @@ function BuyerSections({
               sx={{ height: 1 }}
             />
           </Grid>
-          <Grid size={{ xs: 12, sm: 6 }}>
+          <Grid size={SALES_GRID.half}>
             <KpiWidget
               color="warning"
               title={copy(pageContract, "kpi.outstanding")}
@@ -202,7 +203,7 @@ function BuyerSections({
       {/* The two shares the summary already carries, as the template Sale-by-gender radial. Both
           numbers are the backend's own percentages -- nothing is derived here that the figures
           beside it did not already print. */}
-      <Grid size={{ xs: 12, lg: 4 }}>
+      <Grid size={SALES_GRID.side}>
         <RingCard
           title={copy(pageContract, "kpi.repeat_buyers")}
           total={summary.repeat_buyers}
@@ -311,11 +312,18 @@ export async function SalesBuyerAnalyticsPage({
 
       {/* The buyer read streams (guard: url-keyed-panel): a farm / sort / page click swaps it to its
           skeleton at once; header and farm chips stay on screen. */}
-      <UrlSuspense searchParams={sp} watch={BUYERS_WATCH} fallback={<SalesBuyerAnalyticsBodySkeleton />}>
+      <UrlSuspense searchParams={sp} watch={BUYERS_WATCH} fallback={<SalesBuyerAnalyticsBodySkeleton limit={buyerLimit(sp, pageContract).limit} />}>
         <BuyerAnalyticsPanel sp={sp} pageContract={pageContract} farm={farm} />
       </UrlSuspense>
     </div>
   );
+}
+
+/** The buyer table's page size: the URL `limit` when the contract offers it, else its first size. */
+function buyerLimit(sp: RouteSearchParams, pageContract: AdminUiPageContract) {
+  const pageSizes = tablePageSizes(pageContract, "sales-buyer-analytics");
+  const defaultLimit = pageSizes[0] ?? FALLBACK_LIMIT;
+  return { pageSizes, defaultLimit, limit: resolveLimit(one(sp, "limit"), pageSizes, defaultLimit) };
 }
 
 /** The params the buyer read takes. */
@@ -323,9 +331,7 @@ const BUYERS_WATCH = ["park", "farm", "limit", "offset", "sort", "dir"] as const
 
 async function BuyerAnalyticsPanel({ sp, pageContract, farm }: { sp: RouteSearchParams; pageContract: AdminUiPageContract; farm: string }) {
   // Page size is the contract's; the offset is bounded to the backend's own ceiling.
-  const pageSizes = tablePageSizes(pageContract, "sales-buyer-analytics");
-  const defaultLimit = pageSizes[0] ?? FALLBACK_LIMIT;
-  const limit = resolveLimit(one(sp, "limit"), pageSizes, defaultLimit);
+  const { pageSizes, defaultLimit, limit } = buyerLimit(sp, pageContract);
   const offset = boundedInt(one(sp, "offset"), 0, 0, MAX_OFFSET);
 
   // The table's whole-result order, validated against the contract's sortable columns.

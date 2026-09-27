@@ -63,7 +63,7 @@ function readBlocks() {
     const cs = getComputedStyle(el);
     return r.width > 1 && r.height > 1 && cs.display !== "none" && cs.visibility !== "hidden";
   };
-  let root = [...wrap.children].find((el) => !el.classList.contains("kit-navpend") && visible(el)) || null;
+  let root = [...wrap.children].find((el) => visible(el)) || null;
   while (root && [...root.children].filter(visible).length === 1 && !root.matches("[data-skel-root], .screen, .kit-page, .pagegrid")) {
     root = [...root.children].find(visible);
   }

@@ -1,5 +1,6 @@
 import { PageHeaderSkeleton, PageSkeleton } from "@/components/app/skeletons";
 import { SalesFarmTabsSkeleton, SalesSoldLedgerSkeleton, SalesSoldOverviewSkeleton } from "@/features/procurement/sales-skeletons";
+import { SALES_DEFAULT_LIMIT } from "@/features/procurement/sales-layout";
 
 /** /sales/sold: header, farm tabs, then the overview and ledger panels' own twins (also their UrlSuspense fallbacks). */
 export default function Loading() {
@@ -8,7 +9,7 @@ export default function Loading() {
       <PageHeaderSkeleton />
       <SalesFarmTabsSkeleton />
       <SalesSoldOverviewSkeleton />
-      <SalesSoldLedgerSkeleton />
+      <SalesSoldLedgerSkeleton limit={SALES_DEFAULT_LIMIT} />
     </PageSkeleton>
   );
 }

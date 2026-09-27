@@ -1,7 +1,6 @@
-// guard: nav-pending-strip-exempt (REVIEW-16 O21). While a link navigation is in flight the shell
-// dims the page body (app/frame.css `.wrap[data-nav-pending]` rule), but never the block holding the
-// tab strip that is navigating: that strip must stay clickable and undimmed (alerts-page puts its
-// UrlTabs inside a Card). The strips mark themselves busy with aria-busy on the MUI Tabs root.
+// guard: nav-pending-strip-exempt (REVIEW-16 O21, superseded by pending-dim). Nothing dims while a
+// link navigation is in flight; the navigating tab strip marks itself busy with aria-busy on the MUI
+// Tabs root.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";

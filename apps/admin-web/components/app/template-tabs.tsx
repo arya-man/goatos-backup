@@ -43,8 +43,8 @@ export type TemplateTabsProps = {
  * The template list tab strip (sections/user/view/user-list-view.tsx): MUI `Tabs` + `Tab`, counts as
  * template `Label`s at iconPosition end, the grey inset bottom rule. One scrollable row at every
  * width. Link-driven strips navigate through `useUrlTabNav`: the clicked tab is selected NOW and the
- * page's UrlSuspense panels swap to their skeleton (guard: url-keyed-panel). `kit-tabs` is only the
- * shell's pending-dim exclusion hook, never styled. Renders only MUI + template parts.
+ * page's UrlSuspense panels swap to their skeleton (guard: url-keyed-panel). Renders only MUI +
+ * template parts.
  *
  * A plain function, never `memo()` (TR1-#38, guard: tab-strip-no-memo): a memo'd client component
  * rendered from a server page remounted on every same-route navigation (the RSC reconcile did not

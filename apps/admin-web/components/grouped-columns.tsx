@@ -37,7 +37,8 @@ export type GroupedSeriesTone = "info" | "ok" | "danger" | "warn" | "okHatch";
 const HATCH_TILE = 6;
 const HATCH_STROKE = 2;
 /** AnalyticsWebsiteVisits chart height. */
-const CHART_HEIGHT = 364;
+export const GROUPED_COLUMNS_HEIGHT = 364;
+const CHART_HEIGHT = GROUPED_COLUMNS_HEIGHT;
 
 export type GroupedSeries = {
   key: string;

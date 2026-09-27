@@ -24,6 +24,7 @@ import type { LoadwisePriorOutcome } from "@/lib/api/procurement";
 import { TablePaginationLinks } from "@/components/app/table/table-pagination-links";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
+import { SALES_GRID } from "./sales-layout";
 
 /**
  * Tooltip line for a count that includes pre-system history: the copy's label, the count, and the
@@ -262,7 +263,7 @@ export function LoadwiseSection({
               purchased (template EcommerceSalesOverview). Every figure is the backend's own; the bar
               is the value over `summary.purchased`, nothing new is computed. */}
           <Grid container spacing={3}>
-            <Grid size={{ xs: 12, lg: summary ? 8 : 12 }} sx={{ minWidth: 0 }}>
+            <Grid size={summary ? SALES_GRID.main : 12} sx={{ minWidth: 0 }}>
               {chartCard(
                 copy(pageContract, "chart.loadwise_counts.title"),
                 <GroupedColumns
@@ -287,7 +288,7 @@ export function LoadwiseSection({
               )}
             </Grid>
             {summary ? (
-              <Grid size={{ xs: 12, lg: 4 }}>
+              <Grid size={SALES_GRID.side}>
                 <EcommerceSalesOverview
                   title={copy(pageContract, "loadwise.kpi.purchased")}
                   subheader={num(summary.purchased)}

@@ -36,6 +36,7 @@ import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
 import Typography from "@mui/material/Typography";
 import { cardTableScrollSx } from "./procurement-sx";
+import { FARM_BORN_PEN_PAGE_SIZE, SALES_DEFAULT_LIMIT, SALES_GRID } from "./sales-layout";
 
 // Breakdown table (template analytics table anatomy): the label column keeps a readable floor so
 // words never break per letter; on a laptop the table fits its half-width card, on a phone it
@@ -58,10 +59,10 @@ const FB_SHARE_CELL_SX = { minWidth: { xs: 0, sm: "7.5rem" } } as const;
 
 const PAGE_PATH = "/sales/farm-born";
 /** Only used when an older backend contract carries no sold table; the contract page size wins. */
-const FALLBACK_LIMIT = 25;
+const FALLBACK_LIMIT = SALES_DEFAULT_LIMIT;
 const MAX_OFFSET = 10000;
 /** The By pen card pages its rows: a farm has dozens of pens and the card sat 1,600px tall. */
-const PEN_PAGE_SIZE = 10;
+const PEN_PAGE_SIZE = FARM_BORN_PEN_PAGE_SIZE;
 const PEN_OFFSET_PARAM = "pen_offset";
 
 /**
@@ -240,10 +241,10 @@ function FarmBornSections({
       {/* Headline figures: template CourseWidgetSummary (KpiWidget) -- figure, title, tone icon;
           never the pastel AnalyticsWidgetSummary in dark. */}
       <Grid container spacing={3} component="section" aria-label={copy(pageContract, "section.headline.aria")}>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+        <Grid size={SALES_GRID.bornKpi}>
           <KpiWidget color="primary" title={copy(pageContract, "kpi.on_farm")} total={s.on_farm} sx={{ height: 1 }} />
         </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+        <Grid size={SALES_GRID.bornKpi}>
           {/* Tagged to a sale that has not closed: out of the herd, not yet sold (main 054918241). */}
           <KpiWidget
             color="info"
@@ -256,7 +257,7 @@ function FarmBornSections({
             sx={{ height: 1 }}
           />
         </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+        <Grid size={SALES_GRID.bornKpi}>
           <KpiWidget
             color="success"
             title={copy(pageContract, "kpi.revenue")}
@@ -265,7 +266,7 @@ function FarmBornSections({
             sx={{ height: 1 }}
           />
         </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+        <Grid size={SALES_GRID.bornKpi}>
           <KpiWidget color="secondary" title={copy(pageContract, "kpi.avg_price")}
  caption={`${(s.sold_priced > 0 ? s.avg_price : null) == null ? "—" : `₹`}`} total={s.sold_priced > 0 ? s.avg_price : null} sx={{ height: 1 }} />
         </Grid>
@@ -275,10 +276,10 @@ function FarmBornSections({
           full-width card below: a farm has dozens of pens, and beside a two-row sex table it left
           the right column mostly blank. */}
       <Grid container spacing={3} sx={{ mt: 3 }}>
-        <Grid size={{ xs: 12, md: 6 }}>
+        <Grid size={SALES_GRID.bornHalf}>
           <BreakdownCard title={copy(pageContract, "section.by_breed.title")} rows={data.by_breed} totalSold={s.sold} pageContract={pageContract} />
         </Grid>
-        <Grid size={{ xs: 12, md: 6 }}>
+        <Grid size={SALES_GRID.bornHalf}>
           <Stack spacing={3}>
             <BreakdownCard
               title={copy(pageContract, "section.by_sex.title")}
@@ -542,7 +543,6 @@ export async function SalesFarmBornPage({
         fields={filterFields}
         pageContract={pageContract}
         deferApply
-        holdChildren={false}
       >
         {/* The sections (guard: url-keyed-panel): a farm / filter / sort / page change swaps them to
             their skeleton at once; header, farm chips and the filter bar stay on screen. */}

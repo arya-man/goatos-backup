@@ -636,7 +636,6 @@
   .main table.counts-pens-table th:nth-child(n),.main table.counts-pens-table td:nth-child(n){min-width:0}
   .main table.counts-pens-table th,
   .main table.counts-pens-table td{padding-left:12px;padding-right:12px;vertical-align:middle}
-  .main table.counts-pens-table th:first-child,
   .main table.counts-pens-table th:last-child,
   .main table.counts-pens-table td:last-child{padding-right:20px}
   .main table.counts-pens-table th:nth-child(1),.main table.counts-pens-table td:nth-child(1){width:8%}
@@ -2012,11 +2011,6 @@ select:disabled { opacity: .45 }
 /* Wraps when it has to: a long note (the live tracker's "Park, vaccine, operator ... both") ran past
    the card's right edge at 1440 as one unbroken line. */
 .lt-page .lt-fnote{color:var(--faint);font-size:11px;margin-left:auto;white-space:normal;min-width:0;flex:0 1 auto;text-align:right}
-/* The live tracker's own filter bar. It holds nothing but its own controls, so the shared
-   `.wfbusy` hook (no dimming any more: navigation shows skeletons) -- this rule only
-   adds the ring on top. Do NOT fold the sheet-hosting rule below into this selector: doing so
-   drops the dimming here too, on a bar that never had the problem that rule exists for. */
-.lt-page .lt-fbar.wfbusy{box-shadow:0 0 0 2px var(--ring)}
 /* The Tasks desk bar is the exception, and its busy signal is the RING ALONE. The shared dimming
    is written for a bar that contains only its own controls. At phone width this one also contains
    the FILTER SHEET (`.lt-fgroup.open`, a `position:fixed` child), so every pick of an assignee
