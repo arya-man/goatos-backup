@@ -1,5 +1,6 @@
 import Box from "@mui/material/Box";
 import { InfoTip } from "@/components/app/info-tip";
+import { SHED_BOARD_PAGE_SIZE } from "./shed-board-layout";
 import Table from "@mui/material/Table";
 import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
@@ -42,7 +43,7 @@ const SHED_STATUS_ORDER: VaccinationShedStatus[] = ["overdue", "needs_review", "
 // Capacity filter order (All / Within cap / Split / Capacity action) — capacity_chips contract group.
 const CAPACITY_ORDER: VaccinationCapacityStatus[] = ["within_cap", "over_cap", "capacity_breach"];
 
-const DEFAULT_PAGE_SIZE = 25;
+const DEFAULT_PAGE_SIZE = SHED_BOARD_PAGE_SIZE;
 
 // Columns that carry a count, so they are right-aligned and tabular (`.num`) rather than reading as prose.
 const NUMERIC_COLUMNS = new Set(["animals", "due", "done", "sessions"]);
@@ -241,7 +242,7 @@ export async function VaccinationShedBoard({
 
       {/* The pen table (guard: url-keyed-panel): a status / capacity / search / page click swaps it
           to its skeleton at once; the section header, search and pill strips stay on screen. */}
-      <UrlSuspense searchParams={searchParams ?? {}} watch={SHED_TABLE_WATCH} fallback={<TableSkeleton columns={shedBoardColumns(pageContract)} rows={10} />}>
+      <UrlSuspense searchParams={searchParams ?? {}} watch={SHED_TABLE_WATCH} fallback={<TableSkeleton columns={shedBoardColumns(pageContract)} rows={SHED_BOARD_PAGE_SIZE} />}>
       <TabPanel tabKey={`${statusFilter ?? "all"}|${capacityFilter ?? "all"}`}>
       {!result.ok ? (
         <div className="bd" style={{ display: "flex", alignItems: "center", gap: 12, padding: "18px 16px", flexWrap: "wrap" }}>

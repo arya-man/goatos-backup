@@ -1,5 +1,7 @@
 import Box from "@mui/material/Box";
-import { ChipRowSkeleton, ChipSkeleton, ControlsCardSkeleton, FieldSkeleton, FilterCardSkeleton, KpiRowSkeleton, OptionalSkeleton, StackSkeleton, StatStripSkeleton, TableSkeleton, TabsSkeleton } from "@/components/app/skeletons";
+import { CB_DRIVE_FIELD_MIN, CB_KPI_KEYS, CB_KPI_SIZE, CB_VACCINE_FIELD_MIN, MATRIX_ROWS_PER_PAGE, STATUS_KEYS } from "./command-board-layout";
+import { SHED_BOARD_PAGE_SIZE } from "@/features/vaccination-sheds/shed-board-layout";
+import { ChipRowSkeleton, ChipSkeleton, ControlsCardSkeleton, FilterCardSkeleton, KpiRowSkeleton, OptionalSkeleton, StackSkeleton, StatStripSkeleton, TableSkeleton, TabsSkeleton } from "@/components/app/skeletons";
 
 // Panel fallbacks for /vaccination's streamed sections, composed ONLY from the shared skeleton blocks.
 // The route's loading.tsx stacks the same three, so a hard load and a panel stream paint one shape.
@@ -18,25 +20,24 @@ export function VaccinationCommandBoardSkeleton() {
       <ControlsCardSkeleton
         header
         toolbar={
-          <StackSkeleton spacing={2}>
-            <Box sx={{ px: 3, display: "flex", flexDirection: { xs: "column", sm: "row" }, flexWrap: "wrap", gap: 2 }}>
-              <FieldSkeleton width={{ xs: "100%", sm: 190 }} height={56} />
-              <FieldSkeleton width={{ xs: "100%", sm: 320 }} height={56} />
+          <>
+            <Box sx={{ px: 3, pb: 2 }}>
+              <FilterCardSkeleton bare fields={[CB_VACCINE_FIELD_MIN, CB_DRIVE_FIELD_MIN]} />
             </Box>
             <Box sx={{ px: 3, pb: 3 }}>
-              <ChipRowSkeleton count={5} widths={[92, 150, 124, 120, 100]} height={{ xs: 44, sm: 32 }} />
+              <ChipRowSkeleton count={STATUS_KEYS.length} widths={[92, 150, 124, 120, 100]} height={{ xs: 44, sm: 32 }} />
             </Box>
-          </StackSkeleton>
+          </>
         }
       />
-      {/* KpiWidget course cards with the backend explanation caption (2-3 lines at md:3). */}
-      <KpiRowSkeleton count={8} size={{ xs: 12, sm: 6, md: 3 }} hint hintLines={{ xs: 1, md: 2 }} />
+      {/* Captions are the backend's fixed explanations: two lines on the first row at md:3, three on the second. */}
+      <KpiRowSkeleton count={CB_KPI_KEYS.length} size={CB_KPI_SIZE} shapes={CB_KPI_KEYS.map((_, i) => ({ hint: true, hintLines: { xs: 1, md: i < 4 ? 2 : 3 } }))} />
       <OptionalSkeleton>
-        <TableSkeleton columns={7} rows={10} subheader headerAction={<ChipSkeleton width={44} height={44} />} toolbar={<LegendSkeleton count={5} />} />
+        <TableSkeleton columns={7} rows={MATRIX_ROWS_PER_PAGE} subheader headerAction={<ChipSkeleton width={44} height={44} />} toolbar={<LegendSkeleton count={5} />} />
       </OptionalSkeleton>
-      <TableSkeleton columns={3} rows={10} headerAction={<ChipSkeleton width={44} height={44} />} />
-      <TableSkeleton columns={8} rows={10} headerAction={<ChipSkeleton width={44} height={44} />} toolbar={<LegendSkeleton count={6} />} />
-      <TableSkeleton columns={8} rows={10} tabs={<TabsSkeleton count={2} counts />} />
+      <TableSkeleton columns={3} rows={MATRIX_ROWS_PER_PAGE} headerAction={<ChipSkeleton width={44} height={44} />} />
+      <TableSkeleton columns={8} rows={MATRIX_ROWS_PER_PAGE} headerAction={<ChipSkeleton width={44} height={44} />} toolbar={<LegendSkeleton count={6} />} />
+      <TableSkeleton columns={8} rows={MATRIX_ROWS_PER_PAGE} tabs={<TabsSkeleton count={2} counts />} />
     </StackSkeleton>
   );
 }
@@ -63,7 +64,7 @@ export function VaccinationShedBoardSkeleton({ columns = 10 }: { columns?: numbe
   return (
     <TableSkeleton
       columns={columns}
-      rows={10}
+      rows={SHED_BOARD_PAGE_SIZE}
       toolbar={
         <StackSkeleton spacing={1.5}>
           <FilterCardSkeleton inCard fields={[280, 72]} small />

@@ -1,5 +1,6 @@
 "use client";
 import Table from "@mui/material/Table";
+import { CB_DRIVE_FIELD_MIN, CB_KPI_SIZE, CB_VACCINE_FIELD_MIN, STATUS_KEYS } from "./command-board-layout";
 import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
@@ -414,7 +415,6 @@ interface CommandBoardViewProps {
 /** Detail drawers: the template MinimalDrawer paper width from sm up (phones get the full width). */
 const DRAWER_WIDTH = 480;
 
-const STATUS_KEYS = ["verified", "awaiting", "rework", "overdue", "scheduled"] as const;
 type StatusKey = (typeof STATUS_KEYS)[number];
 /** Each status filter's colour: the matrix cell colour of that state. */
 const STATUS_COLOR: Record<StatusKey, "success" | "warning" | "secondary" | "error" | "info"> = {
@@ -817,7 +817,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
           label={copy(pageContract, "command_board.filter.vaccine")}
           value={vaccine}
           onChange={(event) => setVaccine(event.target.value)}
-          sx={{ minWidth: { xs: 0, sm: 190 }, flexShrink: 0, maxWidth: 1 }}
+          sx={{ minWidth: { xs: 0, sm: CB_VACCINE_FIELD_MIN }, flexShrink: 0, maxWidth: 1 }}
           slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
         >
           <MenuItem value="">{copy(pageContract, "command_board.filter.all_vaccines")}</MenuItem>
@@ -838,7 +838,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                 ? copy(pageContract, "state.loading")
                 : undefined}
           onChange={(event) => selectDrive(event.target.value)}
-          sx={{ minWidth: { xs: 0, sm: 320 }, flexShrink: 0, maxWidth: 1 }}
+          sx={{ minWidth: { xs: 0, sm: CB_DRIVE_FIELD_MIN }, flexShrink: 0, maxWidth: 1 }}
           slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
         >
           {driveSelectOptions.map((option) => (
@@ -882,7 +882,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
   // A tile with an action is a keyboard button (Enter / Space) that drills into the matrix; a
   // zero-count tile stays inert.
   const kpiTile = (key: string, title: string, total: number, hint: string, color: PaletteColorKey, icon: KpiIcon, onClick?: () => void) => (
-    <Grid key={key} size={{ xs: 12, sm: 6, md: 3 }}>
+    <Grid key={key} size={CB_KPI_SIZE}>
       {onClick ? (
         <Box
           role="button"

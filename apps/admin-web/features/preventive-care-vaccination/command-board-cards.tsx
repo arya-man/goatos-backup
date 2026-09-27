@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { MATRIX_ROWS_PER_PAGE } from "./command-board-layout";
 import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
@@ -19,7 +20,7 @@ import { Label, type LabelColor } from "@/components/minimal/label";
 // template pager. State colour is the template Label (soft palette tint), never a painted cell.
 
 /** Rows per page on the matrix cards: short enough that the page reads like a dashboard. */
-export const MATRIX_ROWS_PER_PAGE = 10;
+export { MATRIX_ROWS_PER_PAGE };
 
 export function MatrixCard({
   id,
