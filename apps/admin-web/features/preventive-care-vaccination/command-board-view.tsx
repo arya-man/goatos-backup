@@ -872,7 +872,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
   // its filter toolbar, the KPI deck as page-level template widgets (the filters above drive it),
   // then the matrices card.
   return (
-    <>
+    <Stack spacing={3} sx={{ minWidth: 0 }}>
     <Card>
       <CardHeader title={copy(pageContract, "section.command_board.title")} sx={{ mb: 2.5 }} />
       {filterBar}
@@ -1774,7 +1774,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
         </MinimalDrawer>
       )}
     </Card>
-    </>
+    </Stack>
   );
 
 }
