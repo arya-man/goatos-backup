@@ -1,5 +1,6 @@
 "use client";
 import Table from "@mui/material/Table";
+import { Scrollbar } from "@/components/minimal/scrollbar";
 import { InfoTip } from "@/components/app/info-tip";
 import MuiLink from "@mui/material/Link";
 import TableHead from "@mui/material/TableHead";
@@ -327,6 +328,8 @@ export function HerdSignalsTable({
   return (
     <>
       <div className={`tblwrap${isPending ? " wfbusy" : ""}`}>
+        {/* Wide table scrolls inside the template Scrollbar (TR1-#20), never outside its card. */}
+        <Scrollbar>
         <Table className={`resp herd-signals-table${variant === "animals" ? " herd-signals-animals-table" : ""}`}>
           <TableHead>
             {variant === "animals" ? (
@@ -504,7 +507,8 @@ export function HerdSignalsTable({
             })}
           </TableBody>
         </Table>
-      </div>
+        </Scrollbar>
+        </div>
 
       {pager}
 

@@ -272,7 +272,7 @@ Spec: `docs/design/mui-minimal-spec.md`. Tokens: `app/minimal-tokens.css`. Gate:
   O19). Use `components/app/info-tip.tsx` (controlled Tooltip, 44px IconButton, opens on tap).
 - **/herd-signals shells are template anatomy (guard: `herd-signals-template-anatomy`, npm test).**
   Board / Alerts / Gateways / Insights render MUI Card + CardHeader, Alert, Grid and Label; no legacy
-  card / hd / bd / banner / gwcard / insight / rowitem / pager / btn classes. Header live control is a soft Button (success / warning / neutral) with the "Updated … IST · stream …" line in its Tooltip, Export an outlined Button; no LIVE pill or header meta line. Eight KPI tiles = two rows of four (KpiGrid `n % 4 === 0` -> md 3; guard `herd-signals-live-header`, TR1-#30).
+  card / hd / bd / banner / gwcard / insight / rowitem / pager / btn classes. Header live control is a soft Button (success / warning / neutral) with the "Updated … IST · stream …" line in its Tooltip, Export an outlined Button; no LIVE pill or header meta line. Eight KPI tiles = two rows of four (KpiGrid `n % 4 === 0` -> md 3; guard `herd-signals-live-header`, TR1-#30). The live and tag-mapping tables scroll inside the template Scrollbar; no `.tblwrap` overflow / max-height box (guard `herd-signals-table-scroll`, TR1-#20).
 - **Course widget icons are masks (guard: `mask-icon-not-img`, npm test).** COURSE_WIDGET_ICONS svgs
   render through SvgColor with a tone gradient, never `<Box component="img">` (they paint black).
 - **The shell is gated on every push (guard: r2 visual gate `shell|*`, scripts/r2-audit-checks/shell.mjs).**

@@ -1,5 +1,6 @@
 "use client";
 import Table from "@mui/material/Table";
+import { Scrollbar } from "@/components/minimal/scrollbar";
 import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
@@ -775,6 +776,8 @@ export function HerdSignalsMappingTable({
       <>
         {pager("top")}
         <div className={`tblwrap${busy ? " wfbusy" : ""}`}>
+        {/* Wide table scrolls inside the template Scrollbar (TR1-#20), never outside its card. */}
+        <Scrollbar>
           <Table className="resp">
             <TableHead>
               <TableRow>
@@ -867,6 +870,7 @@ export function HerdSignalsMappingTable({
               })}
             </TableBody>
           </Table>
+        </Scrollbar>
         </div>
         {pager("bottom")}
       </>

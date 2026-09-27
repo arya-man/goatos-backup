@@ -2385,7 +2385,6 @@ select:disabled { opacity: .45 }
 .herd-signals-page table.resp th:not(.MuiTableCell-root){font-weight:800;padding:10px 14px;line-height:normal;background:var(--panel);white-space:nowrap}
 .herd-signals-page table.resp td{font-size:12.5px;font-weight:400;padding:11px 14px;line-height:1.35;white-space:nowrap}
 
-.herd-signals-page .tblwrap{overflow:auto;max-height:640px;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch;scrollbar-gutter:stable}
 .herd-signals-page table.herd-signals-table{min-width:2860px}
 .herd-signals-page table.herd-signals-table th:nth-child(1),.herd-signals-page table.herd-signals-table td:nth-child(1){min-width:190px}
 .herd-signals-page table.herd-signals-table th:nth-child(2),.herd-signals-page table.herd-signals-table td:nth-child(2){min-width:160px}
@@ -2585,7 +2584,6 @@ select:disabled { opacity: .45 }
   .herd-signals-page .fsel{min-width:0;max-width:100%;width:100%;justify-content:space-between}
   .herd-signals-page .fsel select{width:100%;min-width:0;max-width:100%;text-overflow:ellipsis}
   .herd-signals-page .fsel.search{flex:1 1 100%;min-width:0;width:100%}
-  .herd-signals-page .tblwrap{max-height:none}
   .herd-signals-page .pager{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .herd-signals-page .pager > span:not(.sp),.herd-signals-page .pager .fsel{grid-column:1 / -1}
   .herd-signals-page .pgbtn{text-align:center;min-height:38px}

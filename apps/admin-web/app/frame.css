@@ -213,7 +213,6 @@ details.top-date-picker:not([open])>.top-date-popover,details.move-date-picker:n
 .herd-signals-page .card .hd{padding:20px 24px 16px;border-bottom:1px solid var(--line)}
 .herd-signals-page .card .hd h3{font-size:18px;font-weight:600;font-family:var(--font-display)}
 .herd-signals-page .card .bd.flush{padding:0}
-.herd-signals-page .tblwrap{max-height:none}
 .herd-signals-page .herd-signals-table th:first-child,.herd-signals-page .herd-signals-table td:first-child{padding-left:24px}
 .herd-signals-page .herd-signals-table th:last-child,.herd-signals-page .herd-signals-table td:last-child{padding-right:24px}
 .herd-signals-page .herd-signals-pager .wfspin{margin-right:8px}
