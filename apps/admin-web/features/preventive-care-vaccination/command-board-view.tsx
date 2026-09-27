@@ -18,13 +18,19 @@ import {
   useShedVaccineAnimals,
   type CohortCellRef,
 } from "./command-board-drilldowns";
-import { AlertTriangle, CalendarClock, CalendarX, CircleSlash, Clock, RotateCcw, ShieldCheck, Users } from "lucide-react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import { MinimalDrawer } from "@/components/minimal/drawer";
 import { DrawerTableScroll } from "@/components/app/detail-drawer";
 import { InfoHint } from "@/components/app/info-hint";
-import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import { CourseWidgetSummary } from "@/components/minimal/widgets/course-widget-summary";
+import { COURSE_WIDGET_ICONS } from "@/lib/minimal-icons";
+import type { PaletteColorKey } from "@/theme/core";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import Chip from "@mui/material/Chip";
+import Grid from "@mui/material/Grid";
+import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -402,6 +408,14 @@ const DRAWER_WIDTH = 480;
 
 const STATUS_KEYS = ["verified", "awaiting", "rework", "overdue", "scheduled"] as const;
 type StatusKey = (typeof STATUS_KEYS)[number];
+/** Each status filter's colour: the matrix cell colour of that state. */
+const STATUS_COLOR: Record<StatusKey, "success" | "warning" | "secondary" | "error" | "info"> = {
+  verified: "success",
+  awaiting: "warning",
+  rework: "secondary",
+  overdue: "error",
+  scheduled: "info",
+};
 
 function keyDate(value?: string | null): string {
   return value?.match(/^(\d{4}-\d{2}-\d{2})/)?.[1] ?? "";
@@ -717,8 +731,8 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     document.getElementById("cbm-shed-dose-matrix")?.scrollIntoView({ block: "start", behavior: "smooth" });
   };
 
-  const statusKpiProps = (key: StatusKey, count: number) =>
-    count > 0 ? { onClick: () => activateStatusKpi(key) } : {};
+  const statusKpiClick = (key: StatusKey, count: number) =>
+    count > 0 ? () => activateStatusKpi(key) : undefined;
 
   const openCohortDrawer = (cell: SelectedCohortCell) => {
     setClosedDrawerOpen(false);
@@ -761,8 +775,8 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
   ];
 
   const filterBar = (
-    <div className="cbm-filters">
-      <div className="cbm-filter-row">
+    <Stack spacing={2} sx={{ px: 3, pb: 3 }}>
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={2} useFlexGap sx={{ flexWrap: "wrap" }}>
         <TextField
           select
           label={copy(pageContract, "command_board.filter.vaccine")}
@@ -802,26 +816,56 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
             drive that was never planned. Say the picker is partial rather than let it read as the
             whole programme. */}
         {board.driveOptionsTruncated && (
-          <span className="cbm-filter-note" role="status">
+          <Typography variant="caption" role="status" sx={{ color: "warning.main", alignSelf: "center" }}>
             {copy(pageContract, "command_board.filter.drives_truncated")}
-          </span>
+          </Typography>
         )}
-      </div>
-      <div className="cbm-filter-row">
+      </Stack>
+      {/* Status filter: template filter Chips (soft when on), each with its matrix-state dot. */}
+      <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
         {STATUS_KEYS.map((key) => (
-          <button
+          <Chip
             key={key}
-            type="button"
-            className={`cbm-chip cbm-chip-${key}${statuses.has(key) ? " cbm-chip-on" : ""}`}
+            clickable
+            variant={statuses.has(key) ? "soft" : "outlined"}
+            color={statuses.has(key) ? STATUS_COLOR[key] : "default"}
             aria-pressed={statuses.has(key)}
             onClick={() => toggleStatus(key)}
-          >
-            <i />
-            {copy(pageContract, `command_board.shed_matrix.state.${key}`)}
-          </button>
+            icon={<Box component="span" sx={{ width: "var(--sp-1)", height: "var(--sp-1)", borderRadius: "var(--r-round)", bgcolor: `${STATUS_COLOR[key]}.main`, flexShrink: 0 }} />}
+            label={copy(pageContract, `command_board.shed_matrix.state.${key}`)}
+            sx={{ minHeight: { xs: "var(--tap-min)", sm: "var(--sp-4)" }, "& .MuiChip-icon": { ml: 1.25 } }}
+          />
         ))}
-      </div>
-    </div>
+      </Stack>
+    </Stack>
+  );
+
+  // One tile of the KPI deck: template overview/course CourseWidgetSummary. A tile with an action is
+  // a keyboard button (Enter / Space) that drills into the matrix; a zero-count tile stays inert.
+  const kpiTile = (key: string, title: string, total: number, hint: string, color: PaletteColorKey, icon: string, onClick?: () => void) => (
+    <Grid key={key} size={{ xs: 12, sm: 6, md: 3 }}>
+      <CourseWidgetSummary
+        title={title}
+        total={total}
+        icon={icon}
+        color={color}
+        aria-description={hint}
+        {...(onClick
+          ? {
+              role: "button",
+              tabIndex: 0,
+              onClick,
+              onKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onClick();
+                }
+              },
+              sx: { cursor: "pointer", "&:focus-visible": { outlineStyle: "solid", outlineWidth: 2, outlineColor: "primary.main", outlineOffset: 2 } },
+            }
+          : {})}
+      />
+    </Grid>
   );
 
   // Three page-level blocks, never a card inside a card (AUDIT1 P1-14): the Command Board card with
@@ -829,91 +873,33 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
   // then the matrices card.
   return (
     <>
-    <section className="card cbm" style={{ maxWidth: "100%", minWidth: 0 }}>
-      <div className="hd">
-        <h2>{copy(pageContract, "section.command_board.title")}</h2>
-      </div>
-      <div className="bd">{filterBar}</div>
-    </section>
-        {/* KPI deck — template widget cards: count-up value, tone icon badge, click drills into the matrix. */}
-        <Box sx={{ mb: 3 }}>
-        <KpiGrid min={200}>
-          <KpiCard
-            label={copy(pageContract, "command_board.kpi.targets")}
-            value={view.kpis.targets}
-            tone="neutral"
-            icon={<Users size={20} aria-hidden="true" />}
-            hint={copy(pageContract, "command_board.kpi.targets_dl")}
-          />
+    <Card>
+      <CardHeader title={copy(pageContract, "section.command_board.title")} sx={{ mb: 2.5 }} />
+      {filterBar}
+    </Card>
+        {/* KPI deck: template overview/course widget tiles; a click drills into the matrix. */}
+        <Grid container spacing={3}>
+          {kpiTile("command_board.kpi.targets", copy(pageContract, "command_board.kpi.targets"), view.kpis.targets, copy(pageContract, "command_board.kpi.targets_dl"), "info", COURSE_WIDGET_ICONS.completed, undefined)}
           {/* Missed sits FIRST, immediately after the roster total and ahead of Verified, because
               it is the one tile that reports a failure rather than progress. It is also the tile
               whose absence made the board wrong: 137 animals holding a missed dose were being
               counted as Verified while Overdue read 0. */}
-          <KpiCard
-            label={copy(pageContract, "command_board.kpi.missed")}
-            value={view.kpis.missedNotGiven}
-            tone="error"
-            icon={<CalendarX size={20} aria-hidden="true" />}
-            hint={copy(pageContract, "command_board.kpi.missed_dl")}
-            {...statusKpiProps("overdue", view.kpis.missedNotGiven)}
-          />
-          <KpiCard
-            label={copy(pageContract, "command_board.kpi.verified")}
-            value={view.kpis.dosesVerified}
-            tone="success"
-            icon={<ShieldCheck size={20} aria-hidden="true" />}
-            hint={copy(pageContract, "command_board.kpi.verified_dl")}
-            {...statusKpiProps("verified", view.kpis.dosesVerified)}
-          />
-          <KpiCard
-            label={copy(pageContract, "command_board.kpi.awaiting_verification")}
-            value={view.kpis.awaitingVerification}
-            tone="warning"
-            icon={<Clock size={20} aria-hidden="true" />}
-            hint={copy(pageContract, "command_board.kpi.awaiting_dl")}
-            {...statusKpiProps("awaiting", view.kpis.awaitingVerification)}
-          />
-          <KpiCard
-            label={copy(pageContract, "command_board.kpi.rework_needed")}
-            value={view.kpis.reworkNeeded ?? 0}
-            tone="violet"
-            icon={<RotateCcw size={20} aria-hidden="true" />}
-            hint={copy(pageContract, "command_board.kpi.rework_dl")}
-            {...statusKpiProps("rework", view.kpis.reworkNeeded ?? 0)}
-          />
-          <KpiCard
-            label={copy(pageContract, "command_board.kpi.overdue")}
-            value={view.kpis.overdueNotGiven}
-            tone="error"
-            icon={<AlertTriangle size={20} aria-hidden="true" />}
-            hint={copy(pageContract, "command_board.kpi.overdue_dl")}
-            {...statusKpiProps("overdue", view.kpis.overdueNotGiven)}
-          />
-          <KpiCard
-            label={copy(pageContract, "command_board.kpi.scheduled_ahead")}
-            value={view.kpis.scheduledAhead}
-            tone="info"
-            icon={<CalendarClock size={20} aria-hidden="true" />}
-            hint={copy(pageContract, "command_board.kpi.scheduled_dl")}
-            {...statusKpiProps("scheduled", view.kpis.scheduledAhead)}
-          />
+          {kpiTile("command_board.kpi.missed", copy(pageContract, "command_board.kpi.missed"), view.kpis.missedNotGiven, copy(pageContract, "command_board.kpi.missed_dl"), "error", COURSE_WIDGET_ICONS.certificates, statusKpiClick("overdue", view.kpis.missedNotGiven))}
+          {kpiTile("command_board.kpi.verified", copy(pageContract, "command_board.kpi.verified"), view.kpis.dosesVerified, copy(pageContract, "command_board.kpi.verified_dl"), "success", COURSE_WIDGET_ICONS.completed, statusKpiClick("verified", view.kpis.dosesVerified))}
+          {kpiTile("command_board.kpi.awaiting_verification", copy(pageContract, "command_board.kpi.awaiting_verification"), view.kpis.awaitingVerification, copy(pageContract, "command_board.kpi.awaiting_dl"), "warning", COURSE_WIDGET_ICONS.progress, statusKpiClick("awaiting", view.kpis.awaitingVerification))}
+          {kpiTile("command_board.kpi.rework_needed", copy(pageContract, "command_board.kpi.rework_needed"), view.kpis.reworkNeeded ?? 0, copy(pageContract, "command_board.kpi.rework_dl"), "secondary", COURSE_WIDGET_ICONS.progress, statusKpiClick("rework", view.kpis.reworkNeeded ?? 0))}
+          {kpiTile("command_board.kpi.overdue", copy(pageContract, "command_board.kpi.overdue"), view.kpis.overdueNotGiven, copy(pageContract, "command_board.kpi.overdue_dl"), "error", COURSE_WIDGET_ICONS.certificates, statusKpiClick("overdue", view.kpis.overdueNotGiven))}
+          {kpiTile("command_board.kpi.scheduled_ahead", copy(pageContract, "command_board.kpi.scheduled_ahead"), view.kpis.scheduledAhead, copy(pageContract, "command_board.kpi.scheduled_dl"), "info", COURSE_WIDGET_ICONS.progress, statusKpiClick("scheduled", view.kpis.scheduledAhead))}
           {/* The five buckets are a disjoint, EXHAUSTIVE partition of targets. Rendering only four
               left the tiles summing to less than the total, so a reader could not tell a projection
               bug from animals whose obligations genuinely closed with no dose. The tile is the START
               of the CEO's question: "3 closed with no dose" is followed every time by "which animals".
               Gated on the COUNT, not on the list — the animals are fetched when the drawer opens. */}
-          <KpiCard
-            label={copy(pageContract, "command_board.kpi.closed_without_dose")}
-            value={view.kpis.closedWithoutDose}
-            tone="neutral"
-            icon={<CircleSlash size={20} aria-hidden="true" />}
-            hint={copy(pageContract, "command_board.kpi.closed_without_dose_dl")}
-            onClick={closedWithoutDoseCount > 0 ? openClosedDrawer : undefined}
-          />
-        </KpiGrid>
-        </Box>
-    <section className="card cbm" style={{ maxWidth: "100%", minWidth: 0 }} aria-label={copy(pageContract, "section.command_board.title")}>
-      <div className="bd" tabIndex={0} role="region" aria-label={copy(pageContract, "section.command_board.title")}>
+          {kpiTile("command_board.kpi.closed_without_dose", copy(pageContract, "command_board.kpi.closed_without_dose"), view.kpis.closedWithoutDose, copy(pageContract, "command_board.kpi.closed_without_dose_dl"), "info", COURSE_WIDGET_ICONS.certificates, closedWithoutDoseCount > 0 ? openClosedDrawer : undefined)}
+        </Grid>
+    {/* The matrices: one template Card (`cbm` scopes the heat-cell legend paint only). */}
+    <Card className="cbm" sx={{ p: 3, minWidth: 0 }} aria-label={copy(pageContract, "section.command_board.title")}>
+      <Box tabIndex={0} role="region" aria-label={copy(pageContract, "section.command_board.title")} sx={{ minWidth: 0 }}>
 
         {/* Shed × Vaccine, dose collapsed, red/green only.
             This sits ABOVE the dose-qualified matrix on purpose. The dose matrix answers "how much
@@ -1493,7 +1479,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
             (shed, dose, awaiting) is already an amber cell in the shed matrix above. Only the
             queue age was unique, so it now rides along in that cell and the duplicate table is
             gone. */}
-      </div>
+      </Box>
 
       {/* Closed, No Dose record drawer. Opens from the KPI tile with the animals already in the
           payload -- no route re-run, no second fetch. Closes on X, scrim, and Escape. */}
@@ -1787,7 +1773,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
             </Box>
         </MinimalDrawer>
       )}
-    </section>
+    </Card>
     </>
   );
 

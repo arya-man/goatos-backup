@@ -8,7 +8,7 @@ export function VaccinationCommandBoardSkeleton() {
   return (
     <StackSkeleton spacing={2}>
       <FilterCardSkeleton fields={[200, 200, "chip", "chip", "chip", "chip", "chip"]} />
-      <KpiRowSkeleton count={8} />
+      <KpiRowSkeleton count={8} icon />
       <TableSkeleton columns={8} rows={8} pager={false} headerAction={<TabsSkeleton count={3} variant="pill" />} />
     </StackSkeleton>
   );

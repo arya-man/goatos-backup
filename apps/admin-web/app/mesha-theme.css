@@ -778,7 +778,6 @@
   .main .feed-item-status:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
   /* Vaccination Command Board */
   .cbm-kpi-row{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:18px}
-  .cbm-filter-note{font-size:11.5px;color:var(--warn)}
   @media(max-width:1200px){.cbm-kpi-row{grid-template-columns:repeat(2,1fr)}}
   .kpi{position:relative;overflow:hidden}.kpi .stripe{position:absolute;left:0;top:0;bottom:0;width:3px}
   .kpi.ok .stripe{background:var(--ok)}.kpi.warn .stripe{background:var(--warn)}.kpi.rework .stripe{background:#9b5bb0}.kpi.danger .stripe{background:var(--danger)}.kpi.info .stripe{background:var(--info)}.kpi.mut .stripe{background:var(--faint)}
@@ -2003,23 +2002,13 @@ select:disabled { opacity: .45 }
 #toast.show { opacity: 1; transform: translateX(-50%) translateY(0) }
 #toast.err { border-color: var(--danger); border-left-color: var(--danger) }
 /* Command Board */
-.card.cbm { margin-bottom: 24px }
+
 .cbm-loading { padding: 16px; color: var(--muted) }
 .cbm-unavailable { padding: 16px; color: var(--muted) }
 /* Cohort Matrix */
 .cbm-cohort-section { margin-bottom: 24px }
 
 /* Vaccination command board — filter bar + section rhythm */
-.cbm-filters { display: flex; flex-direction: column; gap: 10px; margin: 4px 0 18px }
-.cbm-filter-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center }
-.cbm-chip { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; padding: 0 13px; border-radius: 18px; border: 1px solid var(--line); background: var(--panel); color: color-mix(in srgb,var(--muted) 60%,var(--ink)); font-size: 12.5px; cursor: pointer }
-.cbm-chip.cbm-chip-on { color: var(--ink); border-color: var(--line2); background: var(--panel-2) }
-.cbm-chip i { width: 8px; height: 8px; border-radius: 999px; display: inline-block; background: var(--faint) }
-.cbm-chip-verified i { background: var(--ok) }
-.cbm-chip-awaiting i { background: var(--amber) }
-.cbm-chip-rework i { background: #9b5bb0 }
-.cbm-chip-overdue i { background: var(--danger) }
-.cbm-chip-scheduled i { background: var(--info) }
 .cbm .cbm-shed-section, .cbm .cbm-cohort-section{ margin-top: 26px }
 .cbm .cbm-section-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px }
 .cbm .cbm-section-head h3{ margin: 0 0 12px; font-size: 14px }
@@ -2047,12 +2036,6 @@ select:disabled { opacity: .45 }
   .card.cbm>.hd{padding:18px 16px 8px}
   .card.cbm>.hd h2{font-size:22px;line-height:28px}
   .card.cbm>.bd{padding:0 16px 18px}
-  .cbm-filters{gap:9px;margin:2px 0 14px}
-  .cbm-filter-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;width:100%}
-  .cbm-filter-row:first-child{align-items:end}
-  .cbm-filter-note{grid-column:1 / -1;font-size:12px;line-height:18px}
-  .card.cbm .cbm-chip{min-height:44px!important;border-radius:12px;padding:0 10px!important;gap:6px;font-size:12px;justify-content:flex-start}
-  .cbm-chip i{width:7px;height:7px;flex:none}
   .card.cbm .cbm-shed-section,.card.cbm .cbm-cohort-section{margin-top:18px}
 }
 

@@ -198,7 +198,6 @@
   :root .main .fbar a.btn{min-height:44px}
   :root .main .cfgchk label,:root .main label.chkline{min-height:44px;display:inline-flex;align-items:center;gap:8px}
   :root .main .qcard .ia{min-width:44px}
-  :root .main .cbm-chip{min-height:44px}
   :root .main a.lk,:root .main .lk.small{min-height:44px;display:inline-flex;align-items:center;padding:0 6px}
   :root .main .fld>label[for]:not(.MuiFormLabel-root),:root .main label[for]:not(.MuiFormLabel-root){min-height:44px;display:flex;align-items:center}
   :root .main .pager2 a.btn,:root .main .pager2 .btn,:root .main .pager2 button{min-height:44px;height:44px}

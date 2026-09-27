@@ -8,12 +8,13 @@ test("command-board KPI tiles filter the status matrix instead of rendering dead
   assert.match(source, /const activateStatusKpi = \(key: StatusKey\) =>/);
   assert.match(source, /setStatuses\(new Set\(\[key\]\)\)/);
   assert.match(source, /scrollIntoView\(\{ block: "start", behavior: "smooth" \}\)/);
-  assert.match(source, /const statusKpiProps = \(key: StatusKey, count: number\) =>/);
-  // The tiles are kit KpiCards now: passing `onClick` is what makes one clickable, and KpiCard
-  // itself binds the Enter/Space handler and the button role, so the keyboard path is no longer
-  // spelled out here. A zero-count tile is handed no onClick and therefore stays inert.
-  assert.match(source, /count > 0 \? \{ onClick: \(\) => activateStatusKpi\(key\) \} : \{\}/);
-  assert.match(source, /<KpiCard/);
+  assert.match(source, /const statusKpiClick = \(key: StatusKey, count: number\) =>/);
+  // The tiles are template CourseWidgetSummary cards (kpiTile): a tile with an action gets the
+  // button role and the Enter/Space handler; a zero-count tile is handed no onClick and stays inert.
+  assert.match(source, /count > 0 \? \(\) => activateStatusKpi\(key\) : undefined/);
+  assert.match(source, /<CourseWidgetSummary/);
+  assert.match(source, /role: "button"[\s\S]*?event\.key === "Enter" \|\| event\.key === " "/);
+  assert.doesNotMatch(source, /KpiCard|KpiGrid/);
   assert.match(source, /id="cbm-shed-dose-matrix"/);
 
   for (const [key, metric] of [
@@ -23,6 +24,6 @@ test("command-board KPI tiles filter the status matrix instead of rendering dead
     ["overdue", "view.kpis.overdueNotGiven"],
     ["scheduled", "view.kpis.scheduledAhead"],
   ]) {
-    assert.match(source, new RegExp(`statusKpiProps\\("${key}", ${metric.replaceAll(".", "\\.")}\\)`));
+    assert.match(source, new RegExp(`statusKpiClick\\("${key}", ${metric.replaceAll(".", "\\.")}\\)`));
   }
 });
