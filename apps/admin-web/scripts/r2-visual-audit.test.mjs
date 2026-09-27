@@ -122,3 +122,20 @@ test("touched files map to routes through the import graph; shell files flag the
 test("chart-black: an unresolved chart colour (black series mark) is a P0", () => {
   assert.equal(isP0("chart-black|path.apexcharts-bar-area"), true);
 });
+
+// guard: theme-palette-follows-mode + chart-light-scheme (2026-09-27, /sales/sold #54A02C bars in dark).
+test("chart-light-scheme: light-only palette hexes are derived from theme-config and are P0", async () => {
+  const { readFileSync } = await import("node:fs");
+  const mod = await import("./r2-visual-audit.mjs");
+  const cfg = readFileSync(new URL("../theme/theme-config.ts", import.meta.url), "utf8");
+  const lightOnly = mod.lightOnlyPaletteHexes(cfg);
+  assert.ok(lightOnly.includes("#54a02c"), "light primary.main is light-only");
+  assert.ok(!lightOnly.includes("#7ccb45"), "dark primary.main is not in the list");
+  assert.ok(mod.isP0("chart-light-scheme|#54a02c"));
+});
+
+test("theme.palette follows the active scheme (forceThemeRerender on the app ThemeProvider)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../theme/app-theme-provider.tsx", import.meta.url), "utf8");
+  assert.match(src, /<ThemeProvider[^>]*\bforceThemeRerender\b/);
+});

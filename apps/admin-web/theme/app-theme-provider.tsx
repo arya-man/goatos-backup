@@ -39,7 +39,11 @@ export function AppThemeProvider({ children, cookieSettings }: { children: React
 export function AppThemeStack({ children, cookieSettings }: { children: React.ReactNode; cookieSettings?: SettingsState }) {
   return (
     <SettingsProvider defaultSettings={defaultSettings} cookieSettings={cookieSettings}>
-      <ThemeProvider modeStorageKey={themeConfig.modeStorageKey} defaultMode={themeConfig.defaultMode}>
+      {/* forceThemeRerender: with CSS variables MUI otherwise keeps `theme.palette` on the DEFAULT
+          (light) scheme forever. Mesha's dark hues differ from light (the template's do not), so every
+          chart / template section reading theme.palette.* painted light-mode colours in dark
+          (#54A02C bars on /sales/sold). guard: theme-palette-follows-mode */}
+      <ThemeProvider modeStorageKey={themeConfig.modeStorageKey} defaultMode={themeConfig.defaultMode} forceThemeRerender>
         <LegacyBaseline />
         <PhoneTapStyles />
         <ModeSync />

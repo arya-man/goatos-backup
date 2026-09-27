@@ -35,6 +35,30 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const appRoot = resolve(scriptDir, "..");
 
+/**
+ * chart-light-scheme: brand/status hexes that exist ONLY in the light palette (theme/theme-config.ts
+ * `palette` minus `paletteDark`). A chart mark painted one of them in DARK mode read theme.palette
+ * before it followed the active scheme (the #54A02C bars on /sales/sold, R3SP2 2026-09-27).
+ */
+export function lightOnlyPaletteHexes(configText) {
+  const block = (name) => {
+    const at = configText.indexOf(`${name}: {`);
+    if (at < 0) return "";
+    let depth = 0;
+    for (let i = configText.indexOf("{", at); i < configText.length; i++) {
+      if (configText[i] === "{") depth++;
+      else if (configText[i] === "}" && --depth === 0) return configText.slice(at, i);
+    }
+    return "";
+  };
+  const hexes = (text) => new Set([...text.matchAll(/(?:lighter|light|main|dark|darker):\s*'(#[0-9A-Fa-f]{6})'/g)].map((m) => m[1].toLowerCase()));
+  const light = hexes(block("palette"));
+  const dark = hexes(block("paletteDark"));
+  return [...light].filter((h) => !dark.has(h));
+}
+let LIGHT_ONLY_HEXES = [];
+try { LIGHT_ONLY_HEXES = lightOnlyPaletteHexes(readFileSync(join(appRoot, "theme", "theme-config.ts"), "utf8")); } catch {}
+
 export const PROFILES = [
   { label: "1440-dark", width: 1440, height: 900, theme: "dark", mobile: false },
   { label: "1440-light", width: 1440, height: 900, theme: "light", mobile: false },
@@ -185,6 +209,7 @@ export const P0_PATTERNS = [
   /^dark-bright-bg\|/,
   /^off-palette\|/,
   /^chart-black\|/, // a chart series / legend mark whose colour never resolved (paints black)
+  /^chart-light-scheme\|/, // a dark-mode chart painted a light-scheme-only palette colour
   /^drawer\|(overflow\|clipped|no-backdrop)/,
   /^skeleton\|(mismatch|missing|extra)/, // skeleton vs loaded block IoU < 0.8, block missing / extra
   /^tap\|/,
@@ -524,6 +549,12 @@ function r2PageLib() {
       } else if (!inSvg && el.closest(".apexcharts-legend-marker")) {
         const b = parseColor(cs.backgroundColor);
         if (b && b[3] > 0.5 && b[0] === 0 && b[1] === 0 && b[2] === 0) add("chart-black", el, `background ${hex(b)} on a chart legend marker`, { prop: "background-color", value: hex(b) });
+      }
+      if (opts.theme === "dark" && opts.lightOnly && opts.lightOnly.length && el.closest(".apexcharts-canvas")) {
+        for (const [prop, val] of [["fill", cs.fill], ["stroke", cs.stroke], ["background-color", cs.backgroundColor]]) {
+          const c = parseColor(val);
+          if (c && c[3] > 0.2 && opts.lightOnly.includes(hex(c).slice(0, 7).toLowerCase())) add("chart-light-scheme", el, `${prop} ${hex(c)} is a light-scheme palette colour on a dark chart`, { prop, value: hex(c).slice(0, 7).toLowerCase() });
+        }
       }
       const doneBorder = new Set();
       for (const [prop, val] of props) {
@@ -1073,7 +1104,7 @@ async function main() {
       if (res.stuckSkeleton) add({ check: "route", pattern: "route|stuck-skeleton", label: "Skeleton still visible after 15s", route: route.route, profile: profile.label, detail: `${res.stuckSkeleton} skeleton elements` });
       if (profile.label === "1440-dark") for (const l of await page.evaluate(() => window.__r2lib.links()).catch(() => [])) collectedLinks.add(l);
       if (checks.has("scan")) {
-        const out = await safeEval(page, (o) => window.__r2lib.scan(o), { theme: profile.theme, tap: profile.mobile });
+        const out = await safeEval(page, (o) => window.__r2lib.scan(o), { theme: profile.theme, tap: profile.mobile, lightOnly: LIGHT_ONLY_HEXES });
         await nameRules(page, out.findings);
         for (const f of out.findings) recordScan(f, route.route, profile.label, "page");
         if (out.sideways) add({ check: "scan", pattern: `sideways-scroll|${profile.mobile ? "390" : "1440"}`, label: `Page scrolls sideways at ${profile.width}`, route: route.route, profile: profile.label, detail: `document ${out.sideways.scrollWidth}px wide in a ${out.sideways.viewport}px viewport` });
@@ -1109,6 +1140,8 @@ async function main() {
       add({ ...base, pattern: `dark-bright-bg|${f.sig}|${loc || f.value}${where}`, label: `Bright background in dark${where}: ${f.sig} ${f.value}${loc ? ` (${loc})` : ""}` });
     } else if (f.check === "contrast") {
       add({ ...base, pattern: `contrast|${f.sig}|${f.value}`, label: `Text contrast below WCAG${where}: ${f.sig} ${f.value} (${profile.includes("light") ? "light" : "dark"})` });
+    } else if (f.check === "chart-light-scheme") {
+      add({ ...base, pattern: `chart-light-scheme|${f.value}`, label: `Light-scheme colour ${f.value} on a dark chart (${f.sig})` });
     } else if (f.check === "chart-black") {
       add({ ...base, pattern: `chart-black|${f.sig}`, label: `Chart series painted black (unresolved colour)${where}: ${f.sig}` });
     } else if (f.check === "tap-target") {
