@@ -82,3 +82,15 @@ test("procurement and sales features use template tabs and widgets, not the remo
     assert.doesNotMatch(src, /\b(AnimatedTabs|StatStrip|KpiCard)\b(?!Skeleton)/, `${name} uses a removed fake (AnimatedTabs/StatStrip/KpiCard)`);
   }
 });
+
+// guard: market-loading-mirrors-panels (R3SP2 audit re-run). The route loading shape drew tall
+// "hero" KPI cards and a short table, while the page's own in-place fallbacks (and the loaded page)
+// are the KpiWidget row, a six-row table card with a header and a 320px chart card: skeleton IoU P0.
+test("market analytics route loading uses the page's in-place fallback shapes", () => {
+  const loading = read("../../app/(admin)/sales/market-analytics/loading.tsx");
+  const page = read("./market-analytics.tsx");
+  assert.match(page, /fallback=\{<KpiRowSkeleton count=\{4\} icon \/>\}/);
+  assert.match(loading, /<KpiRowSkeleton count=\{4\} icon \/>/);
+  assert.match(page, /<TableSkeleton columns=\{5\} rows=\{6\} pager=\{false\} subheader headerAction \/><ChartCardSkeleton height=\{320\} subheader \/>/);
+  assert.match(loading, /<TableSkeleton columns=\{5\} rows=\{6\} pager=\{false\} subheader headerAction \/>\s*<ChartCardSkeleton height=\{320\} subheader \/>/);
+});

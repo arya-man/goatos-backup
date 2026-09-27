@@ -67,3 +67,13 @@ test("SOP select options keep their backend description as the menu item title",
   assert.equal((chrome.match(/<MenuItem key=\{option\.value\} value=\{option\.value\} title=\{option\.title\}>/g) ?? []).length, 2);
   assert.match(read("./toxin-editor.tsx"), /options=\{kinds\.map\(\(k\) => \(\{ value: k\.key, label: k\.label, title: k\.title \}\)\)\}/);
 });
+
+// guard: sop-library-skeleton-kpi-row (R3SP2 audit re-run). The library's KPI row became KpiGrid +
+// KpiWidget (template CourseWidgetSummary); its loading twin kept the retired StatStrip ring strip,
+// twice as tall, so the filter card and the cards jumped when the page arrived (skeleton IoU P0).
+test("SOP library skeleton mirrors the KPI widget row", () => {
+  assert.match(read("./sop-library.tsx"), /<KpiGrid>/);
+  const skel = read("./sop-route-skeleton.tsx");
+  assert.match(skel, /<KpiRowSkeleton count=\{SOP_STAT_CELLS\} \/>/);
+  assert.doesNotMatch(skel, /StatStripSkeleton/);
+});
