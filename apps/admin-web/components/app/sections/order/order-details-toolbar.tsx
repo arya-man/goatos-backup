@@ -41,7 +41,7 @@ type Props = {
   onChangeStatus?: (newValue: string) => void;
   actions?: ReactNode;
   /** Declared override (template-derived.json): merged after the template's action-row sx (wrap on a phone). */
-  slotProps?: { actions?: SxProps<Theme> };
+  slotProps?: { actions?: SxProps<Theme>; statusButton?: SxProps<Theme> };
 };
 
 const HEADING = 'h1';
@@ -136,7 +136,7 @@ export function OrderDetailsToolbar({
             variant="outlined"
             endIcon={<Iconify icon="eva:arrow-ios-downward-fill" />}
             onClick={menuActions.onOpen}
-            sx={{ textTransform: 'capitalize' }}
+            sx={mergeSx({ textTransform: 'capitalize' }, slotProps?.statusButton)}
           >
             {status}
           </Button>

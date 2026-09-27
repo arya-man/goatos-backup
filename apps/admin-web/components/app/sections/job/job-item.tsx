@@ -8,6 +8,7 @@
 // the ⋮ renders only with items) and `children` (a declared dashed-divider section at the foot).
 import type { ReactNode } from 'react';
 import type { CardProps } from '@mui/material/Card';
+import type { SxProps, Theme } from '@mui/material/styles';
 
 import { usePopover } from 'minimal-shared/hooks';
 
@@ -21,6 +22,7 @@ import IconButton from '@mui/material/IconButton';
 import Typography from '@mui/material/Typography';
 import ListItemText from '@mui/material/ListItemText';
 
+import { mergeSx } from '@/components/app/merge-sx';
 import { Iconify } from '@/components/minimal/iconify';
 import { CustomPopover } from '@/components/minimal/custom-popover';
 
@@ -39,9 +41,12 @@ type Props = Omit<CardProps, 'title'> & {
   facts?: JobItemFact[];
   menuActions?: JobItemMenuAction[];
   children?: ReactNode;
+  /** Declared overrides (template-derived.json): the meta line wraps; fact captions wrap. */
+  slotProps?: { meta?: SxProps<Theme> };
+  wrapFacts?: boolean;
 };
 
-export function JobItem({ title, secondary, meta, avatar, avatarUrl, media, facts = [], menuActions = [], children, sx, ...other }: Props) {
+export function JobItem({ title, secondary, meta, avatar, avatarUrl, media, facts = [], menuActions = [], children, slotProps, wrapFacts, sx, ...other }: Props) {
   const menuActionsPopover = usePopover();
 
   const renderMenuActions = () => (
@@ -100,13 +105,13 @@ export function JobItem({ title, secondary, meta, avatar, avatarUrl, media, fact
           />
 
           <Box
-            sx={{
+            sx={mergeSx({
               gap: 0.5,
               display: 'flex',
               alignItems: 'center',
               color: 'primary.main',
               typography: 'caption',
-            }}
+            }, slotProps?.meta)}
           >
             {meta}
           </Box>
@@ -114,6 +119,8 @@ export function JobItem({ title, secondary, meta, avatar, avatarUrl, media, fact
           {media}
         </Box>
 
+        {facts.length ? (
+        <>
         <Divider sx={{ borderStyle: 'dashed' }} />
 
         <Box
@@ -137,12 +144,14 @@ export function JobItem({ title, secondary, meta, avatar, avatarUrl, media, fact
               }}
             >
               {item.icon}
-              <Typography variant="caption" noWrap>
+              <Typography variant="caption" noWrap={!wrapFacts}>
                 {item.label}
               </Typography>
             </Box>
           ))}
         </Box>
+        </>
+        ) : null}
 
         {children ? (
           <>

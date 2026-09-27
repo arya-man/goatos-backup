@@ -33,7 +33,7 @@ type Props = Omit<ListItemButtonProps, 'action'> & {
   href: string;
   onClickNavItem?: () => void;
   action?: ReactNode;
-  slotProps?: { item?: SxProps<Theme>; button?: SxProps<Theme> };
+  slotProps?: { item?: SxProps<Theme>; button?: SxProps<Theme>; label?: SxProps<Theme> };
 };
 
 export function MailNavItem({ selected, label, href, onClickNavItem, action, slotProps, ...other }: Props) {
@@ -60,11 +60,11 @@ export function MailNavItem({ selected, label, href, onClickNavItem, action, slo
 
         <Box
           component="span"
-          sx={{
+          sx={mergeSx({
             flexGrow: 1,
             textTransform: 'capitalize',
             typography: selected ? 'subtitle2' : 'body2',
-          }}
+          }, slotProps?.label)}
         >
           {label.name}
         </Box>

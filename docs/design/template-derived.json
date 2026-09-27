@@ -624,7 +624,7 @@
         "\\s*<Button[\\s\\S]*?<\\/Button>\\n"
       ],
       "strip": [
-        "\\{lines\\.map\\([\\s\\S]*?<\\/Box>\\s*\\)\\)\\}",
+        "\\{lines\\.map\\(\\(line, index\\) => \\(\\s*<Box key=\\{index\\} sx=\\{mergeSx\\(\\{ color: 'text\\.secondary' \\}, slotProps\\?\\.line\\)\\}>\\{line\\}<\\/Box>\\s*\\)\\)\\}",
         "\\{action\\}"
       ],
       "tags": [
@@ -817,7 +817,7 @@
     },
     "components/app/sections/order/order-details-toolbar.tsx": {
       "source": "src/sections/order/order-details-toolbar.tsx",
-      "replaced": "demo order -> title (page h1) / status + statusColor / subtitle (instead of fDateTime); status menu kept via statusOptions/onChangeStatus; SLOT actions (Print / Edit buttons); back IconButton only with backHref + aria-label; declared override: slotProps.actions merged after the action-row sx",
+      "replaced": "demo order -> title (page h1) / status + statusColor / subtitle (instead of fDateTime); status menu kept via statusOptions/onChangeStatus; SLOT actions (Print / Edit buttons); back IconButton only with backHref + aria-label; declared override: slotProps.actions merged after the action-row sx; override slotProps.statusButton (textTransform none)",
       "allowProps": [
         "IconButton:aria-label",
         "Typography:component"
@@ -830,6 +830,10 @@
         "\\{actions\\}",
         [
           "mergeSx\\((\\{\\s*gap: 1\\.5,\\s*flexGrow: 1,\\s*display: 'flex',\\s*alignItems: 'center',\\s*justifyContent: 'flex-end',\\s*\\}), slotProps\\?\\.actions\\)",
+          "$1"
+        ],
+        [
+          "mergeSx\\((\\{ textTransform: 'capitalize' \\}), slotProps\\?\\.statusButton\\)",
           "$1"
         ]
       ],
@@ -908,7 +912,7 @@
     },
     "components/app/sections/job/job-item.tsx": {
       "source": "src/sections/job/job-item.tsx",
-      "replaced": "IJobItem -> avatar/avatarUrl, title (detail Link), secondary (Posted date), meta (candidates line), facts (the four icon + caption cells), menuActions (View/Edit/Delete; ⋮ only with items); declared slots media and children (dashed-divider foot section)",
+      "replaced": "IJobItem -> avatar/avatarUrl, title (detail Link), secondary (Posted date), meta (candidates line), facts (the four icon + caption cells), menuActions (View/Edit/Delete; ⋮ only with items); declared slots media and children (dashed-divider foot section); declared: facts grid only with facts, slotProps.meta (wrap), wrapFacts toggles the caption noWrap",
       "allowProps": [],
       "templateStrip": [
         [
@@ -935,6 +939,14 @@
         [
           "\\s*\\{avatar\\}\\s*",
           ""
+        ],
+        [
+          "mergeSx\\((\\{\\s*gap: 0\\.5,\\s*display: 'flex',\\s*alignItems: 'center',\\s*color: 'primary\\.main',\\s*typography: 'caption',\\s*\\}), slotProps\\?\\.meta\\)",
+          "$1"
+        ],
+        [
+          " noWrap=\\{!wrapFacts\\}",
+          " noWrap"
         ]
       ],
       "tags": [
@@ -1061,7 +1073,7 @@
     },
     "components/app/sections/mail/mail-nav-item.tsx": {
       "source": "src/sections/mail/mail-nav-item.tsx",
-      "replaced": "IMailLabel -> label {name,count,icon?,color?}; the button is a Next link (href, scroll kept, aria-current); declared slot action beside the button and override slotProps.item on the li; override slotProps.button (phone tap floor)",
+      "replaced": "IMailLabel -> label {name,count,icon?,color?}; the button is a Next link (href, scroll kept, aria-current); declared slot action beside the button and override slotProps.item on the li; override slotProps.button (phone tap floor); override slotProps.label (textTransform none: template transforms never rewrite Mesha copy)",
       "allowProps": [
         "ListItemButton:component",
         "ListItemButton:href",
@@ -1082,6 +1094,10 @@
         ],
         [
           "mergeSx\\((\\{\\s*pl: 1,[\\s\\S]*?color: 'text\\.primary' \\}\\),\\s*\\}), slotProps\\?\\.button\\)",
+          "$1"
+        ],
+        [
+          "mergeSx\\((\\{\\s*flexGrow: 1,\\s*textTransform: 'capitalize',\\s*typography: selected \\? 'subtitle2' : 'body2',\\s*\\}), slotProps\\?\\.label\\)",
           "$1"
         ]
       ],

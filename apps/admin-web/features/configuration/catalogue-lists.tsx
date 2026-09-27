@@ -82,7 +82,7 @@ export function CatalogueLists({
       key={list.id}
       selected={list.id === current}
       href={list.href}
-      slotProps={{ item: { alignItems: "center", gap: 0.5, pl: list.depth * 2 }, button: { minHeight: "var(--tap-min)" } }}
+      slotProps={{ item: { alignItems: "center", gap: 0.5, pl: list.depth * 2 }, button: { minHeight: "var(--tap-min)" }, label: { textTransform: "none" } }}
       label={{ name: list.name, count: list.count, icon: list.locked ? "solar:lock-password-outline" : undefined }}
       action={
         canEdit ? (
@@ -134,7 +134,7 @@ export function CatalogueLists({
       <Box component="nav">
         <Box component="ul" sx={{ m: 0, p: 0, pb: 1.5, px: 1.5, listStyle: "none" }}>
           {status === "active" && !needle ? (
-            <MailNavItem selected={current === ""} href={allHref} label={{ name: copy["lists.all"], count: allCount, icon: "solar:list-bold" }} slotProps={{ button: { minHeight: "var(--tap-min)" } }} />
+            <MailNavItem selected={current === ""} href={allHref} label={{ name: copy["lists.all"], count: allCount, icon: "solar:list-bold" }} slotProps={{ button: { minHeight: "var(--tap-min)" }, label: { textTransform: "none" } }} />
           ) : null}
           {catalogues.length ? (
             <>

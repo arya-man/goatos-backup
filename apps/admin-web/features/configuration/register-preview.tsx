@@ -80,7 +80,7 @@ export function RegisterPreview({
                     {group.label}
                   </Typography>
                   {group.items.map((item) => (
-                    <MailNavItem key={item.key} selected={!!item.active} href="#" label={{ name: item.label, count: item.count }} slotProps={{ button: { minHeight: "var(--tap-min)" } }} />
+                    <MailNavItem key={item.key} selected={!!item.active} href="#" label={{ name: item.label, count: item.count }} slotProps={{ button: { minHeight: "var(--tap-min)" }, label: { textTransform: "none" } }} />
                   ))}
                 </Box>
               ))}

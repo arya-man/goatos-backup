@@ -523,6 +523,8 @@ export async function AnimalPurchasesPage({
                   <JobItem
                     title={animal.title}
                     meta={heading}
+                  slotProps={{ meta: { flexWrap: "wrap" } }}
+                  wrapFacts
                     avatar={<Iconify icon="solar:videocamera-record-bold" />}
                     media={<Box sx={{ mt: 2 }}><AnimalPurchaseMedia slots={animal.media_slots ?? []} copy={sopCopy} /></Box>}
                     sx={{ height: 1 }}
@@ -543,10 +545,12 @@ export async function AnimalPurchasesPage({
                 <JobItem
                   title={animal.title}
                   meta={heading}
+                  slotProps={{ meta: { flexWrap: "wrap" } }}
+                  wrapFacts
                   avatar={<Iconify icon="solar:videocamera-record-bold" />}
                   sx={{ height: 1 }}
                   media={
-                    <div className="ap-tiles">
+                    <Box sx={{ mt: 2 }} className="ap-tiles">
                       {animal.media_url ? (
                         <AnimalPurchaseLightbox
                           items={[{ proofRef: animal.video_proof_ref || animal.candidate_id, url: animal.media_url, kind: "video", title: copy(pageContract, "video.title") }]}
@@ -559,7 +563,7 @@ export async function AnimalPurchasesPage({
                           <figcaption className="muted small">{copy(pageContract, "video.title")}</figcaption>
                         </figure>
                       )}
-                    </div>
+                    </Box>
                   }
                   // Template job facts: one caption per cell (label · value); the free-text note
                   // reads in full in the foot section above the decision.
