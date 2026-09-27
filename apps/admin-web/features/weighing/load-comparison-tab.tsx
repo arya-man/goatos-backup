@@ -10,7 +10,7 @@ import CardHeader from "@mui/material/CardHeader";
 import Grid from "@mui/material/Grid";
 import Typography from "@mui/material/Typography";
 import { EmptyState } from "@/components/app/empty-state";
-import { BankingBalanceStatistics } from "@/components/minimal/sections/overview/banking/banking-balance-statistics";
+import { BalanceStatisticsCard } from "@/components/app/balance-statistics-card";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate } from "@/lib/format";
@@ -229,7 +229,7 @@ export function LoadComparisonTab({
           the entire comparison is the difference in bar length. The growth multiple rides each
           load's tooltip; WHERE the load is now rides its category in a bracket. */}
       <Grid size={12}>
-        <BankingBalanceStatistics
+        <BalanceStatisticsCard
           aria-label={copy(pageContract, "section.load.aria")}
           title={copy(pageContract, "section.load.title")}
           subheader={copy(pageContract, "section.load.caption")}
@@ -264,7 +264,7 @@ export function LoadComparisonTab({
           GATED: the money comes from the sales-only read, so a principal the contract withholds
           it from (the Growth Director on weighing access alone) sees the backend's reason. */}
       <Grid size={12}>
-        <BankingBalanceStatistics
+        <BalanceStatisticsCard
           aria-label={copy(pageContract, "section.load_value.aria")}
           title={copy(pageContract, "section.load_value.title")}
           subheader={copy(pageContract, "section.load_value.caption")}
@@ -301,7 +301,7 @@ export function LoadComparisonTab({
           <Typography variant="body2" sx={{ px: 3, pb: 3, color: "text.secondary" }}>
             {ratesNote}
           </Typography>
-        </BankingBalanceStatistics>
+        </BalanceStatisticsCard>
       </Grid>
 
       <Grid size={12}>

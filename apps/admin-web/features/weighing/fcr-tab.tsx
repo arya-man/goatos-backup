@@ -9,7 +9,7 @@ import { EmptyState } from "@/components/app/empty-state";
 import { WorklistPager } from "@/components/worklist-pager";
 import { ConversionRatesCard } from "@/components/app/conversion-rates-card";
 import { ColumnChartCard } from "@/components/app/column-chart-card";
-import { BankingBalanceStatistics } from "@/components/minimal/sections/overview/banking/banking-balance-statistics";
+import { BalanceStatisticsCard } from "@/components/app/balance-statistics-card";
 import { KpiWidget } from "@/components/app/kpi-widget";
 import { FCRPensTable } from "./fcr-pens-table";
 import { cohortWord } from "./fcr-labels";
@@ -94,7 +94,7 @@ function GroupCard({
   const notes = measured.map((group) => penCount(pageContract, group.pens));
   const caption = copy(pageContract, `section.fcr.${id}.caption`, "");
   return (
-    <BankingBalanceStatistics
+    <BalanceStatisticsCard
       aria-label={copy(pageContract, `section.fcr.${id}.aria`)}
       title={copy(pageContract, `section.fcr.${id}.title`)}
       subheader={caption || undefined}
@@ -329,7 +329,7 @@ export function FCRTab({
       </Grid>
 
       <Grid size={12}>
-        <BankingBalanceStatistics
+        <BalanceStatisticsCard
           aria-label={copy(pageContract, "section.fcr.money.aria")}
           title={copy(pageContract, "section.fcr.money.title")}
           subheader={copy(pageContract, "section.fcr.money.caption")}

@@ -19,7 +19,7 @@ import Stack from "@mui/material/Stack";
 
 import { GrowthDirectorSection } from "./growth-director";
 import { Label } from "@/components/minimal/label";
-import { BankingBalanceStatistics } from "@/components/minimal/sections/overview/banking/banking-balance-statistics";
+import { BalanceStatisticsCard } from "@/components/app/balance-statistics-card";
 import { RingCard } from "@/components/app/ring-card";
 import { KpiWidget, lastStepPercent } from "@/components/app/kpi-widget";
 import { MetricChart, ShedMetricChart } from "./metric-chart";
@@ -1016,7 +1016,7 @@ export async function WeighingWeightsPage({
             one URL-driven switch away (SegmentedLinks, so the choice survives a reload). */}
         <Grid size={{ xs: 12, md: 6, lg: 8 }}>
           {gainThresholdView === "chart" ? (
-            <BankingBalanceStatistics
+            <BalanceStatisticsCard
               aria-label={copy(pageContract, "section.gain_thresholds.aria")}
               title={copy(pageContract, "section.gain_thresholds.title")}
               subheader={gainCaption}
@@ -1050,7 +1050,7 @@ export async function WeighingWeightsPage({
               sx={{ height: 1 }}
             >
               <Box sx={{ px: 3, pb: 3 }}>{gainViewSwitch}</Box>
-            </BankingBalanceStatistics>
+            </BalanceStatisticsCard>
           ) : (
             <Card aria-label={copy(pageContract, "section.gain_thresholds.aria")} sx={{ height: 1 }}>
               <CardHeader title={copy(pageContract, "section.gain_thresholds.title")} subheader={gainCaption} action={gainViewSwitch} sx={{ mb: 3 }} />

@@ -95,7 +95,7 @@ test("every bar states its share, its count, and the animals behind it on hover"
   // stacked -- a stack cannot be compared band for band across breeds, the card's whole point),
   // the bar length is the breed's SHARE, the category names the breed with its head count, and
   // each bar's tooltip carries the count against the breed's OWN denominator.
-  assert.match(source, /<BankingBalanceStatistics\s[\s\S]{0,200}section\.gain_thresholds\.aria/);
+  assert.match(source, /<BalanceStatisticsCard\s[\s\S]{0,200}section\.gain_thresholds\.aria/);
   assert.match(source, /categories: gainThresholdRows\.map\(\(row\) => `\$\{row\.breed\} \(\$\{row\.animals\.toLocaleString\("en-IN"\)\} \$\{gainKidsLabel\}\)`\)/);
   assert.match(source, /unit: "%"/);
   assert.match(source, /\$\{\(row\.marks\[index\]\?\.count \?\? 0\)\.toLocaleString\("en-IN"\)\} \$\{copy\(pageContract, "value\.gain_thresholds\.of"\)\} \$\{row\.animals\.toLocaleString\("en-IN"\)\}/);

@@ -59,7 +59,6 @@
     "components/minimal/loading-screen/loading-screen.tsx": "src/components/loading-screen/loading-screen.tsx",
     "components/minimal/sections/overview/banking/banking-expenses-categories.tsx": "src/sections/overview/banking/banking-expenses-categories.tsx",
     "components/minimal/sections/overview/analytics/analytics-conversion-rates.tsx": "src/sections/overview/analytics/analytics-conversion-rates.tsx",
-    "components/minimal/sections/overview/banking/banking-balance-statistics.tsx": "src/sections/overview/banking/banking-balance-statistics.tsx",
     "components/minimal/sections/overview/e-commerce/ecommerce-current-balance.tsx": "src/sections/overview/e-commerce/ecommerce-current-balance.tsx",
     "components/minimal/sections/overview/e-commerce/ecommerce-best-salesman.tsx": "src/sections/overview/e-commerce/ecommerce-best-salesman.tsx",
     "components/minimal/sections/overview/e-commerce/ecommerce-latest-products.tsx": "src/sections/overview/e-commerce/ecommerce-latest-products.tsx",
@@ -699,19 +698,6 @@
         "@mui/material/styles",
         "src/utils/format-number",
         "src/components/iconify",
-        "src/components/chart"
-      ]
-    },
-    "components/minimal/sections/overview/banking/banking-balance-statistics.tsx": {
-      "sha256": "2b2a2a92ac1e349ed5cf454c8c8f93b652a7c5aca8cd4a62d2c7c97d71a81901",
-      "imports": [
-        "@mui/material/Card",
-        "src/components/chart",
-        "react",
-        "@mui/material/Card",
-        "@mui/material/styles",
-        "@mui/material/CardHeader",
-        "src/utils/format-number",
         "src/components/chart"
       ]
     },

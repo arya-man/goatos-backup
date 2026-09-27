@@ -1,0 +1,30 @@
+{
+  "_note": [
+    "Template sections whose DEMO WIRING (fixed demo values, hard-coded default select, demo model types / copy) became props.",
+    "They live in components/app/sections/<template path>, never components/minimal. Markup and sx must equal the template:",
+    "design:guard template-derived-anatomy compares each file's JSX element sequence + sx keys with the template's (tags/sx below,",
+    "regenerate with node apps/admin-web/scripts/refresh-template-derived.mjs)."
+  ],
+  "files": {
+    "components/app/sections/overview/banking/banking-balance-statistics.tsx": {
+      "source": "src/sections/overview/banking/banking-balance-statistics.tsx",
+      "replaced": "default select 'Yearly' -> first series; fCurrency tooltip -> series unit/digits/notes; fixed legend values/sublabels -> series values/sublabels; children at foot",
+      "tags": [
+        "Card",
+        "CardHeader",
+        "ChartSelect",
+        "ChartLegends",
+        "Chart"
+      ],
+      "sx": [
+        "mb",
+        "px",
+        "gap",
+        "pl",
+        "py",
+        "pr",
+        "height"
+      ]
+    }
+  }
+}

@@ -12,7 +12,7 @@ import { Label } from "@/components/minimal/label";
 import { KpiWidget } from "@/components/app/kpi-widget";
 import { ConversionRatesCard } from "@/components/app/conversion-rates-card";
 import { WeeklyGrowthCard } from "./weekly-growth-card";
-import { BankingBalanceStatistics } from "@/components/minimal/sections/overview/banking/banking-balance-statistics";
+import { BalanceStatisticsCard } from "@/components/app/balance-statistics-card";
 import { EcommerceCurrentBalance } from "@/components/minimal/sections/overview/e-commerce/ecommerce-current-balance";
 import { RingCard } from "@/components/app/ring-card";
 import { LoadComparisonTab } from "./load-comparison-tab";
@@ -1013,7 +1013,7 @@ function BreedTab({ pageContract, demo }: { pageContract: AdminUiPageContract; d
   // g/day and kg are not comparable lengths, so the select swaps the scale with the measure.
   // Each bar's own head count rides in its tooltip, because the two measures count different kids.
   return (
-    <BankingBalanceStatistics
+    <BalanceStatisticsCard
       aria-label={copy(pageContract, "section.breed.aria")}
       title={copy(pageContract, "section.breed.title")}
       subheader={copy(pageContract, "section.breed.caption")}
@@ -1083,7 +1083,7 @@ function BirthTab({ pageContract, demo }: { pageContract: AdminUiPageContract; d
   // over three cohorts, which is the entire comparison. A breed the farm has no such kid of gets
   // no bar (null), never a zero one.
   return (
-    <BankingBalanceStatistics
+    <BalanceStatisticsCard
       aria-label={copy(pageContract, "section.birth.aria")}
       title={copy(pageContract, "section.birth.title")}
       subheader={copy(pageContract, "section.birth.caption")}
@@ -1197,7 +1197,7 @@ function ShedTab({
   };
 
   return (
-    <BankingBalanceStatistics
+    <BalanceStatisticsCard
       aria-label={copy(pageContract, "section.shed.aria")}
       title={copy(pageContract, "section.shed.title")}
       subheader={copy(pageContract, "section.shed.caption")}
@@ -1260,7 +1260,7 @@ function WeightTab({
 
   return (
     <>
-      <BankingBalanceStatistics
+      <BalanceStatisticsCard
         aria-label={copy(pageContract, "section.weight.aria")}
         title={copy(pageContract, "section.weight.title")}
         subheader={copy(pageContract, "section.weight.caption")}
@@ -1501,7 +1501,7 @@ function TimeTab({
           overall trend, and the caption says so -- a shed holding more than one breed counts in the
           overall series and in no breed here, because one shed average cannot be divided. */}
       <Grid size={12}>
-        <BankingBalanceStatistics
+        <BalanceStatisticsCard
           aria-label={bucketCopy("section.time.breed.aria")}
           title={bucketCopy("section.time.breed.title")}
           subheader={bucketCopy("section.time.breed.caption")}

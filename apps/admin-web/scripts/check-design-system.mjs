@@ -48,6 +48,7 @@ import {
 import { drawerTagLines, drawerTemplateFindings, onlyTemplateDrawerWidths } from "./lib/drawer-template.mjs";
 import { urlKeyedPanelFindings } from "./lib/url-keyed-panel.mjs";
 import { templateHash, templateVerbatimFindings } from "./lib/template-verbatim.mjs";
+import { anatomy as templateAnatomy, templateDerivedFindings } from "./lib/template-derived.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const appDir = resolve(scriptDir, "..");
@@ -68,7 +69,9 @@ const NATIVE_SELECT_ALLOWED = new Set();
 // radii and type come from the MUI theme (theme.spacing / shape / typography), not from
 // app/minimal-tokens.css, so the ratchet-tier size/radius/font/tap checks do not apply there.
 // Every P0 and waivable check (foreign palette, hex colours, native elements …) still does.
-const TEMPLATE_CODE_DIRS = ["components/minimal/"];
+// components/app/sections holds template-DERIVED sections (docs/design/template-derived.json): their
+// markup + sx are the template's by guard (template-derived-anatomy), so the template's own literals stay.
+const TEMPLATE_CODE_DIRS = ["components/minimal/", "components/app/sections/"];
 const isTemplateCode = (rel) => TEMPLATE_CODE_DIRS.some((dir) => rel.startsWith(dir));
 // Lifecycle display mapping owns the legacy "F2" code so it can translate it; nothing else may.
 const F2_ALLOWED = new Set(["lib/stage-display.ts", "lib/stage-labels.ts"]);
@@ -210,6 +213,7 @@ const CHECKS = {
   "page-template-legacy-card": { tier: "p0", why: "a page listed in docs/design/page-template-map.md must not render the legacy hand-made card markup (className \"card\"/\"wchart\"/\"wtable\"/\"kpi\", <h2 className=\"h\">); every block is a template section card (Card + CardHeader) fed our data" },
   "shell-nav-template": { tier: "p0", why: "the sidebar is the template NavSectionVertical/NavSectionMini inside layouts/dashboard nav-vertical/nav-mobile (whole nav in the template Scrollbar, template 288px mobile drawer over the template backdrop); no custom footer (navBottom / msh-foot / navigation.footer), no default-open subtrees, no full-width/opaque phone menu or extra close button" },
   "unsourced-minimal-file": { tier: "p0", why: "components/minimal/ holds template-derived code only; every file needs an entry in docs/design/template-sources.json mapping it to a Minimal template source path" },
+  "template-derived-anatomy": { tier: "p0", why: "a template-derived section (docs/design/template-derived.json: demo wiring turned into props, lives in components/app/sections) keeps the template's markup and styles: its JSX element sequence and sx keys equal the template source's (recorded in the manifest; refresh with node scripts/refresh-template-derived.mjs). Only data / props may differ" },
   "template-verbatim": { tier: "p0", why: "every file mapped in docs/design/template-sources.json (components/minimal/**, layouts/**) equals its MUI Minimal template source byte-for-byte except import paths and a \"use client\" line (sha256 of the normalised template source is stored there; refresh with node scripts/refresh-template-hashes.mjs). Product behaviour (URL links, data shapes, copy) goes in components/app adapters or feature files that pass props to the verbatim template component; a hand-made component never wears a template path. Existing drift: docs/design/template-verbatim-baseline.json, shrink-only" },
   "feature-server-fn-sx": { tier: "p0", why: "a feature/app module without 'use client' passes a function sx ((theme) => …) to an MUI part: as a Server Component the function cannot cross to the client part (\"Functions cannot be passed directly to Client Components\") and the route crashes to \"Something went wrong\" (/goats/[id], FJ1 P0-1). Move the themed block into a 'use client' file or use an object sx with theme vars" },
   "section-server-fn-sx": { tier: "p0", why: "a template section under components/minimal/sections/ that styles with a function sx ((theme) => …) must start with 'use client': a Server Component page renders it, and a function prop cannot cross to the client MUI part (\"Functions cannot be passed directly to Client Components\", the whole page falls back to client rendering or 500s)" },
@@ -547,6 +551,9 @@ function runGuard(root, { themeDiff }) {
     const docsDir = existsSync(join(localDocs, "template-sources.json")) ? localDocs : resolve(root, "../../docs/design");
     for (const hit of templateVerbatimFindings(root, join(docsDir, "template-sources.json"), join(docsDir, "template-verbatim-baseline.json"))) {
       findings.push(finding("template-verbatim", hit.file, hit.line, hit.snippet));
+    }
+    for (const hit of templateDerivedFindings(root, join(docsDir, "template-derived.json"))) {
+      findings.push(finding("template-derived-anatomy", hit.file, hit.line, hit.snippet));
     }
   }
 
@@ -1187,6 +1194,16 @@ async function selfTest() {
       verbatim: Object.fromEntries(files.map((f) => [f, { sha256: tplHash, imports }])),
     }));
     const sha = (text) => createHash("sha256").update(text).digest("hex");
+    {
+      const tplDerived = "export const W = ({ v }) => <Card sx={{ p: 3 }}><CardHeader title={v.title} /><Box sx={{ typography: 'h3' }}>{v.total}</Box></Card>;\n";
+      const a = templateAnatomy(tplDerived);
+      put("components/app/sections/demo/derived-ok.tsx", tplDerived.replace("v.total", "fmt(v.total)"));
+      put("components/app/sections/demo/derived-drift.tsx", tplDerived.replace("<Box sx={{ typography: 'h3' }}>", "<Box sx={{ typography: 'h3', color: 'red' }}><span>").replace("</Box>", "</span></Box>"));
+      put("docs/design/template-derived.json", JSON.stringify({ files: {
+        "components/app/sections/demo/derived-ok.tsx": { source: "src/sections/demo/w.tsx", replaced: "total formatting", tags: a.tags, sx: a.sx },
+        "components/app/sections/demo/derived-drift.tsx": { source: "src/sections/demo/w.tsx", replaced: "total formatting", tags: a.tags, sx: a.sx },
+      } }));
+    }
     put("docs/design/template-verbatim-baseline.json", JSON.stringify({ drift: {
       "components/minimal/tpl-listed.tsx": sha(mine.replace("last week", "custom")),
       "components/minimal/tpl-healed.tsx": sha(mine),
@@ -1237,6 +1254,11 @@ async function selfTest() {
   }
   if (!findings.some((f) => f.check === "section-client-boundary" && f.file === "components/minimal/sections/overview/demo/server-zero-arg-sx.tsx")) {
     console.error("design_system_self_test=FAIL section-client-boundary missed a zero-arg sx callback (() => ({ … }))");
+    process.exit(1);
+  }
+  const derivedHits = findings.filter((f) => f.check === "template-derived-anatomy").map((f) => f.file);
+  if (derivedHits.includes("components/app/sections/demo/derived-ok.tsx") || !derivedHits.includes("components/app/sections/demo/derived-drift.tsx")) {
+    console.error(`design_system_self_test=FAIL template-derived-anatomy flagged=${derivedHits.join(",") || "none"} (want derived-drift.tsx only)`);
     process.exit(1);
   }
   const verbatimHits = findings.filter((f) => f.check === "template-verbatim").map((f) => `${f.file}:${f.snippet.includes("tpl-healed") ? "healed" : ""}`).sort();
