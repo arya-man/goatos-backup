@@ -19,6 +19,8 @@ import { AlertTriangle, Check, ChevronDown, ChevronUp, Lock, Plus, X } from "luc
 import MuiButton from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import MuiTextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
+import MenuItem from "@mui/material/MenuItem";
 
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { publishedHref } from "./published-href";
@@ -27,7 +29,7 @@ import { ToxinFlow, toxinStepSummaryLine, waitWords, type ToxinInsert } from "./
 import { publishToxinVersion, saveToxinVersion, type ToxinSaveResult } from "./sop-actions";
 import Alert from "@mui/material/Alert";
 import { SegmentTabs } from "@/components/minimal/list/segment-tabs";
-import { EditorHeader, inspectionEditorSx } from "./editor-chrome";
+import { EditorHeader, InlineSelect, inspectionEditorSx } from "./editor-chrome";
 
 type Props = {
   pageContract: AdminUiPageContract;
@@ -128,10 +130,12 @@ export function ToxinEditor({ pageContract: pc, basePath, sopId, sopName, versio
         <div className="qhead">
           <span className="qnum">{index + 1}</span>
           <span className="qtype">
-            <select
+            <InlineSelect
+              label={copy(pc, "tsop.step.kind")}
               value={step.kind}
-              onChange={(e) => {
-                const kind = e.target.value as ToxinStepKind;
+              options={kinds.map((k) => ({ value: k.key, label: k.label }))}
+              onChange={(next) => {
+                const kind = next as ToxinStepKind;
                 patchStep(step.id, {
                   kind,
                   // A waiting row is never itself gated, and only a waiting row carries a duration.
@@ -140,14 +144,7 @@ export function ToxinEditor({ pageContract: pc, basePath, sopId, sopName, versio
                   gateMinutes: kind === "wait" ? 0 : step.gateMinutes,
                 });
               }}
-              aria-label={copy(pc, "tsop.step.kind")}
-            >
-              {kinds.map((k) => (
-                <option key={k.key} value={k.key} title={k.title}>
-                  {k.label}
-                </option>
-              ))}
-            </select>
+            />
           </span>
           <span className="muted small">{toxinStepSummaryLine(step, kindLabels, pc)}</span>
           <span className="sp" style={{ flex: 1 }} />
@@ -163,35 +160,33 @@ export function ToxinEditor({ pageContract: pc, basePath, sopId, sopName, versio
         </div>
         <div className="qbody">
           <MuiTextField label={copy(pc, "tsop.step.title")} fullWidth size="small" className="qtext" value={step.title} onChange={(e) => patchStep(step.id, { title: e.target.value })} />
-          <label className="numfield">
-            <span className="numlbl">{copy(pc, "tsop.step.instruction")}</span>
-            <textarea className="qhelp" rows={2} value={step.instruction} onChange={(e) => patchStep(step.id, { instruction: e.target.value })} />
-          </label>
+          <MuiTextField label={copy(pc, "tsop.step.instruction")} fullWidth multiline minRows={2} value={step.instruction} onChange={(e) => patchStep(step.id, { instruction: e.target.value })} />
           {step.kind === "wait" ? (
             <MuiTextField label={copy(pc, "tsop.step.wait_minutes")} fullWidth size="small" type="number" slotProps={{ htmlInput: { min: 1 } }} value={step.waitMinutes} onChange={(e) => patchStep(step.id, { waitMinutes: Number(e.target.value) || 0 })} />
           ) : (
             <div className="qcfg">
               <div className="qcfg-head">
-                <span className="qcfg-title">{copy(pc, "tsop.gate.title")}</span>
+                <Typography variant="subtitle2" component="span">{copy(pc, "tsop.gate.title")}</Typography>
                 <span className="muted small">{copy(pc, "tsop.gate.subtitle")}</span>
               </div>
-              <label className="numfield">
-                <span className="numlbl">{copy(pc, "tsop.gate.after")}</span>
-                <select
+              <MuiTextField
+                  select
+                  label={copy(pc, "tsop.gate.after")}
+                  fullWidth
+                  size="small"
                   value={step.gateAfterStep || 0}
                   onChange={(e) => {
                     const after = Number(e.target.value) || 0;
                     patchStep(step.id, { gateAfterStep: after, gateMinutes: after === 0 ? 0 : step.gateMinutes || 30 });
                   }}
                 >
-                  <option value={0}>{copy(pc, "tsop.gate.none")}</option>
-                  {gateChoices.map((s, i) => (
-                    <option key={s.id} value={rows.steps.indexOf(s) + 1}>
+                  <MenuItem value={0}>{copy(pc, "tsop.gate.none")}</MenuItem>
+                  {gateChoices.map((s) => (
+                    <MenuItem key={s.id} value={rows.steps.indexOf(s) + 1}>
                       {rows.steps.indexOf(s) + 1}. {s.title || copy(pc, "tsop.step.untitled")}
-                    </option>
+                    </MenuItem>
                   ))}
-                </select>
-              </label>
+                </MuiTextField>
               {step.gateAfterStep > 0 ? (
                 <MuiTextField label={copy(pc, "tsop.gate.minutes")} fullWidth size="small" type="number" slotProps={{ htmlInput: { min: 1 } }} value={step.gateMinutes} onChange={(e) => patchStep(step.id, { gateMinutes: Number(e.target.value) || 0 })} />
               ) : null}

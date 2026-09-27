@@ -43,3 +43,17 @@ test("SOP flow canvas keeps a 70% floor on a phone and centres the scaled flow",
   assert.match(canvas, /el\.clientWidth < 600 \? 0\.7 : 0\.35/);
   assert.match(canvas, /width: layout\.width \* zoom, height: layout\.height \* zoom, margin: "0 auto"/);
 });
+
+// guard: sop-editor-template-fields (FJ3 P1-16, second half). No label-above field anatomy left in the
+// SOP editors: every text/number/time field is an outlined MUI TextField with its own label (multiline
+// for instructions and hints), choices are MUI selects, and group headings are template
+// Typography subtitle2 (product new-edit form) instead of the legacy .qcfg-title / .numlbl spans.
+test("SOP editors carry no label-above wrappers, native textareas/selects or legacy group titles", () => {
+  for (const file of ["./weighing-editor.tsx", "./inspection-editor.tsx", "./shifting-editor.tsx", "./pc-care-editor.tsx", "./feed-editor.tsx", "./toxin-editor.tsx"]) {
+    const src = read(file);
+    assert.doesNotMatch(src, /className="numlbl"|className="numfield"/, `${file}: label-above .numlbl/.numfield wrapper`);
+    assert.doesNotMatch(src, /<textarea\s/, `${file}: native <textarea> (use MuiTextField multiline with a label)`);
+    assert.doesNotMatch(src, /<select\s/, `${file}: native <select> (use MuiTextField select / InlineSelect)`);
+    assert.doesNotMatch(src, /className="qcfg-title"/, `${file}: legacy .qcfg-title (use Typography variant="subtitle2")`);
+  }
+});

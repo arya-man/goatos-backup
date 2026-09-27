@@ -197,7 +197,7 @@ export const inspectionEditorSx = (theme: Theme) => ({
     "&& .inspection-page-head .muted": { flexBasis: "100%", pl: 5.25 },
     "&& .inspection-page > .bd": { p: 1.75 },
     "&& .inspection-page > .bd > .qcfg": { p: 1.5, borderRadius: "var(--r-lg)" },
-    "&& .inspection-page > .bd > .qcfg textarea, && .inspection-page > .bd > .qcfg .qhelp": { width: 1, minWidth: 0, boxSizing: "border-box", ...theme.typography.body1 },
+    "&& .inspection-page > .bd > .qcfg textarea:not(.MuiInputBase-input), && .inspection-page > .bd > .qcfg .qhelp": { width: 1, minWidth: 0, boxSizing: "border-box", ...theme.typography.body1 },
     "&& .inspection-page > .bd > .qcfg textarea.qhelp": { minHeight: theme.spacing(14.5) },
     "&& .inspection-page .qcfg-head": { alignItems: "flex-start", flexDirection: "column", gap: 0.5 },
   },
