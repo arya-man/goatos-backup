@@ -110,3 +110,23 @@ test("the strip photo is an explicit open link, not an auto-fetching image", () 
   assert.doesNotMatch(stripSection, /<img\b/);
   assert.doesNotMatch(stripSection, /vr-image-proof/);
 });
+
+// guard: toxin-panel-suspense (R3OPS-3). Switching to the Toxin tab or paging it must not blank the
+// page: the screen shell (header + tabs) renders with no await, and only the list waits on
+// GET /toxin/review inside UrlSuspense with a table skeleton.
+test("toxin screen: sync shell, list in UrlSuspense with a table skeleton", () => {
+  const section = readFileSync(new URL("./toxin-review-section.tsx", import.meta.url), "utf8");
+  assert.match(section, /export function ToxinReviewScreen\(/, "the shell is not async");
+  assert.doesNotMatch(section.slice(section.indexOf("export function ToxinReviewScreen("), section.indexOf("async function ToxinReviewPanel(")), /await /, "the shell awaits nothing");
+  assert.match(section, /<UrlSuspense searchParams=\{sp\} watch=\{TOXIN_WATCH\} fallback=\{<TableSkeleton bare header=\{false\} columns=\{3\}/);
+  assert.match(section, /async function ToxinReviewPanel\([\s\S]*await listToxinReview\(/, "the read lives in the suspended panel");
+});
+
+// guard: video-log-park-seed (FJ1-P1-7). /verify?park=X opens the video log on park X and the CSV
+// follows it: the drawer's park filter falls back to the page park.
+test("video log drawer seeds its park filter from the page park", () => {
+  const page = readFileSync(new URL("./verification-review-page.tsx", import.meta.url), "utf8");
+  const log = readFileSync(new URL("./video-log.tsx", import.meta.url), "utf8");
+  assert.match(page, /parkFilter=\{one\(sp, VIDEO_LOG_PARK_KEY\) \|\| scope\.parkId \|\| undefined\}/);
+  assert.match(log, /parkId=\{parkFilter \|\| parkId\}/, "the CSV download follows the same park");
+});
