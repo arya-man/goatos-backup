@@ -1,13 +1,17 @@
-import { ChartCardSkeleton, KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton, TabsSkeleton, ToolbarSkeleton } from "@/components/app/skeletons";
+import { PageHeaderSkeleton, PageSkeleton } from "@/components/app/skeletons";
+import { FeedAnalyticsOverviewSkeleton, FeedAnalyticsStripSkeleton } from "@/features/feed/feed-analytics-skeletons";
 
-/** /feed/analytics: header + export, the tab bar with range chips, the overview KPI deck and charts. */
+/**
+ * /feed/analytics, block for block with the page (Overview, the entry tab): header + Export (plain
+ * crumbs), the tab strip over the window chips + Consumption view toggle, then the Overview panel
+ * (the page's own fallback): KPI deck 3 + 2, the consumption and spend chart cards.
+ */
 export default function Loading() {
   return (
-    <PageSkeleton root="kit-enter pagegrid feed-analytics-page">
-      <PageHeaderSkeleton crumbLink={false} actions={1} />
-      <ToolbarSkeleton left={<TabsSkeleton count={6} />} fields={["chip", "chip", "chip"]} />
-      <KpiRowSkeleton count={5} shapes={[{ spark: true, trend: true }, { spark: true, trend: true }, { spark: true, trend: true }, { hint: true }, { hint: true }]} />
-      <ChartCardSkeleton height={320} legend />
+    <PageSkeleton>
+      <PageHeaderSkeleton crumbLink={false} titleWidth={180} actionWidths={[96]} />
+      <FeedAnalyticsStripSkeleton />
+      <FeedAnalyticsOverviewSkeleton />
     </PageSkeleton>
   );
 }

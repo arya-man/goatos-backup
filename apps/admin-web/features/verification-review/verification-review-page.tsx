@@ -68,7 +68,7 @@ import { TablePaginationLinks } from "@/components/app/table";
 import { fPercent } from "@/components/minimal/_shared/format-number";
 import { InvoiceAnalytic } from "@/components/app/sections/invoice/invoice-analytic";
 import { VrQueueHead } from "./vr-queue-head";
-import { QUEUE_LIMIT, STATUS_STRIP_CELLS } from "./verification-layout";
+import { QUEUE_COLUMNS, QUEUE_LIMIT, STATUS_STRIP_CELLS } from "./verification-layout";
 
 const PATHNAME = "/verify";
 
@@ -638,7 +638,7 @@ export async function VerificationReviewPage({
               <span />
             </div>
 
-            <UrlSuspense searchParams={sp} watch={QUEUE_WATCH} fallback={<TableSkeleton bare header={false} columns={columns.length || 6} rows={10} />}>
+            <UrlSuspense searchParams={sp} watch={QUEUE_WATCH} fallback={<TableSkeleton bare header={false} columns={columns.length || QUEUE_COLUMNS} rows={QUEUE_LIMIT} />}>
             <Scrollbar>
               <Table className="vr-table" aria-label={tableContract.title} sx={{ minWidth: 960 }}>
                 <VrQueueHead

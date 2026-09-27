@@ -1,7 +1,9 @@
 // A GET form through next/form: Apply is a soft navigation (the page stays on screen), not a document reload.
+import { ITEMS_RAIL_SIZE, ITEMS_REGISTER_SIZE } from "./items-layout";
+import { ItemsRegisterSkeleton } from "./items-skeleton";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
-import { FilterCardSkeleton, TableSkeleton, TabsSkeleton } from "@/components/app/skeletons";
+import { TableSkeleton } from "@/components/app/skeletons";
 import { visuallyHidden } from "@mui/utils";
 import Form from "next/form";
 import Box from "@mui/material/Box";
@@ -477,7 +479,7 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
 
         <Grid container spacing={3}>
           {/* Left rail: the template mail nav (MailNavItem rows under overline subheaders). */}
-          <Grid size={{ xs: 12, md: 4, lg: 3 }}>
+          <Grid size={ITEMS_RAIL_SIZE}>
             <Stack spacing={3}>
               <Card component="aside" aria-label={c("rail.title")} sx={{ py: 1.5 }}>
                 <Box component="nav">
@@ -551,11 +553,11 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
 
           {/* The register: template user list anatomy (Card > Tabs + Label counts > toolbar >
               filters result > TableHeadCustom table > pagination). */}
-          <Grid size={{ xs: 12, md: 8, lg: 9 }}>
+          <Grid size={ITEMS_REGISTER_SIZE}>
             {/* The register card (guard: url-keyed-panel): picking another register in the rail shows
                 the card's skeleton at once; inside it, a tab / filter / search / page click swaps only
                 the rows. The rail stays on screen. */}
-            <UrlSuspense searchParams={sp} watch={[PARAM_REGISTER]} fallback={<TableSkeleton columns={6} rows={params.limit} tabs={<TabsSkeleton count={3} counts />} toolbar={<FilterCardSkeleton inCard fields={[200, "search"]} />} />}>
+            <UrlSuspense searchParams={sp} watch={[PARAM_REGISTER]} fallback={<ItemsRegisterSkeleton rows={params.limit} />}>
             <Card component="section" aria-label={register?.label ?? c("crumb")}>
               <CardHeader
                 title={register?.label ?? params.register}

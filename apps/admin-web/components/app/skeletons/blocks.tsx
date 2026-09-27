@@ -95,6 +95,7 @@ export function PageHeaderSkeleton({
   actions = 0,
   actionWidths,
   actionHeights,
+  mb,
   tabs,
   toolbar,
 }: {
@@ -114,6 +115,8 @@ export function PageHeaderSkeleton({
   actionWidths?: (number | Record<string, number>)[];
   /** Per-action height when it is not a 36px Button (a view ToggleButtonGroup: 40, 54 on a phone). */
   actionHeights?: (number | Record<string, number> | undefined)[];
+  /** The page's own margin under its header when it sets one (template CustomBreadcrumbs mb { xs 3, md 5 }, minus the stack gap). */
+  mb?: number | Record<string, number>;
   tabs?: ReactNode;
   toolbar?: ReactNode;
 }) {
@@ -123,7 +126,7 @@ export function PageHeaderSkeleton({
   // (dot separators, body2 line) with Skeleton crumbs, the actions sit in the same right-hand Box.
   // The heading keeps the styled slot's own element (not PageHeader's h1: one h1 per document).
   return (
-    <Box component="header" aria-hidden="true" data-skel="header" sx={{ display: "flex", flexDirection: "column", gap: "var(--sp-3)" }}>
+    <Box component="header" aria-hidden="true" data-skel="header" sx={{ display: "flex", flexDirection: "column", gap: "var(--sp-3)", ...(mb != null ? { mb } : {}) }}>
       <CustomBreadcrumbs
         heading={(<Skeleton variant="text" width={titleWidth} sx={{ maxWidth: 1 }} />) as unknown as string}
         slots={
@@ -217,8 +220,8 @@ export function FilterCardSkeleton({
 }: {
   fields: FilterField[] | number;
   actions?: number;
-  /** Per-action widths (a text button ~96, the ⋮ icon button 36); default 88 each. */
-  actionWidths?: number[];
+  /** Per-action widths (a text button ~96, the ⋮ icon button 36); default 88 each. A breakpoint map for a control group that fills a phone row. */
+  actionWidths?: (number | Record<string, number | string>)[];
   /** FilterBar `fold`: below md the fixed fields leave the bar for a "Filters" button (search stays). */
   fold?: boolean;
   /** With `fold`: the search folds too (it sits in the md+ controls box, in field order: HerdSignalsFilters). */
@@ -258,7 +261,7 @@ export function FilterCardSkeleton({
       <Skeleton variant="rounded" width={96} sx={{ height: tapHeight(36), display: { xs: "block", md: "none" } }} />
       {acts.length ? (
         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, alignItems: "center", ml: "auto" }}>
-          {acts.map((w, i) => <Skeleton key={i} variant="rounded" sx={{ width: w <= 40 ? tapHeight(w) : w, height: tapHeight(w <= 40 ? w : 30) }} />)}
+          {acts.map((w, i) => <Skeleton key={i} variant="rounded" sx={typeof w === "number" ? { width: w <= 40 ? tapHeight(w) : w, height: tapHeight(w <= 40 ? w : 30) } : { width: w, height: tapHeight(30) }} />)}
         </Box>
       ) : null}
     </Box>
@@ -266,7 +269,7 @@ export function FilterCardSkeleton({
     <Box sx={{ p: bare ? 0 : 2.5, gap: 2, display: "flex", flexWrap: "wrap", alignItems: "center" }}>
       {list.map(field)}
       {acts.map((w, i) => (
-        <Skeleton key={`a${i}`} variant="rounded" width={w} sx={{ height: tapHeight(36) }} />
+        <Skeleton key={`a${i}`} variant="rounded" sx={{ width: w, height: tapHeight(36) }} />
       ))}
     </Box>
   );
@@ -693,6 +696,30 @@ export function FormCardSkeleton({ subheader = true, wrap = false, controls = []
         ))}
         {action ? <Skeleton variant="rounded" width={action} sx={{ height: tapHeight(30) }} /> : null}
       </Box>
+    </Card>
+  );
+}
+
+/**
+ * Loading twin of a template mail-nav rail (MailNavItem rows under overline subheaders, in a Card with
+ * `py 1.5`): per group an overline row, then its items at the 44px tap height; below md the items wrap
+ * into rows as the page's rail does. `groups` = items per group.
+ */
+export function NavRailSkeleton({ groups }: { groups: number[] }) {
+  return (
+    <Card aria-hidden="true" data-skel="rail" sx={{ py: 1.5 }}>
+      {groups.map((items, g) => (
+        <Box key={g} sx={{ px: 1.5, pb: 1, display: { xs: "flex", md: "block" }, flexWrap: "wrap", columnGap: 0.5 }}>
+          <Box sx={{ width: 1, px: 1, pt: 1.5, pb: 1 }}>
+            <SkeletonLine variant="caption" width={96} />
+          </Box>
+          {Array.from({ length: items }, (_, i) => (
+            <Box key={i} sx={{ height: "var(--tap-min)", display: "flex", alignItems: "center", px: 1, width: { xs: 82 + ((i * 37) % 60), md: 1 } }}>
+              <SkeletonLine variant="body2" width={`${60 + ((i * 17) % 30)}%`} />
+            </Box>
+          ))}
+        </Box>
+      ))}
     </Card>
   );
 }

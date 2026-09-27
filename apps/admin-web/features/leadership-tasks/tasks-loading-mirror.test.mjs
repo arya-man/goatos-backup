@@ -21,3 +21,13 @@ test("tasks loading mirrors the page board and toolbar", () => {
   assert.match(loading, /fields=\{TASK_TOOLBAR_FIELDS\} actionWidths=\{\[TASK_DATES_BUTTON_WIDTH\]\}/);
   assert.match(loading, /actionWidths=\{TASK_HEADER_ACTION_WIDTHS\} actionHeights=\{TASK_HEADER_ACTION_HEIGHTS\}/);
 });
+
+test("the tasks toolbar reads the same widths as its skeleton (REVIEW-49 O79)", () => {
+  const filters = read("./leadership-tasks-filters.tsx");
+  assert.match(filters, /minWidth=\{TASK_SCOPE_WIDTH\}/);
+  assert.match(filters, /width: \{ xs: 1, md: TASK_SORT_WIDTH \}/);
+  assert.match(filters, /minWidth: \{ md: TASK_DATES_BUTTON_WIDTH \}/);
+  assert.match(read("../../components/people-dropdown.tsx"), /width: \{ xs: 1, md: PEOPLE_DROPDOWN_WIDTH \}/);
+  assert.match(read("./tasks-layout.ts"), /TASK_TOOLBAR_FIELDS[^=]*= \[TASK_SCOPE_WIDTH, PEOPLE_DROPDOWN_WIDTH, PEOPLE_DROPDOWN_WIDTH, TASK_SORT_WIDTH, "search"\]/);
+  assert.match(read("../../app/(admin)/tasks/loading.tsx"), /<TabsSkeleton count=\{TASK_STATUS_TAB_COUNT\} counts \/>/);
+});

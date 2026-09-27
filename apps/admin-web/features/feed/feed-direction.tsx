@@ -1,6 +1,7 @@
 import Box from "@mui/material/Box";
+import { FEED_DEFAULT_PAGE_SIZE as DEFAULT_PAGE_SIZE, FEED_KPI_SIZE, FEED_TABLE_COLUMNS } from "./feed-layout";
 import { UrlSuspense } from "@/components/app/url-suspense";
-import { PanelSkeleton } from "@/components/app/panel-skeleton";
+import { KpiRowSkeleton } from "@/components/app/skeletons";
 import { TableSkeleton } from "@/components/app/skeletons";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import Table from "@mui/material/Table";
@@ -82,7 +83,6 @@ import Alert from "@mui/material/Alert";
 
 const PAGE_PATH = "/feed/direction";
 // KPI tiles with no day series: the template widget draws no sparkline under two points.
-const DEFAULT_PAGE_SIZE = 10;
 
 /**
  * One table line per VISIBLE (row, feed item). Shed-level cells span the shed's visible item lines.
@@ -212,10 +212,12 @@ export async function FeedDirectionPage({
       {/* Always rendered. The API summary is WHOLE-SCOPE (`summary.scope === "filtered"`) and
           invariant to limit/offset, so these figures are the day's real totals on every page.
           Template CourseWidgetSummary (KpiWidget) tiles above the list card (invoice-list analytic row). */}
-      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PAGER_PARAMS} fallback={<PanelSkeleton kpis={2} />}>
-      {summary && !lifecycleEmpty ? (
+      {/* Shown for a not-yet-issued day too (zero counts are a reading; the tiles no longer vanish
+          and pull the card up under a skeleton that drew them; guard: feed-direction-loading-mirror). */}
+      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PAGER_PARAMS} fallback={<KpiRowSkeleton count={2} hint size={FEED_KPI_SIZE} />}>
+      {summary ? (
         <Grid container spacing={3}>
-          <Grid size={{ xs: 12, sm: 6 }}>
+          <Grid size={FEED_KPI_SIZE}>
             <KpiWidget
               title={copy(pageContract, "kpi.sheds.label")}
               total={summary.shed_count}
@@ -223,7 +225,7 @@ export async function FeedDirectionPage({
               sx={{ height: 1 }}
             />
           </Grid>
-          <Grid size={{ xs: 12, sm: 6 }}>
+          <Grid size={FEED_KPI_SIZE}>
             <KpiWidget
               title={copy(pageContract, "kpi.blocked.label")}
               total={summary.blocked_count}
@@ -255,7 +257,7 @@ export async function FeedDirectionPage({
 
         {/* The sheet (guard: url-keyed-panel): a filter / page change swaps it to its skeleton at
             once; header and filters stay on screen. */}
-        <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} fallback={<TableSkeleton bare header={false} columns={8} rows={limit} />}>
+        <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} fallback={<TableSkeleton bare header={false} columns={FEED_TABLE_COLUMNS} rows={limit} />}>
         {/* The issue -> amend -> lock status of the served park-day. For a not-yet-issued day this
             banner IS the content: the summary/table below are suppressed so the operator sees the
             explanation, not a blank grid that reads as "nothing to feed". */}

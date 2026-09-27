@@ -24,6 +24,9 @@ export type TaskPeopleOption = { value: string; label: string; title?: string };
 
 const ALL = "__all";
 
+/** The dropdown's width from md up (its skeleton twins read it: /tasks, /work-board toolbars). */
+export const PEOPLE_DROPDOWN_WIDTH = 200;
+
 export function TaskPeopleDropdown({
   label,
   allLabel,
@@ -51,7 +54,7 @@ export function TaskPeopleDropdown({
         : `${chosen[0].name} +${chosen.length - 1}`;
 
   return (
-    <FormControl data-slot={slot} sx={{ flexShrink: 0, width: { xs: 1, md: 200 } }}>
+    <FormControl data-slot={slot} sx={{ flexShrink: 0, width: { xs: 1, md: PEOPLE_DROPDOWN_WIDTH } }}>
       <InputLabel htmlFor={inputId}>{label}</InputLabel>
       <Select
         multiple

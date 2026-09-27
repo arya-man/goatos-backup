@@ -1,15 +1,17 @@
-import { FilterCardSkeleton, KpiRowSkeleton, OptionalSkeleton, PageHeaderSkeleton, PageSkeleton, TableSkeleton } from "@/components/app/skeletons";
+import { FilterCardSkeleton, KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton, TableSkeleton } from "@/components/app/skeletons";
+import { FEED_DEFAULT_PAGE_SIZE, FEED_KPI_SIZE, FEED_TABLE_COLUMNS, FEED_PACKING_FILTER_FIELDS } from "@/features/feed/feed-layout";
 
-/** /feed/packing: header, the date / park filter card, the two-card summary, the packing worklist card. */
+/**
+ * /feed/packing, block for block with the page: header (plain crumbs), the day's two KpiWidget tiles
+ * (shown for every served day), then ONE card: CardHeader with caption, the WorklistFilters card
+ * (day + selects; one Filters button on a phone), the sheet and its pager.
+ */
 export default function Loading() {
   return (
-    <PageSkeleton className="feed-packing-page">
-      <PageHeaderSkeleton crumbLink={false} />
-      <FilterCardSkeleton fields={[200, 200]} />
-      <OptionalSkeleton>
-        <KpiRowSkeleton count={2} />
-      </OptionalSkeleton>
-      <TableSkeleton columns={6} rows={10} subheader />
+    <PageSkeleton>
+      <PageHeaderSkeleton crumbLink={false} titleWidth={180} />
+      <KpiRowSkeleton count={2} hint size={FEED_KPI_SIZE} />
+      <TableSkeleton columns={FEED_TABLE_COLUMNS} rows={FEED_DEFAULT_PAGE_SIZE} subheader toolbar={<FilterCardSkeleton fold fields={FEED_PACKING_FILTER_FIELDS} />} />
     </PageSkeleton>
   );
 }

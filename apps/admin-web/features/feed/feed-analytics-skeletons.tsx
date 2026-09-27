@@ -1,0 +1,44 @@
+import { ChartCardSkeleton, ChipRowSkeleton, KpiRowSkeleton, StackSkeleton, TabsSkeleton, ToolbarSkeleton, type KpiShape } from "@/components/app/skeletons";
+
+// Shared by /feed/analytics loading.tsx and the page's tab-strip + Overview panel fallbacks, so the
+// skeleton is the page (guard: feed-analytics-loading-mirror).
+
+/** The page's tabs (the contract's feed_analytics_tabs narrow them) and its window chips. */
+export const FEED_ANALYTICS_TABS = ["overview", "items", "peranimal", "experiment", "execution", "followup"] as const;
+export const FEED_ANALYTICS_RANGES = ["30", "61", "92"] as const;
+/** The Consumption view toggle (General / Status-wise segment) on the right of the chips row. */
+export const FEED_ANALYTICS_VIEW_TOGGLE_WIDTH = 189;
+
+/** The Overview KPI tiles' Grid item size: three to a row from md (five tiles = 3 + 2). */
+export const FEED_ANALYTICS_KPI_SIZE = { xs: 12, sm: 6, md: 4 };
+/** Overview tiles: three with a weekly trend (ecommerce card), two without (course card); all captioned. */
+export const FEED_ANALYTICS_KPI_SHAPES: KpiShape[] = [
+  { spark: true, trend: true, hint: true },
+  { spark: true, trend: true, hint: true },
+  { spark: true, trend: true, hint: true },
+  { hint: true },
+  { hint: true },
+];
+/** The Overview charts' plot height (template chart card body). */
+export const FEED_ANALYTICS_CHART_HEIGHT = 320;
+
+/** The tab strip and, under it, the window chips with the Consumption view toggle on the right. */
+export function FeedAnalyticsStripSkeleton() {
+  return (
+    <StackSkeleton spacing={2}>
+      <TabsSkeleton count={FEED_ANALYTICS_TABS.length} />
+      <ToolbarSkeleton left={<ChipRowSkeleton count={FEED_ANALYTICS_RANGES.length} />} fields={[FEED_ANALYTICS_VIEW_TOGGLE_WIDTH]} small={false} />
+    </StackSkeleton>
+  );
+}
+
+/** The Overview panel: the KPI deck, the consumption chart card (legend), the spend chart card (select). */
+export function FeedAnalyticsOverviewSkeleton() {
+  return (
+    <StackSkeleton>
+      <KpiRowSkeleton count={FEED_ANALYTICS_KPI_SHAPES.length} shapes={FEED_ANALYTICS_KPI_SHAPES} size={FEED_ANALYTICS_KPI_SIZE} />
+      <ChartCardSkeleton height={FEED_ANALYTICS_CHART_HEIGHT} legend />
+      <ChartCardSkeleton height={FEED_ANALYTICS_CHART_HEIGHT} subheader action />
+    </StackSkeleton>
+  );
+}

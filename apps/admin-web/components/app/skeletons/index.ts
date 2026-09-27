@@ -20,6 +20,7 @@ export {
   KpiRowSkeleton,
   ListCardSkeleton,
   ListRowsSkeleton,
+  NavRailSkeleton,
   OptionalSkeleton,
   OrderDetailsToolbarSkeleton,
   OrderToolbarSkeleton,

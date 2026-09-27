@@ -1,5 +1,6 @@
 "use client";
 
+import { MODULE_FILTER_WIDTH } from "./verification-layout";
 import { useEffect, useRef, useState } from "react";
 import MenuItem from "@mui/material/MenuItem";
 import TextField from "@mui/material/TextField";
@@ -109,7 +110,7 @@ export function ModuleFilter({
           const href = hrefByKey.get(key);
           if (href) navigate(key, href);
         }}
-        sx={{ width: { xs: 1, md: 180 }, flexShrink: 0 }}
+        sx={{ width: { xs: 1, md: MODULE_FILTER_WIDTH }, flexShrink: 0 }}
         slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
       >
         {options.map((option) => (

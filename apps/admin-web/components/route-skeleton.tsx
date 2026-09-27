@@ -71,6 +71,7 @@ import L57 from "@/app/(admin)/vaccination/care-coverage/loading";
 import L100 from "@/app/(admin)/pc-care/sops/loading";
 import L101 from "@/app/(admin)/configuration/work-instructions/loading";
 import L102 from "@/app/(admin)/sales/sops/loading";
+import L103 from "@/app/(admin)/configuration/items/loading";
 const ROUTE_SKELETONS: Array<[RegExp, ComponentType]> = [
   [/^\/procurement\/source-entry\/loads\/[^/]+(?:\/|$)/, L0],
   [/^\/vaccination\/execution\/sheds\/[^/]+(?:\/|$)/, L1],
@@ -130,6 +131,7 @@ const ROUTE_SKELETONS: Array<[RegExp, ComponentType]> = [
   [/^\/pc-care\/sops(?:\/|$)/, L100],
   [/^\/configuration\/work-instructions(?:\/|$)/, L101],
   [/^\/sales\/sops(?:\/|$)/, L102],
+  [/^\/configuration\/items(?:\/|$)/, L103],
 ];
 
 export function routeSkeletonElement(pathname: string): ReactNode {

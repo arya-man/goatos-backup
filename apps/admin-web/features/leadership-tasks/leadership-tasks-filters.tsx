@@ -1,5 +1,6 @@
 "use client";
 
+import { TASK_DATES_BUTTON_WIDTH, TASK_SCOPE_WIDTH, TASK_SORT_WIDTH } from "./tasks-layout";
 import { LinkSelect, type LinkSelectOption } from "@/components/app/link-select";
 import Link from "@/components/no-prefetch-link";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
@@ -452,7 +453,7 @@ export function LeadershipTasksFilters({
           alignItems: { xs: "stretch", md: "center" },
         }}
       >
-        {scope && scope.options.length ? <LinkSelect label={scope.label} value={scope.value} options={scope.options} minWidth={180} /> : null}
+        {scope && scope.options.length ? <LinkSelect label={scope.label} value={scope.value} options={scope.options} minWidth={TASK_SCOPE_WIDTH} /> : null}
         {/* THE TWO PERSON FILTERS. A scope that already pins the person renders none (Gate-1 #7):
             the scope tab already says whose tasks these are. */}
         {assigneePinned ? null : (
@@ -487,7 +488,7 @@ export function LeadershipTasksFilters({
           label={copy(pageContract, "filter.sort")}
           value={shownSort}
           onChange={({ target: { value } }) => go(paramsWith({ [TASK_PARAM.sort]: value }))}
-          sx={{ flexShrink: 0, width: { xs: 1, md: 180 } }}
+          sx={{ flexShrink: 0, width: { xs: 1, md: TASK_SORT_WIDTH } }}
           slotProps={{ select: { MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
         >
           {TASK_SORTS.map((option) => (
@@ -542,7 +543,7 @@ export function LeadershipTasksFilters({
             aria-haspopup="true"
             startIcon={<Iconify icon="solar:calendar-date-bold" />}
             endIcon={<Iconify icon={datesPopover.open ? "eva:arrow-ios-upward-fill" : "eva:arrow-ios-downward-fill"} />}
-            sx={{ flexShrink: 0, fontWeight: "fontWeightSemiBold", maxWidth: { xs: 1, md: 320 } }}
+            sx={{ flexShrink: 0, fontWeight: "fontWeightSemiBold", minWidth: { md: TASK_DATES_BUTTON_WIDTH }, maxWidth: { xs: 1, md: 320 } }}
           >
             {datesLabel}:
             <Box component="span" sx={{ ml: 0.5, fontWeight: "fontWeightBold", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>

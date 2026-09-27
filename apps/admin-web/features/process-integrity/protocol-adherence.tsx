@@ -1,4 +1,5 @@
 import Table from "@mui/material/Table";
+import { ADHERENCE_LEDGER_HEADER_SX, ADHERENCE_SEVERITY_WIDTH, ADHERENCE_TILE_SIZE } from "./protocol-adherence-layout";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import { KpiRowSkeleton, TableSkeleton } from "@/components/app/skeletons";
@@ -325,10 +326,10 @@ export async function ProtocolAdherencePage({
         {/* Template overview/course: CourseWidgetSummary tiles via KpiWidget (Grid spacing 3). Park/date scope lives in the top bar only. */}
         {/* KPI tiles and ledger rows + pager swap to their skeleton on a tab / filter / page click
             (guard: url-keyed-panel); the ledger card head, tabs and toolbar stay on screen. */}
-        <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<KpiRowSkeleton count={4} icon />}>
+        <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<KpiRowSkeleton count={4} hint size={ADHERENCE_TILE_SIZE} />}>
         <Grid container spacing={3}>
           {kpis.map((kpi) => (
-            <Grid key={kpi.key} size={{ xs: 12, sm: 6, md: 3 }}>
+            <Grid key={kpi.key} size={ADHERENCE_TILE_SIZE}>
               <KpiWidget title={kpi.title} total={kpi.total} caption={kpi.caption} color={kpi.color} />
             </Grid>
           ))}
@@ -356,7 +357,7 @@ export async function ProtocolAdherencePage({
               </Box>
             }
             action={<InfoHint text={copy(pageContract, "section.ledger.note")} />}
-            sx={{ mb: 1 }}
+            sx={ADHERENCE_LEDGER_HEADER_SX}
           />
           <UrlTabs
             ariaLabel={copy(pageContract, "label.all_states")}
@@ -379,7 +380,7 @@ export async function ProtocolAdherencePage({
             <LinkSelect
               label={copy(pageContract, "label.all_severity")}
               value={severityFilter}
-              minWidth={200}
+              minWidth={ADHERENCE_SEVERITY_WIDTH}
               options={[
                 { value: "all", label: copy(pageContract, "label.all_severity"), href: hrefWith({ severity: "all", adh_page: "1" }) },
                 ...SEVERITY_ORDER.map((s2) => ({ value: s2, label: optionLabel(pageContract, "severity_chips", s2), href: hrefWith({ severity: s2, adh_page: "1" }) })),

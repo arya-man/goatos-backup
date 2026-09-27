@@ -18,3 +18,10 @@ test("verify loading mirrors the page blocks", () => {
   assert.match(page, /fallback=\{<StatStripSkeleton count=\{STATUS_STRIP_CELLS\} \/>\}/);
   assert.doesNotMatch(page, /mb: \{ xs: 3, md: 5 \} \}\}><StatStripSkeleton/);
 });
+
+test("the verify page reads the same layout constants as its skeleton (REVIEW-49 O79)", () => {
+  assert.match(read("./module-filter.tsx"), /width: \{ xs: 1, md: MODULE_FILTER_WIDTH \}/);
+  assert.match(read("./verification-layout.ts"), /BOARD_TOOLBAR_FIELDS = \[MODULE_FILTER_WIDTH, CAPTURE_DATE_WIDTH\]/);
+  assert.match(read("./verification-review-page.tsx"), /columns=\{columns\.length \|\| QUEUE_COLUMNS\} rows=\{QUEUE_LIMIT\}/);
+  assert.match(read("../../app/(admin)/verify/loading.tsx"), /columns=\{QUEUE_COLUMNS\}/);
+});

@@ -1,6 +1,7 @@
 "use client";
 
 import { FOUR_LANE_COLUMN_WIDTH } from "@/components/app/kanban/board-layout";
+import { WB_MODULE_SELECT_WIDTH, WB_SKELETON_LANES } from "./work-board-layout";
 import Box from "@mui/material/Box";
 import Select from "@mui/material/Select";
 import Divider from "@mui/material/Divider";
@@ -101,7 +102,7 @@ function ModuleSelect({ pageContract, options, selected, none, onChange }: { pag
       ? bare(copy(pageContract, "filter.module.none"))
       : `${findOption(options, chosen[0])?.label ?? chosen[0]}${chosen.length > 1 ? ` +${chosen.length - 1}` : ""}`;
   return (
-    <FormControl sx={{ flexShrink: 0, width: { xs: 1, md: 200 } }}>
+    <FormControl sx={{ flexShrink: 0, width: { xs: 1, md: WB_MODULE_SELECT_WIDTH } }}>
       <InputLabel htmlFor={inputId} shrink>{label}</InputLabel>
       <Select
         multiple
@@ -237,6 +238,10 @@ function WorkCard({ pageContract, row, href }: { pageContract: AdminUiPageContra
 // `--kanban-column-width`, fitted so four lanes share a laptop row and a phone swipes one lane at a time.
 const BOARD_SX = {
   "--kanban-column-width": FOUR_LANE_COLUMN_WIDTH,
+  // The board is the containing block of its lanes' absolutely placed screen-reader items (an empty
+  // lane's sr-only row): without it that row escaped the board's scroller, widened the document to
+  // 1110px at 390 and the phone webview shrank the whole page to fit (guard: work-board-sr-only-contained).
+  position: "relative",
   overscrollBehaviorX: "contain",
   scrollSnapType: { xs: "x mandatory", md: "none" },
   "& > section": { scrollSnapAlign: "start" },
@@ -399,7 +404,7 @@ export function WorkBoardBoard({
       {/* Template sections/kanban: KanbanBoard track + KanbanColumn (count Label, h6 title) + item shells. */}
       {/* The board (guard: url-keyed-panel): an owner / park / module / day / lane-page change swaps it
           to the kanban skeleton at once; the toolbar stays on screen. */}
-      <UrlSuspense searchParams={boardParams} watch={[ALL_PARAMS]} ignore={BOARD_IGNORE} fallback={<KanbanSkeleton lanes={columns.map((_, i) => 3 - (i % 2))} minHeight={480} />}>
+      <UrlSuspense searchParams={boardParams} watch={[ALL_PARAMS]} ignore={BOARD_IGNORE} fallback={<KanbanSkeleton lanes={WB_SKELETON_LANES} laneWidth={FOUR_LANE_COLUMN_WIDTH} />}>
       {empty ? empty : (
       <KanbanBoard role="group" tabIndex={0} aria-label={copy(pageContract, "section.board.aria")} sx={BOARD_SX}>
         {columns.map((column) => {

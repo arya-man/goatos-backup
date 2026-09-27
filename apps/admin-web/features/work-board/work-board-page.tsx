@@ -1,4 +1,5 @@
 import { listOrEmpty } from "@/lib/list-or-empty";
+import { WB_HEADER_MB } from "./work-board-layout";
 import { PageHeader } from "@/components/app/page-header";
 import { redirect } from "next/navigation";
 import Link from "@/components/no-prefetch-link";
@@ -296,7 +297,7 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
   return (
     <Box sx={{ minWidth: 0 }}>
       {/* Template CustomBreadcrumbs rhythm: mb { xs: 3, md: 5 } before the first block. */}
-      <Box sx={{ mb: { xs: 3, md: 5 } }}>
+      <Box sx={{ mb: WB_HEADER_MB }}>
         <PageHeader title={copy(pageContract, "board.title")} crumbs={[{ label: copy(pageContract, "crumb") }, { label: roleline }]} />
       </Box>
 

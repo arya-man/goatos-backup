@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { FEED_ANALYTICS_KPI_SIZE, FEED_ANALYTICS_RANGES as RANGES, FEED_ANALYTICS_TABS as TABS, FeedAnalyticsOverviewSkeleton } from "./feed-analytics-skeletons";
 import { FilterChip } from "@/components/app/list/filter-chip";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { PanelSkeleton } from "@/components/app/panel-skeleton";
@@ -113,13 +114,11 @@ function dedupeOptions(options: { value: string; label: string }[]): { value: st
   }
   return [...seen.entries()].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
 }
-const TABS = ["overview", "items", "peranimal", "experiment", "execution", "followup"] as const;
 type Tab = (typeof TABS)[number];
 // The Consumption tab's two readings (maintainer request 2026-09-17): General is everything the tab
 // already showed; Status-wise is the average directed feed one animal gets per day, per pen tag.
 const CONSUMPTION_VIEWS = ["general", "status"] as const;
 type ConsumptionView = (typeof CONSUMPTION_VIEWS)[number];
-const RANGES = ["30", "61", "92"] as const;
 type Range = (typeof RANGES)[number];
 // The expenditure chart's two readings (maintainer ask 2026-09-07): the day's ₹ as it is, or
 // that ₹ over the animals on the SAME day's sheet. A URL param like the range, so a pasted
@@ -758,7 +757,7 @@ export async function FeedAnalyticsPage({
 const PANEL_IGNORE = ["fc_view", "fdc_row"] as const;
 /** Each tab's panel skeleton, from the shared blocks. */
 const TAB_SKELETON: Record<Tab, ReactNode> = {
-  overview: <PanelSkeleton kpis={4} charts={3} spark />,
+  overview: <FeedAnalyticsOverviewSkeleton />,
   peranimal: <PanelSkeleton kpis={4} charts={2} />,
   execution: <PanelSkeleton kpis={4} charts={1} table={8} />,
   experiment: <PanelSkeleton charts={2} table={6} />,
@@ -1099,7 +1098,7 @@ function DirectedTabs({
             const sub = fa(pageContract, `kpi.${kpi.key}.sub`);
             const lead = kpi.total == null ? "—" : kpi.unit && !sub.includes(kpi.unit) ? kpi.unit : "";
             return (
-              <Grid key={kpi.key} size={{ xs: 12, sm: 6, md: 4 }}>
+              <Grid key={kpi.key} size={FEED_ANALYTICS_KPI_SIZE}>
                 <KpiWidget
                   title={fa(pageContract, `kpi.${kpi.key}.label`)}
                   total={kpi.total}

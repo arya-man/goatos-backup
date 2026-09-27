@@ -1,13 +1,16 @@
-import { BlockSkeleton, ChipRowSkeleton, PageHeaderSkeleton, PageSkeleton, TabsSkeleton } from "@/components/app/skeletons";
+import { BlockSkeleton, PageHeaderSkeleton, PageSkeleton } from "@/components/app/skeletons";
+import { CALENDAR_CARD_HEIGHT } from "@/features/calendar/calendar-layout";
 
-/** /calendar: header with the Week / History switch, owner chips, workstream tabs, the full calendar card. */
+/**
+ * /calendar (template calendar view): the heading (its only crumb is the title, so none shows; no
+ * header action), then ONE card: the calendar toolbar and the month grid. The filter result chips
+ * render only when a filter is applied (none on entry).
+ */
 export default function Loading() {
   return (
     <PageSkeleton>
-      <PageHeaderSkeleton crumbLink={false} actionWidths={[180]} />
-      <ChipRowSkeleton count={4} />
-      <TabsSkeleton count={4} />
-      <BlockSkeleton height={{ xs: "70vh", md: "calc(100dvh - 220px)" }} />
+      <PageHeaderSkeleton crumbs={false} titleWidth={120} />
+      <BlockSkeleton height={CALENDAR_CARD_HEIGHT} />
     </PageSkeleton>
   );
 }

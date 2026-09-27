@@ -1,6 +1,7 @@
 import Box from "@mui/material/Box";
+import { FEED_DEFAULT_PAGE_SIZE as DEFAULT_PAGE_SIZE, FEED_KPI_SIZE, FEED_TABLE_COLUMNS } from "./feed-layout";
 import { UrlSuspense } from "@/components/app/url-suspense";
-import { PanelSkeleton } from "@/components/app/panel-skeleton";
+import { KpiRowSkeleton } from "@/components/app/skeletons";
 import { TableSkeleton } from "@/components/app/skeletons";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import Table from "@mui/material/Table";
@@ -76,7 +77,6 @@ import Alert from "@mui/material/Alert";
 
 const PAGE_PATH = "/feed/packing";
 // KPI tiles with no day series: the template widget draws no sparkline under two points.
-const DEFAULT_PAGE_SIZE = 10;
 
 /** Spans are counted from the VISIBLE items — see the twin note in feed-direction.tsx. */
 function itemLineCount(visibleItems: readonly unknown[]): number {
@@ -181,10 +181,11 @@ export async function FeedPackingPage({
       ) : null}
 
       {/* Whole-scope KPI tiles: template CourseWidgetSummary (KpiWidget) (invoice-list analytic row). */}
-      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PAGER_PARAMS} fallback={<PanelSkeleton kpis={2} />}>
-      {summary && !lifecycleEmpty ? (
+      {/* Shown for a not-yet-issued day too (zero counts are a reading; guard: feed-direction-loading-mirror). */}
+      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PAGER_PARAMS} fallback={<KpiRowSkeleton count={2} hint size={FEED_KPI_SIZE} />}>
+      {summary ? (
         <Grid container spacing={3}>
-          <Grid size={{ xs: 12, sm: 6 }}>
+          <Grid size={FEED_KPI_SIZE}>
             <KpiWidget
               title={copy(pageContract, "kpi.sheds.label")}
               total={summary.shed_count}
@@ -193,7 +194,7 @@ export async function FeedPackingPage({
             />
           </Grid>
           {/* The label is "Blocked sheds", so this is the SHED count, not the cell count. */}
-          <Grid size={{ xs: 12, sm: 6 }}>
+          <Grid size={FEED_KPI_SIZE}>
             <KpiWidget
               title={copy(pageContract, "kpi.blocked.label")}
               total={summary.blocked_shed_count}
@@ -224,7 +225,7 @@ export async function FeedPackingPage({
 
         {/* The worklist (guard: url-keyed-panel): a filter / page change swaps it to its skeleton at
             once; header and filters stay on screen. */}
-        <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} fallback={<TableSkeleton bare header={false} columns={8} rows={limit} />}>
+        <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} fallback={<TableSkeleton bare header={false} columns={FEED_TABLE_COLUMNS} rows={limit} />}>
         {/* The packing day is the picker's axis; this states the FEED day it is for (packing day + 1),
             so the operator reads "packed today, for tomorrow" without doing the arithmetic. The template
             is backend-owned copy; only the date is client-formatted. */}
