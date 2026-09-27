@@ -1233,6 +1233,19 @@ async function selfTest() {
         files[`components/app/sections/demo/${name}.tsx`] =
           name === "derived-override" || name === "derived-undeclared" ? declared : name.startsWith("derived-allowed") || name === "derived-wrong-el" || name === "derived-spread-sx" ? keyedAllow : name.startsWith("derived-slot") ? pinned : entry;
       }
+      // REVIEW-33: sx nested in slotProps (paper width) is anatomy too: an undeclared 240 -> 280 fails,
+      // a declared one (strip) passes, a data-only edit passes.
+      const tplSlot = "export const P = ({ open, items }) => <CustomPopover open={open} slotProps={{ arrow: { placement: 'top-left' }, paper: { sx: { mt: 0.5, width: 240 } } }}><MenuList>{items}</MenuList></CustomPopover>;\n";
+      const slotEntry = { source: "src/layouts/demo/p.tsx", replaced: "items", ...templateAnatomy(tplSlot) };
+      const slotVariants = {
+        "derived-slotsx-ok": [tplSlot.replace("{items}", "{items.slice(0, 5)}"), slotEntry],
+        "derived-slotsx-width": [tplSlot.replace("width: 240", "width: 280"), slotEntry],
+        "derived-slotsx-declared": [tplSlot.replace("width: 240", "width: 280"), { ...slotEntry, strip: [["width: 280 \\} \\}", "width: 240 } }"]] }],
+      };
+      for (const [name, [text, e]] of Object.entries(slotVariants)) {
+        put(`components/app/sections/demo/${name}.tsx`, text);
+        files[`components/app/sections/demo/${name}.tsx`] = e;
+      }
       put("docs/design/template-derived.json", JSON.stringify({ files }));
     }
     put("docs/design/template-verbatim-baseline.json", JSON.stringify({ drift: {
@@ -1288,8 +1301,8 @@ async function selfTest() {
     process.exit(1);
   }
   const derivedHits = findings.filter((f) => f.check === "template-derived-anatomy").map((f) => f.file);
-  const wantDerived = ["derived-drift", "derived-height", "derived-px", "derived-type", "derived-style", "derived-undeclared", "derived-addprop", "derived-wrong-el", "derived-spread-sx", "derived-slot-edit", "derived-slot-cond-edit"].map((n) => `components/app/sections/demo/${n}.tsx`);
-  if (["derived-ok", "derived-override", "derived-allowed-el", "derived-slot-ok", "derived-slot-cond-ok"].some((n) => derivedHits.includes(`components/app/sections/demo/${n}.tsx`)) || wantDerived.some((f) => !derivedHits.includes(f))) {
+  const wantDerived = ["derived-drift", "derived-height", "derived-px", "derived-type", "derived-style", "derived-undeclared", "derived-addprop", "derived-wrong-el", "derived-spread-sx", "derived-slot-edit", "derived-slot-cond-edit", "derived-slotsx-width"].map((n) => `components/app/sections/demo/${n}.tsx`);
+  if (["derived-ok", "derived-override", "derived-allowed-el", "derived-slot-ok", "derived-slot-cond-ok", "derived-slotsx-ok", "derived-slotsx-declared"].some((n) => derivedHits.includes(`components/app/sections/demo/${n}.tsx`)) || wantDerived.some((f) => !derivedHits.includes(f))) {
     console.error(`design_system_self_test=FAIL template-derived-anatomy flagged=${[...new Set(derivedHits)].join(",") || "none"} (want ${wantDerived.join(",")})`);
     process.exit(1);
   }

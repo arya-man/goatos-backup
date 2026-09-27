@@ -40,7 +40,8 @@
         "ChartSelect(onChange,options,value)",
         "ChartLegends(colors,labels,sublabels,sx,values)",
         "Chart(options,series,slotProps,sx,type)"
-      ]
+      ],
+      "slotSx": []
     },
     "components/app/sections/invoice/invoice-analytic.tsx": {
       "source": "src/sections/invoice/invoice-analytic.tsx",
@@ -108,7 +109,8 @@
         "Typography(variant)",
         "Box(component,sx)",
         "Box(component,sx)"
-      ]
+      ],
+      "slotSx": []
     },
     "components/app/sections/overview/e-commerce/ecommerce-yearly-sales.tsx": {
       "source": "src/sections/overview/e-commerce/ecommerce-yearly-sales.tsx",
@@ -144,7 +146,8 @@
         "ChartSelect(onChange,options,value)",
         "ChartLegends(colors,labels,sx,values)",
         "Chart(options,series,slotProps,sx,type)"
-      ]
+      ],
+      "slotSx": []
     },
     "components/app/sections/overview/e-commerce/ecommerce-sales-overview.tsx": {
       "source": "src/sections/overview/e-commerce/ecommerce-sales-overview.tsx",
@@ -209,7 +212,8 @@
       ],
       "allowProps": [
         "LinearProgress:aria-label"
-      ]
+      ],
+      "slotSx": []
     },
     "components/app/sections/overview/e-commerce/ecommerce-current-balance.tsx": {
       "source": "src/sections/overview/e-commerce/ecommerce-current-balance.tsx",
@@ -281,7 +285,8 @@
       ],
       "allowProps": [
         "Button:onClick"
-      ]
+      ],
+      "slotSx": []
     },
     "components/app/sections/overview/e-commerce/ecommerce-latest-products.tsx": {
       "source": "src/sections/overview/e-commerce/ecommerce-latest-products.tsx",
@@ -386,7 +391,8 @@
         "Box:role",
         "Item:role",
         "Item:wrapNames"
-      ]
+      ],
+      "slotSx": []
     },
     "components/app/sections/overview/banking/banking-expenses-categories.tsx": {
       "source": "src/sections/overview/banking/banking-expenses-categories.tsx",
@@ -464,7 +470,8 @@
         "Box(sx)",
         "Box(sx)",
         "Box(sx)"
-      ]
+      ],
+      "slotSx": []
     },
     "components/app/sections/order/order-table-toolbar.tsx": {
       "source": "src/sections/order/order-table-toolbar.tsx",
@@ -522,7 +529,8 @@
       ],
       "allowProps": [
         "IconButton:aria-label"
-      ]
+      ],
+      "slotSx": []
     },
     "components/app/sections/user/user-table-row.tsx": {
       "source": "src/sections/user/user-table-row.tsx",
@@ -609,7 +617,8 @@
       ],
       "allowProps": [
         "Link:..."
-      ]
+      ],
+      "slotSx": []
     },
     "components/app/sections/order/order-details-customer.tsx": {
       "source": "src/sections/order/order-details-customer.tsx",
@@ -657,7 +666,8 @@
         "Avatar(alt,src,sx)",
         "Stack(spacing,sx)",
         "Typography(variant)"
-      ]
+      ],
+      "slotSx": []
     },
     "components/app/sections/order/order-details-delivery.tsx": {
       "source": "src/sections/order/order-details-delivery.tsx",
@@ -712,7 +722,8 @@
         "Stack(spacing,sx)",
         "Box(sx)",
         "Box(component,sx)"
-      ]
+      ],
+      "slotSx": []
     },
     "components/app/sections/order/order-details-history.tsx": {
       "source": "src/sections/order/order-details-history.tsx",
@@ -813,7 +824,8 @@
         "Box(sx)",
         "Button(color,endIcon,size)",
         "Iconify(icon,width)"
-      ]
+      ],
+      "slotSx": []
     },
     "components/app/sections/order/order-details-toolbar.tsx": {
       "source": "src/sections/order/order-details-toolbar.tsx",
@@ -908,7 +920,8 @@
         "Box(sx)",
         "Button(color,endIcon,onClick,sx,variant)",
         "Iconify(icon)"
-      ]
+      ],
+      "slotSx": []
     },
     "components/app/sections/job/job-item.tsx": {
       "source": "src/sections/job/job-item.tsx",
@@ -1021,6 +1034,10 @@
         "Box(sx)",
         "Box(sx)",
         "Typography(noWrap,variant)"
+      ],
+      "slotSx": [
+        "primary:{ typography: 'subtitle1' }",
+        "secondary:{ mt: 1, typography: 'caption', color: 'text.disabled' }"
       ]
     },
     "components/app/sections/job/job-list.tsx": {
@@ -1069,7 +1086,8 @@
       "propNames": [
         "Box(sx)",
         "Pagination(count,sx)"
-      ]
+      ],
+      "slotSx": []
     },
     "components/app/sections/mail/mail-nav-item.tsx": {
       "source": "src/sections/mail/mail-nav-item.tsx",
@@ -1141,7 +1159,8 @@
         "Iconify(icon,sx,width)",
         "Box(component,sx)",
         "Box(component,sx)"
-      ]
+      ],
+      "slotSx": []
     },
     "layouts/app/nav-section/vertical/nav-list.tsx": {
       "source": "src/components/nav-section/vertical/nav-list.tsx",
@@ -1171,7 +1190,8 @@
         "NavLi(disabled,sx)",
         "NavUl(sx)",
         "NavList(checkPermissions,data,depth,enabledRootRedirect,render,slotProps)"
-      ]
+      ],
+      "slotSx": []
     },
     "layouts/app/nav-section/mini/nav-list.tsx": {
       "source": "src/components/nav-section/mini/nav-list.tsx",
@@ -1202,7 +1222,8 @@
         "NavLi(disabled)",
         "NavUl(sx)",
         "NavList(checkPermissions,cssVars,data,depth,enabledRootRedirect,render,slotProps)"
-      ]
+      ],
+      "slotSx": []
     },
     "layouts/app/logo/logo.tsx": {
       "source": "src/components/logo/logo.tsx",
@@ -1236,7 +1257,8 @@
       ],
       "propNames": [
         "LogoRoot(...,aria-label,className,component,href,sx,underline)"
-      ]
+      ],
+      "slotSx": []
     },
     "layouts/app/dashboard/nav-vertical.tsx": {
       "source": "src/layouts/dashboard/nav-vertical.tsx",
@@ -1300,7 +1322,8 @@
         "NavSectionMini(checkPermissions,cssVars,data,sx)",
         "NavRoot(...,className,isNavMini,layoutQuery,sx)",
         "NavToggleButton(isNavMini,onClick,sx)"
-      ]
+      ],
+      "slotSx": []
     },
     "layouts/app/dashboard/nav-mobile.tsx": {
       "source": "src/layouts/dashboard/nav-mobile.tsx",
@@ -1339,6 +1362,10 @@
         "Logo()",
         "Scrollbar(fillContent)",
         "NavSectionVertical(...,checkPermissions,data,sx)"
+      ],
+      "slotSx": [
+        "paper:[ { overflow: 'unset', bgcolor: 'var(--layout-nav-bg)', width: 'var(--layout-nav-mobile-width)'}, ...(Array.isArray(sx) ? sx : [sx])]",
+        "paper:[sx]"
       ]
     },
     "layouts/app/dashboard/layout.tsx": {
@@ -1433,7 +1460,8 @@
         "NavVertical(cssVars,data,isNavMini,layoutQuery,onToggleNav)",
         "MainSection(...)",
         "LayoutSection(cssVars,footerSection,headerSection,sidebarSection,sx)"
-      ]
+      ],
+      "slotSx": []
     },
     "layouts/app/auth-split/layout.tsx": {
       "source": "src/layouts/auth-split/layout.tsx",
@@ -1486,7 +1514,8 @@
         "AuthSplitSection(...,layoutQuery)",
         "AuthSplitContent(...,layoutQuery)",
         "LayoutSection(cssVars,footerSection,headerSection,sx)"
-      ]
+      ],
+      "slotSx": []
     },
     "layouts/app/components/workspaces-popover.tsx": {
       "source": "src/layouts/components/workspaces-popover.tsx",
@@ -1600,6 +1629,9 @@
         "Avatar(alt,src,sx)",
         "Typography(component,noWrap,sx,variant)",
         "Label(color)"
+      ],
+      "slotSx": [
+        "paper:{ mt: 0.5, ml: -1.55, width: 240 }"
       ]
     }
   }

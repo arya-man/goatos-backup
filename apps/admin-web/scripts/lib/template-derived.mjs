@@ -8,6 +8,8 @@
 // prop slots an entry lists in `strip` (regexes removed before comparing; each named in `replaced`);
 // A strip entry may be [regex, replacement] for a declared override that WRAPS a template value
 // (e.g. `mergeSx({ minHeight: 384 }, slotProps?.scrollbar)` -> `{ minHeight: 384 }`).
+// sx nested in slotProps (slotProps.paper.sx, any slotProps.*.sx) is compared like top-level sx
+// (manifest `slotSx`, REVIEW-33).
 // `templateStrip` names the template's demo controls those slots replace (removed from the template
 // side when the manifest anatomy is recorded).
 import { existsSync, readFileSync } from "node:fs";
@@ -66,6 +68,44 @@ export function sxValues(text) {
   for (const m of code.matchAll(/\bsx=\{/g)) {
     const start = m.index + m[0].length - 1;
     out.push(norm(code.slice(start + 1, matchBrace(code, start))));
+  }
+  return out;
+}
+
+/** The expression after `key:` at `from` (an object literal, or text up to the next top-level `,` / `}`). */
+function valueAt(code, from) {
+  let i = from;
+  while (/\s/.test(code[i] ?? "")) i++;
+  if (code[i] === "{") return code.slice(i, matchBrace(code, i) + 1);
+  let depth = 0, j = i;
+  for (; j < code.length; j++) {
+    const c = code[j];
+    if ("([{".includes(c)) depth++;
+    else if (")]}".includes(c)) { if (depth === 0) break; depth--; }
+    else if (c === "," && depth === 0) break;
+  }
+  return code.slice(i, j);
+}
+
+/** REVIEW-33: every `sx:` nested in a `slotProps={…}` value (slotProps.paper.sx, slotProps.*.sx), as
+ * `<slot>:<value>` whitespace-normalised, in order, so a slot's styles (the popover paper width) are
+ * compared like top-level sx. */
+export function slotSxValues(text) {
+  const code = stripComments(text);
+  const out = [];
+  for (const m of code.matchAll(/\bslotProps=\{/g)) {
+    const start = m.index + m[0].length - 1;
+    const body = code.slice(start, matchBrace(code, start) + 1);
+    for (const k of body.matchAll(/(?:^|[{,\s])sx\s*:(?!:)/g)) {
+      // The slot = the key of the object literal that holds this sx.
+      let depth = 0, open = -1;
+      for (let i = k.index; i >= 0; i--) {
+        if (body[i] === "}") depth++;
+        else if (body[i] === "{") { if (depth === 0) { open = i; break; } depth--; }
+      }
+      const slot = open > 0 ? (/([\w$]+)['"]?\s*:\s*$/.exec(body.slice(0, open))?.[1] ?? "?") : "?";
+      out.push(`${slot}:${norm(valueAt(body, k.index + k[0].length))}`);
+    }
   }
   return out;
 }
@@ -151,7 +191,7 @@ export function propNames(text, allow = []) {
 }
 
 export function anatomy(text, allow = []) {
-  return { tags: jsxTags(text), sx: sxKeys(text), sxValues: sxValues(text), props: literalProps(text), propNames: propNames(text, allow) };
+  return { tags: jsxTags(text), sx: sxKeys(text), sxValues: sxValues(text), slotSx: slotSxValues(text), props: literalProps(text), propNames: propNames(text, allow) };
 }
 
 function firstDiff(a, b) {
@@ -196,6 +236,10 @@ export function templateDerivedFindings(root, manifestFile) {
     }
     const v = firstDiff(entry.sxValues, got.sxValues);
     if (v) hits.push({ file: rel, line: 1, snippet: `sx value differs from template ${entry.source} at sx #${v.index}: template {${v.want}}, file {${v.got}}` });
+    if (Array.isArray(entry.slotSx)) {
+      const ss = firstDiff(entry.slotSx, got.slotSx);
+      if (ss) hits.push({ file: rel, line: 1, snippet: `slotProps sx differs from template ${entry.source} at #${ss.index}: template {${ss.want}}, file {${ss.got}} (declare a deliberate override in strip)` });
+    } else hits.push({ file: rel, line: 1, snippet: "manifest entry lacks slotSx (run node scripts/refresh-template-derived.mjs)" });
     if (Array.isArray(entry.propNames)) {
       const n = firstDiff(entry.propNames, got.propNames);
       if (n) hits.push({ file: rel, line: 1, snippet: `JSX props differ from template ${entry.source} at element #${n.index}: template ${n.want}, file ${n.got} (declare a deliberate addition in allowProps)` });

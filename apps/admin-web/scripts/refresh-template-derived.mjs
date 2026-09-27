@@ -25,6 +25,7 @@ for (const [rel, entry] of Object.entries(manifest.files ?? {})) {
   entry.tags = a.tags;
   entry.sx = a.sx;
   entry.sxValues = a.sxValues;
+  entry.slotSx = a.slotSx;
   entry.props = a.props;
   entry.propNames = a.propNames;
 }
