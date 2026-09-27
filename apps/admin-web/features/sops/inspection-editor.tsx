@@ -15,6 +15,7 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle, Check, ChevronDown, ChevronUp, Lock, Plus, X } from "lucide-react";
 import IconButton from "@mui/material/IconButton";
 import MuiTextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import Button from "@mui/material/Button";
 import Card from "@mui/material/Card";
@@ -288,9 +289,9 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, v
                 <div className="bd">
                   <div className="qcfg">
                     <div className="qcfg-head">
-                      <span className="qcfg-title">
+                      <Typography variant="subtitle2" component="span">
                         {copy(pc, "inspection.page")} {pi + 1}
-                      </span>
+                      </Typography>
                       <span className="inspection-page-actions">
                         <IconButton type="button" size="small" className="ia" aria-label={copy(pc, "inspection.question.move_up")} disabled={pi === 0} onClick={() => movePage(page.id, -1)}>
                           <ChevronUp className="ic" />
@@ -462,9 +463,8 @@ function QuestionCard({
         </IconButton>
       </div>
       <div className="qbody">
-        <label className="numfield">
-          <span className="numlbl">{copy(pc, `${copyPrefix}.question.title`)}</span>
-          <MuiTextField
+        <MuiTextField
+            label={copy(pc, `${copyPrefix}.question.title`)}
             fullWidth
             size="small"
             className="qtext"
@@ -474,11 +474,7 @@ function QuestionCard({
               onChange({ title, key: keyForTitle(title, q.key, savedKeys, takenKeys) });
             }}
           />
-        </label>
-        <label className="numfield">
-          <span className="numlbl">{copy(pc, "inspection.question.hint")}</span>
-          <textarea className="qhelp" rows={2} value={q.hint} onChange={(e) => onChange({ hint: e.target.value })} />
-        </label>
+        <MuiTextField label={copy(pc, "inspection.question.hint")} fullWidth multiline minRows={2} value={q.hint} onChange={(e) => onChange({ hint: e.target.value })} />
         {!q.key && !locked ? (
           <MuiTextField label={copy(pc, "inspection.question.key")} fullWidth size="small" value={q.key} onChange={(e) => onChange({ key: e.target.value })} />
         ) : null}
@@ -493,7 +489,7 @@ function QuestionCard({
         {(q.kind === "choice" || q.kind === "multi") && !q.catalog ? (
           <div className="qcfg">
             <div className="qcfg-head">
-              <span className="qcfg-title">{copy(pc, "inspection.question.options")}</span>
+              <Typography variant="subtitle2" component="span">{copy(pc, "inspection.question.options")}</Typography>
               {!optionsLocked ? (
                 <Button color="primary" variant="text" size="small" startIcon={<Plus size={14} />} onClick={() => onChange({ options: [...q.options, { value: "", label: "" }] })}>
                   {copy(pc, "inspection.question.add_option")}
@@ -536,15 +532,12 @@ function QuestionCard({
         {q.kind === "media" ? (
           <div className="qcfg">
             <div className="rowf">
-              <label className="numfield">
-                <span className="numlbl">{copy(pc, "inspection.question.accepts")}</span>
-                <InlineSelect
-                  label={copy(pc, "inspection.question.accepts")}
-                  value={q.accepts}
-                  options={captures.map((c) => ({ value: c.key, label: c.label }))}
-                  onChange={(next) => onChange({ accepts: next as CaptureKind })}
-                />
-              </label>
+              <InlineSelect
+                label={copy(pc, "inspection.question.accepts")}
+                value={q.accepts}
+                options={captures.map((c) => ({ value: c.key, label: c.label }))}
+                onChange={(next) => onChange({ accepts: next as CaptureKind })}
+              />
               <MuiTextField label={copy(pc, "inspection.question.max_files")} size="small" type="number" slotProps={{ htmlInput: { min: 1, max: 10 } }} value={q.maxFiles} onChange={(e) => onChange({ maxFiles: Math.max(1, Math.min(10, Number(e.target.value) || 1)) })} />
             </div>
           </div>
