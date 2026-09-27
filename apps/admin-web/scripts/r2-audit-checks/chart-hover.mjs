@@ -17,6 +17,12 @@
 const MAX_CHARTS = 8;
 const RAW_A11Y = /\bchart with \d+ data series\b/i;
 
+// Where the plot is hovered, as a share of its width. Apex flips a tooltip to the LEFT of the
+// cursor once it would pass the plot's right edge, so a wide tooltip escapes on the left over a
+// bar a third of the way in (R3CNT 2026-09-27: /weighing/analytics Weekly growth at 390, tooltip
+// 58px past the card). Three samples (8% / 50% / 92%) never hovered there; no gap is wider than 15%.
+export const HOVER_FRACTIONS = [0.06, 0.2, 0.35, 0.5, 0.65, 0.8, 0.94];
+
 export function tooltipClip(tip, clips, viewport, tolerance = 1) {
   const out = [];
   if (tip.left < -tolerance || tip.top < -tolerance || tip.right > viewport.width + tolerance || tip.bottom > viewport.height + tolerance) out.push("viewport");
@@ -74,7 +80,7 @@ export default {
       }, i);
       if (!plot || plot.width < 20 || plot.height < 20) continue;
       let clipped = null;
-      for (const f of [0.08, 0.5, 0.92]) {
+      for (const f of HOVER_FRACTIONS) {
         await page.mouse.move(plot.left + plot.width * f, plot.top + plot.height * 0.6);
         await page.waitForTimeout(350);
         const probe = await page.evaluate((idx) => {

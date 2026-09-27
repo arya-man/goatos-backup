@@ -11,7 +11,7 @@ import Stack from "@mui/material/Stack";
 import { Label } from "@/components/minimal/label";
 import { EcommerceWidgetSummary } from "@/components/minimal/sections/overview/e-commerce/ecommerce-widget-summary";
 import { ConversionRatesCard } from "@/components/app/conversion-rates-card";
-import { AnalyticsWebsiteVisits } from "@/components/minimal/sections/overview/analytics/analytics-website-visits";
+import { WeeklyGrowthCard } from "./weekly-growth-card";
 import { BankingBalanceStatistics } from "@/components/minimal/sections/overview/banking/banking-balance-statistics";
 import { EcommerceCurrentBalance } from "@/components/minimal/sections/overview/e-commerce/ecommerce-current-balance";
 import { EcommerceSaleByGender } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sale-by-gender";
@@ -876,22 +876,13 @@ function GeneralTab({
       <Grid size={{ xs: 12, md: 6, lg: 8 }}>
         {/* Columns, not an area: a week nobody weighed has no bar, where a line would draw
             straight through it as if the kids had grown on schedule. */}
-        <AnalyticsWebsiteVisits
-          aria-label={copy(pageContract, "section.time.aria")}
+        <WeeklyGrowthCard
+          ariaLabel={copy(pageContract, "section.time.aria")}
           title={copy(pageContract, "section.time.title")}
           subheader={copy(pageContract, "note.time.gaps")}
-          empty={<EmptyState title={copy(pageContract, "empty.time.body")} />}
-          chart={{
-            categories: weeklyGain.map((point) => point.label),
-            unit: "g",
-            series: [
-              {
-                name: copy(pageContract, "series.gain"),
-                data: weeklyGain.map((point) => point.gain),
-                notes: weeklyGain.map((point) => animalCount(pageContract, point.animals)),
-              },
-            ],
-          }}
+          emptyLabel={copy(pageContract, "empty.time.body")}
+          seriesName={copy(pageContract, "series.gain")}
+          points={weeklyGain.map((point) => ({ label: point.label, gain: point.gain, animalsLabel: animalCount(pageContract, point.animals) }))}
           sx={{ height: 1 }}
         />
       </Grid>
@@ -1509,22 +1500,13 @@ function TimeTab({
       {/* Titled through the bucket pair, so a heading can never describe columns the chart is not
           showing. Columns, not a line: a week nobody weighed has no bar (the gaps note says so). */}
       <Grid size={12}>
-        <AnalyticsWebsiteVisits
-          aria-label={bucketCopy("section.time.aria")}
+        <WeeklyGrowthCard
+          ariaLabel={bucketCopy("section.time.aria")}
           title={bucketCopy("section.time.title")}
           subheader={`${bucketCopy("section.time.caption")} ${bucketCopy("note.time.gaps")}`}
-          empty={<EmptyState title={bucketCopy("empty.time.body")} />}
-          chart={{
-            categories: weeklyPoints.map((point) => point.label),
-            unit: "g",
-            series: [
-              {
-                name: copy(pageContract, "series.gain"),
-                data: weeklyPoints.map((point) => point.gain),
-                notes: weeklyPoints.map((point) => animalCount(pageContract, point.animals)),
-              },
-            ],
-          }}
+          emptyLabel={bucketCopy("empty.time.body")}
+          seriesName={copy(pageContract, "series.gain")}
+          points={weeklyPoints.map((point) => ({ label: point.label, gain: point.gain, animalsLabel: animalCount(pageContract, point.animals) }))}
         />
       </Grid>
       {/* The selected period's weeks, one series per breed. The breed rows need not add up to the
