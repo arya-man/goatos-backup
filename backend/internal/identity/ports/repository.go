@@ -98,6 +98,8 @@ type SearchGoatsParams struct {
 	ParkID         *string
 	LocationID     *string
 	Status         *string
+	// Descending pages the keyset by display_id from the top ("order=desc"); the default is ascending.
+	Descending bool
 }
 
 type ListTemporaryTaggedGoatsParams struct {

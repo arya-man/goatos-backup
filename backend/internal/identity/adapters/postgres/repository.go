@@ -146,9 +146,14 @@ func (r *Repository) SearchGoats(ctx context.Context, params ports.SearchGoatsPa
 	args := []any{params.TenantID, params.Limit + 1}
 	where := []string{"g.tenant_id = $1::uuid", "g.merged_into_goat_id IS NULL"}
 
+	// Keyset on display_id in the requested direction: the cursor is the last row of the previous page.
+	cmp, dir := ">", "ASC"
+	if params.Descending {
+		cmp, dir = "<", "DESC"
+	}
 	if params.Cursor != nil && strings.TrimSpace(*params.Cursor) != "" {
 		args = append(args, *params.Cursor)
-		where = append(where, fmt.Sprintf("g.display_id > $%d", len(args)))
+		where = append(where, fmt.Sprintf("g.display_id %s $%d", cmp, len(args)))
 	}
 	if params.GoatID != nil {
 		args = append(args, *params.GoatID)
@@ -195,7 +200,7 @@ func (r *Repository) SearchGoats(ctx context.Context, params ports.SearchGoatsPa
 		where = append(where, searchQueryClause(qArg, identifierTypeClause, scopeClause))
 	}
 
-	query := goatSummarySelect() + " WHERE " + strings.Join(where, " AND ") + " ORDER BY g.display_id ASC LIMIT $2"
+	query := goatSummarySelect() + " WHERE " + strings.Join(where, " AND ") + " ORDER BY g.display_id " + dir + " LIMIT $2"
 	bound, err := sqlbind.Bind(query, args...)
 	if err != nil {
 		return nil, nil, err

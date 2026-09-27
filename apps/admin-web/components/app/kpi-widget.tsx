@@ -8,6 +8,7 @@ import Typography from "@mui/material/Typography";
 
 import Link from "@/components/no-prefetch-link";
 export { completeMonthPercent, lastStepPercent, sevenDayPercent } from "@/lib/kpi-trend";
+import { compactFigure } from "@/lib/kpi-figure";
 import { Iconify } from "@/components/minimal/iconify";
 import { AppWidgetSummary } from "@/components/minimal/sections/overview/app/app-widget-summary";
 import { BookingWidgetSummary } from "@/components/minimal/sections/overview/booking/booking-widget-summary";
@@ -91,7 +92,10 @@ const RESERVE_SUBLINE = {
   "&::after": { content: "attr(data-kpi-caption)", display: "block", flexBasis: "100%", visibility: "hidden", typography: "body2", mt: 1, whiteSpace: "normal", overflowWrap: "anywhere" },
 };
 
-export function KpiWidget({ title, total, caption, color = "primary", icon, trend, href, linkComponent, sx, "data-testid": testId }: KpiWidgetProps) {
+export function KpiWidget({ title, total: rawTotal, caption: rawCaption, color = "primary", icon, trend, href, linkComponent, sx, "data-testid": testId }: KpiWidgetProps) {
+  // A lakh or more is compacted for the template figure (never under the corner icon / sparkline);
+  // the scale word and the exact value lead the visible sub-line (guard: kpi-long-figure).
+  const { total, caption } = compactFigure(rawTotal, rawCaption);
   const figure = total ?? Number.NaN;
   const t: KpiTrend | null = trend ?? null;
   const cardSx = [{ height: 1 }, EMPTY_FIGURE, ...(caption ? [RESERVE_SUBLINE] : []), ...(Array.isArray(sx) ? sx : [sx])] as SxProps<Theme>;

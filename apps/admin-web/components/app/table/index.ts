@@ -9,3 +9,4 @@ export * from "@/components/minimal/table/table-selected-action";
 export * from "./table-head-custom";
 export * from "./table-pagination-custom";
 export * from "./table-pagination-links";
+export * from "./url-sort-head";

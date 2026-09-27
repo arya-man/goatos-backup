@@ -73,6 +73,7 @@ var searchGoatsAllowedParams = map[string]bool{
 	"limit": true, "cursor": true, "q": true, "goat_id": true,
 	"identifier_type": true, "scope_key": true, "breed": true, "sex": true,
 	"farm_id": true, "park_id": true, "location_id": true, "status": true,
+	"order": true,
 }
 
 func (h *Handler) SearchGoats(w http.ResponseWriter, r *http.Request) {
@@ -86,6 +87,19 @@ func (h *Handler) SearchGoats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
+	// Display-ID order of the keyset page: "asc" (default) or "desc". Anything else is a 400, for the
+	// same reason unknown parameters are: a silently ignored typo returns the other order as if asked.
+	order := strings.TrimSpace(q.Get("order"))
+	if order != "" && order != "asc" && order != "desc" {
+		writeHandlerError(w, r, h.log, http.StatusBadRequest, domain.ErrorEnvelope{
+			Code:        "invalid_order",
+			Message:     "order must be asc or desc",
+			FieldErrors: []domain.FieldError{{Field: "order", Message: "must be asc or desc"}},
+			TraceID:     traceID(r),
+			Retryable:   false,
+		}, nil)
+		return
+	}
 	parkScope := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(
 		r.Context(), tenantID(r), strings.TrimSpace(q.Get("park_id")), permissions.GoatRead,
 	)
@@ -113,6 +127,7 @@ func (h *Handler) SearchGoats(w http.ResponseWriter, r *http.Request) {
 		ParkID:         optionalQuery(parkScope.ParkID),
 		LocationID:     optionalQuery(q.Get("location_id")),
 		Status:         optionalQuery(q.Get("status")),
+		Descending:     order == "desc",
 	}
 	result, err := h.service.SearchGoats(r.Context(), params, traceID(r))
 	h.respond(w, r, result, err)

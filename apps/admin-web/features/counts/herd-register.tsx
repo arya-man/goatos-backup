@@ -23,7 +23,7 @@ import Stack from "@mui/material/Stack";
 import { EmptyContent } from "@/components/minimal/empty-content";
 import { Label } from "@/components/minimal/label";
 import { Scrollbar } from "@/components/minimal/scrollbar";
-import { TableHeadCustom } from "@/components/app/table";
+import { UrlSortHead } from "@/components/app/table";
 import { KpiWidget, kpiColor } from "@/components/app/kpi-widget";
 import { GoatGlyph } from "@/components/goat-glyph";
 import { DenseTable } from "@/components/dense-table";
@@ -205,6 +205,8 @@ export async function HerdRegisterPage({
   const statusParam = one(sp, "status");
   const statusTab: HerdStatusTab = (HERD_STATUS_TABS as readonly string[]).includes(statusParam ?? "") ? (statusParam as HerdStatusTab) : DEFAULT_STATUS_TAB;
   const status = statusTab === "all" ? undefined : statusTab;
+  // The one server sort the register has: Display ID, the keyset the cursor pages on (`?order=desc`).
+  const order: "asc" | "desc" = one(sp, "order") === "desc" ? "desc" : "asc";
   const pageSizeOptions = tablePageSizes(pageContract, "herd-register");
   const requestedLimit = Number(one(sp, "limit"));
   const pageSize = pageSizeOptions.includes(requestedLimit) ? requestedLimit : DEFAULT_PAGE_SIZE;
@@ -220,7 +222,7 @@ export async function HerdRegisterPage({
 
   // Real goats + real location options for the write drawers, in parallel.
   const [result, summaryResult, locations, stagesResult] = await Promise.all([
-    searchGoats({ limit: pageSize, cursor, q, breed, sex, park_id: parkId, status }),
+    searchGoats({ limit: pageSize, cursor, q, breed, sex, park_id: parkId, status, ...(order === "desc" ? { order } : {}) }),
     getHerdRegisterSummary({ park_id: parkId, breed, sex }),
     getHerdRegisterLocations(),
     listAnimalStages(),
@@ -374,7 +376,13 @@ export async function HerdRegisterPage({
           <Table sx={{ minWidth: 960, "& th, & td, & td .celllink": { whiteSpace: "nowrap", overflowWrap: "normal", wordBreak: "normal" } }}>
             {/* Lead column (template user row): avatar + Display ID over the two tags, so the
                 contract's first three heads become one. */}
-            <TableHeadCustom headCells={headCols.map((c, i) => ({ id: `${i}`, label: c, sortable: false }))} />
+            <UrlSortHead
+              headCells={headCols.map((c, i) => ({ id: `${i}`, label: c }))}
+              orderBy="0"
+              order={order}
+              // A new order restarts the cursor pager at page 1.
+              sortHrefs={{ "0": hrefWithDrawerParam(pathname, tabParams, "order", order === "asc" ? "desc" : null) }}
+            />
             <TableBody>
               {goats.length === 0 ? (
                 <TableRow>

@@ -201,11 +201,12 @@ test("weighing visual smoke pins explicit date windows on every tabbed picker su
 
 test("feed config smoke checks experiment pen dropdown identity without writing", () => {
   assert.match(smokeSource, /if \(routeName === "feed-config"\) \{\s+await assertFeedConfigPenDropdownContracts\(page, routeName\);/);
-  // The pen chooser is a checkbox PANEL, not a <select>: several pens are enrolled in one act, so
-  // the smoke reads `.exp-pen-row` rather than `#exp-new-pen option`. What this coverage test is
-  // protecting is unchanged -- that the smoke still opens the real chooser and still rejects a
+  // The pen chooser is the template multi-select (TextField select multiple) in the quick-edit
+  // Dialog: the smoke reads its portalled options, skipping the select-all row. What this coverage
+  // test protects is unchanged -- that the smoke still opens the real chooser and still rejects a
   // duplicate pen and a mis-composed operational location.
-  assert.match(smokeSource, /\.exp-pen-row/);
+  assert.match(smokeSource, /\[role="listbox"\] \[role="option"\]:not\(\[data-value="__all__"\]\)/);
+  assert.doesNotMatch(smokeSource, /\.exp-pen-row|#exp-new-park/);
   assert.match(smokeSource, /duplicate option/);
   assert.match(smokeSource, /bare numeric pen with dash/);
   assert.match(smokeSource, /doubles the partition name/);

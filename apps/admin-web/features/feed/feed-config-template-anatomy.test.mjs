@@ -8,6 +8,8 @@ import test from "node:test";
 
 const editor = readFileSync(new URL("./feed-config-editor.tsx", import.meta.url), "utf8");
 const page = readFileSync(new URL("./feed-config.tsx", import.meta.url), "utf8");
+const gridTable = readFileSync(new URL("./ration-grid-table.tsx", import.meta.url), "utf8");
+const rateValue = readFileSync(new URL("./feed-rate-optimistic.tsx", import.meta.url), "utf8");
 
 /** Legacy markup a template page must not carry (REVIEW-36 O47/O48). */
 export function legacyViolations(src) {
@@ -20,7 +22,11 @@ export function legacyViolations(src) {
     [/style=\{\{/, "inline style (use sx)"],
     [/<TableHead>/, "bare TableHead (use TableHeadCustom)"],
   ]) if (re.test(src.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, ""))) out.push(what);
-  for (const m of src.matchAll(/<Alert\b[\s\S]*?<\/Alert>/g)) if (/<Table\b/.test(m[0])) out.push("table inside an Alert (alerts hold text only)");
+  for (const m of src.matchAll(/<Alert\b[\s\S]*?<\/Alert>/g)) {
+    if (/<Table\b/.test(m[0])) out.push("table inside an Alert (alerts hold text only)");
+    if (/<(?:ul|ol|li|List)\b|component="(?:ul|ol)"/.test(m[0])) out.push("list inside an Alert (alerts hold text only)");
+  }
+  if (/className="tag\b/.test(src)) out.push("legacy .tag chip");
   return out;
 }
 
@@ -46,6 +52,8 @@ test("feed-config-template-anatomy: self-test", () => {
 
 test("feed-config-template-anatomy: legacy self-test", () => {
   assert.deepEqual(legacyViolations(`<Table sx={{}}><TableHeadCustom /></Table>`), []);
+  assert.ok(legacyViolations(`<Alert>t<Box component="ul"><li>x</li></Box></Alert>`).includes("list inside an Alert (alerts hold text only)"));
+  assert.ok(legacyViolations(`<span className="tag t-ok">x</span>`).includes("legacy .tag chip"));
   const v = legacyViolations(`<Alert><Table className="feed-table" /></Alert>\n<div className="fld" style={{ a: 1 }}><label>x</label></div>\n<span className="small muted">y</span>`);
   for (const what of ["legacy .feed-table / .feed-scroll class", "legacy .fld wrapper", "raw <label> (use TextField label)", "legacy small / muted text class", "inline style (use sx)", "table inside an Alert (alerts hold text only)"]) assert.ok(v.includes(what), what);
 });
@@ -53,6 +61,8 @@ test("feed-config-template-anatomy: legacy self-test", () => {
 test("feed-config-template-anatomy: page and editors carry no legacy markup", () => {
   assert.deepEqual(legacyViolations(page), []);
   assert.deepEqual(legacyViolations(editor), []);
+  assert.deepEqual(legacyViolations(gridTable), []);
+  assert.deepEqual(legacyViolations(rateValue), []);
 });
 
 test("feed-config-template-anatomy: editors open the template dialog", () => {

@@ -19,6 +19,7 @@ import type { CardProps } from "@mui/material/Card";
 import type { SxProps, Theme } from "@mui/material/styles";
 
 import Box from "@mui/material/Box";
+import useMediaQuery from "@mui/material/useMediaQuery";
 import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
 
@@ -62,16 +63,39 @@ const bodySx: SxProps<Theme> = {
   "& > .MuiCardHeader-root": { display: "none" },
 };
 
+/** Breaks a tooltip title into lines of at most `width` characters (Apex sets the title as HTML). */
+export function wrapTooltipTitle(label: string, width = 28): string {
+  const escape = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const lines: string[] = [];
+  let line = "";
+  for (const word of label.split(/\s+/).filter(Boolean)) {
+    if (line && line.length + 1 + word.length > width) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = line ? `${line} ${word}` : word;
+    }
+  }
+  if (line) lines.push(line);
+  return lines.map(escape).join("<br>");
+}
+
 export function ConversionRatesCard({ title, subheader, action, empty, chart, sx, children, ...other }: ConversionRatesCardProps) {
   const rows = chart.categories?.length ?? 0;
   const digits = chart.digits ?? 0;
   const plotHeight = Math.max(360, rows * ROW_HEIGHT * Math.max(1, chart.series.length) + 64);
 
   // `options` is spread shallowly over the template's, so each overridden key restates its template values.
+  // Webview (TR1-#6): Apex places a horizontal bar's tooltip at the bar end and flips it left without
+  // clamping, so a long pen label ran off a 390 viewport. On phones the tooltip is Apex's fixed one,
+  // pinned to the plot's top-left corner (set at construction: noSsr, so the first render knows).
+  const phone = useMediaQuery((theme: Theme) => theme.breakpoints.down("sm"), { noSsr: true });
   const options: ChartOptions = {
     tooltip: {
       shared: true,
       intersect: false,
+      // A long label (pen · farm · arm) is also broken onto lines so the pinned tooltip fits the card.
+      ...(phone ? { fixed: { enabled: true, position: "topLeft", offsetX: 0, offsetY: 0 }, x: { formatter: (label: string | number) => wrapTooltipTitle(String(label)) } } : {}),
       y: {
         formatter: (value: number, opts?: { seriesIndex: number; dataPointIndex: number }) => {
           const note = opts == null ? null : chart.series[opts.seriesIndex]?.notes?.[opts.dataPointIndex];

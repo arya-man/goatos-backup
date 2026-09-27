@@ -795,10 +795,13 @@ export async function FeedConfigPage({
         {/* Alerts hold text only (template Alert + AlertTitle); the missing-rate rows are their own
             table under it, on the card's table parts. */}
         {retiredFeeds.sessions.length + retiredFeeds.experimentPens.length > 0 ? (
-          <Alert severity="warning" sx={{ mx: 3, mb: 2 }} role="group" aria-label={copy(pageContract, "section.retired_feeds.title")}>
-            <AlertTitle>{copy(pageContract, "section.retired_feeds.title")}</AlertTitle>
-            {copy(pageContract, "section.retired_feeds.caption")}
-            <Box component="ul" sx={{ m: 0, mt: 1, pl: 2.25 }}>
+          <>
+            <Alert severity="warning" sx={{ mx: 3, mb: 1 }}>
+              <AlertTitle>{copy(pageContract, "section.retired_feeds.title")}</AlertTitle>
+              {copy(pageContract, "section.retired_feeds.caption")}
+            </Alert>
+            {/* The affected sessions / pens, under the alert (alerts hold text only). */}
+            <Box component="ul" aria-label={copy(pageContract, "section.retired_feeds.title")} sx={{ mx: 3, mt: 0, mb: 2, pl: 2.5, typography: "body2", color: "text.secondary" }}>
               {retiredFeeds.sessions.map((entry) => (
                 <li key={`session:${entry.session}`}>
                   <b>{entry.session}</b> · {copy(pageContract, "label.retired_session")} {entry.pens}{" "}
@@ -811,7 +814,7 @@ export async function FeedConfigPage({
                 </li>
               ))}
             </Box>
-          </Alert>
+          </>
         ) : null}
         {missingRates.length > 0 ? (
           <>

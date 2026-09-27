@@ -49,7 +49,7 @@ func TestSearchGoatsForwardsTableFilters(t *testing.T) {
 	Register(mux, NewHandler(app.NewService(repo)))
 	handler := httpmiddleware.RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mux)
 
-	req := httptest.NewRequest(http.MethodGet, "/goats/search?limit=25&q=G-000001&goat_id=10000000-0000-4000-8000-000000000001&identifier_type=animal_identifier_1&scope_key=global&breed=Sojat&sex=male&farm_id=20000000-0000-4000-8000-000000000001&park_id=30000000-0000-4000-8000-000000000001&location_id=40000000-0000-4000-8000-000000000001&status=alive", nil)
+	req := httptest.NewRequest(http.MethodGet, "/goats/search?limit=25&q=G-000001&goat_id=10000000-0000-4000-8000-000000000001&identifier_type=animal_identifier_1&scope_key=global&breed=Sojat&sex=male&farm_id=20000000-0000-4000-8000-000000000001&park_id=30000000-0000-4000-8000-000000000001&location_id=40000000-0000-4000-8000-000000000001&status=alive&order=desc", nil)
 	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
 	req.Header.Set("X-Request-ID", "req-search")
 	rec := httptest.NewRecorder()
@@ -81,6 +81,27 @@ func TestSearchGoatsForwardsTableFilters(t *testing.T) {
 	assertPtr("park_id", repo.searchParams.ParkID, "30000000-0000-4000-8000-000000000001")
 	assertPtr("location_id", repo.searchParams.LocationID, "40000000-0000-4000-8000-000000000001")
 	assertPtr("status", repo.searchParams.Status, "alive")
+	if !repo.searchParams.Descending {
+		t.Fatal("order=desc was not forwarded as Descending")
+	}
+}
+
+// TestSearchGoatsRejectsUnknownOrder: order is asc|desc only; a typo is a 400, never the other order.
+func TestSearchGoatsRejectsUnknownOrder(t *testing.T) {
+	repo := &handlerRepo{}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(app.NewService(repo)))
+	handler := httpmiddleware.RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mux)
+	req := httptest.NewRequest(http.MethodGet, "/goats/search?limit=25&order=newest", nil)
+	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.searchParams != nil {
+		t.Fatal("repository must not be called for an invalid order")
+	}
 }
 
 func TestSearchGoatsEnforcesGoatReadParkScope(t *testing.T) {
@@ -239,14 +260,14 @@ func TestSearchGoatsReportsEveryUnknownParameterSorted(t *testing.T) {
 func TestSearchGoatsAcceptsEveryContractParameter(t *testing.T) {
 	for _, name := range []string{
 		"limit", "cursor", "q", "goat_id", "identifier_type", "scope_key",
-		"breed", "sex", "farm_id", "park_id", "location_id", "status",
+		"breed", "sex", "farm_id", "park_id", "location_id", "status", "order",
 	} {
 		if !searchGoatsAllowedParams[name] {
 			t.Errorf("contract parameter %q is missing from searchGoatsAllowedParams", name)
 		}
 	}
-	if len(searchGoatsAllowedParams) != 12 {
-		t.Errorf("allow-list has %d entries, want 12: add the new parameter to the OpenAPI contract too", len(searchGoatsAllowedParams))
+	if len(searchGoatsAllowedParams) != 13 {
+		t.Errorf("allow-list has %d entries, want 13: add the new parameter to the OpenAPI contract too", len(searchGoatsAllowedParams))
 	}
 }
 

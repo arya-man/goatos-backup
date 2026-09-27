@@ -13,6 +13,7 @@ import { RationRateEditor, type SaveAction } from "./feed-config-editor";
 import { RationRateValue } from "./feed-rate-optimistic";
 import { stageLabel } from "@/lib/stage-labels";
 import { EmptyState } from "@/components/app/empty-state";
+import { Label } from "@/components/minimal/label";
 
 /**
  * In-force (`valid_to` absent) vs superseded by a later edit.
@@ -32,18 +33,19 @@ function EffectiveWindow({
 }) {
   const open = !validTo;
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3 }}>
-      <span
-        className={open ? "tag t-ok" : "tag t-mut"}
+    <Stack spacing={0.5} sx={{ alignItems: "flex-start" }}>
+      <Label
+        variant="soft"
+        color={open ? "success" : "default"}
         title={copy(pageContract, open ? "label.effective_open_note" : "label.effective_closed_note")}
       >
         {copy(pageContract, open ? "label.effective_open" : "label.effective_closed")}
-      </span>
-      <span className="muted" style={{ fontSize: 11 }}>
+      </Label>
+      <Typography variant="caption" sx={{ color: "text.secondary" }}>
         {fmtDate(validFrom)}
         {validTo ? ` · ${fmtDate(validTo)}` : ""}
-      </span>
-    </div>
+      </Typography>
+    </Stack>
   );
 }
 
@@ -138,7 +140,7 @@ export function RationGridTable({
       shed_tag: {
         cell: (row) => stageLabel(row.shed_tag),
         sortValue: (row) => row.shed_tag,
-        meta: { cellClassName: "muted" },
+        meta: { cellStyle: { color: "var(--palette-text-secondary)" } },
       },
       feed_item: {
         // A name may wrap inside its cell but never widen the table: the feed tables are
@@ -146,9 +148,9 @@ export function RationGridTable({
         // row off the screen. The catalog now bounds new names at 80 characters; this holds the
         // grid together for a name authored before that bound existed.
         cell: (row) => (
-          <span style={{ display: "inline-block", maxWidth: 260, whiteSpace: "normal", overflowWrap: "anywhere" }}>
+          <Box component="span" sx={{ display: "inline-block", maxWidth: 260, whiteSpace: "normal", overflowWrap: "anywhere" }}>
             {row.feed_item}
-          </span>
+          </Box>
         ),
         sortValue: (row) => row.feed_item,
       },

@@ -23887,6 +23887,8 @@ export interface operations {
                 park_id?: string;
                 location_id?: string;
                 status?: string;
+                /** @description Display-ID order of the keyset page (the cursor pages in the same direction). */
+                order?: "asc" | "desc";
             };
             header?: never;
             path?: never;

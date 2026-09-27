@@ -1,6 +1,9 @@
 "use client";
 
-import { Tag } from "@/components/ui-primitives";
+import Box from "@mui/material/Box";
+import CircularProgress from "@mui/material/CircularProgress";
+import Typography from "@mui/material/Typography";
+import { Label } from "@/components/minimal/label";
 
 import { fmtGrams } from "./feed-config-format";
 import { useSyncExternalStore } from "react";
@@ -143,30 +146,27 @@ export function RationRateValue({
   const { value, pending } = useDisplayedRate(key, gramsPerHead);
   const authoredZero = isConfiguredZeroQuantity(value);
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
-      <span
-        style={{
-          fontVariantNumeric: "tabular-nums",
-          fontWeight: authoredZero ? 500 : 700,
-          color: authoredZero ? "var(--muted)" : "var(--brand-d)",
-        }}
+    <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.75, whiteSpace: "nowrap" }}>
+      <Box
+        component="span"
+        sx={{ fontVariantNumeric: "tabular-nums", typography: authoredZero ? "body2" : "subtitle2", color: authoredZero ? "text.secondary" : "primary.main" }}
       >
         {fmtGrams(value)}
-      </span>
+      </Box>
       {authoredZero ? (
-        <Tag tone="info" title={copy(pageContract, "label.configured_zero_note")}>
+        <Label variant="soft" color="info" title={copy(pageContract, "label.configured_zero_note")}>
           {copy(pageContract, "label.configured_zero")}
-        </Tag>
+        </Label>
       ) : null}
       {/* Said out loud while the server catches up, rather than shown as a settled number. The write
           IS committed at this point -- the form only closes on a confirmed save -- so this reports
           that the rest of the page has not caught up yet, not that the value is in doubt. */}
       {pending ? (
-        <span className="muted" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11 }} role="status">
-          <span className="wfspin" aria-hidden="true" style={{ width: 11, height: 11 }} />
+        <Typography component="span" variant="caption" role="status" sx={{ display: "inline-flex", alignItems: "center", gap: 0.625, color: "text.secondary" }}>
+          <CircularProgress size={11} aria-hidden="true" />
           {copy(pageContract, "state.loading")}
-        </span>
+        </Typography>
       ) : null}
-    </span>
+    </Box>
   );
 }

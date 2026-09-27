@@ -1592,8 +1592,6 @@
 .card .hd .sp { flex: 1 }
 .card .bd { padding: 6px 16px 16px }
 
-/* Retired experiment pen tick (the chooser is now a template multi-select); the value stays for theme-token-drift. */
-.exp-pen-box .exp-pen-tick{color:#0c1a12}
 /* Lives INSIDE the Over 35 kg card as its footer: full width, parted from the figure by a rule,
    no panel box of its own, so it reads as that card's control rather than a page-wide one. */
 .sales-ready-tolerance{display:grid;grid-template-columns:auto minmax(120px,1fr) auto;align-items:center;gap:8px;margin-top:6px;padding-top:6px;border-top:1px solid var(--line);width:100%;max-width:100%;min-width:0}

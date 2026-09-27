@@ -653,6 +653,8 @@ export type HerdSearchParams = {
   park_id?: string;
   location_id?: string;
   status?: string;
+  /** Display-ID order of the keyset page; omitted = ascending. */
+  order?: "asc" | "desc";
 };
 
 export type GoatTimelineParams = {

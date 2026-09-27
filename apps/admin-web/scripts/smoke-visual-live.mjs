@@ -2021,29 +2021,32 @@ async function assertFeedConfigPenDropdownContracts(page, routeName) {
   }
   await addPen.first().scrollIntoViewIfNeeded().catch(() => {});
   await addPen.first().click({ timeout: 5_000 });
-  // The pen chooser is a checkbox PANEL now, not a <select>: several pens go on one experiment in
-  // one write, so #exp-new-pen no longer exists. The panel is unmounted while closed, so it is
-  // opened per park below rather than merely waited for here.
-  await page.locator("#exp-new-park").waitFor({ state: "attached", timeout: 5_000 });
-
-  const parkValues = await page.locator("#exp-new-park option").evaluateAll((options) =>
-    options.map((option) => option.value).filter((value) => value !== ""),
+  // The enroller is the template quick-edit Dialog: the park is a MUI select (FormSelect) and the pen
+  // chooser is the template multi-select (TextField select multiple, a Checkbox per pen, the
+  // select-all row first with data-value "__all__"). Both lists are portalled menus, read per park.
+  const dialog = page.getByRole("dialog");
+  await dialog.waitFor({ state: "visible", timeout: 5_000 });
+  const parkSelect = dialog.getByRole("combobox").first();
+  await parkSelect.click({ timeout: 5_000 });
+  const parkValues = await page.locator('[role="listbox"] [role="option"]').evaluateAll((options) =>
+    options.map((option) => option.getAttribute("data-value") ?? "").filter((value) => value !== ""),
   );
+  await page.keyboard.press("Escape");
   const parksToCheck = parkValues.length ? parkValues : [null];
   let totalOptions = 0;
   for (const parkValue of parksToCheck) {
     if (parkValue !== null) {
-      await page.locator("#exp-new-park").selectOption(parkValue);
-      await page.waitForFunction((value) => document.querySelector("#exp-new-park")?.value === value, parkValue, { timeout: 5_000 });
+      await parkSelect.click({ timeout: 5_000 });
+      await page.locator(`[role="listbox"] [role="option"][data-value="${parkValue}"]`).click({ timeout: 5_000 });
     }
-    // Open the panel for THIS park, read it, close it again: changing the park clears the ticks and
-    // rebuilds the list, so a panel left open from the previous park would be read twice.
-    const penToggle = page.getByRole("button", { name: "Pen", exact: true });
-    await penToggle.first().click({ timeout: 5_000 });
-    const labels = await page.locator(".exp-pen-row").evaluateAll((rows) =>
+    // Open the pen menu for THIS park, read it, close it: changing the park clears the ticks and
+    // rebuilds the list, so a menu left open from the previous park would be read twice.
+    const penSelect = dialog.getByRole("combobox").nth(1);
+    await penSelect.click({ timeout: 5_000 });
+    const labels = await page.locator('[role="listbox"] [role="option"]:not([data-value="__all__"])').evaluateAll((rows) =>
       rows.map((row) => (row.textContent ?? "").replace(/\s+/g, " ").trim()).filter(Boolean),
     );
-    await penToggle.first().click({ timeout: 5_000 }).catch(() => {});
+    await page.keyboard.press("Escape");
     totalOptions += labels.length;
     const seen = new Set();
     for (const label of labels) {

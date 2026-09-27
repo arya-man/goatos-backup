@@ -15,3 +15,12 @@ test("chart-bar-shared-tooltip: one-measure balance cards share the tooltip", ()
   assert.match(card, /options: withSharedTooltip\(props\.chart\)/);
   assert.doesNotMatch(card, /apexcharts-tooltip/, "no CSS on the tooltip");
 });
+
+test("chart-bar-shared-tooltip: horizontal conversion bars pin + wrap the tooltip on phones", () => {
+  const conv = readFileSync(new URL("./conversion-rates-card.tsx", import.meta.url), "utf8");
+  assert.match(conv, /useMediaQuery\(\(theme: Theme\) => theme\.breakpoints\.down\("sm"\), \{ noSsr: true \}\)/, "decided at construction");
+  assert.match(conv, /fixed: \{ enabled: true, position: "topLeft"/);
+  assert.match(conv, /x: \{ formatter: \(label: string \| number\) => wrapTooltipTitle\(String\(label\)\) \}/);
+  assert.match(conv, /replace\(\/&\/g, "&amp;"\)\.replace\(\/<\/g, "&lt;"\)/, "title HTML is escaped");
+  assert.doesNotMatch(conv, /apexcharts-tooltip/, "no CSS on the tooltip");
+});
