@@ -184,6 +184,7 @@ export const P0_PATTERNS = [
   /^interact\|[^|]+\|(tab-not-selected|stale-panel)$/,
   /^dark-bright-bg\|/,
   /^off-palette\|/,
+  /^chart-black\|/, // a chart series / legend mark whose colour never resolved (paints black)
   /^drawer\|(overflow\|clipped|no-backdrop)/,
   /^skeleton\|(mismatch|missing|extra)/, // skeleton vs loaded block IoU < 0.8, block missing / extra
   /^tap\|/,
@@ -513,6 +514,16 @@ function r2PageLib() {
         // chart marks only: template illustrations / emoji icons carry their own artwork fills
         if (cs.fill && cs.fill !== "none" && !cs.fill.startsWith("url")) props.push(["fill", cs.fill]);
         if (cs.stroke && cs.stroke !== "none" && !cs.stroke.startsWith("url")) props.push(["stroke", cs.stroke]);
+      }
+      // chart-black (R3CNT 2026-09-27): an Apex series / legend mark painted pure black means its
+      // colour never resolved (a palette KEY such as "primary" handed to chart.colors). Black is in
+      // the palette (common.black), so off-palette alone cannot see it.
+      if (inSvg && el.closest(".apexcharts-series, .apexcharts-legend-marker")) {
+        const f = parseColor(cs.fill);
+        if (f && f[3] > 0.5 && f[0] === 0 && f[1] === 0 && f[2] === 0) add("chart-black", el, `fill ${hex(f)} on a chart series mark`, { prop: "fill", value: hex(f) });
+      } else if (!inSvg && el.closest(".apexcharts-legend-marker")) {
+        const b = parseColor(cs.backgroundColor);
+        if (b && b[3] > 0.5 && b[0] === 0 && b[1] === 0 && b[2] === 0) add("chart-black", el, `background ${hex(b)} on a chart legend marker`, { prop: "background-color", value: hex(b) });
       }
       const doneBorder = new Set();
       for (const [prop, val] of props) {
@@ -1098,6 +1109,8 @@ async function main() {
       add({ ...base, pattern: `dark-bright-bg|${f.sig}|${loc || f.value}${where}`, label: `Bright background in dark${where}: ${f.sig} ${f.value}${loc ? ` (${loc})` : ""}` });
     } else if (f.check === "contrast") {
       add({ ...base, pattern: `contrast|${f.sig}|${f.value}`, label: `Text contrast below WCAG${where}: ${f.sig} ${f.value} (${profile.includes("light") ? "light" : "dark"})` });
+    } else if (f.check === "chart-black") {
+      add({ ...base, pattern: `chart-black|${f.sig}`, label: `Chart series painted black (unresolved colour)${where}: ${f.sig}` });
     } else if (f.check === "tap-target") {
       add({ ...base, pattern: `tap|${f.sig}`, label: `Tap target < 44px at 390${where}: ${f.sig}` });
     }

@@ -28,7 +28,7 @@ import { AnalyticsWebsiteVisits } from "@/components/minimal/sections/overview/a
 import { PageHeader } from "@/components/app/page-header";
 import type { PaletteColorKey } from "@/theme/core";
 import { KpiGrid } from "@/components/app/kpi-grid";
-import { seriesColorVar, type StackedDay } from "@/components/svg-series";
+import type { StackedDay } from "@/components/svg-series";
 import { copy, table, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
   firstAuthRequiredError,
@@ -39,7 +39,7 @@ import {
   type MortalityResponse,
 } from "@/lib/api/server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
-import { fmtDate, istDayPlus, todayIso } from "@/lib/format";
+import { fmtDate, humanizeEnum, istDayPlus, todayIso } from "@/lib/format";
 import { backendScope, parseScope } from "@/lib/scope";
 import { stageDisplayLabel, stageNameMap, type StageNameMap } from "@/lib/stage-display";
 import { one, type RouteSearchParams } from "@/lib/search-params";
@@ -124,6 +124,12 @@ function ChartCard({ title, hint, children, wide }: { title: string; hint?: stri
   );
 }
 
+/** A bucket label that is a bare backend code ("male", "goat") reads as a word ("Male", "Goat"); names stay as sent. */
+function bucketLabel(label: string | null | undefined): string {
+  if (!label) return "";
+  return /^[a-z][a-z0-9_]*$/.test(label) ? humanizeEnum(label) : label;
+}
+
 /** Template list table head: `background.neutral` band, secondary text (TableHeadCustom look). */
 const HEAD_SX = { "& th": { color: "text.secondary", bgcolor: "background.neutral", fontWeight: 600, whiteSpace: "nowrap" } } as const;
 
@@ -181,7 +187,8 @@ function RateTable({
             {deathsLabel}
           </TableCell>
           <TableCell component="th" scope="col" align="right">
-            {animalsLabel}
+            {/* The copy word is the lowercase noun ("animals") used mid-sentence; a column head is capitalised like its neighbours. */}
+            {animalsLabel.charAt(0).toUpperCase() + animalsLabel.slice(1)}
           </TableCell>
           <TableCell component="th" scope="col" align="right">
             {rateLabel}
@@ -195,7 +202,7 @@ function RateTable({
           const width = rate == null || maxRate <= 0 ? 0 : Math.max(rate > 0 ? 2 : 0, (rate / maxRate) * 100);
           return (
             <TableRow hover key={bucket.key || "__unassigned"}>
-              <TableCell component="th" scope="row" sx={{ typography: "subtitle2" }}>{bucket.label || unassignedLabel}</TableCell>
+              <TableCell component="th" scope="row" sx={{ typography: "subtitle2", whiteSpace: "nowrap" }}>{bucketLabel(bucket.label) || unassignedLabel}</TableCell>
               <TableCell align="right" sx={{ typography: bucket.deaths > 0 ? "subtitle2" : "body2" }}>{nf(bucket.deaths)}</TableCell>
               <TableCell align="right" sx={{ color: "text.secondary" }}>{nf(bucket.animals)}</TableCell>
               <TableCell align="right">{rate == null ? <Box component="span" sx={{ color: "text.secondary" }} title={noRateLabel}>—</Box> : pct(rate)}</TableCell>
@@ -356,7 +363,7 @@ function ShareTable({
           const muted = basisLabels ? basis === "none" : false;
           return (
             <TableRow hover key={`${bucket.basis ?? ""}:${bucket.key}`}>
-              <TableCell component="th" scope="row" sx={{ typography: "subtitle2" }}>{bucket.label || unassignedLabel || bucket.key}</TableCell>
+              <TableCell component="th" scope="row" sx={{ typography: "subtitle2", whiteSpace: "nowrap" }}>{bucketLabel(bucket.label) || unassignedLabel || bucket.key}</TableCell>
               {basisLabels ? (
                 <TableCell>
                   <Label variant="soft" color={basis === "recorded" ? "success" : basis === "inferred" ? "info" : "default"}>{basisLabels[basis]}</Label>
@@ -478,12 +485,9 @@ export async function MortalityPage({
   } as const;
 
   const monthDays: StackedDay[] = data.months.map((m) => ({ key: m.month, label: m.label, segments: [m.kids, m.adults] }));
-  // StackedColumns colours its segments by series INDEX from the shared palette, so the legend
-  // takes the same index-derived colour rather than naming one of its own.
-  const monthSeries = [
-    { label: mc(pageContract, "series.kids"), colorVar: seriesColorVar(0) },
-    { label: mc(pageContract, "series.adults"), colorVar: seriesColorVar(1) },
-  ];
+  // Kids over adults take the template AnalyticsWebsiteVisits default pair (primary.dark /
+  // warning.main); a palette KEY such as "primary" is not a CSS colour and paints black in Apex.
+  const monthSeries = [{ label: mc(pageContract, "series.kids") }, { label: mc(pageContract, "series.adults") }];
   const causeEstablished = totals.cause_recorded + totals.cause_inferred;
   const rateWithAnimals = (rate: number | null | undefined, animals: number) =>
     rate == null ? noRate : `${pct(rate)} · ${nf(animals)} ${animalsWord}`;
@@ -572,7 +576,6 @@ export async function MortalityPage({
         empty={<EmptyContent title={emptyChart} />}
         chart={{
           categories: monthDays.map((d) => d.label),
-          colors: monthSeries.map((series) => series.colorVar),
           series: monthSeries.map((series, i) => ({ name: series.label, data: monthDays.map((d) => d.segments[i] ?? 0) })),
           options: { chart: { stacked: true }, plotOptions: { bar: { columnWidth: "36%" } } },
         }}

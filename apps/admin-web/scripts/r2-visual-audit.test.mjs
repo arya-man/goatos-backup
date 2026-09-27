@@ -118,3 +118,7 @@ test("touched files map to routes through the import graph; shell files flag the
   assert.deepEqual(set.routes, [...SHELL_ROUTES, "/a"]);
   assert.deepEqual(set.skipped, ["/b"]);
 });
+
+test("chart-black: an unresolved chart colour (black series mark) is a P0", () => {
+  assert.equal(isP0("chart-black|path.apexcharts-bar-area"), true);
+});
