@@ -178,39 +178,10 @@ export type KpiShape = {
   hint?: boolean;
   /** Two readings in one card (BookingCheckInWidgets split). */
   parts?: boolean;
-  /** "tint" / "gradient" KpiCard (AnalyticsWidgetSummary: icon on top, h4 figure). */
-  hero?: boolean;
 };
 
 /** Loading twin of the plain `KpiCard`: subtitle2 label, h3 figure (h4 at xs), optional rows. */
-export function KpiCardSkeleton({ spark, icon, trend, hint, parts, hero }: KpiShape) {
-  if (hero) {
-    return (
-      <Card aria-hidden="true" sx={{ p: { xs: 2, sm: 3 }, height: 1, boxShadow: "none" }}>
-        {icon ? <Skeleton variant="rounded" width={48} height={48} sx={{ mb: { xs: 1.5, sm: 3 } }} /> : null}
-        <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", gap: 1 }}>
-          <Box sx={{ flexGrow: 1, minWidth: 112 }}>
-            <SkeletonLine variant="subtitle2" width="56%" sx={{ mb: 1 }} />
-            {parts ? (
-              <Stack direction="row" sx={{ mt: 1.5, gap: 2 }}>
-                {[0, 1].map((i) => (
-                  <Box key={i} sx={{ flex: "1 1 0" }}>
-                    <SkeletonLine variant="h5" width="60%" sx={{ mb: 0.5 }} />
-                    <SkeletonLine variant="body2" width="70%" />
-                  </Box>
-                ))}
-              </Stack>
-            ) : (
-              <SkeletonLine variant="h4" width="46%" />
-            )}
-            {trend ? <SkeletonLine variant="subtitle2" width="48%" sx={{ mt: 1 }} /> : null}
-            {hint ? <SkeletonLine variant="body2" width="72%" sx={{ mt: 0.5 }} /> : null}
-          </Box>
-          {spark ? <Skeleton variant="rounded" width={84} height={56} /> : null}
-        </Box>
-      </Card>
-    );
-  }
+export function KpiCardSkeleton({ spark, icon, trend, hint, parts }: KpiShape) {
   return (
     <Card aria-hidden="true" sx={{ p: { xs: 2, sm: 3 }, height: 1 }}>
       <Box sx={{ display: "flex", flexWrap: spark ? "wrap" : "nowrap", alignItems: "center", gap: 2 }}>
