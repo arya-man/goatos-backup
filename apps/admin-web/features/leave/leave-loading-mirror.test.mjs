@@ -18,3 +18,13 @@ test("leave loading mirrors the page blocks and layout constants", () => {
   assert.match(page, /fallback=\{<KpiRowSkeleton count=\{4\} size=\{LEAVE_TILE_SIZE\} \/>\}/);
   assert.doesNotMatch(page, /statusCounts\)\.some\(/, "the tile row must not hide at all-zero");
 });
+
+test("the leave toolbar and its skeleton read one select width (REVIEW-45 O73)", () => {
+  const toolbar = read("./leave-toolbar.tsx");
+  assert.doesNotMatch(toolbar, /sm: 160\b/);
+  assert.equal((toolbar.match(/minWidth: \{ xs: 0, sm: LEAVE_SELECT_WIDTH \}/g) ?? []).length, 2);
+  assert.match(read("./leave-layout.ts"), /LEAVE_TOOLBAR_FIELDS[^=]*= \[LEAVE_SELECT_WIDTH, LEAVE_SELECT_WIDTH,/);
+  const routines = read("../pen-routines/routines-chrome.tsx");
+  assert.doesNotMatch(routines, /sm: 160\b/);
+  assert.match(routines, /minWidth: \{ xs: 0, sm: ROUTINES_SELECT_WIDTH \}/);
+});

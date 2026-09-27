@@ -11,6 +11,7 @@ import { FilterBar } from "@/components/app/filter-bar";
 import { DenseToggle } from "@/components/app/dense-toggle";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
+import { ROUTINES_SELECT_WIDTH } from "./routines-layout";
 import { DateRangeField } from "@/components/app/date-range-field";
 import { TablePaginationLinks } from "@/components/app/table/table-pagination-links";
 
@@ -214,7 +215,7 @@ export function RoutinesToolbarRow({
               label={f.label}
               value={f.options.some((option) => option.value === f.value) ? f.value : ""}
               onChange={({ target: { value: v } }) => patch({ [f.param]: v || null })}
-              sx={{ minWidth: { xs: 0, sm: 160 }, flexShrink: 0, maxWidth: 1 }}
+              sx={{ minWidth: { xs: 0, sm: ROUTINES_SELECT_WIDTH }, flexShrink: 0, maxWidth: 1 }}
               slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
             >
               <MenuItem value="">{f.allLabel}</MenuItem>

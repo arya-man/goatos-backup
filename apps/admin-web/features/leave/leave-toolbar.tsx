@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { Download, X } from "lucide-react";
 import Button from "@mui/material/Button";
 import { RowMenu } from "@/components/app/row-menu";
+import { LEAVE_SELECT_WIDTH } from "./leave-layout";
 import { FilterBar } from "@/components/app/filter-bar";
 import { DenseToggle } from "@/components/app/dense-toggle";
 import TextField from "@mui/material/TextField";
@@ -136,7 +137,7 @@ function LeaveToolbar({ value, parkOptions, designationOptions, basePath, curren
         label={copyFor("filter.park")}
         value={parkOptions.includes(value.park) ? value.park : ""}
         onChange={({ target: { value: v } }) => patch({ park: v || null })}
-        sx={{ minWidth: { xs: 0, sm: 160 }, flexShrink: 0, maxWidth: 1 }}
+        sx={{ minWidth: { xs: 0, sm: LEAVE_SELECT_WIDTH }, flexShrink: 0, maxWidth: 1 }}
         slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
       >
         <MenuItem value="">{copyFor("filter.park.all")}</MenuItem>
@@ -151,7 +152,7 @@ function LeaveToolbar({ value, parkOptions, designationOptions, basePath, curren
         label={copyFor("filter.designation")}
         value={designationOptions.includes(value.designation) ? value.designation : ""}
         onChange={({ target: { value: v } }) => patch({ designation: v || null })}
-        sx={{ minWidth: { xs: 0, sm: 160 }, flexShrink: 0, maxWidth: 1 }}
+        sx={{ minWidth: { xs: 0, sm: LEAVE_SELECT_WIDTH }, flexShrink: 0, maxWidth: 1 }}
         slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
       >
         <MenuItem value="">{copyFor("filter.designation.all")}</MenuItem>

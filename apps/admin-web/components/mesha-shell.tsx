@@ -280,7 +280,7 @@ const ALL_PARKS_ID = "all";
 // element would otherwise cut off (`&&` outranks `.screen.on { display: block }`).
 const PENDING_ROOT_SX = {
   display: "contents",
-  "&& > :is(.screen, .kit-page, .kit-enter, .pagegrid, .herd-signals-page, .lt-page)": { display: "grid", gap: "var(--sp-3)", minWidth: 0, alignContent: "start" },
+  "&& > :is(.screen, .kit-page, .kit-enter, .pagegrid, .herd-signals-page, .lt-page)": { display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: "var(--sp-3)", minWidth: 0, alignContent: "start" },
   "&& > :is(.screen, .kit-page, .kit-enter, .pagegrid, .herd-signals-page, .lt-page) > *": { mt: 0, mb: 0, minWidth: 0 },
 } as const;
 const PARK_MARK = "/assets/icons/workspaces/park-mark.svg";

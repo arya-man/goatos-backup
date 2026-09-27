@@ -38,7 +38,7 @@ import { LeaveConfigPanel } from "./leave-config-panel";
 import { LeaveActionTelemetry } from "./leave-telemetry";
 import { LeaveRejectDialog } from "./leave-reject-dialog";
 import { LeaveDenseScope, LeaveTableChrome, LeaveToolbarRow } from "./leave-toolbar";
-import { DEFAULT_PAGE_SIZE, LEAVE_TILE_SIZE, STATUS_FILTERS } from "./leave-layout";
+import { DEFAULT_PAGE_SIZE, LEAVE_LIST_HEADER_SX, LEAVE_QUEUE_HEADER_SX, LEAVE_TILE_SIZE, STATUS_FILTERS } from "./leave-layout";
 
 const PATHNAME = "/leave";
 const LEAVE_TILES = [
@@ -177,7 +177,7 @@ export async function LeavePage({
             <Card className="kit-tablecard" data-testid="leave-queue">
               <LeaveDenseScope>
               <CardHeader
-                sx={{ pt: 2.5, px: 3, pb: 1.5, mb: 2, alignItems: "center" }}
+                sx={LEAVE_QUEUE_HEADER_SX}
                 title={queueTable.title}
                 action={queueRows.length ? <Label variant="soft" color="info">{queueRows.length}</Label> : null}
               />
@@ -294,7 +294,7 @@ export async function LeavePage({
             <Card className="kit-tablecard" data-testid="leave-list">
               <LeaveDenseScope>
               <CardHeader
-                sx={{ pt: 2.5, px: 3, pb: 1.5, alignItems: "center" }}
+                sx={LEAVE_LIST_HEADER_SX}
                 title={listTable.title}
               />
               {/* Template user list: the status Tabs (Label counts) are the card's first row; scroll

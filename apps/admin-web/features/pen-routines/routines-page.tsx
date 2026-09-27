@@ -40,6 +40,7 @@ import { fmtDate, todayIso } from "@/lib/format";
 import { all, boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { RoutineDrawerForm, RoutineSaveFooter } from "./routine-drawer";
 import { RoutinesDenseScope, RoutinesTableChrome, RoutinesToolbarRow } from "./routines-chrome";
+import { ROUTINES_CARD_HEADER_SX, ROUTINE_TILE_SIZE } from "./routines-layout";
 import Button from "@mui/material/Button";
 
 /**
@@ -433,15 +434,16 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
           </Alert>
         ) : null}
 
-        {/* A deck of zeros is a wall, not a reading: the tiles render only once a day has counts. */}
-        {/* KPI tiles and both tables' rows swap to their skeleton on a filter / park / day / page
+        {/* The Today tiles render at zero too (an empty-but-OK day keeps its section with zero
+            counts), so the loading twin's tile row always lands on one (guard: routines-loading-mirror).
+            KPI tiles and both tables' rows swap to their skeleton on a filter / park / day / page
             change (guard: url-keyed-panel); the card headers stay on screen. */}
-        <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<KpiRowSkeleton count={5} icon />}>
-        {tasks && summaryTiles.some((tile) => Number(tasks.summary[tile.key]) > 0) ? (
+        <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<KpiRowSkeleton count={5} size={ROUTINE_TILE_SIZE} />}>
+        {tasks ? (
           // Template overview/course: CourseWidgetSummary count tiles on a spacing-3 Grid.
           <Grid container spacing={3}>
             {summaryTiles.map((tile) => (
-              <Grid key={tile.key} size={{ xs: 12, sm: 6, md: 4, lg: "grow" }}>
+              <Grid key={tile.key} size={ROUTINE_TILE_SIZE}>
                 <CourseWidgetSummary title={c(tile.copyKey)} total={tasks.summary[tile.key]} icon={tile.icon} color={tile.color} />
               </Grid>
             ))}
@@ -452,7 +454,7 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
         <Card className="kit-tablecard" aria-label={routinesTable.title}>
             <RoutinesDenseScope>
             <CardHeader
-              sx={{ px: 3, pt: 2.5, pb: 1.5, alignItems: "center", gap: 1.5, flexWrap: "wrap" }}
+              sx={ROUTINES_CARD_HEADER_SX}
               title={routinesTable.title}
               action={routines.length ? <Label variant="soft" color="info">{filteredRoutines.length}</Label> : null}
             />
@@ -538,7 +540,7 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
         <Card className="kit-tablecard" aria-label={tasksTable.title}>
             <RoutinesDenseScope>
             <CardHeader
-              sx={{ px: 3, pt: 2.5, pb: 1.5, alignItems: "center", gap: 1.5, flexWrap: "wrap" }}
+              sx={ROUTINES_CARD_HEADER_SX}
               title={tasksTable.title}
               subheader={data.todayPark?.name}
               action={data.todayPark ? <Label variant="soft" color="info">{taskRows.length}</Label> : null}

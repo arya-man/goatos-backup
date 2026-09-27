@@ -192,10 +192,13 @@ Spec: `docs/design/mui-minimal-spec.md`. Tokens: `app/minimal-tokens.css`. Gate:
   predicate (guard: `sop-editor-predicate`: page, UrlSuspense `fallbackBy` "a|b" and loading share it).
   Table cards are compared by their chrome above the rows (header, tabs, toolbar, thead): rows are data.
   PageHeaderSkeleton `titleWidth` = the title's width, so the phone header wraps its actions like the page.
-  SK3 twins: a framed PageSkeleton root (`screen`, `pagegrid`, `herd-signals-page`, `lt-page`) carries the
-  24px frame gap itself (the shell's pending skeleton sits one `display: contents` box below `.wrap`, where
-  frame.css's `.wrap>.screen` gap missed it, so click-path skeletons ran 24px short); a gap root is a
-  `minmax(0,1fr)` grid (a scrollable TabsSkeleton otherwise widens it past a phone). A WorklistFilters /
+  SK1/SK3 twins: the shell's pending skeleton sits one `display: contents` box below `.wrap`, where
+  frame.css's `.wrap>.screen` gap missed it (click-path skeletons ran 24px short); that wrapper
+  (mesha-shell `PENDING_ROOT_SX`, guard `pending-skeleton-root-gap`) restates the page grid (24px gap,
+  `minmax(0,1fr)` column so a scrollable TabsSkeleton never widens it past a phone) for the root it wraps.
+  One mechanism: PageSkeleton adds no frame gap of its own. A FilterBar summary strip renders only with
+  content (guard `filter-summary-only-with-content`); a KPI tile row the loading twin draws renders at
+  zero too (guards `leave-loading-mirror`, `routines-loading-mirror`). A WorklistFilters /
   FilterBar fold card is `FilterCardSkeleton fold` (fields leave for one Filters button below md). One
   `features/<x>/<x>-skeletons.tsx` per page feeds loading.tsx AND the page's UrlSuspense fallbacks.
   Verify the click path on `next dev` with `r2-visual-audit --checks skeleton --skeleton-profiles

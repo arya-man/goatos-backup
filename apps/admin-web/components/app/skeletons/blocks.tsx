@@ -54,21 +54,16 @@ const FIELD_H = 54;
 
 const wobble = (i: number, base = 44, span = 36) => `${base + ((i * 37) % span)}%`;
 
-const FRAME_GAP_ROOTS = new Set(["screen", "pagegrid", "herd-signals-page", "lt-page"]);
-
 /**
  * The page root while loading: the SAME root the page renders (`.screen.on` by default — the 24px
  * block rhythm of the page column), busy for assistive tech. `root` is the page root's own class list
  * when it is not `screen on` (weights-page, vplan, wb, pagegrid …); `gap` mirrors a root that sets its
  * own gap.
  */
-export function PageSkeleton({ children, root = "screen on", className, gap: gapIn }: { children: ReactNode; root?: string; className?: string; gap?: number }) {
-  // frame.css gives a page root that is a DIRECT child of `.wrap` (`.screen`, `.pagegrid`,
-  // `.herd-signals-page`, `.lt-page`) its 24px block gap. The shell's pending-route skeleton (a
-  // sidebar / link click) sits one `display: contents` box deeper, so that rule missed it and the
-  // click-path skeleton ran 24px short of loading.tsx and the page. The gap is carried here instead.
-  const framed = root.split(/\s+/).some((c) => FRAME_GAP_ROOTS.has(c));
-  const gap = gapIn ?? (framed ? 3 : undefined);
+export function PageSkeleton({ children, root = "screen on", className, gap }: { children: ReactNode; root?: string; className?: string; gap?: number }) {
+  // The frame.css page gap (`.wrap > .screen` grid, 24px) reaches this root in loading.tsx; the shell's
+  // click-time pending skeleton restates it on its wrapper (mesha-shell PENDING_ROOT_SX, guard
+  // pending-skeleton-root-gap), so no root needs a gap of its own here.
   // `.screen.on { display: block }` (mesha-theme.css, two classes) beats a one-class emotion
   // `display: grid`, which silently dropped the gap (the SOP filter card butted against the KPI row).
   // A `.screen` root therefore carries the gap on an inner column, as the pages do
@@ -215,6 +210,7 @@ export function FilterCardSkeleton({
   inCard = false,
   small = false,
   bare = false,
+  summary = false,
 }: {
   fields: FilterField[] | number;
   actions?: number;
@@ -226,6 +222,11 @@ export function FilterCardSkeleton({
   small?: boolean;
   /** FilterBar `bare`: no card, no padding (the template job-list toolbar on the page). */
   bare?: boolean;
+  /**
+   * FilterBar `summary` that is always on (a default filter such as the business day shows as a
+   * result chip): the `px 2.5, pb 2.5` strip with the count, one chip and Clear all (30px row).
+   */
+  summary?: boolean;
 }) {
   const list: FilterField[] = typeof fields === "number" ? Array.from({ length: fields }, () => 200) : fields;
   const acts = actionWidths ?? Array.from({ length: actions }, () => 88);
@@ -258,10 +259,24 @@ export function FilterCardSkeleton({
       ))}
     </Box>
   );
-  if (inCard || bare) return <div data-skel="filters">{body}</div>;
+  const strip = summary ? (
+    <Box sx={{ px: bare ? 0 : 2.5, pt: bare ? 2 : 0, pb: bare ? 0 : 2.5, display: "flex", alignItems: "center", gap: 1 }}>
+      <Skeleton variant="text" width={32} />
+      <ChipSkeleton width={144} height={24} />
+      <Skeleton variant="rounded" width={64} height={30} />
+    </Box>
+  ) : null;
+  if (inCard || bare)
+    return (
+      <div data-skel="filters">
+        {body}
+        {strip}
+      </div>
+    );
   return (
     <Card aria-hidden="true" data-skel="filters" sx={{ overflow: "visible" }}>
       {body}
+      {strip}
     </Card>
   );
 }
@@ -373,7 +388,7 @@ export function KpiRowSkeleton({
   count: number;
   shapes?: KpiShape[];
   /** The page's own Grid item size when it lays its widgets out itself instead of KpiGrid. */
-  size?: Record<string, number>;
+  size?: Record<string, number | "grow" | "auto">;
 } & KpiShape) {
   const cards = Array.from({ length: count }, (_, i) => <KpiCardSkeleton key={i} {...(shapes?.[i] ?? shape)} />);
   return (
@@ -431,13 +446,14 @@ export function StatStripSkeleton({ count, meta = false, card = true }: { count:
 }
 
 /** Card header twin: CardHeader with an h6 title and optional body2 subheader / action. */
-export function CardHeaderSkeleton({ subheader = false, action = false }: { subheader?: boolean; action?: boolean | ReactNode }) {
+export function CardHeaderSkeleton({ subheader = false, action = false, sx }: { subheader?: boolean; action?: boolean | ReactNode; sx?: SxProps<Theme> }) {
+  const actionSx = action && action !== true ? { alignItems: "center", flexWrap: "wrap", rowGap: 1.5, "& .MuiCardHeader-action": { m: 0, minWidth: 0, maxWidth: 1 } } : {};
   return (
     <CardHeader
       title={<Skeleton variant="text" width="32%" />}
       subheader={subheader ? <Skeleton variant="text" width="48%" /> : undefined}
       action={action === true ? <Skeleton variant="rounded" width={96} height={36} /> : action || undefined}
-      sx={action && action !== true ? { alignItems: "center", flexWrap: "wrap", rowGap: 1.5, "& .MuiCardHeader-action": { m: 0, minWidth: 0, maxWidth: 1 } } : undefined}
+      sx={[actionSx, ...(Array.isArray(sx) ? sx : [sx])]}
     />
   );
 }
@@ -519,6 +535,7 @@ export function TableSkeleton({
   header = true,
   subheader = false,
   headerAction = false,
+  headerSx,
   tabs,
   toolbar,
   pager = true,
@@ -534,6 +551,8 @@ export function TableSkeleton({
   header?: boolean;
   subheader?: boolean;
   headerAction?: boolean | ReactNode;
+  /** The page CardHeader's own padding when it overrides the theme's (e.g. `{ px: 3, pt: 2.5, pb: 1.5 }`). */
+  headerSx?: SxProps<Theme>;
   tabs?: ReactNode;
   toolbar?: ReactNode;
   pager?: boolean;
@@ -544,7 +563,7 @@ export function TableSkeleton({
 }) {
   const body = (
     <>
-      {header ? <CardHeaderSkeleton subheader={subheader} action={headerAction} /> : null}
+      {header ? <CardHeaderSkeleton subheader={subheader} action={headerAction} sx={headerSx} /> : null}
       {tabs ? <Box sx={{ px: 2.5, pt: header ? 2 : 0 }}>{tabs}</Box> : null}
       {toolbar}
       {children}

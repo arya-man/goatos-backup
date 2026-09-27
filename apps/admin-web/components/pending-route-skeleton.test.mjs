@@ -50,7 +50,9 @@ test("the pending skeleton wrapper restates the page root grid", () => {
   assert.match(shell, /<Box data-route-skeleton-el="" sx=\{PENDING_ROOT_SX\}>/);
   const sx = shell.slice(shell.indexOf("const PENDING_ROOT_SX"), shell.indexOf("} as const;", shell.indexOf("const PENDING_ROOT_SX")));
   assert.match(sx, /display: "contents"/);
-  assert.match(sx, /"&& > :is\(\.screen[^"]*\)": \{ display: "grid", gap: "var\(--sp-3\)"/);
+  assert.match(sx, /"&& > :is\(\.screen[^"]*\)": \{ display: "grid", gridTemplateColumns: "minmax\(0, 1fr\)", gap: "var\(--sp-3\)"/);
+  // one mechanism: PageSkeleton does not add a second frame gap of its own (REVIEW-45 O74)
+  assert.doesNotMatch(read("./app/skeletons/blocks.tsx"), /FRAME_GAP_ROOTS/);
   const frame = read("../app/frame.css");
   assert.match(frame, /\.wrap>\.screen[^{]*\{display:grid;gap:24px/, "frame.css page grid changed: update PENDING_ROOT_SX with it");
 });
