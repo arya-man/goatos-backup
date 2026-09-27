@@ -450,7 +450,6 @@ export function LeadershipTasksFilters({
           // wraps to a second line rather than collapsing to its icon.
           flexWrap: { md: "wrap" },
           alignItems: { xs: "stretch", md: "center" },
-          opacity: isPending ? 0.8 : 1,
         }}
       >
         {scope && scope.options.length ? <LinkSelect label={scope.label} value={scope.value} options={scope.options} minWidth={180} /> : null}

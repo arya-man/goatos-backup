@@ -231,9 +231,6 @@ details.top-date-picker:not([open])>.top-date-popover,details.move-date-picker:n
 .shell-skeleton .brand{display:flex;align-items:center;gap:10px;min-width:0}
 .shell-skeleton .main{flex:1;min-width:0;overflow:hidden}
 
-/* The page body dims (not the header, not the strip that is navigating) and stops taking pointer
-   input while a link strip's navigation is in flight (components/app/link-nav-pending.tsx). */
-.wrap[data-nav-pending]>:not(.kit-navpend)>*:not(.phead):not(header):not(.kit-tabs):not(.metricseg):not(:has(.MuiTabs-root[aria-busy="true"])):not(:has(.metricseg-pending)){filter:opacity(.6);pointer-events:none;transition:filter 150ms var(--ease)}
 .kit-navpend:empty{display:none}
 /* skeletons paint immediately on busy roots (hard-nav must show shape at once) */
 .shell-skeleton .wrap>*,.wrap>[aria-busy="true"],.wrap>[aria-busy="true"]>*,.wrap>.kit-page[aria-busy="true"]>*{animation:none;opacity:1;transform:none}

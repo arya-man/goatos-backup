@@ -1,5 +1,6 @@
 "use client";
 
+import { ListRowsSkeleton } from "@/components/app/skeletons";
 import { visuallyHidden } from "@mui/utils";
 import Link from "@/components/no-prefetch-link";
 import { useEffect, useState, useTransition } from "react";
@@ -135,15 +136,20 @@ export function WorkBoardSubtasks({ pageContract, row, selectedOwner }: { pageCo
   if (!current) return note(copy(pageContract, "drawer.subtasks.loading"));
   if (current.subtasks.length === 0) return note(copy(pageContract, "drawer.subtasks.empty"));
   return (
-    <Box sx={{ gap: 2, display: "flex", flexDirection: "column", opacity: pending ? 0.7 : 1 }}>
+    <Box sx={{ gap: 2, display: "flex", flexDirection: "column" }}>
       <Typography variant="body2">
         {copy(pageContract, "drawer.subtasks.showing")} <b>{first}–{last}</b> {copy(pageContract, "drawer.subtasks.of")} <b>{total}</b> {copy(pageContract, "card.total")} · {copy(pageContract, "drawer.subtasks.worst_first")}
       </Typography>
-      <List disablePadding>
-        {current.subtasks.map((sub) => (
-          <SubtaskRow key={sub.key} pageContract={pageContract} sub={sub} />
-        ))}
-      </List>
+      {/* Paging swaps the rows to their skeleton (no dimmed old page: "just switch and show shimmer"). */}
+      {pending ? (
+        <ListRowsSkeleton rows={Math.max(1, current.subtasks.length)} trailing={false} />
+      ) : (
+        <List disablePadding>
+          {current.subtasks.map((sub) => (
+            <SubtaskRow key={sub.key} pageContract={pageContract} sub={sub} />
+          ))}
+        </List>
+      )}
       {npages > 1 ? (
         <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1, typography: "body2" }}>
           <Button size="small" color="inherit" disabled={pageNo <= 1 || pending} onClick={() => setPages((prev) => prev.slice(0, -1))} startIcon={<Iconify icon="eva:arrow-ios-back-fill" width={16} />}>

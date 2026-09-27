@@ -127,17 +127,14 @@
   /* The rows the bar is replacing. They stay READABLE — the old answer is still true until the new
      one lands, and blanking the table would throw away what the reader is comparing against — but
      they are visibly held back and inert so a stale row cannot be clicked or misread as the result. */
-  .wfbusy{opacity:.55;transition:opacity .12s ease-in-out;pointer-events:none}
   /* A table re-ordered by the backend ("sort all rows"): only ITS rows are held back while the new
      order is on its way -- the page, its filters and every other section stay as they are. */
-  .tablewrap-busy tbody{opacity:.6;transition:opacity .12s ease-in-out;pointer-events:none}
   @media(prefers-reduced-motion:reduce){
     .routebar.on span{animation:none;transform:none;width:100%}
     a[data-route-pending="true"]::after{animation:none}
     /* Still, but still VISIBLE: the ring keeps its brand-coloured top edge, so "busy" is carried by
        contrast rather than by motion. */
     .wfspin{animation:none}
-    .wfbusy{transition:none}
   }
   .parkpick{display:flex;align-items:center;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:3px;flex:none}
   .parkpick button,.parkpick a{border:0;background:transparent;padding:6px 12px;border-radius:7px;font:inherit;font-weight:600;color:var(--muted);cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;white-space:nowrap;flex:0 0 auto}
@@ -422,7 +419,7 @@
     .top-date-popover{right:auto;left:0;width:min(306px,calc(100vw - 24px))}
   }
 
-  .vr-module-legend.busy{cursor:progress;opacity:.76}
+  .vr-module-legend.busy{cursor:progress}
   .vr-results-zone{position:relative;min-height:190px}
   .vr-results-loading{display:none;position:absolute;inset:0;z-index:2;padding:8px 0;background:linear-gradient(180deg,color-mix(in srgb,var(--panel) 82%,transparent),color-mix(in srgb,var(--panel) 62%,transparent));pointer-events:none}
   .vr-results-loading span{display:block;height:42px;margin:10px 0;border-radius:8px;background:linear-gradient(90deg,color-mix(in srgb,var(--line) 52%,transparent),color-mix(in srgb,var(--muted) 18%,transparent),color-mix(in srgb,var(--line) 52%,transparent));background-size:220% 100%;animation:vr-loading-sweep 1.05s ease-in-out infinite}
@@ -432,11 +429,11 @@
   .vr-results-loading span:nth-child(4){width:86%}
   body[data-vr-module-loading="1"] .vr-results-zone{min-height:230px}
   body[data-vr-module-loading="1"] .vr-table,
-  body[data-vr-module-loading="1"] .pager{opacity:.16}
+  body[data-vr-module-loading="1"] .pager{visibility:hidden}
   body[data-vr-module-loading="1"] .vr-results-loading{display:block}
   .vr-board:has(.vr-module-legend.busy) .vr-results-zone{min-height:230px}
   .vr-board:has(.vr-module-legend.busy) .vr-table,
-  .vr-board:has(.vr-module-legend.busy) .pager{opacity:.22}
+  .vr-board:has(.vr-module-legend.busy) .pager{visibility:hidden}
   .vr-board:has(.vr-module-legend.busy) .vr-results-loading{display:block}
   @keyframes vr-loading-sweep{0%{background-position:120% 0}100%{background-position:-120% 0}}
 
@@ -2017,7 +2014,7 @@ select:disabled { opacity: .45 }
    the card's right edge at 1440 as one unbroken line. */
 .lt-page .lt-fnote{color:var(--faint);font-size:11px;margin-left:auto;white-space:normal;min-width:0;flex:0 1 auto;text-align:right}
 /* The live tracker's own filter bar. It holds nothing but its own controls, so the shared
-   `.wfbusy{opacity:.55;pointer-events:none}` dimming is right for it and stays -- this rule only
+   `.wfbusy` hook (no dimming any more: navigation shows skeletons) -- this rule only
    adds the ring on top. Do NOT fold the sheet-hosting rule below into this selector: doing so
    drops the dimming here too, on a bar that never had the problem that rule exists for. */
 .lt-page .lt-fbar.wfbusy{box-shadow:0 0 0 2px var(--ring)}

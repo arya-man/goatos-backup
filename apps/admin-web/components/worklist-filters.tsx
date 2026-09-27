@@ -621,7 +621,6 @@ export function WorklistFilters({
           pageContract={pageContract}
           search={search}
           applied={searchApplied}
-          busy={busy}
           onCommit={(value) => applyFilter(search.param, value)}
         />
       ) : null}
@@ -1217,13 +1216,11 @@ function CompareFilter({
 function WorklistSearchField({
   search,
   applied,
-  busy,
   onCommit,
   pageContract,
 }: {
   search: WorklistSearch;
   applied: string;
-  busy: boolean;
   onCommit: (value: string) => void;
   pageContract: AdminUiPageContract;
 }) {
@@ -1258,7 +1255,7 @@ function WorklistSearchField({
         event.preventDefault();
         onCommit(draft.trim());
       }}
-      sx={{ flex: "1 1 240px", minWidth: { xs: 1, md: 200 }, opacity: busy ? 0.7 : 1 }}
+      sx={{ flex: "1 1 240px", minWidth: { xs: 1, md: 200 } }}
       slotProps={{
         htmlInput: { "aria-label": search.ariaLabel ?? search.placeholder ?? copy(pageContract, "a11y.search", "Search") },
         input: {

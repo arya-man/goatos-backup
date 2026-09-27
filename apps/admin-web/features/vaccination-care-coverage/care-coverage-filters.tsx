@@ -74,7 +74,7 @@ export function CareCoverageFilters({
   // outlined TextField selects, then the applied filters as MUI Chips with a Clear action.
   const hasChips = Boolean(parkSelected) || penSelected.length > 0 || Boolean(clearAllHref);
   return (
-    <Box aria-busy={isPending} sx={{ opacity: isPending ? 0.6 : 1, transition: (theme) => theme.transitions.create("opacity") }}>
+    <Box aria-busy={isPending}>
       <Box
         sx={{
           p: 2.5,

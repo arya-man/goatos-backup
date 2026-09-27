@@ -8,11 +8,11 @@ import test from "node:test";
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), "utf8");
 
-test("the data-nav-pending dim exempts a block containing a busy tab strip", () => {
+// Superseded (Ravi 2026-09-28 "just switch and show shimmer"): the page body is never dimmed while a
+// navigation is in flight; the shell and the URL panels show skeletons (guard: pending-dim).
+test("no data-nav-pending dim rule is left in frame.css", () => {
   const css = read("../../app/frame.css");
-  const rule = css.split("\n").find((l) => l.startsWith(".wrap[data-nav-pending]"));
-  assert.ok(rule, "dim rule present");
-  assert.match(rule, /:not\(:has\(\.MuiTabs-root\[aria-busy="true"\]\)\)/);
+  assert.equal(css.split("\n").some((l) => l.startsWith(".wrap[data-nav-pending]")), false);
 });
 
 test("TemplateTabs and UrlTabs set aria-busy while their navigation is pending", () => {

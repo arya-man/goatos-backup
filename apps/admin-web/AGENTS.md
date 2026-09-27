@@ -192,6 +192,10 @@ Spec: `docs/design/mui-minimal-spec.md`. Tokens: `app/minimal-tokens.css`. Gate:
   predicate (guard: `sop-editor-predicate`: page, UrlSuspense `fallbackBy` "a|b" and loading share it).
   Table cards are compared by their chrome above the rows (header, tabs, toolbar, thead): rows are data.
   PageHeaderSkeleton `titleWidth` = the title's width, so the phone header wraps its actions like the page.
+- **No dimming while navigating (guard: `pending-dim` in design:guard, P0; Ravi 2026-09-28 "just switch
+  and show shimmer").** A path / tab / segment / filter / sort / pager navigation swaps the affected
+  area to its skeleton (UrlSuspense panel, the shell's pending route skeleton). Never `opacity: <pending>
+  ? …`, never CSS opacity / filter on `[data-nav-pending]`, a `.wrap` busy root or a `*busy` class.
 - **Tab strips stay mounted across navigation (guards: `tab-strip-no-memo`, `gain-view-local`).** A client
   component rendered from a server page is never wrapped in `memo()` (it remounts on every RSC
   navigation); a pure view switch inside a URL panel (chart/table) is LocalViewToggle + LocalViewPane.

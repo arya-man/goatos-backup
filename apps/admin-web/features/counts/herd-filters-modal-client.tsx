@@ -73,7 +73,6 @@ export function HerdFiltersModalClient({
           display: "flex",
           flexDirection: { xs: "column", sm: "row" },
           alignItems: { xs: "stretch", sm: "center" },
-          opacity: isPending ? 0.6 : 1,
         }}
       >
         <Box component="form" onSubmit={onSearch} sx={{ flex: "1 1 auto", minWidth: 0 }}>

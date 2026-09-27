@@ -51,7 +51,6 @@ export function TaskBoardCard({
       sx={{
         cursor: draggable ? "grab" : "pointer",
         ...(dragging ? { filter: "grayscale(1)", "& > *": { opacity: 0.4 } } : {}),
-        ...(pending ? { opacity: 0.72 } : {}),
       }}
     >
       <Box

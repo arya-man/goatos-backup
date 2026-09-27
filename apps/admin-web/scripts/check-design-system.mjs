@@ -222,6 +222,7 @@ const CHECKS = {
   "server-element-prop": { tier: "p0", why: "a SERVER module passes a JSX element in an MUI prop that MUI clones (Stack divider, Tab/Chip icon, Chip avatar/deleteIcon, Checkbox/Radio checkedIcon): it arrives as a lazy RSC reference while its client chunk loads, cloneElement yields an undefined type and the page crashes on some loads (FJ1 P0-1 /goats/[goat_id]); use components/app/divided-stack (client) or move the element into a \"use client\" leaf" },
   "server-function-prop": { tier: "p0", why: "a SERVER module (reachable from an app/ page/layout/loading without crossing a \"use client\" file) passes a function sx / (theme) => callback to an MUI element: MUI parts are client components, so the render crashes with 'Functions cannot be passed directly to Client Components' (/sales/sold, digest 3801663639) while typecheck and next build stay green. Mark the module \"use client\" or use an object sx with theme tokens" },
   "client-api-without-use-client": { tier: "p0", why: "a module that calls a client-only React/Next API (useState/useEffect/useRef/useTransition/useRouter/useSearchParams/usePathname/useLinkStatus …) or wires a JSX event handler (onClick={…}) must start with \"use client\"; otherwise a server component that imports it breaks `next build` (typecheck does not catch it)" },
+  "pending-dim": { tier: "p0", why: "no dimming while navigating (Ravi 2026-09-28: 'just switch and show shimmer'): a tab / segment / filter / sort / pager / path navigation swaps the affected area to its skeleton (UrlSuspense panel, the shell's pending route skeleton); nothing fades or dims the old content (no `opacity: <pending> ? …`, no CSS opacity / filter on [data-nav-pending] / [aria-busy])" },
   "hand-drawn-skeleton": { tier: "p0", why: "loading shapes come only from the shared blocks in components/app/skeletons (they render the same Card/Grid/Tabs/Table parts as the page): a loading.tsx or a features/**/*skeleton*.tsx composes those blocks and nothing else (no MUI Skeleton, no raw elements, no inline style, no legacy .skel/.kit-sk classes), and no other app code draws its own MUI Skeleton" },
   "url-keyed-panel": { tier: "p0", why: "a page with a URL-driven tab strip / segment / chip / select / pager / date filter must render its data panels through <UrlSuspense> (components/app/url-suspense.tsx) keyed by the params they read, and every such control navigates through useUrlTabNav / useUrlNavigate / announceUrlNav: the click moves the tab and swaps the panel to its skeleton in the same frame, header/tabs/filters stay mounted, content streams in (Ravi 2026-09-27: 'the tab transition HANGS')" },
   "app-wrapper-css-import": { tier: "p0", why: "components/app/ holds thin behaviour wrappers over template + MUI components only; they must not import .css / .module.css — style through the template component's props/theme instead" },
@@ -672,6 +673,27 @@ function runGuard(root, { themeDiff }) {
     }
   }
 
+  // pending-dim (Ravi 2026-09-28, "just switch and show shimmer"): a pending navigation never dims or
+  // fades the old content; the affected area shows its skeleton. Flags an opacity / filter tied to a
+  // pending / busy flag in TS(X), and CSS opacity / filter on [data-nav-pending] or [aria-busy].
+  {
+    const TSX_DIM = /\b(?:opacity|filter)\s*:\s*\(?\s*(?:[\w.?]*\b(?:is)?[pP]ending\b|[\w.?]*\b(?:is)?[bB]usy\b|[\w.?]*navPending\b)[\w.?]*\s*\)?\s*\?/;
+    const TSX_SPREAD_DIM = /\b(?:is)?[pP]ending\b[^?\n]*\?\s*\{[^}]*\bopacity\s*:/;
+    // CSS: a pending-navigation hook ([data-nav-pending], a busy page root under .wrap) that lowers
+    // opacity or filters. `opacity:1` resets (skeleton roots painting at once) are not dims.
+    const CSS_DIM = /(?:\[data-nav-pending[^\]]*\]|\.wrap[^{,]*\[aria-busy[^\]]*\]|\.[\w-]*busy\b[^{,]*)[^{]*\{[^}]*(?:opacity\s*:\s*(?:0?\.\d|0\b)|filter\s*:\s*[^;}]*opacity)/;
+    for (const abs of SCAN_DIRS.flatMap((dir) => walk(join(root, dir)))) {
+      const rel = toRel(root, abs);
+      if (rel.startsWith("components/minimal/") || /\.(test|stories)\.[tj]sx?$/.test(rel)) continue;
+      const isCss = /\.css$/.test(rel);
+      if (!isCss && !/\.tsx?$/.test(rel)) continue;
+      readFileSync(abs, "utf8").split("\n").forEach((line, index) => {
+        const code = isCss ? line : line.replace(/\/\/.*$/, "");
+        if (isCss ? CSS_DIM.test(code) : TSX_DIM.test(code) || TSX_SPREAD_DIM.test(code)) findings.push(finding("pending-dim", rel, index + 1, line));
+      });
+    }
+  }
+
   // components/app/ holds thin behaviour wrappers over template + MUI components (Caption's
   // long-text→InfoHint swap, InfoHint's server-safe glyph+tooltip, PageHeader's route/crumb wiring,
   // page skeleton layouts, EmptyState copy defaults). They must render ONLY template/MUI parts and
@@ -1085,6 +1107,9 @@ async function selfTest() {
   put("app/frame.css", ".wrap .MuiCard-root{background:var(--paper)}\n.fld label:where(:not(.MuiFormLabel-root)){color:var(--muted)}\n.MuiInputBase-input{border:0;background-color:transparent}\n.main th{color:var(--fg-muted)}\n.main td:not(.MuiTableCell-root){border-bottom:1px dashed var(--line)}\n");
   put("components/bad.css", ".x { color: #abcdef; }\n.g{background:#0E1512}\n.y{padding:12px;border-radius:10px;box-shadow:0 4px 8px black;font-size:13px}\n@media (max-width:600px){\n.btn{min-height:32px}\n}\n.metricseg a.on{background:var(--paper)}\n");
   // A template drawer width on the template drawer is allowed (no fixed-px-width, no drawer finding).
+  put("features/dim-bad.tsx", 'export const X = ({ isPending }) => <Box sx={{ opacity: isPending ? 0.6 : 1 }} />;\n');
+  put("features/dim-ok.tsx", 'export const Y = ({ flashing }) => <Box sx={{ opacity: flashing ? 1 : 0 }} />;\n');
+  put("app/dim-bad.css", '.wrap[data-nav-pending]>*{filter:opacity(.6)}\n.x-busy tbody{opacity:.6}\n');
   put("features/ok-drawer.tsx", [
     '"use client";',
     'import { MinimalDrawer } from "@/components/app/drawer";',
@@ -1256,6 +1281,14 @@ async function selfTest() {
   const expected = Object.keys(CHECKS).filter((c) => c !== "theme-token-drift" && c !== "brand-lock");
   const missing = expected.filter((c) => !got.has(c));
   const okPageFlagged = findings.some((f) => f.file === "app/(admin)/ok/page.tsx");
+  if (!findings.some((f) => f.check === "pending-dim" && f.file === "features/dim-bad.tsx") || !findings.some((f) => f.check === "pending-dim" && f.file === "app/dim-bad.css")) {
+    console.error("design_system_self_test=FAIL pending-dim missed an opacity tied to a pending flag or a [data-nav-pending] CSS dim");
+    process.exit(1);
+  }
+  if (findings.some((f) => f.check === "pending-dim" && f.file === "features/dim-ok.tsx")) {
+    console.error("design_system_self_test=FAIL pending-dim flagged an opacity that is not a pending-navigation dim");
+    process.exit(1);
+  }
   const sfpRef = findings.find((f) => f.check === "server-function-prop" && f.file === "features/sfp/tabs-row.tsx");
   if (!sfpRef || !/component=\{ServerLink\}/.test(sfpRef.snippet)) {
     console.error("design_system_self_test=FAIL server-function-prop did not flag a server-module forwardRef passed as Tab component");

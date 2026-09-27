@@ -275,13 +275,9 @@ export function DataTable<Row>({
       role="region"
       aria-label={ariaLabel}
       aria-busy={serverSort?.pending || undefined}
-      // Whole-result sort in flight (main d660e4f4c): the rows dim in place and take no clicks until
-      // the re-ordered page arrives.
-      sx={{
-        position: "relative",
-        minWidth: 0,
-        ...(serverSort?.pending ? { "& tbody": { opacity: 0.6, transition: "opacity .12s ease-in-out", pointerEvents: "none" } } : null),
-      }}
+      // Whole-result sort in flight: no dimming (Ravi: "just switch and show shimmer"); the sort
+      // navigates through UrlNavRouter, so the URL panel around the table swaps to its skeleton.
+      sx={{ position: "relative", minWidth: 0 }}
     >
       <Scrollbar>
         <Table size={dense ? "small" : "medium"} className={className} aria-label={ariaLabel}>

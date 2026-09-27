@@ -53,7 +53,7 @@ export function LiveTrackerFilters({
   // Template list toolbar card (UserTableToolbar + UserTableFiltersResult): outlined TextField
   // selects that stack full-width on a phone, applied filters as MUI Chips with a Clear action.
   return (
-    <Card aria-busy={isPending} sx={{ mb: 3, opacity: isPending ? 0.6 : 1, transition: (theme) => theme.transitions.create("opacity") }}>
+    <Card aria-busy={isPending} sx={{ mb: 3 }}>
       <Box
         sx={{
           p: 2.5,

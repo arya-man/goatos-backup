@@ -19,8 +19,8 @@ function navKeyOf(pathname: string | null, search: string): string {
  * Those strips navigate in a transition (`useUrlTabNav`): the router keeps the current page on
  * screen until the new one is ready. The strip moves its indicator at once and shows its progress
  * line; this component, mounted once in the shell beside the page, turns the strip's
- * `metricseg:navigate` event into `data-nav-pending` on the page column, which dims the body below
- * the header and the navigating strip and blocks its pointer (app/frame.css). The header, crumbs,
+ * `metricseg:navigate` event into `data-nav-pending` on the page column (a state hook only: nothing
+ * dims any more, guard pending-dim; the URL panels show their skeletons). The header, crumbs,
  * strip and filters never unmount and the page is never swapped for a skeleton. It clears the
  * moment the router lands on ANY new URL (a redirect counts as landing), and gives up after 8s so a
  * failed navigation never leaves the page dimmed.

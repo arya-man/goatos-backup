@@ -295,7 +295,7 @@ export function WorkBoardBoard({
   /** The empty board (template EmptyContent): rendered in place of the columns. */
   empty?: React.ReactNode;
 }) {
-  const { write, navigate, pending } = useUrlWriter();
+  const { write, navigate } = useUrlWriter();
   const searchParams = useSearchParams();
   const boardParams = Object.fromEntries(searchParams?.entries() ?? []);
   const rows = useMemo(() => laneColumns.flatMap((column) => column.rows), [laneColumns]);
@@ -327,7 +327,6 @@ export function WorkBoardBoard({
           flexWrap: { md: "wrap", lg: "nowrap" },
           flexDirection: { xs: "column", md: "row" },
           alignItems: { xs: "stretch", md: "center" },
-          opacity: pending ? 0.7 : 1,
         }}
       >
         {/* The owner filter is the Tasks page's people dropdown, verbatim (maintainer request,
