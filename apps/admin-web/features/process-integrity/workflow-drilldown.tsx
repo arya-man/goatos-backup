@@ -1,5 +1,6 @@
 import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
+import { WF_DETAIL_GRID } from "./workflow-drilldown-layout";
 import Grid from "@mui/material/Grid";
 import Stack from "@mui/material/Stack";
 import Divider from "@mui/material/Divider";
@@ -180,7 +181,7 @@ export async function VaccinationWorkflowDrilldownPage({
       {row.blocker_reason ? <Alert severity="error">{row.blocker_reason}</Alert> : null}
 
       <Grid container spacing={3}>
-        <Grid size={{ xs: 12, md: 8 }}>
+        <Grid size={WF_DETAIL_GRID.chain}>
           <OrderDetailsHistory
             aria-label={copy(pageContract, "section.chain.title")}
             title={copy(pageContract, "section.chain.title")}
@@ -193,7 +194,7 @@ export async function VaccinationWorkflowDrilldownPage({
           />
         </Grid>
 
-        <Grid size={{ xs: 12, md: 4 }}>
+        <Grid size={WF_DETAIL_GRID.side}>
           <Card>
             <OrderDetailsCustomer slotProps={{ line: detailWrapSx }}
               title={copy(pageContract, "label.vaccination_drive")}
