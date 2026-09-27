@@ -14,7 +14,6 @@ import {
   getAdminWebApproval,
   listAdminWebApprovals,
   type AdminWebApprovalItem,
-  type AdminWebApprovalStatus,
 } from "@/lib/api/server";
 import { getCensusLocations } from "@/lib/api/herd-locations";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
@@ -28,7 +27,6 @@ import { approvalDateRange, approvalSubject, approvalSuccessSentence } from "./a
 import Alert from "@mui/material/Alert";
 import AlertTitle from "@mui/material/AlertTitle";
 import Box from "@mui/material/Box";
-import Grid from "@mui/material/Grid";
 import Stack from "@mui/material/Stack";
 
 const PATHNAME = "/approvals";

@@ -68,9 +68,6 @@ export const APPROVALS_COPY = {
     first: "Back to newest",
   },
   kpi: {
-    pendingInView: "Pending in view",
-    birthDeathInView: "Birth / death in view",
-    shiftingInView: "Shifting in view",
     rowsInView: "Rows in view",
   },
   table: {
