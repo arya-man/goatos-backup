@@ -70,7 +70,8 @@ import type { Theme } from "@mui/material/styles";
 import Chip from "@mui/material/Chip";
 import MuiCard from "@mui/material/Card";
 import Paper from "@mui/material/Paper";
-import { StatStrip } from "@/components/minimal/widgets/stat-strip";
+import { KpiGrid } from "@/components/app/kpi-grid";
+import { KpiWidget } from "@/components/app/kpi-widget";
 import { CARDS_PER_PAGE } from "./sop-library-layout";
 
 // The New SOP builder is a dedicated full-page surface at <module SOP page>?compose=1 — the same
@@ -261,17 +262,17 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
       </div>
 
       {/* Spec §5 stat strip — derived from the cards already in hand. Template invoice list:
-          the InvoiceAnalytic row inside its own Card. */}
-      <MuiCard>
-        <StatStrip
-          cells={[
-            { key: "total", icon: <BookText aria-hidden="true" />, label: copy(pageContract, "stat.total"), value: stats.total, tone: "primary" },
-            { key: "active", icon: <Check aria-hidden="true" />, label: copy(pageContract, "filter.status.active"), value: stats.active, tone: "success" },
-            { key: "draft", icon: <FileText aria-hidden="true" />, label: copy(pageContract, "filter.status.draft"), value: stats.draft, tone: "warning" },
-            { key: "retired", icon: <Info aria-hidden="true" />, label: copy(pageContract, "filter.status.retired"), value: stats.retired, tone: "neutral" },
-          ]}
-        />
-      </MuiCard>
+          template CourseWidgetSummary tiles (KpiWidget). */}
+      <KpiGrid>
+        {[
+          { key: "total", label: copy(pageContract, "stat.total"), value: stats.total, color: "primary" as const },
+          { key: "active", label: copy(pageContract, "filter.status.active"), value: stats.active, color: "success" as const },
+          { key: "draft", label: copy(pageContract, "filter.status.draft"), value: stats.draft, color: "warning" as const },
+          { key: "retired", label: copy(pageContract, "filter.status.retired"), value: stats.retired, color: "info" as const },
+        ].map((cell) => (
+          <KpiWidget key={cell.key} title={cell.label} total={cell.value} color={cell.color} sx={{ height: 1 }} />
+        ))}
+      </KpiGrid>
 
       {/* Spec §2 toolbar: search + status/trigger filters, right-aligned actions, filter chips. */}
       <div>

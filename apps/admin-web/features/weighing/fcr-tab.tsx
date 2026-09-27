@@ -10,7 +10,7 @@ import { WorklistPager } from "@/components/worklist-pager";
 import { ConversionRatesCard } from "@/components/app/conversion-rates-card";
 import { AnalyticsWebsiteVisits } from "@/components/minimal/sections/overview/analytics/analytics-website-visits";
 import { BankingBalanceStatistics } from "@/components/minimal/sections/overview/banking/banking-balance-statistics";
-import { EcommerceWidgetSummary } from "@/components/minimal/sections/overview/e-commerce/ecommerce-widget-summary";
+import { KpiWidget } from "@/components/app/kpi-widget";
 import { FCRPensTable } from "./fcr-pens-table";
 import { cohortWord } from "./fcr-labels";
 import { copy, table, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -37,7 +37,6 @@ const num = (value: number, digits = 1) =>
   value.toLocaleString("en-IN", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 
 /** These figures have no series behind them, so the widget draws no sparkline. */
-const NO_SPARK = { categories: [], series: [] };
 
 /** "1 pen", "12 pens": the count and the right word, both from the page contract. */
 function penCount(pageContract: AdminUiPageContract, n: number): string {
@@ -198,32 +197,32 @@ export function FCRTab({
   const kpis = [
     {
       key: "farm",
-      title: copy(pageContract, "kpi.fcr.farm.label"),
-      total: s.fcr == null ? none : `${num(s.fcr, 2)} ${copy(pageContract, "kpi.fcr.farm.unit")}`,
+      title: `${copy(pageContract, "kpi.fcr.farm.label")} (${copy(pageContract, "kpi.fcr.farm.unit")})`,
+      total: s.fcr == null ? null : Number(s.fcr.toFixed(2)),
       caption: `${penCount(pageContract, s.pens_with_fcr)} · ${s.animals.toLocaleString("en-IN")} ${copy(pageContract, "value.fcr.kids")}`,
     },
     {
       key: "gain",
-      title: copy(pageContract, "kpi.fcr.gain_value.label"),
-      total: money(s.gain_value_inr),
+      title: `${copy(pageContract, "kpi.fcr.gain_value.label")} (${rupee})`,
+      total: s.gain_value_inr == null ? null : Math.round(s.gain_value_inr),
       caption: `${num(s.gain_kg, 0)} kg · ${copy(pageContract, "kpi.fcr.gain_value.sub")}`,
     },
     {
       key: "feed",
-      title: copy(pageContract, "kpi.fcr.feed_cost.label"),
-      total: money(s.feed_cost_inr),
+      title: `${copy(pageContract, "kpi.fcr.feed_cost.label")} (${rupee})`,
+      total: s.feed_cost_inr == null ? null : Math.round(s.feed_cost_inr),
       caption: `${num(s.feed_kg, 0)} kg${s.wastage_kg > 0 ? ` (${num(s.wastage_kg, 0)} ${copy(pageContract, "table.fcr.wasted")})` : ""} · ${money(s.feed_cost_per_kg_gain_inr)} ${copy(pageContract, "kpi.fcr.cost_gain.label").toLowerCase()}`,
     },
     {
       key: "margin",
-      title: copy(pageContract, "kpi.fcr.margin.label"),
-      total: money(s.margin_inr),
+      title: `${copy(pageContract, "kpi.fcr.margin.label")} (${rupee})`,
+      total: s.margin_inr == null ? null : Math.round(s.margin_inr),
       caption: s.margin_inr != null && s.margin_inr < 0 ? copy(pageContract, "kpi.fcr.margin.loss") : copy(pageContract, "kpi.fcr.margin.sub"),
     },
     {
       key: "break_even",
       title: copy(pageContract, "kpi.fcr.break_even.label"),
-      total: s.break_even_fcr == null ? none : num(s.break_even_fcr, 1),
+      total: s.break_even_fcr == null ? null : Number(s.break_even_fcr.toFixed(1)),
       caption: copy(pageContract, "kpi.fcr.break_even.sub"),
     },
   ];
@@ -232,7 +231,7 @@ export function FCRTab({
     <Grid container spacing={3}>
       {kpis.map((kpi, index) => (
         <Grid key={kpi.key} size={{ xs: 12, sm: 6, md: index < 3 ? 4 : 6 }}>
-          <EcommerceWidgetSummary title={kpi.title} total={kpi.total} caption={kpi.caption} chart={NO_SPARK} sx={{ height: 1 }} />
+          <KpiWidget title={kpi.title} total={kpi.total} caption={kpi.caption} sx={{ height: 1 }} />
         </Grid>
       ))}
 

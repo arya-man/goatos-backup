@@ -9,9 +9,9 @@ import Card from "@mui/material/Card";
 import Grid from "@mui/material/Grid";
 import Stack from "@mui/material/Stack";
 import { PageHeader } from "@/components/app/page-header";
-import { KpiGrid, splitParts } from "@/components/minimal/widgets";
+import { KpiGrid } from "@/components/app/kpi-grid";
 import { EmptyContent } from "@/components/minimal/empty-content";
-import { EcommerceWidgetSummary } from "@/components/minimal/sections/overview/e-commerce/ecommerce-widget-summary";
+import { KpiWidget, splitParts } from "@/components/app/kpi-widget";
 import { EcommerceSaleByGender } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sale-by-gender";
 import {
   EcommerceSalesOverview,
@@ -118,7 +118,6 @@ const SERIES_COLOR = {
 const nf = (value: number) => value.toLocaleString("en-IN");
 
 /** Net change is the one figure that can be negative, and the sign is the point. */
-const signed = (value: number) => (value > 0 ? `+${nf(value)}` : nf(value));
 
 function ha(pageContract: AdminUiPageContract, key: string): string {
   return copy(pageContract, key);
@@ -244,15 +243,6 @@ export async function HerdAnalyticsPage({
   // Colour follows the SERIES (births green, deaths red) on the flow chart and the KPI sparklines.
   const flowKeys = ["births", "deaths", "sold", "other_exits"] as const;
   const flowSeries = flowKeys.map((key) => ({ name: ha(pageContract, `series.${key}`), data: data.months.map((m) => m[key]) }));
-  // KPI sparklines are the SAME monthly series the flow chart draws (one point per served month), so
-  // the card and the chart can never disagree. Fewer than four months is not a shape, so a short
-  // window shows the figure alone and no trend chip is invented from it.
-  const spark = (key: "births" | "deaths" | "sold", color: string) => ({
-    categories: monthLabels,
-    series: data.months.length >= 4 ? data.months.map((m) => m[key]) : [],
-    colors: [`var(--palette-${color}-light)`, `var(--palette-${color}-main)`],
-  });
-  const NO_SPARK = { categories: [], series: [] };
   // The window the BACKEND served, not the one the URL asked for. When the request
   // carried no bounds the backend chose the default, and the filter must show that
   // choice rather than two empty boxes — otherwise the reader cannot tell what they
@@ -296,7 +286,7 @@ export async function HerdAnalyticsPage({
 
       {/* Everything the window reads (guard: url-keyed-panel): a date / park change swaps it to its
           skeleton at once; header and date filter stay on screen. */}
-      <UrlSuspense searchParams={sp} watch={WINDOW_WATCH} fallback={<PanelSkeleton kpis={6} charts={2} spark />}>
+      <UrlSuspense searchParams={sp} watch={WINDOW_WATCH} fallback={<PanelSkeleton kpis={6} charts={2} />}>
       <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
       {nothingRecorded ? (
         <Card>
@@ -304,23 +294,22 @@ export async function HerdAnalyticsPage({
         </Card>
       ) : null}
 
-      {/* KPI row: template EcommerceWidgetSummary (overview/e-commerce), backend window totals. */}
+      {/* KPI row: template CourseWidgetSummary (KpiWidget) (overview/e-commerce), backend window totals. */}
       <Box component="section" aria-label={ha(pageContract, "section.kpi.aria")}>
         <KpiGrid>
-          <EcommerceWidgetSummary title={ha(pageContract, "kpi.live.label")} total={totals.live_animals} chart={NO_SPARK} sx={{ height: 1 }} />
-          <EcommerceWidgetSummary
+          <KpiWidget title={ha(pageContract, "kpi.live.label")} total={totals.live_animals} sx={{ height: 1 }} />
+          <KpiWidget
             title={ha(pageContract, "kpi.age.label")}
             total={totals.kids + totals.adults}
             caption={splitParts(ha(pageContract, "kpi.age.label"), [totals.kids, totals.adults])
               .map((part) => `${nf(Number(part.value))} ${part.label}`)
               .join(" \u00b7 ")}
-            chart={NO_SPARK}
             sx={{ height: 1 }}
           />
-          <EcommerceWidgetSummary title={ha(pageContract, "kpi.births.label")} total={totals.births} chart={spark("births", "success")} sx={{ height: 1 }} />
-          <EcommerceWidgetSummary title={ha(pageContract, "kpi.deaths.label")} total={totals.deaths} chart={spark("deaths", "error")} sx={{ height: 1 }} />
-          <EcommerceWidgetSummary title={ha(pageContract, "kpi.sold.label")} total={totals.sold} chart={spark("sold", "info")} sx={{ height: 1 }} />
-          <EcommerceWidgetSummary title={ha(pageContract, "kpi.net.label")} total={signed(totals.net_change)} chart={NO_SPARK} sx={{ height: 1 }} />
+          <KpiWidget title={ha(pageContract, "kpi.births.label")} total={totals.births} sx={{ height: 1 }} />
+          <KpiWidget title={ha(pageContract, "kpi.deaths.label")} total={totals.deaths} sx={{ height: 1 }} />
+          <KpiWidget title={ha(pageContract, "kpi.sold.label")} total={totals.sold} sx={{ height: 1 }} />
+          <KpiWidget title={ha(pageContract, "kpi.net.label")} total={totals.net_change} sx={{ height: 1 }} />
         </KpiGrid>
       </Box>
 

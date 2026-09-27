@@ -17,7 +17,7 @@ import Grid from "@mui/material/Grid";
 import Stack from "@mui/material/Stack";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
-import { EcommerceWidgetSummary } from "@/components/minimal/sections/overview/e-commerce/ecommerce-widget-summary";
+import { KpiWidget, kpiColor } from "@/components/app/kpi-widget";
 import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
 import { copy, table, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
@@ -114,6 +114,7 @@ const ACCENT_TONE: Record<string, KitTone> = {
 };
 
 const nf = (value: number) => value.toLocaleString("en-IN");
+const round1 = (value: number) => Math.round(value * 10) / 10;
 const pct = (value: number) => `${value.toLocaleString("en-IN", { maximumFractionDigits: 1 })}%`;
 
 function ha(pageContract: AdminUiPageContract, key: string): string {
@@ -216,39 +217,27 @@ function EmptyBuckets({ lead, names }: { lead: string; names: string[] }) {
   return <Typography variant="body2" sx={{ color: "text.secondary", mt: 1 }}>{`${lead}: ${names.join(", ")}`}</Typography>;
 }
 
-/** One KPI: the template EcommerceWidgetSummary (overview/e-commerce) in a Grid cell. */
+/** One KPI: the template CourseWidgetSummary (KpiWidget) (overview/e-commerce) in a Grid cell. */
 function Kpi({
   accent,
   label,
   value,
+  unit,
   sub,
-  sparkline,
   md = 4,
 }: {
   accent: string;
   label: string;
-  value: string;
+  /** Template CourseWidgetSummary takes a number; the unit goes in the title. */
+  value: number | null;
+  unit?: string;
   sub: string;
-  /** The monthly series behind the figure, when the page has one (same rows the chart draws). */
-  sparkline?: number[];
   md?: number;
 }) {
   const tone = ACCENT_TONE[accent];
-  const key = tone === "violet" ? "secondary" : tone && tone !== "neutral" ? tone : "primary";
   return (
     <Grid size={{ xs: 12, sm: 6, md }}>
-      <EcommerceWidgetSummary
-        title={label}
-        total={value}
-        caption={sub}
-        chart={{
-          categories: [],
-          series: sparkline ?? [],
-          colors: [`var(--palette-${key}-light)`, `var(--palette-${key}-main)`],
-          format: "number",
-        }}
-        sx={{ height: 1 }}
-      />
+      <KpiWidget title={unit ? `${label} (${unit})` : label} total={value} caption={sub} color={kpiColor(tone)} sx={{ height: 1 }} />
     </Grid>
   );
 }
@@ -455,20 +444,19 @@ export async function HealthAnalyticsPage({
         <EmptyState icon={<HeartPulse className="ic" />} title={ha(pageContract, "empty.title")} />
       ) : null}
 
-      <UrlSuspense searchParams={sp} watch={WINDOW_WATCH} fallback={<PanelSkeleton kpis={5} spark />}>
+      <UrlSuspense searchParams={sp} watch={WINDOW_WATCH} fallback={<PanelSkeleton kpis={5} />}>
       <Box component="section" aria-label={ha(pageContract, "section.kpi.aria")}>
         <Grid container spacing={3}>
         <Kpi
           accent="var(--info)"
           label={ha(pageContract, "kpi.open.label")}
-          value={nf(totals.open_cases)}
+          value={totals.open_cases}
           sub={ha(pageContract, "kpi.open.sub")}
         />
         <Kpi
           accent="var(--brand)"
           label={ha(pageContract, "kpi.new.label")}
-          sparkline={newCaseRowsByMonth.length > 1 ? newCaseRowsByMonth.map((m) => m.new_cases) : undefined}
-          value={nf(totals.new_cases)}
+          value={totals.new_cases}
           sub={ha(pageContract, "kpi.new.sub")}
         />
         <Kpi
@@ -476,20 +464,21 @@ export async function HealthAnalyticsPage({
           label={ha(pageContract, "kpi.recovery.label")}
           // Of the cases CLOSED in the window: a still-open course has no outcome yet, and
           // counting it against recovery would drag a long supportive case down forever.
-          value={pct(totals.closed_cases === 0 ? 0 : (totals.recovered / totals.closed_cases) * 100)}
+          value={round1(totals.closed_cases === 0 ? 0 : (totals.recovered / totals.closed_cases) * 100)}
+          unit="%"
           sub={ha(pageContract, "kpi.recovery.sub")}
         />
         <Kpi
           accent="var(--danger)"
           label={ha(pageContract, "kpi.deaths.label")}
-          sparkline={deathRowsByMonth.length > 1 ? deathRowsByMonth.map((m) => m.attributed + m.unattributed) : undefined}
-          value={nf(totals.deaths)}
+          value={totals.deaths}
           sub={ha(pageContract, "kpi.deaths.sub")}
         />
         <Kpi
           accent="var(--amber)"
           label={ha(pageContract, "kpi.unattributed.label")}
-          value={pct(totals.deaths === 0 ? 0 : (totals.deaths_unattributed / totals.deaths) * 100)}
+          value={round1(totals.deaths === 0 ? 0 : (totals.deaths_unattributed / totals.deaths) * 100)}
+          unit="%"
           sub={ha(pageContract, "kpi.unattributed.sub")}
         />
         </Grid>
@@ -646,18 +635,18 @@ export async function HealthAnalyticsPage({
               accent="var(--teal)"
               label={ha(pageContract, "label.attributed")}
               sub={ha(pageContract, "stat.attributed.sub")}
-              value={nf(totals.deaths_attributed)}
+              value={totals.deaths_attributed}
             />
             <Kpi
               accent="var(--amber)"
               label={ha(pageContract, "label.unattributed")}
-              value={nf(totals.deaths_unattributed)}
+              value={totals.deaths_unattributed}
               sub={ha(pageContract, "kpi.unattributed.sub")}
             />
             <Kpi
               accent="var(--muted)"
               label={ha(pageContract, "stat.never.label")}
-              value={nf(totals.deaths_never_diagnosed)}
+              value={totals.deaths_never_diagnosed}
               sub={ha(pageContract, "stat.never.sub")}
             />
             </Grid>
@@ -696,14 +685,14 @@ export async function HealthAnalyticsPage({
               md={6}
               accent="var(--brand)"
               label={ha(pageContract, "stat.sessions.label")}
-              value={nf(data.adherence.sessions_due)}
+              value={data.adherence.sessions_due}
               sub={ha(pageContract, "stat.sessions.sub")}
             />
             <Kpi
               md={6}
               accent="var(--info)"
               label={ha(pageContract, "stat.awaiting.label")}
-              value={nf(data.adherence.awaiting_verification)}
+              value={data.adherence.awaiting_verification}
               sub={ha(pageContract, "stat.awaiting.sub")}
             />
             </Grid>
@@ -746,21 +735,21 @@ export async function HealthAnalyticsPage({
               md={3}
               accent="var(--info)"
               label={ha(pageContract, "stat.observations.label")}
-              value={nf(data.engine.observations)}
+              value={data.engine.observations}
               sub={ha(pageContract, "stat.observations.sub")}
             />
             <Kpi
               md={3}
               accent="var(--brand)"
               label={ha(pageContract, "stat.confirmed.label")}
-              value={nf(data.engine.confirmed)}
+              value={data.engine.confirmed}
               sub={pct(data.engine.confirmed_pct)}
             />
             <Kpi
               md={3}
               accent="var(--amber)"
               label={ha(pageContract, "stat.declined.label")}
-              value={nf(data.engine.declined)}
+              value={data.engine.declined}
               sub={ha(pageContract, "stat.pending.label") + ": " + nf(data.engine.pending)}
             />
             <Kpi
@@ -769,11 +758,8 @@ export async function HealthAnalyticsPage({
               label={ha(pageContract, "stat.median.label")}
               // NULL is "nothing was confirmed", not "confirmed instantly": a zero here would
               // be a claim the data cannot make.
-              value={
-                data.engine.median_hours_to_confirm === null || data.engine.median_hours_to_confirm === undefined
-                  ? "—"
-                  : `${nf(data.engine.median_hours_to_confirm)}${ha(pageContract, "stat.median.unit")}`
-              }
+              value={data.engine.median_hours_to_confirm ?? null}
+              unit={ha(pageContract, "stat.median.unit")}
               sub={ha(pageContract, "stat.superseded.label") + ": " + nf(data.engine.superseded)}
             />
             </Grid>

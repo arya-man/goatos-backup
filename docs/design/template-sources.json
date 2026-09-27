@@ -20,7 +20,6 @@
     "components/minimal/sections/mail/mail-nav-item.tsx": "src/sections/mail/mail-nav-item.tsx",
     "components/minimal/sections/job/job-item.tsx": "src/sections/job/job-item.tsx",
     "components/minimal/sections/job/job-list.tsx": "src/sections/job/job-list.tsx",
-    "components/minimal/index.ts": "src/components/index.ts",
     "components/minimal/sections/user/user-table-row.tsx": "src/sections/user/user-table-row.tsx",
     "components/minimal/sections/kanban/column/styles.tsx": "src/sections/kanban/column/styles.tsx",
     "components/minimal/sections/kanban/details/kanban-details.tsx": "src/sections/kanban/details/kanban-details.tsx",
@@ -109,18 +108,6 @@
     "components/minimal/table/table-skeleton.tsx": "src/components/table/table-skeleton.tsx",
     "components/minimal/table/use-table.ts": "src/components/table/use-table.ts",
     "components/minimal/table/utils.ts": "src/components/table/utils.ts",
-    "components/minimal/widgets/analytics-widget-summary.tsx": "src/sections/overview/analytics/analytics-widget-summary.tsx",
-    "components/minimal/widgets/app-widget-summary.tsx": "src/sections/overview/app/app-widget-summary.tsx",
-    "components/minimal/widgets/banking-widget-summary.tsx": "src/sections/overview/banking/banking-overview.tsx",
-    "components/minimal/widgets/course-widget-summary.tsx": "src/sections/overview/course/course-widget-summary.tsx",
-    "components/minimal/widgets/ecommerce-widget-summary.tsx": "src/sections/overview/e-commerce/ecommerce-widget-summary.tsx",
-    "components/minimal/widgets/index.ts": "src/sections/overview/index.ts",
-    "components/minimal/widgets/kpi-card.tsx": "src/sections/overview/e-commerce/ecommerce-widget-summary.tsx",
-    "components/minimal/widgets/kpi-grid.tsx": "src/sections/overview/e-commerce/view/overview-ecommerce-view.tsx",
-    "components/minimal/widgets/kpi-parts.ts": "src/sections/overview/e-commerce/ecommerce-widget-summary.tsx",
-    "components/minimal/widgets/stat-strip.tsx": "src/sections/invoice/invoice-analytic.tsx",
-    "components/minimal/widgets/types.ts": "src/components/chart/types.ts",
-    "components/minimal/widgets/widget-spark-chart.tsx": "src/sections/overview/e-commerce/ecommerce-widget-summary.tsx",
     "layouts/auth-split/content.tsx": "src/layouts/auth-split/content.tsx",
     "layouts/auth-split/index.ts": "src/layouts/auth-split/index.ts",
     "layouts/auth-split/layout.tsx": "src/layouts/auth-split/layout.tsx",
@@ -211,7 +198,8 @@
     "layouts/template/svg-color/classes.ts": "src/components/svg-color/classes.ts",
     "layouts/template/svg-color/index.ts": "src/components/svg-color/index.ts",
     "layouts/template/svg-color/svg-color.tsx": "src/components/svg-color/svg-color.tsx",
-    "layouts/template/svg-color/types.ts": "src/components/svg-color/types.ts"
+    "layouts/template/svg-color/types.ts": "src/components/svg-color/types.ts",
+    "components/minimal/sections/overview/course/course-widget-summary.tsx": "src/sections/overview/course/course-widget-summary.tsx"
   },
   "verbatim": {
     "components/minimal/_shared/config.ts": {
@@ -1056,6 +1044,18 @@
         "src/components/chart"
       ]
     },
+    "components/minimal/sections/overview/course/course-widget-summary.tsx": {
+      "sha256": "6429f5124021ad6b4aa4088f716e0d88267ec7303f700bce88133de4fbfdf15a",
+      "imports": [
+        "@mui/material/Card",
+        "src/theme/core",
+        "@mui/material/Box",
+        "@mui/material/Card",
+        "@mui/material/Typography",
+        "src/utils/format-number",
+        "src/components/svg-color"
+      ]
+    },
     "components/minimal/sections/overview/e-commerce/ecommerce-best-salesman.tsx": {
       "sha256": "a8aa485e520de94c7a06122312b38b44132d3cd161d87f7d98a208c344d5864f",
       "imports": [
@@ -1342,163 +1342,6 @@
         "../components/multi-file-preview",
         "../components/single-file-preview",
         "./styles"
-      ]
-    },
-    "components/minimal/widgets/analytics-widget-summary.tsx": {
-      "sha256": "437fc566de525b1c05f49ad7bb75218c066b4a1628b3997b20ac117a75f3576d",
-      "imports": [
-        "@mui/material/Card",
-        "src/theme/core",
-        "src/components/chart",
-        "minimal-shared/utils",
-        "@mui/material/Box",
-        "@mui/material/Card",
-        "@mui/material/styles",
-        "src/utils/format-number",
-        "src/global-config",
-        "src/components/iconify",
-        "src/components/svg-color",
-        "src/components/chart"
-      ]
-    },
-    "components/minimal/widgets/app-widget-summary.tsx": {
-      "sha256": "0955bbf117e178520838003a538cc7553a0adedb9a21391f440f552afb04dbdb",
-      "imports": [
-        "@mui/material/Card",
-        "src/components/chart",
-        "@mui/material/Box",
-        "@mui/material/Card",
-        "@mui/material/styles",
-        "src/utils/format-number",
-        "src/components/iconify",
-        "src/components/chart"
-      ]
-    },
-    "components/minimal/widgets/banking-widget-summary.tsx": {
-      "sha256": "fac03f13f09bccbc275529d0a2cbf80b333993138004765697bf9262093c8ca9",
-      "imports": [
-        "@mui/material/Card",
-        "minimal-shared/hooks",
-        "@mui/material/Box",
-        "@mui/material/Tab",
-        "@mui/material/Card",
-        "@mui/material/Tabs",
-        "@mui/material/Button",
-        "@mui/material/Tooltip",
-        "@mui/material/styles",
-        "src/utils/format-number",
-        "src/components/label",
-        "src/components/iconify",
-        "src/components/chart"
-      ]
-    },
-    "components/minimal/widgets/course-widget-summary.tsx": {
-      "sha256": "6429f5124021ad6b4aa4088f716e0d88267ec7303f700bce88133de4fbfdf15a",
-      "imports": [
-        "@mui/material/Card",
-        "src/theme/core",
-        "@mui/material/Box",
-        "@mui/material/Card",
-        "@mui/material/Typography",
-        "src/utils/format-number",
-        "src/components/svg-color"
-      ]
-    },
-    "components/minimal/widgets/ecommerce-widget-summary.tsx": {
-      "sha256": "1b86b3c1cd4039773d7a057ec73b758c18c0f2e78307b6f94f21a88eede884e2",
-      "imports": [
-        "@mui/material/Card",
-        "src/components/chart",
-        "minimal-shared/utils",
-        "@mui/material/Box",
-        "@mui/material/Card",
-        "@mui/material/styles",
-        "src/utils/format-number",
-        "src/components/iconify",
-        "src/components/chart"
-      ]
-    },
-    "components/minimal/widgets/kpi-card.tsx": {
-      "sha256": "1b86b3c1cd4039773d7a057ec73b758c18c0f2e78307b6f94f21a88eede884e2",
-      "imports": [
-        "@mui/material/Card",
-        "src/components/chart",
-        "minimal-shared/utils",
-        "@mui/material/Box",
-        "@mui/material/Card",
-        "@mui/material/styles",
-        "src/utils/format-number",
-        "src/components/iconify",
-        "src/components/chart"
-      ]
-    },
-    "components/minimal/widgets/kpi-grid.tsx": {
-      "sha256": "926ca245fde00e000c4509ab5a205e30f7bffdce3fdc6e0a86eb35a0578ebb93",
-      "imports": [
-        "@mui/material/Grid",
-        "@mui/material/Button",
-        "@mui/material/styles",
-        "src/layouts/dashboard",
-        "src/assets/illustrations",
-        "src/_mock",
-        "src/auth/hooks",
-        "../ecommerce-welcome",
-        "../ecommerce-new-products",
-        "../ecommerce-yearly-sales",
-        "../ecommerce-best-salesman",
-        "../ecommerce-sale-by-gender",
-        "../ecommerce-sales-overview",
-        "../ecommerce-widget-summary",
-        "../ecommerce-latest-products",
-        "../ecommerce-current-balance"
-      ]
-    },
-    "components/minimal/widgets/kpi-parts.ts": {
-      "sha256": "1b86b3c1cd4039773d7a057ec73b758c18c0f2e78307b6f94f21a88eede884e2",
-      "imports": [
-        "@mui/material/Card",
-        "src/components/chart",
-        "minimal-shared/utils",
-        "@mui/material/Box",
-        "@mui/material/Card",
-        "@mui/material/styles",
-        "src/utils/format-number",
-        "src/components/iconify",
-        "src/components/chart"
-      ]
-    },
-    "components/minimal/widgets/stat-strip.tsx": {
-      "sha256": "c9e385bdc3beac5acc792d31aecb82c9f7e7b64f5e4715d2cb21de7d40680901",
-      "imports": [
-        "src/components/iconify",
-        "minimal-shared/utils",
-        "@mui/material/Box",
-        "@mui/material/Typography",
-        "@mui/material/CircularProgress",
-        "src/utils/format-number",
-        "src/components/iconify"
-      ]
-    },
-    "components/minimal/widgets/types.ts": {
-      "sha256": "4623436fc3523a3c7df5668b095f2e4e0545fd982d40e19d53a3b91934b5b3e7",
-      "imports": [
-        "apexcharts",
-        "@mui/material/styles",
-        "react-apexcharts"
-      ]
-    },
-    "components/minimal/widgets/widget-spark-chart.tsx": {
-      "sha256": "1b86b3c1cd4039773d7a057ec73b758c18c0f2e78307b6f94f21a88eede884e2",
-      "imports": [
-        "@mui/material/Card",
-        "src/components/chart",
-        "minimal-shared/utils",
-        "@mui/material/Box",
-        "@mui/material/Card",
-        "@mui/material/styles",
-        "src/utils/format-number",
-        "src/components/iconify",
-        "src/components/chart"
       ]
     },
     "layouts/auth-split/content.tsx": {

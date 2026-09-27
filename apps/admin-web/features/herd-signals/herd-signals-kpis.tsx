@@ -4,7 +4,8 @@ import type { ReactNode } from "react";
 import { Activity, BatteryLow, Radio, TriangleAlert, Wifi } from "lucide-react";
 import Link from "@/components/no-prefetch-link";
 import type { KitTone } from "@/lib/tone";
-import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import { KpiGrid } from "@/components/app/kpi-grid";
+import { KpiWidget, kpiColor } from "@/components/app/kpi-widget";
 import type { HerdSignalsSummary } from "@/lib/api/herd-signals";
 import { useHerdSignalsNav } from "./herd-signals-nav-context";
 import { useHerdSignalsLiveSnapshot } from "./herd-signals-live-store";
@@ -148,14 +149,12 @@ export function HerdSignalsKpis({ summary, params, liveKey }: { summary: HerdSig
               })
             : undefined;
           const card = (
-            <KpiCard
-              label={def.label}
-              value={def.value(displayedSummary)}
-              format={(n) => n.toLocaleString("en-IN")}
-              tone={def.tone}
-              icon={def.icon}
-              hint={active ? `${def.detail(displayedSummary)} \u00b7 filtering` : def.detail(displayedSummary)}
-              className={active ? "is-active" : undefined}
+            <KpiWidget
+              title={def.label}
+              total={def.value(displayedSummary)}
+              color={kpiColor(def.tone)}
+              caption={active ? `${def.detail(displayedSummary)} \u00b7 filtering` : def.detail(displayedSummary)}
+              sx={{ height: 1 }}
             />
           );
           if (!href) return <div key={def.label}>{card}</div>;

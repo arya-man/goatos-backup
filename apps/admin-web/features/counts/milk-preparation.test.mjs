@@ -21,9 +21,9 @@ test("milk preparation renders the backend-owned worklist and whole-scope summar
 test("milk preparation is composed on the template invoice-list anatomy", () => {
   assert.match(source, /WorklistFilters/);
   assert.match(source, /WorklistPager/);
-  // KPI row = template EcommerceWidgetSummary, farm states = InvoiceAnalytic strip, list = Scrollbar +
+  // KPI row = template CourseWidgetSummary via the KpiWidget adapter, farm states = InvoiceAnalytic strip, list = Scrollbar +
   // TableHeadCustom with soft Labels; the legacy .tag/.feed-table markup and Tag primitive are gone.
-  assert.match(source, /<EcommerceWidgetSummary/);
+  assert.match(source, /<KpiWidget/);
   assert.match(source, /<InvoiceAnalytic/);
   assert.match(source, /<TableHeadCustom/);
   assert.doesNotMatch(source, /className="tag |<Tag |className="feed-table"/);

@@ -4,7 +4,7 @@ import { LinkButton } from "@/components/minimal/link-button";
 import { FilterChip } from "@/components/minimal/list/filter-chip";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { TableHeadCustom } from "@/components/minimal/table/table-head-custom";
-import { CourseWidgetSummary } from "@/components/minimal/widgets/course-widget-summary";
+import { CourseWidgetSummary } from "@/components/minimal/sections/overview/course/course-widget-summary";
 import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";

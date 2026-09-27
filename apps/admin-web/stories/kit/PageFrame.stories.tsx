@@ -7,7 +7,8 @@ import Button from "@mui/material/Button";
 import { BarList } from "@/components/bar-list";
 import { KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton, TableSkeleton } from "@/components/app/skeletons";
 import { PageHeader } from "@/components/app/page-header";
-import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import { KpiGrid } from "@/components/app/kpi-grid";
+import { KpiWidget } from "@/components/app/kpi-widget";
 import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
 import { Download } from "lucide-react";
 import { MOBILE } from "../_data";
@@ -75,7 +76,7 @@ export const Default: Story = {
       />
       <KpiGrid>
         {kpis.map((k) => (
-          <KpiCard key={k.label} label={k.label} value={k.value} unit={k.unit} trend={k.trend} />
+          <KpiWidget key={k.label} title={k.unit ? `${k.label} (${k.unit})` : k.label} total={k.value} />
         ))}
       </KpiGrid>
       <Card sx={{ p: { xs: 2, sm: 3 } }}>

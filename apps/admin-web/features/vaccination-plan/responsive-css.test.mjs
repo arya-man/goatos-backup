@@ -30,7 +30,10 @@ test("vaccination-plan-template: no legacy markup or raw controls", () => {
 });
 
 test("vaccination-plan-template: template anatomy", () => {
-  assert.match(files.console, /<CourseWidgetSummary/);
+  // Live-version facts are dates/names, which the template number widgets cannot print: MUI Card +
+  // CardHeader (fact as title, label as subheader), never a string forced into CourseWidgetSummary.
+  assert.match(files.console, /<Card sx=\{\{ height: 1 \}\}>\s*<CardHeader/);
+  assert.doesNotMatch(files.console, /<CourseWidgetSummary/);
   assert.doesNotMatch(files.console, /KpiCard/);
   assert.match(files.console, /<UrlSuspense[^>]*watch=\{\["page"\]\}/, "live table panel keyed by page (url-keyed-panel)");
   assert.match(files.console, /<TableHeadCustom/);

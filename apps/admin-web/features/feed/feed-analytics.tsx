@@ -24,7 +24,7 @@ import Typography from "@mui/material/Typography";
 import Alert from "@mui/material/Alert";
 import AlertTitle from "@mui/material/AlertTitle";
 import { EmptyContent } from "@/components/minimal/empty-content";
-import { EcommerceWidgetSummary } from "@/components/minimal/sections/overview/e-commerce/ecommerce-widget-summary";
+import { KpiWidget } from "@/components/app/kpi-widget";
 import { FeedMixCard } from "./feed-mix-card";
 import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
 
@@ -98,7 +98,6 @@ import { stageLabel } from "@/lib/stage-labels";
 
 const PAGE_PATH = "/feed/analytics";
 // A reading with no day series: the template widget draws no sparkline under two points.
-const NO_SPARK = { categories: [], series: [] };
 
 // Follow-up lines are one per (pen, change day); counted here, on the server, because the tab that
 // sorts and slices them is a client module and cannot be called from this one.
@@ -1039,7 +1038,7 @@ function DirectedTabs({
   // Verified share of the window's packing+distribution completions — backend
   // counts, summed for display only (a share of two backend counts, not a new
   // business number).
-  let adherence: string | null = null;
+  let adherence: number | null = null;
   if (execution) {
     let verified = 0;
     let all = 0;
@@ -1049,7 +1048,7 @@ function DirectedTabs({
         day.packing_verified + day.packing_awaiting + day.packing_rework +
         day.distribution_verified + day.distribution_awaiting + day.distribution_rework;
     }
-    adherence = all > 0 ? `${Math.round((verified / all) * 100)}%` : null;
+    adherence = all > 0 ? Math.round((verified / all) * 100) : null;
   }
   // Feed cost per animal per day (maintainer ask 2026-09-07): yesterday's feed expenditure
   // over the animals fed yesterday. Both halves are backend numbers already on this page —
@@ -1057,42 +1056,11 @@ function DirectedTabs({
   // business day the other tiles describe, and divided for display only, the way the
   // adherence share above is. A day with no priced expenditure or no animals reads "—"
   // rather than ₹0: an unpriced sheet is not a free one.
-  let costPerAnimal: string | null = null;
+  let costPerAnimal: number | null = null;
   if (latest && stock && latest.head_days > 0) {
     const spentDay = stock.expenditure.find((d) => d.feed_day === latest.feed_day);
-    if (spentDay) costPerAnimal = `₹${rate(num(spentDay.rupees) / latest.head_days)}`;
+    if (spentDay) costPerAnimal = Math.round((num(spentDay.rupees) / latest.head_days) * 100) / 100;
   }
-
-  // KPI sparklines: the last 14 served feed days of the SAME daily figures the tiles headline, and
-  // the trend chip is the settled day against the day before it -- both backend figures already on
-  // the page, compared for display only. Fewer than two days: no spark, no chip.
-  // The series runs through today, which the farm is still feeding; the sparklines stop at the
-  // settled day the tiles describe, so the last point is never a half-issued sheet.
-  const recentDays = data.days.filter((d) => view.settledDay >= d.feed_day).slice(-14);
-  // A trailing day still being recorded (missing, zero, or under 60% of the trailing 7-day
-  // median) is dropped by completeDaySeries, so the line ends at the last complete day.
-  // The day's DIRECTED total decides whether it is complete; every tile's line then ends on that
-  // same day, so a half-issued day cannot leave a per-head or head-count point behind either.
-  const completeDays = completeDaySeries(recentDays.map((d) => num(d.directed_kg)))?.length ?? 0;
-  const sparkDays = recentDays.slice(0, completeDays);
-  const daySpark = (pick: (d: (typeof data.days)[number]) => number | null) => completeDaySeries(sparkDays.map(pick));
-  const dayTrend = (pick: (d: (typeof data.days)[number]) => number | null) => {
-    if (!latest) return undefined;
-    const i = data.days.findIndex((d) => d.feed_day === latest.feed_day);
-    const prev = i > 0 ? pick(data.days[i - 1]) : null;
-    const cur = pick(latest);
-    if (prev === null || cur === null || prev === 0) return undefined;
-    return Math.round(((cur - prev) / prev) * 1000) / 10;
-  };
-  const directedOf = (d: (typeof data.days)[number]) => num(d.directed_kg);
-  const headOf = (d: (typeof data.days)[number]) => d.head_days;
-  const perHeadOf = (d: (typeof data.days)[number]) => (d.per_head_grams === "" ? null : num(d.per_head_grams));
-  // Template widget colours: [light, main] of the palette key (EcommerceWidgetSummary default).
-  const sparkChart = (series: number[] | null | undefined, color: string) => ({
-    categories: [],
-    series: series ?? [],
-    colors: [`var(--palette-${color}-light)`, `var(--palette-${color}-main)`],
-  });
 
   return (
     <>
@@ -1100,30 +1068,24 @@ function DirectedTabs({
         <RangeCoverageNote key={`${range}-${coveredDays}`} message={coverageNote} />
       ) : null}
       {tab === "overview" ? (
-        // KPI row: template EcommerceWidgetSummary (overview/e-commerce), three per row.
+        // KPI row: template CourseWidgetSummary (KpiWidget) (overview/e-commerce), three per row.
         <Grid container spacing={3} component="section" aria-label={fa(pageContract, "chart.daily.title")}>
           {[
-            { key: "directed", total: latest ? `${nf(num(latest.directed_kg))} ${fa(pageContract, "unit.kg")}` : "—", pick: directedOf, color: "primary" },
-            { key: "head_days", total: latest ? nf(latest.head_days) : "—", pick: headOf, color: "info" },
-            { key: "per_head", total: latest && latest.per_head_grams !== "" ? `${nf(num(latest.per_head_grams))} g` : "—", pick: perHeadOf, color: "warning" },
+            { key: "directed", unit: fa(pageContract, "unit.kg"), total: latest ? num(latest.directed_kg) : null },
+            { key: "head_days", unit: "", total: latest ? latest.head_days : null },
+            { key: "per_head", unit: "g", total: latest && latest.per_head_grams !== "" ? num(latest.per_head_grams) : null },
+            { key: "adherence", unit: "%", total: adherence },
+            { key: "cost_per_animal", unit: "₹", total: costPerAnimal },
           ].map((kpi) => (
             <Grid key={kpi.key} size={{ xs: 12, sm: 6, md: 4 }}>
-              <EcommerceWidgetSummary
-                title={fa(pageContract, `kpi.${kpi.key}.label`)}
+              <KpiWidget
+                title={kpi.unit ? `${fa(pageContract, `kpi.${kpi.key}.label`)} (${kpi.unit})` : fa(pageContract, `kpi.${kpi.key}.label`)}
                 total={kpi.total}
-                percent={dayTrend(kpi.pick)}
                 caption={fa(pageContract, `kpi.${kpi.key}.sub`)}
-                chart={sparkChart(daySpark(kpi.pick), kpi.color)}
                 sx={{ height: 1 }}
               />
             </Grid>
           ))}
-          <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-            <EcommerceWidgetSummary title={fa(pageContract, "kpi.adherence.label")} total={adherence ?? "—"} caption={fa(pageContract, "kpi.adherence.sub")} chart={NO_SPARK} sx={{ height: 1 }} />
-          </Grid>
-          <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-            <EcommerceWidgetSummary title={fa(pageContract, "kpi.cost_per_animal.label")} total={costPerAnimal ?? "—"} caption={fa(pageContract, "kpi.cost_per_animal.sub")} chart={NO_SPARK} sx={{ height: 1 }} />
-          </Grid>
         </Grid>
       ) : null}
 
@@ -1154,7 +1116,7 @@ function DirectedTabs({
       ) : null}
 
       {tab === "overview" && stock && stock.expenditure.length > 0 ? (
-        // Spend by period: four template EcommerceWidgetSummary tiles.
+        // Spend by period: four template CourseWidgetSummary (KpiWidget) tiles.
         <Grid container spacing={3} component="section" aria-label={fa(pageContract, "chart.spend.title")}>
           {([
             ["week", stock.spend.last_7_days],
@@ -1163,11 +1125,10 @@ function DirectedTabs({
             ["year", stock.spend.this_year],
           ] as const).map(([period, rupees]) => (
             <Grid key={period} size={{ xs: 12, sm: 6, md: 3 }}>
-              <EcommerceWidgetSummary
-                title={fa(pageContract, `spend.${period}.label`)}
-                total={`₹${nf(num(rupees))}`}
+              <KpiWidget
+                title={`${fa(pageContract, `spend.${period}.label`)} (₹)`}
+                total={num(rupees)}
                 caption={fa(pageContract, `spend.${period}.sub`)}
-                chart={NO_SPARK}
                 sx={{ height: 1 }}
               />
             </Grid>
@@ -1450,7 +1411,7 @@ function ExecutionTab({
       latestLatency = d.median_verify_latency_minutes;
     }
   }
-  const pct = (done: number, all: number) => (all > 0 ? `${Math.round((done / all) * 100)}%` : "—");
+  const pct = (done: number, all: number) => (all > 0 ? Math.round((done / all) * 100) : null);
 
   const statuses = [
     { label: fa(pageContract, "legend.verified"), colorVar: FEED_SERIES_VARS[0] },
@@ -1475,10 +1436,10 @@ function ExecutionTab({
           { key: "packing", total: pct(packingDone, packingAll), caption: `${nf(packingDone)} / ${nf(packingAll)} · ${fa(pageContract, "kpi.packing.sub")}` },
           { key: "distribution", total: pct(distDone, distAll), caption: `${nf(distDone)} / ${nf(distAll)} · ${fa(pageContract, "kpi.distribution.sub")}` },
           { key: "transport", total: pct(transDone, transAll), caption: `${nf(transDone)} / ${nf(transAll)} · ${fa(pageContract, "kpi.transport.sub")}` },
-          { key: "latency", total: latestLatency === null ? "—" : `${nf(latestLatency)} ${fa(pageContract, "unit.minutes")}`, caption: fa(pageContract, "kpi.latency.sub") },
-        ].map((kpi) => (
+          { key: "latency", unit: fa(pageContract, "unit.minutes"), total: latestLatency, caption: fa(pageContract, "kpi.latency.sub") },
+        ].map((kpi: { key: string; unit?: string; total: number | null; caption: string }) => (
           <Grid key={kpi.key} size={{ xs: 12, sm: 6, md: 3 }}>
-            <EcommerceWidgetSummary title={fa(pageContract, `kpi.${kpi.key}.label`)} total={kpi.total} caption={kpi.caption} chart={NO_SPARK} sx={{ height: 1 }} />
+            <KpiWidget title={`${fa(pageContract, `kpi.${kpi.key}.label`)} (${kpi.unit ?? "%"})`} total={kpi.total} caption={kpi.caption} sx={{ height: 1 }} />
           </Grid>
         ))}
       </Grid>
@@ -1880,33 +1841,31 @@ function StockCards({
           <EmptyContent title={fa(pageContract, "stock.empty")} sx={{ py: 5 }} />
         </Card>
       ) : (
-        // One template EcommerceWidgetSummary per farm × feed: days left big, balance + batch below.
+        // One template CourseWidgetSummary (KpiWidget) per farm × feed: days left big, balance + batch below.
         <Box component="section" aria-label={fa(pageContract, "stock.title")}>
           <Typography variant="h6" sx={{ mb: 2 }}>{fa(pageContract, "stock.title")}</Typography>
           <Grid container spacing={3}>
             {active.map((item) => (
               <Grid key={`${item.farm_label}|${item.feed_item_key}`} size={{ xs: 12, sm: 6, md: 4 }}>
-                <EcommerceWidgetSummary
-                  title={`${item.farm_label} · ${item.feed_item_label}`}
-                  total={
+                <KpiWidget
+                  title={`${item.farm_label} · ${item.feed_item_label} (${
+                    item.not_started ? fa(pageContract, "unit.kg") : fa(pageContract, "stock.days_left")
+                  })`}
+                  total={item.not_started ? num(item.balance_kg) : item.days_left == null ? null : Math.max(item.days_left, 0)}
+                  color={item.low_stock ? "error" : item.not_started ? "success" : "primary"}
+                  caption={[
+                    item.not_started ? fa(pageContract, "stock.not_started") : null,
+                    item.low_stock ? fa(pageContract, "stock.low") : null,
                     item.not_started
-                      ? `${nf(num(item.balance_kg))} ${fa(pageContract, "unit.kg")}`
-                      : item.days_left === null || item.days_left === undefined
+                      ? `${fa(pageContract, "stock.not_started_sub")} · ${fa(pageContract, "stock.batch")} ${item.latest_batch_no}`
+                      : item.days_left == null
                         ? fa(pageContract, "stock.never_directed")
-                        : `${nf(Math.max(item.days_left, 0))} ${fa(pageContract, "stock.days_left")}`
-                  }
-                  caption={
-                    <>
-                      {item.not_started ? <Label variant="soft" color="success" sx={{ mr: 0.5 }}>{fa(pageContract, "stock.not_started")}</Label> : null}
-                      {item.low_stock ? <Label variant="soft" color="error" sx={{ mr: 0.5 }}>{fa(pageContract, "stock.low")}</Label> : null}
-                      {item.not_started
-                        ? `${fa(pageContract, "stock.not_started_sub")} · ${fa(pageContract, "stock.batch")} ${item.latest_batch_no}`
                         : `${nf(num(item.balance_kg))} ${fa(pageContract, "stock.balance")}${
                             item.avg_daily_kg ? ` · ${nf(num(item.avg_daily_kg))} ${fa(pageContract, "stock.per_day")}` : ""
-                          } · ${fa(pageContract, "stock.batch")} ${item.latest_batch_no}`}
-                    </>
-                  }
-                  chart={NO_SPARK}
+                          } · ${fa(pageContract, "stock.batch")} ${item.latest_batch_no}`,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
                   sx={{ height: 1 }}
                 />
               </Grid>

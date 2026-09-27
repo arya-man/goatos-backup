@@ -1,5 +1,6 @@
 import Alert from "@mui/material/Alert";
 import AlertTitle from "@mui/material/AlertTitle";
+import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
 import Grid from "@mui/material/Grid";
@@ -8,7 +9,9 @@ import Typography from "@mui/material/Typography";
 
 import { EmptyState } from "@/components/app/empty-state";
 import { Label } from "@/components/minimal/label";
-import { StatStrip } from "@/components/minimal/widgets/stat-strip";
+import { KpiGrid } from "@/components/app/kpi-grid";
+import { KpiWidget, kpiColor } from "@/components/app/kpi-widget";
+import type { KitTone } from "@/lib/tone";
 import { EcommerceSalesOverview } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sales-overview";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ApiResult, GrowthDirectorWeightsResponse } from "@/lib/api/server";
@@ -80,17 +83,20 @@ export function GrowthDirectorSection({
       <Grid size={12}>
         <Card aria-label={gd(pageContract, "road.title")}>
           <CardHeader title={gd(pageContract, "road.title")} subheader={gd(pageContract, "road.caption")} sx={{ mb: 1 }} />
-          <StatStrip
-            ariaLabel={gd(pageContract, "road.title")}
-            cells={[
-              { key: "total", label: gd(pageContract, "road.identities.sub"), value: nf(road.total_animals), tone: "primary" as const },
-              { key: "lump", label: gd(pageContract, "road.lump.sub"), value: nf(road.lump_sum_animals), tone: "info" as const, share: road.total_animals > 0 ? (road.lump_sum_animals / road.total_animals) * 100 : undefined },
-              { key: "pairs", label: gd(pageContract, "road.pairs.sub"), value: nf(road.movement.pair_animals), tone: "neutral" as const },
-              { key: "up", label: gd(pageContract, "road.moved_up"), value: nf(road.movement.moved_up), tone: "success" as const, share: road.movement.pair_animals > 0 ? (road.movement.moved_up / road.movement.pair_animals) * 100 : undefined },
-              { key: "held", label: gd(pageContract, "road.held"), value: nf(road.movement.held), tone: "warning" as const, share: road.movement.pair_animals > 0 ? (road.movement.held / road.movement.pair_animals) * 100 : undefined },
-              { key: "down", label: gd(pageContract, "road.moved_down"), value: nf(road.movement.moved_down), tone: road.movement.moved_down > 0 ? ("error" as const) : ("neutral" as const), share: road.movement.pair_animals > 0 ? (road.movement.moved_down / road.movement.pair_animals) * 100 : undefined },
-            ]}
-          />
+          <Box sx={{ px: 3, pb: 3 }}>
+            <KpiGrid>
+              {([
+              { key: "total", label: gd(pageContract, "road.identities.sub"), value: road.total_animals, tone: "primary" as const },
+              { key: "lump", label: gd(pageContract, "road.lump.sub"), value: road.lump_sum_animals, tone: "info" as const },
+              { key: "pairs", label: gd(pageContract, "road.pairs.sub"), value: road.movement.pair_animals, tone: "neutral" as const },
+              { key: "up", label: gd(pageContract, "road.moved_up"), value: road.movement.moved_up, tone: "success" as const },
+              { key: "held", label: gd(pageContract, "road.held"), value: road.movement.held, tone: "warning" as const },
+              { key: "down", label: gd(pageContract, "road.moved_down"), value: road.movement.moved_down, tone: road.movement.moved_down > 0 ? ("error" as const) : ("neutral" as const) },
+              ] as { key: string; label: string; value: number; tone: KitTone }[]).map((cell) => (
+                <KpiWidget key={cell.key} title={cell.label} total={cell.value} color={kpiColor(cell.tone)} sx={{ height: 1, boxShadow: "none", border: 1, borderColor: "divider" }} />
+              ))}
+            </KpiGrid>
+          </Box>
         </Card>
       </Grid>
       {/* The six bands ARE the distribution: all six rows, each its share of the kids banded. */}

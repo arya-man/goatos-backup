@@ -23,7 +23,7 @@ import Typography from "@mui/material/Typography";
 import { MinimalDrawer } from "@/components/minimal/drawer";
 import { DrawerTableScroll } from "@/components/app/detail-drawer";
 import { InfoHint } from "@/components/app/info-hint";
-import { CourseWidgetSummary } from "@/components/minimal/widgets/course-widget-summary";
+import { CourseWidgetSummary } from "@/components/minimal/sections/overview/course/course-widget-summary";
 import { COURSE_WIDGET_ICONS } from "@/lib/minimal-icons";
 import type { PaletteColorKey } from "@/theme/core";
 import Card from "@mui/material/Card";

@@ -1,4 +1,3 @@
-import { splitParts } from "@/components/minimal/widgets";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { PanelSkeleton } from "@/components/app/panel-skeleton";
 import { TableSkeleton } from "@/components/app/skeletons";
@@ -12,7 +11,7 @@ import Box from "@mui/material/Box";
 import Grid from "@mui/material/Grid";
 import Stack from "@mui/material/Stack";
 import { EmptyContent } from "@/components/minimal/empty-content";
-import { EcommerceWidgetSummary } from "@/components/minimal/sections/overview/e-commerce/ecommerce-widget-summary";
+import { KpiWidget, splitParts } from "@/components/app/kpi-widget";
 import {
   EcommerceSalesOverview,
   type EcommerceSalesOverviewItem,
@@ -20,8 +19,7 @@ import {
 import { AnalyticsWebsiteVisits } from "@/components/minimal/sections/overview/analytics/analytics-website-visits";
 import { CountsShedChart } from "./counts-shed-chart";
 import { PageHeader } from "@/components/app/page-header";
-import { KpiGrid } from "@/components/minimal/widgets";
-import { dash } from "@/lib/format";
+import { KpiGrid } from "@/components/app/kpi-grid";
 import { control, controlEnabled, copy, optionGroup, table, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
   firstAuthRequiredError,
@@ -72,7 +70,6 @@ import Alert from "@mui/material/Alert";
 const PAGE_PATH = "/counts/breakdown";
 
 /** Legacy summary-card tone names -> kit tones (presentation only). */
-const NO_SPARK = { categories: [], series: [] };
 const ROW_COLORS = ["primary", "info", "warning", "success", "secondary", "error"] as const;
 
 /** Breed rows as template EcommerceSalesOverview progress rows: count + share of the matching herd. */
@@ -521,7 +518,7 @@ export async function CountsBreakdownPage({
         </Alert>
       ) : null}
 
-      {/* KPI row: template EcommerceWidgetSummary. Headline totals for the CURRENT filter
+      {/* KPI row: template CourseWidgetSummary (KpiWidget). Headline totals for the CURRENT filter
           selection, read from the response's whole-result window totals - never recomputed from
           the visible page, which would report a page subtotal as business truth. An unavailable
           read shows a dash. */}
@@ -530,16 +527,15 @@ export async function CountsBreakdownPage({
       <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={BD_PAGER_PARAMS} fallback={<PanelSkeleton kpis={2 + summaryCards.length} />}>
       <Box component="section" aria-label={copy(pageContract, "kpi.matching.label")}>
         <KpiGrid>
-          <EcommerceWidgetSummary
+          <KpiWidget
             title={copy(pageContract, "kpi.matching.label")}
-            total={breakdown ? totalCount : dash(null)}
+            total={breakdown ? totalCount : null}
             caption={breakdown ? undefined : copy(pageContract, "kpi.matching.unavailable")}
-            chart={NO_SPARK}
             sx={{ height: 1 }}
           />
-          <EcommerceWidgetSummary
+          <KpiWidget
             title={copy(pageContract, "kpi.age.label")}
-            total={breakdown ? totalKids + totalAdults : dash(null)}
+            total={breakdown ? totalKids + totalAdults : null}
             caption={
               breakdown
                 ? splitParts(copy(pageContract, "kpi.age.label"), [totalKids, totalAdults])
@@ -547,16 +543,14 @@ export async function CountsBreakdownPage({
                     .join(" \u00b7 ")
                 : copy(pageContract, "kpi.matching.unavailable")
             }
-            chart={NO_SPARK}
             sx={{ height: 1 }}
           />
           {summaryCards.map((card) => (
-            <EcommerceWidgetSummary
+            <KpiWidget
               key={card.key}
               title={card.label}
-              total={breakdown ? card.count : dash(null)}
+              total={breakdown ? card.count : null}
               caption={breakdown ? card.detail || copy(pageContract, "chart.empty") : copy(pageContract, "kpi.matching.unavailable")}
-              chart={NO_SPARK}
               sx={{ height: 1 }}
             />
           ))}

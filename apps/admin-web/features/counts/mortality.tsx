@@ -23,10 +23,11 @@ import { varAlpha } from "minimal-shared/utils";
 import { EmptyContent } from "@/components/minimal/empty-content";
 import { Label } from "@/components/minimal/label";
 import { Scrollbar } from "@/components/minimal/scrollbar";
-import { EcommerceWidgetSummary } from "@/components/minimal/sections/overview/e-commerce/ecommerce-widget-summary";
+import { KpiWidget } from "@/components/app/kpi-widget";
 import { AnalyticsWebsiteVisits } from "@/components/minimal/sections/overview/analytics/analytics-website-visits";
 import { PageHeader } from "@/components/app/page-header";
-import { KpiGrid } from "@/components/minimal/widgets";
+import type { PaletteColorKey } from "@/theme/core";
+import { KpiGrid } from "@/components/app/kpi-grid";
 import { seriesColorVar, type StackedDay } from "@/components/svg-series";
 import { copy, table, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
@@ -490,29 +491,24 @@ export async function MortalityPage({
   const showSpecies = data.species.length > 1;
   const stageBuckets = withStageNames(data.stage, stageNames);
   const seasonByStage = data.season_by_stage.map((cell) => ({ ...cell, col_label: stageDisplayLabel(cell.col_label, stageNames) }));
-  // Sparklines: the backend's own per-month series, one point per month of the window.
-  const sparkDeaths = data.months.map((m) => m.deaths);
-  const sparkKids = data.months.map((m) => m.kids);
-  const sparkAdults = data.months.map((m) => m.adults);
-  // A two-point spark reads as two sticks, not a trend; the deck grows one once the window spans a quarter.
-  const hasSpark = data.months.length >= 4;
-  const kpis: { key: string; tone: string; icon?: React.ReactNode; label: string; value: string; hint: string; spark?: number[] }[] = [
-    { key: "deaths", tone: "error", label: mc(pageContract, "kpi.deaths.label"), value: nf(totals.deaths), hint: "", spark: sparkDeaths },
+  // Template CourseWidgetSummary takes a number: units go in the title, detail in the caption.
+  const kpis: { key: string; tone: PaletteColorKey; label: string; value: number | null; hint: string }[] = [
+    { key: "deaths", tone: "error", label: mc(pageContract, "kpi.deaths.label"), value: totals.deaths, hint: "" },
     {
       key: "rate",
       tone: "primary",
-      label: mc(pageContract, "kpi.rate.label"),
-      value: pct(totals.rate_pct) ?? "—",
+      label: `${mc(pageContract, "kpi.rate.label")} (%)`,
+      value: totals.rate_pct == null ? null : Math.round(totals.rate_pct * 10) / 10,
       hint: totals.rate_pct == null ? noRate : `${nf(totals.animals)} ${animalsWord} · ${mc(pageContract, "kpi.rate.sub")}`,
     },
-    { key: "kids", tone: "warning", label: mc(pageContract, "kpi.kids.label"), value: nf(totals.kid_deaths), hint: rateWithAnimals(totals.kid_rate_pct, totals.kid_animals), spark: sparkKids },
-    { key: "adults", tone: "secondary", label: mc(pageContract, "kpi.adults.label"), value: nf(totals.adult_deaths), hint: rateWithAnimals(totals.adult_rate_pct, totals.adult_animals), spark: sparkAdults },
-    { key: "first_week", tone: "info", label: mc(pageContract, "kpi.first_week.label"), value: nf(totals.first_week_deaths), hint: "" },
+    { key: "kids", tone: "warning", label: mc(pageContract, "kpi.kids.label"), value: totals.kid_deaths, hint: rateWithAnimals(totals.kid_rate_pct, totals.kid_animals) },
+    { key: "adults", tone: "secondary", label: mc(pageContract, "kpi.adults.label"), value: totals.adult_deaths, hint: rateWithAnimals(totals.adult_rate_pct, totals.adult_animals) },
+    { key: "first_week", tone: "info", label: mc(pageContract, "kpi.first_week.label"), value: totals.first_week_deaths, hint: "" },
     {
       key: "cause",
       tone: "success",
-      label: mc(pageContract, "kpi.cause.label"),
-      value: totals.deaths === 0 ? "—" : `${nf(causeEstablished)} / ${nf(totals.deaths)}`,
+      label: totals.deaths === 0 ? mc(pageContract, "kpi.cause.label") : `${mc(pageContract, "kpi.cause.label")} / ${nf(totals.deaths)}`,
+      value: totals.deaths === 0 ? null : causeEstablished,
       hint: "",
     },
   ];
@@ -540,22 +536,18 @@ export async function MortalityPage({
 
       {/* Everything the window reads (guard: url-keyed-panel): a date / park change swaps it to its
           skeleton at once; header and date filter stay on screen. The recent-deaths pager does not. */}
-      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PAGER_PARAMS} fallback={<PanelSkeleton kpis={kpis.length} charts={3} spark={hasSpark} />}>
+      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PAGER_PARAMS} fallback={<PanelSkeleton kpis={kpis.length} charts={3} />}>
       <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
-      {/* KPI row: template EcommerceWidgetSummary; deaths / kids / adults carry the monthly series. */}
+      {/* KPI row: template CourseWidgetSummary (KpiWidget); backend window totals. */}
       <Box component="section" aria-label={mc(pageContract, "section.kpi.aria")}>
         <KpiGrid>
           {kpis.map((kpi) => (
-            <EcommerceWidgetSummary
+            <KpiWidget
               key={kpi.key}
               title={kpi.label}
               total={kpi.value}
+              color={kpi.tone}
               caption={kpi.hint || undefined}
-              chart={{
-                categories: data.months.map((m) => m.label),
-                series: hasSpark && kpi.spark ? kpi.spark : [],
-                colors: [`var(--palette-${kpi.tone}-light)`, `var(--palette-${kpi.tone}-main)`],
-              }}
               sx={{ height: 1 }}
             />
           ))}

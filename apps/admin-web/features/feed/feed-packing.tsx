@@ -23,7 +23,7 @@ import AlertTitle from "@mui/material/AlertTitle";
 import TableContainer from "@mui/material/TableContainer";
 import { Label } from "@/components/minimal/label";
 import { EmptyContent } from "@/components/minimal/empty-content";
-import { EcommerceWidgetSummary } from "@/components/minimal/sections/overview/e-commerce/ecommerce-widget-summary";
+import { KpiWidget } from "@/components/app/kpi-widget";
 import { copy, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
   firstAuthRequiredError,
@@ -76,7 +76,6 @@ import Alert from "@mui/material/Alert";
 
 const PAGE_PATH = "/feed/packing";
 // KPI tiles with no day series: the template widget draws no sparkline under two points.
-const NO_SPARK = { categories: [], series: [] };
 const DEFAULT_PAGE_SIZE = 10;
 
 /** Spans are counted from the VISIBLE items — see the twin note in feed-direction.tsx. */
@@ -181,26 +180,24 @@ export async function FeedPackingPage({
         </Alert>
       ) : null}
 
-      {/* Whole-scope KPI tiles: template EcommerceWidgetSummary (invoice-list analytic row). */}
+      {/* Whole-scope KPI tiles: template CourseWidgetSummary (KpiWidget) (invoice-list analytic row). */}
       <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PAGER_PARAMS} fallback={<PanelSkeleton kpis={2} />}>
       {summary && !lifecycleEmpty ? (
         <Grid container spacing={3}>
           <Grid size={{ xs: 12, sm: 6 }}>
-            <EcommerceWidgetSummary
+            <KpiWidget
               title={copy(pageContract, "kpi.sheds.label")}
               total={summary.shed_count}
               caption={copy(pageContract, "kpi.sheds.sub")}
-              chart={NO_SPARK}
               sx={{ height: 1 }}
             />
           </Grid>
           {/* The label is "Blocked sheds", so this is the SHED count, not the cell count. */}
           <Grid size={{ xs: 12, sm: 6 }}>
-            <EcommerceWidgetSummary
+            <KpiWidget
               title={copy(pageContract, "kpi.blocked.label")}
               total={summary.blocked_shed_count}
               caption={summary.blocked_shed_count > 0 ? copy(pageContract, "kpi.blocked.sub") : copy(pageContract, "empty.blocked")}
-              chart={NO_SPARK}
               sx={{ height: 1 }}
             />
           </Grid>

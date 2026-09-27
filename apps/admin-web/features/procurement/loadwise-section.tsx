@@ -1,10 +1,9 @@
 import type { ReactNode } from "react";
 
 import { LocalOverlayLink } from "@/components/local-overlay-link";
-import { IndianRupee, TrendingUp } from "lucide-react";
 import { EmptyState } from "@/components/app/empty-state";
-import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
-import { GoatGlyph } from "@/components/goat-glyph";
+import { KpiGrid } from "@/components/app/kpi-grid";
+import { KpiWidget } from "@/components/app/kpi-widget";
 import { PagedRows } from "@/components/app/paged-rows";
 
 import { GroupedColumns, type GroupedSeries } from "@/components/grouped-columns";
@@ -220,51 +219,38 @@ export function LoadwiseSection({
           {summary ? (
             <>
               <KpiGrid>
-                <KpiCard
-                  tone="primary"
-                  label={copy(pageContract, "loadwise.kpi.purchased")}
-                  value={summary.purchased}
-                  icon={<GoatGlyph aria-hidden="true" />}
-                  hint={`${num(summary.sold)} ${copy(pageContract, "loadwise.kpi.sold").toLowerCase()} · ${num(summary.mortality)} ${copy(pageContract, "loadwise.kpi.mortality").toLowerCase()} · ${num(summary.remaining)} ${copy(pageContract, "loadwise.kpi.remaining").toLowerCase()}${summary.tagged_not_closed > 0 ? ` · ${num(summary.tagged_not_closed)} ${copy(pageContract, "loadwise.kpi.tagged_not_closed")}` : ""}`}
+                <KpiWidget
+                  color="primary"
+                  title={copy(pageContract, "loadwise.kpi.purchased")}
+                  total={summary.purchased}
+                  caption={`${num(summary.sold)} ${copy(pageContract, "loadwise.kpi.sold").toLowerCase()} · ${num(summary.mortality)} ${copy(pageContract, "loadwise.kpi.mortality").toLowerCase()} · ${num(summary.remaining)} ${copy(pageContract, "loadwise.kpi.remaining").toLowerCase()}${summary.tagged_not_closed > 0 ? ` · ${num(summary.tagged_not_closed)} ${copy(pageContract, "loadwise.kpi.tagged_not_closed")}` : ""}`}
                 />
-                <KpiCard
-                  tone="info"
-                  label={copy(pageContract, "loadwise.kpi.purchase_value")}
-                  value={summary.costed_loads > 0 ? inrCompact(summary.purchase_value) : none}
-                  icon={<IndianRupee aria-hidden="true" />}
-                  hint={`${num(summary.costed_loads)} / ${num(loads.length)} ${copy(pageContract, "loadwise.kpi.purchase_value.hint")}`}
+                <KpiWidget
+                  color="info"
+                  title={`${copy(pageContract, "loadwise.kpi.purchase_value")} (₹)`}
+                  total={summary.costed_loads > 0 ? summary.purchase_value : null}
+                  caption={`${num(summary.costed_loads)} / ${num(loads.length)} ${copy(pageContract, "loadwise.kpi.purchase_value.hint")}`}
+                  icon="certificates"
                 />
-                <KpiCard
-                  tone="success"
-                  label={copy(pageContract, "loadwise.kpi.sold_value")}
-                  value={summary.sold_value > 0 ? inrCompact(summary.sold_value) : none}
-                  icon={<IndianRupee aria-hidden="true" />}
+                <KpiWidget
+                  color="success"
+                  title={`${copy(pageContract, "loadwise.kpi.sold_value")} (₹)`}
+                  total={summary.sold_value > 0 ? summary.sold_value : null}
+                  caption={summary.sold_value > 0 ? undefined : none}
                 />
-                <KpiCard
-                  tone={summary.profit_loss < 0 ? "error" : "success"}
-                  label={copy(pageContract, "loadwise.kpi.profit")}
-                  // Signed and toned: a loss must not read like a profit at a glance.
-                  value={
-                    <Box component="span" sx={{ color: summary.profit_loss < 0 ? "error.main" : "success.main" }}>
-                      {summary.costed_loads > 0 ? signedInrCompact(summary.profit_loss) : none}
-                    </Box>
-                  }
-                  icon={<TrendingUp aria-hidden="true" />}
-                  // How much of that figure happened and how much is assumed, and how it was
-                  // assumed -- the backend's own sentence, verbatim (main 7765efb29/c0b3a659f).
-                  hint={
-                    summary.costed_loads > 0 ? (
-                      <>
-                        {copy(pageContract, "loadwise.realised.label")} {signedInrCompact(summary.realised_profit_loss)} ·{" "}
-                        {copy(pageContract, "loadwise.assumed.label")}{" "}
-                        {summary.assumed_value > 0 ? inrCompact(summary.assumed_value) : copy(pageContract, "loadwise.assumed.none")}
-                        {summary.assumed_value > 0 && summary.assumed_value_basis ? (
-                          <Box component="span" sx={{ display: "block", color: "text.disabled" }}>
-                            {summary.assumed_value_basis}
-                          </Box>
-                        ) : null}
-                      </>
-                    ) : undefined
+                {/* Signed and toned: a loss must not read like a profit at a glance. The caption is
+                    how much of that figure happened and how much is assumed -- the backend's own
+                    sentence, verbatim (main 7765efb29/c0b3a659f). */}
+                <KpiWidget
+                  color={summary.profit_loss < 0 ? "error" : "success"}
+                  title={`${copy(pageContract, "loadwise.kpi.profit")} (₹)`}
+                  total={summary.costed_loads > 0 ? summary.profit_loss : null}
+                  caption={
+                    summary.costed_loads > 0
+                      ? `${copy(pageContract, "loadwise.realised.label")} ${signedInrCompact(summary.realised_profit_loss)} · ${copy(pageContract, "loadwise.assumed.label")} ${
+                          summary.assumed_value > 0 ? inrCompact(summary.assumed_value) : copy(pageContract, "loadwise.assumed.none")
+                        }${summary.assumed_value > 0 && summary.assumed_value_basis ? ` · ${summary.assumed_value_basis}` : ""}`
+                      : none
                   }
                 />
               </KpiGrid>

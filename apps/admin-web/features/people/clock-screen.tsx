@@ -23,7 +23,7 @@ import { Iconify } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { TableHeadCustom } from "@/components/minimal/table/table-head-custom";
 import { TablePaginationLinks } from "@/components/minimal/table/table-pagination-links";
-import { CourseWidgetSummary } from "@/components/minimal/widgets/course-widget-summary";
+import { CourseWidgetSummary } from "@/components/minimal/sections/overview/course/course-widget-summary";
 import { COURSE_WIDGET_ICONS } from "@/lib/minimal-icons";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";

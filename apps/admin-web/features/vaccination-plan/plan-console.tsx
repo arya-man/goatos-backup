@@ -12,7 +12,6 @@ import Grid from "@mui/material/Grid";
 import Stack from "@mui/material/Stack";
 
 import { PageHeader } from "@/components/app/page-header";
-import { CourseWidgetSummary } from "@/components/minimal/widgets/course-widget-summary";
 import { COURSE_WIDGET_ICONS } from "@/lib/minimal-icons";
 import { Label } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
@@ -187,12 +186,17 @@ export function VaccinationPlanConsole({ searchParams, versions, catalog, change
             <Grid container spacing={3}>
               {liveKpis.map((kpi) => (
                 <Grid key={kpi.key} size={{ xs: 12, sm: 6, md: 3 }}>
-                  <CourseWidgetSummary
-                    title={kpi.hint ? `${kpi.label} · ${kpi.hint}` : kpi.label}
-                    total={kpi.value}
-                    icon={kpi.icon}
-                    color={kpi.tone}
-                  />
+                  {/* Dates and names are text, not counts, so these facts are plain MUI cards (header
+                      = the fact, subheader = its label), not a template number widget. */}
+                  <Card sx={{ height: 1 }}>
+                    <CardHeader
+                      avatar={<Box component="img" alt="" src={kpi.icon} sx={{ width: 40, height: 40 }} />}
+                      title={kpi.value}
+                      subheader={kpi.hint ? `${kpi.label} · ${kpi.hint}` : kpi.label}
+                      slotProps={{ title: { variant: "h6" } }}
+                      sx={{ pb: 3 }}
+                    />
+                  </Card>
                 </Grid>
               ))}
             </Grid>

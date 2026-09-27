@@ -4,7 +4,9 @@ import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import { byParkThen, parksInArrivalOrder } from "@/lib/park-order";
-import { StatStrip } from "@/components/minimal/widgets/stat-strip";
+import Box from "@mui/material/Box";
+import { KpiGrid } from "@/components/app/kpi-grid";
+import { KpiWidget } from "@/components/app/kpi-widget";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { LocalOverlayDrawer, type LocalOverlayDrawerItem } from "@/components/local-overlay-drawer";
 import { Tag, type Tone } from "@/components/ui-primitives";
@@ -210,23 +212,23 @@ export function FeedCompletionTable({
         <p className="muted small">{fc("completion.empty")}</p>
       ) : (
         <>
-          <div className="card" style={{ marginBottom: 10 }}>
-            <StatStrip
-              ariaLabel={fc("completion.title")}
-              cells={STATUS_ORDER.map((status) => {
+          <Box component="section" aria-label={fc("completion.title")} sx={{ mb: 1.5 }}>
+            <KpiGrid>
+              {STATUS_ORDER.map((status) => {
                 const count = totalFor(totals, status);
-                const all = STATUS_ORDER.reduce((sum, key) => sum + totalFor(totals, key), 0);
-                return {
-                  key: status,
-                  tone: status === "not_started" && count > 0 ? ("error" as const) : status === "not_started" ? ("neutral" as const) : ("primary" as const),
-                  label: fc(STATUS_KPI_KEY[status]),
-                  value: nfCount(count),
-                  meta: fc("completion.kpi.sub"),
-                  share: all > 0 ? (count / all) * 100 : 0,
-                };
+                return (
+                  <KpiWidget
+                    key={status}
+                    title={fc(STATUS_KPI_KEY[status])}
+                    total={count}
+                    caption={fc("completion.kpi.sub")}
+                    color={status === "not_started" && count > 0 ? "error" : status === "not_started" ? "info" : "primary"}
+                    sx={{ height: 1 }}
+                  />
+                );
               })}
-            />
-          </div>
+            </KpiGrid>
+          </Box>
 
           {rows.length === 0 ? (
             <p className="muted small">{fc("completion.empty_filtered")}</p>

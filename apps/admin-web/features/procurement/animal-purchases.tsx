@@ -10,7 +10,7 @@ import TableCell from "@mui/material/TableCell";
 import { listOrEmpty } from "@/lib/list-or-empty";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
-import { EcommerceWidgetSummary } from "@/components/minimal/sections/overview/e-commerce/ecommerce-widget-summary";
+import { KpiWidget } from "@/components/app/kpi-widget";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { Iconify } from "@/components/minimal/iconify";
 import { TableHeadCustom } from "@/components/minimal/table";
@@ -94,7 +94,6 @@ function decisionTone(tone: AnimalPurchaseAnimal["decision_tone"]): Tone {
  * backend-declared `decide_animal_purchase` control — there is deliberately no role check here.
  */
 // The KPI cards have no series on this read; the sparkline stays hidden.
-const NO_TREND = { categories: [], series: [] };
 
 export async function AnimalPurchasesPage({
   searchParams,
@@ -224,21 +223,21 @@ export async function AnimalPurchasesPage({
           Ecommerce overview KPI row: EcommerceWidgetSummary cards on a Grid, spacing 3. */}
       <Grid container spacing={3} sx={{ mb: 3 }}>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <EcommerceWidgetSummary
+          <KpiWidget
             title={copy(pageContract, "summary.loads")}
-            // The loads read is one keyset page; a trailing "+" says there are more than shown.
-            total={loadsResult.ok ? `${num(loads.length)}${loadsNextCursor ? "+" : ""}` : none}
-            caption={loadsTable.title} chart={NO_TREND}
+            // The loads read is one keyset page; the caption's trailing "+" says there are more than shown.
+            total={loadsResult.ok ? loads.length : null}
+            caption={loadsResult.ok && loadsNextCursor ? `${num(loads.length)}+ · ${loadsTable.title}` : loadsTable.title}
           />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <EcommerceWidgetSummary title={copy(pageContract, "summary.pending")} total={totals ? totals.pending : none} chart={NO_TREND} />
+          <KpiWidget title={copy(pageContract, "summary.pending")} total={totals ? totals.pending : null} />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <EcommerceWidgetSummary title={copy(pageContract, "summary.accepted")} total={totals ? totals.accepted : none} chart={NO_TREND} />
+          <KpiWidget title={copy(pageContract, "summary.accepted")} total={totals ? totals.accepted : null} />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <EcommerceWidgetSummary title={copy(pageContract, "summary.rejected")} total={totals ? totals.rejected : none} chart={NO_TREND} />
+          <KpiWidget title={copy(pageContract, "summary.rejected")} total={totals ? totals.rejected : null} />
         </Grid>
       </Grid>
 

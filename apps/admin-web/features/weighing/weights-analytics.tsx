@@ -9,7 +9,7 @@ import Grid from "@mui/material/Grid";
 import Stack from "@mui/material/Stack";
 
 import { Label } from "@/components/minimal/label";
-import { EcommerceWidgetSummary } from "@/components/minimal/sections/overview/e-commerce/ecommerce-widget-summary";
+import { KpiWidget } from "@/components/app/kpi-widget";
 import { ConversionRatesCard } from "@/components/app/conversion-rates-card";
 import { WeeklyGrowthCard } from "./weekly-growth-card";
 import { BankingBalanceStatistics } from "@/components/minimal/sections/overview/banking/banking-balance-statistics";
@@ -134,7 +134,6 @@ function compareKg(actual: number, op: string, wanted: number): boolean {
 }
 const DEFAULT_LIMIT = WEIGHTS_DEFAULT_LIMIT;
 /** These three figures have no per-week series behind them, so the widget draws no sparkline. */
-const NO_SPARK = { categories: [], series: [] };
 
 /** One week of the weekly gain series (General + Time-wise), labelled DD/MM/YYYY. */
 type GainTrendPoint = { week: string; label: string; gain: number; animals: number };
@@ -824,33 +823,26 @@ function GeneralTab({
   return (
     <Grid container spacing={3}>
       <Grid size={{ xs: 12, md: 4 }}>
-        <EcommerceWidgetSummary
+        <KpiWidget
           title={`${copy(pageContract, "kpi.kids.label")} ${copy(pageContract, "kpi.kids.sub")}`}
-          total={hasAnyData ? summary.animals_weighed : noData}
+          total={hasAnyData ? summary.animals_weighed : null}
           caption={hasAnyData ? kidsSplit : undefined}
-          chart={NO_SPARK}
           sx={{ height: 1 }}
         />
       </Grid>
       <Grid size={{ xs: 12, md: 4 }}>
-        <EcommerceWidgetSummary
-          title={copy(pageContract, "kpi.total.label")}
-          total={hasAnyData ? `${summary.total_weight_kg.toLocaleString("en-IN", { maximumFractionDigits: 0 })} kg` : noData}
+        <KpiWidget
+          title={`${copy(pageContract, "kpi.total.label")} (kg)`}
+          total={hasAnyData ? Math.round(summary.total_weight_kg) : null}
           caption={copy(pageContract, "kpi.total.sub")}
-          chart={NO_SPARK}
           sx={{ height: 1 }}
         />
       </Grid>
       <Grid size={{ xs: 12, md: 4 }}>
-        <EcommerceWidgetSummary
-          title={copy(pageContract, "kpi.average.label")}
-          total={
-            summary.average_weight_kg == null
-              ? noData
-              : `${summary.average_weight_kg.toLocaleString("en-IN", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} kg`
-          }
+        <KpiWidget
+          title={`${copy(pageContract, "kpi.average.label")} (kg)`}
+          total={summary.average_weight_kg == null ? null : Math.round(summary.average_weight_kg * 10) / 10}
           caption={copy(pageContract, "kpi.average.sub")}
-          chart={NO_SPARK}
           sx={{ height: 1 }}
         />
       </Grid>

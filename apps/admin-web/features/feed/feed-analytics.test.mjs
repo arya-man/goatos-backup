@@ -150,10 +150,11 @@ test("the cost-per-animal tile divides yesterday's spend by yesterday's animals,
   // a positional last element would price today's half-issued sheet against yesterday's herd.
   assert.match(source, /stock\.expenditure\.find\(\(d\) => d\.feed_day === latest\.feed_day\)/);
   assert.match(source, /latest\.head_days > 0/);
-  assert.match(source, /rate\(num\(spentDay\.rupees\) \/ latest\.head_days\)/);
-  // No priced day or no animals reads "—", never ₹0.
-  assert.match(source, /\{costPerAnimal \?\? "—"\}/);
-  assert.match(source, /"kpi\.cost_per_animal\.label"/);
+  assert.match(source, /num\(spentDay\.rupees\) \/ latest\.head_days/);
+  // No priced day or no animals is a null figure (empty template widget), never ₹0.
+  assert.match(source, /let costPerAnimal: number \| null = null;/);
+  assert.match(source, /key: "cost_per_animal", unit: "₹", total: costPerAnimal/);
+  assert.match(source, /fa\(pageContract, `kpi.\$\{kpi.key\}.label`\)/);
 });
 
 test("the expenditure chart's per-animal reading divides each day by that day's own animals", () => {

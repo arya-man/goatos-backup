@@ -563,7 +563,16 @@ function runGuard(root, { themeDiff }) {
             findings.push(finding("page-template-map", mapRel, index + 1, `${route}: mapped file ${file} does not exist`));
             continue;
           }
-          imports += readFileSync(abs, "utf8");
+          const text = readFileSync(abs, "utf8");
+          imports += text;
+          // components/app adapters only pass our data into template sections (e.g. kpi-widget ->
+          // CourseWidgetSummary / EcommerceWidgetSummary), so their imports count one level deep.
+          for (const m of text.matchAll(/from\s+["']@\/(components\/app\/[\w/.-]+)["']/g)) {
+            for (const ext of [".tsx", ".ts"]) {
+              const adapter = join(root, m[1] + ext);
+              if (existsSync(adapter)) imports += readFileSync(adapter, "utf8");
+            }
+          }
         }
         for (const mod of modules) {
           const spec = new RegExp(`from\\s+["']@/${mod.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:["'/])`);

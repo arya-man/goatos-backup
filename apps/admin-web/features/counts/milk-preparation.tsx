@@ -20,7 +20,7 @@ import { Label } from "@/components/minimal/label";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { TableHeadCustom } from "@/components/minimal/table";
 import { InvoiceAnalytic } from "@/components/minimal/sections/invoice/invoice-analytic";
-import { EcommerceWidgetSummary } from "@/components/minimal/sections/overview/e-commerce/ecommerce-widget-summary";
+import { KpiWidget } from "@/components/app/kpi-widget";
 import { PageHeader } from "@/components/app/page-header";
 import { FeedAnalyticsExport as MilkPreparationExport } from "@/components/analytics-export";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
@@ -98,7 +98,6 @@ function verificationTag(row: MilkPreparationRow, pageContract: AdminUiPageContr
   }
 }
 
-const NO_SPARK = { categories: [], series: [] };
 
 export async function MilkPreparationPage({
   searchParams,
@@ -195,11 +194,15 @@ export async function MilkPreparationPage({
           {[
             { key: "sheds", total: summary.shed_count },
             { key: "kids", total: summary.head_count },
-            { key: "milk", total: `${litres(summary.total_required_ml)} ${unit}` },
-            { key: "citric", total: `${summary.citric_acid_grams} ${copy(pageContract, "label.grams")}` },
+            { key: "milk", total: summary.total_required_ml / 1000, unit },
+            { key: "citric", total: summary.citric_acid_grams, unit: copy(pageContract, "label.grams") },
           ].map((kpi) => (
             <Grid key={kpi.key} size={{ xs: 12, sm: 6, md: 3 }}>
-              <EcommerceWidgetSummary title={copy(pageContract, `kpi.${kpi.key}.label`)} total={kpi.total} chart={NO_SPARK} sx={{ height: 1 }} />
+              <KpiWidget
+                title={kpi.unit ? `${copy(pageContract, `kpi.${kpi.key}.label`)} (${kpi.unit})` : copy(pageContract, `kpi.${kpi.key}.label`)}
+                total={kpi.total}
+                sx={{ height: 1 }}
+              />
             </Grid>
           ))}
         </Grid>

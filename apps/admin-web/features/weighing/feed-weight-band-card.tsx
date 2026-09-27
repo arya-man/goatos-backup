@@ -11,7 +11,8 @@ import Link from "@mui/material/Link";
 import Typography from "@mui/material/Typography";
 import { Iconify } from "@/components/minimal/iconify";
 import { TableFooter } from "@/components/app/table-footer";
-import { StatStrip } from "@/components/minimal/widgets/stat-strip";
+import { KpiGrid } from "@/components/app/kpi-grid";
+import { KpiWidget } from "@/components/app/kpi-widget";
 import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
@@ -212,7 +213,7 @@ export function FeedWeightBandCard({
 
   // Stat tiles over the rows of THIS view after the table filters. "Animals weighed" counts each
   // pen × bracket × source once, however many feed rows the pen has.
-  const tiles: { label: string; value: string; sub?: string; href?: string }[] = [];
+  const tiles: { label: string; value: number; sub?: string; href?: string }[] = [];
   // A hash-only href keeps the page's path and query (so every filter survives the open) and
   // renders identically on the server, where there is no window.
   const exitHref = (scope: string) => `#fb_exit=${encodeURIComponent(scope)}`;
@@ -225,26 +226,26 @@ export function FeedWeightBandCard({
     for (const entry of perPenBand.values()) animals += entry;
     const totalWeighed = recon ? recon.individual_animals_weighed + recon.lump_sum_animals_weighed : 0;
     const animalsSub = totalWeighed > 0 ? `${n(totalWeighed)} ${copy(pageContract, "stat.feed_band.total_weighed")}` : undefined;
-    tiles.push({ label: copy(pageContract, "stat.feed_band.rows"), value: n(matched.length) });
-    for (const park of parkNames) tiles.push({ label: park, value: n(matched.filter((row) => row.park_name === park).length) });
+    tiles.push({ label: copy(pageContract, "stat.feed_band.rows"), value: (matched.length) });
+    for (const park of parkNames) tiles.push({ label: park, value: (matched.filter((row) => row.park_name === park).length) });
     tiles.push(
-      { label: copy(pageContract, "stat.feed_band.pens"), value: n(new Set(matched.map((row) => `${row.park_id}|${row.pen}`)).size) },
-      { label: copy(pageContract, "stat.feed_band.lump"), value: n(matched.filter((row) => row.weight_source === "pen_average").length) },
-      { label: copy(pageContract, "stat.feed_band.per_animal"), value: n(matched.filter((row) => row.weight_source === "per_animal").length) },
-      { label: copy(pageContract, "stat.feed_band.animals"), value: n(animals), sub: animalsSub },
+      { label: copy(pageContract, "stat.feed_band.pens"), value: (new Set(matched.map((row) => `${row.park_id}|${row.pen}`)).size) },
+      { label: copy(pageContract, "stat.feed_band.lump"), value: (matched.filter((row) => row.weight_source === "pen_average").length) },
+      { label: copy(pageContract, "stat.feed_band.per_animal"), value: (matched.filter((row) => row.weight_source === "per_animal").length) },
+      { label: copy(pageContract, "stat.feed_band.animals"), value: (animals), sub: animalsSub },
       // The period's exits, the Herd Analytics figure (recon), with the weighed / not-weighed
       // split; the band rows' own exit notes are the weighed subset of this.
       {
         label: copy(pageContract, "stat.feed_band.exited"),
-        value: n(recon?.exited_animals ?? 0),
+        value: (recon?.exited_animals ?? 0),
         sub: recon && recon.exited_animals > 0 ? `${n(recon.exited_weighed)} ${copy(pageContract, "stat.feed_band.weighed")} · ${n(recon.exited_not_weighed)} ${copy(pageContract, "stat.feed_band.not_weighed")}` : undefined,
         href: recon && recon.exited_animals > 0 ? exitHref("all") : undefined,
       },
     );
   } else {
-    tiles.push({ label: copy(pageContract, "stat.feed_band.rows"), value: n(unmatched.length) });
-    for (const park of parkNames) tiles.push({ label: park, value: n(unmatched.filter((row) => row.park_name === park).length) });
-    tiles.push({ label: copy(pageContract, "stat.feed_band.pens"), value: n(new Set(unmatched.map((row) => `${row.park_id}|${row.pen}`)).size) });
+    tiles.push({ label: copy(pageContract, "stat.feed_band.rows"), value: (unmatched.length) });
+    for (const park of parkNames) tiles.push({ label: park, value: (unmatched.filter((row) => row.park_name === park).length) });
+    tiles.push({ label: copy(pageContract, "stat.feed_band.pens"), value: (new Set(unmatched.map((row) => `${row.park_id}|${row.pen}`)).size) });
   }
   // At most eight tiles (visual judge 2026-09-18): the filtered "showing N of M" reads on the pager.
 
@@ -447,24 +448,24 @@ export function FeedWeightBandCard({
           {copy(pageContract, "note.feed_band.unmatched")}
         </Typography>
       ) : null}
-      {/* The template invoice-list analytic strip (dashed dividers), not cards inside the card. The
-          exits figure opens the exited-animals drawer in place (hash link, no navigation). */}
-      <StatStrip
-        ariaLabel={copy(pageContract, "section.feed_band.aria")}
-        cells={tiles.map((tile) => ({
-          key: tile.label,
-          label: tile.label,
-          meta: tile.sub,
-          tone: tile.href ? "warning" : "primary",
-          value: tile.href ? (
-            <Link component={LocalOverlayLink} href={tile.href} scroll={false} color="inherit" underline="always">
-              {tile.value}
-            </Link>
-          ) : (
-            tile.value
-          ),
-        }))}
-      />
+      {/* Template CourseWidgetSummary tiles (KpiWidget), flat inside this card. The exits figure
+          opens the exited-animals drawer in place (hash link via LocalOverlayLink, no navigation). */}
+      <Box component="section" aria-label={copy(pageContract, "section.feed_band.aria")} sx={{ px: 2.5, pb: 2.5 }}>
+        <KpiGrid>
+          {tiles.map((tile) => (
+            <KpiWidget
+              key={tile.label}
+              title={tile.label}
+              total={tile.value}
+              caption={tile.sub}
+              color={tile.href ? "warning" : "primary"}
+              href={tile.href}
+              linkComponent={LocalOverlayLink}
+              sx={{ height: 1, boxShadow: "none", border: 1, borderColor: "divider" }}
+            />
+          ))}
+        </KpiGrid>
+      </Box>
       {view === "matched" ? (
         <FeedWeightBandTable
           contract={withParkColumn(table(pageContract, "feed-weight-band"))}

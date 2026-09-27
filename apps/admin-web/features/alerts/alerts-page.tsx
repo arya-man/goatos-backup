@@ -19,7 +19,7 @@ import Link from "@/components/no-prefetch-link";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
 import { LinkSelect } from "@/components/app/link-select";
-import { CourseWidgetSummary } from "@/components/minimal/widgets/course-widget-summary";
+import { CourseWidgetSummary } from "@/components/minimal/sections/overview/course/course-widget-summary";
 import { COURSE_WIDGET_ICONS } from "@/lib/minimal-icons";
 import { TableHeadCustom } from "@/components/minimal/table";
 import { Label, type LabelColor } from "@/components/minimal/label";

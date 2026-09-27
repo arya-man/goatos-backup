@@ -16,7 +16,7 @@ import CardHeader from "@mui/material/CardHeader";
 import { PageHeader } from "@/components/app/page-header";
 import { EmptyState } from "@/components/app/empty-state";
 import Grid from "@mui/material/Grid";
-import { CourseWidgetSummary } from "@/components/minimal/widgets/course-widget-summary";
+import { CourseWidgetSummary } from "@/components/minimal/sections/overview/course/course-widget-summary";
 import { COURSE_WIDGET_ICONS } from "@/lib/minimal-icons";
 import { TableHeadCustom } from "@/components/minimal/table";
 import { Label, type LabelColor } from "@/components/minimal/label";

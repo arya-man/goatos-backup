@@ -1,11 +1,9 @@
-import { KpiValue } from "./kpi-value";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { PanelSkeleton } from "@/components/app/panel-skeleton";
 import { redirect } from "next/navigation";
 
-import { IndianRupee, Scale } from "lucide-react";
 import Grid from "@mui/material/Grid";
-import { KpiCard } from "@/components/minimal/widgets";
+import { KpiWidget } from "@/components/app/kpi-widget";
 import { EmptyState } from "@/components/app/empty-state";
 import { BankingExpensesCategories } from "@/components/minimal/sections/overview/banking/banking-expenses-categories";
 import { EcommerceSalesOverview } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sales-overview";
@@ -109,20 +107,10 @@ function FarmValueSections({
       <Grid size={12}>
         <Grid container spacing={3} component="section" aria-label={copy(pageContract, "section.farm_value.aria")}>
           <Grid size={{ xs: 12, md: 4 }}>
-            <KpiCard
-              tone="primary"
-              label={copy(pageContract, "kpi.farm_value")}
-              value={<KpiValue value={overview.farm_valuation.total_value_rupees} kind="inr" />}
-              icon={<IndianRupee aria-hidden="true" />}
-            />
+            <KpiWidget color="primary" title={`${copy(pageContract, "kpi.farm_value")} (₹)`} total={overview.farm_valuation.total_value_rupees} icon="certificates" />
           </Grid>
           <Grid size={{ xs: 12, md: 4 }}>
-            <KpiCard
-              tone="info"
-              label={copy(pageContract, "kpi.total_meat")}
-              value={<KpiValue value={overview.farm_valuation.total_meat_kg} digits={1} suffix={kgSuffix} />}
-              icon={<Scale aria-hidden="true" />}
-            />
+            <KpiWidget color="info" title={`${copy(pageContract, "kpi.total_meat")} (${kgSuffix})`} total={overview.farm_valuation.total_meat_kg} />
           </Grid>
           <Grid size={{ xs: 12, md: 4 }}>
             {/* Over 35 kg belongs with the valuation, not the ledger (maintainer decision

@@ -25,7 +25,7 @@ import Tabs from "@mui/material/Tabs";
 import type { SxProps, Theme } from "@mui/material/styles";
 
 import { BreadcrumbsContainer, BreadcrumbsContent, BreadcrumbsHeading, BreadcrumbsRoot } from "@/components/minimal/custom-breadcrumbs/styles";
-import { KpiGrid } from "@/components/minimal/widgets/kpi-grid";
+import { KpiGrid } from "@/components/app/kpi-grid";
 
 type Typo = "h3" | "h4" | "h5" | "h6" | "subtitle1" | "subtitle2" | "body1" | "body2" | "caption";
 

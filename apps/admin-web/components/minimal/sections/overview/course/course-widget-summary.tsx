@@ -1,24 +1,22 @@
 'use client';
 
-// Copied from the licensed MUI Minimal template (sections/overview/course/course-widget-summary.tsx).
-// Change: values accept pre-formatted strings (WidgetValue).
 import type { CardProps } from '@mui/material/Card';
 import type { PaletteColorKey } from '@/theme/core';
-import type { WidgetValue } from './types';
 
 import Box from '@mui/material/Box';
 import Card from '@mui/material/Card';
 import Typography from '@mui/material/Typography';
 
-import { SvgColor } from '../svg-color';
-import { fNumber } from '../_shared/format-number';
+import { fNumber } from '@/components/minimal/_shared/format-number';
+
+import { SvgColor } from '@/components/minimal/svg-color';
 
 // ----------------------------------------------------------------------
 
-export type CourseWidgetSummaryProps = CardProps & {
+type Props = CardProps & {
   icon: string;
   title: string;
-  total: WidgetValue;
+  total: number;
   color?: PaletteColorKey;
 };
 
@@ -29,11 +27,11 @@ export function CourseWidgetSummary({
   total,
   color = 'warning',
   ...other
-}: CourseWidgetSummaryProps) {
+}: Props) {
   return (
     <Card sx={[{ py: 3, pl: 3, pr: 2.5 }, ...(Array.isArray(sx) ? sx : [sx])]} {...other}>
       <Box sx={{ flexGrow: 1 }}>
-        <Box sx={{ typography: 'h3' }}>{typeof total === 'number' ? fNumber(total) : total}</Box>
+        <Box sx={{ typography: 'h3' }}>{fNumber(total)}</Box>
 
         <Typography noWrap variant="subtitle2" component="div" sx={{ color: 'text.secondary' }}>
           {title}

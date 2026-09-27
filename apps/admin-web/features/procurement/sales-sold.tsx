@@ -9,11 +9,10 @@ import { listOrEmpty } from "@/lib/list-or-empty";
 import { EmptyState } from "@/components/app/empty-state";
 import { Label } from "@/components/minimal/label";
 import { TableHeadCustom } from "@/components/minimal/table";
-import { EcommerceWidgetSummary } from "@/components/minimal/sections/overview/e-commerce/ecommerce-widget-summary";
+import { KpiWidget } from "@/components/app/kpi-widget";
 import { EcommerceSalesOverview } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sales-overview";
 import { EcommerceBestSalesman } from "@/components/minimal/sections/overview/e-commerce/ecommerce-best-salesman";
 import { EcommerceLatestProducts } from "@/components/minimal/sections/overview/e-commerce/ecommerce-latest-products";
-import { KpiValue } from "./kpi-value";
 import { SalesSoldMonthly } from "./sales-sold-monthly";
 import ListItemText from "@mui/material/ListItemText";
 import type { ReactNode } from "react";
@@ -66,7 +65,6 @@ const BUYERS_PAGE_SIZE = 10;
 
 // Template widget / chart colours from the locked palette (scheme-aware CSS variables the chart
 // resolves at draw time), in the template Ecommerce overview's light→main gradient pairs.
-const tone = (key: "primary" | "info" | "warning" | "secondary") => [`var(--palette-${key}-light)`, `var(--palette-${key}-main)`];
 /** Template Label colour for a deal status (the old Tag tones). */
 const STATUS_LABEL = { ok: "success", info: "info", warn: "warning", dng: "error", mut: "default" } as const;
 /** Template rank-chip colours by position (EcommerceBestSalesman: Top 1..4, then the rest). */
@@ -103,19 +101,6 @@ function SoldSections({
   buyersPage: number;
 }) {
   const summary = overview.summary;
-  // Last twelve months of the same monthly series the Month-by-month card charts, as the KPI
-  // widgets' sparklines (template EcommerceWidgetSummary). No trend chip: the current month is
-  // partial, so a month-on-month % would compare a part month with a whole one; the trend row
-  // carries the widget's own detail line instead.
-  const sparkMonths = overview.monthly.slice(-12);
-  const sparkLabels = sparkMonths.map((month) => monthLabel(month.month));
-  const revenueSpark = sparkMonths.map(monthlyRevenueTotal);
-  const animalsSpark = sparkMonths.map(monthlyAnimalsTotal);
-  const manureSpark = sparkMonths.map((month) => month.manure_revenue);
-  // Months with no priced live line carry 0 (no price, not a free animal); they are left out so
-  // the line joins the months that really have a realized price.
-  const pricedMonths = sparkMonths.filter((month) => month.realized_price_per_kg > 0);
-  const priceSpark = pricedMonths.map((month) => month.realized_price_per_kg);
   const none = copy(pageContract, "value.none");
   const kgSuffix = copy(pageContract, "value.kg_suffix");
   const perKgSuffix = copy(pageContract, "value.per_kg_suffix");
@@ -169,43 +154,45 @@ function SoldSections({
 
   return (
     <Grid container spacing={3}>
-      {/* Headline figures: template EcommerceWidgetSummary, two by two beside sold-by-weight. */}
+      {/* Headline figures: template CourseWidgetSummary (KpiWidget), two by two beside sold-by-weight. */}
       <Grid size={{ xs: 12, lg: 8 }}>
         <Grid container spacing={3} component="section" aria-label={copy(pageContract, "section.sold.aria")} sx={{ height: 1 }}>
           <Grid size={{ xs: 12, sm: 6 }}>
-            <EcommerceWidgetSummary
-              title={copy(pageContract, "kpi.revenue")}
-              total={<KpiValue value={summary.revenue} kind="inr" />}
+            <KpiWidget
+              title={`${copy(pageContract, "kpi.revenue")} (₹)`}
+              total={summary.revenue}
               caption={`${num(summary.deals)} ${copy(pageContract, "kpi.deals")}`}
-              chart={{ categories: sparkLabels, series: revenueSpark, format: "inr" }}
+              icon="completed"
+              color="primary"
               sx={{ height: 1 }}
             />
           </Grid>
           <Grid size={{ xs: 12, sm: 6 }}>
-            <EcommerceWidgetSummary
+            <KpiWidget
               title={copy(pageContract, "kpi.animals")}
-              total={<KpiValue value={summary.animals} />}
+              total={summary.animals}
               caption={`${num(summary.sheep)} ${seriesLabel("sheep")} · ${num(summary.goats)} ${seriesLabel("goat")}`}
-              chart={{ colors: tone("info"), categories: sparkLabels, series: animalsSpark }}
+              color="info"
               sx={{ height: 1 }}
             />
           </Grid>
           <Grid size={{ xs: 12, sm: 6 }}>
-            <EcommerceWidgetSummary
-              title={copy(pageContract, "kpi.realized_price")}
-              // Zero means no weighed live sale exists — printing ₹0 per kg would claim we give
-              // animals away.
-              total={summary.realized_price_per_kg > 0 ? <KpiValue value={summary.realized_price_per_kg} kind="inr" suffix={perKgSuffix} /> : none}
-              chart={{ colors: tone("secondary"), categories: pricedMonths.map((month) => monthLabel(month.month)), series: priceSpark, format: "inr" }}
+            {/* Zero means no weighed live sale exists — printing ₹0 per kg would claim we give
+                animals away (null renders an empty figure). */}
+            <KpiWidget
+              title={`${copy(pageContract, "kpi.realized_price")} (₹ ${perKgSuffix})`}
+              total={summary.realized_price_per_kg > 0 ? summary.realized_price_per_kg : null}
+              caption={summary.realized_price_per_kg > 0 ? undefined : none}
+              color="secondary"
               sx={{ height: 1 }}
             />
           </Grid>
           <Grid size={{ xs: 12, sm: 6 }}>
-            <EcommerceWidgetSummary
-              title={copy(pageContract, "kpi.manure")}
-              total={<KpiValue value={summary.manure_kg} suffix={kgSuffix} />}
+            <KpiWidget
+              title={`${copy(pageContract, "kpi.manure")} (${kgSuffix})`}
+              total={summary.manure_kg}
               caption={`${inr(summary.manure_revenue)} · ${copy(pageContract, "kpi.manure.detail")}`}
-              chart={{ colors: tone("warning"), categories: sparkLabels, series: manureSpark, format: "inr" }}
+              color="warning"
               sx={{ height: 1 }}
             />
           </Grid>
@@ -214,11 +201,10 @@ function SoldSections({
               d35d4db8d). */}
           {showFeed ? (
             <Grid size={12}>
-              <EcommerceWidgetSummary
-                title={copy(pageContract, "kpi.feed")}
-                total={<KpiValue value={summary.feed_kg} suffix={kgSuffix} />}
+              <KpiWidget
+                title={`${copy(pageContract, "kpi.feed")} (${kgSuffix})`}
+                total={summary.feed_kg}
                 caption={`${inr(summary.feed_revenue)} · ${copy(pageContract, "kpi.feed.detail")}`}
-                chart={{ categories: [], series: [] }}
               />
             </Grid>
           ) : null}

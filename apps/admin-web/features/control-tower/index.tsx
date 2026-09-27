@@ -9,7 +9,7 @@ import TableCell from "@mui/material/TableCell";
 import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
-import { AlertTriangle, CheckCircle2, MapPin, ShieldCheck } from "lucide-react";
+import { AlertTriangle, CheckCircle2, MapPin } from "lucide-react";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError, getVaccinationControlTower } from "@/lib/api/server";
 import type { ControlTowerAlert, ProcessIntegritySeverity, WorkState } from "@/lib/api/server";
@@ -18,7 +18,8 @@ import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import { Tag } from "@/components/ui-primitives";
 import type { KitTone } from "@/lib/tone";
 import { PageHeader } from "@/components/app/page-header";
-import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import { KpiGrid } from "@/components/app/kpi-grid";
+import { KpiWidget, kpiColor } from "@/components/app/kpi-widget";
 import { AnimatedTabs, TabPanel } from "@/components/minimal/list/animated-tabs";
 import { copy, optionGroup, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { VaccinationFilterButton, VaccinationTablePager, type VaccinationPageSize } from "@/features/preventive-care-vaccination";
@@ -45,13 +46,6 @@ const accentVar: Record<Tone4, string> = {
 
 const CT_TONE: Record<Tone4, KitTone> = { ok: "success", warn: "warning", dng: "error", info: "info", mut: "neutral" };
 
-function Kpi({ label, value, sub, tone, icon }: { label: string; value: React.ReactNode; sub?: string; tone: Tone4; icon?: React.ReactNode }) {
-  return <KpiCard label={label} value={value} tone={CT_TONE[tone]} icon={icon} hint={sub} />;
-}
-
-function fmtInt(n: number): string {
-  return n.toLocaleString("en-IN");
-}
 
 function ownerOf(alert: ControlTowerAlert, unassignedLabel: string): string {
   return alert.owner?.operator_name ?? alert.owner?.park_head_name ?? unassignedLabel;
@@ -195,21 +189,22 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
 
       {/* Process-integrity KPIs only — no census/count totals (Counts is a separate vertical). */}
       <KpiGrid min={210}>
-        <Kpi
-          label={copy(pageContract, "kpi.process")}
-          value={processLabel}
-          sub={summary ? pageContract.subtitle : copy(pageContract, "state.unavailable")}
-          tone={processTone}
-          icon={processTone === "ok" ? <CheckCircle2 /> : <AlertTriangle />}
+        {/* The process state is a word, not a count: it rides in the template widget title. */}
+        <KpiWidget
+          title={`${copy(pageContract, "kpi.process")}: ${processLabel}`}
+          total={null}
+          caption={summary ? pageContract.subtitle : copy(pageContract, "state.unavailable")}
+          color={kpiColor(CT_TONE[processTone])}
+          icon={processTone === "ok" ? "completed" : "progress"}
         />
-        <Kpi label={copy(pageContract, "kpi.critical")} value={summary ? fmtInt(summary.critical_count) : "n/a"} sub={copy(pageContract, "label.process_not_intact")} tone={summary && summary.critical_count > 0 ? "dng" : "mut"} />
-        <Kpi label={copy(pageContract, "kpi.open_gaps")} value={summary ? fmtInt(summary.warning_count) : "n/a"} sub={copy(pageContract, "label.process_at_risk")} tone={summary && summary.warning_count > 0 ? "warn" : "mut"} />
-        <Kpi
-          label={copy(pageContract, "kpi.evidence")}
-          value={summary ? fmtInt(summary.verification_backlog) : "n/a"}
-          sub={openGapLabels[4]}
-          tone={summary && summary.verification_backlog > 0 ? "info" : "mut"}
-          icon={<ShieldCheck />}
+        <KpiWidget title={copy(pageContract, "kpi.critical")} total={summary?.critical_count} caption={copy(pageContract, "label.process_not_intact")} color={kpiColor(CT_TONE[summary && summary.critical_count > 0 ? "dng" : "mut"])} />
+        <KpiWidget title={copy(pageContract, "kpi.open_gaps")} total={summary?.warning_count} caption={copy(pageContract, "label.process_at_risk")} color={kpiColor(CT_TONE[summary && summary.warning_count > 0 ? "warn" : "mut"])} />
+        <KpiWidget
+          title={copy(pageContract, "kpi.evidence")}
+          total={summary?.verification_backlog}
+          caption={openGapLabels[4]}
+          color={kpiColor(CT_TONE[summary && summary.verification_backlog > 0 ? "info" : "mut"])}
+          icon="certificates"
         />
       </KpiGrid>
 

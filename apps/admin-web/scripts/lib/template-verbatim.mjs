@@ -21,8 +21,9 @@ import { join } from "node:path";
 
 const SPECIFIER = /(\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)(['"])([^'"\n]+)\2/g;
 const DIRECTIVE = /^\s*(['"])use client\1;?[ \t]*\n/;
-// Where a template-internal specifier (src/... or ./...) may point in this repo.
-const LOCAL_TARGET = /^(\.{1,2}\/|@\/components\/minimal\/|@\/layouts\/|@\/theme\/|@\/theme$)/;
+// Where a template-internal specifier (src/... or ./...) may point in this repo. lib/template-config/
+// holds the template config points we own (number locale), never components.
+const LOCAL_TARGET = /^(\.{1,2}\/|@\/lib\/template-config\/|@\/components\/minimal\/|@\/layouts\/|@\/theme\/|@\/theme$)/;
 
 export function normaliseTemplateSource(text) {
   const specifiers = [];

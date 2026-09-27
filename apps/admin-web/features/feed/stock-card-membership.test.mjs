@@ -32,9 +32,11 @@ test("the plain Concentrate card is hidden by catalog key, days left or not", ()
 // figure it does not have must never be invented, and it must not read as low
 // stock -- a full untouched load is the opposite of nearly out.
 test("a not-started card shows kg in store, never a days-left or a low-stock tag", () => {
-  assert.match(stockCards, /item\.not_started\s*\?\s*`\$\{nf\(num\(item\.balance_kg\)\)\} \$\{fa\(pageContract, "unit\.kg"\)\}`/);
-  assert.match(stockCards, /item\.not_started \? <Label variant="soft" color="success"[^>]*>\{fa\(pageContract, "stock\.not_started"\)\}<\/Label> : null/);
-  assert.match(stockCards, /item\.low_stock \? <Label variant="soft" color="error"[^>]*>\{fa\(pageContract, "stock\.low"\)\}<\/Label> : null/);
+  // Template widget: the figure is kg in store (unit in the title) for a not-started feed.
+  assert.match(stockCards, /item\.not_started \? fa\(pageContract, "unit\.kg"\) : fa\(pageContract, "stock\.days_left"\)/);
+  assert.match(stockCards, /total=\{item\.not_started \? num\(item\.balance_kg\) :/);
+  assert.match(stockCards, /item\.not_started \? fa\(pageContract, "stock\.not_started"\) : null/);
+  assert.match(stockCards, /item\.low_stock \? fa\(pageContract, "stock\.low"\) : null/);
 });
 
 // Backend owns the words (copy firewall): the card's copy comes from the page

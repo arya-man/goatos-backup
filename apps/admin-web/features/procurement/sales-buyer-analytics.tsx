@@ -5,11 +5,9 @@ import Typography from "@mui/material/Typography";
 import { Label } from "@/components/minimal/label";
 import { EcommerceSaleByGender } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sale-by-gender";
 import { EmptyState } from "@/components/app/empty-state";
-import { KpiCard } from "@/components/minimal/widgets";
-import { KpiValue } from "./kpi-value";
+import { KpiWidget } from "@/components/app/kpi-widget";
 import { redirect } from "next/navigation";
 
-import { IndianRupee, Repeat, Users } from "lucide-react";
 import {
   controlEnabled,
   copy,
@@ -155,48 +153,47 @@ function BuyerSections({
 
   return (
     <Grid container spacing={3}>
-      {/* Headline figures: plain KpiCards (template CourseWidgetSummary anatomy), two by two
+      {/* Headline figures: template CourseWidgetSummary (KpiWidget), two by two
           beside the repeat-share radial -- the Ecommerce overview's widget + Sale-by-gender row. */}
       <Grid size={{ xs: 12, lg: 8 }}>
         <Grid container spacing={3} sx={{ height: 1 }}>
           <Grid size={{ xs: 12, sm: 6 }}>
-            <KpiCard
-              tone="primary"
-              label={copy(pageContract, "kpi.buyers")}
-              value={<KpiValue value={summary.buyers} />}
-              icon={<Users aria-hidden="true" />}
-              hint={
-                // Older contracts lack this optional standalone detail; never reuse the
-                // legacy key, whose sentence follows an unregistered-buyer count (0dd2097e3).
-                optionalCopy(pageContract, "kpi.buyers.closed_sale_detail") ? copy(pageContract, "kpi.buyers.closed_sale_detail") : undefined
-              }
+            <KpiWidget
+              color="primary"
+              title={copy(pageContract, "kpi.buyers")}
+              total={summary.buyers}
+              // Older contracts lack this optional standalone detail; never reuse the legacy key,
+              // whose sentence follows an unregistered-buyer count (0dd2097e3).
+              caption={optionalCopy(pageContract, "kpi.buyers.closed_sale_detail") ? copy(pageContract, "kpi.buyers.closed_sale_detail") : undefined}
+              sx={{ height: 1 }}
             />
           </Grid>
           <Grid size={{ xs: 12, sm: 6 }}>
-            <KpiCard
-              tone="info"
-              label={copy(pageContract, "kpi.repeat_buyers")}
-              value={<KpiValue value={summary.repeat_buyers} />}
-              icon={<Repeat aria-hidden="true" />}
-              hint={`${num(repeatPct, 0)}% · ${copy(pageContract, "kpi.repeat_buyers.detail")}`}
+            <KpiWidget
+              color="info"
+              icon="certificates"
+              title={copy(pageContract, "kpi.repeat_buyers")}
+              total={summary.repeat_buyers}
+              caption={`${num(repeatPct, 0)}% · ${copy(pageContract, "kpi.repeat_buyers.detail")}`}
+              sx={{ height: 1 }}
             />
           </Grid>
           <Grid size={{ xs: 12, sm: 6 }}>
-            <KpiCard
-              tone="success"
-              label={copy(pageContract, "kpi.repeat_revenue")}
-              value={<KpiValue value={summary.repeat_revenue} kind="inr" />}
-              icon={<IndianRupee aria-hidden="true" />}
-              hint={`${num(summary.repeat_revenue_pct, 0)}% ${copy(pageContract, "kpi.repeat_revenue.detail")} · ${num(summary.purchases)} ${copy(pageContract, "kpi.purchases.detail")}`}
+            <KpiWidget
+              color="success"
+              title={`${copy(pageContract, "kpi.repeat_revenue")} (₹)`}
+              total={summary.repeat_revenue}
+              caption={`${num(summary.repeat_revenue_pct, 0)}% ${copy(pageContract, "kpi.repeat_revenue.detail")} · ${num(summary.purchases)} ${copy(pageContract, "kpi.purchases.detail")}`}
+              sx={{ height: 1 }}
             />
           </Grid>
           <Grid size={{ xs: 12, sm: 6 }}>
-            <KpiCard
-              tone="warning"
-              label={copy(pageContract, "kpi.outstanding")}
-              value={<KpiValue value={summary.outstanding} kind="inr" />}
-              icon={<IndianRupee aria-hidden="true" />}
-              hint={copy(pageContract, "kpi.outstanding.detail")}
+            <KpiWidget
+              color="warning"
+              title={`${copy(pageContract, "kpi.outstanding")} (₹)`}
+              total={summary.outstanding}
+              caption={copy(pageContract, "kpi.outstanding.detail")}
+              sx={{ height: 1 }}
             />
           </Grid>
         </Grid>

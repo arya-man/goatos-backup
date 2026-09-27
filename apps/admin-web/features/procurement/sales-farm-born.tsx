@@ -7,15 +7,13 @@ import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import { redirect } from "next/navigation";
-import { IndianRupee } from "lucide-react";
 
 import CardHeader, { cardHeaderClasses } from "@mui/material/CardHeader";
 import { EmptyState } from "@/components/app/empty-state";
-import { KpiCard } from "@/components/minimal/widgets";
+import { KpiWidget } from "@/components/app/kpi-widget";
 import { Label } from "@/components/minimal/label";
 import Grid from "@mui/material/Grid";
 import Stack from "@mui/material/Stack";
-import { GoatGlyph } from "@/components/goat-glyph";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
 import { copy, optionGroup, table, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
@@ -25,7 +23,6 @@ import type { FarmBornBucket, FarmBornSales } from "@/lib/api/procurement";
 import { todayIso } from "@/lib/format";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { stageNameMap, stageVocabularyLabel, type StageNameMap } from "@/lib/stage-display";
-import { KpiValue } from "./kpi-value";
 import { humanDate, inr, num } from "./sales-format";
 import { SalesFarmToggle, SalesPageHeader, readSalesParkScope } from "./sales-chrome";
 import { FarmBornSoldTable } from "./farm-born-sold-table";
@@ -239,53 +236,36 @@ function FarmBornSections({
 
   return (
     <>
-      {/* Headline figures: plain KpiCards (template CourseWidgetSummary anatomy -- figure, title,
-          tone icon), never the pastel AnalyticsWidgetSummary in dark. */}
+      {/* Headline figures: template CourseWidgetSummary (KpiWidget) -- figure, title, tone icon;
+          never the pastel AnalyticsWidgetSummary in dark. */}
       <Grid container spacing={3} component="section" aria-label={copy(pageContract, "section.headline.aria")}>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <KpiCard
-            tone="primary"
-            label={copy(pageContract, "kpi.on_farm")}
-            value={<KpiValue value={s.on_farm} />}
-            icon={<GoatGlyph aria-hidden="true" />}
+          <KpiWidget color="primary" title={copy(pageContract, "kpi.on_farm")} total={s.on_farm} sx={{ height: 1 }} />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          {/* Tagged to a sale that has not closed: out of the herd, not yet sold (main 054918241). */}
+          <KpiWidget
+            color="info"
+            icon="certificates"
+            title={copy(pageContract, "kpi.sold")}
+            total={s.sold}
+            caption={`${humanDate(s.from)} ${copy(pageContract, "filter.period.range_separator")} ${humanDate(s.to)}${
+              s.tagged_not_closed > 0 ? ` · ${num(s.tagged_not_closed)} ${copy(pageContract, "kpi.tagged_not_closed")} (${copy(pageContract, "value.tagged_not_closed.hint")})` : ""
+            }`}
+            sx={{ height: 1 }}
           />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <KpiCard
-            tone="info"
-            label={copy(pageContract, "kpi.sold")}
-            value={<KpiValue value={s.sold} />}
-            icon={<GoatGlyph aria-hidden="true" />}
-            // Tagged to a sale that has not closed: out of the herd, not yet sold (main 054918241).
-            hint={
-              <>
-                {humanDate(s.from)} {copy(pageContract, "filter.period.range_separator")} {humanDate(s.to)}
-                {s.tagged_not_closed > 0 ? (
-                  <span title={copy(pageContract, "value.tagged_not_closed.hint")}>
-                    {" · "}
-                    {num(s.tagged_not_closed)} {copy(pageContract, "kpi.tagged_not_closed")}
-                  </span>
-                ) : null}
-              </>
-            }
+          <KpiWidget
+            color="success"
+            title={`${copy(pageContract, "kpi.revenue")} (₹)`}
+            total={s.revenue}
+            caption={unpriced > 0 ? `${num(s.sold_priced)} / ${num(s.sold)}` : undefined}
+            sx={{ height: 1 }}
           />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <KpiCard
-            tone="success"
-            label={copy(pageContract, "kpi.revenue")}
-            value={<KpiValue value={s.revenue} kind="inr" />}
-            icon={<IndianRupee aria-hidden="true" />}
-            hint={unpriced > 0 ? `${num(s.sold_priced)} / ${num(s.sold)}` : undefined}
-          />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <KpiCard
-            tone="violet"
-            label={copy(pageContract, "kpi.avg_price")}
-            value={s.sold_priced > 0 ? <KpiValue value={s.avg_price} kind="inr" /> : "—"}
-            icon={<IndianRupee aria-hidden="true" />}
-          />
+          <KpiWidget color="secondary" title={`${copy(pageContract, "kpi.avg_price")} (₹)`} total={s.sold_priced > 0 ? s.avg_price : null} sx={{ height: 1 }} />
         </Grid>
       </Grid>
 

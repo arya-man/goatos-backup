@@ -5,7 +5,7 @@ import { KpiRowSkeleton, TableSkeleton } from "@/components/app/skeletons";
 import { redirect } from "next/navigation";
 
 import { PageHeader } from "@/components/app/page-header";
-import { CourseWidgetSummary } from "@/components/minimal/widgets/course-widget-summary";
+import { CourseWidgetSummary } from "@/components/minimal/sections/overview/course/course-widget-summary";
 import { COURSE_WIDGET_ICONS } from "@/lib/minimal-icons";
 import { TablePaginationLinks } from "@/components/minimal/table";
 import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";

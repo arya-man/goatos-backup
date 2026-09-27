@@ -6,10 +6,10 @@ import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import { EmptyState } from "@/components/app/empty-state";
-import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import { KpiGrid } from "@/components/app/kpi-grid";
+import { KpiWidget } from "@/components/app/kpi-widget";
 import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
 import { redirect } from "next/navigation";
-import { Building2, CalendarRange, CircleCheck, Clock } from "lucide-react";
 
 import Link from "@/components/no-prefetch-link";
 import { Label } from "@/components/minimal/label";
@@ -127,29 +127,20 @@ export async function MarketAnalyticsPage({
           price panels to their skeletons at once; header and window strip stay on screen. */}
       <UrlSuspense searchParams={sp} watch={WINDOW_WATCH} fallback={<KpiRowSkeleton count={4} icon />}>
       <KpiGrid>
-        <KpiCard
-          tone="primary"
-          label={copy(pageContract, "kpi.cities.label")}
-          value={cities.length}
-          icon={<Building2 aria-hidden="true" />}
+        <KpiWidget color="primary" title={copy(pageContract, "kpi.cities.label")} total={cities.length} />
+        <KpiWidget color="info" title={copy(pageContract, "kpi.days.label")} total={analytics.days} icon="certificates" />
+        {/* The template widget figure is a number: the latest survey date is the card title's tail. */}
+        <KpiWidget
+          color="secondary"
+          title={`${copy(pageContract, "kpi.latest.label")}: ${latestDate ? humanDate(latestDate) : none}`}
+          total={null}
         />
-        <KpiCard
-          tone="info"
-          label={copy(pageContract, "kpi.days.label")}
-          value={analytics.days}
-          icon={<CalendarRange aria-hidden="true" />}
-        />
-        <KpiCard
-          tone="violet"
-          label={copy(pageContract, "kpi.latest.label")}
-          value={latestDate ? <Box component="span" sx={{ whiteSpace: "nowrap", overflowWrap: "normal", wordBreak: "normal", fontSize: { xs: "clamp(1.0625rem, 5.2vw, 1.375rem)", sm: "inherit" } }}>{humanDate(latestDate)}</Box> : none}
-          icon={<Clock aria-hidden="true" />}
-        />
-        <KpiCard
-          tone="success"
-          label={copy(pageContract, "kpi.coverage.label")}
-          value={day ? `${num(day.done)} / ${num(day.done + day.pending)}` : none}
-          icon={<CircleCheck aria-hidden="true" />}
+        <KpiWidget
+          color="success"
+          title={`${copy(pageContract, "kpi.coverage.label")} (${day ? num(day.done + day.pending) : none})`}
+          total={day ? day.done : null}
+          caption={day ? `${num(day.done)} / ${num(day.done + day.pending)}` : none}
+          icon="completed"
         />
       </KpiGrid>
       </UrlSuspense>

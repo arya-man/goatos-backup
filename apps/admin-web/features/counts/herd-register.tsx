@@ -24,7 +24,7 @@ import { EmptyContent } from "@/components/minimal/empty-content";
 import { Label } from "@/components/minimal/label";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { TableHeadCustom } from "@/components/minimal/table";
-import { EcommerceWidgetSummary } from "@/components/minimal/sections/overview/e-commerce/ecommerce-widget-summary";
+import { KpiWidget, kpiColor } from "@/components/app/kpi-widget";
 import { GoatGlyph } from "@/components/goat-glyph";
 import { DenseTable } from "@/components/dense-table";
 import { dash, humanizeEnum } from "@/lib/format";
@@ -137,7 +137,6 @@ function weightLabel(weight: number | null | undefined): string {
 
 // KPIs come from canonical scoped goat counts. `summary === null` means the
 // API read failed: show an honest dash, never fabricate a fallback.
-const NO_SPARK = { categories: [], series: [] };
 
 function buildHerdSummary(pageContract: AdminUiPageContract, summary: HerdRegisterSummaryResponse | null) {
   const totals = summary
@@ -156,7 +155,7 @@ function buildHerdSummary(pageContract: AdminUiPageContract, summary: HerdRegist
       )
     : null;
   // A real number renders as a count-up tile; an unavailable read stays a dash.
-  const fmt = (value: number | undefined): number | string => (totals && typeof value === "number" ? value : dash(null));
+  const fmt = (value: number | undefined): number | null => (totals && typeof value === "number" ? value : null);
   const unavailable = copy(pageContract, "section.summary.unavailable");
   const activeSub = totals ? copy(pageContract, "label.live_rows") : unavailable;
   return [
@@ -298,14 +297,14 @@ export async function HerdRegisterPage({
         )
       ) : null}
 
-      {/* KPI row: template EcommerceWidgetSummary, four to a row (two rows of four at md+). */}
+      {/* KPI row: template CourseWidgetSummary (KpiWidget), four to a row (two rows of four at md+). */}
       {/* KPI deck (guard: url-keyed-panel): a filter / page change swaps it to its skeleton at once;
           opening a goat passport (goat_passport) never does. */}
       <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={HERD_PANEL_IGNORE} fallback={<PanelSkeleton kpis={summaryCards.length} />}>
       <Grid container spacing={3} component="section" aria-label={copy(pageContract, "section.herd.title")}>
         {summaryCards.map((card) => (
           <Grid key={card.label} size={{ xs: 12, sm: 6, md: 3 }}>
-            <EcommerceWidgetSummary title={card.label} total={card.value} caption={card.sub} chart={NO_SPARK} sx={{ height: 1 }} />
+            <KpiWidget title={card.label} total={card.value} caption={card.sub} color={kpiColor(card.tone)} sx={{ height: 1 }} />
           </Grid>
         ))}
       </Grid>

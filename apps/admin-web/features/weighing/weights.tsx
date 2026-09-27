@@ -21,7 +21,7 @@ import { GrowthDirectorSection } from "./growth-director";
 import { Label } from "@/components/minimal/label";
 import { BankingBalanceStatistics } from "@/components/minimal/sections/overview/banking/banking-balance-statistics";
 import { EcommerceSaleByGender } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sale-by-gender";
-import { EcommerceWidgetSummary } from "@/components/minimal/sections/overview/e-commerce/ecommerce-widget-summary";
+import { KpiWidget } from "@/components/app/kpi-widget";
 import { MetricChart, ShedMetricChart } from "./metric-chart";
 import { SegmentedLinks } from "@/components/segmented-links";
 import { GAIN_STEP_COLOR, type GainThresholdRow } from "./gain-threshold-bars";
@@ -64,7 +64,6 @@ const PAGE_PATH = "/weighing/weights";
 const PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
 const DEFAULT_LIMIT = 10;
 /** These figures have no per-week series behind them, so the widget draws no sparkline. */
-const NO_SPARK = { categories: [], series: [] };
 
 function boundedLimit(raw: string | undefined): number {
   const parsed = Number(raw);
@@ -951,43 +950,39 @@ export async function WeighingWeightsPage({
             stated ONCE, in its own widget naming the CURRENT scope, and always rendered --
             insufficient_data renders the no-data text, never 0 g/day. */}
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-          <EcommerceWidgetSummary
+          <KpiWidget
             title={`${copy(pageContract, "kpi.kids.label")} ${copy(pageContract, "kpi.kids.sub")}`}
-            total={hasSummary ? summary.animals_weighed : noData}
+            total={hasSummary ? summary.animals_weighed : null}
             caption={hasSummary ? kidsSplit : undefined}
-            chart={NO_SPARK}
             sx={{ height: 1 }}
           />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-          <EcommerceWidgetSummary
-            title={copy(pageContract, "kpi.total.label")}
-            total={hasSummary ? `${kg(summary.total_weight_kg, 0)} kg` : noData}
+          <KpiWidget
+            title={`${copy(pageContract, "kpi.total.label")} (kg)`}
+            total={hasSummary ? Math.round(summary.total_weight_kg) : null}
             caption={copy(pageContract, "kpi.total.sub")}
-            chart={NO_SPARK}
             sx={{ height: 1 }}
           />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-          <EcommerceWidgetSummary
-            title={copy(pageContract, "kpi.average.label")}
-            total={summary.average_weight_kg == null ? noData : `${kg(summary.average_weight_kg)} kg`}
+          <KpiWidget
+            title={`${copy(pageContract, "kpi.average.label")} (kg)`}
+            total={summary.average_weight_kg == null ? null : Math.round(summary.average_weight_kg * 10) / 10}
             caption={copy(pageContract, "kpi.average.sub")}
-            chart={NO_SPARK}
             sx={{ height: 1 }}
           />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-          <EcommerceWidgetSummary
+          <KpiWidget
             aria-label={copy(pageContract, "section.park_gain.aria")}
-            title={`${selectedParkName || copy(pageContract, "kpi.park_gain.all")} ${copy(pageContract, "kpi.park_gain.suffix")}`}
-            total={headlineGain == null ? noData : `${Math.round(headlineGain).toLocaleString("en-IN")} g`}
+            title={`${selectedParkName || copy(pageContract, "kpi.park_gain.all")} ${copy(pageContract, "kpi.park_gain.suffix")} (g)`}
+            total={headlineGain == null ? null : Math.round(headlineGain)}
             caption={
               headlineGain == null
                 ? copy(pageContract, "kpi.gain.none")
                 : `${weeklyGainDelta == null ? "" : `${weeklyGainDelta > 0 ? "+" : ""}${Math.round(weeklyGainDelta)} g · `}${copy(pageContract, "kpi.gain.blended")} · ${headlineWeight.toLocaleString("en-IN")}`
             }
-            chart={{ categories: [], series: weeklyGainSpark }}
             sx={{ height: 1 }}
           />
         </Grid>

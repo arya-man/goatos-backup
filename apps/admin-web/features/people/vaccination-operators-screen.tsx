@@ -22,7 +22,7 @@ import {
 import { type AdminUiPageContract } from '@/lib/admin-ui-contract';
 import type { AdminApiComponents } from '@goatos/api-client';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
-import { Syringe, Gauge, Users, Zap, AlertTriangle, Check } from 'lucide-react';
+import { Check } from 'lucide-react';
 import Button from "@mui/material/Button";
 import Dialog from "@mui/material/Dialog";
 import DialogTitle from "@mui/material/DialogTitle";
@@ -32,7 +32,8 @@ import Typography from "@mui/material/Typography";
 import MuiTextField from "@mui/material/TextField";
 import { Caption } from "@/components/app/caption";
 import { ListCardSkeleton } from "@/components/app/skeletons";
-import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import { KpiGrid } from "@/components/app/kpi-grid";
+import { KpiWidget } from "@/components/app/kpi-widget";
 import { Avatar } from "@/components/app/avatar";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
@@ -881,16 +882,15 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
 
       {/* KPI Row */}
       <KpiGrid min={210}>
-        <KpiCard label="Operators" value={kpiOperators} tone="primary" icon={<Users />} hint="active vaccination seats" />
-        <KpiCard label="Cap / operator" value={commonCap} tone="warning" icon={<Gauge />} hint="applies to all operators" />
-        <KpiCard
-          label="Operators / day"
-          value={operatorCount}
-          tone="info"
-          icon={<Syringe />}
-          hint={operatorCount === 1 ? 'single + fallback' : operatorCount === 3 ? 'all parallel' : 'pair'}
+        <KpiWidget title="Operators" total={kpiOperators} color="primary" caption="active vaccination seats" />
+        <KpiWidget title="Cap / operator" total={commonCap} color="warning" caption="applies to all operators" icon="certificates" />
+        <KpiWidget
+          title="Operators / day"
+          total={operatorCount}
+          color="info"
+          caption={operatorCount === 1 ? 'single + fallback' : operatorCount === 3 ? 'all parallel' : 'pair'}
         />
-        <KpiCard label="Daily capacity" value={kpiDaily} tone="success" icon={<Zap />} hint="at full availability" />
+        <KpiWidget title="Daily capacity" total={kpiDaily} color="success" caption="at full availability" />
       </KpiGrid>
 
       {/* Roster & Availability Card */}

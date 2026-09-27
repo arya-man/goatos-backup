@@ -4,12 +4,10 @@
 
 import { useState, useTransition } from "react";
 
-import Box from "@mui/material/Box";
-import { Weight } from "lucide-react";
+import Stack from "@mui/material/Stack";
 
 import { replaceLocalOverlayUrl } from "@/components/local-overlay-link";
-import { KpiCard } from "@/components/minimal/widgets";
-import { KpiValue } from "./kpi-value";
+import { KpiWidget } from "@/components/app/kpi-widget";
 import { num } from "./sales-format";
 import { countOver35Action } from "./over35-actions";
 import { SalesReadyToleranceControl } from "./sales-ready-tolerance-control";
@@ -77,46 +75,36 @@ export function Over35Kpi({
   };
 
   return (
-    // Template CourseWidgetSummary (plain card, tone icon in the corner) like the valuation
-    // cards beside it -- never the pastel AnalyticsWidgetSummary in dark.
-    <KpiCard
-      tone="success"
-      label={fillKg(labels.title, lineKg)}
-      // The figure stays readable while it is re-counted -- only this card says it is busy.
-      value={
-        count == null ? (
-          labels.noneValue
-        ) : (
-          <Box component="span" aria-busy={pending || undefined} sx={pending ? { opacity: 0.6 } : undefined}>
-            <KpiValue value={count} />
-          </Box>
-        )
-      }
-      icon={<Weight aria-hidden="true" />}
-      hint={
-        !enabled
-          ? disabledReason
-          : failed
-            ? labels.failed
-            : count == null
-              ? labels.none
-              : `${labels.sub} · ${num(thresholdKg, 1)}+`
-      }
-      // The error margin tunes THIS card's figure and nothing else on the page, so it sits inside
-      // the card (maintainer request 2026-09-14).
-      footer={
-        enabled ? (
-          <SalesReadyToleranceControl
-            lineKg={lineKg}
-            valueG={toleranceG}
-            maxG={maxG}
-            label={labels.tolerance}
-            applyLabel={labels.apply}
-            onApply={apply}
-            pending={pending}
-          />
-        ) : null
-      }
-    />
+    // Template CourseWidgetSummary (KpiWidget) like the valuation cards beside it. The error margin
+    // tunes THIS card's figure and nothing else on the page, so it sits right under the card
+    // (maintainer request 2026-09-14); the template card itself has no footer slot.
+    <Stack spacing={1.5} aria-busy={pending || undefined}>
+      <KpiWidget
+        color="success"
+        icon="completed"
+        title={fillKg(labels.title, lineKg)}
+        total={count}
+        caption={
+          !enabled
+            ? disabledReason
+            : failed
+              ? labels.failed
+              : count == null
+                ? labels.none
+                : `${labels.sub} · ${num(thresholdKg, 1)}+`
+        }
+      />
+      {enabled ? (
+        <SalesReadyToleranceControl
+          lineKg={lineKg}
+          valueG={toleranceG}
+          maxG={maxG}
+          label={labels.tolerance}
+          applyLabel={labels.apply}
+          onApply={apply}
+          pending={pending}
+        />
+      ) : null}
+    </Stack>
   );
 }
