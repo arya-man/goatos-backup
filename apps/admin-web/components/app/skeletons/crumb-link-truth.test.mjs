@@ -139,6 +139,8 @@ const NO_CRUMB_ROW = {
   "/alerts": "crumbs [t(crumb), t(title)]: the crumb copy is the title, so PageHeader hides the trail",
   "/approvals": "crumbs [{ label: COPY.title }]: a trail that only repeats the title is hidden",
   "/routines": "crumbs [c(crumb), title]: the crumb copy is the title, so PageHeader hides the trail",
+  "/calendar": "the only crumb is the title, so PageHeader shows none (SK1 c00a83e0c)",
+  "/configuration/items": "the crumb only repeats the title, so PageHeader shows none (SK1 c00a83e0c)",
   "/workflows/[row_id]": "OrderDetailsToolbar (OrderDetailsToolbarSkeleton), no PageHeader",
   "/procurement/source-entry/loads/[load_id]": "OrderDetailsToolbar (OrderDetailsToolbarSkeleton), no PageHeader",
 };
