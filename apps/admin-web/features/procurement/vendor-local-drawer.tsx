@@ -22,7 +22,7 @@ import Button from "@mui/material/Button";
 import Divider from "@mui/material/Divider";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
-import { MinimalDrawer } from "@/components/minimal/drawer";
+import { MinimalDrawer } from "@/components/app/drawer";
 
 type CatalogEntry = { value: string; label: string; is_active: boolean };
 

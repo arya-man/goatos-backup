@@ -12,7 +12,7 @@ import {
   progressGroupSx,
   progressListSx,
   type ProgressItemTrack,
-} from "@/components/minimal/progress-list/progress-item";
+} from "@/components/app/progress-item";
 
 import { EmptyState } from "@/components/app/empty-state";
 // Shared chart sheet (KPI sparkline placement, chart empty frames): loaded wherever the old hover
@@ -79,7 +79,7 @@ const textOf = (node: ReactNode, fallback?: string) => fallback ?? (typeof node 
 
 /**
  * The horizontal bar list, on the template's EcommerceSalesOverview item
- * (components/minimal/progress-list): label and figure over an 8px LinearProgress, inside whatever
+ * (components/app/progress-item): label and figure over an 8px LinearProgress, inside whatever
  * card the caller owns, with the template Tooltip on each row. ONE measure, ONE colour: a ranked
  * list is brand-toned throughout with the danger tone as the only accent (a loss); `row.color`
  * carries a series colour in a multi-series list with a legend. A series that straddles zero, or

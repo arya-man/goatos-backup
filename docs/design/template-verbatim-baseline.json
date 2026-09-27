@@ -4,13 +4,6 @@
     "Each file that still differs from its MUI Minimal template source maps to the sha256 of its CURRENT bytes. Remove a line once the file is verbatim (the guard fails on a stale entry). Nothing may be added, and a listed file whose bytes change fails: restore it to the template instead. Never re-record a hash. Must reach zero in PR #294."
   ],
   "drift": {
-    "components/minimal/_shared/format-time.ts": "00272dc60e9c6bdc4581ee89b323262220e78c58d2aaf1d0777812007e7c13f2",
-    "components/minimal/_shared/phone-tap-styles.tsx": "283a5ee9c855955ad05c3e2eddc15b8cf3c908bd56cf882972b3d9570fc094f9",
-    "components/minimal/_shared/tap.ts": "555fe32e4035f69a9331c4efeb371bd8a36c09615091a51aacaab8f109a64e26",
-    "components/minimal/drawer/index.ts": "a1c57ad9877fd91411d47df1a7009bf9911dd1b5b71ffc96ce69793b757a75b4",
-    "components/minimal/drawer/minimal-drawer.tsx": "2c39d1bf17982368d6c51cdfb32d4848ff1a1e812d85600d26f836d912de2a20",
-    "components/minimal/link-button.tsx": "d37a9576ba3b0d002a203dad60d199f0b55c7c08d7603a112d711a4c61eed74a",
-    "components/minimal/progress-list/progress-item.tsx": "36552962cc50681aa2114acc516b248c9520804970782db572e6666f0b8fb091",
     "components/minimal/sections/invoice/invoice-analytic.tsx": "208532be4313fcbc519517ca03a5fd179f3f66b5c514dfc61d9c598a2b53dde3",
     "components/minimal/sections/job/job-item.tsx": "c582a4e4bf8a99e70eb09e95349d206ea1baa3b9c60ae220d77599065051a71b",
     "components/minimal/sections/job/job-list.tsx": "af738e6edad7a7ac2bffdf6a25950d5e9b4e47d9084a395e5ddddb62017a7c84",

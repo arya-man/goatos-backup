@@ -39,7 +39,7 @@ import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import IconButton from "@mui/material/IconButton";
 import { Iconify } from "@/components/minimal/iconify";
-import { MinimalDrawer } from "@/components/minimal/drawer";
+import { MinimalDrawer } from "@/components/app/drawer";
 import { useBackCloses } from "@/components/use-back-closes";
 
 type Position = AdminApiComponents['schemas']['Position'];

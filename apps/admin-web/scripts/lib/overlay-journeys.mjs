@@ -103,7 +103,7 @@ export const overlayJourneys = {
       kind: "drawer",
       required: true,
       close: ".MuiDrawer-modal .MuiDrawer-paper button[aria-label]",
-      source: "features/people/people-add-button.tsx, person-add-drawer.tsx, components/minimal/drawer/minimal-drawer.tsx",
+      source: "features/people/people-add-button.tsx, person-add-drawer.tsx, components/app/drawer/minimal-drawer.tsx",
     },
   ],
   "action-center": [

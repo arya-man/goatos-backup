@@ -19,7 +19,7 @@ import { refusalSentence } from "./task-feedback-copy";
 import { currentTaskRowVersion, publishTaskRow, runTaskWrite, useTaskRow, useTaskWriteInFlight } from "./task-row-store";
 import { rowFromTask } from "./task-row";
 import { CustomPopover } from "@/components/minimal/custom-popover";
-import { TAP_MIN } from "@/components/minimal/_shared/tap";
+import { TAP_MIN } from "@/components/app/tap";
 
 /**
  * THE status control of the task drawer: one dropdown, the Work Board's menu.

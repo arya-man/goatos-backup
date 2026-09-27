@@ -6,7 +6,7 @@ import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import { todayIso } from "@/lib/format";
 import { PageHeader } from "@/components/app/page-header";
 import { TemplateTabs } from "@/components/app/template-tabs";
-import { LinkButton } from "@/components/minimal/link-button";
+import { LinkButton } from "@/components/app/link-button";
 import {
   fallbackCalendarPresentation,
   ownerMetaFromPresentation,

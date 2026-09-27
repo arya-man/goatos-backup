@@ -5,7 +5,7 @@ import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
-import { TAP_MIN } from "@/components/minimal/_shared/tap";
+import { TAP_MIN } from "@/components/app/tap";
 import { useCallback, useEffect, useRef, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";

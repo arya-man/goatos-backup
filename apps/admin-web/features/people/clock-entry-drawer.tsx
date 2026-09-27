@@ -5,7 +5,7 @@ import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
 
-import { MinimalDrawer } from "@/components/minimal/drawer";
+import { MinimalDrawer } from "@/components/app/drawer";
 
 import {
   currentHistoryEntryIsLocalOverlay,

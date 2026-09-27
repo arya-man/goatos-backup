@@ -14,7 +14,7 @@ import Typography from "@mui/material/Typography";
 import LinearProgress from "@mui/material/LinearProgress";
 import { Iconify } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
-import { LinkButton } from "@/components/minimal/link-button";
+import { LinkButton } from "@/components/app/link-button";
 import { EmptyContent } from "@/components/minimal/empty-content";
 import { TemplateTabs } from "@/components/app/template-tabs";
 import { TableHeadCustom } from "@/components/app/table/table-head-custom";

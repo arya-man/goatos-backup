@@ -25,7 +25,7 @@ import FormLabel from "@mui/material/FormLabel";
 import Alert from "@mui/material/Alert";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
-import { MinimalDrawer } from "@/components/minimal/drawer";
+import { MinimalDrawer } from "@/components/app/drawer";
 
 export type WeightsExportPark = { park_id: string; name: string };
 

@@ -49,7 +49,7 @@ import {
 import { HealthAnalyticsTelemetry } from "./health-analytics-telemetry";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { PanelSkeleton } from "@/components/app/panel-skeleton";
-import { LinkButton } from "@/components/minimal/link-button";
+import { LinkButton } from "@/components/app/link-button";
 
 /**
  * Health -> Health Analytics. Three questions on one screen, and the page has to be honest

@@ -24,7 +24,7 @@ import TextField from "@mui/material/TextField";
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import Typography from "@mui/material/Typography";
-import { TAP_MIN } from "@/components/minimal/_shared/tap";
+import { TAP_MIN } from "@/components/app/tap";
 import { Label } from "@/components/minimal/label";
 import { AssigneePicker } from "@/components/assignee-picker";
 import { currentHistoryEntryIsLocalOverlay, replaceLocalOverlayUrl } from "@/components/local-overlay-link";

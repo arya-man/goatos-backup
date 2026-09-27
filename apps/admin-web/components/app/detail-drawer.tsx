@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 
-import { MinimalDrawer, type MinimalDrawerWidth } from "@/components/minimal/drawer";
+import { MinimalDrawer, type MinimalDrawerWidth } from "@/components/app/drawer";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 
 /**

@@ -9,7 +9,7 @@ import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
 import InputAdornment from "@mui/material/InputAdornment";
 import TextField from "@mui/material/TextField";
-import { MinimalDrawer } from "@/components/minimal/drawer";
+import { MinimalDrawer } from "@/components/app/drawer";
 import { Iconify } from "@/components/minimal/iconify";
 
 import MenuItem from "@mui/material/MenuItem";

@@ -19,7 +19,7 @@ import Card from "@mui/material/Card";
 import Divider from "@mui/material/Divider";
 import Stack from "@mui/material/Stack";
 import { DrawerBlock, DrawerMetaGrid, DrawerMetaItem, DrawerNote, DrawerTableScroll } from "@/components/app/detail-drawer";
-import { MinimalDrawer } from "@/components/minimal/drawer";
+import { MinimalDrawer } from "@/components/app/drawer";
 import { Tag } from "@/components/ui-primitives";
 import { dateTime, fmtDateTime } from "@/lib/format";
 import { scopeHref, type Scope } from "@/lib/scope";

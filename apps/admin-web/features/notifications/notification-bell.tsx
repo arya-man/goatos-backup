@@ -33,7 +33,7 @@ import Badge from "@mui/material/Badge";
 import IconButton from "@mui/material/IconButton";
 import { Iconify } from "@/layouts/template/iconify";
 import { varTap, varHover, transitionTap } from "@/layouts/template/animate";
-import { MinimalDrawer } from "@/components/minimal/drawer";
+import { MinimalDrawer } from "@/components/app/drawer";
 import { NotificationSkeleton } from "./notification-skeleton";
 import { markNotificationsReadAction, type NotificationFeedActionResult } from "./notification-actions";
 import { useBackCloses } from "@/components/use-back-closes";

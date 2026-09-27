@@ -26,8 +26,8 @@ import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import Divider from "@mui/material/Divider";
 import Stack from "@mui/material/Stack";
-import { LinkButton } from "@/components/minimal/link-button";
-import { phoneTapSx } from "@/components/minimal/_shared/tap";
+import { LinkButton } from "@/components/app/link-button";
+import { phoneTapSx } from "@/components/app/tap";
 import { DetailDrawer, DrawerBlock, DrawerMetaGrid, DrawerMetaItem } from "@/components/app/detail-drawer";
 
 const PRIORITY_BY_SEVERITY: Record<ProcessIntegritySeverity, "high" | "med" | "low"> = {

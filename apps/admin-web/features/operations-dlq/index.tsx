@@ -12,7 +12,7 @@ import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import { Iconify } from "@/components/minimal/iconify";
-import { LinkButton } from "@/components/minimal/link-button";
+import { LinkButton } from "@/components/app/link-button";
 import { EmptyContent } from "@/components/minimal/empty-content";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { SearchTextField } from "@/components/app/list/search-text-field";

@@ -5,7 +5,7 @@ import Stack from "@mui/material/Stack";
 import Divider from "@mui/material/Divider";
 import LinearProgress from "@mui/material/LinearProgress";
 import { Iconify } from "@/components/minimal/iconify";
-import { LinkButton } from "@/components/minimal/link-button";
+import { LinkButton } from "@/components/app/link-button";
 import { OrderDetailsToolbar } from "@/components/minimal/sections/order/order-details-toolbar";
 import { OrderDetailsHistory, type OrderHistoryItem, type OrderHistoryTone } from "@/components/minimal/sections/order/order-details-history";
 import { OrderDetailsCustomer } from "@/components/minimal/sections/order/order-details-customer";

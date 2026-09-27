@@ -15,7 +15,7 @@ import Typography from "@mui/material/Typography";
 import { Iconify } from "@/components/minimal/iconify";
 import { CustomPopover } from "@/components/minimal/custom-popover";
 import { ConfirmDialog } from "@/components/minimal/custom-dialog";
-import { MinimalDrawer, DrawerSection } from "@/components/minimal/drawer";
+import { MinimalDrawer, DrawerSection } from "@/components/app/drawer";
 import { withMinimalTheme, mobile } from "./_minimal";
 
 function PopoverMenu({ initialOpen = false }: { initialOpen?: boolean }) {

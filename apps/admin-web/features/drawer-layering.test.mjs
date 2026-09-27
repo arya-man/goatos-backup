@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 const css = readFileSync(new URL("../app/mesha-theme.css", import.meta.url), "utf8");
-const shell = readFileSync(new URL("../components/minimal/drawer/minimal-drawer.tsx", import.meta.url), "utf8");
+const shell = readFileSync(new URL("../components/app/drawer/minimal-drawer.tsx", import.meta.url), "utf8");
 
 test("side drawer backdrop stays below the drawer and does not blur the page", () => {
   // Remaining scrim users (filter sheets, quick views) keep the no-blur scrim under their panel.

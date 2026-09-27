@@ -18,7 +18,7 @@ import TextField from "@mui/material/TextField";
 import CardHeader from "@mui/material/CardHeader";
 import Typography from "@mui/material/Typography";
 import InputAdornment from "@mui/material/InputAdornment";
-import { TAP_MIN } from "@/components/minimal/_shared/tap";
+import { TAP_MIN } from "@/components/app/tap";
 import { TemplateTabs } from "@/components/app/template-tabs";
 import { Label, type LabelColor } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";

@@ -17,7 +17,7 @@ import type { Theme } from "@mui/material/styles";
 import { CustomPopover } from "@/components/minimal/custom-popover";
 import { Iconify } from "@/components/minimal/iconify";
 import { Label } from "@/components/minimal/label";
-import { TAP_MIN } from "@/components/minimal/_shared/tap";
+import { TAP_MIN } from "@/components/app/tap";
 import {
   Banknote,
   BarChart3,

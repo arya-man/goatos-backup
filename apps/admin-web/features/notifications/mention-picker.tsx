@@ -32,7 +32,7 @@ import MenuItem from "@mui/material/MenuItem";
 import MenuList from "@mui/material/MenuList";
 import Typography from "@mui/material/Typography";
 import { DropdownPaper } from "@/components/app/dropdown-paper";
-import { TAP_MIN } from "@/components/minimal/_shared/tap";
+import { TAP_MIN } from "@/components/app/tap";
 import {
   activeMentionQuery,
   applyMentionSelection,

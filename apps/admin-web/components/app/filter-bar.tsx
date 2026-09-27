@@ -7,7 +7,7 @@ import MuiButton from "@mui/material/Button";
 import Card from "@mui/material/Card";
 import InputAdornment from "@mui/material/InputAdornment";
 import TextField from "@mui/material/TextField";
-import { MinimalDrawer } from "@/components/minimal/drawer";
+import { MinimalDrawer } from "@/components/app/drawer";
 import { Iconify } from "@/components/minimal/iconify";
 import { cx } from "@/lib/tone";
 

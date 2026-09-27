@@ -6,7 +6,7 @@
  * is geometry, typography or motion referencing EXISTING tokens — no colour is defined here.
  *
  * Imported by components/svg-bars.tsx and svg-column-bars.tsx, so any page that draws one of them
- * gets it. (The HTML bar lists are the MUI Minimal template item in components/minimal/progress-list
+ * gets it. (The HTML bar lists are the MUI Minimal template item in components/app/progress-item
  * and carry no CSS here.)
  */
 

@@ -43,7 +43,7 @@ import TableContainer from "@mui/material/TableContainer";
 import { visuallyHidden } from "@mui/utils";
 import { Label } from "@/components/minimal/label";
 import { EmptyContent } from "@/components/minimal/empty-content";
-import { LinkButton } from "@/components/minimal/link-button";
+import { LinkButton } from "@/components/app/link-button";
 import { CATALOG_PAGE_SIZE } from "./health-config-layout";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { PanelSkeleton } from "@/components/app/panel-skeleton";

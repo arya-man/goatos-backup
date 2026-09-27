@@ -42,7 +42,7 @@ import {
 import { ShedEventActions } from "./shed-event-actions";
 import { vaccinationCurrentViewScope } from "@/features/vaccination-sheds";
 import { DrawerMetaGrid, DrawerMetaItem } from "@/components/app/detail-drawer";
-import { LinkButton } from "@/components/minimal/link-button";
+import { LinkButton } from "@/components/app/link-button";
 
 // Work states that mean "someone must act now" — used for the per-park attention count.
 const ATTENTION_STATES = new Set<VaccinationExecutionWorkState>(["overdue", "missed", "blocked", "rejected"]);

@@ -15,9 +15,9 @@ import Tooltip from '@mui/material/Tooltip';
 import IconButton from '@mui/material/IconButton';
 import Typography from '@mui/material/Typography';
 
-import { Iconify } from '../iconify';
-import { Scrollbar } from '../scrollbar';
-import { phoneTapSx } from '../_shared/tap';
+import { Iconify } from '@/components/minimal/iconify';
+import { Scrollbar } from '@/components/minimal/scrollbar';
+import { phoneTapSx } from '@/components/app/tap';
 
 /**
  * The template's right-drawer paper widths: 320 filters / account / file details

@@ -20,7 +20,7 @@ import InputAdornment from "@mui/material/InputAdornment";
 import ListItemButton from "@mui/material/ListItemButton";
 import { EmptyState } from "@/components/app/empty-state";
 import { Iconify } from "@/components/minimal/iconify";
-import { MinimalDrawer } from "@/components/minimal/drawer";
+import { MinimalDrawer } from "@/components/app/drawer";
 
 const PAGE_SIZE = 12;
 

@@ -5,7 +5,7 @@ import Badge from "@mui/material/Badge";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 
-import { MinimalDrawer } from "@/components/minimal/drawer";
+import { MinimalDrawer } from "@/components/app/drawer";
 import { Iconify } from "@/components/minimal/iconify";
 import { useBackCloses } from "@/components/use-back-closes";
 import pf from "./people-filter-fold.module.css";

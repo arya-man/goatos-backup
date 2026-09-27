@@ -20,7 +20,7 @@ import {
 } from "./command-board-drilldowns";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
-import { MinimalDrawer } from "@/components/minimal/drawer";
+import { MinimalDrawer } from "@/components/app/drawer";
 import { DrawerTableScroll } from "@/components/app/detail-drawer";
 import { InfoHint } from "@/components/app/info-hint";
 import { KpiWidget, type KpiIcon } from "@/components/app/kpi-widget";

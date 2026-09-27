@@ -37,14 +37,14 @@ import Box from "@mui/material/Box";
 import Tooltip from "@mui/material/Tooltip";
 import LinearProgress from "@mui/material/LinearProgress";
 
-import { ChartLegends } from "../chart/components/chart-legends";
+import { ChartLegends } from "@/components/minimal/chart/components/chart-legends";
 
 // ----------------------------------------------------------------------
 
 /** The LinearProgress track (template: height 8, grey-500 16%; theme override: radius 16). */
 const trackSx = (theme: Theme) => ({
-  height: 8,
-  borderRadius: "16px",
+  height: "var(--sp-1)",
+  borderRadius: "var(--r-xl)",
   bgcolor: varAlpha(theme.vars.palette.grey["500Channel"], 0.16),
 });
 
@@ -223,7 +223,7 @@ export function ProgressItem({
           sx={{ flexGrow: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 0.75, ...(inline ? { [WIDE]: { gridColumn: 1, gridRow: 1 } } : {}) }}
         >
           {dot ? (
-            <Box component="span" aria-hidden sx={{ width: 10, height: 10, flexShrink: 0, borderRadius: "50%", bgcolor: color }} />
+            <Box component="span" aria-hidden sx={{ width: "calc(var(--sp-1) + 2px)", height: "calc(var(--sp-1) + 2px)", flexShrink: 0, borderRadius: "50%", bgcolor: color }} />
           ) : null}
           <Box
             component="span"
@@ -304,7 +304,7 @@ export function ProgressTooltip({ heading, rows }: { heading?: ReactNode; rows: 
       {heading ? <Box sx={{ fontWeight: "fontWeightSemiBold" }}>{heading}</Box> : null}
       {rows.map((row, index) => (
         <Box key={index} sx={{ display: "flex", alignItems: "center", gap: 0.75, whiteSpace: "nowrap" }}>
-          {row.color ? <Box component="span" aria-hidden sx={{ width: 8, height: 8, flexShrink: 0, borderRadius: "50%", bgcolor: row.color }} /> : null}
+          {row.color ? <Box component="span" aria-hidden sx={{ width: "var(--sp-1)", height: "var(--sp-1)", flexShrink: 0, borderRadius: "50%", bgcolor: row.color }} /> : null}
           {row.name ? <Box component="span" sx={{ flexGrow: 1, opacity: 0.8 }}>{row.name}</Box> : null}
           <Box component="span" sx={{ fontWeight: "fontWeightBold", fontVariantNumeric: "tabular-nums" }}>{row.value}</Box>
         </Box>

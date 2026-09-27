@@ -25,8 +25,6 @@
     "components/minimal/sections/overview/analytics/analytics-website-visits.tsx": "src/sections/overview/analytics/analytics-website-visits.tsx",
     "components/minimal/_shared/format-number.ts": "src/utils/format-number.ts",
     "components/minimal/_shared/format-time.ts": "src/utils/format-time.ts",
-    "components/minimal/_shared/tap.ts": "src/theme/core/components/button.tsx",
-    "components/minimal/_shared/phone-tap-styles.tsx": "src/theme/core/components/button.tsx",
     "components/minimal/calendar/styles.tsx": "src/sections/calendar/styles.tsx",
     "components/minimal/chart/chart.tsx": "src/components/chart/chart.tsx",
     "components/minimal/chart/classes.ts": "src/components/chart/classes.ts",
@@ -51,8 +49,6 @@
     "components/minimal/custom-dialog/index.ts": "src/components/custom-dialog/index.ts",
     "components/minimal/custom-dialog/types.ts": "src/components/custom-dialog/types.ts",
     "components/minimal/custom-popover/index.ts": "src/components/custom-popover/index.ts",
-    "components/minimal/drawer/minimal-drawer.tsx": "src/sections/calendar/calendar-filters.tsx",
-    "components/minimal/drawer/index.ts": "src/sections/calendar/index.ts",
     "components/minimal/empty-content/empty-content.tsx": "src/components/empty-content/empty-content.tsx",
     "components/minimal/empty-content/index.ts": "src/components/empty-content/index.ts",
     "components/minimal/filters-result/filters-block.tsx": "src/components/filters-result/filters-block.tsx",
@@ -60,9 +56,7 @@
     "components/minimal/filters-result/index.ts": "src/components/filters-result/index.ts",
     "components/minimal/iconify/index.ts": "src/components/iconify/index.ts",
     "components/minimal/label/index.ts": "src/components/label/index.ts",
-    "components/minimal/link-button.tsx": "src/routes/components/router-link.tsx",
     "components/minimal/loading-screen/loading-screen.tsx": "src/components/loading-screen/loading-screen.tsx",
-    "components/minimal/progress-list/progress-item.tsx": "src/sections/overview/e-commerce/ecommerce-sales-overview.tsx",
     "components/minimal/sections/overview/banking/banking-expenses-categories.tsx": "src/sections/overview/banking/banking-expenses-categories.tsx",
     "components/minimal/sections/overview/analytics/analytics-conversion-rates.tsx": "src/sections/overview/analytics/analytics-conversion-rates.tsx",
     "components/minimal/sections/overview/banking/banking-balance-statistics.tsx": "src/sections/overview/banking/banking-balance-statistics.tsx",
@@ -200,24 +194,6 @@
         "dayjs/plugin/duration",
         "dayjs/plugin/relativeTime",
         "dayjs/plugin/utc"
-      ]
-    },
-    "components/minimal/_shared/phone-tap-styles.tsx": {
-      "sha256": "400b79aa4f72583e607a7c72e8fe30e92f156359364a4de53509052242f783ce",
-      "imports": [
-        "@mui/material/styles",
-        "minimal-shared/utils",
-        "@mui/material/Button",
-        "../palette"
-      ]
-    },
-    "components/minimal/_shared/tap.ts": {
-      "sha256": "400b79aa4f72583e607a7c72e8fe30e92f156359364a4de53509052242f783ce",
-      "imports": [
-        "@mui/material/styles",
-        "minimal-shared/utils",
-        "@mui/material/Button",
-        "../palette"
       ]
     },
     "components/minimal/calendar/styles.tsx": {
@@ -434,30 +410,6 @@
         "./types"
       ]
     },
-    "components/minimal/drawer/minimal-drawer.tsx": {
-      "sha256": "efb99698a4a3b8fb73e1525078dbe95acc3312c03c3a576cc4f3fd42d29d32d8",
-      "imports": [
-        "minimal-shared/hooks",
-        "src/types/common",
-        "src/types/calendar",
-        "react",
-        "es-toolkit",
-        "@mui/material/Box",
-        "@mui/material/Badge",
-        "@mui/material/Drawer",
-        "@mui/material/Divider",
-        "@mui/material/Tooltip",
-        "@mui/material/IconButton",
-        "@mui/material/Typography",
-        "@mui/material/ListItemText",
-        "@mui/material/ListItemButton",
-        "@mui/x-date-pickers/DatePicker",
-        "src/utils/format-time",
-        "src/components/iconify",
-        "src/components/scrollbar",
-        "src/components/color-utils"
-      ]
-    },
     "components/minimal/empty-content/empty-content.tsx": {
       "sha256": "45bcd7594bfcc5a69f02380d07bbb2beece6694e4657e2ee4b93d7ec07e67d1c",
       "imports": [
@@ -518,12 +470,6 @@
         "./types"
       ]
     },
-    "components/minimal/link-button.tsx": {
-      "sha256": "ab116fd92c1be3a869441ffd43ac74a1047dfc4fc7891403ef3c5534a3256ab6",
-      "imports": [
-        "next/link"
-      ]
-    },
     "components/minimal/loading-screen/loading-screen.tsx": {
       "sha256": "06fdd30c8716ee48b0c1ab175b1cdd0905a1ca8a27ff70fb7194048f4607c46e",
       "imports": [
@@ -532,19 +478,6 @@
         "@mui/material/Portal",
         "@mui/material/styles",
         "@mui/material/LinearProgress"
-      ]
-    },
-    "components/minimal/progress-list/progress-item.tsx": {
-      "sha256": "9601669f90123c43a44516b1824522f59c6973e255de935042459d1065c86e1d",
-      "imports": [
-        "@mui/material/Card",
-        "@mui/material/LinearProgress",
-        "minimal-shared/utils",
-        "@mui/material/Box",
-        "@mui/material/Card",
-        "@mui/material/CardHeader",
-        "@mui/material/LinearProgress",
-        "src/utils/format-number"
       ]
     },
     "components/minimal/scrollbar/index.ts": {

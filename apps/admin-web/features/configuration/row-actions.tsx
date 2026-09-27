@@ -10,7 +10,7 @@ import Typography from "@mui/material/Typography";
 
 import { CustomPopover } from "@/components/minimal/custom-popover";
 import { Iconify } from "@/components/minimal/iconify";
-import { TAP_MIN, phoneTapSx } from "@/components/minimal/_shared/tap";
+import { TAP_MIN, phoneTapSx } from "@/components/app/tap";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { deleteRowAction, setRowStatusAction, type ConfigurationActionState } from "./configuration-actions";
 

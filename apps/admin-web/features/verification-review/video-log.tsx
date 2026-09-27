@@ -12,7 +12,7 @@ import Form from "next/form";
 import Link from "@/components/no-prefetch-link";
 import Button from "@mui/material/Button";
 import TextField from "@mui/material/TextField";
-import { LinkButton } from "@/components/minimal/link-button";
+import { LinkButton } from "@/components/app/link-button";
 import { Iconify } from "@/components/minimal/iconify";
 import { VrFormSelect } from "./vr-form-select";
 import { Label } from "@/components/minimal/label";

@@ -7,7 +7,7 @@ import MenuItem from "@mui/material/MenuItem";
 import MenuList from "@mui/material/MenuList";
 import { CustomPopover } from "@/components/minimal/custom-popover";
 import { Iconify } from "@/components/minimal/iconify";
-import { TAP_MIN, phoneTapSx } from "@/components/minimal/_shared/tap";
+import { TAP_MIN, phoneTapSx } from "@/components/app/tap";
 
 export type RowMenuAction = {
   label: ReactNode;

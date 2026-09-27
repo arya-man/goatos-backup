@@ -12,7 +12,7 @@ import { CustomPopover } from "@/components/minimal/custom-popover";
 import { Iconify } from "@/components/minimal/iconify";
 import { chipProps, FiltersBlock, FiltersResult } from "@/components/minimal/filters-result";
 import { OrderTableToolbar, type OrderToolbarMenuAction } from "@/components/minimal/sections/order/order-table-toolbar";
-import { TAP_MIN } from "@/components/minimal/_shared/tap";
+import { TAP_MIN } from "@/components/app/tap";
 import { useBackCloses } from "@/components/use-back-closes";
 
 export type ToolbarChip = {

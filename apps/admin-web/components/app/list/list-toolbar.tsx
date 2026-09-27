@@ -19,7 +19,7 @@ import FormControl from '@mui/material/FormControl';
 import InputAdornment from '@mui/material/InputAdornment';
 
 import { Iconify } from '@/components/minimal/iconify';
-import { phoneTapSx } from '@/components/minimal/_shared/tap';
+import { phoneTapSx } from '@/components/app/tap';
 import { CustomPopover } from '@/components/minimal/custom-popover';
 import type { IconifyName } from '@/components/minimal/iconify';
 

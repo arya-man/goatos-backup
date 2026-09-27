@@ -1,7 +1,7 @@
 // drawer-template.mjs — right drawers must be the template's temporary Drawer (Ravi R2-4).
 //
 // Imported by scripts/check-design-system.mjs (`npm run design:guard`, check "drawer-off-template").
-// A right drawer is the MUI Minimal template drawer shell (components/minimal/drawer MinimalDrawer,
+// A right drawer is the MUI Minimal template drawer shell (components/app/drawer MinimalDrawer,
 // or components/app/detail-drawer DetailDrawer on top of it): portalled temporary MUI Drawer,
 // anchor right, a visible backdrop, a template paper width, sticky header (title + close),
 // Scrollbar body, footer actions. Wide content scrolls inside its own Scrollbar (DrawerTableScroll).
@@ -24,7 +24,7 @@ export const TEMPLATE_DRAWER_WIDTHS = new Set([320, 360, 420, 480]);
 // The template drawer shells themselves (and their stories) may render the raw MUI Drawer. The kanban
 // details shell (template sections/kanban/details anatomy, moved out of components/minimal because it
 // is adapted) is one; it keeps the visible backdrop like every other right drawer.
-const SHELL_OWNERS = [/^components\/minimal\//, /^layouts\/template\//, /^stories\//, /^components\/app\/kanban\/kanban-details\.tsx$/];
+const SHELL_OWNERS = [/^components\/minimal\//, /^layouts\/template\//, /^stories\//, /^components\/app\/kanban\/kanban-details\.tsx$/, /^components\/app\/drawer\//];
 const isShellOwner = (rel) => SHELL_OWNERS.some((re) => re.test(rel));
 
 const DRAWER_OPEN = /<(MinimalDrawer|DetailDrawer|Drawer|SwipeableDrawer)\b/g;

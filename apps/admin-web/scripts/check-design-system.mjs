@@ -1082,7 +1082,7 @@ async function selfTest() {
   // A template drawer width on the template drawer is allowed (no fixed-px-width, no drawer finding).
   put("features/ok-drawer.tsx", [
     '"use client";',
-    'import { MinimalDrawer } from "@/components/minimal/drawer";',
+    'import { MinimalDrawer } from "@/components/app/drawer";',
     'export const d = (',
     '  <MinimalDrawer',
     '    open={open}',

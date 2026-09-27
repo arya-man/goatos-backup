@@ -14,7 +14,7 @@ import type { Theme } from "@mui/material/styles";
 import { Avatar } from "@/components/app/avatar";
 import { CustomPopover } from "@/components/minimal/custom-popover";
 import { Iconify } from "@/components/minimal/iconify";
-import { TAP_MIN } from "@/components/minimal/_shared/tap";
+import { TAP_MIN } from "@/components/app/tap";
 
 /**
  * THE ASSIGNEE PICKER: the Work Board's avatar stack + "+N" chip + searchable list, lifted out of

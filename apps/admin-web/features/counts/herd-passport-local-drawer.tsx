@@ -8,7 +8,7 @@ import TableCell from "@mui/material/TableCell";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
-import { LinkButton } from "@/components/minimal/link-button";
+import { LinkButton } from "@/components/app/link-button";
 import { DetailDrawer, DrawerBlock, DrawerMetaGrid, DrawerMetaItem, DrawerTableScroll } from "@/components/app/detail-drawer";
 import { Caption } from "@/components/app/caption";
 import { useLocalOverlaySelection } from "@/components/local-overlay-link";

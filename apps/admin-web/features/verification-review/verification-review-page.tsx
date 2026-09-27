@@ -51,7 +51,7 @@ import { VideoLog } from "./video-log";
 import { VerificationReviewDrawer } from "./verification-review-drawer";
 import { EmptyContent } from "@/components/minimal/empty-content";
 import Box from "@mui/material/Box";
-import { LinkButton } from "@/components/minimal/link-button";
+import { LinkButton } from "@/components/app/link-button";
 import Card from "@mui/material/Card";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";

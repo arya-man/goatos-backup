@@ -1,7 +1,7 @@
 import { Label } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
 import { InfoTip } from "@/components/app/info-tip";
-import { LinkButton } from "@/components/minimal/link-button";
+import { LinkButton } from "@/components/app/link-button";
 import { FilterChip } from "@/components/app/list/filter-chip";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { TableHeadCustom } from "@/components/app/table/table-head-custom";

@@ -35,7 +35,7 @@ export const RATCHET_CHECKS = {
   "raw-input": "raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native",
   "raw-button": "raw <button> in feature code; use MUI Button (or RowMenu / MenuItem / TemplateTabs)",
   "raw-tabs": "hand-rolled role=tablist; use kit TemplateTabs or template SegmentTabs",
-  "raw-dialog": "hand-rolled dialog/sheet; use MUI Dialog (template custom-dialog pattern) / Drawer (components/minimal/drawer) / CustomPopover",
+  "raw-dialog": "hand-rolled dialog/sheet; use MUI Dialog (template custom-dialog pattern) / Drawer (components/app/drawer) / CustomPopover",
   "raw-tooltip": "hand-rolled role=tooltip; use kit Tooltip / InfoHint / ChartTooltipCard",
   "raw-checkbox": "native checkbox/radio/range in feature code; use kit Checkbox / Radio / Switch / Slider",
   "raw-alert": "hand-rolled .alert banner; use kit Alert (severity + variant)",

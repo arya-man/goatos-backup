@@ -503,10 +503,10 @@ test("chart metric switches are local state, not route reloads", () => {
 });
 
 test("full-width shed chart labels fit without overlapping rows", () => {
-  // The bar rows are the MUI Minimal template item (components/minimal/progress-list), drawn by
+  // The bar rows are the MUI Minimal template item (components/app/progress-item), drawn by
   // the kit BarList that WeightBars renders. The label rules that used to live
   // on the `.wbar` grid are asserted on that item now.
-  const item = readFileSync(new URL("../../components/minimal/progress-list/progress-item.tsx", import.meta.url), "utf8");
+  const item = readFileSync(new URL("../../components/app/progress-item.tsx", import.meta.url), "utf8");
   const barList = readFileSync(new URL("../../components/bar-list.tsx", import.meta.url), "utf8");
   // A long pen label wraps to TWO lines and is then cut, never collapsed to "C..": the clamped text
   // carries display:-webkit-box + line-clamp 2, hides overflow and may break anywhere.

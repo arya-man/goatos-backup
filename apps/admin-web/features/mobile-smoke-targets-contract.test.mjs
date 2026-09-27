@@ -24,7 +24,7 @@ test("notification-matrix checkboxes are wrapped in a 40px label hit area", () =
 
 test("page-header breadcrumb and back links get a 44px tap box on phone widths", () => {
   // The page header is the template CustomBreadcrumbs; PhoneTapStyles raises its links below `md`.
-  const tap = read("../components/minimal/_shared/phone-tap-styles.tsx");
+  const tap = read("../components/app/phone-tap-styles.tsx");
   assert.match(tap, /'\.MuiBreadcrumbs-li > a, a\.minimal__breadcrumbs__back': \{\s*minHeight: TAP,\s*minWidth: TAP/);
   assert.match(tap, /const TAP = 44;/);
 });

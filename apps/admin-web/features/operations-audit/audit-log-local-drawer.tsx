@@ -9,7 +9,7 @@ import { dash } from "@/lib/format";
 import { ClipboardList, Database, Syringe, Truck, Zap } from "lucide-react";
 import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
-import { LinkButton } from "@/components/minimal/link-button";
+import { LinkButton } from "@/components/app/link-button";
 import { DetailDrawer, DrawerMetaGrid, DrawerMetaItem, DrawerNote } from "@/components/app/detail-drawer";
 
 export type AuditDrawerRecord = {

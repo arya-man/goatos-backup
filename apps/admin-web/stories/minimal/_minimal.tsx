@@ -6,7 +6,7 @@ import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
 import { ThemeProvider } from "@/theme";
 import { defaultSettings, SettingsProvider } from "@/layouts/template/settings";
-import { PhoneTapStyles } from "@/components/minimal/_shared/phone-tap-styles";
+import { PhoneTapStyles } from "@/components/app/phone-tap-styles";
 
 /**
  * Renders a story inside the Minimal (MUI) theme that Phase 1 installs under apps/admin-web/theme

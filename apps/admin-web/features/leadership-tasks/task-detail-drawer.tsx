@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, type ReactNode } from "react";
-import { MinimalDrawer } from "@/components/minimal/drawer";
+import { MinimalDrawer } from "@/components/app/drawer";
 
 /**
  * The drawer the task detail slides in from the right edge, OVER the board or the table.

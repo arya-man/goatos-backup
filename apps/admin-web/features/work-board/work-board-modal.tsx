@@ -8,7 +8,7 @@ import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import { Label } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
-import { LinkButton } from "@/components/minimal/link-button";
+import { LinkButton } from "@/components/app/link-button";
 import { BlockLabel, KanbanDetails } from "@/components/app/kanban/kanban-details";
 import { useLocalOverlaySelection } from "@/components/local-overlay-link";
 import { control, controlEnabled, copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";

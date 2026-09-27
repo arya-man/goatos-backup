@@ -2,7 +2,7 @@
 //
 // A ranked list of ONE measure (price per kg by breed): the kit BarList, which draws each row as
 // the MUI Minimal template's EcommerceSalesOverview item (label and figure over an 8px
-// LinearProgress, template Tooltip on hover — components/minimal/progress-list). The labels are
+// LinearProgress, template Tooltip on hover — components/app/progress-item). The labels are
 // real text at the theme's subtitle2 size, so they stay readable at every card width.
 //
 // NO copy of its own: every visible string arrives already resolved from the backend page

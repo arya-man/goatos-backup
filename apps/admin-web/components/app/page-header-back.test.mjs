@@ -15,5 +15,5 @@ test("PageHeader renders the template BackLink with the tap/gutter class and tra
 });
 
 test("the phone tap rule still targets the back link class", () => {
-  assert.match(read("../minimal/_shared/phone-tap-styles.tsx"), /a\.minimal__breadcrumbs__back/);
+  assert.match(read("./phone-tap-styles.tsx"), /a\.minimal__breadcrumbs__back/);
 });

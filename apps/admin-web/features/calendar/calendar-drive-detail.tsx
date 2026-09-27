@@ -20,7 +20,7 @@ import InputAdornment from "@mui/material/InputAdornment";
 import LinearProgress from "@mui/material/LinearProgress";
 import { Label } from "@/components/minimal/label";
 import { Scrollbar } from "@/components/minimal/scrollbar";
-import { LinkButton } from "@/components/minimal/link-button";
+import { LinkButton } from "@/components/app/link-button";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { PageHeader } from "@/components/app/page-header";
 import { type AdminUiPageContract, copy, optionLabel } from "@/lib/admin-ui-contract";

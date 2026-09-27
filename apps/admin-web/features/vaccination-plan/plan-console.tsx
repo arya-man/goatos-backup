@@ -16,7 +16,7 @@ import { COURSE_WIDGET_ICONS } from "@/lib/minimal-icons";
 import { Label } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
-import { LinkButton } from "@/components/minimal/link-button";
+import { LinkButton } from "@/components/app/link-button";
 import { TableHeadCustom, TablePaginationLinks } from "@/components/app/table";
 
 /**

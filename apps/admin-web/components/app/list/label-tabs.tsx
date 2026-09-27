@@ -11,7 +11,7 @@ import Tab from '@mui/material/Tab';
 import Tabs from '@mui/material/Tabs';
 
 import { Label } from '@/components/minimal/label';
-import { TAP_MIN } from '@/components/minimal/_shared/tap';
+import { TAP_MIN } from '@/components/app/tap';
 
 export type LabelTabItem<V extends string = string> = {
   value: V;

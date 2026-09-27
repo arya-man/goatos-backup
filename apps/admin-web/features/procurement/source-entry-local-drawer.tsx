@@ -1,7 +1,7 @@
 "use client";
 
 import Button from "@mui/material/Button";
-import { LinkButton } from "@/components/minimal/link-button";
+import { LinkButton } from "@/components/app/link-button";
 import { DetailDrawer, DrawerMetaGrid, DrawerMetaItem } from "@/components/app/detail-drawer";
 import {
   currentHistoryEntryIsLocalOverlay,

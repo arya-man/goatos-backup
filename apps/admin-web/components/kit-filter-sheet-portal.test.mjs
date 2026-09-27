@@ -7,6 +7,6 @@ const filterBar = readFileSync(new URL("./app/filter-bar.tsx", import.meta.url),
 // The fold is the template filters drawer (MUI Drawer = portaled to body, anchored to the viewport),
 // with its own padded body so the fields never touch the screen edge.
 test("FilterBar phone fold uses the portaled template filters drawer", () => {
-  assert.match(filterBar, /import \{ MinimalDrawer \} from "@\/components\/minimal\/drawer";/);
+  assert.match(filterBar, /import \{ MinimalDrawer \} from "@\/components\/app\/drawer";/);
   assert.match(filterBar, /<MinimalDrawer open=\{open\}[\s\S]*?<Box sx=\{\{ p: 2\.5,/);
 });

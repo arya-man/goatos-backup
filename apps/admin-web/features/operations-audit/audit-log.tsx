@@ -20,7 +20,7 @@ import TextField from "@mui/material/TextField";
 import { varAlpha } from "minimal-shared/utils";
 import { Label } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
-import { LinkButton } from "@/components/minimal/link-button";
+import { LinkButton } from "@/components/app/link-button";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { EmptyContent } from "@/components/minimal/empty-content";
 import { SearchTextField } from "@/components/app/list/search-text-field";

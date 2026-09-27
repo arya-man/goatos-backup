@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { ProgressItem, ProgressTooltip } from "@/components/minimal/progress-list/progress-item";
+import { ProgressItem, ProgressTooltip } from "@/components/app/progress-item";
 
 import { cx, toneVars, type KitTone } from "@/lib/tone";
 
@@ -18,7 +18,7 @@ export type ProgressRowProps = {
 
 /**
  * Label + right-aligned value over a slim rounded track — the MUI Minimal
- * EcommerceSalesOverview item (via components/minimal/progress-list). Product
+ * EcommerceSalesOverview item (via components/app/progress-item). Product
  * behaviour here: percent/total/value normalisation and tone→colour mapping;
  * visual rendering is delegated to the template ProgressItem.
  */

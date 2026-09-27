@@ -17,7 +17,7 @@ import MenuList from "@mui/material/MenuList";
 import Select from "@mui/material/Select";
 import TextField from "@mui/material/TextField";
 import { CustomPopover } from "@/components/minimal/custom-popover";
-import { MinimalDrawer } from "@/components/minimal/drawer";
+import { MinimalDrawer } from "@/components/app/drawer";
 import { FiltersBlock, chipProps } from "@/components/minimal/filters-result";
 import { Iconify } from "@/components/minimal/iconify";
 import { useRouter, useSearchParams } from "next/navigation";

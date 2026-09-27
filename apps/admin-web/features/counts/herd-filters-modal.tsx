@@ -8,7 +8,7 @@ import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
-import { DrawerSection, MinimalDrawer } from "@/components/minimal/drawer";
+import { DrawerSection, MinimalDrawer } from "@/components/app/drawer";
 import { useBackCloses } from "@/components/use-back-closes";
 import { parseScope } from "@/lib/scope";
 import { one, type RouteSearchParams } from "@/lib/search-params";

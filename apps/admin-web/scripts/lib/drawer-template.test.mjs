@@ -23,7 +23,7 @@ test("off-template widths, transparent backdrops and raw MUI drawers fail", () =
 
 test("a left nav drawer and the template shell itself are not right drawers", () => {
   assert.deepEqual(lines('<Drawer anchor="left" open={o} onClose={c} />'), []);
-  assert.deepEqual(lines('<Drawer anchor="right" open={o} onClose={c} />', "components/minimal/drawer/minimal-drawer.tsx"), []);
+  assert.deepEqual(lines('<Drawer anchor="right" open={o} onClose={c} />', "components/app/drawer/minimal-drawer.tsx"), []);
 });
 
 test("legacy hand-rolled drawers fail, including multi-line <aside> tags", () => {

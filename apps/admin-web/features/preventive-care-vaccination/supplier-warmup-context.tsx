@@ -6,7 +6,7 @@ import TableCell from "@mui/material/TableCell";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { LocalOverlayDrawer, type LocalOverlayDrawerItem } from "@/components/local-overlay-drawer";
 import { DrawerBlock, DrawerMetaGrid, DrawerMetaItem, DrawerNote } from "@/components/app/detail-drawer";
-import { LinkButton } from "@/components/minimal/link-button";
+import { LinkButton } from "@/components/app/link-button";
 import Box from "@mui/material/Box";
 import { ArrowRight, Truck } from "lucide-react";
 import { Tag, type Tone } from "@/components/ui-primitives";

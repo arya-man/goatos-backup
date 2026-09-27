@@ -8,7 +8,7 @@ import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import InputAdornment from "@mui/material/InputAdornment";
 import TextField from "@mui/material/TextField";
-import { DrawerSection, MinimalDrawer } from "@/components/minimal/drawer";
+import { DrawerSection, MinimalDrawer } from "@/components/app/drawer";
 import { Iconify } from "@/components/minimal/iconify";
 import { copy, optionGroup, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 

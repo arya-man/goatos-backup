@@ -19,7 +19,7 @@ const bell = read("./notification-bell.tsx");
 const css = read("./notification-panel.css");
 
 test("the bell renders the centre as the portaled template temporary drawer at every width", () => {
-  assert.match(bell, /import \{ MinimalDrawer \} from "@\/components\/minimal\/drawer"/, "the drawer must be the template MinimalDrawer (right, backdrop)");
+  assert.match(bell, /import \{ MinimalDrawer \} from "@\/components\/app\/drawer"/, "the drawer must be the template MinimalDrawer (right, backdrop)");
   assert.doesNotMatch(bell, /disablePortal/, "the drawer must stay portaled out of `.top`");
   assert.doesNotMatch(bell, /invisible: true/, "the backdrop dims the page (Ravi R2-4)");
   assert.match(bell, /<MinimalDrawer\s+open=\{open\}\s+onClose=\{closePanel\}/, "opened and closed by the bell");

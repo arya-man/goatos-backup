@@ -1,4 +1,5 @@
 import dayjs from "dayjs";
+import { fmtDate } from "@/lib/format";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -11,7 +12,7 @@ function Demo({ open = false, variant = "calendar" }: { open?: boolean; variant?
   return (
     <Box>
       <Button variant="outlined" color="inherit" startIcon={<Iconify icon="solar:calendar-date-bold" />} onClick={rp.onOpen}>
-        {rp.shortLabel}
+        {rp.startDate && rp.endDate ? `${fmtDate(rp.startDate.format("YYYY-MM-DD"))} – ${fmtDate(rp.endDate.format("YYYY-MM-DD"))}` : ""}
       </Button>
       <CustomDateRangePicker
         variant={variant}
