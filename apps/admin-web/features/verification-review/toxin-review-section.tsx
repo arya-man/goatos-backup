@@ -20,7 +20,7 @@ import { PageHeader } from "@/components/app/page-header";
 import Card from "@mui/material/Card";
 import Typography from "@mui/material/Typography";
 import { TemplateTabs } from "@/components/app/template-tabs";
-import { TablePaginationLinks } from "@/components/minimal/table";
+import { TablePaginationLinks } from "@/components/app/table";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { TableSkeleton } from "@/components/app/skeletons";
 

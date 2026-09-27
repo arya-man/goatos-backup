@@ -18,7 +18,7 @@ import { VrFormSelect } from "./vr-form-select";
 import { Label } from "@/components/minimal/label";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { EmptyContent } from "@/components/minimal/empty-content";
-import { TableHeadCustom } from "@/components/minimal/table";
+import { TableHeadCustom } from "@/components/app/table";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { getVerificationVideoLog, type VerificationVideoLogResponse } from "@/lib/api/server";
 import { fmtDateTime } from "@/lib/format";

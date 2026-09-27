@@ -23,7 +23,7 @@ import { TemplateTabs } from "@/components/app/template-tabs";
 import { Label, type LabelColor } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
-import { TableHeadCustom, TablePaginationLinks, type TableHeadCellProps } from "@/components/minimal/table";
+import { TableHeadCustom, TablePaginationLinks, type TableHeadCellProps } from "@/components/app/table";
 import { OrderTableToolbar } from "@/components/minimal/sections/order/order-table-toolbar";
 import { MailNavItem } from "@/components/minimal/sections/mail/mail-nav-item";
 

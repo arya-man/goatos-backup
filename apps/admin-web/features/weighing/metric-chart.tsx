@@ -13,7 +13,7 @@ import CardHeader from "@mui/material/CardHeader";
 
 import { EmptyState } from "@/components/app/empty-state";
 import { ChartSelect } from "@/components/minimal/chart";
-import { TablePaginationCustom } from "@/components/minimal/table";
+import { TablePaginationCustom } from "@/components/app/table";
 import { ConversionRatesCard } from "@/components/app/conversion-rates-card";
 import { Tag } from "@/components/ui-primitives";
 import type { WeightBar } from "./weight-bars";

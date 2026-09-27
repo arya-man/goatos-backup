@@ -29,7 +29,7 @@ import { UrlSuspense } from "@/components/app/url-suspense";
 import { TableSkeleton } from "@/components/app/skeletons";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { Iconify } from "@/components/minimal/iconify";
-import { TableHeadCustom } from "@/components/minimal/table";
+import { TableHeadCustom } from "@/components/app/table";
 import { OrderTableToolbar } from "@/components/minimal/sections/order/order-table-toolbar";
 import { LinkFiltersResult, type LinkFilterChip } from "@/components/app/link-filters-result";
 import { phoneLoadCardsSx } from "./procurement-sx";

@@ -16,7 +16,7 @@ import Link from "@/components/no-prefetch-link";
 import { Label } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
-import { TableHeadCustom } from "@/components/minimal/table";
+import { TableHeadCustom } from "@/components/app/table";
 import { OrderDetailsToolbar } from "@/components/minimal/sections/order/order-details-toolbar";
 import { OrderDetailsHistory, type OrderHistoryItem } from "@/components/minimal/sections/order/order-details-history";
 import { OrderDetailsCustomer } from "@/components/minimal/sections/order/order-details-customer";

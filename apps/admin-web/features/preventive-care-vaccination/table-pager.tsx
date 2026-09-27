@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { TablePaginationLinks } from "@/components/minimal/table/table-pagination-links";
+import { TablePaginationLinks } from "@/components/app/table/table-pagination-links";
 import { DenseToggleAuto } from "@/components/app/dense-toggle-auto";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";

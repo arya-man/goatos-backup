@@ -30,7 +30,7 @@ import { actionFeedbackCopy, copy, type AdminUiPageContract } from "@/lib/admin-
 import { Label, type LabelColor } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
-import { TableHeadCustom } from "@/components/minimal/table/table-head-custom";
+import { TableHeadCustom } from "@/components/app/table/table-head-custom";
 import { UrlTabs } from "@/components/app/url-tabs";
 import { ProcurementTableFooter } from "./table-footer-links";
 import { ProcurementFiltersResult, type ToolbarChip } from "./table-toolbar";

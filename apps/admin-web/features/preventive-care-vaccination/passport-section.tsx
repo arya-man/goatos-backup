@@ -13,7 +13,7 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import { Label } from "@/components/minimal/label";
 import { Scrollbar } from "@/components/minimal/scrollbar";
-import { TableHeadCustom } from "@/components/minimal/table";
+import { TableHeadCustom } from "@/components/app/table";
 import {
   getGoatVaccinationPassport,
   type VaccinationPassport,

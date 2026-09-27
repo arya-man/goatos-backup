@@ -64,7 +64,7 @@ import Divider from "@mui/material/Divider";
 import { TemplateTabs } from "@/components/app/template-tabs";
 import { Iconify, type IconifyName } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
-import { TablePaginationLinks } from "@/components/minimal/table";
+import { TablePaginationLinks } from "@/components/app/table";
 import { fPercent } from "@/components/minimal/_shared/format-number";
 import { InvoiceAnalytic } from "@/components/minimal/sections/invoice/invoice-analytic";
 import { VrQueueHead } from "./vr-queue-head";

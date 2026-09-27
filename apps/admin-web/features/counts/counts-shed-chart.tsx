@@ -4,7 +4,7 @@ import { useState } from "react";
 
 import { ConversionRatesCard } from "@/components/app/conversion-rates-card";
 import { EmptyContent } from "@/components/minimal/empty-content";
-import { TablePaginationCustom } from "@/components/minimal/table";
+import { TablePaginationCustom } from "@/components/app/table";
 
 type Bar = { key: string; label: string; value: number };
 

@@ -8,7 +8,7 @@ import Grid from "@mui/material/Grid";
 import { listOrEmpty } from "@/lib/list-or-empty";
 import { EmptyState } from "@/components/app/empty-state";
 import { Label } from "@/components/minimal/label";
-import { TableHeadCustom } from "@/components/minimal/table";
+import { TableHeadCustom } from "@/components/app/table";
 import { KpiWidget } from "@/components/app/kpi-widget";
 import { EcommerceSalesOverview } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sales-overview";
 import { EcommerceBestSalesman } from "@/components/minimal/sections/overview/e-commerce/ecommerce-best-salesman";

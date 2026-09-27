@@ -21,7 +21,7 @@ import type { ApiResult } from "@/lib/api/server";
 import { humanDate, inr, inrCompact, num, signedInr, signedInrCompact } from "./sales-format";
 import { salesErrorText } from "./sales-error";
 import type { LoadwisePriorOutcome } from "@/lib/api/procurement";
-import { TablePaginationLinks } from "@/components/minimal/table/table-pagination-links";
+import { TablePaginationLinks } from "@/components/app/table/table-pagination-links";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 

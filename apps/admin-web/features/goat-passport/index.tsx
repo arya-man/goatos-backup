@@ -26,7 +26,7 @@ import { Tag, type Tone } from "@/components/ui-primitives";
 import { Label } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
-import { TableHeadCustom } from "@/components/minimal/table";
+import { TableHeadCustom } from "@/components/app/table";
 import { OrderDetailsDelivery } from "@/components/minimal/sections/order/order-details-delivery";
 import { OrderDetailsHistory } from "@/components/minimal/sections/order/order-details-history";
 import { PassportCover } from "./passport-cover";

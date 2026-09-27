@@ -21,7 +21,7 @@ import TableRow from "@mui/material/TableRow";
 import type { AdminUiTableContract } from "@/lib/admin-ui-contract";
 import { EmptyContent } from "@/components/minimal/empty-content";
 import { Scrollbar } from "@/components/minimal/scrollbar";
-import { TableHeadCustom, type TableHeadCellProps } from "@/components/minimal/table";
+import { TableHeadCustom, type TableHeadCellProps } from "@/components/app/table";
 
 /**
  * The shared headless table body for admin-web worklists.

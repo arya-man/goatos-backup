@@ -30,7 +30,7 @@ import {
   TableSelectedAction,
   TablePaginationCustom,
   type TableHeadCellProps,
-} from "@/components/minimal/table";
+} from "@/components/app/table";
 import { GOATS, type GoatRow } from "./_goats";
 import { withMinimalTheme, mobile } from "./_minimal";
 

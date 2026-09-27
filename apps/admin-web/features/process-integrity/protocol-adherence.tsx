@@ -11,7 +11,7 @@ import { redirect } from "next/navigation";
 import { InfoHint } from "@/components/app/info-hint";
 import { PageHeader, type PageCrumb } from "@/components/app/page-header";
 import { KpiWidget } from "@/components/app/kpi-widget";
-import { TableHeadCustom } from "@/components/minimal/table";
+import { TableHeadCustom } from "@/components/app/table";
 import { Label } from "@/components/minimal/label";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { LinkSelect } from "@/components/app/link-select";

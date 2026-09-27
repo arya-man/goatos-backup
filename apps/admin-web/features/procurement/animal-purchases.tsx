@@ -13,7 +13,7 @@ import { PageHeader } from "@/components/app/page-header";
 import { KpiWidget } from "@/components/app/kpi-widget";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { Iconify } from "@/components/minimal/iconify";
-import { TableHeadCustom } from "@/components/minimal/table";
+import { TableHeadCustom } from "@/components/app/table";
 import { OrderTableToolbar } from "@/components/minimal/sections/order/order-table-toolbar";
 import { JobItem } from "@/components/minimal/sections/job/job-item";
 import { JobList } from "@/components/minimal/sections/job/job-list";

@@ -16,7 +16,7 @@ import TablePagination from '@mui/material/TablePagination';
 
 import Link, { useLinkStatus } from '@/components/no-prefetch-link';
 
-import { Iconify } from '../iconify';
+import { Iconify } from '@/components/minimal/iconify';
 
 export type TablePaginationLinksProps = {
   /** 0-based page shown. */
@@ -142,7 +142,7 @@ export function TablePaginationLinks({
           // wrapped row instead of the theme's fixed 64px (which made the arrows a nested scroller).
           {
             overflow: { xs: 'visible', sm: 'auto' },
-            '& .MuiTablePagination-toolbar': { flexWrap: { xs: 'wrap', sm: 'nowrap' }, justifyContent: 'flex-end', rowGap: 0.5, height: { xs: 'auto', sm: 64 }, minHeight: 64 },
+            '& .MuiTablePagination-toolbar': { flexWrap: { xs: 'wrap', sm: 'nowrap' }, justifyContent: 'flex-end', rowGap: 0.5, height: { xs: 'auto', sm: 'calc(var(--sp-2) * 4)' }, minHeight: 'calc(var(--sp-2) * 4)' },
           },
           // No rows-per-page choice on this pager: the template shows none rather than a one-item select.
           ...(rowsPerPageHrefs?.length ? [] : [{ '& .MuiTablePagination-selectLabel, & .MuiTablePagination-input': { display: 'none' } }]),

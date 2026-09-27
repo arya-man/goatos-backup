@@ -22,7 +22,7 @@ assert.match(
   "components/data-table.tsx must apply meta.headerClassName to the header cell",
 );
 assert.match(
-  readFileSync(new URL("../../components/minimal/table/table-head-custom.tsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../../components/app/table/table-head-custom.tsx", import.meta.url), "utf8"),
   /className=\{headCell\.className\}/,
   "TableHeadCustom must put the head cell className on the <th>",
 );

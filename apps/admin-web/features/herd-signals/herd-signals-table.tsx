@@ -45,7 +45,7 @@ import { HerdSignalsAnimalsHead, HerdSignalsAnimalsRow } from "./herd-signals-an
 import { useNowMs } from "./herd-signals-stream-bridge";
 import { useHerdSignalsLiveSnapshot } from "./herd-signals-live-store";
 import Tooltip from "@mui/material/Tooltip";
-import { TablePaginationLinks } from "@/components/minimal/table/table-pagination-links";
+import { TablePaginationLinks } from "@/components/app/table/table-pagination-links";
 import { EmptyState } from "@/components/app/empty-state";
 
 function rowTagId(item: HerdSignalItem): string {

@@ -1,5 +1,8 @@
 "use client";
 
+// Mesha table head (components/app, NOT a template file): the template TableHeadCustom anatomy
+// (components/minimal/table/table-head-custom.tsx, verbatim) plus per-cell `sortable` / `sortLabel`
+// / `className` (contract-owned sort affordances) and ReactNode labels. MUI parts only.
 import type { Theme, SxProps, CSSObject } from '@mui/material/styles';
 
 import Box from '@mui/material/Box';
@@ -27,7 +30,12 @@ const visuallyHidden: CSSObject = {
 
 export type TableHeadCellProps = {
   id: string;
-  label?: string;
+  label?: React.ReactNode;
+  /** Mesha: only backend-declared sortable columns get the sort affordance (default true). */
+  sortable?: boolean;
+  /** Mesha: accessible name of the sort control. */
+  sortLabel?: string;
+  className?: string;
   width?: CSSObject['width'];
   align?: 'left' | 'center' | 'right';
   sx?: SxProps<Theme>;
@@ -78,6 +86,7 @@ export function TableHeadCustom({
         {headCells.map((headCell) => (
           <TableCell
             key={headCell.id}
+            className={headCell.className}
             align={headCell.align || 'left'}
             sortDirection={orderBy === headCell.id ? order : false}
             sx={[
@@ -85,9 +94,10 @@ export function TableHeadCustom({
               ...(Array.isArray(headCell.sx) ? headCell.sx : [headCell.sx]),
             ]}
           >
-            {onSort ? (
+            {onSort && headCell.sortable !== false ? (
               <TableSortLabel
                 hideSortIcon
+                aria-label={headCell.sortLabel}
                 active={orderBy === headCell.id}
                 direction={orderBy === headCell.id ? order : 'asc'}
                 onClick={() => onSort(headCell.id)}

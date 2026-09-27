@@ -17,7 +17,7 @@ import type { ReactNode } from "react";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { Label, type LabelColor } from "@/components/minimal/label";
 import { Scrollbar } from "@/components/minimal/scrollbar";
-import { TableHeadCustom } from "@/components/minimal/table";
+import { TableHeadCustom } from "@/components/app/table";
 import { EmptyContent } from "@/components/minimal/empty-content";
 import type { AdminWebApprovalItem } from "@/lib/api/server";
 import { fmtDateTime } from "@/lib/format";

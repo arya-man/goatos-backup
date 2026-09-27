@@ -17,7 +17,7 @@ import { Scrollbar } from "@/components/minimal/scrollbar";
 import { LinkButton } from "@/components/minimal/link-button";
 import { EmptyContent } from "@/components/minimal/empty-content";
 import { TemplateTabs } from "@/components/app/template-tabs";
-import { TableHeadCustom } from "@/components/minimal/table/table-head-custom";
+import { TableHeadCustom } from "@/components/app/table/table-head-custom";
 import { OrderTableToolbar } from "@/components/minimal/sections/order/order-table-toolbar";
 import { OrderDetailsHistory, type OrderHistoryItem, type OrderHistoryTone } from "@/components/minimal/sections/order/order-details-history";
 import Link from "@/components/no-prefetch-link";

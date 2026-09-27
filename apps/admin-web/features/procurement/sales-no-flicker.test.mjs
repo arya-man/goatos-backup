@@ -61,7 +61,7 @@ test("a pressed chip or pager says it is busy in place", () => {
   assert.match(read("../../components/app/list/segment-tabs.tsx"), /aria-busy=\{busy \|\| pendingValue !== null \|\| undefined\}/);
   // Pagers are the template TablePaginationLinks (via ProcurementTableFooter), whose arrows turn
   // into a spinner while their link is pending; chip strips are SegmentTabs (aria-busy above).
-  assert.match(read("../../components/minimal/table/table-pagination-links.tsx"), /const \{ pending \} = useLinkStatus\(\);/);
+  assert.match(read("../../components/app/table/table-pagination-links.tsx"), /const \{ pending \} = useLinkStatus\(\);/);
   for (const file of ["./sales-sold.tsx", "./sales-buyer-analytics.tsx", "./sales-farm-born.tsx"]) {
     assert.match(read(file), /<ProcurementTableFooter/, file);
   }

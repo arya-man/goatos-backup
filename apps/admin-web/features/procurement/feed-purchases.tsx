@@ -35,7 +35,7 @@ import { fmtDate } from "@/lib/format";
 import { Iconify } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { UrlTabs } from "@/components/app/url-tabs";
-import { TableHeadCustom } from "@/components/minimal/table/table-head-custom";
+import { TableHeadCustom } from "@/components/app/table/table-head-custom";
 import { InvoiceAnalytic } from "@/components/minimal/sections/invoice/invoice-analytic";
 import { deliveryStatusChip, paymentStatusChip } from "./feed-purchase-format";
 import { inr, num, resolveFarm } from "./sales-format";

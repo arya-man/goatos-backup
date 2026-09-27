@@ -27,7 +27,7 @@ import Typography from "@mui/material/Typography";
 
 import { Iconify } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
-import { TableHeadCustom } from "@/components/minimal/table";
+import { TableHeadCustom } from "@/components/app/table";
 
 import { describeFirstDoses, describeRepeats, type VaccineGroup } from "./plan-model";
 

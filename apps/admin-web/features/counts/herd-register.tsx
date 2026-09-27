@@ -23,7 +23,7 @@ import Stack from "@mui/material/Stack";
 import { EmptyContent } from "@/components/minimal/empty-content";
 import { Label } from "@/components/minimal/label";
 import { Scrollbar } from "@/components/minimal/scrollbar";
-import { TableHeadCustom } from "@/components/minimal/table";
+import { TableHeadCustom } from "@/components/app/table";
 import { KpiWidget, kpiColor } from "@/components/app/kpi-widget";
 import { GoatGlyph } from "@/components/goat-glyph";
 import { DenseTable } from "@/components/dense-table";

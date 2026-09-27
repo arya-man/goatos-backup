@@ -14,7 +14,7 @@ import { TONE_COLOR } from "@/components/ui-primitives";
 import { Label } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
-import { TableHeadCustom } from "@/components/minimal/table/table-head-custom";
+import { TableHeadCustom } from "@/components/app/table/table-head-custom";
 import { SalesConfigTabs } from "./sales-config-tabs";
 import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";

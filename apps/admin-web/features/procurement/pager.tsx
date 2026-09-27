@@ -1,4 +1,4 @@
-import { TablePaginationLinks } from "@/components/minimal/table/table-pagination-links";
+import { TablePaginationLinks } from "@/components/app/table/table-pagination-links";
 
 // Mock-styled cursor pager shared by the procurement row surfaces (Source Entry Board, Action Center,
 // Protocol Adherence). Prev/Next are real server-navigation links built from the backend's next_cursor +

@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 
-import { TableHeadCustom, type TableHeadCellProps } from "@/components/minimal/table";
+import { TableHeadCustom, type TableHeadCellProps } from "@/components/app/table";
 
 /**
  * The queue's header row: the template TableHeadCustom, with the one sortable column (capture time)

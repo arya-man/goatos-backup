@@ -96,7 +96,6 @@
     "components/minimal/table/table-head-custom.tsx": "src/components/table/table-head-custom.tsx",
     "components/minimal/table/table-no-data.tsx": "src/components/table/table-no-data.tsx",
     "components/minimal/table/table-pagination-custom.tsx": "src/components/table/table-pagination-custom.tsx",
-    "components/minimal/table/table-pagination-links.tsx": "src/components/table/table-pagination-custom.tsx",
     "components/minimal/table/table-selected-action.tsx": "src/components/table/table-selected-action.tsx",
     "components/minimal/table/table-skeleton.tsx": "src/components/table/table-skeleton.tsx",
     "components/minimal/table/use-table.ts": "src/components/table/use-table.ts",
@@ -1142,17 +1141,6 @@
       ]
     },
     "components/minimal/table/table-pagination-custom.tsx": {
-      "sha256": "1209b743b9a154980e449808e1c5617734f6eda1f60851ba3291e514464905fb",
-      "imports": [
-        "@mui/material/styles",
-        "@mui/material/TablePagination",
-        "@mui/material/Box",
-        "@mui/material/Switch",
-        "@mui/material/TablePagination",
-        "@mui/material/FormControlLabel"
-      ]
-    },
-    "components/minimal/table/table-pagination-links.tsx": {
       "sha256": "1209b743b9a154980e449808e1c5617734f6eda1f60851ba3291e514464905fb",
       "imports": [
         "@mui/material/styles",

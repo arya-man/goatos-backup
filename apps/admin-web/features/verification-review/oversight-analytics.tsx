@@ -10,7 +10,7 @@ import Link from "@/components/no-prefetch-link";
 import { Label } from "@/components/minimal/label";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { EmptyContent } from "@/components/minimal/empty-content";
-import { TableHeadCustom } from "@/components/minimal/table";
+import { TableHeadCustom } from "@/components/app/table";
 import { EcommerceSalesOverview, type EcommerceSalesOverviewItem } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sales-overview";
 import { AnalyticsWebsiteVisits } from "@/components/minimal/sections/overview/analytics/analytics-website-visits";
 import { OversightKpis, type OversightKpi } from "./oversight-kpis";

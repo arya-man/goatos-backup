@@ -16,7 +16,7 @@ import TableRow from "@mui/material/TableRow";
 import { Label } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
-import { TableHeadCustom } from "@/components/minimal/table";
+import { TableHeadCustom } from "@/components/app/table";
 import { OrderDetailsDelivery } from "@/components/minimal/sections/order/order-details-delivery";
 import { getVaccinationExecutionShedDrilldown } from "@/lib/api/server";
 import type { VaccinationExecutionRow } from "@/lib/api/vaccination-execution";

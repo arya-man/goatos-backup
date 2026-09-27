@@ -593,7 +593,7 @@ function runGuard(root, { themeDiff }) {
           // components/app adapters only pass our data into template sections (e.g. kpi-widget ->
           // CourseWidgetSummary / EcommerceWidgetSummary), so their imports count one level deep.
           for (const m of text.matchAll(/from\s+["']@\/(components\/app\/[\w/.-]+)["']/g)) {
-            for (const ext of [".tsx", ".ts"]) {
+            for (const ext of [".tsx", ".ts", "/index.ts", "/index.tsx"]) {
               const adapter = join(root, m[1] + ext);
               if (existsSync(adapter)) imports += readFileSync(adapter, "utf8");
             }

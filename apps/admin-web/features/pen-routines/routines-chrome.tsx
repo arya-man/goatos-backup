@@ -12,7 +12,7 @@ import { DenseToggle } from "@/components/app/dense-toggle";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
 import { DateRangeField } from "@/components/app/date-range-field";
-import { TablePaginationLinks } from "@/components/minimal/table/table-pagination-links";
+import { TablePaginationLinks } from "@/components/app/table/table-pagination-links";
 
 export type ChromeFilter = {
   /** Query parameter this control writes. */

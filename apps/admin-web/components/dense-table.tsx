@@ -5,7 +5,7 @@ import { useState, type ReactNode } from "react";
 import { DenseToggle } from "@/components/app/dense-toggle";
 import { cx } from "@/lib/tone";
 import Box from "@mui/material/Box";
-import { TablePaginationLinks, type TablePaginationLinksProps } from "@/components/minimal/table/table-pagination-links";
+import { TablePaginationLinks, type TablePaginationLinksProps } from "@/components/app/table/table-pagination-links";
 
 /**
  * Table wrapper + footer for SERVER-rendered tables.

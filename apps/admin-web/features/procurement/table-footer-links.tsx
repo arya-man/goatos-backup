@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { DenseToggle } from "@/components/app/dense-toggle";
-import { TablePaginationLinks } from "@/components/minimal/table/table-pagination-links";
+import { TablePaginationLinks } from "@/components/app/table/table-pagination-links";
 
 /**
  * Table footer for the SERVER-paged sales / procurement tables.

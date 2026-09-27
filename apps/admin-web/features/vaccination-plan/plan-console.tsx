@@ -17,7 +17,7 @@ import { Label } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { LinkButton } from "@/components/minimal/link-button";
-import { TableHeadCustom, TablePaginationLinks } from "@/components/minimal/table";
+import { TableHeadCustom, TablePaginationLinks } from "@/components/app/table";
 
 /**
  * Vaccination plan console — the list screen.
