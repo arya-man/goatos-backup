@@ -8,6 +8,12 @@ import { getSop, isAuthRequiredError, listSops, requireAdminWebPageContract } fr
 import type { AdminWebPageContract } from "@/lib/api/server";
 import type { RouteSearchParams } from "@/lib/search-params";
 import type { SopScopeDomain } from "./sop-derive";
+import { SOP_EDITOR_PARAMS, isSopEditorUrl } from "./sop-library-layout";
+
+/** The shared library-vs-editor predicate over the route's search params. */
+function isSopEditorRoute(sp: RouteSearchParams): boolean {
+  return isSopEditorUrl({ get: (name) => (typeof sp[name] === "string" ? (sp[name] as string) : null) });
+}
 import { InspectionEditor } from "./inspection-editor";
 import { publishedFromSearch } from "./published-href";
 import { parseFeedPurchaseForm, parseInspection, parseVendorForm } from "./inspection-model";
@@ -46,7 +52,7 @@ export async function renderSopModulePage(
   extraNodeFactory?: renderSopExtraNodeFactory,
 ) {
   const sp = await searchParams;
-  const editing = sp.compose === "1" || sp.new === "1";
+  const editing = isSopEditorRoute(sp);
   // Library ⇄ editor is a URL state (guard: url-keyed-panel): opening an editor, or landing back on
   // the library after Publish, swaps to the target's skeleton in the same frame as the click and
   // streams the reads in, instead of holding the old screen until the server answers.
@@ -55,7 +61,7 @@ export async function renderSopModulePage(
       searchParams={sp}
       watch={SOP_MODE_WATCH}
       fallback={editing ? <SopEditorSkeleton /> : <SopLibrarySkeleton />}
-      fallbackBy={{ param: "compose", shapes: { "1": <SopEditorSkeleton />, "": <SopLibrarySkeleton /> } }}
+      fallbackBy={{ param: SOP_EDITOR_PARAMS.join("|"), shapes: { "1": <SopEditorSkeleton />, "": <SopLibrarySkeleton /> } }}
     >
       <SopModuleBody contractKey={contractKey} slice={slice} basePath={basePath} sp={sp} extraNodeFactory={extraNodeFactory} />
     </UrlSuspense>
@@ -80,7 +86,7 @@ async function SopModuleBody({
 }) {
   const pageContractPromise = requireAdminWebPageContract(contractKey);
   const extraNode = extraNodeFactory ? await extraNodeFactory(await pageContractPromise, sp) : null;
-  if (sp.compose === "1" || sp.new === "1") {
+  if (isSopEditorRoute(sp)) {
     const editId = typeof sp.edit === "string" && sp.edit ? sp.edit : undefined;
     if (editId) {
       const [pageContract, detail] = await Promise.all([pageContractPromise, getSop(editId)]);

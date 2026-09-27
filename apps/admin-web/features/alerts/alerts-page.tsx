@@ -149,7 +149,7 @@ export async function AlertsPage({ searchParams, pageContract }: { searchParams?
         {/* Template overview/course: CourseWidgetSummary count tiles on a spacing-3 Grid. */}
         {/* KPI tiles + the alert rows read park / day (severity filters rows only); both swap to
             their skeleton on the click (guard: url-keyed-panel), the strip and toolbar stay. */}
-        <UrlSuspense searchParams={sp} watch={[PARAM_PARK, PARAM_DATE]} fallback={<KpiRowSkeleton count={3} icon />}>
+        <UrlSuspense searchParams={sp} watch={[PARAM_PARK, PARAM_DATE]} fallback={<KpiRowSkeleton count={3} size={{ xs: 12, sm: 4 }} />}>
         <Grid container spacing={3}>
           {kpis.map((kpi) => (
             <Grid key={kpi.key} size={{ xs: 12, sm: 4 }}>
@@ -211,7 +211,7 @@ export async function AlertsPage({ searchParams, pageContract }: { searchParams?
 
           {/* Park / severity / date all re-fetch the list. Keyed on the three of them together, the
               body cross-fades instead of snapping. */}
-          <UrlSuspense searchParams={sp} watch={[PARAM_PARK, PARAM_SEVERITY, PARAM_DATE]} fallback={<TableSkeleton bare header={false} pager={false} columns={head.length || 6} rows={8} />}>
+          <UrlSuspense searchParams={sp} watch={[PARAM_PARK, PARAM_SEVERITY, PARAM_DATE]} fallback={<TableSkeleton bare header={false} pager={false} columns={head.length || 6} rows={5} />}>
           <TabPanel tabKey={`${chosenPark?.key ?? "all"}|${severity || "all"}|${businessDate}`}>
             <Stack spacing={2} sx={{ px: 2.5, pb: allFailed || partial || skipped.length > 0 || emptyState ? 2.5 : 0 }}>
               {allFailed ? (

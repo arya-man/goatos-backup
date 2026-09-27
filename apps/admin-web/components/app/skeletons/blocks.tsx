@@ -34,8 +34,10 @@ type Typo = "h3" | "h4" | "h5" | "h6" | "subtitle1" | "subtitle2" | "body1" | "b
 /** One line of text: a text Skeleton at the real typography's line height. */
 export function SkeletonLine({ variant = "body2", width = "60%", sx }: { variant?: Typo; width?: number | string; sx?: SxProps<Theme> }) {
   return (
-    <Box sx={[{ typography: variant, width, maxWidth: 1 }, ...(Array.isArray(sx) ? sx : [sx])]}>
-      <Skeleton variant="text" animation="wave" />
+    // A paragraph box (not a div): it stands for a line of Typography, and takes that line's box, not
+    // the 60%-scaled text Skeleton inside it, when the layout walk measures a free-standing line.
+    <Box component="p" sx={[{ typography: variant, width, maxWidth: 1, m: 0 }, ...(Array.isArray(sx) ? sx : [sx])]}>
+      <Skeleton variant="text" animation="wave" component="span" sx={{ display: "block" }} />
     </Box>
   );
 }
@@ -83,6 +85,7 @@ export function PageSkeleton({ children, root = "screen on", className, gap }: {
  */
 export function PageHeaderSkeleton({
   crumbs = true,
+  titleWidth = 260,
   actions = 0,
   actionWidths,
   tabs,
@@ -90,6 +93,11 @@ export function PageHeaderSkeleton({
 }: {
   /** The page shows a crumb trail (PageHeader hides one that only repeats the title). */
   crumbs?: boolean;
+  /**
+   * The title's rendered width. On a phone the header's actions sit beside the title block when both
+   * fit (a short title) and wrap under it otherwise; the placeholder must wrap the same way.
+   */
+  titleWidth?: number;
   /** Number of header action buttons (right-aligned, 36px template Button). */
   actions?: number;
   actionWidths?: number[];
@@ -104,14 +112,14 @@ export function PageHeaderSkeleton({
   return (
     <Box component="header" aria-hidden="true" data-skel="header" sx={{ display: "flex", flexDirection: "column", gap: "var(--sp-3)" }}>
       <CustomBreadcrumbs
-        heading={(<Skeleton variant="text" width={260} sx={{ maxWidth: 1 }} />) as unknown as string}
+        heading={(<Skeleton variant="text" width={titleWidth} sx={{ maxWidth: 1 }} />) as unknown as string}
         slots={
           crumbs
             ? {
                 breadcrumbs: (
                   <Breadcrumbs separator={<BreadcrumbsSeparator />} sx={{ typography: "body2" }}>
-                    <Skeleton variant="text" width={72} />
-                    <Skeleton variant="text" width={104} />
+                    <Skeleton variant="text" width={52} />
+                    <Skeleton variant="text" width={110} />
                   </Breadcrumbs>
                 ),
               }
@@ -163,7 +171,7 @@ export function TabsSkeleton({ count, variant = "underline", counts = false, sx 
 }
 
 /** One outlined field (select / date / search) at the template TextField height. */
-export function FieldSkeleton({ width = 200, grow = false, small = false, height }: { width?: number | string; grow?: boolean; small?: boolean; height?: number }) {
+export function FieldSkeleton({ width = 200, grow = false, small = false, height }: { width?: number | string | Record<string, number | string>; grow?: boolean; small?: boolean; height?: number | Record<string, number> }) {
   return <Skeleton variant="rounded" sx={{ height: height ?? (small ? tapHeight(40) : 54), width: grow ? "auto" : width, flexGrow: grow ? 1 : 0, flexShrink: 1, flexBasis: grow ? 240 : "auto", maxWidth: 1, minWidth: 0 }} />;
 }
 
@@ -641,7 +649,8 @@ export function ControlRowSkeleton({ children, caption }: { children: ReactNode;
   return (
     <Box aria-hidden="true" data-skel="controls-row" sx={{ display: "flex", flexWrap: "wrap", gap: 2, alignItems: "center", minWidth: 0 }}>
       {children}
-      {caption ? <SkeletonLine variant="caption" width={caption} sx={{ flexBasis: "100%" }} /> : null}
+      {/* the caption wraps to its own line under the controls at its own width */}
+      {caption ? <SkeletonLine variant="caption" width={caption} sx={{ flexShrink: 0, mr: `calc(100% - ${caption}px)` }} /> : null}
     </Box>
   );
 }

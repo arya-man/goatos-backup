@@ -4,6 +4,7 @@ import Link from "@/components/no-prefetch-link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { LinkNavPending } from "@/components/app/link-nav-pending";
 import { UrlNavRouter } from "@/components/app/url-nav-router";
+import { PendingRouteSkeleton } from "@/components/route-skeleton";
 import type { ElementType } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePopover } from "minimal-shared/hooks";
@@ -424,6 +425,8 @@ export function MeshaShell({
   // return, and opening one is a modal layer, so the other can never stay open underneath it.
   const roleMenu = usePopover();
   const [routePending, setRoutePending] = useState(false);
+  // Target of a path-changing navigation in flight: its route skeleton replaces the page at once.
+  const [pendingHref, setPendingHref] = useState<string | null>(null);
   const [navTrail, setNavTrail] = useState<TrailItem[]>([]);
   const trailRef = useRef<TrailItem[]>([]);
   const pendingAnchorRef = useRef<HTMLAnchorElement | null>(null);
@@ -494,6 +497,7 @@ export function MeshaShell({
     pendingAnchorRef.current = null;
     document.documentElement.classList.remove("route-busy");
     setRoutePending(false);
+    setPendingHref(null);
   }, []);
 
   const startRoutePending = useCallback((anchor?: HTMLAnchorElement | null, toHref?: string, source = "unknown") => {
@@ -523,6 +527,14 @@ export function MeshaShell({
     }
     document.documentElement.classList.add("route-busy");
     setRoutePending(true);
+    // guard: pending-route-skeleton. A different PATH paints its route skeleton in this frame (the
+    // route is not prefetched, so the router would keep the old page until the server answers).
+    try {
+      const dest = toHref ? new URL(toHref, window.location.href) : null;
+      setPendingHref(dest && dest.pathname !== window.location.pathname ? `${dest.pathname}${dest.search}` : null);
+    } catch {
+      setPendingHref(null);
+    }
     const from = `${window.location.pathname}${window.location.search}`;
     pendingNavigationRef.current = {
       id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
@@ -965,11 +977,17 @@ export function MeshaShell({
         {/* `main` = the page-content class contract the page CSS is scoped to; see layouts/mesha-layout.css. */}
         {/* Ask Mesha docks in the header at every width (TR1-#13), so the content needs no extra
             bottom room for a floating bubble: the template content padding. guard: ask-mesha-docked */}
-        <DashboardContent maxWidth={false} className="main msh-content">
+        <DashboardContent
+          maxWidth={false}
+          className="main msh-content"
+          // While the target route's skeleton shows, the page being left stays mounted (a navigation
+          // that fails or times out puts it back as it was) but is not painted.
+          sx={{ "& .msh-wrap[data-route-skeleton] > :not([data-route-skeleton-el]):not(.kit-navpend):not(.msh-alert):not(.msh-degraded)": { display: "none !important" } }}
+        >
           <ScrollEdges />
           {/* `.wrap` keeps the page frame rules (frame.css) the page bodies are built on; the template
               DashboardContent owns the gutters, so the wrap's own padding is zeroed in layouts/mesha-layout.css. */}
-          <div className="wrap msh-wrap">
+          <div className="wrap msh-wrap" data-route-skeleton={pendingHref ? "" : undefined}>
             {alertDisplayRules.map((rule) =>
               degradedRuleIds.has(rule.id) ? (
                 <p key={rule.id} className="note msh-degraded" role="status">
@@ -981,6 +999,11 @@ export function MeshaShell({
                 </Alert>
               ),
             )}
+            {pendingHref ? (
+              <Box data-route-skeleton-el="" sx={{ display: "contents" }}>
+                <PendingRouteSkeleton href={pendingHref} />
+              </Box>
+            ) : null}
             <UrlNavRouter>{children}</UrlNavRouter>
             <LinkNavPending />
           </div>

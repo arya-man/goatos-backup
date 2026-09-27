@@ -98,6 +98,13 @@ test("compareBlocks: a card grid is judged by its card, not its data-driven item
   assert.equal(compareBlocks([{ x: 340, y: 178, w: 1060, h: 118 }], [{ x: 340, y: 178, w: 700, h: 118, kind: "kpi-row" }]).mismatched.length, 1);
 });
 
+test("compareBlocks: a table card is judged by its chrome above the rows (TR1-#1)", () => {
+  const skel = { x: 340, y: 320, w: 1060, h: 580, head: { x: 340, y: 320, w: 1060, h: 190 } };
+  assert.equal(compareBlocks([skel], [{ x: 340, y: 320, w: 1060, h: 300, head: { x: 340, y: 320, w: 1060, h: 192 }, kind: "table" }]).mismatched.length, 0);
+  // a toolbar row the skeleton lacks moves the head: still a failure
+  assert.equal(compareBlocks([skel], [{ x: 340, y: 320, w: 1060, h: 300, head: { x: 340, y: 320, w: 1060, h: 290 }, kind: "table" }]).mismatched.length, 1);
+});
+
 test("per-route ratchet: any new failure on a shell/touched route fails, other routes keep the P0 ratchet", () => {
   const pat = (pattern, routes, p0 = false) => ({ pattern, label: pattern, p0, routes, routeCount: routes.length });
   const baseline = { "tap|button": 2 };

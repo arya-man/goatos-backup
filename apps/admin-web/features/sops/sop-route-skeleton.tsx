@@ -11,7 +11,8 @@ import {
   StackSkeleton,
   BlockSkeleton,
 } from "@/components/app/skeletons";
-import { SOP_SKELETON_CARDS } from "./sop-library-layout";
+import { SOP_SKELETON_CARDS, isSopEditorUrl } from "./sop-library-layout";
+import { usePendingRouteSearch } from "@/components/app/pending-route";
 
 /**
  * The module SOP libraries' loading shape (all SOP routes share `sop-library.tsx`, so they share
@@ -49,9 +50,12 @@ export function SopEditorSkeleton() {
 // loading.tsx gets no props, so the builder / library branch is read from the URL in a client
 // component, inside its own Suspense (library shape as the fallback) so useSearchParams never forces
 // the route out of static rendering.
+// The shell's pending-route skeleton passes the TARGET url's params (useSearchParams still answers for
+// the page being left); the predicate is the page's own (isSopEditorUrl: compose=1 or new=1).
 function SopLoadingBranch() {
-  const sp = useSearchParams();
-  return sp.get("compose") === "1" || sp.get("edit") ? <SopEditorSkeleton /> : <SopLibrarySkeleton />;
+  const current = useSearchParams();
+  const pending = usePendingRouteSearch();
+  return isSopEditorUrl(pending ?? current) ? <SopEditorSkeleton /> : <SopLibrarySkeleton />;
 }
 
 export function SopRouteSkeleton() {

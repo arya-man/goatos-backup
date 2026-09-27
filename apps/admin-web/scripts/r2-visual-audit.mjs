@@ -186,10 +186,14 @@ export function compareBlocks(skel, loaded, threshold = 0.8) {
  * placeholder cards vs the SOPs the module really has), so a grid is judged by its ITEM shape — the
  * first card's box (column count, card height) — against the other side's first card, or against a
  * lone loaded card (a one-item grid is visited down to the card itself). A wrong card anatomy or
- * column count still fails.
+ * column count still fails. Table cards likewise compare their chrome (`head`: card top to the
+ * bottom of the table head) when both sides have a table.
  */
 export function blockIou(s, l) {
   let v = iou(s, l);
+  // A table card's row count is data too (a page of placeholder rows vs the rows the day has): two
+  // table cards are judged by their chrome above the rows (header, tabs, toolbar, table head).
+  if (s.head && l.head) v = Math.max(v, iou(s.head, l.head));
   if (s.item && l.item) v = Math.max(v, iou(s.item, l.item));
   else if (s.item) v = Math.max(v, iou(s.item, l));
   else if (l.item) v = Math.max(v, iou(s, l.item));
@@ -698,6 +702,12 @@ function r2PageLib() {
         if (cs.display === "grid" && cks.length >= 2) {
           const rs = cks.map((c) => c.getBoundingClientRect());
           if (rs.every((r) => Math.abs(r.width - rs[0].width) < 2)) box.item = { x: Math.round(rs[0].left), y: Math.round(rs[0].top), w: Math.round(rs[0].width), h: Math.round(Math.min(rs[0].bottom, vh) - rs[0].top) };
+        }
+        // table card (see blockIou): the chrome above the rows (card header, tabs, toolbar, table head)
+        const thead = ch.querySelector("thead");
+        if (thead && box.kind !== "chart") {
+          const hb = thead.getBoundingClientRect();
+          if (hb.bottom > b.top && hb.bottom <= Math.min(b.bottom, vh)) box.head = { x: box.x, y: box.y, w: box.w, h: Math.round(hb.bottom - b.top) };
         }
         out.push(box);
       }

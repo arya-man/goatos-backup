@@ -69,7 +69,11 @@ export function UrlPanel({
       let value: string | null = null;
       if (shapeParam) {
         try {
-          value = new URL(href, window.location.href).searchParams.get(shapeParam) ?? "";
+          // "a|b" = any of these params set to "1" picks shape "1" (one predicate over several
+          // params, e.g. the SOP editor opens on compose=1 OR new=1), else "".
+          const target = new URL(href, window.location.href).searchParams;
+          const names = shapeParam.split("|");
+          value = names.length > 1 ? (names.some((name) => target.get(name) === "1") ? "1" : "") : (target.get(shapeParam) ?? "");
         } catch {
           value = null;
         }

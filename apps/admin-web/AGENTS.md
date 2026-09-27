@@ -184,6 +184,14 @@ Spec: `docs/design/mui-minimal-spec.md`. Tokens: `app/minimal-tokens.css`. Gate:
   otherwise drop the gap / size cards at min-content). A card grid is judged by its first card (item
   count is data). A page block that renders empty (an always-on filter `summary` strip) is a page bug:
   render it only with content.
+- **A path-changing click paints the target's skeleton at once (guard: `pending-route-skeleton`).** Links
+  never prefetch, so the router cannot show a route's loading.tsx before the server answers; the shell
+  renders `PendingRouteSkeleton` (the ROUTE_SKELETONS registry in components/route-skeleton.tsx) for the
+  target path in the click's frame and hides the page being left. Every loading.tsx is registered there.
+  A loading shape that branches on the URL reads `usePendingRouteSearch()` first, and uses the page's own
+  predicate (guard: `sop-editor-predicate`: page, UrlSuspense `fallbackBy` "a|b" and loading share it).
+  Table cards are compared by their chrome above the rows (header, tabs, toolbar, thead): rows are data.
+  PageHeaderSkeleton `titleWidth` = the title's width, so the phone header wraps its actions like the page.
 - **A state-only segment is disabled, not a dead link (guard: `window-custom-state`).** An option such as
   the "Custom" window, whose href is the page already shown, is `disabled` unless it is the served state.
 - **Template-fidelity guards (`components/app/template-fidelity-guards.test.mjs`, runs in `npm test`).**

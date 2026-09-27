@@ -124,7 +124,7 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
             Template overview/course: CourseWidgetSummary count tiles on a spacing-3 Grid. */}
         {/* KPI tiles + queue rows swap to their skeleton on a tab / filter / page click (guard:
             url-keyed-panel); the type tabs and the toolbar stay on screen. */}
-        <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<KpiRowSkeleton count={4} icon />}>
+        <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<KpiRowSkeleton count={4} size={{ xs: 12, sm: 6, md: 3 }} />}>
         {items.length > 0 ? (
           <Grid container spacing={3}>
             {kpis.map((kpi) => (

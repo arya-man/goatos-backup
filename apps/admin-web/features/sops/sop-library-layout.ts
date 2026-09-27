@@ -4,3 +4,13 @@
 export const CARDS_PER_PAGE = 12;
 /** Loading placeholder cards: one row of the 3-column grid (module libraries hold 1-4 SOPs). */
 export const SOP_SKELETON_CARDS = 3;
+
+/**
+ * THE library-vs-editor predicate, shared by the page (module-page.tsx), its URL-panel fallback
+ * (`fallbackBy` param list) and the route loading shape (sop-route-skeleton.tsx): the builder opens
+ * on `compose=1` or `new=1`; `edit=<id>` only picks WHICH SOP the builder opens.
+ */
+export const SOP_EDITOR_PARAMS = ["compose", "new"] as const;
+export function isSopEditorUrl(params: { get(name: string): string | null | undefined }): boolean {
+  return SOP_EDITOR_PARAMS.some((name) => params.get(name) === "1");
+}

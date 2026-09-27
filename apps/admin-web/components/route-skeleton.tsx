@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import type { ComponentType, ReactNode } from "react";
 import { GenericPageSkeleton } from "@/components/shell-skeleton";
+import { PendingRouteSearchContext } from "@/components/app/pending-route";
 
 // GENERATED-BY-HAND registry of every route loading.tsx, keyed by the route it serves. The admin
 // layout's Suspense fallback renders the SAME skeleton the route's own loading.tsx will render, so a
@@ -140,4 +141,20 @@ export function routeSkeletonElement(pathname: string): ReactNode {
 export function RouteSkeleton() {
   const pathname = usePathname();
   return routeSkeletonElement(pathname ?? "/");
+}
+
+/**
+ * The TARGET route's skeleton for a navigation the shell has started (sidebar / link click to
+ * another path). Painted in the click's frame so the old page never lingers while the router
+ * fetches a non-prefetched route's loading boundary (Ravi: "the old page stays, dimmed"); the
+ * route's own loading.tsx takes over with the same shape once the router commits.
+ */
+export function PendingRouteSkeleton({ href }: { href: string }) {
+  let url: URL;
+  try {
+    url = new URL(href, "http://pending.local");
+  } catch {
+    return <GenericPageSkeleton />;
+  }
+  return <PendingRouteSearchContext.Provider value={url.searchParams}>{routeSkeletonElement(url.pathname)}</PendingRouteSearchContext.Provider>;
 }

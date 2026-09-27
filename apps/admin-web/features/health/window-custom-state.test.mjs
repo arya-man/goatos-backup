@@ -22,7 +22,7 @@ test("health analytics: the Custom window option is disabled unless it is the se
 test("health analytics loading mirrors the page blocks", () => {
   const loading = read("../../app/(admin)/health/analytics/loading.tsx");
   assert.match(loading, /<PageSkeleton root="" gap=\{3\}>/);
-  assert.match(loading, /<ControlRowSkeleton caption=\{\d+\}>\s*<FieldSkeleton width=\{296\} height=\{56\} \/>\s*<TabsSkeleton count=\{5\} variant="pill" \/>/);
+  assert.match(loading, /<ControlRowSkeleton caption=\{\d+\}>\s*<FieldSkeleton width=\{\{ xs: "100%", md: 296 \}\} height=\{\{ xs: 44, md: 56 \}\} \/>\s*<TabsSkeleton count=\{5\} variant="pill" \/>/);
   assert.match(loading, /<KpiRowSkeleton count=\{5\} hint size=\{\{ xs: 12, sm: 6, md: 4 \}\} \/>/);
   assert.match(read("./health-analytics.tsx"), /md = 4,/);
 });
