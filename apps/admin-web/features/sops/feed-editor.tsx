@@ -16,6 +16,7 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle, Check, ChevronDown, ChevronUp, Lock, Plus, X } from "lucide-react";
 import IconButton from "@mui/material/IconButton";
 import MuiTextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import Button from "@mui/material/Button";
 import Card from "@mui/material/Card";
@@ -243,15 +244,12 @@ export function FeedEditor({ pageContract: pc, basePath, sopId, sopName, version
             </div>
             <div className="bd">
               <div className="qcfg">
-                <label className="numfield">
-                  <span className="numlbl">{copy(pc, "fsop.instruction")}</span>
-                  <textarea className="qhelp" rows={3} value={block.instruction} onChange={(e) => patchStage(stage, (s) => ({ ...s, instruction: e.target.value }))} />
-                </label>
+                <MuiTextField label={copy(pc, "fsop.instruction")} fullWidth multiline minRows={3} value={block.instruction} onChange={(e) => patchStage(stage, (s) => ({ ...s, instruction: e.target.value }))} />
               </div>
 
               <div className="qcfg" style={{ marginTop: 10 }}>
                 <div className="qcfg-head">
-                  <span className="qcfg-title">{copy(pc, "fsop.proofs")}</span>
+                  <Typography variant="subtitle2" component="span">{copy(pc, "fsop.proofs")}</Typography>
                   <span className="muted small">{copy(pc, "fsop.proofs.subtitle")}</span>
                 </div>
                 <div className="qlist">
@@ -264,7 +262,7 @@ export function FeedEditor({ pageContract: pc, basePath, sopId, sopName, version
 
               <div className="qcfg" style={{ marginTop: 10 }}>
                 <div className="qcfg-head">
-                  <span className="qcfg-title">{copy(pc, "fsop.questions")}</span>
+                  <Typography variant="subtitle2" component="span">{copy(pc, "fsop.questions")}</Typography>
                   <span className="muted small">{copy(pc, "fsop.questions.subtitle")}</span>
                 </div>
                 <div className="qlist">
