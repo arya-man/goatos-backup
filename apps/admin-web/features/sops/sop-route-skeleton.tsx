@@ -21,8 +21,9 @@ import { SOP_SKELETON_CARDS } from "./sop-library-layout";
 export function SopLibrarySkeleton() {
   return (
     <PageSkeleton className="sop-kit" gap={3}>
-      <PageHeaderSkeleton actions={1} />
-      <FilterCardSkeleton bare fields={[160, 160, "search"]} actions={1} />
+      <PageHeaderSkeleton actionWidths={[112]} />
+      {/* FilterBar bare + fold: Status / Trigger selects from md, search, Filters button below md, ⋮. */}
+      <FilterCardSkeleton bare fold fields={[160, 160, "search"]} actionWidths={[36]} />
       {/* One row of the 1/2/3 grid: most module libraries hold one to three SOPs, so a full page
           of twelve placeholder cards was three rows taller than the page it stands in for. */}
       <CardGridSkeleton count={SOP_SKELETON_CARDS} />

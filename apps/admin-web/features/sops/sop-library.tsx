@@ -225,20 +225,18 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
       {/* One column with the template gap between header, KPI row, filter card and cards (the legacy
           .screen root is display:block and its children carry no margins). */}
       <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
-      <div>
-        <PageHeader
-          title={pageContract.title}
-          crumbs={[{ label: copy(pageContract, "crumb", moduleSegment(basePath)) || moduleSegment(basePath) }, { label: pageContract.title }]}
-          actions={
-            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1, flexWrap: "wrap", "& .wt-assumptions-control": { display: "contents" } }}>
-              {extraNode}
-              <Button variant="contained" color="primary" startIcon={<Plus size={18} />} onClick={openBuilder}>
-                {copy(pageContract, "action.new_sop")}
-              </Button>
-            </Box>
-          }
-        />
-      </div>
+      <PageHeader
+        title={pageContract.title}
+        crumbs={[{ label: copy(pageContract, "crumb", moduleSegment(basePath)) || moduleSegment(basePath) }, { label: pageContract.title }]}
+        actions={
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1, flexWrap: "wrap", "& .wt-assumptions-control": { display: "contents" } }}>
+            {extraNode}
+            <Button variant="contained" color="primary" startIcon={<Plus size={18} />} onClick={openBuilder}>
+              {copy(pageContract, "action.new_sop")}
+            </Button>
+          </Box>
+        }
+      />
 
 
       {/* Spec §2 toolbar: search + status/trigger filters, right-aligned actions, filter chips. */}

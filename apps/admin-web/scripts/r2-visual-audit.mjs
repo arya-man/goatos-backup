@@ -180,9 +180,25 @@ export function compareBlocks(skel, loaded, threshold = 0.8) {
   return fails(lean) <= fails(full) ? lean : full;
 }
 
+/**
+ * IoU of two top-level blocks. A repeated-item card grid (a CSS grid of equal-width cards: template
+ * job / product / tour lists) carries its first item as `item`: its item count is data (one page of
+ * placeholder cards vs the SOPs the module really has), so a grid is judged by its ITEM shape — the
+ * first card's box (column count, card height) — against the other side's first card, or against a
+ * lone loaded card (a one-item grid is visited down to the card itself). A wrong card anatomy or
+ * column count still fails.
+ */
+export function blockIou(s, l) {
+  let v = iou(s, l);
+  if (s.item && l.item) v = Math.max(v, iou(s.item, l.item));
+  else if (s.item) v = Math.max(v, iou(s.item, l));
+  else if (l.item) v = Math.max(v, iou(s, l.item));
+  return v;
+}
+
 function greedyBlocks(skel, loaded, threshold) {
   const pairs = [];
-  skel.forEach((s, i) => loaded.forEach((l, j) => { const v = iou(s, l); if (v > 0.1) pairs.push({ i, j, v }); }));
+  skel.forEach((s, i) => loaded.forEach((l, j) => { const v = blockIou(s, l); if (v > 0.1) pairs.push({ i, j, v }); }));
   pairs.sort((p, q) => q.v - p.v);
   const usedS = new Set(), usedL = new Set(), matches = [];
   for (const p of pairs) {
@@ -677,7 +693,13 @@ function r2PageLib() {
         const cks = kids(ch);
         if (depth < 8 && !surface(ch, cs) && cks.length > 0 && stackedVertically(cks)) { visit(ch, depth + 1); continue; }
         if (b.width * b.height < 2400) continue;
-        out.push({ x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width), h: Math.round(Math.min(b.bottom, vh) - b.top), kind: kind(ch), sig: sig(ch), optional: Boolean(ch.closest("[data-skel-optional]")) });
+        const box = { x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width), h: Math.round(Math.min(b.bottom, vh) - b.top), kind: kind(ch), sig: sig(ch), optional: Boolean(ch.closest("[data-skel-optional]")) };
+        // repeated-item card grid (see blockIou): a CSS grid of >= 2 equal-width cards
+        if (cs.display === "grid" && cks.length >= 2) {
+          const rs = cks.map((c) => c.getBoundingClientRect());
+          if (rs.every((r) => Math.abs(r.width - rs[0].width) < 2)) box.item = { x: Math.round(rs[0].left), y: Math.round(rs[0].top), w: Math.round(rs[0].width), h: Math.round(Math.min(rs[0].bottom, vh) - rs[0].top) };
+        }
+        out.push(box);
       }
     };
     visit(r0, 0);

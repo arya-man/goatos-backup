@@ -443,12 +443,14 @@ export async function HealthAnalyticsPage({
             }),
             // Custom is a STATE, never a destination: there is no window it could send the
             // reader to that is not one of the four above. It appears selected when the served
-            // window matches none of them, and clicking it returns the default view rather
-            // than pretending to open a picker the calendar already is.
+            // window matches none of them (a range picked in the calendar) and is otherwise a
+            // disabled label: a click on it went nowhere (TR1-#9, the tab never selected), and a
+            // control that does nothing is a dead control. The calendar is how a custom window starts.
             {
               value: "custom",
               label: ha(pageContract, "filter.window.custom"),
               href: hrefWith(sp, { from: null, to: null }),
+              disabled: selectedPreset !== "custom",
             },
           ]}
         />

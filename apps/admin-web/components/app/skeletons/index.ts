@@ -4,6 +4,7 @@ export {
   CardHeaderSkeleton,
   ChipRowSkeleton,
   ControlsCardSkeleton,
+  ControlRowSkeleton,
   ChipSkeleton,
   GridSkeleton,
   HeadingSkeleton,

@@ -1,15 +1,23 @@
-import { ChartCardSkeleton, KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton, TabsSkeleton, ToolbarSkeleton } from "@/components/app/skeletons";
+import { ChartCardSkeleton, ControlRowSkeleton, FieldSkeleton, KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton, TabsSkeleton } from "@/components/app/skeletons";
 
-/** /health/analytics: header + config link, window filter, five KPI cards, the view tabs, the overview charts. */
+/**
+ * /health/analytics, block for block with HealthAnalyticsPage (one `Stack spacing={3}`): header +
+ * Health config, the window row (WindowDateFilter field, the five-preset SegmentedLinks strip, the
+ * read-only scope caption wrapping under them), five KpiWidget course cards on the page's own
+ * `{ xs: 12, sm: 6, md: 4 }` grid (3 + 2), the six-tab strip with counts, the overview chart cards.
+ */
 export default function Loading() {
   return (
-    <PageSkeleton root="pagegrid ha-kit-stack">
-      <PageHeaderSkeleton actions={1} />
-      <ToolbarSkeleton left={<TabsSkeleton count={5} variant="pill" />} fields={[280]} />
-      <KpiRowSkeleton count={5} icon hint shapes={[{ spark: true, hint: true }, { spark: true, hint: true }, { icon: true, hint: true }, { icon: true, hint: true }, { icon: true, hint: true }]} />
+    <PageSkeleton root="" gap={3}>
+      <PageHeaderSkeleton actionWidths={[150]} />
+      <ControlRowSkeleton caption={200}>
+        <FieldSkeleton width={296} height={56} />
+        <TabsSkeleton count={5} variant="pill" />
+      </ControlRowSkeleton>
+      <KpiRowSkeleton count={5} hint size={{ xs: 12, sm: 6, md: 4 }} />
       <TabsSkeleton count={6} counts />
-      <ChartCardSkeleton height={300} />
-      <ChartCardSkeleton height={160} />
+      <ChartCardSkeleton height={300} subheader legend />
+      <ChartCardSkeleton height={160} subheader />
     </PageSkeleton>
   );
 }

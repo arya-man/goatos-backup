@@ -78,6 +78,10 @@ map). P0 patterns fail the gate: full-page skeleton flash or document reload on 
 bright background (luminance > 0.5) in dark mode, a colour outside the theme palette (the CDP rule +
 stylesheet that sets it is named), drawer content clipped or no backdrop, skeleton-vs-loaded block
 IoU < 0.8 or a block missing/extra, tap target < 44px at 390, page sideways scroll, crash / HTTP >= 400.
+Skeleton twins (TR1): PageHeaderSkeleton = the verbatim CustomBreadcrumbs; the default KpiRowSkeleton
+card = the KpiWidget course card (corner icon tile); a card grid is compared by its first card (count is
+data); a `.screen` PageSkeleton keeps its gap on an inner grid. A state-only segment option (the
+"Custom" window) is `disabled` unless it is the served state (guard `window-custom-state`).
 Existing P0 debt is the shrink-only baseline `apps/admin-web/scripts/r2-visual-audit-baseline.json`
 (pattern -> route count): a NEW pattern or one reaching MORE routes fails; `GOATOS_VISUAL_GATE_STRICT=1`
 fails on every P0. Shrink it with `node apps/admin-web/scripts/r2-visual-audit.mjs --write-baseline`

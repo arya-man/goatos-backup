@@ -84,6 +84,20 @@ test("compareBlocks: an optional skeleton block the page skipped is not an extra
   assert.equal(required.extra.length + required.mismatched.length > 0, true);
 });
 
+test("compareBlocks: a card grid is judged by its card, not its data-driven item count (TR1-#1)", () => {
+  // one page of three placeholder cards vs the one SOP the module holds (a lone loaded card)
+  const card = { x: 340, y: 460, w: 337, h: 284 };
+  const grid = { x: 340, y: 460, w: 1060, h: 284, item: card };
+  assert.equal(compareBlocks([grid], [{ ...card, kind: "block" }]).mismatched.length, 0);
+  // a loaded grid with more rows than the placeholder row: first cards match
+  assert.equal(compareBlocks([grid], [{ x: 340, y: 460, w: 1060, h: 440, item: { ...card, h: 286 }, kind: "card-grid" }]).mismatched.length, 0);
+  // the wrong card anatomy (two columns, a shorter card) still fails
+  const wrong = { x: 340, y: 460, w: 1060, h: 200, item: { x: 340, y: 460, w: 518, h: 200 } };
+  assert.equal(compareBlocks([wrong], [{ ...card, kind: "block" }]).mismatched.length + compareBlocks([wrong], [{ ...card, kind: "block" }]).missing.length > 0, true);
+  // blocks without `item` (a KPI row: count is static) keep plain IoU
+  assert.equal(compareBlocks([{ x: 340, y: 178, w: 1060, h: 118 }], [{ x: 340, y: 178, w: 700, h: 118, kind: "kpi-row" }]).mismatched.length, 1);
+});
+
 test("per-route ratchet: any new failure on a shell/touched route fails, other routes keep the P0 ratchet", () => {
   const pat = (pattern, routes, p0 = false) => ({ pattern, label: pattern, p0, routes, routeCount: routes.length });
   const baseline = { "tap|button": 2 };

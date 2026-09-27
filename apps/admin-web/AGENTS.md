@@ -175,6 +175,17 @@ Spec: `docs/design/mui-minimal-spec.md`. Tokens: `app/minimal-tokens.css`. Gate:
   block the page renders only with data sits in `OptionalSkeleton`. Proof: skeleton vs loaded
   top-level block IoU ≥ 0.8 at 1440 and 390, dark and light
   (`node scripts/r2-skeleton-iou.mjs --base <url>`, side-by-sides + overlay per route).
+  TR1 block anatomy (guards: `health-loading-mirror`, `sop-library-skeleton-kpi-row`, the audit's
+  `compareBlocks` self-test): PageHeaderSkeleton IS the verbatim CustomBreadcrumbs (full-row heading slot,
+  MUI Breadcrumbs crumb row, action buttons 44px below md); KpiRowSkeleton's default card IS the
+  KpiWidget course card (h3 figure, subtitle2 title, 36px corner icon tile; `hint` = the caption
+  sub-line; `spark` = the ecommerce card, `booking` = the month card); a `.screen` PageSkeleton puts its
+  gap on an inner grid (`.screen.on { display:block }` and `.screen[aria-busy] div { flex-wrap:wrap }`
+  otherwise drop the gap / size cards at min-content). A card grid is judged by its first card (item
+  count is data). A page block that renders empty (an always-on filter `summary` strip) is a page bug:
+  render it only with content.
+- **A state-only segment is disabled, not a dead link (guard: `window-custom-state`).** An option such as
+  the "Custom" window, whose href is the page already shown, is `disabled` unless it is the served state.
 - **Template-fidelity guards (`components/app/template-fidelity-guards.test.mjs`, runs in `npm test`).**
   One rule id per recurring audit defect on PR #294:
   - `brand-primary-contained`: every contained `Button` names its colour (`color="primary"` for the
@@ -209,7 +220,7 @@ Spec: `docs/design/mui-minimal-spec.md`. Tokens: `app/minimal-tokens.css`. Gate:
   - `sop-editor-template-fields` (same test): SOP editor text fields are MUI outlined TextFields with their own `label` (no `.numlbl` label-above wrapper), and the legacy `.qcard input` paint excludes `.MuiInputBase-input`. In the weighing, inspection, shifting, PC Care, feed and toxin editors there is no `.numfield`/`.numlbl` wrapper, no native `<textarea>`/`<select>` (MuiTextField multiline / select, InlineSelect) and no `.qcfg-title` span (template `Typography variant="subtitle2"` group heading). `sop-select-option-title` (same test): SelectOption carries an optional `title` (backend option description) rendered on the MenuItem; a native select moved onto InlineSelect/FieldSelect keeps it.
   - `sales-chart-phone-axis` (features/procurement/sales-chart-phone-axis.test.mjs): a month-axis template chart on a page passes template chart options (`responsive` below 600px: flat labels, `hideOverlappingLabels`, bounded `tickAmount`) so its ticks stay inside the card at 390; never patch the template card in components/minimal for it.
   - `procurement-template-tabs` (features/procurement/sales-no-flicker.test.mjs): procurement and sales pages use UrlTabs (URL status/filter tabs with Label counts, useUrlTabNav), SegmentTabs (chip strips, `keepScroll`) or plain MUI Tabs (client state); never AnimatedTabs / StatStrip / KpiCard.
-  - `sop-library-skeleton-kpi-row` / `market-loading-mirrors-panels` (sop-internal-codes / sales-no-flicker tests): a route loading.tsx uses the same skeleton shapes as the page's own UrlSuspense fallbacks and the loaded blocks (KpiGrid + KpiWidget/CourseWidgetSummary -> `KpiRowSkeleton hero` without `icon`, never the retired StatStripSkeleton), and the page stacks its blocks with the same gap as its PageSkeleton.
+  - `sop-library-skeleton-kpi-row` / `market-loading-mirrors-panels` (sop-internal-codes / sales-no-flicker tests): a route loading.tsx uses the same skeleton shapes as the page's own UrlSuspense fallbacks and the loaded blocks (KpiGrid + KpiWidget/CourseWidgetSummary -> the default `KpiRowSkeleton` course card, never the retired StatStripSkeleton), and the page stacks its blocks with the same gap as its PageSkeleton.
   - `sop-flow-phone-fit` (same test): the SOP Flow canvas keeps a 70% zoom floor under 600px and centres the scaled flow in a sizer of the scaled size.
   - `feed-config-template-anatomy` (`features/feed/feed-config-template-anatomy.test.mjs`): every /feed/config write opens the template quick-edit Dialog (DialogTitle + subject, DialogContent, outlined Cancel + contained Apply), never an inline form in a table cell or card header; declared session feeds are soft Chips with a delete, adds are template Buttons ("Add a feed"), the session plan edit is the CardHeader action IconButton; template Iconify icons, no lucide Pencil/Trash/Plus, no `.tag` chips.
   - `kpi-map-truth` (`components/app/kpi-widget.test.mjs`): an Ecommerce-overview row in docs/design/page-template-map.md names the widget each KPI tile really renders through the adapter (EcommerceWidgetSummary only with a weekly series, CourseWidgetSummary for trend-less tiles, AppWidgetSummary for 7d, BookingWidgetSummary for month).

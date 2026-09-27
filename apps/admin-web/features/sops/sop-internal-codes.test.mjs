@@ -81,6 +81,8 @@ test("SOP library is the template job list and its skeleton mirrors it", () => {
   const skel = read("./sop-route-skeleton.tsx");
   assert.doesNotMatch(skel, /KpiRowSkeleton|StatStripSkeleton/);
   assert.match(skel, /<FilterCardSkeleton bare /);
+  // TR1-#1: the toolbar twin folds like the bar (selects md+, Filters button below md), ⋮ is 36 (44 below md).
+  assert.match(skel, /<FilterCardSkeleton bare fold fields=\{\[160, 160, "search"\]\} actionWidths=\{\[36\]\} \/>/);
   assert.match(src, /<div className="kit-enter screen on sop-kit">\s*\{\/\*[\s\S]*?\*\/\}\s*<Box sx=\{\{ display: "flex", flexDirection: "column", gap: 3 \}\}>/);
   assert.match(skel, /<PageSkeleton className="sop-kit" gap=\{3\}>/);
 });

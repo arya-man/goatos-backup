@@ -24,7 +24,9 @@ import TableRow from "@mui/material/TableRow";
 import Tabs from "@mui/material/Tabs";
 import type { SxProps, Theme } from "@mui/material/styles";
 
-import { BreadcrumbsContainer, BreadcrumbsContent, BreadcrumbsHeading, BreadcrumbsRoot } from "@/components/minimal/custom-breadcrumbs/styles";
+import Breadcrumbs from "@mui/material/Breadcrumbs";
+import { CustomBreadcrumbs } from "@/components/minimal/custom-breadcrumbs";
+import { BreadcrumbsSeparator } from "@/components/minimal/custom-breadcrumbs/styles";
 import { KpiGrid } from "@/components/app/kpi-grid";
 
 type Typo = "h3" | "h4" | "h5" | "h6" | "subtitle1" | "subtitle2" | "body1" | "body2" | "caption";
@@ -38,6 +40,12 @@ export function SkeletonLine({ variant = "body2", width = "60%", sx }: { variant
   );
 }
 
+/**
+ * A control's height, as PhoneTapStyles makes it: every Button / IconButton / input is >= 44px below
+ * `md`, so a button placeholder is 44 there and its desktop height from md up.
+ */
+const tapHeight = (desktop: number) => ({ xs: Math.max(44, desktop), md: desktop });
+
 const wobble = (i: number, base = 44, span = 36) => `${base + ((i * 37) % span)}%`;
 
 /**
@@ -47,6 +55,21 @@ const wobble = (i: number, base = 44, span = 36) => `${base + ((i * 37) % span)}
  * own gap.
  */
 export function PageSkeleton({ children, root = "screen on", className, gap }: { children: ReactNode; root?: string; className?: string; gap?: number }) {
+  // `.screen.on { display: block }` (mesha-theme.css, two classes) beats a one-class emotion
+  // `display: grid`, which silently dropped the gap (the SOP filter card butted against the KPI row).
+  // A `.screen` root therefore carries the gap on an inner column, as the pages do
+  // (`div.screen.on > Box flex column gap 3`).
+  const screen = root.split(/\s+/).includes("screen");
+  if (gap != null && screen) {
+    return (
+      <Box className={[root, className].filter(Boolean).join(" ")} aria-busy="true" data-skel-root="">
+        {/* A grid, not a flex column: `.screen[aria-busy="true"] div { flex-wrap: wrap }` turns a
+            flex column multi-line, and Chrome then sizes each card at its min-content width (a
+            one-row filter card measured two rows tall). */}
+        <Box sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap }}>{children}</Box>
+      </Box>
+    );
+  }
   return (
     <Box className={[root, className].filter(Boolean).join(" ")} aria-busy="true" data-skel-root="" sx={gap != null ? { display: "grid", gap } : undefined}>
       {children}
@@ -74,25 +97,36 @@ export function PageHeaderSkeleton({
   toolbar?: ReactNode;
 }) {
   const widths = actionWidths ?? Array.from({ length: actions }, (_, i) => (i === actions - 1 ? 128 : 104));
+  // The verbatim template CustomBreadcrumbs, as PageHeader renders it: the heading slot (h4
+  // typography, full row width) holds a text Skeleton, the crumb slot is the same MUI Breadcrumbs
+  // (dot separators, body2 line) with Skeleton crumbs, the actions sit in the same right-hand Box.
+  // The heading keeps the styled slot's own element (not PageHeader's h1: one h1 per document).
   return (
     <Box component="header" aria-hidden="true" data-skel="header" sx={{ display: "flex", flexDirection: "column", gap: "var(--sp-3)" }}>
-      <BreadcrumbsRoot>
-        <BreadcrumbsContainer>
-          <BreadcrumbsContent>
-            <BreadcrumbsHeading as="div">
-              <Skeleton variant="text" width={220} sx={{ maxWidth: "60vw" }} />
-            </BreadcrumbsHeading>
-            {crumbs ? <SkeletonLine variant="body2" width={180} /> : null}
-          </BreadcrumbsContent>
-          {widths.length ? (
+      <CustomBreadcrumbs
+        heading={(<Skeleton variant="text" width={260} sx={{ maxWidth: 1 }} />) as unknown as string}
+        slots={
+          crumbs
+            ? {
+                breadcrumbs: (
+                  <Breadcrumbs separator={<BreadcrumbsSeparator />} sx={{ typography: "body2" }}>
+                    <Skeleton variant="text" width={72} />
+                    <Skeleton variant="text" width={104} />
+                  </Breadcrumbs>
+                ),
+              }
+            : undefined
+        }
+        action={
+          widths.length ? (
             <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5, alignItems: "center" }}>
               {widths.map((w, i) => (
-                <Skeleton key={i} variant="rounded" width={w} height={36} />
+                <Skeleton key={i} variant="rounded" width={w} sx={{ height: tapHeight(36) }} />
               ))}
             </Box>
-          ) : null}
-        </BreadcrumbsContainer>
-      </BreadcrumbsRoot>
+          ) : undefined
+        }
+      />
       {tabs ? <div>{tabs}</div> : null}
       {toolbar ? <div>{toolbar}</div> : null}
     </Box>
@@ -129,8 +163,8 @@ export function TabsSkeleton({ count, variant = "underline", counts = false, sx 
 }
 
 /** One outlined field (select / date / search) at the template TextField height. */
-export function FieldSkeleton({ width = 200, grow = false, small = false }: { width?: number | string; grow?: boolean; small?: boolean }) {
-  return <Skeleton variant="rounded" height={small ? 40 : 54} sx={{ width: grow ? "auto" : width, flexGrow: grow ? 1 : 0, flexShrink: 1, flexBasis: grow ? 240 : "auto", maxWidth: 1, minWidth: 0 }} />;
+export function FieldSkeleton({ width = 200, grow = false, small = false, height }: { width?: number | string; grow?: boolean; small?: boolean; height?: number }) {
+  return <Skeleton variant="rounded" sx={{ height: height ?? (small ? tapHeight(40) : 54), width: grow ? "auto" : width, flexGrow: grow ? 1 : 0, flexShrink: 1, flexBasis: grow ? 240 : "auto", maxWidth: 1, minWidth: 0 }} />;
 }
 
 export type FilterField = number | "search" | "chip";
@@ -141,21 +175,54 @@ export type FilterField = number | "search" | "chip";
  * (select / date), "search" takes the remaining width, "chip" is a chip-sized pill.
  * `inCard` drops the Card for a toolbar that sits inside another card.
  */
-export function FilterCardSkeleton({ fields, actions = 0, inCard = false, small = false, bare = false }: { fields: FilterField[] | number; actions?: number; inCard?: boolean; small?: boolean; /** FilterBar `bare`: no card, no padding. */ bare?: boolean }) {
+export function FilterCardSkeleton({
+  fields,
+  actions = 0,
+  actionWidths,
+  fold = false,
+  inCard = false,
+  small = false,
+  bare = false,
+}: {
+  fields: FilterField[] | number;
+  actions?: number;
+  /** Per-action widths (a text button ~96, the ⋮ icon button 36); default 88 each. */
+  actionWidths?: number[];
+  /** FilterBar `fold`: below md the fixed fields leave the bar for a "Filters" button (search stays). */
+  fold?: boolean;
+  inCard?: boolean;
+  small?: boolean;
+  /** FilterBar `bare`: no card, no padding (the template job-list toolbar on the page). */
+  bare?: boolean;
+}) {
   const list: FilterField[] = typeof fields === "number" ? Array.from({ length: fields }, () => 200) : fields;
-  const body = (
+  const acts = actionWidths ?? Array.from({ length: actions }, () => 88);
+  const fixed = list.filter((f) => f !== "search");
+  const field = (f: FilterField, i: number) =>
+    f === "search" ? (
+      <FieldSkeleton key={i} grow small={small} />
+    ) : f === "chip" ? (
+      <ChipSkeleton key={i} />
+    ) : (
+      <FieldSkeleton key={i} width={{ xs: "100%", sm: f } as never} small={small} />
+    );
+  const body = fold ? (
+    // FilterBar's own order: the controls Box (md+), the search, the Filters button (< md), actions.
     <Box sx={{ p: bare ? 0 : 2.5, gap: 2, display: "flex", flexWrap: "wrap", alignItems: "center" }}>
-      {list.map((f, i) =>
-        f === "search" ? (
-          <FieldSkeleton key={i} grow small={small} />
-        ) : f === "chip" ? (
-          <ChipSkeleton key={i} />
-        ) : (
-          <FieldSkeleton key={i} width={{ xs: "100%", sm: f } as never} small={small} />
-        ),
-      )}
-      {Array.from({ length: actions }, (_, i) => (
-        <Skeleton key={`a${i}`} variant="rounded" width={88} height={36} />
+      {fixed.length ? <Box sx={{ display: { xs: "none", md: "flex" }, flexWrap: "wrap", gap: 2, alignItems: "center" }}>{fixed.map((f, i) => (f === "chip" ? <ChipSkeleton key={i} /> : <FieldSkeleton key={i} width={f} small={small} />))}</Box> : null}
+      {list.includes("search") ? <FieldSkeleton grow small={small} /> : null}
+      <Skeleton variant="rounded" width={96} sx={{ height: tapHeight(36), display: { xs: "block", md: "none" } }} />
+      {acts.length ? (
+        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, alignItems: "center", ml: "auto" }}>
+          {acts.map((w, i) => <Skeleton key={i} variant="rounded" sx={{ width: w <= 40 ? tapHeight(w) : w, height: tapHeight(w <= 40 ? w : 30) }} />)}
+        </Box>
+      ) : null}
+    </Box>
+  ) : (
+    <Box sx={{ p: bare ? 0 : 2.5, gap: 2, display: "flex", flexWrap: "wrap", alignItems: "center" }}>
+      {list.map(field)}
+      {acts.map((w, i) => (
+        <Skeleton key={`a${i}`} variant="rounded" width={w} sx={{ height: tapHeight(36) }} />
       ))}
     </Box>
   );
@@ -168,77 +235,64 @@ export function FilterCardSkeleton({ fields, actions = 0, inCard = false, small 
 }
 
 export type KpiShape = {
-  /** Mini chart right of the figure (EcommerceWidgetSummary). */
+  /** EcommerceWidgetSummary (KpiWidget trend.period "week" / "7d"): title, h3 figure, trend row, 100x66 sparkline. */
   spark?: boolean;
-  /** 48px round icon badge right of the figure (BankingWidgetSummary). */
-  icon?: boolean;
-  /** Trending row under the figure. */
+  /** BookingWidgetSummary (KpiWidget trend.period "month"): title, h3 figure, trend row, 120px round icon. */
+  booking?: boolean;
+  /** Trending row under the figure (ecommerce / booking only; the course card has none). */
   trend?: boolean;
-  /** Muted helper line under the figure. */
+  /** The KpiWidget `caption` sub-line (body2, mt 1) under the card body. */
   hint?: boolean;
-  /** Two readings in one card (BookingCheckInWidgets split). */
+  /** @deprecated retired KpiCard anatomy; the loaded decks are all KpiWidget. Renders the course card. */
+  icon?: boolean;
+  /** @deprecated see `icon`. */
   parts?: boolean;
-  /** "tint" / "gradient" KpiCard (AnalyticsWidgetSummary: icon on top, h4 figure). */
+  /** @deprecated see `icon`. */
   hero?: boolean;
 };
 
-/** Loading twin of the plain `KpiCard`: subtitle2 label, h3 figure (h4 at xs), optional rows. */
-export function KpiCardSkeleton({ spark, icon, trend, hint, parts, hero }: KpiShape) {
-  if (hero) {
+/**
+ * Loading twin of `KpiWidget` (components/app/kpi-widget), card for card: the SAME template card
+ * paddings and rows the adapter picks, with text Skeletons at the real typography line heights.
+ *  - default: CourseWidgetSummary (py 3, pl 3, pr 2.5; h3 figure, subtitle2 title, 36px corner icon
+ *    tile at top 24 / right 20);
+ *  - `spark`: EcommerceWidgetSummary (p 3; subtitle2 title, h3 figure my 1.5, trend row, 100x66 chart);
+ *  - `booking`: BookingWidgetSummary (p 2, pl 3; the same rows, 120px round icon).
+ * `hint` is the adapter's caption sub-line (body2 with mt 1, reserved inside the card).
+ */
+export function KpiCardSkeleton({ spark, booking, trend, hint }: KpiShape) {
+  const caption = hint ? <SkeletonLine variant="body2" width="72%" sx={{ mt: 1, flexBasis: "100%" }} /> : null;
+  const trendRow = (
+    <Box sx={{ gap: 0.5, display: "flex", alignItems: "center", height: "var(--sp-3)" }}>
+      <Skeleton variant="circular" width={24} height={24} />
+      <Skeleton variant="text" width={96} />
+    </Box>
+  );
+  if (spark || booking) {
     return (
-      <Card aria-hidden="true" sx={{ p: { xs: 2, sm: 3 }, height: 1, boxShadow: "none" }}>
-        {icon ? <Skeleton variant="rounded" width={48} height={48} sx={{ mb: { xs: 1.5, sm: 3 } }} /> : null}
-        <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", gap: 1 }}>
-          <Box sx={{ flexGrow: 1, minWidth: 112 }}>
-            <SkeletonLine variant="subtitle2" width="56%" sx={{ mb: 1 }} />
-            {parts ? (
-              <Stack direction="row" sx={{ mt: 1.5, gap: 2 }}>
-                {[0, 1].map((i) => (
-                  <Box key={i} sx={{ flex: "1 1 0" }}>
-                    <SkeletonLine variant="h5" width="60%" sx={{ mb: 0.5 }} />
-                    <SkeletonLine variant="body2" width="70%" />
-                  </Box>
-                ))}
-              </Stack>
-            ) : (
-              <SkeletonLine variant="h4" width="46%" />
-            )}
-            {trend ? <SkeletonLine variant="subtitle2" width="48%" sx={{ mt: 1 }} /> : null}
-            {hint ? <SkeletonLine variant="body2" width="72%" sx={{ mt: 0.5 }} /> : null}
+      <Card aria-hidden="true" data-skel-kpi={spark ? "ecommerce" : "booking"} sx={{ ...(spark ? { p: 3 } : { p: 2, pl: 3 }), display: "flex", alignItems: "center", flexWrap: "wrap", height: 1 }}>
+        <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+          <SkeletonLine variant="subtitle2" width="56%" />
+          <Box sx={{ my: 1.5, typography: "h3" }}>
+            <Skeleton variant="text" width="42%" />
           </Box>
-          {spark ? <Skeleton variant="rounded" width={84} height={56} /> : null}
+          {trend !== false ? trendRow : null}
         </Box>
+        {spark ? <Skeleton variant="rounded" width={100} height={66} /> : <Skeleton variant="circular" width={120} height={120} />}
+        {caption}
       </Card>
     );
   }
   return (
-    <Card aria-hidden="true" sx={{ p: { xs: 2, sm: 3 }, height: 1 }}>
-      <Box sx={{ display: "flex", flexWrap: spark ? "wrap" : "nowrap", alignItems: "center", gap: 2 }}>
-        <Box sx={{ flex: spark ? "1 1 140px" : "1 1 auto", minWidth: 0 }}>
-          <SkeletonLine variant="subtitle2" width="56%" />
-          {parts ? (
-            <Stack direction="row" sx={{ mt: 1.5, gap: 2 }}>
-              {[0, 1].map((i) => (
-                <Box key={i} sx={{ flex: "1 1 0" }}>
-                  <SkeletonLine variant="h5" width="60%" sx={{ mb: 0.5 }} />
-                  <SkeletonLine variant="body2" width="70%" />
-                </Box>
-              ))}
-            </Stack>
-          ) : (
-            <Box sx={{ my: 1.5, typography: { xs: "h4", sm: "h3" } }}>
-              <Skeleton variant="text" width="42%" />
-            </Box>
-          )}
-          {trend ? <SkeletonLine variant="subtitle2" width="48%" /> : null}
-          {hint ? <SkeletonLine variant="body2" width="72%" sx={{ mt: 0.5 }} /> : null}
+    <Card aria-hidden="true" data-skel-kpi="course" sx={{ py: 3, pl: 3, pr: 2.5, position: "relative", height: 1 }}>
+      <Box sx={{ flexGrow: 1, pr: 6 }}>
+        <Box sx={{ typography: "h3" }}>
+          <Skeleton variant="text" width="36%" />
         </Box>
-        {spark ? (
-          <Skeleton variant="rounded" width={84} height={56} />
-        ) : icon ? (
-          <Skeleton variant="circular" width={48} height={48} sx={{ flexShrink: 0, alignSelf: "flex-start" }} />
-        ) : null}
+        <SkeletonLine variant="subtitle2" width="56%" />
       </Box>
+      {caption}
+      <Skeleton variant="rounded" width={36} height={36} sx={{ position: "absolute", top: 24, right: 20, borderRadius: "var(--r-sm)" }} />
     </Card>
   );
 }
@@ -247,14 +301,31 @@ export function KpiCardSkeleton({ spark, icon, trend, hint, parts, hero }: KpiSh
  * Loading twin of `KpiGrid` + `KpiCard`: the same Grid (count-driven sizes, spacing 3), so the row
  * breaks exactly where the real deck breaks. `shapes` sets per-card anatomy when cards differ.
  */
-export function KpiRowSkeleton({ count, shapes, ...shape }: { count: number; shapes?: KpiShape[] } & KpiShape) {
+export function KpiRowSkeleton({
+  count,
+  shapes,
+  size,
+  ...shape
+}: {
+  count: number;
+  shapes?: KpiShape[];
+  /** The page's own Grid item size when it lays its widgets out itself instead of KpiGrid. */
+  size?: Record<string, number>;
+} & KpiShape) {
+  const cards = Array.from({ length: count }, (_, i) => <KpiCardSkeleton key={i} {...(shapes?.[i] ?? shape)} />);
   return (
     <div data-skel="kpis" aria-hidden="true">
-      <KpiGrid>
-        {Array.from({ length: count }, (_, i) => (
-          <KpiCardSkeleton key={i} {...(shapes?.[i] ?? shape)} />
-        ))}
-      </KpiGrid>
+      {size ? (
+        <Grid container spacing={3}>
+          {cards.map((card, i) => (
+            <Grid key={i} size={size as never} sx={{ minWidth: 0 }}>
+              {card}
+            </Grid>
+          ))}
+        </Grid>
+      ) : (
+        <KpiGrid>{cards}</KpiGrid>
+      )}
     </div>
   );
 }
@@ -558,6 +629,19 @@ export function ToolbarSkeleton({ left, fields = [], small = true, sx }: { left?
           )}
         </Box>
       ) : null}
+    </Box>
+  );
+}
+
+/**
+ * A page's own wrapping control row that is not a card (a date field + a segment strip + a caption
+ * line): `Stack direction="row" flexWrap gap 2`, the caption on its own line under the controls.
+ */
+export function ControlRowSkeleton({ children, caption }: { children: ReactNode; caption?: number }) {
+  return (
+    <Box aria-hidden="true" data-skel="controls-row" sx={{ display: "flex", flexWrap: "wrap", gap: 2, alignItems: "center", minWidth: 0 }}>
+      {children}
+      {caption ? <SkeletonLine variant="caption" width={caption} sx={{ flexBasis: "100%" }} /> : null}
     </Box>
   );
 }

@@ -24,6 +24,8 @@ export type SegmentedOption = {
   /** Already resolved from the page contract by the caller. */
   label: string;
   href: string;
+  /** A state-only option (e.g. "Custom" window): shown, selectable only by the URL, never a click. */
+  disabled?: boolean;
 };
 
 export function SegmentedLinks({
@@ -77,6 +79,7 @@ export function SegmentedLinks({
         value: option.value,
         label: option.label,
         href: option.href,
+        disabled: option.disabled,
         onClick: (event: React.MouseEvent<HTMLElement>) => {
           restoreTo.current = window.scrollY;
           // Fires metricseg:navigate (LinkNavPending dims the body) and pushes in a transition.
