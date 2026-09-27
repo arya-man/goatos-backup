@@ -1,22 +1,21 @@
 'use client';
 
-// Copied from the licensed MUI Minimal template (next-ts src/sections/mail/mail-nav-item.tsx).
-// Mesha changes (data plumbing only, anatomy untouched):
-//  - the item is a link (`href`, Next Link, scroll kept) instead of an onClick label switch, with
-//    aria-current on the selected item, because our rail switches a URL param (`?register=`);
-//  - `label` is the page's { name, count, icon? } instead of IMailLabel; the icon is optional (a
-//    register has no icon), the count renders as the template's caption figure even when 0;
-//  - the button keeps the 44px touch floor on a phone; an optional trailing `action` (edit
-//    IconButton) sits beside the button inside the same li.
-
+// Template-derived (docs/design/template-derived.json): Minimal v7.7.0 next-ts
+// src/sections/mail/mail-nav-item.tsx. Anatomy guarded; the demo IMailLabel becomes `label`
+// ({ name, count, icon?, color? }); the item is a link (`href`, Next Link, scroll kept, aria-current)
+// because our rails switch a URL param; declared slot `action` (an edit IconButton beside the
+// button) and overrides `slotProps.item` (nested-list indent / alignment on the li) and
+// `slotProps.button` (the 44px phone tap floor).
 import type { ReactNode } from 'react';
+import type { SxProps, Theme } from '@mui/material/styles';
+import type { ListItemButtonProps } from '@mui/material/ListItemButton';
 import type { IconifyName } from '@/components/minimal/iconify';
 
 import Box from '@mui/material/Box';
 import ListItemButton from '@mui/material/ListItemButton';
 
 import Link from '@/components/no-prefetch-link';
-
+import { mergeSx } from '@/components/app/merge-sx';
 import { Iconify } from '@/components/minimal/iconify';
 
 // ----------------------------------------------------------------------
@@ -28,33 +27,34 @@ export type MailNavLabel = {
   color?: string;
 };
 
-type Props = {
+type Props = Omit<ListItemButtonProps, 'action'> & {
   selected: boolean;
   label: MailNavLabel;
   href: string;
+  onClickNavItem?: () => void;
   action?: ReactNode;
-  /** Indent level (nested lists). */
-  depth?: number;
+  slotProps?: { item?: SxProps<Theme>; button?: SxProps<Theme> };
 };
 
-export function MailNavItem({ selected, label, href, action, depth = 0 }: Props) {
+export function MailNavItem({ selected, label, href, onClickNavItem, action, slotProps, ...other }: Props) {
   return (
-    <Box component="li" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, pl: depth * 2 }}>
+    <Box component="li" sx={mergeSx({ display: 'flex' }, slotProps?.item)}>
       <ListItemButton
         disableGutters
         component={Link}
         href={href}
         scroll={false}
         aria-current={selected ? 'page' : undefined}
-        sx={{
+        onClick={onClickNavItem}
+        sx={mergeSx({
           pl: 1,
           pr: 1.5,
           gap: 2,
-          minHeight: 44,
           borderRadius: 0.75,
           color: 'text.secondary',
           ...(selected && { color: 'text.primary' }),
-        }}
+        }, slotProps?.button)}
+        {...other}
       >
         {label.icon ? <Iconify icon={label.icon} width={22} sx={{ color: label.color }} /> : null}
 
@@ -62,6 +62,7 @@ export function MailNavItem({ selected, label, href, action, depth = 0 }: Props)
           component="span"
           sx={{
             flexGrow: 1,
+            textTransform: 'capitalize',
             typography: selected ? 'subtitle2' : 'body2',
           }}
         >
@@ -74,6 +75,7 @@ export function MailNavItem({ selected, label, href, action, depth = 0 }: Props)
           </Box>
         )}
       </ListItemButton>
+
       {action}
     </Box>
   );

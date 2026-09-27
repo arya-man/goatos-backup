@@ -15,8 +15,8 @@ import { Iconify } from "@/components/minimal/iconify";
 import { TableHeadCustom } from "@/components/app/table";
 import { OrderTableToolbar } from "@/components/app/sections/order/order-table-toolbar";
 import { orderToolbarFilterSx, orderToolbarSearchSx } from "@/components/app/order-toolbar-filter";
-import { JobItem } from "@/components/minimal/sections/job/job-item";
-import { JobList } from "@/components/minimal/sections/job/job-list";
+import { JobItem } from "@/components/app/sections/job/job-item";
+import { JobList } from "@/components/app/sections/job/job-list";
 import { SegmentTabs } from "@/components/app/list/segment-tabs";
 import { UrlTabs } from "@/components/app/url-tabs";
 import { AnimalPurchaseRecordedRange } from "./animal-purchase-recorded-range";
@@ -50,6 +50,7 @@ import { listOptions } from "./option-utils";
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
 import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
 import Form from "next/form";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
@@ -523,7 +524,7 @@ export async function AnimalPurchasesPage({
                     title={animal.title}
                     meta={heading}
                     avatar={<Iconify icon="solar:videocamera-record-bold" />}
-                    media={<AnimalPurchaseMedia slots={animal.media_slots ?? []} copy={sopCopy} />}
+                    media={<Box sx={{ mt: 2 }}><AnimalPurchaseMedia slots={animal.media_slots ?? []} copy={sopCopy} /></Box>}
                     sx={{ height: 1 }}
                   >
                     <DividedStack flexItem={false} spacing={2.5}>
@@ -560,15 +561,21 @@ export async function AnimalPurchasesPage({
                       )}
                     </div>
                   }
+                  // Template job facts: one caption per cell (label · value); the free-text note
+                  // reads in full in the foot section above the decision.
                   facts={[
-                    { key: "breed", label: animalColumn("breed"), value: animal.breed || none },
-                    { key: "age", label: animalColumn("age_months"), value: animal.age_months == null ? none : num(animal.age_months) },
-                    { key: "weight", label: animalColumn("weight_kg"), value: animal.weight_kg == null ? none : num(animal.weight_kg, 1) },
-                    { key: "condition", label: animalColumn("condition"), value: animal.condition_label || none },
-                    { key: "temp_tag", label: animalColumn("temp_tag"), value: animal.temp_tag || none },
-                    { key: "notes", label: animalColumn("notes"), value: animal.notes || none },
+                    { key: "breed", label: `${animalColumn("breed")} · ${animal.breed || none}` },
+                    { key: "age", label: `${animalColumn("age_months")} · ${animal.age_months == null ? none : num(animal.age_months)}` },
+                    { key: "weight", label: `${animalColumn("weight_kg")} · ${animal.weight_kg == null ? none : num(animal.weight_kg, 1)}` },
+                    { key: "condition", label: `${animalColumn("condition")} · ${animal.condition_label || none}` },
+                    { key: "temp_tag", label: `${animalColumn("temp_tag")} · ${animal.temp_tag || none}` },
                   ]}
                 >
+                  {animal.notes ? (
+                    <Typography variant="body2" sx={{ mb: 2, color: "text.secondary", overflowWrap: "anywhere" }}>
+                      {animalColumn("notes")}: {animal.notes}
+                    </Typography>
+                  ) : null}
                   {decisionBlock}
                 </JobItem>
               </article>

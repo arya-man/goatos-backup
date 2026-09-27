@@ -1,11 +1,9 @@
 'use client';
 
-// Copied from the licensed MUI Minimal template (next-ts src/sections/job/job-list.tsx).
-// Mesha changes (data plumbing only, anatomy untouched): the items are the page's own children
-// (server-rendered cards), the grid columns may be narrowed for wide cards, and the centred MUI
-// Pagination is URL-driven — every page item is a Next link to a prepared href (our lists carry
-// their page / cursor in the URL), so a server page can render it.
-
+// Template-derived (docs/design/template-derived.json): Minimal v7.7.0 next-ts
+// src/sections/job/job-list.tsx. Anatomy guarded; the demo jobs become the `children` SLOT (the
+// page's own cards), `columns` is a declared override of the grid, and the centred MUI Pagination is
+// URL-driven (every page item a Next link to a prepared href; declared renderItem/page/aria-label).
 import type { ReactNode } from 'react';
 import type { ResponsiveStyleValue } from '@mui/system';
 
@@ -58,7 +56,7 @@ export function JobList({ children, columns, pagination }: Props) {
             );
           }}
           sx={{
-            mt: { xs: 5, md: 8 },
+            mt: { xs: 8, md: 8 },
             [`& .${paginationClasses.ul}`]: { justifyContent: 'center' },
           }}
         />

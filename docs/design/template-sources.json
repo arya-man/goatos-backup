@@ -11,9 +11,6 @@
   ],
   "template_root": "~/mesha/mesha-ui/vendor/minimal/Minimal_TypeScript_v7.7.0/next-ts",
   "sources": {
-    "components/minimal/sections/mail/mail-nav-item.tsx": "src/sections/mail/mail-nav-item.tsx",
-    "components/minimal/sections/job/job-item.tsx": "src/sections/job/job-item.tsx",
-    "components/minimal/sections/job/job-list.tsx": "src/sections/job/job-list.tsx",
     "components/minimal/sections/overview/analytics/analytics-website-visits.tsx": "src/sections/overview/analytics/analytics-website-visits.tsx",
     "components/minimal/_shared/format-number.ts": "src/utils/format-number.ts",
     "components/minimal/_shared/format-time.ts": "src/utils/format-time.ts",
@@ -529,51 +526,6 @@
         "@mui/material/Typography",
         "@mui/material/Box",
         "@mui/material/Typography"
-      ]
-    },
-    "components/minimal/sections/job/job-item.tsx": {
-      "sha256": "69da6604d3401edaf85f463d9afd1dc7c435ba4460ecf77617df66fce2b666f2",
-      "imports": [
-        "@mui/material/Card",
-        "src/types/job",
-        "minimal-shared/hooks",
-        "@mui/material/Box",
-        "@mui/material/Link",
-        "@mui/material/Card",
-        "@mui/material/Avatar",
-        "@mui/material/Divider",
-        "@mui/material/MenuList",
-        "@mui/material/MenuItem",
-        "@mui/material/IconButton",
-        "@mui/material/Typography",
-        "@mui/material/ListItemText",
-        "src/routes/components",
-        "src/utils/format-time",
-        "src/utils/format-number",
-        "src/components/iconify",
-        "src/components/custom-popover"
-      ]
-    },
-    "components/minimal/sections/job/job-list.tsx": {
-      "sha256": "baf4039ded94b5b321b6414146d1517bb8df1873b6d60a4a248a1c00ae45ba10",
-      "imports": [
-        "src/types/job",
-        "react",
-        "@mui/material/Box",
-        "@mui/material/Pagination",
-        "src/routes/paths",
-        "./job-item"
-      ]
-    },
-    "components/minimal/sections/mail/mail-nav-item.tsx": {
-      "sha256": "2b88c14c469c84b08228ddb06e554f96d2f01523f75ef9f29e766f020b752336",
-      "imports": [
-        "@mui/material/ListItemButton",
-        "src/types/mail",
-        "src/components/iconify",
-        "@mui/material/Box",
-        "@mui/material/ListItemButton",
-        "src/components/iconify"
       ]
     },
     "components/minimal/sections/overview/analytics/analytics-conversion-rates.tsx": {

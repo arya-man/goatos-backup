@@ -26,7 +26,7 @@ import { Scrollbar } from "@/components/minimal/scrollbar";
 import { TableHeadCustom, TablePaginationLinks, type TableHeadCellProps } from "@/components/app/table";
 import { OrderTableToolbar } from "@/components/app/sections/order/order-table-toolbar";
 import { orderToolbarFilterSx, orderToolbarSearchSx } from "@/components/app/order-toolbar-filter";
-import { MailNavItem } from "@/components/minimal/sections/mail/mail-nav-item";
+import { MailNavItem } from "@/components/app/sections/mail/mail-nav-item";
 
 import Link from "@/components/no-prefetch-link";
 import { LocalOverlayDrawer, type LocalOverlayDrawerItem } from "@/components/local-overlay-drawer";
@@ -508,6 +508,7 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
                             selected={item.key === params.register}
                             href={registerHref(sp, item.key)}
                             label={{ name: item.label, count: catalog?.counts[item.key] ?? 0 }}
+                            slotProps={{ button: { minHeight: "var(--tap-min)" } }}
                           />
                         ))}
                         {group.key === REFERENCE_GROUP && referenceListsRegister && canCreate ? (

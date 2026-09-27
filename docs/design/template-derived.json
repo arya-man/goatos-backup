@@ -901,6 +901,227 @@
         "Button(color,endIcon,onClick,sx,variant)",
         "Iconify(icon)"
       ]
+    },
+    "components/app/sections/job/job-item.tsx": {
+      "source": "src/sections/job/job-item.tsx",
+      "replaced": "IJobItem -> avatar/avatarUrl, title (detail Link), secondary (Posted date), meta (candidates line), facts (the four icon + caption cells), menuActions (View/Edit/Delete; ⋮ only with items); declared slots media and children (dashed-divider foot section)",
+      "allowProps": [],
+      "templateStrip": [
+        [
+          "alt=\\{job\\.company\\.name\\}\\s*src=\\{job\\.company\\.logo\\}",
+          "alt={x} src={x}"
+        ],
+        [
+          "primary=\\{\\s*<Link[\\s\\S]*?<\\/Link>\\s*\\}",
+          "primary={title}"
+        ],
+        "\\s*<li>\\s*<MenuItem[\\s\\S]*?<\\/MenuItem>\\s*<\\/li>\\n",
+        "\\s*<MenuItem[\\s\\S]*?<\\/MenuItem>\\n",
+        "\\s*<Iconify width=\\{16\\} icon=\"solar:users-group-rounded-bold\" \\/>\\n",
+        [
+          "\\{\\[\\s*\\{[\\s\\S]*?\\]\\.map\\(",
+          "{facts.map("
+        ]
+      ],
+      "strip": [
+        "\\{meta\\}",
+        "\\{media\\}",
+        "\\{children \\? \\([\\s\\S]*?\\) : null\\}\\n(?=\\s*<\\/Card>)",
+        "\\{menuActions\\.map\\([\\s\\S]*?<\\/MenuItem>\\s*\\)\\)\\}",
+        [
+          "\\s*\\{avatar\\}\\s*",
+          ""
+        ]
+      ],
+      "tags": [
+        "CustomPopover",
+        "MenuList",
+        "Card",
+        "IconButton",
+        "Iconify",
+        "Box",
+        "Avatar",
+        "ListItemText",
+        "Box",
+        "Divider",
+        "Box",
+        "Box",
+        "Typography"
+      ],
+      "sx": [
+        "position",
+        "top",
+        "right",
+        "p",
+        "pb",
+        "width",
+        "height",
+        "mb",
+        "mb",
+        "gap",
+        "display",
+        "alignItems",
+        "color",
+        "typography",
+        "borderStyle",
+        "p",
+        "rowGap",
+        "display",
+        "gridTemplateColumns",
+        "gap",
+        "minWidth",
+        "flexShrink",
+        "display",
+        "alignItems",
+        "color"
+      ],
+      "sxValues": [
+        "sx",
+        "{ position: 'absolute', top: 8, right: 8 }",
+        "{ p: 3, pb: 2 }",
+        "{ width: 48, height: 48, mb: 2 }",
+        "{ mb: 1 }",
+        "{ gap: 0.5, display: 'flex', alignItems: 'center', color: 'primary.main', typography: 'caption'}",
+        "{ borderStyle: 'dashed' }",
+        "{ p: 3, rowGap: 1.5, display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)'}",
+        "{ gap: 0.5, minWidth: 0, flexShrink: 0, display: 'flex', alignItems: 'center', color: 'text.disabled'}"
+      ],
+      "props": [
+        "variant=rounded",
+        "variant=caption",
+        "noWrap"
+      ],
+      "propNames": [
+        "CustomPopover(anchorEl,onClose,open,slotProps)",
+        "MenuList()",
+        "Card(...,sx)",
+        "IconButton(onClick,sx)",
+        "Iconify(icon)",
+        "Box(sx)",
+        "Avatar(alt,src,sx,variant)",
+        "ListItemText(primary,secondary,slotProps,sx)",
+        "Box(sx)",
+        "Divider(sx)",
+        "Box(sx)",
+        "Box(sx)",
+        "Typography(noWrap,variant)"
+      ]
+    },
+    "components/app/sections/job/job-list.tsx": {
+      "source": "src/sections/job/job-list.tsx",
+      "replaced": "demo jobs.map(JobItem) -> children slot; declared: columns override of the grid, URL-driven Pagination (page/aria-label/renderItem with PaginationItem links), shown when there is more than one page",
+      "allowProps": [
+        "Pagination:page",
+        "Pagination:aria-label",
+        "Pagination:renderItem"
+      ],
+      "templateStrip": [
+        "\\s*\\{jobs\\.map\\([\\s\\S]*?\\)\\)\\}\\n"
+      ],
+      "strip": [
+        "\\{children\\}",
+        [
+          "columns \\?\\? (\\{[^}]*\\})",
+          "$1"
+        ],
+        [
+          "renderItem=\\{[\\s\\S]*?\\}\\}\\n",
+          " "
+        ]
+      ],
+      "tags": [
+        "Box",
+        "Pagination"
+      ],
+      "sx": [
+        "gap",
+        "display",
+        "gridTemplateColumns",
+        "xs",
+        "sm",
+        "md",
+        "mt",
+        "xs",
+        "md",
+        "justifyContent"
+      ],
+      "sxValues": [
+        "{ gap: 3, display: 'grid', gridTemplateColumns: { xs: 'repeat(1, 1fr)', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)' }}",
+        "{ mt: { xs: 8, md: 8 }, [`& .${paginationClasses.ul}`]: { justifyContent: 'center' }}"
+      ],
+      "props": [],
+      "propNames": [
+        "Box(sx)",
+        "Pagination(count,sx)"
+      ]
+    },
+    "components/app/sections/mail/mail-nav-item.tsx": {
+      "source": "src/sections/mail/mail-nav-item.tsx",
+      "replaced": "IMailLabel -> label {name,count,icon?,color?}; the button is a Next link (href, scroll kept, aria-current); declared slot action beside the button and override slotProps.item on the li; override slotProps.button (phone tap floor)",
+      "allowProps": [
+        "ListItemButton:component",
+        "ListItemButton:href",
+        "ListItemButton:scroll",
+        "ListItemButton:aria-current"
+      ],
+      "templateStrip": [
+        [
+          "icon=\\{labelIcon\\} width=\\{22\\} sx=\\{\\{ color: label\\.color \\}\\}",
+          "icon={label.icon} width={22} sx={{ color: label.color }}"
+        ]
+      ],
+      "strip": [
+        "\\{action\\}",
+        [
+          "mergeSx\\((\\{ display: 'flex' \\}), slotProps\\?\\.item\\)",
+          "$1"
+        ],
+        [
+          "mergeSx\\((\\{\\s*pl: 1,[\\s\\S]*?color: 'text\\.primary' \\}\\),\\s*\\}), slotProps\\?\\.button\\)",
+          "$1"
+        ]
+      ],
+      "tags": [
+        "Box",
+        "ListItemButton",
+        "Iconify",
+        "Box",
+        "Box"
+      ],
+      "sx": [
+        "display",
+        "pl",
+        "pr",
+        "gap",
+        "borderRadius",
+        "color",
+        "color",
+        "color",
+        "flexGrow",
+        "textTransform",
+        "typography",
+        "subtitle2",
+        "typography"
+      ],
+      "sxValues": [
+        "{ display: 'flex' }",
+        "{ pl: 1, pr: 1.5, gap: 2, borderRadius: 0.75, color: 'text.secondary', ...(selected && { color: 'text.primary' })}",
+        "{ color: label.color }",
+        "{ flexGrow: 1, textTransform: 'capitalize', typography: selected ? 'subtitle2' : 'body2'}",
+        "{ typography: 'caption' }"
+      ],
+      "props": [
+        "component=li",
+        "component=span",
+        "component=span"
+      ],
+      "propNames": [
+        "Box(component,sx)",
+        "ListItemButton(...,disableGutters,onClick,sx)",
+        "Iconify(icon,sx,width)",
+        "Box(component,sx)",
+        "Box(component,sx)"
+      ]
     }
   }
 }
