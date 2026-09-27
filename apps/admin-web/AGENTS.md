@@ -203,6 +203,13 @@ Spec: `docs/design/mui-minimal-spec.md`. Tokens: `app/minimal-tokens.css`. Gate:
   `features/<x>/<x>-skeletons.tsx` per page feeds loading.tsx AND the page's UrlSuspense fallbacks.
   Verify the click path on `next dev` with `r2-visual-audit --checks skeleton --skeleton-profiles
   1440-dark,390-dark --skeleton-nav click` (push is the default and needs `next start`).
+  A twin imports the page's layout, never retypes it (guard `sk3-skeleton-twins`,
+  features/sk3-skeleton-twins.test.mjs, REVIEW-45): Grid sizes, card counts / KPI lists, field floors
+  and page sizes live in the feature's `*-layout.ts` (weights-analytics-layout, command-board-layout,
+  plan-layout, herd-signals-layout + herd-signals-kpi-defs, shed-board-layout), read by page AND twin.
+  A skeleton's `crumbLink` follows the page's own `crumbs={[...]}` parent href (guard
+  `crumb-link-truth`, components/app/skeletons/crumb-link-truth.test.mjs, REVIEW-46): every
+  `crumbLink={false}` is listed there with its page file.
 - **No dimming while navigating (guard: `pending-dim` in design:guard, P0; Ravi 2026-09-28 "just switch
   and show shimmer").** A path / tab / segment / filter / sort / pager navigation swaps the affected
   area to its skeleton (UrlSuspense panel, the shell's pending route skeleton). Never `opacity: <pending>
