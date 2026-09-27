@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import Box from "@mui/material/Box";
 
-import { TablePaginationCustom } from "@/components/minimal/table";
+import { TablePaginationCustom } from "@/components/app/table";
 
 const n = (v: number) => v.toLocaleString("en-IN");
 
