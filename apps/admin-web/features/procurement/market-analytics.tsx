@@ -125,7 +125,7 @@ export async function MarketAnalyticsPage({
       <Stack spacing={3}>
       {/* The window's figures (guard: url-keyed-panel): a window click swaps the KPI deck and the
           price panels to their skeletons at once; header and window strip stay on screen. */}
-      <UrlSuspense searchParams={sp} watch={WINDOW_WATCH} fallback={<KpiRowSkeleton count={4} icon />}>
+      <UrlSuspense searchParams={sp} watch={WINDOW_WATCH} fallback={<KpiRowSkeleton count={4} hero />}>
       <KpiGrid>
         <KpiWidget color="primary" title={copy(pageContract, "kpi.cities.label")} total={cities.length} />
         <KpiWidget color="info" title={copy(pageContract, "kpi.days.label")} total={analytics.days} icon="certificates" />

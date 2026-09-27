@@ -246,6 +246,9 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
 
   return (
     <div className="kit-enter screen on sop-kit">
+      {/* One column with the template gap between header, KPI row, filter card and cards (the legacy
+          .screen root is display:block and its children carry no margins). */}
+      <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
       <div>
         <PageHeader
           title={pageContract.title}
@@ -470,6 +473,7 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
           onEditCapture={() => openCaptureEditor(detail.sopId)}
         />
       ) : null}
+      </Box>
     </div>
   );
 }

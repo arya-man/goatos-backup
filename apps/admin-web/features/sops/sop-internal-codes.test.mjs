@@ -74,6 +74,10 @@ test("SOP select options keep their backend description as the menu item title",
 test("SOP library skeleton mirrors the KPI widget row", () => {
   assert.match(read("./sop-library.tsx"), /<KpiGrid>/);
   const skel = read("./sop-route-skeleton.tsx");
-  assert.match(skel, /<KpiRowSkeleton count=\{SOP_STAT_CELLS\} \/>/);
+  assert.match(skel, /<KpiRowSkeleton count=\{SOP_STAT_CELLS\} hero \/>/);
+  // Page and skeleton stack their blocks with the same gap (the page had none: header, KPI row,
+  // filter card and cards touched).
+  assert.match(read("./sop-library.tsx"), /<div className="kit-enter screen on sop-kit">\s*\{\/\*[\s\S]*?\*\/\}\s*<Box sx=\{\{ display: "flex", flexDirection: "column", gap: 3 \}\}>/);
+  assert.match(skel, /<PageSkeleton className="sop-kit" gap=\{3\}>/);
   assert.doesNotMatch(skel, /StatStripSkeleton/);
 });

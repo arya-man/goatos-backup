@@ -89,8 +89,8 @@ test("procurement and sales features use template tabs and widgets, not the remo
 test("market analytics route loading uses the page's in-place fallback shapes", () => {
   const loading = read("../../app/(admin)/sales/market-analytics/loading.tsx");
   const page = read("./market-analytics.tsx");
-  assert.match(page, /fallback=\{<KpiRowSkeleton count=\{4\} icon \/>\}/);
-  assert.match(loading, /<KpiRowSkeleton count=\{4\} icon \/>/);
+  assert.match(page, /fallback=\{<KpiRowSkeleton count=\{4\} hero \/>\}/);
+  assert.match(loading, /<KpiRowSkeleton count=\{4\} hero \/>/);
   assert.match(page, /<TableSkeleton columns=\{5\} rows=\{6\} pager=\{false\} subheader headerAction \/><ChartCardSkeleton height=\{320\} subheader \/>/);
   assert.match(loading, /<TableSkeleton columns=\{5\} rows=\{6\} pager=\{false\} subheader headerAction \/>\s*<ChartCardSkeleton height=\{320\} subheader \/>/);
 });

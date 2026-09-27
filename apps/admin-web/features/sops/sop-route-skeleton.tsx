@@ -21,11 +21,12 @@ import { SOP_SKELETON_CARDS, SOP_STAT_CELLS } from "./sop-library-layout";
  */
 export function SopLibrarySkeleton() {
   return (
-    <PageSkeleton className="sop-kit">
+    <PageSkeleton className="sop-kit" gap={3}>
       <PageHeaderSkeleton actions={1} />
       {/* The KPI row is KpiGrid + KpiWidget (template CourseWidgetSummary): its loading twin is the
-          KPI card row, not the retired StatStrip ring strip (twice as tall; audit skeleton IoU). */}
-      <KpiRowSkeleton count={SOP_STAT_CELLS} />
+          `hero` card row (title + figure, no icon badge: the CourseWidgetSummary height), not the retired
+          StatStrip ring strip (audit skeleton IoU). The page and this twin share gap 3. */}
+      <KpiRowSkeleton count={SOP_STAT_CELLS} hero />
       <FilterCardSkeleton fields={[160, 160, "search"]} actions={3} />
       {/* One row of the 1/2/3 grid: most module libraries hold one to three SOPs, so a full page
           of twelve placeholder cards was three rows taller than the page it stands in for. */}
