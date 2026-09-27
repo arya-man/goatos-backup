@@ -73,13 +73,13 @@ test("a pressed chip or pager says it is busy in place", () => {
 // guard: procurement-template-tabs (PR #294 R3SP2). Procurement and sales pages use the template
 // tab strips only: UrlTabs (template list status Tabs + Label counts, useUrlTabNav) for URL
 // status/filter tabs, SegmentTabs (template segmented Tabs) for chip strips, MUI Tabs for client
-// state. The TemplateTabs / StatStrip / KpiCard fakes are not imported here.
+// state. The AnimatedTabs / StatStrip / KpiCard fakes are not imported here.
 test("procurement and sales features use template tabs and widgets, not the removed fakes", async () => {
   const { readdirSync } = await import("node:fs");
   for (const name of readdirSync(new URL(".", import.meta.url))) {
     if (!/\.tsx?$/.test(name)) continue;
     const src = read(`./${name}`);
-    assert.doesNotMatch(src, /\b(TemplateTabs|StatStrip|KpiCard)\b(?!Skeleton)/, `${name} uses a removed fake (TemplateTabs/StatStrip/KpiCard)`);
+    assert.doesNotMatch(src, /\b(AnimatedTabs|StatStrip|KpiCard)\b(?!Skeleton)/, `${name} uses a removed fake (AnimatedTabs/StatStrip/KpiCard)`);
   }
 });
 
