@@ -225,6 +225,11 @@ chapters below; do not review from the summary.
   client components, so the page renders "Something went wrong" ("Functions cannot be passed
   directly to Client Components", /sales/sold digest 3801663639) while typecheck and `next build`
   pass. Use an object sx with theme tokens, or make the module `"use client"`.
+  The same holds for a component reference: `<Tab component={Link}>` from a server module is a
+  forwardRef object (`{$$typeof, render: function}`) unless `Link` is the export of a `"use client"`
+  module, so /goats/[goat_id] crashed at every size while no-prefetch-link lacked the directive
+  (FJ1 P0-1). The guard resolves every `component={X}` in a server module and fails when X is
+  defined locally or imported from a non-client local module.
 - **The shell is gated on every push (guard: r2 visual gate `shell|*`, scripts/r2-audit-checks/shell.mjs).**
   Sidebar root items + subheaders start at nav.left + 16px with padding-left 12px (template
   NavSectionVertical: content on the logo column), the active item is a translucent primary tint,

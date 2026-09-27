@@ -244,6 +244,28 @@ function clientApiFindings(text, rel) {
 
 const SERVER_ENTRY = /(^|\/)(page|layout|loading|template|not-found|default)\.tsx$/;
 const FUNCTION_SX = /\bsx=\{\s*\(|\bsx=\{\s*\[[^\]]*=>|\(\s*theme\s*\)\s*=>/;
+// A component reference as an MUI `component` prop (`<Tab component={Link}>`) is a forwardRef object
+// with a render function: from a server module it crashes the page exactly like a function sx
+// ("{$$typeof, render: function}", FJ1 P0-1 /goats/[goat_id]).
+// A "use client" module export is a client reference and crosses fine; a forwardRef from a server
+// module (or defined in the page itself) does not. Package imports (next/link, @mui/*) are clients.
+const COMPONENT_REF_PROP = /\bcomponent=\{\s*([A-Z]\w*)[\w.]*\s*\}/g;
+function serverComponentRefLine(text, lines, abs, resolveSpec) {
+  const imported = new Map();
+  for (const m of text.matchAll(/import\s+(?!type\s)([^'"`;]*?)\s+from\s*["']([^"']+)["']/g)) {
+    for (const name of m[1].replace(/[{}]/g, ",").split(",").map((part) => part.trim().split(/\s+as\s+/).pop()).filter(Boolean)) imported.set(name, m[2]);
+  }
+  return lines.findIndex((line) => {
+    if (/^\s*(\/\/|\*|\/\*)/.test(line)) return false;
+    return [...line.matchAll(COMPONENT_REF_PROP)].some((m) => {
+      const spec = imported.get(m[1]);
+      if (!spec) return true;
+      const target = resolveSpec(spec, abs);
+      if (!target) return false;
+      try { return !USE_CLIENT_FIRST.test(readFileSync(target, "utf8")); } catch { return false; }
+    });
+  });
+}
 function serverFunctionPropFindings(root) {
   const appDir = join(root, "app");
   if (!existsSync(appDir)) return [];
@@ -271,6 +293,8 @@ function serverFunctionPropFindings(root) {
       const lines = text.split("\n");
       const at = lines.findIndex((line) => !/^\s*(\/\/|\*|\/\*)/.test(line) && FUNCTION_SX.test(line));
       if (at >= 0) out.push({ file: toRel(root, abs), line: at + 1, snippet: lines[at] });
+      const ref = at >= 0 ? -1 : serverComponentRefLine(text, lines, abs, resolveSpec);
+      if (ref >= 0) out.push({ file: toRel(root, abs), line: ref + 1, snippet: lines[ref] });
     }
     for (const m of text.matchAll(/(?:import|export)\s[^'"`;]*?from\s*["']([^"']+)["']/g)) {
       if (/^\s*import\s+type\s/.test(m[0]) || /^\s*export\s+type\s/.test(m[0])) continue;
@@ -1095,6 +1119,13 @@ async function selfTest() {
   put("features/sfp/bars.tsx", 'import LinearProgress from "@mui/material/LinearProgress";\nexport const Bars = () => <LinearProgress sx={(theme) => ({ height: 8 })} />;\n');
   put("features/sfp/client-box.tsx", '"use client";\nimport { Inner } from "./inner";\nexport const ClientBox = () => <Inner />;\n');
   put("features/sfp/inner.tsx", 'import Box from "@mui/material/Box";\nexport const Inner = () => <Box sx={[(theme) => ({ p: 1 })]} />;\n');
+  // ...and a server module handing Tab a forwardRef from a NON-client module (flagged, FJ1 P0-1),
+  // while a "use client" link export and a package component stay clean.
+  put("app/(admin)/sfp2/page.tsx", 'import { TabsRow } from "@/features/sfp/tabs-row";\nexport default function Page() { return <div className="kit-page"><TabsRow /></div>; }\n');
+  put("app/(admin)/sfp2/loading.tsx", "export default function L() { return null; }\n");
+  put("features/sfp/tabs-row.tsx", 'import Tab from "@mui/material/Tab";\nimport NextLink from "next/link";\nimport ClientLink from "./client-link";\nimport ServerLink from "./server-link";\nexport const TabsRow = () => (\n  <>\n    <Tab component={NextLink} href="/a" />\n    <Tab component={ClientLink} href="/b" />\n    <Tab component={ServerLink} href="/c" />\n  </>\n);\n');
+  put("features/sfp/client-link.tsx", '"use client";\nimport { forwardRef } from "react";\nexport default forwardRef<HTMLAnchorElement>(function L(p, ref) { return <a ref={ref} {...p} />; });\n');
+  put("features/sfp/server-link.tsx", 'import { forwardRef } from "react";\nexport default forwardRef<HTMLAnchorElement>(function L(p, ref) { return <a ref={ref} {...p} />; });\n');
   // template-verbatim: tpl-ok.tsx differs only by import path + "use client" (clean); tpl-drift.tsx
   // changed a copy string (flagged); tpl-pkg.tsx swapped a package import (flagged); tpl-listed.tsx
   // drifts but is in the baseline with its current sha256 (allowed); tpl-healed.tsx is in the baseline
@@ -1127,7 +1158,12 @@ async function selfTest() {
   const expected = Object.keys(CHECKS).filter((c) => c !== "theme-token-drift" && c !== "brand-lock");
   const missing = expected.filter((c) => !got.has(c));
   const okPageFlagged = findings.some((f) => f.file === "app/(admin)/ok/page.tsx");
-  if (findings.some((f) => f.check === "server-function-prop" && f.file !== "features/sfp/bars.tsx")) {
+  const sfpRef = findings.find((f) => f.check === "server-function-prop" && f.file === "features/sfp/tabs-row.tsx");
+  if (!sfpRef || !/component=\{ServerLink\}/.test(sfpRef.snippet)) {
+    console.error("design_system_self_test=FAIL server-function-prop did not flag a server-module forwardRef passed as Tab component");
+    process.exit(1);
+  }
+  if (findings.some((f) => f.check === "server-function-prop" && f.file !== "features/sfp/bars.tsx" && f.file !== "features/sfp/tabs-row.tsx")) {
     console.error(`design_system_self_test=FAIL server-function-prop flagged a client-only module: ${findings.filter((f) => f.check === "server-function-prop").map((f) => f.file).join(", ")}`);
     process.exit(1);
   }

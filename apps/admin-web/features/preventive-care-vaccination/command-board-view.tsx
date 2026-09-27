@@ -23,8 +23,7 @@ import Typography from "@mui/material/Typography";
 import { MinimalDrawer } from "@/components/minimal/drawer";
 import { DrawerTableScroll } from "@/components/app/detail-drawer";
 import { InfoHint } from "@/components/app/info-hint";
-import { CourseWidgetSummary } from "@/components/minimal/sections/overview/course/course-widget-summary";
-import { COURSE_WIDGET_ICONS } from "@/lib/minimal-icons";
+import { KpiWidget, type KpiIcon } from "@/components/app/kpi-widget";
 import type { PaletteColorKey } from "@/theme/core";
 import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
@@ -75,6 +74,10 @@ interface AdministeredDateRange {
   min?: string | null;
   max?: string | null;
 }
+
+// KPI tile fills its grid cell; a drill-in tile is a keyboard button with a visible focus ring.
+const KPI_TILE_SX = { height: 1 } as const;
+const KPI_BUTTON_SX = { height: 1, cursor: "pointer", borderRadius: "var(--r-lg)", "&:focus-visible": { outlineStyle: "solid", outlineWidth: 2, outlineColor: "primary.main", outlineOffset: 2 } } as const;
 
 function mergeAdministeredDateRange(
   ranges: Record<string, AdministeredDateRange>,
@@ -840,31 +843,31 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     </Stack>
   );
 
-  // One tile of the KPI deck: template overview/course CourseWidgetSummary. A tile with an action is
-  // a keyboard button (Enter / Space) that drills into the matrix; a zero-count tile stays inert.
-  const kpiTile = (key: string, title: string, total: number, hint: string, color: PaletteColorKey, icon: string, onClick?: () => void) => (
+  // One tile of the KPI deck: the shared KpiWidget adapter (template CourseWidgetSummary) with the
+  // backend explanation as its caption sub-line (REVIEW-6/9: Missed vs Overdue must stay readable).
+  // A tile with an action is a keyboard button (Enter / Space) that drills into the matrix; a
+  // zero-count tile stays inert.
+  const kpiTile = (key: string, title: string, total: number, hint: string, color: PaletteColorKey, icon: KpiIcon, onClick?: () => void) => (
     <Grid key={key} size={{ xs: 12, sm: 6, md: 3 }}>
-      <CourseWidgetSummary
-        title={title}
-        total={total}
-        icon={icon}
-        color={color}
-        aria-description={hint}
-        {...(onClick
-          ? {
-              role: "button",
-              tabIndex: 0,
-              onClick,
-              onKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  onClick();
-                }
-              },
-              sx: { cursor: "pointer", "&:focus-visible": { outlineStyle: "solid", outlineWidth: 2, outlineColor: "primary.main", outlineOffset: 2 } },
+      {onClick ? (
+        <Box
+          role="button"
+          tabIndex={0}
+          aria-label={`${title}: ${total}. ${hint}`}
+          onClick={onClick}
+          onKeyDown={(event: ReactKeyboardEvent<HTMLDivElement>) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              onClick();
             }
-          : {})}
-      />
+          }}
+          sx={KPI_BUTTON_SX}
+        >
+          <KpiWidget title={title} total={total} caption={hint} color={color} icon={icon} sx={KPI_TILE_SX} />
+        </Box>
+      ) : (
+        <KpiWidget title={title} total={total} caption={hint} color={color} icon={icon} sx={KPI_TILE_SX} />
+      )}
     </Grid>
   );
 
@@ -879,23 +882,23 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     </Card>
         {/* KPI deck: template overview/course widget tiles; a click drills into the matrix. */}
         <Grid container spacing={3}>
-          {kpiTile("command_board.kpi.targets", copy(pageContract, "command_board.kpi.targets"), view.kpis.targets, copy(pageContract, "command_board.kpi.targets_dl"), "info", COURSE_WIDGET_ICONS.completed, undefined)}
+          {kpiTile("command_board.kpi.targets", copy(pageContract, "command_board.kpi.targets"), view.kpis.targets, copy(pageContract, "command_board.kpi.targets_dl"), "info", "completed", undefined)}
           {/* Missed sits FIRST, immediately after the roster total and ahead of Verified, because
               it is the one tile that reports a failure rather than progress. It is also the tile
               whose absence made the board wrong: 137 animals holding a missed dose were being
               counted as Verified while Overdue read 0. */}
-          {kpiTile("command_board.kpi.missed", copy(pageContract, "command_board.kpi.missed"), view.kpis.missedNotGiven, copy(pageContract, "command_board.kpi.missed_dl"), "error", COURSE_WIDGET_ICONS.certificates, statusKpiClick("overdue", view.kpis.missedNotGiven))}
-          {kpiTile("command_board.kpi.verified", copy(pageContract, "command_board.kpi.verified"), view.kpis.dosesVerified, copy(pageContract, "command_board.kpi.verified_dl"), "success", COURSE_WIDGET_ICONS.completed, statusKpiClick("verified", view.kpis.dosesVerified))}
-          {kpiTile("command_board.kpi.awaiting_verification", copy(pageContract, "command_board.kpi.awaiting_verification"), view.kpis.awaitingVerification, copy(pageContract, "command_board.kpi.awaiting_dl"), "warning", COURSE_WIDGET_ICONS.progress, statusKpiClick("awaiting", view.kpis.awaitingVerification))}
-          {kpiTile("command_board.kpi.rework_needed", copy(pageContract, "command_board.kpi.rework_needed"), view.kpis.reworkNeeded ?? 0, copy(pageContract, "command_board.kpi.rework_dl"), "secondary", COURSE_WIDGET_ICONS.progress, statusKpiClick("rework", view.kpis.reworkNeeded ?? 0))}
-          {kpiTile("command_board.kpi.overdue", copy(pageContract, "command_board.kpi.overdue"), view.kpis.overdueNotGiven, copy(pageContract, "command_board.kpi.overdue_dl"), "error", COURSE_WIDGET_ICONS.certificates, statusKpiClick("overdue", view.kpis.overdueNotGiven))}
-          {kpiTile("command_board.kpi.scheduled_ahead", copy(pageContract, "command_board.kpi.scheduled_ahead"), view.kpis.scheduledAhead, copy(pageContract, "command_board.kpi.scheduled_dl"), "info", COURSE_WIDGET_ICONS.progress, statusKpiClick("scheduled", view.kpis.scheduledAhead))}
+          {kpiTile("command_board.kpi.missed", copy(pageContract, "command_board.kpi.missed"), view.kpis.missedNotGiven, copy(pageContract, "command_board.kpi.missed_dl"), "error", "certificates", statusKpiClick("overdue", view.kpis.missedNotGiven))}
+          {kpiTile("command_board.kpi.verified", copy(pageContract, "command_board.kpi.verified"), view.kpis.dosesVerified, copy(pageContract, "command_board.kpi.verified_dl"), "success", "completed", statusKpiClick("verified", view.kpis.dosesVerified))}
+          {kpiTile("command_board.kpi.awaiting_verification", copy(pageContract, "command_board.kpi.awaiting_verification"), view.kpis.awaitingVerification, copy(pageContract, "command_board.kpi.awaiting_dl"), "warning", "progress", statusKpiClick("awaiting", view.kpis.awaitingVerification))}
+          {kpiTile("command_board.kpi.rework_needed", copy(pageContract, "command_board.kpi.rework_needed"), view.kpis.reworkNeeded ?? 0, copy(pageContract, "command_board.kpi.rework_dl"), "secondary", "progress", statusKpiClick("rework", view.kpis.reworkNeeded ?? 0))}
+          {kpiTile("command_board.kpi.overdue", copy(pageContract, "command_board.kpi.overdue"), view.kpis.overdueNotGiven, copy(pageContract, "command_board.kpi.overdue_dl"), "error", "certificates", statusKpiClick("overdue", view.kpis.overdueNotGiven))}
+          {kpiTile("command_board.kpi.scheduled_ahead", copy(pageContract, "command_board.kpi.scheduled_ahead"), view.kpis.scheduledAhead, copy(pageContract, "command_board.kpi.scheduled_dl"), "info", "progress", statusKpiClick("scheduled", view.kpis.scheduledAhead))}
           {/* The five buckets are a disjoint, EXHAUSTIVE partition of targets. Rendering only four
               left the tiles summing to less than the total, so a reader could not tell a projection
               bug from animals whose obligations genuinely closed with no dose. The tile is the START
               of the CEO's question: "3 closed with no dose" is followed every time by "which animals".
               Gated on the COUNT, not on the list — the animals are fetched when the drawer opens. */}
-          {kpiTile("command_board.kpi.closed_without_dose", copy(pageContract, "command_board.kpi.closed_without_dose"), view.kpis.closedWithoutDose, copy(pageContract, "command_board.kpi.closed_without_dose_dl"), "info", COURSE_WIDGET_ICONS.certificates, closedWithoutDoseCount > 0 ? openClosedDrawer : undefined)}
+          {kpiTile("command_board.kpi.closed_without_dose", copy(pageContract, "command_board.kpi.closed_without_dose"), view.kpis.closedWithoutDose, copy(pageContract, "command_board.kpi.closed_without_dose_dl"), "info", "certificates", closedWithoutDoseCount > 0 ? openClosedDrawer : undefined)}
         </Grid>
     {/* The matrices: one template Card (`cbm` scopes the heat-cell legend paint only). */}
     <Card className="cbm" sx={{ p: 3, minWidth: 0 }} aria-label={copy(pageContract, "section.command_board.title")}>
