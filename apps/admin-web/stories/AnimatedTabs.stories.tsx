@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import * as React from "react";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import { Baby, Scale, Syringe, Truck } from "lucide-react";
-import { AnimatedTabs, TabPanel } from "@/components/minimal/list/animated-tabs";
+import { TemplateTabs, TabPanel } from "@/components/app/template-tabs";
 import { Canvas, MOBILE, PEN_ROWS, Stack } from "./_data";
 
 const ITEMS = [
@@ -27,7 +27,7 @@ function Demo({ variant }: { variant: "underline" | "pill" }) {
   const [value, setValue] = React.useState("weighing");
   return (
     <Stack title={variant}>
-      <AnimatedTabs items={ITEMS} value={value} onChange={setValue} variant={variant} ariaLabel={`${variant} tabs`} />
+      <TemplateTabs items={ITEMS} value={value} onChange={setValue} variant={variant} ariaLabel={`${variant} tabs`} />
       <TabPanel tabKey={value}>
         <div data-testid={`panel-${variant}`}>{BODY[value]}</div>
       </TabPanel>
@@ -35,7 +35,7 @@ function Demo({ variant }: { variant: "underline" | "pill" }) {
   );
 }
 
-const meta: Meta<typeof AnimatedTabs> = { title: "Kit/AnimatedTabs", component: AnimatedTabs };
+const meta: Meta<typeof TemplateTabs> = { title: "Kit/AnimatedTabs", component: TemplateTabs };
 export default meta;
 type Story = StoryObj<typeof meta>;
 
@@ -49,10 +49,10 @@ export const ManyTabsOverflow: Story = {
     return (
       <Canvas>
         <Stack title="12 tabs — the strip scrolls, the page must not">
-          <AnimatedTabs items={many} value="shed-0" ariaLabel="Pens" />
+          <TemplateTabs items={many} value="shed-0" ariaLabel="Pens" />
         </Stack>
         <Stack title="long labels">
-          <AnimatedTabs
+          <TemplateTabs
             items={[
               { value: "a", label: "Kranji Livestock Supply Cooperative" },
               { value: "b", label: "Lim Chu Kang Goat Breeders Association" },

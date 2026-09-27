@@ -29,7 +29,7 @@ export const URL_CONTROL_PATTERNS = [
   [/\buseUrlSort\(/, "useUrlSort"],
 ];
 /** A tab strip is URL-driven when its items carry hrefs (client-state tabs have none). */
-const TAB_STRIP = /<(?:AnimatedTabs|SegmentTabs)\b/;
+const TAB_STRIP = /<(?:TemplateTabs|SegmentTabs|UrlTabs)\b/;
 const HREF_ITEM = /\bhref\s*:/;
 
 /**
@@ -54,7 +54,7 @@ function stripComments(text) {
 export function urlControlIn(text) {
   const code = stripComments(text);
   for (const [pattern, name] of URL_CONTROL_PATTERNS) if (pattern.test(code)) return name;
-  if (TAB_STRIP.test(code) && HREF_ITEM.test(code)) return "AnimatedTabs/SegmentTabs with hrefs";
+  if (TAB_STRIP.test(code) && HREF_ITEM.test(code)) return "TemplateTabs/SegmentTabs/UrlTabs with hrefs";
   return null;
 }
 

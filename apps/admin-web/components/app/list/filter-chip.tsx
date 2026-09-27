@@ -7,7 +7,7 @@ import Chip from '@mui/material/Chip';
 
 import Link from '@/components/no-prefetch-link';
 
-import { Iconify } from '../iconify';
+import { Iconify } from '@/components/minimal/iconify';
 
 export type FilterChipProps = {
   label: React.ReactNode;
@@ -24,7 +24,7 @@ export type FilterChipProps = {
 };
 
 export function FilterChip({ label, href, on = false, dot, disabled = false, title, replace, removable = false, className }: FilterChipProps) {
-  const icon = dot ? <Box component="span" sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: dot, ml: '8px !important' }} /> : undefined;
+  const icon = dot ? <Box component="span" sx={{ width: 'var(--sp-1)', height: 'var(--sp-1)', borderRadius: '50%', bgcolor: dot, ml: 1 }} /> : undefined;
   if (!href || disabled) {
     return <Chip label={label} icon={icon} disabled={disabled} title={title} aria-disabled={disabled || undefined} variant={on ? 'filled' : 'outlined'} className={className} />;
   }

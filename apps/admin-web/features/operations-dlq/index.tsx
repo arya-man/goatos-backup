@@ -15,7 +15,7 @@ import { Iconify } from "@/components/minimal/iconify";
 import { LinkButton } from "@/components/minimal/link-button";
 import { EmptyContent } from "@/components/minimal/empty-content";
 import { Scrollbar } from "@/components/minimal/scrollbar";
-import { SearchTextField } from "@/components/minimal/list/search-text-field";
+import { SearchTextField } from "@/components/app/list/search-text-field";
 import { TableHeadCustom } from "@/components/minimal/table/table-head-custom";
 import { TablePaginationLinks } from "@/components/minimal/table/table-pagination-links";
 import type { InvoiceAnalyticColor } from "./dlq-analytics";
@@ -25,7 +25,7 @@ import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
 
 import { PageHeader } from "@/components/app/page-header";
-import { AnimatedTabs, TabPanel } from "@/components/minimal/list/animated-tabs";
+import { TemplateTabs, TabPanel } from "@/components/app/template-tabs";
 import { Tag, type Tone } from "@/components/ui-primitives";
 import { copy, optionLabel, optionTone, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { firstAuthRequiredError, listOutboxDLQ, type OutboxDLQMessage, type OutboxDLQStatus } from "@/lib/api/server";
@@ -142,7 +142,7 @@ export async function OperationsDLQPage({
       </UrlSuspense>
 
       <Card data-filter-scope>
-        <AnimatedTabs
+        <TemplateTabs
           value={status}
           ariaLabel={copy(pageContract, "filter.search_label")}
           sx={{ px: { md: 2.5 } }}

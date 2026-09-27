@@ -18,10 +18,10 @@ import IconButton from '@mui/material/IconButton';
 import FormControl from '@mui/material/FormControl';
 import InputAdornment from '@mui/material/InputAdornment';
 
-import { Iconify } from '../iconify';
-import { phoneTapSx } from '../_shared/tap';
-import { CustomPopover } from '../custom-popover';
-import type { IconifyName } from '../iconify';
+import { Iconify } from '@/components/minimal/iconify';
+import { phoneTapSx } from '@/components/minimal/_shared/tap';
+import { CustomPopover } from '@/components/minimal/custom-popover';
+import type { IconifyName } from '@/components/minimal/iconify';
 
 export type ListToolbarAction = { label: string; icon?: IconifyName; onClick: () => void };
 

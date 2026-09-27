@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { PageHeader } from "@/components/app/page-header";
-import { SegmentTabs } from "@/components/minimal/list/segment-tabs";
+import { SegmentTabs } from "@/components/app/list/segment-tabs";
 import Alert from "@mui/material/Alert";
 import { Label } from "@/components/minimal/label";
 import TextField from "@mui/material/TextField";

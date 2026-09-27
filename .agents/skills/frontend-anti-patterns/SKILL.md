@@ -144,7 +144,7 @@ chapters below; do not review from the summary.
   has no router and the browser reloads the whole document, painting the route skeleton on every
   click). GET filter/search forms use `<Form>` from `next/form`, never a native `<form method="get">`.
   URL-driven tab strips navigate through `useUrlTabNav` (`components/app/use-url-tab-nav.ts`,
-  already inside `AnimatedTabs`, `SegmentTabs`, `SegmentedLinks`); programmatic filters / selects /
+  already inside `TemplateTabs` (components/app/template-tabs.tsx), `UrlTabs`, `SegmentTabs` (components/app/list), `SegmentedLinks`); programmatic filters / selects /
   date pickers / sort headers use `useUrlNavigate` (every `router.push/replace` under the shell also
   announces itself through `UrlNavRouter`). `loading.tsx` is for the first entry only.
 - **A tab / filter click never hangs: panels are URL-keyed (guard: `url-keyed-panel` in design:guard,

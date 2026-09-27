@@ -3,7 +3,7 @@
 import { useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Box from "@mui/material/Box";
-import { SearchTextField } from "@/components/minimal/list/search-text-field";
+import { SearchTextField } from "@/components/app/list/search-text-field";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 // Server-side search for the shed-wise vaccination board. Reads the LIVE URL via useSearchParams and

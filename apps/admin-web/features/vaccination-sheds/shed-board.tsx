@@ -27,7 +27,7 @@ import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { fmtDate } from "@/lib/format";
 import { VaccinationTablePager, type VaccinationPageSize } from "@/features/preventive-care-vaccination";
 import { InfoHint } from "@/components/app/info-hint";
-import { AnimatedTabs, TabPanel } from "@/components/minimal/list/animated-tabs";
+import { TemplateTabs, TabPanel } from "@/components/app/template-tabs";
 import { IdentityCell } from "@/components/data-table";
 import { ShedFilterBar } from "./shed-filter-bar";
 import { UrlSuspense } from "@/components/app/url-suspense";
@@ -205,7 +205,7 @@ export async function VaccinationShedBoard({
 
       {/* Status filter (merged CEO headline). Server-side via ?sheds_status. */}
       <div style={{ padding: "0 14px 8px" }}>
-        <AnimatedTabs
+        <TemplateTabs
           variant="pill"
           ariaLabel={copy(pageContract, "label.all_status")}
           value={statusFilter || "all"}
@@ -223,7 +223,7 @@ export async function VaccinationShedBoard({
 
       {/* Capacity filter (All / Within cap / Split / Capacity action). Server-side via ?sheds_capacity. */}
       <div style={{ padding: "0 14px 10px" }}>
-        <AnimatedTabs
+        <TemplateTabs
           variant="pill"
           ariaLabel={copy(pageContract, "label.all_capacity")}
           value={capacityFilter || "all"}

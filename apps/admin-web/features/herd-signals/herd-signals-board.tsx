@@ -7,7 +7,7 @@ import type { ReactNode } from "react";
 import Link from "@/components/no-prefetch-link";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
-import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { TemplateTabs } from "@/components/app/template-tabs";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { RouteSearchParams } from "@/lib/search-params";
 import {
@@ -230,7 +230,7 @@ export async function HerdSignalsBoard({
           }
           tabs={
             <>
-            <AnimatedTabs
+            <TemplateTabs
               ariaLabel="Herd Signals views"
               countTone="brand"
               value={params.tab}

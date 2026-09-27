@@ -2,7 +2,7 @@ import { listOrEmpty } from "@/lib/list-or-empty";
 import { redirect } from "next/navigation";
 
 import { PageHeader } from "@/components/app/page-header";
-import { SegmentTabs } from "@/components/minimal/list/segment-tabs";
+import { SegmentTabs } from "@/components/app/list/segment-tabs";
 import { controlEnabled, copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError } from "@/lib/api/server";

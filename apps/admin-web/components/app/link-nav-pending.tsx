@@ -14,7 +14,7 @@ function navKeyOf(pathname: string | null, search: string): string {
 }
 
 /**
- * Page-level feedback for every URL-driven strip (kit `AnimatedTabs` with hrefs, `SegmentedLinks`).
+ * Page-level feedback for every URL-driven strip (kit `TemplateTabs` with hrefs, `SegmentedLinks`).
  *
  * Those strips navigate in a transition (`useUrlTabNav`): the router keeps the current page on
  * screen until the new one is ready. The strip moves its indicator at once and shows its progress

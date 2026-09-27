@@ -16,7 +16,7 @@ import { Iconify } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { LinkButton } from "@/components/minimal/link-button";
 import { EmptyContent } from "@/components/minimal/empty-content";
-import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { TemplateTabs } from "@/components/app/template-tabs";
 import { TableHeadCustom } from "@/components/minimal/table/table-head-custom";
 import { OrderTableToolbar } from "@/components/minimal/sections/order/order-table-toolbar";
 import { OrderDetailsHistory, type OrderHistoryItem, type OrderHistoryTone } from "@/components/minimal/sections/order/order-details-history";
@@ -228,7 +228,7 @@ export async function VaccinationWorkflowsPage({
             toolbar (visible-row search + Filters drawer), the Scrollbar table, the pager footer. */}
         <Grid size={{ xs: 12, lg: 8 }}>
           <Card className="wfcat" id="wfcat" data-filter-scope>
-            <AnimatedTabs
+            <TemplateTabs
               ariaLabel={copy(pageContract, "filter.domains.aria")}
               value="all"
               sx={{ px: { md: 2.5 } }}

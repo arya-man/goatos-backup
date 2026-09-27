@@ -16,7 +16,7 @@ import { Label } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { ConfirmDialog } from "@/components/minimal/custom-dialog";
-import { LabelTabs, ListToolbar } from "@/components/minimal/list";
+import { LabelTabs, ListToolbar } from "@/components/app/list";
 import { chipProps, FiltersBlock, FiltersResult } from "@/components/minimal/filters-result";
 import {
   useTable,

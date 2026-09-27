@@ -8,7 +8,7 @@ import { PageHeader } from "@/components/app/page-header";
 import { CourseWidgetSummary } from "@/components/minimal/sections/overview/course/course-widget-summary";
 import { COURSE_WIDGET_ICONS } from "@/lib/minimal-icons";
 import { TablePaginationLinks } from "@/components/minimal/table";
-import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { TemplateTabs } from "@/components/app/template-tabs";
 
 import { LinkSelect } from "@/components/app/link-select";
 import {
@@ -150,7 +150,7 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
             </UrlSuspense>
           )}
           tabs={
-            <AnimatedTabs
+            <TemplateTabs
               ariaLabel="Request type"
               value={typeFilter}
               sx={{ px: { md: 2.5 } }}

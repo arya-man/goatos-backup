@@ -8,7 +8,7 @@ import TableCell from "@mui/material/TableCell";
 import { EmptyState } from "@/components/app/empty-state";
 import { KpiGrid } from "@/components/app/kpi-grid";
 import { KpiWidget } from "@/components/app/kpi-widget";
-import { SegmentTabs } from "@/components/minimal/list/segment-tabs";
+import { SegmentTabs } from "@/components/app/list/segment-tabs";
 import { redirect } from "next/navigation";
 
 import Link from "@/components/no-prefetch-link";

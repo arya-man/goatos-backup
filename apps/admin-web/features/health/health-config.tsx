@@ -8,7 +8,7 @@ import { redirect } from "next/navigation";
 import Link from "@/components/no-prefetch-link";
 import Form from "next/form";
 import Box from "@mui/material/Box";
-import { SearchTextField } from "@/components/minimal/list/search-text-field";
+import { SearchTextField } from "@/components/app/list/search-text-field";
 
 import { copy, optionalCopy, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { controlEnabled, control } from "@/lib/admin-ui-contract";

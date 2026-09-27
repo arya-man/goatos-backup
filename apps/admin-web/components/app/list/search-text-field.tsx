@@ -8,7 +8,7 @@ import type { Theme, SxProps } from '@mui/material/styles';
 import TextField from '@mui/material/TextField';
 import InputAdornment from '@mui/material/InputAdornment';
 
-import { Iconify } from '../iconify';
+import { Iconify } from '@/components/minimal/iconify';
 
 export type SearchTextFieldProps = {
   name?: string;

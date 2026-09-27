@@ -48,7 +48,7 @@ import {
 import { cx } from "@/lib/tone";
 import { IconBadge } from "@/components/app/icon-badge";
 import { NotificationRowsSkeleton } from "./notification-skeleton";
-import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { TemplateTabs } from "@/components/app/template-tabs";
 import { formatNotificationTime, type NotificationCentreCopy } from "./notification-copy";
 import { notificationKind, notificationTabCounts, relativeNotificationTime, type NotificationIconName, type NotificationTab } from "./notification-kind";
 import {
@@ -196,7 +196,7 @@ export function NotificationPanel({
       ) : null}
 
       <div className="nc-tabs-wrap">
-        <AnimatedTabs
+        <TemplateTabs
           variant="pill"
           className="nc-tabs"
           ariaLabel={centreCopy.title}

@@ -19,7 +19,7 @@ import Alert from "@mui/material/Alert";
 import { PageHeader } from "@/components/app/page-header";
 import Card from "@mui/material/Card";
 import Typography from "@mui/material/Typography";
-import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { TemplateTabs } from "@/components/app/template-tabs";
 import { TablePaginationLinks } from "@/components/minimal/table";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { TableSkeleton } from "@/components/app/skeletons";
@@ -49,7 +49,7 @@ export function ToxinReviewScreen({
       {/* Template list card (InvoiceListView): the Tabs row carries the way back to the verification
           queue and the active Toxin tab, then the table and the pagination footer. */}
       <Card className="vr-board" aria-label={copy(pageContract, "board.title")} sx={{ minWidth: 0 }}>
-        <AnimatedTabs
+        <TemplateTabs
           ariaLabel={toxinLabel}
           value="toxin"
           sx={{ px: { md: 2.5 } }}

@@ -29,7 +29,7 @@ import { PageHeader } from "@/components/app/page-header";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import { KanbanSkeleton, TableSkeleton } from "@/components/app/skeletons";
-import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { TemplateTabs } from "@/components/app/template-tabs";
 import { RetryButton } from "@/components/app/retry-button";
 import { NewTaskModal } from "./new-task-modal";
 // The New task / Edit task dialog fields (`.lt-modal .fld` label anatomy) still read this sheet.
@@ -381,9 +381,9 @@ export function LeadershipTasksPage({
 
       <Box sx={{ mb: { xs: 3, md: 5 }, gap: 2, display: "flex", alignItems: "center", justifyContent: "space-between", minWidth: 0 }}>
         {scopes.length ? (
-          // The template Tabs through AnimatedTabs (useUrlTabNav): the pressed scope is selected in
+          // The template Tabs through TemplateTabs (useUrlTabNav): the pressed scope is selected in
           // the same frame and the task panels below swap to their skeleton (guard: url-keyed-panel).
-          <AnimatedTabs
+          <TemplateTabs
             value={scopeKey}
             scrollButtons="auto"
             ariaLabel={copy(pageContract, "scope.aria")}

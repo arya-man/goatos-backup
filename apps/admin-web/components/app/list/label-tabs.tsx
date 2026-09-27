@@ -3,15 +3,15 @@
 // Copied from the licensed MUI Minimal template (sections/user/view/user-list-view.tsx status tabs):
 // a Tabs strip where each tab carries a count Label.
 import type { TabsProps } from '@mui/material/Tabs';
-import type { LabelColor } from '../label';
+import type { LabelColor } from '@/components/minimal/label';
 
 import { varAlpha } from 'minimal-shared/utils';
 
 import Tab from '@mui/material/Tab';
 import Tabs from '@mui/material/Tabs';
 
-import { Label } from '../label';
-import { TAP_MIN } from '../_shared/tap';
+import { Label } from '@/components/minimal/label';
+import { TAP_MIN } from '@/components/minimal/_shared/tap';
 
 export type LabelTabItem<V extends string = string> = {
   value: V;

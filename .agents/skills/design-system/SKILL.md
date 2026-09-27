@@ -5,7 +5,7 @@ description: >-
   page or feature, a route, table, chart, KPI card, filter bar, drawer, dialog, skeleton, tab
   strip, sidebar item, or the theme CSS — and when reviewing one. Holds the admin-web redesign
   contract: the locked Mesha palette and fonts, the page frame (PageShell/PageHeader), the kit
-  components every screen is built from (Card/TableCard/BarList/KpiWidget/Skeleton/AnimatedTabs/
+  components every screen is built from (Card/TableCard/BarList/KpiWidget/Skeleton/TemplateTabs/
   FilterBar/Overlay), the motion constants, the banned patterns, and the exact guard commands
   that must be green before a push. Machine backing: `npm run design:guard` (static),
   `npm run visual:stories` and `npm run visual:routes` (Storybook + route visual regression with
@@ -121,7 +121,7 @@ cannot bleed to the edges and matches the final layout's shape.
 StatusChip, portaled RowMenu, `TableFooter`, horizontal overflow scrolls inside the card) ·
 `BarList` (label · track · value, grows from zero, centred axis for negatives, shared tooltip) ·
 `KpiWidget` (components/app adapter over the verbatim template Course/Ecommerce widget summary; figure + visible sub-line) ·
-`AnimatedTabs` (one strip everywhere, count badges, scrolls with fade, never wraps) ·
+`TemplateTabs` (components/app adapter: template list Tabs + Label counts, useUrlTabNav; TabPanel = MUI Stack, no crossfade) ·
 `FilterBar` (search · kit `SelectField`/`DateRangeField` · actions · summary) ·
 MUI `Dialog` (DialogTitle/Content/Actions) / `Drawer` (components/minimal/drawer) / template `CustomPopover` + `MenuList` (row actions: `components/app/row-menu`) ·
 `components/app/skeletons` blocks (the only loading shapes; guard `hand-drawn-skeleton`). Charts: draw-in, floating tooltip card, rounded
@@ -181,7 +181,7 @@ Neutrals are the MUI Minimal TEMPLATE's (Ravi 2026-09-27): grey scale `--grey-50
   has no router and the browser reloads the whole document, painting the route skeleton on every
   click). GET filter/search forms use `<Form>` from `next/form`, never a native `<form method="get">`.
   URL-driven tab strips navigate through `useUrlTabNav` (`components/app/use-url-tab-nav.ts`,
-  already inside `AnimatedTabs`, `SegmentTabs`, `SegmentedLinks`); programmatic filters / selects /
+  already inside `TemplateTabs` (components/app/template-tabs.tsx), `UrlTabs`, `SegmentTabs` (components/app/list), `SegmentedLinks`); programmatic filters / selects /
   date pickers / sort headers use `useUrlNavigate` (every `router.push/replace` under the shell also
   announces itself through `UrlNavRouter`). `loading.tsx` is for the first entry only.
 - **A tab / filter click never hangs: panels are URL-keyed (guard: `url-keyed-panel` in design:guard,

@@ -11,7 +11,7 @@ import MuiTextField from "@mui/material/TextField";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import Button from "@mui/material/Button";
 import Card from "@mui/material/Card";
-import { AnimatedTabs, TabPanel } from "@/components/minimal/list/animated-tabs";
+import { TemplateTabs, TabPanel } from "@/components/app/template-tabs";
 import Box from "@mui/material/Box";
 import { EditorHeader, InlineSelect, StickyActions, StudioViewToggle } from "./editor-chrome";
 import {
@@ -227,7 +227,7 @@ export function FollowUpEditor({
       {/* One track at a time: the strip selects which track's steps are open below. */}
       {rows.tracks.length > 1 ? (
         <div style={{ marginBottom: 14 }}>
-          <AnimatedTabs
+          <TemplateTabs
             variant="pill"
             ariaLabel={copy(pc, "followup.track")}
             value={openTrack}

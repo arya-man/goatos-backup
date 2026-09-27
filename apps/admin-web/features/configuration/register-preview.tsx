@@ -19,7 +19,7 @@ import { EmptyState } from "@/components/app/empty-state";
 import { Label } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
-import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { TemplateTabs } from "@/components/app/template-tabs";
 import { TableHeadCustom, TablePaginationLinks } from "@/components/minimal/table";
 import { OrderTableToolbar } from "@/components/minimal/sections/order/order-table-toolbar";
 import { MailNavItem } from "@/components/minimal/sections/mail/mail-nav-item";
@@ -96,7 +96,7 @@ export function RegisterPreview({
                 </Button>
               }
             />
-            <AnimatedTabs
+            <TemplateTabs
               ariaLabel={c("column.status")}
               value={status}
               sx={{ px: { md: 2.5 }, mt: 1 }}

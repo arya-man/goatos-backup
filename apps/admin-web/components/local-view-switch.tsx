@@ -12,7 +12,7 @@
 // It renders NO copy of its own: labels arrive already resolved from the page contract.
 import { useEffect, useState, type ReactNode } from "react";
 import { replaceLocalOverlayUrl } from "@/components/local-overlay-link";
-import { SegmentTabs } from "@/components/minimal/list/segment-tabs";
+import { SegmentTabs } from "@/components/app/list/segment-tabs";
 
 const CHANGE_EVENT = "mesha:local-view-change";
 

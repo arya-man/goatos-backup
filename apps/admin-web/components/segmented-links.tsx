@@ -14,7 +14,7 @@
 //
 // It renders NO copy of its own: labels arrive already resolved from the page contract.
 import { useEffect, useRef } from "react";
-import { SegmentTabs } from "@/components/minimal/list/segment-tabs";
+import { SegmentTabs } from "@/components/app/list/segment-tabs";
 import { shownTabValue } from "@/components/app/url-tab-nav";
 import { useUrlTabNav } from "@/components/app/use-url-tab-nav";
 

@@ -23,7 +23,7 @@ import { Iconify } from "@/components/minimal/iconify";
 import { LinkButton } from "@/components/minimal/link-button";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { EmptyContent } from "@/components/minimal/empty-content";
-import { SearchTextField } from "@/components/minimal/list/search-text-field";
+import { SearchTextField } from "@/components/app/list/search-text-field";
 import { TableHeadCustom } from "@/components/minimal/table/table-head-custom";
 import { TablePaginationLinks } from "@/components/minimal/table/table-pagination-links";
 import { OrderTableToolbar } from "@/components/minimal/sections/order/order-table-toolbar";
@@ -48,8 +48,8 @@ import {
 
 import { Tag, type Tone } from "@/components/ui-primitives";
 import { PageHeader } from "@/components/app/page-header";
-import { TabPanel } from "@/components/minimal/list/animated-tabs";
-import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { TabPanel } from "@/components/app/template-tabs";
+import { TemplateTabs } from "@/components/app/template-tabs";
 import {
   firstAuthRequiredError,
   getOperationsAuditSummary,
@@ -214,7 +214,7 @@ export async function OperationsAuditPage({
       {/* Template order list card: status Tabs with Label counts, the toolbar (operation family +
           search + Anomalies only), the filters result, the Scrollbar table and the pager footer. */}
       <Card>
-        <AnimatedTabs
+        <TemplateTabs
           ariaLabel={copy(pageContract, "filter.search_label")}
           value={activeStatusTab.key}
           sx={{ px: { md: 2.5 } }}

@@ -21,7 +21,7 @@ import { Iconify } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { TableHeadCustom } from "@/components/minimal/table/table-head-custom";
 import { UserTableRow } from "@/components/minimal/sections/user/user-table-row";
-import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { TemplateTabs } from "@/components/app/template-tabs";
 import { TablePaginationLinks } from "@/components/minimal/table/table-pagination-links";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
@@ -146,7 +146,7 @@ export async function PeopleBoard({
           counts → toolbar → TableHeadCustom table of UserTableRow → TablePagination. The Add person
           action sits in the page breadcrumbs row (PeoplePage), as the template's "Add user". */}
       <Card>
-        <AnimatedTabs
+        <TemplateTabs
           scrollButtons="auto"
           sx={{ px: { md: 2.5 } }}
           ariaLabel={copy(pageContract, "filter.status")}

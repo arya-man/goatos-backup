@@ -5,7 +5,7 @@ import { FilterCardSkeleton, TableSkeleton, TabsSkeleton } from "@/components/ap
 import { controlEnabled, copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { PageHeader } from "@/components/app/page-header";
-import { AnimatedTabs, TabPanel } from "@/components/minimal/list/animated-tabs";
+import { TemplateTabs, TabPanel } from "@/components/app/template-tabs";
 import { PeopleBoard } from "./people-board";
 import { PeopleAddButton } from "./people-add-button";
 import { ClockScreen } from "./clock-screen";
@@ -72,7 +72,7 @@ export async function PeoplePage({
         />
       </div>
 
-      <AnimatedTabs
+      <TemplateTabs
         ariaLabel={pageContract.title}
         value={active}
         items={tabs.map((tab) => ({

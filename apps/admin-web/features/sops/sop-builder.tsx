@@ -15,7 +15,7 @@ import Typography from "@mui/material/Typography";
 import { Iconify } from "@/components/minimal/iconify";
 import Box from "@mui/material/Box";
 import type { Theme } from "@mui/material/styles";
-import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { TemplateTabs } from "@/components/app/template-tabs";
 import { EditorHeader, FieldRow, FieldSelect } from "./editor-chrome";
 import {
   buildFormDsl,
@@ -318,7 +318,7 @@ export function SopBuilder({
               </div>
               <div className="fld" style={{ marginBottom: 0 }}>
                 <label>{copy(pc, "modal.builder.field.trigger")}</label>
-                <AnimatedTabs
+                <TemplateTabs
                   variant="pill"
                   ariaLabel={copy(pc, "modal.builder.field.trigger")}
                   value={trigger}

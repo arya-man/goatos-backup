@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { FilterChip } from "@/components/minimal/list/filter-chip";
+import { FilterChip } from "@/components/app/list/filter-chip";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { PanelSkeleton } from "@/components/app/panel-skeleton";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
@@ -26,7 +26,7 @@ import AlertTitle from "@mui/material/AlertTitle";
 import { EmptyContent } from "@/components/minimal/empty-content";
 import { KpiWidget, sevenDayPercent } from "@/components/app/kpi-widget";
 import { FeedMixCard } from "./feed-mix-card";
-import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { TemplateTabs } from "@/components/app/template-tabs";
 
 import { copy, optionGroup, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
@@ -573,11 +573,11 @@ export async function FeedAnalyticsPage({
         <>
           <Stack spacing={2}>
             {/* URL-driven tabs: each tab is a distinct server read, so the segment is a real link
-                (AnimatedTabs' `href` mode) rather than client state. The sliding underline and the
+                (TemplateTabs' `href` mode) rather than client state. The sliding underline and the
                 count chip are the kit's; the count is shown only for the tab whose payload this
                 render actually fetched — the others are not read on this request, and a badge
                 invented for them would be a number nobody measured. */}
-            <AnimatedTabs
+            <TemplateTabs
               value={tab}
               ariaLabel={fa(pageContract, "range.aria")}
               items={allowedTabs.map((t) => ({

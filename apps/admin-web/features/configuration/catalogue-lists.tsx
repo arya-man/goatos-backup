@@ -11,7 +11,7 @@ import InputAdornment from "@mui/material/InputAdornment";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 
-import { SegmentTabs } from "@/components/minimal/list/segment-tabs";
+import { SegmentTabs } from "@/components/app/list/segment-tabs";
 import { Label } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
 import { LocalOverlayLink } from "@/components/local-overlay-link";

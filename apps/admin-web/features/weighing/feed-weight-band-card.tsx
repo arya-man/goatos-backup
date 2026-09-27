@@ -1,6 +1,6 @@
 "use client";
 
-import { SearchTextField } from "@/components/minimal/list/search-text-field";
+import { SearchTextField } from "@/components/app/list/search-text-field";
 import { useEffect, useMemo, useState } from "react";
 
 import Button from "@mui/material/Button";
@@ -13,7 +13,7 @@ import { Iconify } from "@/components/minimal/iconify";
 import { TableFooter } from "@/components/app/table-footer";
 import { KpiGrid } from "@/components/app/kpi-grid";
 import { KpiWidget } from "@/components/app/kpi-widget";
-import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { TemplateTabs } from "@/components/app/template-tabs";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
@@ -388,7 +388,7 @@ export function FeedWeightBandCard({
         sx={{ mb: 2 }}
       />
       <Box sx={{ px: 2.5, pb: 1, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 2 }}>
-        <AnimatedTabs
+        <TemplateTabs
           variant="pill"
           ariaLabel={copy(pageContract, "view.feed_band.aria")}
           value={view}
@@ -403,7 +403,7 @@ export function FeedWeightBandCard({
             <Typography component="span" variant="body2" sx={{ color: "text.secondary" }}>
               {copy(pageContract, "filter.feed_band.animals")}
             </Typography>
-            <AnimatedTabs
+            <TemplateTabs
               variant="pill"
               ariaLabel={copy(pageContract, "filter.feed_band.animals")}
               value={includeExited ? "all" : "on_farm"}

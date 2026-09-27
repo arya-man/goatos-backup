@@ -19,7 +19,7 @@ import CardHeader from "@mui/material/CardHeader";
 import Typography from "@mui/material/Typography";
 import InputAdornment from "@mui/material/InputAdornment";
 import { TAP_MIN } from "@/components/minimal/_shared/tap";
-import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { TemplateTabs } from "@/components/app/template-tabs";
 import { Label, type LabelColor } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
@@ -590,7 +590,7 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
                 </Alert>
               ) : null}
 
-              <AnimatedTabs
+              <TemplateTabs
                 ariaLabel={c("column.status")}
                 value={params.status}
                 sx={{ px: { md: 2.5 }, mt: 1 }}
@@ -604,7 +604,7 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
 
               {isCatalogue && selectedRoot ? (
                 <Box aria-label={c("lists.sublists")} sx={{ px: 2.5, pt: 2, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 1 }}>
-                  <AnimatedTabs
+                  <TemplateTabs
                     variant="pill"
                     ariaLabel={c("lists.sublists")}
                     value={params.filters.category_id ?? ""}

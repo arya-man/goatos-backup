@@ -2,7 +2,7 @@ import { Label } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
 import { InfoTip } from "@/components/app/info-tip";
 import { LinkButton } from "@/components/minimal/link-button";
-import { FilterChip } from "@/components/minimal/list/filter-chip";
+import { FilterChip } from "@/components/app/list/filter-chip";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { TableHeadCustom } from "@/components/minimal/table/table-head-custom";
 import { CourseWidgetSummary } from "@/components/minimal/sections/overview/course/course-widget-summary";
@@ -20,7 +20,7 @@ import Alert from "@mui/material/Alert";
 import Link from "@/components/no-prefetch-link";
 import { redirect } from "next/navigation";
 import { PageHeader, type PageCrumb } from "@/components/app/page-header";
-import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { TemplateTabs } from "@/components/app/template-tabs";
 import { COURSE_WIDGET_ICONS } from "@/lib/minimal-icons";
 import type { PaletteColorKey } from "@/theme/core";
 import { getVaccinationActionCenter, getVaccinationVerificationQueue } from "@/lib/api/server";
@@ -271,7 +271,7 @@ export async function VaccinationActionCenterPage({
       ) : null}
 
       {/* View switch — Status board vs the SOP/verification queue. */}
-      <AnimatedTabs
+      <TemplateTabs
         ariaLabel={copy(pageContract, "view.status_board")}
         value={view}
         items={[

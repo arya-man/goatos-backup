@@ -19,7 +19,7 @@ import { LoadComparisonTab } from "./load-comparison-tab";
 import { WeightsExportControl, type WeightsExportShed } from "./weights-export";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
-import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { TemplateTabs } from "@/components/app/template-tabs";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { PanelSkeleton } from "@/components/app/panel-skeleton";
@@ -503,7 +503,7 @@ export async function WeighingWeightsAnalyticsPage({
           />
         }
         tabs={
-          <AnimatedTabs
+          <TemplateTabs
             ariaLabel={copy(pageContract, "tab.aria")}
             value={tab}
             items={TABS.map((name) => ({

@@ -40,7 +40,7 @@ import { publishPcCareVersion, savePcCareVersion, type PcCareSaveResult } from "
 import Checkbox from "@mui/material/Checkbox";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import Alert from "@mui/material/Alert";
-import { SegmentTabs } from "@/components/minimal/list/segment-tabs";
+import { SegmentTabs } from "@/components/app/list/segment-tabs";
 
 type Props = {
   pageContract: AdminUiPageContract;

@@ -17,7 +17,7 @@ import { TableHeadCustom } from "@/components/minimal/table";
 import { OrderTableToolbar } from "@/components/minimal/sections/order/order-table-toolbar";
 import { JobItem } from "@/components/minimal/sections/job/job-item";
 import { JobList } from "@/components/minimal/sections/job/job-list";
-import { SegmentTabs } from "@/components/minimal/list/segment-tabs";
+import { SegmentTabs } from "@/components/app/list/segment-tabs";
 import { UrlTabs } from "@/components/app/url-tabs";
 import { AnimalPurchaseRecordedRange } from "./animal-purchase-recorded-range";
 import type { ReactNode } from "react";

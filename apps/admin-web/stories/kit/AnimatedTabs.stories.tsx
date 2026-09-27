@@ -6,32 +6,32 @@ import { expect, userEvent, waitFor, within } from "storybook/test";
 import { Activity, Scale, Syringe, Truck, Users } from "lucide-react";
 import { TrendChart } from "@/components/app/trend-chart";
 import { TableSkeleton } from "@/components/app/skeletons";
-import { AnimatedTabs, TabPanel, type AnimatedTabItem } from "@/components/minimal/list/animated-tabs";
+import { TemplateTabs, TabPanel, type TemplateTabItem } from "@/components/app/template-tabs";
 import { Frame, Labelled, mobile } from "../_fixtures/frame";
 import { adgWeeks, gPerDay, penRows, vendorLoads } from "../_fixtures/goatos";
 
-const baseItems: AnimatedTabItem[] = [
+const baseItems: TemplateTabItem[] = [
   { value: "overview", label: "Overview" },
   { value: "weighing", label: "Weighing" },
   { value: "health", label: "Health" },
   { value: "procurement", label: "Procurement" },
 ];
 
-const countItems: AnimatedTabItem[] = [
+const countItems: TemplateTabItem[] = [
   { value: "due", label: "Due today", count: 128, icon: <Syringe size={16} /> },
   { value: "overdue", label: "Overdue", count: 14, icon: <Activity size={16} /> },
   { value: "done", label: "Done", count: "1,204", icon: <Scale size={16} /> },
   { value: "loads", label: "Loads in", count: 0, icon: <Truck size={16} /> },
 ];
 
-function Tabs({ items = baseItems, variant = "underline", start = items[0]?.value }: { items?: AnimatedTabItem[]; variant?: "underline" | "pill"; start?: string }) {
+function Tabs({ items = baseItems, variant = "underline", start = items[0]?.value }: { items?: TemplateTabItem[]; variant?: "underline" | "pill"; start?: string }) {
   const [value, setValue] = React.useState(start ?? items[0].value);
-  return <AnimatedTabs items={items} value={value} onChange={setValue} variant={variant} ariaLabel="Herd sections" />;
+  return <TemplateTabs items={items} value={value} onChange={setValue} variant={variant} ariaLabel="Herd sections" />;
 }
 
-const meta: Meta<typeof AnimatedTabs> = {
+const meta: Meta<typeof TemplateTabs> = {
   title: "Kit/Tabs/AnimatedTabs",
-  component: AnimatedTabs,
+  component: TemplateTabs,
   parameters: { layout: "fullscreen", dualTheme: { height: 520 } },
   decorators: [
     (Story) => (
@@ -42,7 +42,7 @@ const meta: Meta<typeof AnimatedTabs> = {
   ],
 };
 export default meta;
-type Story = StoryObj<typeof AnimatedTabs>;
+type Story = StoryObj<typeof TemplateTabs>;
 
 export const Underline: Story = { render: () => <Tabs /> };
 export const Pill: Story = { render: () => <Tabs variant="pill" /> };
@@ -119,7 +119,7 @@ function Panels({ loading = false, empty = false }: { loading?: boolean; empty?:
   const [value, setValue] = React.useState("overview");
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      <AnimatedTabs items={countItemsForPanels} value={value} onChange={setValue} ariaLabel="Herd sections" />
+      <TemplateTabs items={countItemsForPanels} value={value} onChange={setValue} ariaLabel="Herd sections" />
       <TabPanel tabKey={value}>
         {loading ? (
           <TableSkeleton columns={4} rows={5} pager={false} />
@@ -175,7 +175,7 @@ function Panels({ loading = false, empty = false }: { loading?: boolean; empty?:
   );
 }
 
-const countItemsForPanels: AnimatedTabItem[] = [
+const countItemsForPanels: TemplateTabItem[] = [
   { value: "overview", label: "Overview" },
   { value: "weighing", label: "Weighing", count: 3 },
   { value: "health", label: "Health", count: 9 },

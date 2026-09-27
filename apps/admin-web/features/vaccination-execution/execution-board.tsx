@@ -18,7 +18,7 @@ import {
   WORK_STATE_ORDER,
 } from "./work-state";
 import { ClipText, Tag, type Tone } from "@/components/ui-primitives";
-import { AnimatedTabs, TabPanel } from "@/components/minimal/list/animated-tabs";
+import { TemplateTabs, TabPanel } from "@/components/app/template-tabs";
 import { fmtDate } from "@/lib/format";
 import { operationalLocationLabel } from "@/lib/operational-location";
 import {
@@ -348,7 +348,7 @@ export async function VaccinationExecutionBoard({
 
       {/* Severity filter — animated pill tabs (sliding indicator, URL-driven). */}
       <div style={{ marginBottom: 10 }}>
-      <AnimatedTabs
+      <TemplateTabs
         variant="pill"
         ariaLabel={copy(pageContract, "label.all_severity")}
         value={severityFilter}
@@ -367,7 +367,7 @@ export async function VaccinationExecutionBoard({
       {/* Work-state filter board (most-broken first). Server-side filter: always render every state as
           navigation (so selecting one never collapses the board), count only in the unfiltered view. */}
       <div style={{ marginBottom: 10 }}>
-      <AnimatedTabs
+      <TemplateTabs
         variant="pill"
         ariaLabel={copy(pageContract, "label.all_states")}
         value={stateFilter}

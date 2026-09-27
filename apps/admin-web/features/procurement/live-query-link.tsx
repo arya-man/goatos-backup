@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 import { useSyncExternalStore } from "react";
 
 import Link from "@/components/no-prefetch-link";
-import { SegmentTabs } from "@/components/minimal/list/segment-tabs";
+import { SegmentTabs } from "@/components/app/list/segment-tabs";
 import { LOCAL_OVERLAY_URL_CHANGE_EVENT } from "@/components/local-overlay-link";
 import { liveQueryHref } from "./sales-park-scope";
 

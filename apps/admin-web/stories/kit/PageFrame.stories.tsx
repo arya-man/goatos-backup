@@ -9,7 +9,7 @@ import { KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton, TableSkeleton } from 
 import { PageHeader } from "@/components/app/page-header";
 import { KpiGrid } from "@/components/app/kpi-grid";
 import { KpiWidget } from "@/components/app/kpi-widget";
-import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { TemplateTabs } from "@/components/app/template-tabs";
 import { Download } from "lucide-react";
 import { MOBILE } from "../_data";
 
@@ -50,7 +50,7 @@ const breedMix = [
 function TabsDemo() {
   const [value, setValue] = React.useState("summary");
   return (
-    <AnimatedTabs
+    <TemplateTabs
       ariaLabel="Herd analytics sections"
       value={value}
       onChange={setValue}

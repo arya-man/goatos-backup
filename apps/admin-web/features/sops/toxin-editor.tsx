@@ -28,7 +28,7 @@ import { blankToxinStep, emitToxin, toxinProblems, type ToxinRows, type ToxinSte
 import { ToxinFlow, toxinStepSummaryLine, waitWords, type ToxinInsert } from "./toxin-flow";
 import { publishToxinVersion, saveToxinVersion, type ToxinSaveResult } from "./sop-actions";
 import Alert from "@mui/material/Alert";
-import { SegmentTabs } from "@/components/minimal/list/segment-tabs";
+import { SegmentTabs } from "@/components/app/list/segment-tabs";
 import { EditorHeader, InlineSelect, inspectionEditorSx } from "./editor-chrome";
 
 type Props = {

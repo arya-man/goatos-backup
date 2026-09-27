@@ -10,7 +10,7 @@ import CardHeader from "@mui/material/CardHeader";
 import Button from "@mui/material/Button";
 import { TrendChart } from "@/components/app/trend-chart";
 import { RowMenu } from "@/components/app/row-menu";
-import { AnimatedTabs, TabPanel } from "@/components/minimal/list/animated-tabs";
+import { TemplateTabs, TabPanel } from "@/components/app/template-tabs";
 import { Canvas, PEN_ROWS } from "../_data";
 
 /**
@@ -46,7 +46,7 @@ function TabsDemo() {
   const [value, setValue] = React.useState("summary");
   return (
     <Card sx={{ p: { xs: 2, sm: 3 } }}>
-      <AnimatedTabs items={tabItems} value={value} onChange={setValue} ariaLabel="Herd sections" />
+      <TemplateTabs items={tabItems} value={value} onChange={setValue} ariaLabel="Herd sections" />
       <TabPanel tabKey={value}>
         <div style={{ padding: "16px 0", minHeight: 120 }}>
           <CardHeader sx={{ p: 0, mb: 2 }} title={tabItems.find((t) => t.value === value)?.label ?? ""} />

@@ -61,7 +61,7 @@ import Avatar from "@mui/material/Avatar";
 import Badge from "@mui/material/Badge";
 import Button from "@mui/material/Button";
 import Divider from "@mui/material/Divider";
-import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { TemplateTabs } from "@/components/app/template-tabs";
 import { Iconify, type IconifyName } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { TablePaginationLinks } from "@/components/minimal/table";
@@ -486,7 +486,7 @@ export async function VerificationReviewPage({
         <Card className="vr-board" aria-label={copy(pageContract, "board.title")} sx={{ minWidth: 0 }}>
           {statuses.length ? (
             // Status tabs predate the oversight rollout and render for every role, verifier included.
-            <AnimatedTabs
+            <TemplateTabs
               ariaLabel={copy(pageContract, "board.title")}
               value={status}
               sx={{ px: { md: 2.5 } }}

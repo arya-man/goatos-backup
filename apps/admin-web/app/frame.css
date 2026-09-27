@@ -111,17 +111,6 @@
   .wrap>*{animation:none!important}
 }
 
-/* ---- Tabs: single measured indicator + crossfade panels ---- */
-.kit-tabpanel{position:relative;min-width:0}
-.kit-tabpanel-inner{display:grid;gap:24px;min-width:0}
-.kit-tabpanel-item{min-width:0}
-.kit-tabpanel-in .kit-tabpanel-item{animation:kit-tab-item-in 260ms var(--ease-out) backwards;animation-delay:var(--kit-tab-delay,0ms)}
-.kit-tabpanel-out{position:absolute;inset:0 0 auto 0;pointer-events:none;animation:kit-tab-out 180ms var(--ease) both}
-/* Opacity only: a transform (even a finished one kept by fill-mode) makes the item the containing block
-   for position:fixed children, which trapped overlays inside tab panels. */
-@keyframes kit-tab-item-in{from{opacity:0}to{opacity:1}}
-@keyframes kit-tab-out{from{opacity:1}to{opacity:0}}
-@media(prefers-reduced-motion:reduce){.kit-tabpanel-in .kit-tabpanel-item,.kit-tabpanel-out{animation:none!important}.kit-tabpanel-out{display:none}}
 /* skeleton tables sit in a card like the real table */
 
 /* table toolbars inside cards keep the card gutter */
@@ -258,15 +247,10 @@ details.top-date-picker:not([open])>.top-date-popover,details.move-date-picker:n
 .shell-skeleton .brand{display:flex;align-items:center;gap:10px;min-width:0}
 .shell-skeleton .main{flex:1;min-width:0;overflow:hidden}
 
-/* pending server-navigation on a link tab strip: thin progress line + muted panel */
-.kit-tabs-pending{position:relative}
-.kit-tabs-pending::after{content:"";position:absolute;left:0;bottom:0;height:2px;width:100%;background:linear-gradient(90deg,transparent,var(--primary),transparent);background-size:40% 100%;background-repeat:no-repeat;animation:kit-tabs-progress 900ms linear infinite;pointer-events:none}
 /* The page body dims (not the header, not the strip that is navigating) and stops taking pointer
    input while a link strip's navigation is in flight (components/app/link-nav-pending.tsx). */
-.wrap[data-nav-pending]>:not(.kit-navpend)>*:not(.phead):not(header):not(.kit-tabs):not(.metricseg):not(:has(.kit-tabs-pending)):not(:has(.metricseg-pending)){filter:opacity(.6);pointer-events:none;transition:filter 150ms var(--ease)}
+.wrap[data-nav-pending]>:not(.kit-navpend)>*:not(.phead):not(header):not(.kit-tabs):not(.metricseg):not(:has(.metricseg-pending)){filter:opacity(.6);pointer-events:none;transition:filter 150ms var(--ease)}
 .kit-navpend:empty{display:none}
-@keyframes kit-tabs-progress{from{background-position:-40% 0}to{background-position:140% 0}}
-@media(prefers-reduced-motion:reduce){.kit-tabs-pending::after{animation:none;background:var(--primary);background-size:100% 100%}}
 /* skeletons paint immediately on busy roots (hard-nav must show shape at once) */
 .shell-skeleton .wrap>*,.wrap>[aria-busy="true"],.wrap>[aria-busy="true"]>*,.wrap>.kit-page[aria-busy="true"]>*{animation:none;opacity:1;transform:none}
 

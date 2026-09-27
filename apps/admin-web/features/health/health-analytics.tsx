@@ -18,7 +18,7 @@ import Stack from "@mui/material/Stack";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import { KpiWidget, kpiColor, completeMonthPercent } from "@/components/app/kpi-widget";
-import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { TemplateTabs } from "@/components/app/template-tabs";
 import { copy, table, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
   firstAuthRequiredError,
@@ -504,7 +504,7 @@ export async function HealthAnalyticsPage({
       </Box>
       </UrlSuspense>
 
-      <AnimatedTabs
+      <TemplateTabs
         ariaLabel={ha(pageContract, "tab.group.aria")}
         value={tab}
         items={TABS.map((name) => ({

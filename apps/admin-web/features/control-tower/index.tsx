@@ -20,7 +20,7 @@ import type { KitTone } from "@/lib/tone";
 import { PageHeader } from "@/components/app/page-header";
 import { KpiGrid } from "@/components/app/kpi-grid";
 import { KpiWidget, kpiColor } from "@/components/app/kpi-widget";
-import { AnimatedTabs, TabPanel } from "@/components/minimal/list/animated-tabs";
+import { TemplateTabs, TabPanel } from "@/components/app/template-tabs";
 import { copy, optionGroup, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { VaccinationFilterButton, VaccinationTablePager, type VaccinationPageSize } from "@/features/preventive-care-vaccination";
 import { SEVERITY_ORDER, WORK_STATE_ORDER, type Tone } from "@/features/process-integrity";
@@ -215,7 +215,7 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
       ) : null}
 
       <div style={{ marginBottom: 8 }}>
-        <AnimatedTabs
+        <TemplateTabs
           variant="pill"
           ariaLabel={copy(pageContract, "label.all_severity")}
           value={severityFilter}
@@ -232,7 +232,7 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
       </div>
 
       <div style={{ marginBottom: 16 }}>
-        <AnimatedTabs
+        <TemplateTabs
           variant="pill"
           ariaLabel={copy(pageContract, "label.all_states")}
           value={stateFilter}

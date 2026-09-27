@@ -99,7 +99,7 @@ export function PageHeaderSkeleton({
   );
 }
 
-/** Loading twin of `AnimatedTabs`: the template MUI Tabs strip, labels as text Skeletons. */
+/** Loading twin of `TemplateTabs`: the template MUI Tabs strip, labels as text Skeletons. */
 export function TabsSkeleton({ count, variant = "underline", counts = false, sx }: { count: number; variant?: "underline" | "pill"; counts?: boolean; sx?: SxProps<Theme> }) {
   return (
     <Tabs

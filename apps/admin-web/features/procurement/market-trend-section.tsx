@@ -11,7 +11,7 @@ import { Label } from "@/components/minimal/label";
 import Tab from "@mui/material/Tab";
 import Tabs from "@mui/material/Tabs";
 import { varAlpha } from "minimal-shared/utils";
-import { SegmentTabs } from "@/components/minimal/list/segment-tabs";
+import { SegmentTabs } from "@/components/app/list/segment-tabs";
 import { replaceLocalOverlayUrl } from "@/components/local-overlay-link";
 import { SeriesLegend, SeriesLines, seriesColorVar, type LineSeries } from "@/components/svg-series";
 import type { MarketSeries } from "@/lib/api/market-server";

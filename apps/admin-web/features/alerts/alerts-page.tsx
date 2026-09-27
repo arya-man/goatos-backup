@@ -25,7 +25,7 @@ import { TableHeadCustom } from "@/components/minimal/table";
 import { Label, type LabelColor } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
-import { AnimatedTabs, TabPanel } from "@/components/minimal/list/animated-tabs";
+import { TemplateTabs, TabPanel } from "@/components/app/template-tabs";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { control, controlEnabled, copy, optionGroup, table, tableLabels, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { getAlertRuleConfig, listAlerts, type AlertRow, type AlertRuleConfigList, type AlertsPage as AlertsPageData } from "@/lib/api/alerts-server";
@@ -163,7 +163,7 @@ export async function AlertsPage({ searchParams, pageContract }: { searchParams?
             then the table. Counts are over the UNFILTERED day, so every badge keeps its number when
             one severity is picked. */}
         <Card data-testid="alerts-table" aria-label={alertsTable.title}>
-          <AnimatedTabs
+          <TemplateTabs
             ariaLabel={t("filter.severity")}
             value={severity || "all"}
             sx={{ px: { md: 2.5 } }}

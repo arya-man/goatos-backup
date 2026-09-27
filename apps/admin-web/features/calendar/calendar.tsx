@@ -1,11 +1,11 @@
-import { FilterChip } from "@/components/minimal/list/filter-chip";
+import { FilterChip } from "@/components/app/list/filter-chip";
 import { listOrEmpty } from "@/lib/list-or-empty";
 import { copy, actionFeedbackCopy, optionLabel, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { one, hrefWithoutAction, type RouteSearchParams } from "@/lib/search-params";
 import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import { todayIso } from "@/lib/format";
 import { PageHeader } from "@/components/app/page-header";
-import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { TemplateTabs } from "@/components/app/template-tabs";
 import { LinkButton } from "@/components/minimal/link-button";
 import {
   fallbackCalendarPresentation,
@@ -185,7 +185,7 @@ export async function VaccinationCalendarPage({
   const fcEvents = toFullCalendarEvents(renderableEvents, ownerMeta);
 
   const workstreamTabs = presentation.workstream_tabs.length ? (
-    <AnimatedTabs
+    <TemplateTabs
       variant="underline"
       scrollButtons="auto"
       sx={{ px: { md: 2.5 } }}
