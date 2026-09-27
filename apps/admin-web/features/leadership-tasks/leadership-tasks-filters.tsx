@@ -1,5 +1,6 @@
 "use client";
 
+import { LinkSelect, type LinkSelectOption } from "@/components/app/link-select";
 import Link from "@/components/no-prefetch-link";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -85,6 +86,7 @@ export function LeadershipTasksFilters({
   clearedHref,
   assigneeCounts = {},
   raiserCounts = {},
+  scope,
 }: {
   pageContract: AdminUiPageContract;
   basePath: string;
@@ -113,6 +115,11 @@ export function LeadershipTasksFilters({
    *  list exactly as the Work Board shows "N rows" (`board.on_this_page` is the unit here). */
   assigneeCounts?: Record<string, number>;
   raiserCounts?: Record<string, number>;
+  /**
+   * Whose tasks (For me / Raised by me / Team progress): the toolbar's first select (template
+   * user-table-toolbar "Role" select), never a second tab strip above the card's status tabs (TR1-#41).
+   */
+  scope?: { label: string; value: string; options: LinkSelectOption[] };
 }) {
   const router = useRouter();
   const routerSearchParams = useSearchParams();
@@ -439,10 +446,14 @@ export function LeadershipTasksFilters({
           display: "flex",
           pr: { xs: 2.5, md: 1 },
           flexDirection: { xs: "column", md: "row" },
+          // The scope select joined this row (TR1-#41): the keyword field keeps a usable width and
+          // wraps to a second line rather than collapsing to its icon.
+          flexWrap: { md: "wrap" },
           alignItems: { xs: "stretch", md: "center" },
           opacity: isPending ? 0.8 : 1,
         }}
       >
+        {scope && scope.options.length ? <LinkSelect label={scope.label} value={scope.value} options={scope.options} minWidth={180} /> : null}
         {/* THE TWO PERSON FILTERS. A scope that already pins the person renders none (Gate-1 #7):
             the scope tab already says whose tasks these are. */}
         {assigneePinned ? null : (
@@ -489,7 +500,7 @@ export function LeadershipTasksFilters({
 
         {/* Phone: the search takes the full row and "Dates" wraps under it, so the field is never
             squeezed to a truncated placeholder beside the button. guard: tasks-phone-search-row */}
-        <Box sx={{ gap: 2, width: 1, flexGrow: 1, display: "flex", flexWrap: { xs: "wrap", sm: "nowrap" }, alignItems: "center", minWidth: 0 }}>
+        <Box sx={{ gap: 2, width: 1, flexGrow: 1, flexBasis: { md: 280 }, display: "flex", flexWrap: { xs: "wrap", sm: "nowrap" }, alignItems: "center", minWidth: { xs: 0, md: 280 } }}>
           <TextField
             fullWidth
             type="search"

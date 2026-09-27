@@ -19,4 +19,12 @@ test("herd-register-list-anatomy: tabs, URL sort, lead cell, table in card", () 
   assert.doesNotMatch(page, /herd-register-table/, "no legacy table class");
   assert.doesNotMatch(css, /herd-register-table/, "legacy min-width rules deleted");
   assert.doesNotMatch(page, /onSelectAllRows|<Checkbox/, "no checkbox column without a bulk action");
+  // REVIEW-40 O61: the sort is an announced navigation (the table skeletons at once) and the KPI
+  // panel, which the sort / tab / pager never narrow, ignores those params.
+  const head = readFileSync(new URL("../../components/app/table/url-sort-head.tsx", import.meta.url), "utf8");
+  assert.match(head, /useUrlNavigate\(\)/);
+  assert.doesNotMatch(head, /router\.replace|useRouter/);
+  assert.match(page, /HERD_KPI_IGNORE = \[[^\]]*"order"[^\]]*\]/);
+  assert.match(page, /HERD_KPI_IGNORE = \[[^\]]*"status"[^\]]*\]/);
+  assert.match(page, /ignore=\{HERD_KPI_IGNORE\} fallback=\{<PanelSkeleton/);
 });

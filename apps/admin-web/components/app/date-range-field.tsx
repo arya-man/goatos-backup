@@ -1,12 +1,8 @@
 "use client";
 
-import { forwardRef, type FocusEventHandler } from "react";
-import { X } from "lucide-react";
+import dayjs, { type Dayjs } from "dayjs";
 import Box from "@mui/material/Box";
-import TextField from "@mui/material/TextField";
-import type { InputBaseComponentProps } from "@mui/material/InputBase";
-
-import { ThemedDatePicker } from "@/components/themed-date-picker";
+import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 
 export type DateRangeFieldProps = {
   label: string;
@@ -27,85 +23,64 @@ export type DateRangeFieldProps = {
 };
 
 /**
- * Filter-bar date range built from two themed calendars — the kit's answer to a pair of native
- * native date inputs. Either end may be empty (an open-ended span), which is what a list filter
- * needs and what `DateRangePicker` (always a closed span with a resolved "today") does not offer.
- * The `to` calendar cannot go before `from` and vice versa.
+ * Filter-bar date range on the template's date anatomy (TR1-#22): two MUI X DatePickers side by
+ * side -- the start / end fields the template's list toolbars use (order / invoice list), each an
+ * outlined field with its label on the border and the trailing calendar icon, DD/MM/YYYY. Either end
+ * may be empty (an open-ended span), which a list filter needs; the end cannot go before the start
+ * and vice versa. Each field is clearable (MUI X field clear button). The start field carries the
+ * range's own label (`fromLabel` / `clearLabel` stay in the props for callers; the template field
+ * names the start by its label and the end "To"). `name` keeps the hidden form inputs
+ * (`${name}_from` / `${name}_to`) for a field inside a form.
  */
 export function DateRangeField({
   label,
   from,
   to,
-  fromLabel,
   toLabel,
   onChange,
-  clearLabel = "Clear dates",
   previousMonthLabel = "Previous month",
   nextMonthLabel = "Next month",
   name = "dates",
   minWidth = 312,
   className,
 }: DateRangeFieldProps) {
-  const hasValue = Boolean(from || to);
+  const arrows = {
+    previousIconButton: { "aria-label": previousMonthLabel } as never,
+    nextIconButton: { "aria-label": nextMonthLabel } as never,
+  };
+  const key = (value: Dayjs | null): string | null => (value === null ? "" : value.isValid() ? value.format("YYYY-MM-DD") : null);
+  const fieldSx = { flex: "1 1 0", minWidth: { xs: 0, sm: Math.max(150, Math.round(minWidth / 2) - 8) } };
   return (
-    <TextField
-      size="small"
-      label={label}
-      className={["kit-daterange", hasValue ? "has-value" : "", className ?? ""].filter(Boolean).join(" ")}
-      sx={{ minWidth, "& .MuiInputBase-input": { px: 0 } }}
-      slotProps={{
-        inputLabel: { shrink: true },
-        input: { inputComponent: DateRangeInputs },
-        htmlInput: { range: { label, from, to, fromLabel, toLabel, onChange, clearLabel, previousMonthLabel, nextMonthLabel, name } satisfies RangeProps },
-      }}
-    />
+    <Box
+      role="group"
+      aria-label={label}
+      className={className}
+      sx={{ display: "flex", gap: 2, minWidth: 0, maxWidth: 1, flexWrap: { xs: "wrap", sm: "nowrap" } }}
+    >
+      <input type="hidden" name={`${name}_from`} value={from} />
+      <input type="hidden" name={`${name}_to`} value={to} />
+      <DatePicker
+        label={label}
+        value={from ? dayjs(from) : null}
+        format="DD/MM/YYYY"
+        maxDate={to ? dayjs(to) : undefined}
+        onChange={(value) => {
+          const next = key(value);
+          if (next !== null && next !== from) onChange({ from: next, to });
+        }}
+        slotProps={{ ...arrows, field: { clearable: true } as never, textField: { sx: fieldSx } }}
+      />
+      <DatePicker
+        label={toLabel}
+        value={to ? dayjs(to) : null}
+        format="DD/MM/YYYY"
+        minDate={from ? dayjs(from) : undefined}
+        onChange={(value) => {
+          const next = key(value);
+          if (next !== null && next !== to) onChange({ from, to: next });
+        }}
+        slotProps={{ ...arrows, field: { clearable: true } as never, textField: { sx: fieldSx } }}
+      />
+    </Box>
   );
 }
-
-type RangeProps = Required<Omit<DateRangeFieldProps, "minWidth" | "className">>;
-
-/**
- * The two calendars as the outlined input's `inputComponent` (MUI's documented slot for a custom
- * input inside TextField), so the label, notch, hover and focus outline all come from TextField.
- */
-const DateRangeInputs = forwardRef<HTMLDivElement, InputBaseComponentProps>(function DateRangeInputs({ className, onFocus, onBlur, range }, ref) {
-  const { label, from, to, fromLabel, toLabel, onChange, clearLabel, previousMonthLabel, nextMonthLabel, name } = range as RangeProps;
-  const hasValue = Boolean(from || to);
-  return (
-    <div
-      ref={ref}
-      className={className}
-      onFocus={onFocus as unknown as FocusEventHandler<HTMLDivElement>}
-      onBlur={onBlur as unknown as FocusEventHandler<HTMLDivElement>}
-    >
-      <Box className="kit-daterange-control" role="group" aria-label={label} sx={{ display: "flex", alignItems: "center", height: 1 }}>
-        <ThemedDatePicker
-          name={`${name}_from`}
-          label={fromLabel}
-          value={from}
-          max={to || undefined}
-          onChange={(key) => onChange({ from: key, to })}
-          previousMonthLabel={previousMonthLabel}
-          nextMonthLabel={nextMonthLabel}
-          invalidDateText=""
-        />
-        <span className="kit-daterange-sep" aria-hidden="true">→</span>
-        <ThemedDatePicker
-          name={`${name}_to`}
-          label={toLabel}
-          value={to}
-          min={from || undefined}
-          onChange={(key) => onChange({ from, to: key })}
-          previousMonthLabel={previousMonthLabel}
-          nextMonthLabel={nextMonthLabel}
-          invalidDateText=""
-        />
-        {hasValue ? (
-          <button type="button" className="kit-daterange-clear" aria-label={clearLabel} title={clearLabel} onClick={() => onChange({ from: "", to: "" })}>
-            <X aria-hidden="true" />
-          </button>
-        ) : null}
-      </Box>
-    </div>
-  );
-});

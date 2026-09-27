@@ -85,10 +85,10 @@ test("production Tasks page uses live backend data, with fixtures confined to pr
   assert.match(component, /canEdit: false, canComment: false, statusOptions: \[\]/, "readOnlyRow strips every write affordance");
   assert.doesNotMatch(component, /page \? rowsFromPage\(page\) : fixtureTasks/);
   assert.match(component, /<TaskDrawerHost\s+preview=\{preview\}/, "the drawer host is told it is in preview");
-  // The scope tabs are the template MUI Tabs through TemplateTabs (one link Tab per backend scope,
-  // selected in the same frame as the click: guard url-keyed-panel), and their hrefs are built by
-  // the feature's own URL helper so the rest of the filter state survives a scope change.
-  assert.match(component, /<TemplateTabs\s[\s\S]*?href: scopeHref\(scope\.key\)/, "each scope tab links to its backend scope");
+  // The scope is the card toolbar's first select (TR1-#41, one tab strip): one link option per
+  // backend scope, announced through LinkSelect (useUrlNavigate), and its hrefs are built by the
+  // feature's own URL helper so the rest of the filter state survives a scope change.
+  assert.match(component, /scope=\{\s*scopes\.length[\s\S]*?href: scopeHref\(scope\.key\)/, "each scope option links to its backend scope");
   assert.match(
     component,
     /\[TASK_PARAM\.scope\]: key/,

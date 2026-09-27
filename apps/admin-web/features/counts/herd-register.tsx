@@ -318,7 +318,7 @@ export async function HerdRegisterPage({
       {/* KPI row: three template CourseWidgetSummary (KpiWidget) tiles, the live herd's make-up. */}
       {/* KPI deck (guard: url-keyed-panel): a filter / page change swaps it to its skeleton at once;
           opening a goat passport (goat_passport) never does. */}
-      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={HERD_PANEL_IGNORE} fallback={<PanelSkeleton kpis={summaryCards.length} />}>
+      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={HERD_KPI_IGNORE} fallback={<PanelSkeleton kpis={summaryCards.length} />}>
       <Grid container spacing={3} component="section" aria-label={copy(pageContract, "section.herd.title")}>
         {summaryCards.map((card) => (
           <Grid key={card.label} size={{ xs: 12, sm: 4 }}>
@@ -478,3 +478,5 @@ export async function HerdRegisterPage({
 
 /** The goat passport drawer param never changes the herd panels. */
 const HERD_PANEL_IGNORE = ["goat_passport"] as const;
+/** The KPI tiles read the summary, which neither the status tab, the sort nor the pager narrows. */
+const HERD_KPI_IGNORE = ["goat_passport", "status", "order", "cursor", "cursor_stack", "page", "limit"] as const;

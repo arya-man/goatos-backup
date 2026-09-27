@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useUrlNavigate } from "@/components/app/use-url-tab-nav";
 
 import { TableHeadCustom, type TableHeadCellProps } from "@/components/app/table/table-head-custom";
 
@@ -20,7 +20,7 @@ export function UrlSortHead({
   order: "asc" | "desc";
   sortHrefs: Record<string, string>;
 }) {
-  const router = useRouter();
+  const { go } = useUrlNavigate();
   return (
     <TableHeadCustom
       headCells={headCells.map((cell) => ({ ...cell, sortable: cell.id in sortHrefs }))}
@@ -28,7 +28,7 @@ export function UrlSortHead({
       order={order}
       onSort={(id) => {
         const href = sortHrefs[id];
-        if (href) router.replace(href, { scroll: false });
+        if (href) go(href, { replace: true });
       }}
     />
   );

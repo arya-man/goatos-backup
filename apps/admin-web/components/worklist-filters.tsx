@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useEffect, useMemo, useRef, useState, useTransition, type ComponentProps, type FocusEventHandler, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import Badge from "@mui/material/Badge";
 import Box from "@mui/material/Box";
 import MuiButton from "@mui/material/Button";
@@ -23,11 +23,11 @@ import { Iconify } from "@/components/minimal/iconify";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { DateRangePicker, type DateRangePickerLabels } from "@/components/date-range-picker";
-import { ThemedDatePicker } from "@/components/themed-date-picker";
+import dayjs from "dayjs";
+import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import { RowMenu } from "@/components/app/row-menu";
 import { InfoHint } from "@/components/app/info-hint";
 import { announceUrlNav } from "@/components/app/url-tab-nav";
-import type { InputBaseComponentProps } from "@mui/material/InputBase";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate } from "@/lib/format";
 import { worklistFilterIsStaged } from "@/lib/worklist-filter-draft";
@@ -740,31 +740,25 @@ export function WorklistFilters({
               onChange={(from) => applyFilter(effectiveField.param, from)}
             />
           ) : effectiveField.kind === "date" ? (
-            // Themed calendar, never the OS date control (kit rule). Bounds come from the field. It is
-            // the outlined TextField's inputComponent, so label, notch and focus outline are MUI's.
-            <TextField
-              size="small"
-              fullWidth
+            // Template date field (TR1-#22): the MUI X DatePicker the template's CustomDateRangePicker
+            // uses -- one outlined field, label on the border, trailing calendar icon, DD/MM/YYYY.
+            // Never the OS date control. Bounds come from the field.
+            <DatePicker
               label={effectiveField.label}
-              title={effectiveField.disabledReason || (busy ? copy(pageContract, "state.loading") : undefined)}
-              sx={{ "& .MuiInputBase-input": { px: 0.75 } }}
+              value={effectiveField.value ? dayjs(effectiveField.value) : null}
+              format="DD/MM/YYYY"
+              minDate={effectiveField.min ? dayjs(effectiveField.min) : undefined}
+              maxDate={effectiveField.max ? dayjs(effectiveField.max) : undefined}
+              disabled={Boolean(effectiveField.disabledReason)}
+              onAccept={(next) => applyFilter(effectiveField.param, next?.isValid() ? next.format("YYYY-MM-DD") : "")}
               slotProps={{
-                inputLabel: { shrink: true },
-                input: { inputComponent: ThemedDateInput },
-                htmlInput: {
-                  pickerDisabled: Boolean(effectiveField.disabledReason),
-                  picker: {
-                    name: effectiveField.param,
-                    label: effectiveField.label,
-                    value: effectiveField.value,
-                    min: effectiveField.min,
-                    max: effectiveField.max,
-                    onChange: (key: string) => applyFilter(effectiveField.param, key),
-                    previousMonthLabel: copy(pageContract, "filter.date.previous_month", "Previous month"),
-                    nextMonthLabel: copy(pageContract, "filter.date.next_month", "Next month"),
-                    invalidDateText: "",
-                  } satisfies ComponentProps<typeof ThemedDatePicker>,
+                textField: {
+                  name: effectiveField.param,
+                  title: effectiveField.disabledReason || (busy ? copy(pageContract, "state.loading") : undefined),
+                  sx: { minWidth: { xs: 0, sm: 180 }, maxWidth: 1 },
                 },
+                previousIconButton: { "aria-label": copy(pageContract, "filter.date.previous_month", "Previous month") } as never,
+                nextIconButton: { "aria-label": copy(pageContract, "filter.date.next_month", "Next month") } as never,
               }}
             />
           ) : null}
@@ -1293,21 +1287,3 @@ function WorklistSearchField({
   );
 }
 
-/**
- * The themed calendar as an outlined TextField's `inputComponent` (MUI's documented slot for a
- * custom input), so the filter's label, notch and focus outline come from TextField itself.
- */
-const ThemedDateInput = forwardRef<HTMLDivElement, InputBaseComponentProps>(function ThemedDateInput({ className, onFocus, onBlur, picker, pickerDisabled }, ref) {
-  return (
-    <div
-      ref={ref}
-      className={className}
-      onFocus={onFocus as unknown as FocusEventHandler<HTMLDivElement>}
-      onBlur={onBlur as unknown as FocusEventHandler<HTMLDivElement>}
-    >
-      <Box sx={{ display: "flex", alignItems: "center", height: 1, ...(pickerDisabled ? { opacity: 0.5, pointerEvents: "none" } : {}) }}>
-        <ThemedDatePicker {...(picker as ComponentProps<typeof ThemedDatePicker>)} />
-      </Box>
-    </div>
-  );
-});

@@ -29,7 +29,6 @@ import { PageHeader } from "@/components/app/page-header";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import { KanbanSkeleton, TableSkeleton } from "@/components/app/skeletons";
-import { TemplateTabs } from "@/components/app/template-tabs";
 import { RetryButton } from "@/components/app/retry-button";
 import { NewTaskModal } from "./new-task-modal";
 // The New task / Edit task dialog fields (`.lt-modal .fld` label anatomy) still read this sheet.
@@ -313,6 +312,18 @@ export function LeadershipTasksPage({
       rows={tasks}
       hasFilters={hasTaskFilters(params)}
       clearedHref={tasksClearedHref(basePath, sp)}
+      scope={
+        scopes.length
+          ? {
+              label: copy(pageContract, "scope.aria"),
+              value: scopeKey,
+              options: scopes.map((scope) => {
+                const total = readFailed ? undefined : scopeTotal(scope);
+                return { value: scope.key, label: total == null ? scope.label : `${scope.label} (${total.toLocaleString("en-IN")})`, href: scopeHref(scope.key) };
+              }),
+            }
+          : undefined
+      }
       assigneeCounts={countBy(tasks, (row) => row.assigneeUserID)}
       raiserCounts={countBy(tasks, (row) => row.raisedByUserID)}
     />
@@ -331,17 +342,22 @@ export function LeadershipTasksPage({
       <PageHeader
         title={page?.title || pageContract.title}
         crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
+        // One strip of tabs only (TR1-#41): the scope is the card toolbar's first select, and the
+        // board / list switch sits with the page action (template file-manager view toggle).
         actions={
-          page?.can_raise || readFailed ? (
-            <NewTaskModal
-              assignees={assignees}
-              action={raiseLeadershipTaskAction}
-              returnTo={`${TASKS_PATHNAME}?scope=assigned_by_me`}
-              pageContract={pageContract}
-            />
-          ) : preview ? (
-            <Label variant="soft" color="success">{copy(pageContract, "state.can_raise")}</Label>
-          ) : null
+          <>
+            <TaskViewToggle options={viewOptions} ariaLabel={copy(pageContract, "board.view.aria", "Task view")} />
+            {page?.can_raise || readFailed ? (
+              <NewTaskModal
+                assignees={assignees}
+                action={raiseLeadershipTaskAction}
+                returnTo={`${TASKS_PATHNAME}?scope=assigned_by_me`}
+                pageContract={pageContract}
+              />
+            ) : preview ? (
+              <Label variant="soft" color="success">{copy(pageContract, "state.can_raise")}</Label>
+            ) : null}
+          </>
         }
       />
 
@@ -381,30 +397,8 @@ export function LeadershipTasksPage({
         </Alert>
       ) : null}
 
-      <Box sx={{ mb: { xs: 3, md: 5 }, gap: 2, display: "flex", alignItems: "center", justifyContent: "space-between", minWidth: 0 }}>
-        {scopes.length ? (
-          // The template Tabs through TemplateTabs (useUrlTabNav): the pressed scope is selected in
-          // the same frame and the task panels below swap to their skeleton (guard: url-keyed-panel).
-          <TemplateTabs
-            value={scopeKey}
-            scrollButtons="auto"
-            ariaLabel={copy(pageContract, "scope.aria")}
-            sx={{ minWidth: 0, flex: "1 1 auto" }}
-            items={scopes.map((scope) => ({
-              value: scope.key,
-              label: scope.label,
-              href: scopeHref(scope.key),
-              count: readFailed ? undefined : scopeTotal(scope),
-            }))}
-          />
-        ) : (
-          <span />
-        )}
-        <TaskViewToggle options={viewOptions} ariaLabel={copy(pageContract, "board.view.aria", "Task view")} />
-      </Box>
-
       {/* The list READ failed (nothing to show in either view): one proper error state with a
-          retry. The scope tabs above keep the other scopes one click away. */}
+          retry. The scope select in the card toolbar keeps the other scopes one click away. */}
       {!page && !preview ? (
         <Alert severity="error" role="alert" sx={{ mb: 3 }} action={<RetryButton label={copy(pageContract, "action.retry", "Retry")} />}>
           {copy(pageContract, "state.unavailable_tasks")}
