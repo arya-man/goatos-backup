@@ -1,15 +1,14 @@
 'use client';
 
-// Copied from the licensed MUI Minimal template
-// (next-ts src/sections/overview/e-commerce/ecommerce-yearly-sales.tsx).
-// Mesha changes (data plumbing only, anatomy untouched):
+// Template-derived (docs/design/template-derived.json): next-ts
+// src/sections/overview/e-commerce/ecommerce-yearly-sales.tsx. Demo wiring as props (anatomy guarded):
 //  - the select starts on the FIRST series (the template hard-codes its demo '2023');
 //  - each selectable series carries its own legend figures (the template shows demo constants)
 //    and a `format` for its axis/tooltip, because rupees, heads and kg never share a scale and a
 //    server page cannot hand this client card a formatter function;
 //  - the chart is keyed by the selection so a new unit redraws cleanly, and a series may carry a
 //    per-month `notes` line for its tooltip;
-//  - the series' `empty` (or the card's) renders in place of the chart when it has no data;
+//  - the series' `empty` text (or the card's) is the chart's own noData message (no extra markup);
 //  - month categories ("Apr 2025") draw SHORT on the axis ("Apr", as the template's demo months)
 //    and the year or range they cover rides in the select ("Revenue · 2025-26"); the tooltip
 //    title keeps the full month.
@@ -19,7 +18,6 @@ import type { ChartOptions } from '@/components/minimal/chart';
 
 import { useState, useCallback } from 'react';
 
-import Box from '@mui/material/Box';
 import Card from '@mui/material/Card';
 import { useTheme } from '@mui/material/styles';
 import CardHeader from '@mui/material/CardHeader';
@@ -46,8 +44,8 @@ export type YearlySalesFormat = 'inr' | 'number';
 type Props = Omit<CardProps, 'title'> & {
   title?: React.ReactNode;
   subheader?: React.ReactNode;
-  /** Shown in place of the chart when the selected series has no data. */
-  empty?: React.ReactNode;
+  /** The chart's noData message when the selected series has no data. */
+  empty?: string;
   /** Formats one figure for the axis and the tooltip. */
   formatters: Record<YearlySalesFormat, { axis: (value: number, axisMax: number) => string; tooltip: (value: number) => string }>;
   chart: {
@@ -60,8 +58,8 @@ type Props = Omit<CardProps, 'title'> & {
       totals: string[];
       /** Optional second line per category for the tooltip (e.g. the rupees a month's heads earned). */
       notes?: string[];
-      /** This series' own empty state (falls back to `empty`). */
-      empty?: React.ReactNode;
+      /** This series' own noData message (falls back to `empty`). */
+      empty?: string;
       data: {
         name: string;
         data: number[];
@@ -101,6 +99,7 @@ export function EcommerceYearlySales({ title, subheader, empty, formatters, char
         },
       },
     },
+    noData: { text: currentSeries?.empty ?? empty },
     ...chart.options,
   });
 
@@ -134,23 +133,19 @@ export function EcommerceYearlySales({ title, subheader, empty, formatters, char
         sx={{ px: 3, gap: 3 }}
       />
 
-      {hasData ? (
-        <Chart
-          key={currentSeries?.name}
-          type="area"
-          series={currentSeries?.data}
-          options={chartOptions}
-          slotProps={{ loading: { p: 2.5 } }}
-          sx={{
-            pl: 1,
-            py: 2.5,
-            pr: 2.5,
-            height: 320,
-          }}
-        />
-      ) : (
-        <Box sx={{ px: 3, py: 2.5 }}>{currentSeries?.empty ?? empty}</Box>
-      )}
+      <Chart
+        key={currentSeries?.name}
+        type="area"
+        series={hasData ? currentSeries?.data : []}
+        options={chartOptions}
+        slotProps={{ loading: { p: 2.5 } }}
+        sx={{
+          pl: 1,
+          py: 2.5,
+          pr: 2.5,
+          height: 320,
+        }}
+      />
     </Card>
   );
 }

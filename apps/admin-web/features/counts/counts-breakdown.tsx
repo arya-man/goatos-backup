@@ -15,7 +15,7 @@ import { KpiWidget, splitParts } from "@/components/app/kpi-widget";
 import {
   EcommerceSalesOverview,
   type EcommerceSalesOverviewItem,
-} from "@/components/minimal/sections/overview/e-commerce/ecommerce-sales-overview";
+} from "@/components/app/sections/overview/e-commerce/ecommerce-sales-overview";
 import { ColumnChartCard } from "@/components/app/column-chart-card";
 import { CountsShedChart } from "./counts-shed-chart";
 import { PageHeader } from "@/components/app/page-header";

@@ -6,7 +6,7 @@ import Grid from "@mui/material/Grid";
 import { KpiWidget } from "@/components/app/kpi-widget";
 import { EmptyState } from "@/components/app/empty-state";
 import { BankingExpensesCategories } from "@/components/minimal/sections/overview/banking/banking-expenses-categories";
-import { EcommerceSalesOverview } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sales-overview";
+import { EcommerceSalesOverview } from "@/components/app/sections/overview/e-commerce/ecommerce-sales-overview";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError, getGrowthAssumptions, getShedWeights, listAnimalStages } from "@/lib/api/server";

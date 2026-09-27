@@ -1,8 +1,7 @@
 "use client";
 
 import type { ComponentProps } from "react";
-import { EcommerceYearlySales } from "@/components/minimal/sections/overview/e-commerce/ecommerce-yearly-sales";
-import { EmptyState } from "@/components/app/empty-state";
+import { EcommerceYearlySales } from "@/components/app/sections/overview/e-commerce/ecommerce-yearly-sales";
 import { inr, inrAxisTick, num, numAxisTick } from "./sales-format";
 
 type Series = Omit<ComponentProps<typeof EcommerceYearlySales>["chart"]["series"][number], "empty"> & { empty: string };
@@ -35,7 +34,7 @@ export function SalesSoldMonthly({ title, series, ariaLabel }: { title: string; 
       aria-label={ariaLabel}
       title={title}
       formatters={FORMATTERS}
-      chart={{ series: series.map((item) => ({ ...item, empty: <EmptyState title={item.empty} /> })), options: PHONE_AXIS }}
+      chart={{ series: series, options: PHONE_AXIS }}
       sx={{ height: 1 }}
     />
   );

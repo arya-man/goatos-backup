@@ -17,8 +17,6 @@
     "components/minimal/sections/overview/e-commerce/ecommerce-best-salesman.tsx": "b96ccbc9878557ff68013dfadaea1a77d314cbf15dceb5b77f3152238052e5ab",
     "components/minimal/sections/overview/e-commerce/ecommerce-current-balance.tsx": "d323643e619fff2946269d747e9f3ffc6bae3587611f563c62587fe3cd3eb73b",
     "components/minimal/sections/overview/e-commerce/ecommerce-latest-products.tsx": "d2208dbcd62e926750231d8be1aa54566e981bba864b39852443ef853bfa28ce",
-    "components/minimal/sections/overview/e-commerce/ecommerce-sales-overview.tsx": "d4f93a87dfde073f76b79b0f2b2adac9026663f165005f25d9ff3ebc17484a18",
-    "components/minimal/sections/overview/e-commerce/ecommerce-yearly-sales.tsx": "f6e25e2109068eb0d148e72e4238bb9c81251af537770dcaf76eafd83eb47900",
     "components/minimal/sections/user/user-table-row.tsx": "1f53ba337e1bedb36c5b051d8fd41afc04164609ef3385704fdd4ae955226db6",
     "layouts/auth-split/layout.tsx": "79a9028a8af9ded0952d6de12318a3ee589857f2c6cb5463db52208a98875279",
     "layouts/auth-split/section.tsx": "0d33d3ef6d57bdd3392cbf2a3d9456095099f663ae6367dc4871099913e95654",

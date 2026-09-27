@@ -4,7 +4,8 @@
 // its template source and a one-line account of what became props. Everything else must stay the
 // template's: this check compares the file's JSX element sequence and its sx keys with the
 // template's, recorded in the manifest (the template is not in CI; refresh with
-// `node scripts/refresh-template-derived.mjs`). Any markup or style drift fails.
+// `node scripts/refresh-template-derived.mjs`). Any markup or style drift fails, except the data /
+// prop slots an entry lists in `strip` (regexes removed before comparing; each named in `replaced`).
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -83,7 +84,11 @@ export function templateDerivedFindings(root, manifestFile) {
       hits.push({ file: rel, line: 1, snippet: "manifest entry needs source, replaced, tags, sx (run node scripts/refresh-template-derived.mjs)" });
       continue;
     }
-    const got = anatomy(readFileSync(abs, "utf8"));
+    // `strip`: the manifest may list data/prop slots the derived file adds (regex sources, applied
+    // before the comparison), e.g. an optional caption line under a row. Each is named in `replaced`.
+    let text = readFileSync(abs, "utf8");
+    for (const src of entry.strip ?? []) text = text.replace(new RegExp(src, "g"), "");
+    const got = anatomy(text);
     const t = firstDiff(entry.tags, got.tags);
     if (t) hits.push({ file: rel, line: 1, snippet: `JSX differs from template ${entry.source} at element #${t.index}: template <${t.want}>, file <${t.got}>` });
     const s = firstDiff(entry.sx, got.sx);

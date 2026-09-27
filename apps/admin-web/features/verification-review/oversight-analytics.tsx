@@ -11,7 +11,7 @@ import { Label } from "@/components/minimal/label";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { EmptyContent } from "@/components/minimal/empty-content";
 import { TableHeadCustom } from "@/components/app/table";
-import { EcommerceSalesOverview, type EcommerceSalesOverviewItem } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sales-overview";
+import { EcommerceSalesOverview, type EcommerceSalesOverviewItem } from "@/components/app/sections/overview/e-commerce/ecommerce-sales-overview";
 import { ColumnChartCard } from "@/components/app/column-chart-card";
 import { OversightKpis, type OversightKpi } from "./oversight-kpis";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";

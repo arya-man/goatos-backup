@@ -11,7 +11,7 @@ import { Label } from "@/components/minimal/label";
 import { KpiGrid } from "@/components/app/kpi-grid";
 import { KpiWidget, kpiColor } from "@/components/app/kpi-widget";
 import type { KitTone } from "@/lib/tone";
-import { EcommerceSalesOverview } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sales-overview";
+import { EcommerceSalesOverview } from "@/components/app/sections/overview/e-commerce/ecommerce-sales-overview";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ApiResult, GrowthDirectorWeightsResponse } from "@/lib/api/server";
 import { fmtQty } from "@/lib/format";

@@ -16,7 +16,7 @@ import { RingCard } from "@/components/app/ring-card";
 import {
   EcommerceSalesOverview,
   type EcommerceSalesOverviewItem,
-} from "@/components/minimal/sections/overview/e-commerce/ecommerce-sales-overview";
+} from "@/components/app/sections/overview/e-commerce/ecommerce-sales-overview";
 import { ColumnChartCard } from "@/components/app/column-chart-card";
 import type { DateRangePickerLabels } from "@/components/date-range-picker";
 import type { SvgBarDatum } from "@/components/svg-bars";

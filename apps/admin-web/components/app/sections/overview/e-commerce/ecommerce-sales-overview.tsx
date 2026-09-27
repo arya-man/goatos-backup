@@ -1,8 +1,7 @@
 'use client';
 
-// Copied from the licensed MUI Minimal template
-// (next-ts src/sections/overview/e-commerce/ecommerce-sales-overview.tsx).
-// Mesha changes (data plumbing only, anatomy untouched):
+// Template-derived (docs/design/template-derived.json): next-ts
+// src/sections/overview/e-commerce/ecommerce-sales-overview.tsx. Demo wiring as props (anatomy guarded):
 //  - each row's figure is pre-formatted by the page (`display`) instead of fCurrency, because a
 //    row may be a head count rather than rupees;
 //  - an optional `caption` line under the bar (e.g. where a band's weights came from) and a

@@ -62,9 +62,7 @@
     "components/minimal/sections/overview/e-commerce/ecommerce-best-salesman.tsx": "src/sections/overview/e-commerce/ecommerce-best-salesman.tsx",
     "components/minimal/sections/overview/e-commerce/ecommerce-latest-products.tsx": "src/sections/overview/e-commerce/ecommerce-latest-products.tsx",
     "components/minimal/sections/overview/e-commerce/ecommerce-sale-by-gender.tsx": "src/sections/overview/e-commerce/ecommerce-sale-by-gender.tsx",
-    "components/minimal/sections/overview/e-commerce/ecommerce-sales-overview.tsx": "src/sections/overview/e-commerce/ecommerce-sales-overview.tsx",
     "components/minimal/sections/overview/e-commerce/ecommerce-widget-summary.tsx": "src/sections/overview/e-commerce/ecommerce-widget-summary.tsx",
-    "components/minimal/sections/overview/e-commerce/ecommerce-yearly-sales.tsx": "src/sections/overview/e-commerce/ecommerce-yearly-sales.tsx",
     "components/minimal/scrollbar/index.ts": "src/components/scrollbar/index.ts",
     "components/minimal/search-not-found/search-not-found.tsx": "src/components/search-not-found/search-not-found.tsx",
     "components/minimal/search-not-found/index.ts": "src/components/search-not-found/index.ts",
@@ -783,19 +781,6 @@
         "src/components/chart"
       ]
     },
-    "components/minimal/sections/overview/e-commerce/ecommerce-sales-overview.tsx": {
-      "sha256": "9601669f90123c43a44516b1824522f59c6973e255de935042459d1065c86e1d",
-      "imports": [
-        "@mui/material/Card",
-        "@mui/material/LinearProgress",
-        "minimal-shared/utils",
-        "@mui/material/Box",
-        "@mui/material/Card",
-        "@mui/material/CardHeader",
-        "@mui/material/LinearProgress",
-        "src/utils/format-number"
-      ]
-    },
     "components/minimal/sections/overview/e-commerce/ecommerce-widget-summary.tsx": {
       "sha256": "1b86b3c1cd4039773d7a057ec73b758c18c0f2e78307b6f94f21a88eede884e2",
       "imports": [
@@ -807,19 +792,6 @@
         "@mui/material/styles",
         "src/utils/format-number",
         "src/components/iconify",
-        "src/components/chart"
-      ]
-    },
-    "components/minimal/sections/overview/e-commerce/ecommerce-yearly-sales.tsx": {
-      "sha256": "8576528f2d7adba2d3dd90d8eb7c24691e3890826146148ee0d11cb950cce942",
-      "imports": [
-        "@mui/material/Card",
-        "src/components/chart",
-        "react",
-        "@mui/material/Card",
-        "@mui/material/styles",
-        "@mui/material/CardHeader",
-        "src/utils/format-number",
         "src/components/chart"
       ]
     },

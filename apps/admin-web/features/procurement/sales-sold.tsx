@@ -10,7 +10,7 @@ import { EmptyState } from "@/components/app/empty-state";
 import { Label } from "@/components/minimal/label";
 import { TableHeadCustom } from "@/components/app/table";
 import { KpiWidget } from "@/components/app/kpi-widget";
-import { EcommerceSalesOverview } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sales-overview";
+import { EcommerceSalesOverview } from "@/components/app/sections/overview/e-commerce/ecommerce-sales-overview";
 import { EcommerceBestSalesman } from "@/components/minimal/sections/overview/e-commerce/ecommerce-best-salesman";
 import { EcommerceLatestProducts } from "@/components/minimal/sections/overview/e-commerce/ecommerce-latest-products";
 import { SalesSoldMonthly } from "./sales-sold-monthly";

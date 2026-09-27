@@ -10,7 +10,7 @@ import { GroupedColumns, type GroupedSeries } from "@/components/grouped-columns
 import { withLoadPens, type LoadPen } from "@/lib/load-pens";
 import { Tag } from "@/components/ui-primitives";
 import { Label } from "@/components/minimal/label";
-import { EcommerceSalesOverview } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sales-overview";
+import { EcommerceSalesOverview } from "@/components/app/sections/overview/e-commerce/ecommerce-sales-overview";
 import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
 import Grid from "@mui/material/Grid";

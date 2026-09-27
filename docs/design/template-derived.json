@@ -64,6 +64,62 @@
         "color",
         "typography"
       ]
+    },
+    "components/app/sections/overview/e-commerce/ecommerce-yearly-sales.tsx": {
+      "source": "src/sections/overview/e-commerce/ecommerce-yearly-sales.tsx",
+      "replaced": "default select '2023' -> first series; fixed legend values -> series totals; fShortenNumber axis/tooltip -> series format + notes; month axis short with range in select; empty -> chart noData text",
+      "tags": [
+        "Card",
+        "CardHeader",
+        "ChartSelect",
+        "ChartLegends",
+        "Chart"
+      ],
+      "sx": [
+        "mb",
+        "px",
+        "gap",
+        "pl",
+        "py",
+        "pr",
+        "height"
+      ]
+    },
+    "components/app/sections/overview/e-commerce/ecommerce-sales-overview.tsx": {
+      "source": "src/sections/overview/e-commerce/ecommerce-sales-overview.tsx",
+      "replaced": "fCurrency(totalAmount) -> display; demo-label colour match -> row color; optional row caption line (strip); children at foot; label may be a node",
+      "strip": [
+        "\\{progress\\.caption \\? \\([\\s\\S]*?\\) : null\\}"
+      ],
+      "tags": [
+        "Card",
+        "CardHeader",
+        "Box",
+        "Item",
+        "div",
+        "Box",
+        "Box",
+        "Box",
+        "Box",
+        "LinearProgress"
+      ],
+      "sx": [
+        "gap",
+        "px",
+        "py",
+        "display",
+        "flexDirection",
+        "mb",
+        "gap",
+        "display",
+        "alignItems",
+        "typography",
+        "flexGrow",
+        "typography",
+        "color",
+        "height",
+        "bgcolor"
+      ]
     }
   }
 }
