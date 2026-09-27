@@ -1,5 +1,6 @@
 import { Label } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
+import { InfoTip } from "@/components/app/info-tip";
 import { LinkButton } from "@/components/minimal/link-button";
 import { FilterChip } from "@/components/minimal/list/filter-chip";
 import { Scrollbar } from "@/components/minimal/scrollbar";
@@ -418,6 +419,10 @@ export async function VaccinationActionCenterPage({
                 ))}
               </Box>
               <VisibleTableSearch pageContract={pageContract} label={copy(pageContract, "filter.search_visible_cards")} />
+              {/* Board paging note as a template info tooltip beside the visible-cards search it
+                  qualifies, not a loose line of text above the lanes. Tap opens it in the webview.
+                  guard: action-center-paging-tooltip */}
+              {boardNextCursor ? <InfoTip title={copy(pageContract, "note.board_paging")} testId="ac-board-paging-info" /> : null}
               <ActionCenterFiltersButton
                 pageContract={pageContract}
                 label={copy(pageContract, "filter.my_tasks.title")}
@@ -477,10 +482,6 @@ export async function VaccinationActionCenterPage({
             >
               {hasBoardFilters ? copy(pageContract, "empty.work_board_filtered") : copy(pageContract, "empty.work_board_detail")}
             </Alert>
-          ) : boardNextCursor ? (
-            <Typography variant="body2" sx={{ color: "text.secondary" }}>
-              {copy(pageContract, "note.board_paging")}
-            </Typography>
           ) : null}
 
           <WorkBoard
