@@ -1,5 +1,6 @@
 "use client";
 import Table from "@mui/material/Table";
+import { EARLIER_HEAD_CELLS, LIVE_HEAD_CELLS, LIVE_PAGE_SIZE, PLAN_FACT_SIZE } from "./plan-layout";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
@@ -58,7 +59,6 @@ type Props = {
   loadFailed: boolean;
 };
 
-const LIVE_PAGE_SIZE = 10;
 
 export function VaccinationPlanConsole({ searchParams, versions, catalog, changeNotes, loadFailed }: Props) {
   const router = useRouter();
@@ -186,7 +186,7 @@ export function VaccinationPlanConsole({ searchParams, versions, catalog, change
             {/* Template overview/course: CourseWidgetSummary tiles for the live version's facts. */}
             <Grid container spacing={3}>
               {liveKpis.map((kpi) => (
-                <Grid key={kpi.key} size={{ xs: 12, sm: 6, md: 3 }}>
+                <Grid key={kpi.key} size={PLAN_FACT_SIZE}>
                   {/* Dates and names are text, not counts, so these facts are plain MUI cards (header
                       = the fact, subheader = its label), not a template number widget. */}
                   <Card sx={{ height: 1 }}>
@@ -259,16 +259,11 @@ export function VaccinationPlanConsole({ searchParams, versions, catalog, change
               {catalog.length > 0 ? (
                 <>
                   {/* Rows + pager swap to their skeleton on a page click (guard: url-keyed-panel). */}
-                  <UrlSuspense searchParams={searchParams} watch={["page"]} fallback={<TableSkeleton bare header={false} columns={4} rows={pageRows.length || LIVE_PAGE_SIZE} />}>
+                  <UrlSuspense searchParams={searchParams} watch={["page"]} fallback={<TableSkeleton bare header={false} columns={LIVE_HEAD_CELLS.length} rows={pageRows.length || LIVE_PAGE_SIZE} />}>
                   <Scrollbar>
                     <Table sx={{ minWidth: 720 }}>
                       <TableHeadCustom
-                        headCells={[
-                          { id: "vaccine", label: "Vaccine" },
-                          { id: "first", label: "First doses" },
-                          { id: "repeats", label: "Repeats" },
-                          { id: "state", label: "", width: 160 },
-                        ]}
+                        headCells={LIVE_HEAD_CELLS}
                       />
                       <TableBody>
                         {pageRows.map((v) => (
@@ -310,13 +305,7 @@ export function VaccinationPlanConsole({ searchParams, versions, catalog, change
             <Scrollbar>
               <Table sx={{ minWidth: 820 }}>
                 <TableHeadCustom
-                  headCells={[
-                    { id: "version", label: "Version" },
-                    { id: "inforce", label: "In force" },
-                    { id: "published", label: "Published" },
-                    { id: "changed", label: "What changed" },
-                    { id: "action", label: "", width: 140 },
-                  ]}
+                  headCells={EARLIER_HEAD_CELLS}
                 />
                 <TableBody>
                   {earlier.map((v) => (
