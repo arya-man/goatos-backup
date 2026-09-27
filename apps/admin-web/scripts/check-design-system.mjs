@@ -477,7 +477,7 @@ function runGuard(root, { themeDiff }) {
         const text = readFileSync(abs, "utf8");
         if (/^\s*['"]use client['"]/.test(text)) continue;
         const lines = text.split("\n");
-        const at = lines.findIndex((line) => !/^\s*(\/\/|\*)/.test(line) && /\(theme\)\s*=>|\buse(?:Theme|State|Callback|Effect|Memo|Chart)\(/.test(line));
+        const at = lines.findIndex((line) => !/^\s*(\/\/|\*)/.test(line) && /\(theme\)\s*=>|\(\)\s*=>\s*\(\{|\buse(?:Theme|State|Callback|Effect|Memo|Chart)\(/.test(line));
         if (at >= 0) findings.push(finding("section-client-boundary", toRel(root, abs), at + 1, lines[at]));
       }
     }
@@ -1099,6 +1099,8 @@ async function selfTest() {
   put("features/legacy-card-page.tsx", 'import { EcommerceWidgetSummary } from "@/components/minimal/widgets";\nexport const L = () => <section className="card wchart"><h2 className="h">x</h2><EcommerceWidgetSummary title="x" total={1} /></section>;\n');
   put("features/pastel-page.tsx", 'import { KpiCard } from "@/components/minimal/widgets";\nexport const P = () => <KpiCard variant="tint" label="x" value={1} />;\n');
   put("components/minimal/sections/overview/demo/server-section.tsx", "export const S = () => <LinearProgress sx={[(theme) => ({ height: 8 })]} />;\n");
+  // zero-arg sx callback (template BookingWidgetSummary `sx={[() => ({ p: 2 }), ...]}`) crashed /counts/mortality
+  put("components/minimal/sections/overview/demo/server-zero-arg-sx.tsx", "export const Z = ({ sx }) => <Card sx={[() => ({ p: 2 }), sx]} />;\n");
   put("layouts/dashboard/nav-vertical.tsx", "export const V = () => <Scrollbar fillContent><NavSectionVertical data={d} /></Scrollbar>;\n");
   put("layouts/dashboard/nav-mobile.tsx", "export const M = () => <Drawer slotProps={{ backdrop: { sx: { bgcolor: 'var(--bg)' } }, paper: { sx: { width: '100vw' } } }}><NavSectionVertical data={d} /></Drawer>;\n");
   put("layouts/dashboard/layout.tsx", 'export const L = () => <NavMobile slots={{ bottomArea: navBottom }} />;\n');
@@ -1193,6 +1195,10 @@ async function selfTest() {
   const keyed = findings.filter((f) => f.check === "url-keyed-panel").map((f) => f.file);
   if (!keyed.includes("app/(admin)/tabbed/page.tsx") || keyed.includes("app/(admin)/keyed/page.tsx")) {
     console.error(`design_system_self_test=FAIL url-keyed-panel flagged=${keyed.join(",") || "none"} (want app/(admin)/tabbed/page.tsx only)`);
+    process.exit(1);
+  }
+  if (!findings.some((f) => f.check === "section-client-boundary" && f.file === "components/minimal/sections/overview/demo/server-zero-arg-sx.tsx")) {
+    console.error("design_system_self_test=FAIL section-client-boundary missed a zero-arg sx callback (() => ({ … }))");
     process.exit(1);
   }
   const verbatimHits = findings.filter((f) => f.check === "template-verbatim").map((f) => `${f.file}:${f.snippet.includes("tpl-healed") ? "healed" : ""}`).sort();

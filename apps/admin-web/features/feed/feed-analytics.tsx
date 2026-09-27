@@ -1089,9 +1089,10 @@ function DirectedTabs({
             { key: "adherence", unit: "%", total: adherence, trend: null },
             { key: "cost_per_animal", unit: "₹", total: costPerAnimal, trend: null },
           ].map((kpi) => {
-            // The unit (or "—" when the figure is missing) leads the visible sub-line.
-            const lead = kpi.total == null ? "—" : kpi.unit;
+            // The unit (or "—" when the figure is missing) leads the visible sub-line, unless the
+            // contract sub-line already names it ("kg on the issued sheet").
             const sub = fa(pageContract, `kpi.${kpi.key}.sub`);
+            const lead = kpi.total == null ? "—" : kpi.unit && !sub.includes(kpi.unit) ? kpi.unit : "";
             return (
               <Grid key={kpi.key} size={{ xs: 12, sm: 6, md: 4 }}>
                 <KpiWidget
