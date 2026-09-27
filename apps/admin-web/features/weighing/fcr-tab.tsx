@@ -7,7 +7,7 @@ import Typography from "@mui/material/Typography";
 
 import { EmptyState } from "@/components/app/empty-state";
 import { WorklistPager } from "@/components/worklist-pager";
-import { AnalyticsConversionRates } from "@/components/minimal/sections/overview/analytics/analytics-conversion-rates";
+import { ConversionRatesCard } from "@/components/app/conversion-rates-card";
 import { AnalyticsWebsiteVisits } from "@/components/minimal/sections/overview/analytics/analytics-website-visits";
 import { BankingBalanceStatistics } from "@/components/minimal/sections/overview/banking/banking-balance-statistics";
 import { EcommerceWidgetSummary } from "@/components/minimal/sections/overview/e-commerce/ecommerce-widget-summary";
@@ -267,7 +267,7 @@ export function FCRTab({
       </Grid>
 
       <Grid size={{ xs: 12, lg: 7 }}>
-        <AnalyticsConversionRates
+        <ConversionRatesCard
           aria-label={copy(pageContract, "section.fcr.pens.aria")}
           title={copy(pageContract, "section.fcr.pens.title")}
           subheader={copy(pageContract, "section.fcr.pens.caption")}
@@ -305,7 +305,7 @@ export function FCRTab({
           <Typography variant="body2" sx={{ px: 3, pb: 3, color: "text.secondary" }}>
             {copy(pageContract, "note.fcr.excluded")}
           </Typography>
-        </AnalyticsConversionRates>
+        </ConversionRatesCard>
       </Grid>
       <Grid size={{ xs: 12, lg: 5 }}>
         <AnalyticsWebsiteVisits

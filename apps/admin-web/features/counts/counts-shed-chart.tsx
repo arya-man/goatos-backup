@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { AnalyticsConversionRates } from "@/components/minimal/sections/overview/analytics/analytics-conversion-rates";
+import { ConversionRatesCard } from "@/components/app/conversion-rates-card";
 import { EmptyContent } from "@/components/minimal/empty-content";
 import { TablePaginationCustom } from "@/components/minimal/table";
 
@@ -31,7 +31,7 @@ export function CountsShedChart({
   const [rowsPerPage, setRowsPerPage] = useState(pageSize);
   const shown = bars.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
   return (
-    <AnalyticsConversionRates
+    <ConversionRatesCard
       title={title}
       aria-label={title}
       empty={<EmptyContent title={emptyLabel} />}
@@ -53,6 +53,6 @@ export function CountsShedChart({
           }}
         />
       ) : null}
-    </AnalyticsConversionRates>
+    </ConversionRatesCard>
   );
 }

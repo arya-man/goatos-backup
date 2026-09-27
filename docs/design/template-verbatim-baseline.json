@@ -48,7 +48,6 @@
     "components/minimal/sections/order/order-details-items.tsx",
     "components/minimal/sections/order/order-details-toolbar.tsx",
     "components/minimal/sections/order/order-table-toolbar.tsx",
-    "components/minimal/sections/overview/analytics/analytics-conversion-rates.tsx",
     "components/minimal/sections/overview/analytics/analytics-website-visits.tsx",
     "components/minimal/sections/overview/banking/banking-balance-statistics.tsx",
     "components/minimal/sections/overview/banking/banking-expenses-categories.tsx",

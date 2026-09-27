@@ -10,7 +10,7 @@ import Stack from "@mui/material/Stack";
 
 import { Label } from "@/components/minimal/label";
 import { EcommerceWidgetSummary } from "@/components/minimal/sections/overview/e-commerce/ecommerce-widget-summary";
-import { AnalyticsConversionRates } from "@/components/minimal/sections/overview/analytics/analytics-conversion-rates";
+import { ConversionRatesCard } from "@/components/app/conversion-rates-card";
 import { AnalyticsWebsiteVisits } from "@/components/minimal/sections/overview/analytics/analytics-website-visits";
 import { BankingBalanceStatistics } from "@/components/minimal/sections/overview/banking/banking-balance-statistics";
 import { EcommerceCurrentBalance } from "@/components/minimal/sections/overview/e-commerce/ecommerce-current-balance";
@@ -897,7 +897,7 @@ function GeneralTab({
       </Grid>
 
       <Grid size={{ xs: 12, md: 6, lg: 8 }}>
-        <AnalyticsConversionRates
+        <ConversionRatesCard
           aria-label={copy(pageContract, "chart.gain.aria")}
           title={copy(pageContract, "chart.gain.title")}
           subheader={copy(pageContract, "chart.gain.caption")}

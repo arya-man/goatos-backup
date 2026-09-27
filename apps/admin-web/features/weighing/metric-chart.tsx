@@ -1,4 +1,5 @@
 "use client";
+import { chartClasses } from "@/components/minimal/chart/classes";
 import Table from "@mui/material/Table";
 import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
@@ -13,7 +14,7 @@ import CardHeader from "@mui/material/CardHeader";
 import { EmptyState } from "@/components/app/empty-state";
 import { ChartSelect } from "@/components/minimal/chart";
 import { TablePaginationCustom } from "@/components/minimal/table";
-import { AnalyticsConversionRates } from "@/components/minimal/sections/overview/analytics/analytics-conversion-rates";
+import { ConversionRatesCard } from "@/components/app/conversion-rates-card";
 import { Tag } from "@/components/ui-primitives";
 import type { WeightBar } from "./weight-bars";
 import { stageLabel } from "@/lib/stage-labels";
@@ -67,6 +68,9 @@ function barChart(active: MetricSeries, name: string) {
   };
 }
 
+/** Plot height for a one-to-three bar chart (sex, stage). */
+const SHORT_PLOT = 220;
+
 export function MetricChart({
   initialMetric,
   labels,
@@ -89,7 +93,7 @@ export function MetricChart({
   void size;
   void wide;
   return (
-    <AnalyticsConversionRates
+    <ConversionRatesCard
       key={metric}
       aria-label={active.chartLabel}
       title={title[metric]}
@@ -97,7 +101,9 @@ export function MetricChart({
       action={<MetricToggle current={metric} labels={labels} onChange={setMetric} />}
       empty={<EmptyState title={active.emptyLabel} />}
       chart={barChart(active, labels[metric])}
-      sx={{ height: 1 }}
+      // Sex / stage usually carry one to three bars: the template's 360px plot would leave them
+      // floating, so a short list gets a 220px plot (set here, the section stays verbatim).
+      sx={{ height: 1, ...(active.data.length <= 3 ? { [`& .${chartClasses.root}`]: { height: SHORT_PLOT } } : {}) }}
     />
   );
 }
@@ -278,7 +284,7 @@ export function ShedMetricChart({
     // One chart over every park column, each bar named with its park (the column heading).
     const data = active.columns.flatMap((col) => col.rows.map((row) => ({ ...row, label: `${col.heading} · ${row.label}` })));
     return (
-      <AnalyticsConversionRates
+      <ConversionRatesCard
         key={metric}
         aria-label={active.chartLabel}
         title={title[metric]}
