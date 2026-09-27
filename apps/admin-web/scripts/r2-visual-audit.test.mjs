@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { compareBlocks, discoverRoutes, gateFailures, groupPatterns, iou, isP0, parsePageMap, routePattern, templateFor } from "./r2-visual-audit.mjs";
+import { readFileSync } from "node:fs";
+import { compareBlocks, isVisuallyHidden, discoverRoutes, gateFailures, groupPatterns, iou, isP0, parsePageMap, routePattern, templateFor } from "./r2-visual-audit.mjs";
 
 const appRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -138,4 +139,19 @@ test("theme.palette follows the active scheme (forceThemeRerender on the app The
   const { readFileSync } = await import("node:fs");
   const src = readFileSync(new URL("../theme/app-theme-provider.tsx", import.meta.url), "utf8");
   assert.match(src, /<ThemeProvider[^>]*\bforceThemeRerender\b/);
+});
+
+// guard: tap-skip-visually-hidden (TR1-#8). An `.sr-only` submit ("Apply search" on /leave, /routines)
+// was reported as a 1x44 tap target; it is not on screen. A real small control still counts.
+test("tap-target check skips visually hidden controls only", () => {
+  assert.equal(isVisuallyHidden({ clip: "rect(0px, 0px, 0px, 0px)", overflow: "hidden" }, { width: 1, height: 44 }), true);
+  assert.equal(isVisuallyHidden({ clip: "auto", clipPath: "inset(50%)", overflow: "hidden" }, { width: 1, height: 1 }), true);
+  assert.equal(isVisuallyHidden({ clip: "auto", clipPath: "none", overflow: "visible" }, { width: 30, height: 30 }), false);
+  assert.equal(isVisuallyHidden({ clip: "auto", clipPath: "none", overflow: "hidden" }, { width: 1, height: 44 }), false);
+  const src = readFileSync(join(appRoot, "scripts", "r2-visual-audit.mjs"), "utf8");
+  const lib = src.slice(src.indexOf("function r2PageLib()"));
+  const body = (s) => s.replace(/\s+/g, " ").match(/const clipped = .*?;\s*return clipped && \(.*?\);/)?.[0];
+  assert.ok(body(lib), "page lib keeps its own isVisuallyHidden copy");
+  assert.equal(body(lib), body(src.slice(src.indexOf("export function isVisuallyHidden"))), "page-lib copy equals the exported rule");
+  assert.match(lib, /if \(isVisuallyHidden\(cs, r\)\) continue;/, "tap loop consults the rule");
 });

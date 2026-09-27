@@ -240,9 +240,6 @@ export function CeoAiStyles(): ReactElement {
 .mzai-bubble:hover{transform:translateY(-4px);box-shadow:0 8px 20px rgba(0,0,0,.2)}
 .mzai-bubble:active{transform:translateY(-2px)}
 .mzai-goat-icon{width:28px;height:28px}
-.mzai-bubble.mzai-bubble-dock{width:40px;height:40px;border-width:1.5px;box-shadow:none}
-.mzai-bubble.mzai-bubble-dock:hover{transform:none;box-shadow:0 0 0 3px var(--brand-soft)}
-.mzai-bubble.mzai-bubble-dock .mzai-goat-icon{width:22px;height:22px}
 @media (prefers-reduced-motion: reduce) {
   .mzai-bubble{transition:none}
   .goat-bubble{animation:none !important}

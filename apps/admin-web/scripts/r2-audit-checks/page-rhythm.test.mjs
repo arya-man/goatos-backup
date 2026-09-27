@@ -42,15 +42,6 @@ test("workflow chain node state is humanized", () => {
   assert.doesNotMatch(src, />\{node\.state\}</);
 });
 
-// guard: phone-fab-clearance — at phone width Ask Mesha is a floating bubble over the page; the
-// shell content keeps bottom room for it so the last row/pager scrolls clear (FJ1-P1-2).
-test("shell content keeps phone bottom clearance for the Ask Mesha bubble", () => {
-  const src = readFileSync(join(root, "components/mesha-shell.tsx"), "utf8");
-  assert.match(src, /@media \(max-width:620px\)": \{ "--layout-dashboard-content-pb"/);
-  const panel = readFileSync(join(root, "features/ceo-ai/ceo-ai-panel.tsx"), "utf8");
-  assert.match(panel, /matchMedia\("\(max-width:620px\)"\)/, "bubble breakpoint and clearance breakpoint must match");
-});
-
 // guard: no-blur-scrim — a blurred full-surface layer (backdrop-filter on a scrim / loading veil)
 // flickers in the Android WebView (OCI U1-U8, FJ1-P1-4). Legacy CSS blur declarations only shrink.
 test("legacy CSS backdrop blur declarations only shrink", () => {

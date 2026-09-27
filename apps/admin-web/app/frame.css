@@ -239,7 +239,6 @@ details.top-date-picker:not([open])>.top-date-popover,details.move-date-picker:n
 .kit-error-page{padding:24px}
 .topbar-ai-slot{display:inline-flex;align-items:center}
 .topbar-ai-slot:empty{display:none}
-@media(max-width:620px){.topbar-ai-slot{display:none}}
 
 /* ---- Shell skeleton (first paint before the bootstrap contract) ---- */
 .shell-skeleton .top{display:flex;align-items:center;overflow:hidden}

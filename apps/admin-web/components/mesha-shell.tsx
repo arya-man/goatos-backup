@@ -58,6 +58,7 @@ import {
 } from "@/components/push-permission-prompt-lazy";
 import { preloadFirebasePerformance, startFirebasePerformanceTrace } from "@/lib/firebase-performance";
 import { reportAdminPerformanceEvent } from "@/lib/performance-events";
+import { moduleGroupForPath } from "@/lib/nav-module-group";
 import { parkLabel, parseScope, preservedPageFiltersForScopeChange, scopeHref, type Park } from "@/lib/scope";
 import type { AdminWebBootstrapResponse } from "@/lib/api/server";
 
@@ -300,6 +301,7 @@ export function MeshaShell({
   // hiccup or an unknown future value never blanks a leader's navigation.
   const showSidebar = contract.nav_chrome !== "minimal";
   const active = activeHref(pathname, contract);
+  const fallbackGroupId = active ? null : moduleGroupForPath(pathname, contract.navigation.groups);
   const sharedNavKeysByHref = useMemo(() => sharedNavKeys(contract), [contract]);
   // Single top-bar scope contract: parse the URL scope params (scope_mode/park/range/as_of) once and render
   // HUMAN labels (the park dropdown writes the backend-safe location UUID). Every screen reads the same
@@ -799,7 +801,7 @@ export function MeshaShell({
         // Group path = first enabled leaf: the mini rail icon links there (layouts/app/dashboard/nav-vertical.tsx).
         path: groupFirstHref(g),
         icon: navIcon(g.icon),
-        active: g.leaves.some((l) => l.enabled && navActive(l)),
+        active: g.leaves.some((l) => l.enabled && navActive(l)) || g.id === fallbackGroupId,
         children: g.leaves.map((l) => ({
           title: l.label,
           path: l.enabled ? navHref(l) : l.href,
@@ -954,14 +956,9 @@ export function MeshaShell({
           <span />
         </div>
         {/* `main` = the page-content class contract the page CSS is scoped to; see layouts/mesha-layout.css. */}
-        {/* Phone (<=620px, where Ask Mesha stays a floating 56px bubble instead of docking in the
-            header): the content ends with room for the bubble, so the last row, pager or action
-            scrolls clear of it instead of sitting under it (FJ1-P1-2). guard: phone-fab-clearance */}
-        <DashboardContent
-          maxWidth={false}
-          className="main msh-content"
-          sx={{ "@media (max-width:620px)": { "--layout-dashboard-content-pb": "calc(var(--sp-6) * 3)" } }}
-        >
+        {/* Ask Mesha docks in the header at every width (TR1-#13), so the content needs no extra
+            bottom room for a floating bubble: the template content padding. guard: ask-mesha-docked */}
+        <DashboardContent maxWidth={false} className="main msh-content">
           <ScrollEdges />
           {/* `.wrap` keeps the page frame rules (frame.css) the page bodies are built on; the template
               DashboardContent owns the gutters, so the wrap's own padding is zeroed in layouts/mesha-layout.css. */}

@@ -372,6 +372,12 @@ export function splitSelectors(text) {
   return out;
 }
 
+/** A visually hidden control (`.sr-only`: ~1px box, clip rect 0 or clip-path inset) shows nothing to tap. */
+export function isVisuallyHidden(cs, r) {
+  const clipped = /rect\(0(px)?,? 0(px)?,? 0(px)?,? 0(px)?\)/.test(cs.clip || "") || /inset\(50%\)/.test(cs.clipPath || "");
+  return clipped && (r.width <= 2 || r.height <= 2 || cs.overflow === "hidden");
+}
+
 // ---------------------------------------------------------------------------------------------
 // in-page library (installed with addInitScript; must be self-contained)
 
@@ -428,6 +434,11 @@ function r2PageLib() {
   }
   const root = () => document.querySelector(ROOT) || document.body || document.documentElement;
   const visible = (el) => { try { return el.checkVisibility({ opacityProperty: true, visibilityProperty: true }); } catch { return !!el.getClientRects().length; } };
+  // Same body as the exported isVisuallyHidden (the page lib must be self-contained; the test pins the copy).
+  const isVisuallyHidden = (cs, r) => {
+    const clipped = /rect\(0(px)?,? 0(px)?,? 0(px)?,? 0(px)?\)/.test(cs.clip || "") || /inset\(50%\)/.test(cs.clipPath || "");
+    return clipped && (r.width <= 2 || r.height <= 2 || cs.overflow === "hidden");
+  };
   const text = (el) => [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim();
 
   function skeletonCount() {
@@ -600,6 +611,10 @@ function r2PageLib() {
         let r = el.getBoundingClientRect();
         if (r.width < 1 || r.height < 1) continue;
         const cs = getComputedStyle(el);
+        // A visually hidden control (`.sr-only`: 1px, clip rect 0) is not a tap target: nothing shows on
+        // screen to tap. It stays for keyboard / screen-reader users (e.g. the implicit "Apply search"
+        // submit on /leave and /routines). guard: tap-skip-visually-hidden (r2-visual-audit.test.mjs)
+        if (isVisuallyHidden(cs, r)) continue;
         if (el.tagName === "INPUT" && (cs.opacity === "0" || /checkbox|radio/.test(el.type))) { target = el.closest(".MuiButtonBase-root, label") || el.parentElement; r = target.getBoundingClientRect(); }
         const bigAncestor = target.parentElement?.closest(INTERACTIVE);
         if (bigAncestor) { const br = bigAncestor.getBoundingClientRect(); if (br.width >= 44 && br.height >= 44) continue; }

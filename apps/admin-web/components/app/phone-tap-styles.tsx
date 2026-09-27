@@ -22,7 +22,6 @@ export function PhoneTapStyles() {
             '.MuiButton-root.MuiButton-root',
             '.MuiTab-root.MuiTab-root',
             '.MuiInputBase-root.MuiInputBase-root',
-            '.MuiChip-root.MuiChip-root',
             '.MuiMenuItem-root.MuiMenuItem-root',
             '.MuiSwitch-root.MuiSwitch-root',
             '.MuiTablePagination-select.MuiTablePagination-select',
@@ -41,6 +40,11 @@ export function PhoneTapStyles() {
             '.MuiAutocomplete-clearIndicator.MuiAutocomplete-clearIndicator',
             // A short header ("Pen") was a 21px-wide sort target.
             '.MuiTableSortLabel-root.MuiTableSortLabel-root',
+            // TR1-#8: a one-word chip ("All", "OK") was 41-43px wide; the /tasks Board/List icon
+            // toggle was 30x30; the date-range clear "x" was 24px wide.
+            '.MuiChip-root.MuiChip-root',
+            '.MuiToggleButton-root.MuiToggleButton-root',
+            '.kit-daterange-clear.kit-daterange-clear',
           ].join(', ')]: { minWidth: TAP, minHeight: TAP },
           // The switch thumb button is 32px (18px small); padding grows it to 44px and `left` keeps the thumb
           // exactly where the template draws it.

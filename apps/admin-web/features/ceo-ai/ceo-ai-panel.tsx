@@ -44,6 +44,7 @@ import {
 } from "@/lib/ceo-ai-stream";
 import { CeoAiWatchCard, mergeWatch } from "./ceo-ai-watch";
 import { createPortal } from "react-dom";
+import IconButton from "@mui/material/IconButton";
 import {
   createConversation,
   deleteConversation,
@@ -538,12 +539,22 @@ export function CeoAiPanel({
     mq.addEventListener("change", sync);
     return () => mq.removeEventListener("change", sync);
   }, []);
-  // The top-bar dock slot, looked up once on the client (SSR has no document).
+  // The top-bar dock slot (SSR has no document). TR1-#12: a one-time lookup missed the slot on routes
+  // whose header committed after this panel (and kept a detached node after a header remount), so the
+  // launcher vanished from the header on /verify and /protocol-adherence. Track the live slot instead:
+  // re-resolve whenever the current one is missing or detached. guard: ask-mesha-docked
   const [dockSlot, setDockSlot] = useState<HTMLElement | null>(null);
   useEffect(() => {
-    const slot = document.getElementById("topbar-ai-slot");
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time DOM lookup after mount
-    if (slot) setDockSlot(slot);
+    let current: HTMLElement | null = null;
+    const resolve = () => {
+      if (current?.isConnected) return;
+      current = document.getElementById("topbar-ai-slot");
+      setDockSlot(current);
+    };
+    resolve();
+    const observer = new MutationObserver(resolve);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
   }, []);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [conversationId, setConversationId] = useState<string | undefined>(
@@ -1750,25 +1761,26 @@ export function CeoAiPanel({
       ) : (
         <>
           <CeoAiStyles />
-          {/* Closed: the launcher DOCKS into the top bar's slot when the shell offers one, so it
-              never sits over a table's last column or a footer's pager at the bottom-right of the
-              viewport. Without a slot (no shell) it stays the floating bubble. */}
-          {/* At phone width the top bar hides its slot (frame.css, max-width:620px), so a docked
-              launcher would be 0x0 and unreachable; the phone keeps the draggable bubble. */}
-          {dockSlot && !narrow
+          {/* Closed: the launcher DOCKS into the top bar's slot when the shell offers one, at EVERY
+              width (TR1-#13: the phone's floating bubble covered page content and sat on top of the
+              open phone menu; the template header has no FAB). It is a template header IconButton
+              (transparent, 40px, 44px tap on phones) carrying the goat mark, like the template's
+              language flag. Without a slot (no shell) it stays the floating bubble.
+              guard: ask-mesha-docked (features/ceo-ai/ceo-ai-dock.test.mjs) */}
+          {dockSlot
             ? createPortal(
-                <button
-                  type="button"
-                  className="mzai-bubble mzai-bubble-dock"
+                <IconButton
+                  className="mzai-dock"
                   onClick={() => {
                     setOpen(true);
                     trackCeoAiEvent(CeoAiEvents.Open);
                   }}
                   aria-label={copy.open}
                   title={copy.title}
+                  sx={{ "& .mzai-goat-icon": { width: "var(--sp-3)", height: "var(--sp-3)" } }}
                 >
                   <GoatAvatar />
-                </button>,
+                </IconButton>,
                 dockSlot,
               )
             : (

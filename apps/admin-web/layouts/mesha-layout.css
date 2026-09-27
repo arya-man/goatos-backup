@@ -23,7 +23,5 @@
 /* Webview rule: header controls and the phone drawer items stay >= 44px taps at phone width. */
 @media (max-width:1199px){
   .MuiAppBar-root .MuiIconButton-root{min-width:var(--tap-min, 44px);min-height:var(--tap-min, 44px)}
-  /* The Ask Mesha dock held 40px from 900 to 1199. */
-  .MuiAppBar-root .mzai-bubble-dock{min-width:var(--tap-min, 44px);min-height:var(--tap-min, 44px)}
   .msh-side .MuiButtonBase-root{min-height:var(--tap-min, 44px)}
 }
