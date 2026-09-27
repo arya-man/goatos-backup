@@ -2972,9 +2972,6 @@ input[type="checkbox"]:not(.lt-people-row input):not(.PrivateSwitchBase-input):d
 input[type=date],input[type=datetime-local],input[type=time],input[type=month],input[type=week]{color-scheme:dark}
 :root.light input[type=date],:root.light input[type=datetime-local],:root.light input[type=time],:root.light input[type=month],:root.light input[type=week]{color-scheme:light}
 
-/* SOP library: the card whose version was JUST published (maintainer report 2026-09-15 — after
-   Publish the editor closes and the change has to be visibly reflected on the library). */
-
 /* Alerts page (maintainer decision 2026-09-16) -- the page below the Work Board. Scoped under
    .alerts-page; only the table cells are pinned here. */
 .alerts-page .tbl td{vertical-align:top}

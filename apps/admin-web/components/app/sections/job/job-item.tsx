@@ -5,7 +5,8 @@
 // (the rounded 48px company logo: an icon or initial), `title` (its detail Link), `secondary` (its
 // "Posted date" line), `meta` (its candidates caption line), `media` (a declared slot under it),
 // `facts` (its four icon + caption grid cells), `menuActions` (its View / Edit / Delete ⋮ menu;
-// the ⋮ renders only with items) and `children` (a declared dashed-divider section at the foot).
+// the ⋮ renders only with items; `menuLabel` is its declared accessible name, required with items)
+// and `children` (a declared dashed-divider section at the foot).
 import type { ReactNode } from 'react';
 import type { CardProps } from '@mui/material/Card';
 import type { SxProps, Theme } from '@mui/material/styles';
@@ -31,7 +32,12 @@ import { CustomPopover } from '@/components/minimal/custom-popover';
 export type JobItemFact = { key: string; icon?: ReactNode; label: ReactNode };
 export type JobItemMenuAction = { key: string; label: ReactNode; icon?: ReactNode; onClick: () => void };
 
-type Props = Omit<CardProps, 'title'> & {
+/** The ⋮ renders only with items, and then it must carry an accessible name (axe button-name). */
+type MenuProps =
+  | { menuActions?: undefined; menuLabel?: undefined }
+  | { menuActions: JobItemMenuAction[]; menuLabel: string };
+
+type Props = Omit<CardProps, 'title'> & MenuProps & {
   title: ReactNode;
   secondary?: ReactNode;
   meta?: ReactNode;
@@ -39,14 +45,13 @@ type Props = Omit<CardProps, 'title'> & {
   avatarUrl?: string;
   media?: ReactNode;
   facts?: JobItemFact[];
-  menuActions?: JobItemMenuAction[];
   children?: ReactNode;
   /** Declared overrides (template-derived.json): the meta line wraps; fact captions wrap. */
   slotProps?: { meta?: SxProps<Theme> };
   wrapFacts?: boolean;
 };
 
-export function JobItem({ title, secondary, meta, avatar, avatarUrl, media, facts = [], menuActions = [], children, slotProps, wrapFacts, sx, ...other }: Props) {
+export function JobItem({ title, secondary, meta, avatar, avatarUrl, media, facts = [], menuActions = [], menuLabel, children, slotProps, wrapFacts, sx, ...other }: Props) {
   const menuActionsPopover = usePopover();
 
   const renderMenuActions = () => (
@@ -77,7 +82,7 @@ export function JobItem({ title, secondary, meta, avatar, avatarUrl, media, fact
     <>
       <Card sx={sx} {...other}>
         {menuActions.length ? (
-        <IconButton onClick={menuActionsPopover.onOpen} sx={{ position: 'absolute', top: 8, right: 8 }}>
+        <IconButton onClick={menuActionsPopover.onOpen} aria-label={menuLabel} sx={{ position: 'absolute', top: 8, right: 8 }}>
           <Iconify icon="eva:more-vertical-fill" />
         </IconButton>
         ) : null}

@@ -94,3 +94,43 @@ test("SOP library is the template job list and its skeleton mirrors it", () => {
   assert.match(src, /<Box sx=\{\{ display: "flex", flexDirection: "column", gap: 3 \}\}>/);
   assert.match(skel, /<PageSkeleton gap=\{3\}>/);
 });
+
+// guard: job-item-menu-label (REVIEW-38 O54). The template JobItem ⋮ is an icon-only button, so it
+// carries a declared accessible name (allowProps IconButton:aria-label) that the type makes required
+// whenever there are menu items; SOP cards name it "More: <SOP name>" as the old RowMenu did.
+test("JobItem ⋮ has an accessible name and SOP cards set it", () => {
+  const item = read("../../components/app/sections/job/job-item.tsx");
+  assert.match(item, /<IconButton onClick=\{menuActionsPopover\.onOpen\} aria-label=\{menuLabel\}/);
+  assert.match(item, /\| \{ menuActions: JobItemMenuAction\[\]; menuLabel: string \}/, "menuLabel is required with menuActions");
+  const derived = JSON.parse(read("../../../../docs/design/template-derived.json"));
+  const entry = Object.entries(derived).flatMap(([, v]) => (v && typeof v === "object" ? Object.entries(v) : [])).find(([k]) => k === "components/app/sections/job/job-item.tsx");
+  assert.ok(entry, "job-item.tsx is declared template-derived");
+  assert.ok(entry[1].allowProps.includes("IconButton:aria-label"), "the aria-label is a declared override");
+  const src = read("./sop-library.tsx");
+  assert.match(src, /menuLabel=\{`\$\{copy\(pageContract, "action\.more"\)\}: \$\{view\.name\}`\}/);
+  // Every JobItem with menu items in the app passes a label (TypeScript enforces it too).
+  for (const file of ["./sop-library.tsx", "../procurement/animal-purchases.tsx"]) {
+    for (const m of read(file).matchAll(/<JobItem\b[\s\S]*?\/?>/g)) {
+      if (/menuActions=/.test(m[0])) assert.match(m[0], /menuLabel=/, `${file}: JobItem with menuActions needs menuLabel`);
+    }
+  }
+});
+
+// guard: sop-paging-client-only (REVIEW-38 O55). The SOP list is whole on the client, so a page change
+// rewrites the URL `page` with history.replaceState (useSearchParams follows, deep links still open the
+// page) and never costs a server navigation: no router.replace/push for the page, and the JobList pager
+// items call onSelect on a plain click instead of following a Next Link.
+test("SOP card paging is client-only with a deep-linkable page param", () => {
+  const src = read("./sop-library.tsx");
+  const setter = src.match(/const setRequestedPage = \(n: number\) => \{([\s\S]*?)\n  \};/);
+  assert.ok(setter, "setRequestedPage exists");
+  assert.match(setter[1], /window\.history\.replaceState\(window\.history\.state, "", pageHref\(n\)\)/);
+  assert.doesNotMatch(setter[1], /router\./);
+  assert.doesNotMatch(src, /router\.replace\(/);
+  assert.match(src, /searchParams\.get\(PAGE_PARAM\)/, "a deep link's page param still selects the page");
+  assert.match(src, /<JobList pagination=\{\{.*onSelect: setRequestedPage \}\}>/);
+  const list = read("../../components/app/sections/job/job-list.tsx");
+  assert.match(list, /pagination\.onSelect \? \(\s*<PaginationItem\s+component="a"/);
+  assert.match(list, /event\.preventDefault\(\);\s*if \(page\) pagination\.onSelect\(page\);/);
+  assert.match(list, /onClick=\{selectPage\(item\.page\)\}/);
+});

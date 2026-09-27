@@ -925,8 +925,10 @@
     },
     "components/app/sections/job/job-item.tsx": {
       "source": "src/sections/job/job-item.tsx",
-      "replaced": "IJobItem -> avatar/avatarUrl, title (detail Link), secondary (Posted date), meta (candidates line), facts (the four icon + caption cells), menuActions (View/Edit/Delete; ⋮ only with items); declared slots media and children (dashed-divider foot section); declared: facts grid only with facts, slotProps.meta (wrap), wrapFacts toggles the caption noWrap",
-      "allowProps": [],
+      "replaced": "IJobItem -> avatar/avatarUrl, title (detail Link), secondary (Posted date), meta (candidates line), facts (the four icon + caption cells), menuActions (View/Edit/Delete; ⋮ only with items); declared slots media and children (dashed-divider foot section); declared: facts grid only with facts, slotProps.meta (wrap), wrapFacts toggles the caption noWrap, menuLabel names the ⋮ (aria-label, required with menuActions)",
+      "allowProps": [
+        "IconButton:aria-label"
+      ],
       "templateStrip": [
         [
           "alt=\\{job\\.company\\.name\\}\\s*src=\\{job\\.company\\.logo\\}",

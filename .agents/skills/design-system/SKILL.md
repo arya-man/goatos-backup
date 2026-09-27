@@ -322,6 +322,19 @@ audit defect on PR #294:
   SegmentTabs strip is rounded (`var(--r-xl)`) like the template BankingOverview custom Tabs.
 - `url-panel-min-width` (r2 plugin `column-fit`, P0 `layout|wider-than-column`): no page block is wider
   than the content column; `UrlPanel`'s `display: contents` box gives its children `min-width: 0`.
+- `kpi-caption-not-title` (`features/procurement/animal-purchases.test.mjs`): a KPI widget caption
+  never repeats its title ("Loads / Loads"); it carries extra information (e.g. "N+" when more loads
+  exist than shown) or is omitted.
+- `summary-strip-no-empty-share` (`features/verification-review/header-actions-tr1.test.mjs`): an
+  InvoiceAnalytic summary strip prints a share caption only when there is a total to share (no "0%"
+  in every cell). /verify's header side-panel buttons are outlined secondary buttons, not contained.
+- `job-item-menu-label` (`features/sops/sop-internal-codes.test.mjs`): the JobItem ⋮ is icon-only, so
+  it takes a declared `menuLabel` (aria-label, allowProps `IconButton:aria-label`), required by type
+  whenever `menuActions` is set; SOP cards pass "More: <SOP name>".
+- `sop-paging-client-only` (`features/sops/sop-internal-codes.test.mjs`): a card list that is already
+  whole on the client pages through `JobList` `pagination.onSelect` + `window.history.replaceState`
+  on the `page` param (deep links still open that page); never `router.replace` / Next Link per page
+  click, which costs a server round trip that re-reads the whole list.
 
 ## Production bug CLASSES as guards (2026-09-26)
 

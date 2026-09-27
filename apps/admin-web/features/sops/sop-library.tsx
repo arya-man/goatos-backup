@@ -144,8 +144,10 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
   const [editorPending, startEditorNav] = useTransition();
   const openEditor = (sopId: string) => startEditorNav(() => router.push(`${builderHref}&edit=${sopId}`));
   const openCaptureEditor = (sopId: string) => startEditorNav(() => router.push(`${builderHref}&edit=${sopId}&part=capture`));
-  // The card page is the URL's `page` (template JobList pagination: each page item is a link). A
-  // filter change starts again at page 1 by dropping the param in place.
+  // The card page is the URL's `page` (template JobList pagination: each page item is a link, so a
+  // deep link opens that page). The whole list is already on the client, so a page change only
+  // rewrites the URL with history.replaceState (Next syncs useSearchParams): no server round trip.
+  // A filter change starts again at page 1 by dropping the param in place. guard: sop-paging-client-only
   const searchParams = useSearchParams();
   const pathname = usePathname();
   const requestedPage = Math.max(1, Number(searchParams.get(PAGE_PARAM)) || 1);
@@ -158,7 +160,7 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
   };
   const setRequestedPage = (n: number) => {
     if (n === requestedPage) return;
-    router.replace(pageHref(n), { scroll: false });
+    window.history.replaceState(window.history.state, "", pageHref(n));
   };
   const pageSize = CARDS_PER_PAGE;
   // The page is pre-scoped to its module's SOP codes (SOP split, maintainer decision 2026-08-18).
@@ -391,7 +393,7 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
         <EmptyContent filled title={copy(pageContract, "empty.no_match")} sx={{ py: 10 }} />
       ) : (
         // Template sections/job/job-list: the 1/2/3-column JobItem grid with the centred pagination.
-        <JobList pagination={{ page, hrefs: Array.from({ length: totalPages }, (_, i) => pageHref(i + 1)) }}>
+        <JobList pagination={{ page, hrefs: Array.from({ length: totalPages }, (_, i) => pageHref(i + 1)), onSelect: setRequestedPage }}>
           {pagedList.map((s) => (
             <SopItem
               key={s.sopId}
@@ -488,6 +490,7 @@ function SopItem({ view, facets, pageContract, justPublished, onView, onEdit }: 
         </Label>
       }
       facts={facts}
+      menuLabel={`${copy(pageContract, "action.more")}: ${view.name}`}
       menuActions={[
         { key: "view", label: copy(pageContract, "action.view_details"), icon: <Iconify icon="solar:eye-bold" />, onClick: onView },
         { key: "edit", label: copy(pageContract, "action.edit", "Edit"), icon: <Iconify icon="solar:pen-bold" />, onClick: onEdit },
