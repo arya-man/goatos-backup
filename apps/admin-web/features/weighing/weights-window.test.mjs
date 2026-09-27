@@ -314,7 +314,7 @@ test("the headline row is five cards, and the gain figure is stated once", () =>
   // The headline row is four template widgets via the KpiWidget adapter (kids, total, average, the scope's daily gain)
   // plus ONE sale-line ring card: the gain is stated once, never a sixth "median gain" card.
   assert.equal((source.match(/<KpiWidget\b/g) ?? []).length, 4, "four headline widgets");
-  assert.equal((source.match(/<EcommerceSaleByGender\b/g) ?? []).length, 1, "the sale lines share one ring card");
+  assert.equal((source.match(/<RingCard\b/g) ?? []).length, 1, "the sale lines share one ring card");
   assert.doesNotMatch(source, /className="grid g6 kpi-row"/);
   assert.doesNotMatch(source, /"kpi\.gain\.label"/);
   assert.doesNotMatch(contract, /"kpi\.gain\.label":/);
@@ -324,7 +324,7 @@ test("the headline row is five cards, and the gain figure is stated once", () =>
   // stated once in the current-balance card -- never a sixth card repeating it.
   assert.doesNotMatch(analyticsSource, /"kpi\.gain\.label"/);
   assert.equal((analyticsSource.match(/<KpiWidget\b/g) ?? []).length, 3, "three headline widgets");
-  assert.equal((analyticsSource.match(/<EcommerceSaleByGender\b/g) ?? []).length, 1, "the sale lines share one ring card");
+  assert.equal((analyticsSource.match(/<RingCard\b/g) ?? []).length, 1, "the sale lines share one ring card");
   assert.equal((analyticsSource.match(/<EcommerceCurrentBalance\b/g) ?? []).length, 1, "the gain is stated once");
 });
 

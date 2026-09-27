@@ -14,7 +14,7 @@ import { ConversionRatesCard } from "@/components/app/conversion-rates-card";
 import { WeeklyGrowthCard } from "./weekly-growth-card";
 import { BankingBalanceStatistics } from "@/components/minimal/sections/overview/banking/banking-balance-statistics";
 import { EcommerceCurrentBalance } from "@/components/minimal/sections/overview/e-commerce/ecommerce-current-balance";
-import { EcommerceSaleByGender } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sale-by-gender";
+import { RingCard } from "@/components/app/ring-card";
 import { LoadComparisonTab } from "./load-comparison-tab";
 import { WeightsExportControl, type WeightsExportShed } from "./weights-export";
 import { EmptyState } from "@/components/app/empty-state";
@@ -848,20 +848,16 @@ function GeneralTab({
       </Grid>
 
       <Grid size={{ xs: 12, md: 6, lg: 4 }}>
-        <EcommerceSaleByGender
+        <RingCard
           aria-label={copy(pageContract, "section.sheds.aria")}
           title={copy(pageContract, "assumption.sale_ready_threshold_kg.label")}
           subheader={`${thresholdBasis.toLocaleString("en-IN")} ${copy(pageContract, "kpi.threshold.basis")}`}
-          total={thresholdBasis.toLocaleString("en-IN")}
+          total={thresholdBasis}
           totalLabel={copy(pageContract, "kpi.kids.label")}
-          chart={{
-            // Each ring is its line's share of the kids the counts were taken over; the legend
-            // prints the head count itself.
-            series: [
+          series={[
               { label: over30Label, value: shareOf(summary.at_or_above_30kg), display: summary.at_or_above_30kg.toLocaleString("en-IN") },
               { label: over35Label, value: shareOf(summary.at_or_above_35kg), display: summary.at_or_above_35kg.toLocaleString("en-IN") },
-            ],
-          }}
+            ]}
           sx={{ height: 1 }}
         />
       </Grid>

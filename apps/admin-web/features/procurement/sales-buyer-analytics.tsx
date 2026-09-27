@@ -3,7 +3,7 @@ import CardHeader, { cardHeaderClasses } from "@mui/material/CardHeader";
 import Grid from "@mui/material/Grid";
 import Typography from "@mui/material/Typography";
 import { Label } from "@/components/minimal/label";
-import { EcommerceSaleByGender } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sale-by-gender";
+import { RingCard } from "@/components/app/ring-card";
 import { EmptyState } from "@/components/app/empty-state";
 import { KpiWidget } from "@/components/app/kpi-widget";
 import { redirect } from "next/navigation";
@@ -203,16 +203,14 @@ function BuyerSections({
           numbers are the backend's own percentages -- nothing is derived here that the figures
           beside it did not already print. */}
       <Grid size={{ xs: 12, lg: 4 }}>
-        <EcommerceSaleByGender
+        <RingCard
           title={copy(pageContract, "kpi.repeat_buyers")}
-          total={`${num(summary.repeat_buyers)} / ${num(summary.buyers)}`}
-          totalLabel={copy(pageContract, "kpi.buyers")}
-          chart={{
-            series: [
+          total={summary.repeat_buyers}
+          totalLabel={`/ ${num(summary.buyers)} ${copy(pageContract, "kpi.buyers")}`}
+          series={[
               { label: copy(pageContract, "kpi.repeat_buyers"), value: Math.round(repeatPct * 10) / 10, display: `${num(repeatPct, 0)}%` },
               { label: copy(pageContract, "kpi.repeat_revenue"), value: Math.round(summary.repeat_revenue_pct * 10) / 10, display: `${num(summary.repeat_revenue_pct, 0)}%` },
-            ],
-          }}
+            ]}
           sx={{ height: 1 }}
         />
       </Grid>

@@ -12,7 +12,7 @@ import { PageHeader } from "@/components/app/page-header";
 import { KpiGrid } from "@/components/app/kpi-grid";
 import { EmptyContent } from "@/components/minimal/empty-content";
 import { KpiWidget, completeMonthPercent, splitParts } from "@/components/app/kpi-widget";
-import { EcommerceSaleByGender } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sale-by-gender";
+import { RingCard } from "@/components/app/ring-card";
 import {
   EcommerceSalesOverview,
   type EcommerceSalesOverviewItem,
@@ -337,18 +337,16 @@ export async function HerdAnalyticsPage({
         </Grid>
         {/* Sex split: template EcommerceSaleByGender radial (share of the live herd). */}
         <Grid size={{ xs: 12, lg: 4 }}>
-          <EcommerceSaleByGender
+          <RingCard
             aria-label={ha(pageContract, "chart.sex.title")}
             title={ha(pageContract, "chart.sex.title")}
-            total={nf(sexTotal)}
+            total={sexTotal}
             totalLabel={animalsNoun}
-            chart={{
-              series: sexBars.map((bar) => ({
+            series={sexBars.map((bar) => ({
                 label: bar.label,
                 value: sexTotal > 0 ? Math.round((Math.max(bar.value, 0) / sexTotal) * 100) : 0,
                 display: nf(bar.value),
-              })),
-            }}
+              }))}
             sx={{ height: 1 }}
           />
         </Grid>

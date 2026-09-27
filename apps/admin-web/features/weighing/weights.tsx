@@ -20,7 +20,7 @@ import Stack from "@mui/material/Stack";
 import { GrowthDirectorSection } from "./growth-director";
 import { Label } from "@/components/minimal/label";
 import { BankingBalanceStatistics } from "@/components/minimal/sections/overview/banking/banking-balance-statistics";
-import { EcommerceSaleByGender } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sale-by-gender";
+import { RingCard } from "@/components/app/ring-card";
 import { KpiWidget, lastStepPercent } from "@/components/app/kpi-widget";
 import { MetricChart, ShedMetricChart } from "./metric-chart";
 import { SegmentedLinks } from "@/components/segmented-links";
@@ -990,13 +990,12 @@ export async function WeighingWeightsPage({
         {/* Threshold counts carry their OWN denominator: both sale lines out of the kids the
             counts were taken over, in one template ring card. */}
         <Grid size={{ xs: 12, md: 6, lg: 4 }}>
-          <EcommerceSaleByGender
+          <RingCard
             title={copy(pageContract, "assumption.sale_ready_threshold_kg.label")}
             subheader={`${thresholdBasis.toLocaleString("en-IN")} ${copy(pageContract, "kpi.threshold.basis")} · ${copy(pageContract, "kpi.sheds.label")}: ${summary.sheds_weighed} / ${summary.sheds_in_scope} · ${fmtDate(periodStart)} – ${fmtDate(periodEnd)}`}
-            total={thresholdBasis.toLocaleString("en-IN")}
+            total={thresholdBasis}
             totalLabel={copy(pageContract, "kpi.kids.label")}
-            chart={{
-              series: [
+            series={[
                 {
                   label: fillKg(copy(pageContract, "kpi.over30.label"), saleLowerKg ?? DEFAULT_SALE_READY_LOWER_KG),
                   value: shareOf(summary.at_or_above_30kg),
@@ -1007,8 +1006,7 @@ export async function WeighingWeightsPage({
                   value: shareOf(summary.at_or_above_35kg),
                   display: summary.at_or_above_35kg.toLocaleString("en-IN"),
                 },
-              ],
-            }}
+              ]}
             sx={{ height: 1 }}
           />
         </Grid>
