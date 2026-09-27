@@ -45,23 +45,30 @@ test('actual Work Board milk tag CSS keeps white label above AA contrast', async
   } finally {await browser.close();}
 });
 
-test('production mobile avatar halo is not text clipping, but overflowing text still fails', async () => {
-  const css = readFileSync(new URL('../app/mesha-theme.css', import.meta.url), 'utf8');
+// REVIEW-18 O23: /work-board no longer renders the legacy `.wb .avs > button.av` stack (its halo CSS
+// is gone); card assignees are the template kanban item AvatarGroup (components/app/kanban/item-styles.tsx):
+// 24px caption avatars, template -8px overlap, display-only (the card itself is the tap target).
+test('work-board assignees are the template kanban AvatarGroup, not the retired .avs stack', () => {
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  for (const f of ['../features/work-board/work-board-board.tsx', '../features/work-board/work-board-modal.tsx', '../features/leadership-tasks/task-board-card.tsx']) {
+    assert.doesNotMatch(read(f), /className=["'{][^"'}]*\bavs\b|className=["']av["']/, `${f} renders the retired .avs/.av markup`);
+  }
+  const item = read('../components/app/kanban/item-styles.tsx');
+  assert.match(item, /<AvatarGroup[\s\S]*?width: 'var\(--sp-3\)',\s*height: 'var\(--sp-3\)',\s*typography: 'caption'/);
+  assert.doesNotMatch(item.slice(item.indexOf('<AvatarGroup')), /<Avatar[^>]*onClick/, 'assignee avatars stay display-only');
+});
+
+test('a 24px caption avatar fits one initial, and overflowing text is detectable', async () => {
   const browser = await chromium.launch({channel: 'chrome'});
   try {
     const page = await browser.newPage({viewport:{width:390,height:800}});
-    await page.setContent(`<style>${css}</style><main class="main"><div class="wb"><div class="avs"><button class="av">AK</button><button class="av">CK</button><button class="more">+4</button></div></div></main>`);
-    const check = new Function(`${helpers.join('\n')} const [a,b]=document.querySelectorAll('button');const ar=a.getBoundingClientRect(),br=b.getBoundingClientRect();return {unclipped:unclippedAvatarText(a), width:ar.width,height:ar.height,allowed:intentionalAvatarOverlap(a,b,Math.min(ar.right,br.right)-Math.max(ar.left,br.left),Math.min(ar.bottom,br.bottom)-Math.max(ar.top,br.top))};`);
-    assert.deepEqual(await page.evaluate(check), {unclipped:true,width:30,height:40,allowed:true});
-    await page.evaluate(() => {
-      const stack=document.querySelector('.avs');
-      const toolbar=document.createElement('div');toolbar.className='tbar';toolbar.style.width='200px';
-      stack.parentElement.insertBefore(toolbar,stack);
-      const spacer=document.createElement('span');spacer.style.width='220px';toolbar.append(spacer,stack);
-    });
-    assert.equal((await page.evaluate(check)).unclipped, true);
-    assert.equal(await page.locator('.tbar').evaluate((e) => e.scrollLeft), 0, 'reachability probe restores toolbar');
-    await page.locator('button').first().evaluate((e) => e.textContent='TOO-LONG-TO-FIT');
-    assert.equal((await page.evaluate(check)).unclipped, false);
+    // MUI Avatar + AvatarGroup anatomy at the kanban item size (24px, caption 12px, -8px overlap).
+    await page.setContent('<style>.g{display:flex;flex-direction:row-reverse}.a{display:flex;align-items:center;justify-content:center;box-sizing:content-box;width:24px;height:24px;border-radius:50%;overflow:hidden;font:400 12px/1.5 sans-serif;border:2px solid #1c252e;margin-left:-8px}</style><div class="g"><div class="a">C</div><div class="a">A</div></div>');
+    const fits = () => page.evaluate(() => [...document.querySelectorAll('.a')].map((e) => { const r = document.createRange(); r.selectNodeContents(e); const t = r.getBoundingClientRect(), b = e.getBoundingClientRect(); return t.width <= b.width - 4 && t.left >= b.left && t.right <= b.right; }));
+    assert.deepEqual(await fits(), [true, true]);
+    const boxes = await page.evaluate(() => [...document.querySelectorAll('.a')].map((e) => Math.round(e.getBoundingClientRect().width)));
+    assert.deepEqual(boxes, [28, 28], '24px avatars + template 2px ring');
+    await page.locator('.a').first().evaluate((e) => { e.textContent = 'TOO-LONG'; });
+    assert.equal((await fits())[0], false, 'overflowing text is caught');
   } finally {await browser.close();}
 });
