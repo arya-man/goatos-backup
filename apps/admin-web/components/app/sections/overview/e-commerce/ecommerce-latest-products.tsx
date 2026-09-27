@@ -2,7 +2,7 @@
 
 // Template-derived (docs/design/template-derived.json): next-ts
 // src/sections/overview/e-commerce/ecommerce-latest-products.tsx. Demo wiring as props (anatomy
-// guarded): fCurrency(price) / fCurrency(priceSale) -> page-formatted display / displaySale; the
+// guarded): fCurrency(price) / fCurrency(priceSale) -> page-formatted display / priceSale (a page-formatted node); the
 // avatar shows the item's initial when there is no cover photo; colours optional.
 import type { BoxProps } from '@mui/material/Box';
 import type { CardProps } from '@mui/material/Card';
@@ -28,7 +28,7 @@ type Props = Omit<CardProps, 'title'> & {
     /** The page-formatted figure (the template prints fCurrency(price)). */
     display: React.ReactNode;
     /** Optional struck-through earlier figure (the template's sale price). */
-    displaySale?: React.ReactNode;
+    priceSale?: React.ReactNode;
     colors?: string[];
   }[];
 };
@@ -99,13 +99,13 @@ function Item({ item, sx, ...other }: ItemProps) {
             color: 'text.secondary',
           }}
         >
-          {!!item.displaySale && (
+          {!!item.priceSale && (
             <Box component="span" sx={{ textDecoration: 'line-through' }}>
-              {item.displaySale}
+              {item.priceSale}
             </Box>
           )}
 
-          <Box component="span" sx={{ color: item.displaySale ? 'error.main' : 'inherit' }}>
+          <Box component="span" sx={{ color: item.priceSale ? 'error.main' : 'inherit' }}>
             {item.display}
           </Box>
         </Box>

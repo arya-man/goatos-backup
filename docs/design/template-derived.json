@@ -24,6 +24,15 @@
         "py",
         "pr",
         "height"
+      ],
+      "sxValues": [
+        "sx",
+        "{ mb: 3 }",
+        "{ px: 3, gap: 3 }",
+        "{ pl: 1, py: 2.5, pr: 2.5, height: 320}"
+      ],
+      "props": [
+        "type=bar"
       ]
     },
     "components/app/sections/invoice/invoice-analytic.tsx": {
@@ -63,6 +72,24 @@
         "typography",
         "color",
         "typography"
+      ],
+      "sxValues": [
+        "{ width: 1, gap: 2.5, minWidth: 200, display: 'flex', alignItems: 'center', justifyContent: 'center'}",
+        "{ display: 'flex', position: 'relative', alignItems: 'center', justifyContent: 'center'}",
+        "{ color, position: 'absolute' }",
+        "{ color, opacity: 0.48 }",
+        "[ (theme) => ({ top: 0, left: 0, opacity: 0.48, position: 'absolute', color: varAlpha(theme.vars.palette.grey['500Channel'], 0.16)})]",
+        "{ my: 0.5, display: 'block', typography: 'body2', color: 'text.disabled' }",
+        "{ typography: 'subtitle2' }"
+      ],
+      "props": [
+        "size=56",
+        "variant=determinate",
+        "size=56",
+        "variant=determinate",
+        "variant=subtitle1",
+        "component=span",
+        "component=span"
       ]
     },
     "components/app/sections/overview/e-commerce/ecommerce-yearly-sales.tsx": {
@@ -83,6 +110,15 @@
         "py",
         "pr",
         "height"
+      ],
+      "sxValues": [
+        "sx",
+        "{ mb: 3 }",
+        "{ px: 3, gap: 3 }",
+        "{ pl: 1, py: 2.5, pr: 2.5, height: 320}"
+      ],
+      "props": [
+        "type=area"
       ]
     },
     "components/app/sections/overview/e-commerce/ecommerce-sales-overview.tsx": {
@@ -119,6 +155,20 @@
         "color",
         "height",
         "bgcolor"
+      ],
+      "sxValues": [
+        "sx",
+        "{ gap: 4, px: 3, py: 4, display: 'flex', flexDirection: 'column'}",
+        "{ mb: 1, gap: 0.5, display: 'flex', alignItems: 'center', typography: 'subtitle2'}",
+        "{ flexGrow: 1 }",
+        "{ typography: 'body2', color: 'text.secondary' }",
+        "[ (theme) => ({ height: 8, bgcolor: varAlpha(theme.vars.palette.grey['500Channel'], 0.16)})]"
+      ],
+      "props": [
+        "component=span",
+        "component=span",
+        "component=span",
+        "variant=determinate"
       ]
     },
     "components/app/sections/overview/e-commerce/ecommerce-current-balance.tsx": {
@@ -151,11 +201,30 @@
         "typography",
         "gap",
         "display"
+      ],
+      "sxValues": [
+        "{ display: 'flex', typography: 'body2', justifyContent: 'space-between' }",
+        "{ color: 'text.secondary' }",
+        "[{ p: 3 }, ...(Array.isArray(sx) ? sx : [sx])]",
+        "{ mb: 1, typography: 'subtitle2' }",
+        "{ gap: 2, display: 'flex', flexDirection: 'column' }",
+        "{ typography: 'h3' }",
+        "{ gap: 2, display: 'flex' }"
+      ],
+      "props": [
+        "component=span",
+        "component=span",
+        "fullWidth",
+        "variant=contained",
+        "color=warning",
+        "fullWidth",
+        "variant=contained",
+        "color=primary"
       ]
     },
     "components/app/sections/overview/e-commerce/ecommerce-latest-products.tsx": {
       "source": "src/sections/overview/e-commerce/ecommerce-latest-products.tsx",
-      "replaced": "fCurrency(price/priceSale) -> page-formatted display/displaySale; avatar initial when no cover; colours optional",
+      "replaced": "fCurrency(price/priceSale) -> page-formatted display / priceSale nodes; avatar initial when no cover; colours optional",
       "tags": [
         "Card",
         "CardHeader",
@@ -199,6 +268,24 @@
         "textDecoration",
         "color",
         "error.main"
+      ],
+      "sxValues": [
+        "sx",
+        "{ minHeight: 384 }",
+        "{ p: 3, gap: 3, minWidth: 360, display: 'flex', flexDirection: 'column'}",
+        "[{ gap: 2, display: 'flex', alignItems: 'center' }, ...(Array.isArray(sx) ? sx : [sx])]",
+        "{ width: 48, height: 48, flexShrink: 0 }",
+        "{ gap: 0.5, minWidth: 0, display: 'flex', flex: '1 1 auto', flexDirection: 'column'}",
+        "{ color: 'text.primary', typography: 'subtitle2' }",
+        "{ gap: 0.5, display: 'flex', typography: 'body2', color: 'text.secondary'}",
+        "{ textDecoration: 'line-through' }",
+        "{ color: item.priceSale ? 'error.main' : 'inherit' }"
+      ],
+      "props": [
+        "variant=rounded",
+        "noWrap",
+        "component=span",
+        "component=span"
       ]
     }
   }

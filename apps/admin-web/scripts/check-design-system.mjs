@@ -1195,14 +1195,25 @@ async function selfTest() {
     }));
     const sha = (text) => createHash("sha256").update(text).digest("hex");
     {
-      const tplDerived = "export const W = ({ v }) => <Card sx={{ p: 3 }}><CardHeader title={v.title} /><Box sx={{ typography: 'h3' }}>{v.total}</Box></Card>;\n";
+      // REVIEW-23 O29: the reviewer's four scratch edits (height 320->200, px 3->1, Chart type
+      // bar->line, an added style) must each fail; a data-only edit passes.
+      const tplDerived = "export const W = ({ v }) => <Card sx={{ p: 3 }}><CardHeader title={v.title} sx={{ px: 3 }} /><Box sx={{ typography: 'h3' }}>{v.total}</Box><Chart type=\"bar\" sx={{ height: 320 }} /></Card>;\n";
       const a = templateAnatomy(tplDerived);
-      put("components/app/sections/demo/derived-ok.tsx", tplDerived.replace("v.total", "fmt(v.total)"));
-      put("components/app/sections/demo/derived-drift.tsx", tplDerived.replace("<Box sx={{ typography: 'h3' }}>", "<Box sx={{ typography: 'h3', color: 'red' }}><span>").replace("</Box>", "</span></Box>"));
-      put("docs/design/template-derived.json", JSON.stringify({ files: {
-        "components/app/sections/demo/derived-ok.tsx": { source: "src/sections/demo/w.tsx", replaced: "total formatting", tags: a.tags, sx: a.sx },
-        "components/app/sections/demo/derived-drift.tsx": { source: "src/sections/demo/w.tsx", replaced: "total formatting", tags: a.tags, sx: a.sx },
-      } }));
+      const entry = { source: "src/sections/demo/w.tsx", replaced: "total formatting", ...a };
+      const variants = {
+        "derived-ok": tplDerived.replace("v.total", "fmt(v.total)"),
+        "derived-drift": tplDerived.replace("<Box sx={{ typography: 'h3' }}>", "<Box sx={{ typography: 'h3', color: 'red' }}><span>").replace("</Box>", "</span></Box>"),
+        "derived-height": tplDerived.replace("height: 320", "height: 200"),
+        "derived-px": tplDerived.replace("px: 3", "px: 1"),
+        "derived-type": tplDerived.replace('type="bar"', 'type="line"'),
+        "derived-style": tplDerived.replace("<Box sx=", "<Box style={{ color: 'red' }} sx="),
+      };
+      const files = {};
+      for (const [name, text] of Object.entries(variants)) {
+        put(`components/app/sections/demo/${name}.tsx`, text);
+        files[`components/app/sections/demo/${name}.tsx`] = entry;
+      }
+      put("docs/design/template-derived.json", JSON.stringify({ files }));
     }
     put("docs/design/template-verbatim-baseline.json", JSON.stringify({ drift: {
       "components/minimal/tpl-listed.tsx": sha(mine.replace("last week", "custom")),
@@ -1257,8 +1268,9 @@ async function selfTest() {
     process.exit(1);
   }
   const derivedHits = findings.filter((f) => f.check === "template-derived-anatomy").map((f) => f.file);
-  if (derivedHits.includes("components/app/sections/demo/derived-ok.tsx") || !derivedHits.includes("components/app/sections/demo/derived-drift.tsx")) {
-    console.error(`design_system_self_test=FAIL template-derived-anatomy flagged=${derivedHits.join(",") || "none"} (want derived-drift.tsx only)`);
+  const wantDerived = ["derived-drift", "derived-height", "derived-px", "derived-type", "derived-style"].map((n) => `components/app/sections/demo/${n}.tsx`);
+  if (derivedHits.includes("components/app/sections/demo/derived-ok.tsx") || wantDerived.some((f) => !derivedHits.includes(f))) {
+    console.error(`design_system_self_test=FAIL template-derived-anatomy flagged=${[...new Set(derivedHits)].join(",") || "none"} (want ${wantDerived.join(",")})`);
     process.exit(1);
   }
   const verbatimHits = findings.filter((f) => f.check === "template-verbatim").map((f) => `${f.file}:${f.snippet.includes("tpl-healed") ? "healed" : ""}`).sort();

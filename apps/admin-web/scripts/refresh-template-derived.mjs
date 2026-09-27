@@ -20,6 +20,8 @@ for (const [rel, entry] of Object.entries(manifest.files ?? {})) {
   const a = anatomy(readFileSync(src, "utf8"));
   entry.tags = a.tags;
   entry.sx = a.sx;
+  entry.sxValues = a.sxValues;
+  entry.props = a.props;
 }
 writeFileSync(manifestFile, JSON.stringify(manifest, null, 2) + "\n");
 console.log(`refreshed ${Object.keys(manifest.files ?? {}).length} derived entries`);
