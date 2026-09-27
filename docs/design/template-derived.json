@@ -33,6 +33,13 @@
       ],
       "props": [
         "type=bar"
+      ],
+      "propNames": [
+        "Card(...,sx)",
+        "CardHeader(action,subheader,sx,title)",
+        "ChartSelect(onChange,options,value)",
+        "ChartLegends(colors,labels,sublabels,sx,values)",
+        "Chart(options,series,slotProps,sx,type)"
       ]
     },
     "components/app/sections/invoice/invoice-analytic.tsx": {
@@ -90,6 +97,17 @@
         "variant=subtitle1",
         "component=span",
         "component=span"
+      ],
+      "propNames": [
+        "Box(sx)",
+        "Box(sx)",
+        "Iconify(icon,sx,width)",
+        "CircularProgress(size,sx,thickness,value,variant)",
+        "CircularProgress(size,sx,thickness,value,variant)",
+        "div()",
+        "Typography(variant)",
+        "Box(component,sx)",
+        "Box(component,sx)"
       ]
     },
     "components/app/sections/overview/e-commerce/ecommerce-yearly-sales.tsx": {
@@ -119,6 +137,13 @@
       ],
       "props": [
         "type=area"
+      ],
+      "propNames": [
+        "Card(...,sx)",
+        "CardHeader(action,subheader,sx,title)",
+        "ChartSelect(onChange,options,value)",
+        "ChartLegends(colors,labels,sx,values)",
+        "Chart(options,series,slotProps,sx,type)"
       ]
     },
     "components/app/sections/overview/e-commerce/ecommerce-sales-overview.tsx": {
@@ -169,6 +194,21 @@
         "component=span",
         "component=span",
         "variant=determinate"
+      ],
+      "propNames": [
+        "Card(...,sx)",
+        "CardHeader(subheader,title)",
+        "Box(sx)",
+        "Item(progress)",
+        "div()",
+        "Box(sx)",
+        "Box(component,sx)",
+        "Box(component)",
+        "Box(component,sx)",
+        "LinearProgress(color,sx,value,variant)"
+      ],
+      "allowProps": [
+        "aria-label"
       ]
     },
     "components/app/sections/overview/e-commerce/ecommerce-current-balance.tsx": {
@@ -223,9 +263,24 @@
       ],
       "strip": [
         [
-          "mergeSx\\((\\{[\\s\\S]*?\\}), slotProps\\?\\.\\w+\\)",
+          "mergeSx\\((\\{ display: 'flex', typography: 'body2', justifyContent: 'space-between' \\}), slotProps\\?\\.row\\)",
           "$1"
         ]
+      ],
+      "propNames": [
+        "Box(sx)",
+        "Box(component,sx)",
+        "Box(component)",
+        "Card(...,sx)",
+        "Box(sx)",
+        "Box(sx)",
+        "Box(sx)",
+        "Box(sx)",
+        "Button(color,fullWidth,variant)",
+        "Button(color,fullWidth,variant)"
+      ],
+      "allowProps": [
+        "onClick"
       ]
     },
     "components/app/sections/overview/e-commerce/ecommerce-latest-products.tsx": {
@@ -294,7 +349,11 @@
       ],
       "strip": [
         [
-          "mergeSx\\((\\{[\\s\\S]*?\\}), slotProps\\?\\.\\w+\\)",
+          "mergeSx\\((\\{ minHeight: 384 \\}), slotProps\\?\\.scrollbar\\)",
+          "$1"
+        ],
+        [
+          "mergeSx\\((\\{\\s*p: 3,\\s*gap: 3,\\s*minWidth: 360,\\s*display: 'flex',\\s*flexDirection: 'column',\\s*\\}), slotProps\\?\\.list\\)",
           "$1"
         ],
         [
@@ -307,6 +366,25 @@
           " noWrap sx=\\{\\{ color: 'text.primary'",
           " sx={{ color: 'text.primary'"
         ]
+      ],
+      "propNames": [
+        "Card(...,sx)",
+        "CardHeader(subheader,title)",
+        "Scrollbar(sx)",
+        "Box(sx)",
+        "Item(item)",
+        "Box(...,sx)",
+        "Avatar(alt,src,sx,variant)",
+        "Box(sx)",
+        "Link(sx)",
+        "Box(sx)",
+        "Box(component,sx)",
+        "Box(component,sx)",
+        "ColorPreview(colors,limit)"
+      ],
+      "allowProps": [
+        "role",
+        "wrapNames"
       ]
     },
     "components/app/sections/overview/banking/banking-expenses-categories.tsx": {
@@ -372,11 +450,24 @@
       ],
       "props": [
         "type=polarArea"
+      ],
+      "propNames": [
+        "Card(...,sx)",
+        "CardHeader(subheader,title)",
+        "Box(sx)",
+        "Chart(options,series,slotProps,sx,type)",
+        "ChartLegends(colors,icons,labels,sublabels,sx)",
+        "Divider(sx)",
+        "Box(sx)",
+        "Box(sx)",
+        "Box(sx)",
+        "Box(sx)",
+        "Box(sx)"
       ]
     },
     "components/app/sections/order/order-table-toolbar.tsx": {
       "source": "src/sections/order/order-table-toolbar.tsx",
-      "replaced": "SLOTS: filters (template Start/End DatePickers), search (template search TextField), trailing, menuActions (template Print/Import/Export items)",
+      "replaced": "SLOTS: filters (template Start/End DatePickers), search (template search TextField), trailing, menuActions (template Print/Import/Export items); declared: the ⋮ IconButton renders only with menuActions (conditional), aria-label on it",
       "templateStrip": [
         "\\s*<DatePicker[\\s\\S]*?\\/>\\n",
         "\\s*<TextField[\\s\\S]*?\\/>\\n",
@@ -419,7 +510,105 @@
         "{ p: 2.5, gap: 2, display: 'flex', pr: { xs: 2.5, md: 1 }, flexDirection: { xs: 'column', md: 'row' }, alignItems: { xs: 'flex-end', md: 'center' }}",
         "{ gap: 2, width: 1, flexGrow: 1, display: 'flex', alignItems: 'center'}"
       ],
-      "props": []
+      "props": [],
+      "propNames": [
+        "CustomPopover(anchorEl,onClose,open,slotProps)",
+        "MenuList()",
+        "Box(sx)",
+        "Box(sx)",
+        "IconButton(onClick)",
+        "Iconify(icon)"
+      ],
+      "allowProps": [
+        "aria-label"
+      ]
+    },
+    "components/app/sections/user/user-table-row.tsx": {
+      "source": "src/sections/user/user-table-row.tsx",
+      "replaced": "IUserItem -> identity props (name/nameHref/secondary/avatarUrl); SLOTS cells (phone/company/role), extra, actions (Quick edit IconButton), menuActions (Edit/Delete); demo quick-edit form + delete confirm not carried; checkbox cell only with onSelectRow",
+      "templateStrip": [
+        "\\s*<UserQuickEditForm[\\s\\S]*?\\/>\\n",
+        "\\s*<li>\\s*<MenuItem[\\s\\S]*?<\\/MenuItem>\\s*<\\/li>\\n",
+        "\\s*<MenuItem[\\s\\S]*?<\\/MenuItem>\\n",
+        "\\s*<ConfirmDialog[\\s\\S]*?\\/>\\n  \\);",
+        "\\s*<TableCell sx=\\{\\{ whiteSpace: 'nowrap' \\}\\}>\\{row\\.\\w+\\}<\\/TableCell>\\n",
+        "\\s*<Tooltip title=\"Quick edit\"[\\s\\S]*?<\\/Tooltip>\\n"
+      ],
+      "strip": [
+        "\\{cells\\.map\\([\\s\\S]*?<\\/TableCell>\\s*\\)\\)\\}",
+        "\\{extra\\.map\\([\\s\\S]*?<\\/TableCell>\\s*\\)\\)\\}",
+        "\\{actions\\}",
+        "\\{menuActions\\.map\\([\\s\\S]*?<\\/MenuItem>\\s*\\)\\)\\}",
+        [
+          "sx=\\{action\\.color \\? \\{ color: action\\.color \\} : undefined\\}",
+          ""
+        ]
+      ],
+      "tags": [
+        "CustomPopover",
+        "MenuList",
+        "TableRow",
+        "TableCell",
+        "Checkbox",
+        "TableCell",
+        "Box",
+        "Avatar",
+        "Stack",
+        "Link",
+        "Box",
+        "TableCell",
+        "Label",
+        "TableCell",
+        "Box",
+        "IconButton",
+        "Iconify"
+      ],
+      "sx": [
+        "gap",
+        "display",
+        "alignItems",
+        "typography",
+        "flex",
+        "alignItems",
+        "cursor",
+        "color",
+        "display",
+        "alignItems"
+      ],
+      "sxValues": [
+        "{ gap: 2, display: 'flex', alignItems: 'center' }",
+        "{ typography: 'body2', flex: '1 1 auto', alignItems: 'flex-start' }",
+        "{ cursor: 'pointer' }",
+        "{ color: 'text.disabled' }",
+        "{ display: 'flex', alignItems: 'center' }"
+      ],
+      "props": [
+        "color=inherit",
+        "component=span",
+        "variant=soft"
+      ],
+      "propNames": [
+        "CustomPopover(anchorEl,onClose,open,slotProps)",
+        "MenuList()",
+        "TableRow(aria-checked,hover,selected,tabIndex)",
+        "TableCell(padding)",
+        "Checkbox(checked,onClick,slotProps)",
+        "TableCell()",
+        "Box(sx)",
+        "Avatar(alt,src)",
+        "Stack(sx)",
+        "Link(color,component,href,sx)",
+        "Box(component,sx)",
+        "TableCell()",
+        "Label(color,variant)",
+        "TableCell()",
+        "Box(sx)",
+        "IconButton(color,onClick)",
+        "Iconify(icon)"
+      ],
+      "allowProps": [
+        "..."
+      ]
     }
   }
 }

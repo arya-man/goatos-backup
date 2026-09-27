@@ -21,11 +21,12 @@ for (const [rel, entry] of Object.entries(manifest.files ?? {})) {
   // TextField in the toolbar), removed from the template before its anatomy is recorded.
   let text = readFileSync(src, "utf8");
   for (const re of entry.templateStrip ?? []) text = Array.isArray(re) ? text.replace(new RegExp(re[0], "g"), re[1]) : text.replace(new RegExp(re, "g"), "");
-  const a = anatomy(text);
+  const a = anatomy(text, entry.allowProps ?? []);
   entry.tags = a.tags;
   entry.sx = a.sx;
   entry.sxValues = a.sxValues;
   entry.props = a.props;
+  entry.propNames = a.propNames;
 }
 writeFileSync(manifestFile, JSON.stringify(manifest, null, 2) + "\n");
 console.log(`refreshed ${Object.keys(manifest.files ?? {}).length} derived entries`);

@@ -110,8 +110,36 @@ export function literalProps(text) {
   return out;
 }
 
-export function anatomy(text) {
-  return { tags: jsxTags(text), sx: sxKeys(text), sxValues: sxValues(text), props: literalProps(text) };
+/** Prop NAMES per opening tag (`IconButton(aria-label,disabled,onClick)`), so an added prop on a
+ * template element (disabled, aria-*) is drift unless the entry declares it in `allowProps`. */
+export function propNames(text, allow = []) {
+  const code = stripComments(text);
+  const out = [];
+  for (const tag of openingTags(code)) {
+    const name = /^<([\w.-]+)/.exec(tag)[1];
+    const body = tag.slice(name.length + 1);
+    const names = new Set();
+    let depth = 0, quote = null;
+    let token = "";
+    for (let i = 0; i < body.length; i++) {
+      const c = body[i];
+      if (quote) { if (c === quote) quote = null; continue; }
+      if (depth === 0 && (c === '"' || c === "'")) { quote = c; continue; }
+      if (c === "{") { if (depth === 0 && body.slice(i, i + 4) === "{...") names.add("..."); depth++; continue; }
+      if (c === "}") { depth--; continue; }
+      if (depth > 0) continue;
+      if (/[\w-]/.test(c)) token += c;
+      else { if (token && (c === "=" || /\s|\/|>/.test(c))) names.add(token); token = ""; }
+    }
+    names.delete("key");
+    for (const a of allow) names.delete(a);
+    out.push(`${name}(${[...names].sort().join(",")})`);
+  }
+  return out;
+}
+
+export function anatomy(text, allow = []) {
+  return { tags: jsxTags(text), sx: sxKeys(text), sxValues: sxValues(text), props: literalProps(text), propNames: propNames(text, allow) };
 }
 
 function firstDiff(a, b) {
@@ -145,7 +173,7 @@ export function templateDerivedFindings(root, manifestFile) {
     // before the comparison), e.g. an optional caption line under a row. Each is named in `replaced`.
     let text = readFileSync(abs, "utf8");
     for (const src of entry.strip ?? []) text = Array.isArray(src) ? text.replace(new RegExp(src[0], "g"), src[1]) : text.replace(new RegExp(src, "g"), "");
-    const got = anatomy(text);
+    const got = anatomy(text, entry.allowProps ?? []);
     const t = firstDiff(entry.tags, got.tags);
     if (t) hits.push({ file: rel, line: 1, snippet: `JSX differs from template ${entry.source} at element #${t.index}: template <${t.want}>, file <${t.got}>` });
     const s = firstDiff(entry.sx, got.sx);
@@ -156,6 +184,10 @@ export function templateDerivedFindings(root, manifestFile) {
     }
     const v = firstDiff(entry.sxValues, got.sxValues);
     if (v) hits.push({ file: rel, line: 1, snippet: `sx value differs from template ${entry.source} at sx #${v.index}: template {${v.want}}, file {${v.got}}` });
+    if (Array.isArray(entry.propNames)) {
+      const n = firstDiff(entry.propNames, got.propNames);
+      if (n) hits.push({ file: rel, line: 1, snippet: `JSX props differ from template ${entry.source} at element #${n.index}: template ${n.want}, file ${n.got} (declare a deliberate addition in allowProps)` });
+    } else hits.push({ file: rel, line: 1, snippet: "manifest entry lacks propNames (run node scripts/refresh-template-derived.mjs)" });
     const p = firstDiff(entry.props, got.props);
     if (p) hits.push({ file: rel, line: 1, snippet: `literal JSX prop differs from template ${entry.source} at #${p.index}: template ${p.want}, file ${p.got}` });
   }

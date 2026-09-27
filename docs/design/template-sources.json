@@ -19,7 +19,6 @@
     "components/minimal/sections/mail/mail-nav-item.tsx": "src/sections/mail/mail-nav-item.tsx",
     "components/minimal/sections/job/job-item.tsx": "src/sections/job/job-item.tsx",
     "components/minimal/sections/job/job-list.tsx": "src/sections/job/job-list.tsx",
-    "components/minimal/sections/user/user-table-row.tsx": "src/sections/user/user-table-row.tsx",
     "components/minimal/sections/overview/analytics/analytics-website-visits.tsx": "src/sections/overview/analytics/analytics-website-visits.tsx",
     "components/minimal/_shared/format-number.ts": "src/utils/format-number.ts",
     "components/minimal/_shared/format-time.ts": "src/utils/format-time.ts",
@@ -747,31 +746,6 @@
         "src/utils/format-number",
         "src/components/iconify",
         "src/components/chart"
-      ]
-    },
-    "components/minimal/sections/user/user-table-row.tsx": {
-      "sha256": "5ed2173cf281193736b2726b6b191f0beeb9409a38f701db6aa38a87a686570b",
-      "imports": [
-        "src/types/user",
-        "minimal-shared/hooks",
-        "@mui/material/Box",
-        "@mui/material/Link",
-        "@mui/material/Stack",
-        "@mui/material/Button",
-        "@mui/material/Avatar",
-        "@mui/material/Tooltip",
-        "@mui/material/MenuList",
-        "@mui/material/MenuItem",
-        "@mui/material/TableRow",
-        "@mui/material/Checkbox",
-        "@mui/material/TableCell",
-        "@mui/material/IconButton",
-        "src/routes/components",
-        "src/components/label",
-        "src/components/iconify",
-        "src/components/custom-dialog",
-        "src/components/custom-popover",
-        "./user-quick-edit-form"
       ]
     },
     "components/minimal/skeletons/card-skeleton.tsx": {

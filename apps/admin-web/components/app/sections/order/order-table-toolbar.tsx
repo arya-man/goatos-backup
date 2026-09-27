@@ -9,7 +9,8 @@
 //  - `search`: the growing field (the template's fullWidth search TextField; pass it fullWidth);
 //  - `trailing`: buttons that act on the filters (e.g. Apply), right after them: their own row on a
 //    phone (the template column stacks) so the search keeps its width;
-//  - `menuActions`: the ⋮ menu items (the template's demo Print / Import / Export).
+//  - `menuActions`: the ⋮ menu items (the template's demo Print / Import / Export); with none, the
+//    ⋮ is not rendered (no dead controls, REVIEW-25 O31; declared conditional in the manifest).
 import type { ReactNode } from 'react';
 
 import { usePopover } from 'minimal-shared/hooks';
@@ -95,9 +96,11 @@ export function OrderTableToolbar({ filters, search, trailing, menuActions = [],
         >
           {search ?? <Box sx={{ flexGrow: 1 }} />}
 
-          <IconButton onClick={menuActionsPopover.onOpen} aria-label={menuLabel} disabled={!menuActions.length}>
-            <Iconify icon="eva:more-vertical-fill" />
-          </IconButton>
+          {menuActions.length ? (
+            <IconButton onClick={menuActionsPopover.onOpen} aria-label={menuLabel}>
+              <Iconify icon="eva:more-vertical-fill" />
+            </IconButton>
+          ) : null}
         </Box>
       </Box>
 

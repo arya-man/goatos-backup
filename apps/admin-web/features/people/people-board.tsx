@@ -20,7 +20,7 @@ import { Label, type LabelColor } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { TableHeadCustom } from "@/components/app/table/table-head-custom";
-import { UserTableRow } from "@/components/minimal/sections/user/user-table-row";
+import { UserTableRow } from "@/components/app/sections/user/user-table-row";
 import { TemplateTabs } from "@/components/app/template-tabs";
 import { TablePaginationLinks } from "@/components/app/table/table-pagination-links";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
@@ -259,12 +259,11 @@ export async function PeopleBoard({
                       return (
                         <UserTableRow
                           key={person.person_id}
+                          id={person.person_id}
                           name={person.display_name}
-                          nameLink={
-                            <Link component={LocalOverlayLink} href={drawerHref} scroll={false} color="inherit" underline="hover" sx={{ cursor: "pointer" }}>
-                              {person.display_name}
-                            </Link>
-                          }
+                          nameHref={drawerHref}
+                          nameLinkComponent={LocalOverlayLink}
+                          nameLinkProps={{ scroll: false }}
                           secondary={person.email ?? none}
                           cells={[person.park_label ?? none, person.department_label ?? none, designation(person)]}
                           status={{ label: humanizeEnum(person.status), color: statusColor(person.status) }}
