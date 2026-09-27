@@ -54,14 +54,15 @@ import Typography from "@mui/material/Typography";
 import Form from "next/form";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
-import { CardGridSkeleton, TableSkeleton } from "@/components/app/skeletons";
+import { AnimalCardsSkeleton, AnimalLoadRowsSkeleton } from "./animal-purchases-skeletons";
+import { ANIMAL_CARD_COLUMNS, ANIMAL_KPI_SIZE, ANIMAL_LOADS_DEFAULT_LIMIT } from "./animal-purchases-layout";
 import { phoneLoadCardsSx } from "./procurement-sx";
 
 const LOAD_CARDS_SX = phoneLoadCardsSx("animal-purchase-loads-table", [{ nth: 1, column: "1", row: 1 }, { nth: 3, column: "2", row: 1, alignEnd: true }, { nth: 2, column: "1", row: 2, secondary: true }, { nth: 6, column: "2", row: 2, alignEnd: true }]);
 
 const PATHNAME = "/procurement/animal-purchases";
 const DEFAULT_DECISION = "pending";
-const DEFAULT_LIMIT = 20;
+const DEFAULT_LIMIT = ANIMAL_LOADS_DEFAULT_LIMIT;
 const DECISION_CONTROL = "decide_animal_purchase";
 
 function hrefWithQuery(sp: RouteSearchParams, patch: Record<string, string | null>): string {
@@ -224,7 +225,7 @@ export async function AnimalPurchasesPage({
       {/* Whole-desk figures from the backend counts, never sums over the rendered page. Template
           Ecommerce overview KPI row: EcommerceWidgetSummary cards on a Grid, spacing 3. */}
       <Grid container spacing={3} sx={{ mb: 3 }}>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+        <Grid size={ANIMAL_KPI_SIZE}>
           <KpiWidget
             title={copy(pageContract, "summary.loads")}
             // The loads read is one keyset page; a caption only when there are more than shown (the
@@ -233,13 +234,13 @@ export async function AnimalPurchasesPage({
             caption={loadsResult.ok && loadsNextCursor ? `${num(loads.length)}+` : undefined}
           />
         </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+        <Grid size={ANIMAL_KPI_SIZE}>
           <KpiWidget title={copy(pageContract, "summary.pending")} total={totals ? totals.pending : null} />
         </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+        <Grid size={ANIMAL_KPI_SIZE}>
           <KpiWidget title={copy(pageContract, "summary.accepted")} total={totals ? totals.accepted : null} />
         </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+        <Grid size={ANIMAL_KPI_SIZE}>
           <KpiWidget title={copy(pageContract, "summary.rejected")} total={totals ? totals.rejected : null} />
         </Grid>
       </Grid>
@@ -272,7 +273,7 @@ export async function AnimalPurchasesPage({
             name cannot be resolved is dropped, never shown as an id. */}
         {/* The loads body (guard: url-keyed-panel): a load pick / page / page-size click swaps it to
             its skeleton at once; the card header and its load strip stay on screen. */}
-        <UrlSuspense searchParams={sp} watch={LOADS_WATCH} fallback={<TableSkeleton bare header={false} columns={9} rows={loadsLimit} />}>
+        <UrlSuspense searchParams={sp} watch={LOADS_WATCH} fallback={<AnimalLoadRowsSkeleton rows={loadsLimit} />}>
         {selectedLoad ? (
           <div className="ap-load-answers" data-testid="ap-load-detail" aria-label={copy(pageContract, "label.load_answers")}>
             <span className="muted small b700">{copy(pageContract, "label.load_answers")}</span>
@@ -464,14 +465,14 @@ export async function AnimalPurchasesPage({
           renders one tree and only zeroes the durations. */}
       {/* The animals (guard: url-keyed-panel): a decision tab / filter / page change swaps them to
           the job-list skeleton at once; the tabs and toolbar above stay on screen. */}
-      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={ANIMALS_IGNORE} fallback={<CardGridSkeleton count={4} columns={{ xs: 1, lg: 2 }} />}>
+      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={ANIMALS_IGNORE} fallback={<AnimalCardsSkeleton />}>
       {animals.length === 0 ? (
         <Card>
           <EmptyState title={copy(pageContract, decision === DEFAULT_DECISION ? "empty.pending" : "empty.animals")} />
         </Card>
       ) : (
         <JobList
-          columns={{ xs: "repeat(1, minmax(0, 1fr))", lg: "repeat(2, minmax(0, 1fr))" }}
+          columns={{ xs: `repeat(${ANIMAL_CARD_COLUMNS.xs}, minmax(0, 1fr))`, lg: `repeat(${ANIMAL_CARD_COLUMNS.lg}, minmax(0, 1fr))` }}
           pagination={{
             page: animalCursor ? 2 : 1,
             ariaLabel: copy(pageContract, "section.animals.title"),
