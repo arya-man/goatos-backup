@@ -184,9 +184,10 @@ test("guard: no-card-in-card -- stacked phone rows are divider rows, never borde
     }
   }
   const board = read("features/preventive-care-vaccination/command-board-view.tsx");
-  const kpiAt = board.indexOf("<KpiGrid");
-  const lastCardOpen = board.lastIndexOf('<section className="card', kpiAt);
-  assert.ok(board.lastIndexOf("</section>", kpiAt) > lastCardOpen, "the vaccination KPI deck sits outside the Command Board card");
+  const kpiAt = board.indexOf("{/* KPI deck");
+  assert.ok(kpiAt > 0, "the vaccination KPI deck marker is present");
+  const lastCardOpen = board.lastIndexOf("<Card", kpiAt);
+  assert.ok(board.lastIndexOf("</Card>", kpiAt) > lastCardOpen, "the vaccination KPI deck sits outside the Command Board card");
 });
 
 test("guard: template-filter-toolbar -- filter bars use MUI Chips and one rows-per-page", () => {
