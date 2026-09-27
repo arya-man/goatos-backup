@@ -11,7 +11,11 @@ import "@/theme/fonts.css";
 import "@/layouts/template/scrollbar/styles.css";
 import "@/components/minimal/chart/styles.css";
 import { AppThemeProvider } from "@/theme/app-theme-provider";
+import { cookies } from "next/headers";
 import { detectSettings } from "@/layouts/template/settings/server";
+import { resolveShellSettings, LEGACY_NAV_RAIL_COOKIE } from "@/lib/shell-settings";
+import { defaultSettings, SETTINGS_STORAGE_KEY } from "@/lib/template-config/settings-config";
+import { CookieCleanup } from "@/components/app/cookie-cleanup";
 import { THEME_BOOT_SCRIPT } from "@/lib/theme";
 import { DEV_PERF_GUARD_SCRIPT } from "@/lib/dev-perf-guard";
 
@@ -45,7 +49,13 @@ export default async function RootLayout({
 }) {
   // Template cookieSettings path: the settings cookie lets the server render the mini rail (and the
   // shell skeleton, via html[data-nav-rail]) directly, instead of 300px then 88px after hydration.
-  const settings = await detectSettings();
+  const cookieStore = await cookies();
+  const { settings, clearCookies } = await resolveShellSettings(
+    () => detectSettings(),
+    cookieStore.has(SETTINGS_STORAGE_KEY),
+    cookieStore.get(LEGACY_NAV_RAIL_COOKIE)?.value,
+    { defaultSettings, settingsKey: SETTINGS_STORAGE_KEY },
+  );
   return (
     <html
       lang="en"
@@ -73,6 +83,7 @@ export default async function RootLayout({
         */}
         <ObservabilityErrorBoundary>
           <AppThemeProvider cookieSettings={settings}>{children}</AppThemeProvider>
+          {clearCookies.length ? <CookieCleanup names={clearCookies} /> : null}
         </ObservabilityErrorBoundary>
       </body>
     </html>
