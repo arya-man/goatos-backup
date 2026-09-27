@@ -17,6 +17,7 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle, Check, Lock, Plus } from "lucide-react";
 import MuiButton from "@mui/material/Button";
 import MuiTextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { blankProofSlot, blankQuestion, type RemovalProofRow, type WeighingQuestionRow } from "./weighing-model";
 import { QuestionCard } from "./weighing-editor";
@@ -307,7 +308,7 @@ export function PcCareEditor({ pageContract: pc, basePath, sopId, sopName, versi
                 <>
                   <div className="qcfg" style={{ marginTop: 10 }}>
                     <div className="qcfg-head">
-                      <span className="qcfg-title">{copy(pc, "pcsop.removal.applies_to")}</span>
+                      <Typography variant="subtitle2" component="span">{copy(pc, "pcsop.removal.applies_to")}</Typography>
                       <span className="muted small">{copy(pc, "pcsop.removal.applies_to.subtitle")}</span>
                     </div>
                     <div className="qlist">
@@ -330,15 +331,12 @@ export function PcCareEditor({ pageContract: pc, basePath, sopId, sopName, versi
                   </div>
 
                   <div className="qcfg" style={{ marginTop: 10 }}>
-                    <label className="numfield">
-                      <span className="numlbl">{copy(pc, "pcsop.removal.instruction")}</span>
-                      <textarea className="qhelp" rows={3} value={rows.removal.instruction} onChange={(e) => patchRemoval((r) => ({ ...r, instruction: e.target.value }))} />
-                    </label>
+                    <MuiTextField label={copy(pc, "pcsop.removal.instruction")} fullWidth multiline minRows={3} value={rows.removal.instruction} onChange={(e) => patchRemoval((r) => ({ ...r, instruction: e.target.value }))} />
                   </div>
 
                   <div className="qcfg" style={{ marginTop: 10 }}>
                     <div className="qcfg-head">
-                      <span className="qcfg-title">{copy(pc, "pcsop.removal.proofs")}</span>
+                      <Typography variant="subtitle2" component="span">{copy(pc, "pcsop.removal.proofs")}</Typography>
                       <span className="muted small">{copy(pc, "pcsop.removal.proofs.subtitle")}</span>
                     </div>
                     <div className="qlist">
@@ -351,7 +349,7 @@ export function PcCareEditor({ pageContract: pc, basePath, sopId, sopName, versi
 
                   <div className="qcfg" style={{ marginTop: 10 }}>
                     <div className="qcfg-head">
-                      <span className="qcfg-title">{copy(pc, "pcsop.removal.questions")}</span>
+                      <Typography variant="subtitle2" component="span">{copy(pc, "pcsop.removal.questions")}</Typography>
                       <span className="muted small">{copy(pc, "pcsop.removal.questions.subtitle")}</span>
                     </div>
                     <div className="qlist">
@@ -386,15 +384,12 @@ export function PcCareEditor({ pageContract: pc, basePath, sopId, sopName, versi
                 </div>
                 <div className="bd">
                   <div className="qcfg">
-                    <label className="numfield">
-                      <span className="numlbl">{copy(pc, "pcsop.category.instruction")}</span>
-                      <textarea className="qhelp" rows={2} value={block.instruction} onChange={(e) => patchCategory(category, (c) => ({ ...c, instruction: e.target.value }))} />
-                    </label>
+                    <MuiTextField label={copy(pc, "pcsop.category.instruction")} fullWidth multiline minRows={2} value={block.instruction} onChange={(e) => patchCategory(category, (c) => ({ ...c, instruction: e.target.value }))} />
                   </div>
 
                   <div className="qcfg" style={{ marginTop: 10 }}>
                     <div className="qcfg-head">
-                      <span className="qcfg-title">{copy(pc, "pcsop.category.proofs")}</span>
+                      <Typography variant="subtitle2" component="span">{copy(pc, "pcsop.category.proofs")}</Typography>
                       <span className="muted small">{copy(pc, "pcsop.category.proofs.subtitle")}</span>
                     </div>
                     <div className="qlist">
@@ -407,7 +402,7 @@ export function PcCareEditor({ pageContract: pc, basePath, sopId, sopName, versi
 
                   <div className="qcfg" style={{ marginTop: 10 }}>
                     <div className="qcfg-head">
-                      <span className="qcfg-title">{copy(pc, "pcsop.category.questions")}</span>
+                      <Typography variant="subtitle2" component="span">{copy(pc, "pcsop.category.questions")}</Typography>
                       <span className="muted small">{copy(pc, "pcsop.category.questions.subtitle")}</span>
                     </div>
                     <div className="qlist">
