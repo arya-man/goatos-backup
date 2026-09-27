@@ -50,7 +50,14 @@ export default async function LoginPage({ searchParams }: { searchParams?: Promi
       : "Use the local dashboard shortcut on this machine.";
 
   return (
-    <AuthSplitLayout>
+    <AuthSplitLayout
+      slotProps={{
+        section: {
+          title: "Sign in to run herd operations.",
+          subtitle: "Secure entry for goat passports, import review, data quality queues, and operational dashboards.",
+        },
+      }}
+    >
       <FormHead
         title={completingGoogleRedirect ? "Signing you in" : "Sign in"}
         description={loginInstruction}

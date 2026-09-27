@@ -1,30 +1,29 @@
 'use client';
 
 import type { Breakpoint } from '@mui/material/styles';
-import type { AuthSplitSectionProps } from './section';
-import type { AuthSplitContentProps } from './content';
-import type { MainSectionProps, HeaderSectionProps, LayoutSectionProps } from '../core';
+import type { AuthSplitSectionProps } from '@/layouts/auth-split/section';
+import type { AuthSplitContentProps } from '@/layouts/auth-split/content';
+import type { MainSectionProps, HeaderSectionProps, LayoutSectionProps } from '@/layouts/core';
 
 import { merge } from 'es-toolkit';
 
-import Box from '@mui/material/Box';
-
 import { Logo } from '@/layouts/template/logo';
+import { AuthSplitSection } from '@/layouts/auth-split/section';
+import { AuthSplitContent } from '@/layouts/auth-split/content';
+import { MainSection, LayoutSection, HeaderSection } from '@/layouts/core';
 
-import { AuthSplitSection } from './section';
-import { AuthSplitContent } from './content';
-import { MainSection, LayoutSection, HeaderSection } from '../core';
+// ----------------------------------------------------------------------
 
-// Template pattern: Minimal_TypeScript_v7.7.0 next-ts src/layouts/auth-split/layout.tsx.
-// Mesha adaptation: header carries only the Logo (no FAQs link, no template SettingsButton — the
-// theme toggle already lives inside the auth card via GoogleLogin). No Alert top slot.
+// Template-derived copy of Minimal v7.7.0 next-ts src/layouts/auth-split/layout.tsx (anatomy pinned in
+// docs/design/template-derived.json). Not carried: the hidden demo Alert, the header "Need help?" FAQs
+// link and SettingsButton (the theme toggle lives in the auth card), and the demo auth-provider
+// method icons (Mesha has one sign-in method). Declared WebView overrides: the fixed header clears the
+// notch, and the main section fills the dynamic viewport.
 
 type LayoutBaseProps = Pick<LayoutSectionProps, 'sx' | 'children' | 'cssVars'>;
 
 export type AuthSplitLayoutProps = LayoutBaseProps & {
   layoutQuery?: Breakpoint;
-  logoText?: string;
-  headerRight?: React.ReactNode;
   slotProps?: {
     header?: HeaderSectionProps;
     main?: MainSectionProps;
@@ -38,8 +37,6 @@ export function AuthSplitLayout({
   cssVars,
   children,
   slotProps,
-  logoText,
-  headerRight,
   layoutQuery = 'md',
 }: AuthSplitLayoutProps) {
   const renderHeader = () => {
@@ -48,12 +45,12 @@ export function AuthSplitLayout({
     };
 
     const headerSlots: HeaderSectionProps['slots'] = {
-      leftArea: <Logo text={logoText} />,
-      rightArea: headerRight ? (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 1, sm: 1.5 } }}>
-          {headerRight}
-        </Box>
-      ) : null,
+      leftArea: (
+        <>
+          {/** @slot Logo */}
+          <Logo />
+        </>
+      ),
     };
 
     return (
@@ -71,6 +68,8 @@ export function AuthSplitLayout({
     );
   };
 
+  const renderFooter = () => null;
+
   const renderMain = () => (
     <MainSection
       {...slotProps?.main}
@@ -82,7 +81,10 @@ export function AuthSplitLayout({
         ...(Array.isArray(slotProps?.main?.sx) ? slotProps.main.sx : [slotProps?.main?.sx]),
       ]}
     >
-      <AuthSplitSection layoutQuery={layoutQuery} {...slotProps?.section} />
+      <AuthSplitSection
+        layoutQuery={layoutQuery}
+        {...slotProps?.section}
+      />
       <AuthSplitContent layoutQuery={layoutQuery} {...slotProps?.content}>
         {children}
       </AuthSplitContent>
@@ -91,8 +93,17 @@ export function AuthSplitLayout({
 
   return (
     <LayoutSection
+      /** **************************************
+       * @Header
+       *************************************** */
       headerSection={renderHeader()}
-      footerSection={null}
+      /** **************************************
+       * @Footer
+       *************************************** */
+      footerSection={renderFooter()}
+      /** **************************************
+       * @Styles
+       *************************************** */
       cssVars={{ '--layout-auth-content-width': '420px', ...cssVars }}
       sx={sx}
     >

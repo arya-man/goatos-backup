@@ -1434,6 +1434,153 @@
         "MainSection(...)",
         "LayoutSection(cssVars,footerSection,headerSection,sidebarSection,sx)"
       ]
+    },
+    "layouts/app/auth-split/layout.tsx": {
+      "source": "src/layouts/auth-split/layout.tsx",
+      "replaced": "not carried: the hidden demo Alert (topArea), the header rightArea (FAQs \"Need help?\" link + SettingsButton; the theme toggle lives in the auth card) and the demo auth-provider method icons; the section copy comes from the callers (slotProps.section); declared WebView overrides: header safe-area pad, main section minHeight 100dvh",
+      "templateStrip": [
+        "\\n      topArea: \\(\\n        <Alert[\\s\\S]*?<\\/Alert>\\n      \\),",
+        "\\n      rightArea: \\(\\n[\\s\\S]*?\\n      \\),\\n(?=    \\};)",
+        "\\n        method=\\{CONFIG\\.auth\\.method\\}",
+        [
+          "\\n        methods=\\{\\[[\\s\\S]*?\\]\\}\\n      \\/>",
+          "\n      />"
+        ]
+      ],
+      "strip": [
+        [
+          "\\{ position: \\{ \\[layoutQuery\\]: 'fixed' \\}, pt: 'env\\(safe-area-inset-top, 0px\\)' \\}",
+          "{ position: { [layoutQuery]: 'fixed' } }"
+        ],
+        [
+          "\\(theme\\) => \\(\\{\\s*minHeight: '100dvh',\\s*\\[theme\\.breakpoints\\.up\\(layoutQuery\\)\\]: \\{ flexDirection: 'row' \\},\\s*\\}\\)",
+          "(theme) => ({ [theme.breakpoints.up(layoutQuery)]: { flexDirection: 'row' } })"
+        ]
+      ],
+      "tags": [
+        "Logo",
+        "HeaderSection",
+        "MainSection",
+        "AuthSplitSection",
+        "AuthSplitContent",
+        "LayoutSection"
+      ],
+      "sx": [
+        "position",
+        "[layoutQuery]",
+        "slotProps.header.sx",
+        "[theme.breakpoints.up(layoutQuery)]",
+        "flexDirection",
+        "slotProps.main.sx"
+      ],
+      "sxValues": [
+        "[ { position: { [layoutQuery]: 'fixed' } }, ...(Array.isArray(slotProps?.header?.sx) ? slotProps.header.sx : [slotProps?.header?.sx])]",
+        "[ (theme) => ({ [theme.breakpoints.up(layoutQuery)]: { flexDirection: 'row' } }), ...(Array.isArray(slotProps?.main?.sx) ? slotProps.main.sx : [slotProps?.main?.sx])]",
+        "sx"
+      ],
+      "props": [],
+      "propNames": [
+        "Logo()",
+        "HeaderSection(...,disableElevation,layoutQuery,slotProps,slots,sx)",
+        "MainSection(...,sx)",
+        "AuthSplitSection(...,layoutQuery)",
+        "AuthSplitContent(...,layoutQuery)",
+        "LayoutSection(cssVars,footerSection,headerSection,sx)"
+      ]
+    },
+    "layouts/app/components/workspaces-popover.tsx": {
+      "source": "src/layouts/components/workspaces-popover.tsx",
+      "replaced": "demo local selection (useState(data[0])) -> shell-owned value (the URL scope); options are scope links (MenuItem component RouterLink, href, history replace, no scroll, option role/aria-selected); the \"Create workspace\" demo button and its dashed divider -> bottomArea slot (the shell's empty-tenant note); slotProps.menuList carries the listbox role, label and subheader; declared: trigger aria-haspopup/aria-expanded",
+      "allowProps": [
+        "ButtonBase:aria-haspopup",
+        "ButtonBase:aria-expanded",
+        "MenuList:...",
+        "MenuItem:component",
+        "MenuItem:href",
+        "MenuItem:replace",
+        "MenuItem:scroll",
+        "MenuItem:role",
+        "MenuItem:aria-selected"
+      ],
+      "templateStrip": [
+        "\\n      <Divider sx=\\{\\{ my: 0\\.5, borderStyle: 'dashed' \\}\\} \\/>\\n\\n      <Button[\\s\\S]*?<\\/Button>\\n"
+      ],
+      "strip": [
+        "\\n      \\{slots\\?\\.bottomArea\\}\\n"
+      ],
+      "tags": [
+        "ButtonBase",
+        "Box",
+        "Box",
+        "Label",
+        "Iconify",
+        "CustomPopover",
+        "Scrollbar",
+        "MenuList",
+        "MenuItem",
+        "Avatar",
+        "Typography",
+        "Label"
+      ],
+      "sx": [
+        "py",
+        "gap",
+        "xs",
+        "[mediaQuery]",
+        "'&:",
+        "sx",
+        "width",
+        "height",
+        "borderRadius",
+        "typography",
+        "display",
+        "xs",
+        "[mediaQuery]",
+        "height",
+        "cursor",
+        "display",
+        "xs",
+        "[mediaQuery]",
+        "color",
+        "maxHeight",
+        "height",
+        "width",
+        "height",
+        "flexGrow",
+        "fontWeight"
+      ],
+      "sxValues": [
+        "[ { py: 0.5, gap: { xs: 0.5, [mediaQuery]: 1 }, '&::before': buttonBg}, ...(Array.isArray(sx) ? sx : [sx])]",
+        "{ width: 24, height: 24, borderRadius: '50%' }",
+        "{ typography: 'subtitle2', display: { xs: 'none', [mediaQuery]: 'inline-flex' } }",
+        "{ height: 22, cursor: 'inherit', display: { xs: 'none', [mediaQuery]: 'inline-flex' }}",
+        "{ color: 'text.disabled' }",
+        "{ maxHeight: 240 }",
+        "{ height: 48 }",
+        "{ width: 24, height: 24 }",
+        "{ flexGrow: 1, fontWeight: 'fontWeightMedium' }"
+      ],
+      "props": [
+        "component=img",
+        "component=span",
+        "noWrap",
+        "component=span",
+        "variant=body2"
+      ],
+      "propNames": [
+        "ButtonBase(...,disableRipple,onClick,sx)",
+        "Box(alt,component,src,sx)",
+        "Box(component,sx)",
+        "Label(color,sx)",
+        "Iconify(icon,sx,width)",
+        "CustomPopover(anchorEl,onClose,open,slotProps)",
+        "Scrollbar(sx)",
+        "MenuList()",
+        "MenuItem(onClick,selected,sx)",
+        "Avatar(alt,src,sx)",
+        "Typography(component,noWrap,sx,variant)",
+        "Label(color)"
+      ]
     }
   }
 }

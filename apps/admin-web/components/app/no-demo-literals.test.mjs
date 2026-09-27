@@ -27,7 +27,7 @@ function walk(dir, out = []) {
 
 test("no template demo literal renders on an admin-web page", () => {
   const offenders = [];
-  for (const root of ["app", "features", "components/app", "layouts/dashboard"]) {
+  for (const root of ["app", "features", "components/app", "layouts/app"]) {
     for (const abs of walk(join(appDir, root))) {
       const src = readFileSync(abs, "utf8");
       for (const re of DEMO) if (re.test(src)) offenders.push(`${relative(appDir, abs)}: ${re}`);
@@ -39,4 +39,18 @@ test("no template demo literal renders on an admin-web page", () => {
 test("the pattern list catches the demo wiring it names", () => {
   const sample = "const [s] = useState('Yearly'); values={[fCurrency(6789)]}; renderRow('Order total', x); <Button>Request</Button>";
   assert.equal(DEMO.filter((re) => re.test(sample)).length, 4);
+});
+
+// The auth-split section is the template's verbatim, so its demo defaults ('Manage the job', 'More
+// effectively with optimized workflows.') render unless the caller passes Mesha copy.
+test("every AuthSplitLayout passes its own section title and subtitle", () => {
+  const offenders = [];
+  for (const abs of walk(join(appDir, "app"))) {
+    const src = readFileSync(abs, "utf8");
+    for (const m of src.matchAll(/<AuthSplitLayout\b([\s\S]*?)>/g)) {
+      const section = /section:\s*\{[\s\S]*?\btitle:[\s\S]*?\bsubtitle:/.test(m[1]);
+      if (!section) offenders.push(relative(appDir, abs));
+    }
+  }
+  assert.deepEqual(offenders, []);
 });

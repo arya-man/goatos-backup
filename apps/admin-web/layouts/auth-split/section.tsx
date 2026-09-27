@@ -6,28 +6,37 @@ import type { Breakpoint } from '@mui/material/styles';
 import { varAlpha } from 'minimal-shared/utils';
 
 import Box from '@mui/material/Box';
+import Link from '@mui/material/Link';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 
-// Template pattern: Minimal_TypeScript_v7.7.0 next-ts src/layouts/auth-split/section.tsx.
-// Section illustration + tinted background come from the licensed template's own assets, copied
-// under public/assets/{illustrations,background}. Behaviour is unchanged; only the visual identity
-// of the left rail matches the template again (no custom brand hero).
+import { RouterLink } from '@/layouts/template/routes/components';
+
+import { CONFIG } from '@/lib/template-config/global-config';
+
+// ----------------------------------------------------------------------
 
 export type AuthSplitSectionProps = BoxProps & {
   title?: string;
+  method?: string;
+  imgUrl?: string;
   subtitle?: string;
   layoutQuery?: Breakpoint;
-  imgUrl?: string;
-  bgUrl?: string;
+  methods?: {
+    path: string;
+    icon: string;
+    label: string;
+  }[];
 };
 
 export function AuthSplitSection({
   sx,
+  method,
+  methods,
   layoutQuery = 'md',
-  title = 'Sign in to run herd operations.',
-  subtitle = 'Secure entry for goat passports, import review, data quality queues, and operational dashboards.',
-  imgUrl = '/assets/illustrations/illustration-dashboard.webp',
-  bgUrl = '/assets/background/background-3-blur.webp',
+  title = 'Manage the job',
+  imgUrl = `${CONFIG.assetsDir}/assets/illustrations/illustration-dashboard.webp`,
+  subtitle = 'More effectively with optimized workflows.',
   ...other
 }: AuthSplitSectionProps) {
   return (
@@ -37,7 +46,7 @@ export function AuthSplitSection({
           ...theme.mixins.bgGradient({
             images: [
               `linear-gradient(0deg, ${varAlpha(theme.vars.palette.background.defaultChannel, 0.92)}, ${varAlpha(theme.vars.palette.background.defaultChannel, 0.92)})`,
-              `url(${bgUrl})`,
+              `url(${CONFIG.assetsDir}/assets/background/background-3-blur.webp)`,
             ],
           }),
           px: 3,
@@ -63,6 +72,7 @@ export function AuthSplitSection({
         <Typography variant="h3" sx={{ textAlign: 'center' }}>
           {title}
         </Typography>
+
         {subtitle && (
           <Typography sx={{ color: 'text.secondary', textAlign: 'center', mt: 2 }}>
             {subtitle}
@@ -76,6 +86,42 @@ export function AuthSplitSection({
         src={imgUrl}
         sx={{ width: 1, aspectRatio: '4/3', objectFit: 'cover' }}
       />
+
+      {!!methods?.length && method && (
+        <Box component="ul" sx={{ gap: 2, display: 'flex' }}>
+          {methods.map((option) => {
+            const selected = method === option.label.toLowerCase();
+
+            return (
+              <Box
+                key={option.label}
+                component="li"
+                sx={{
+                  ...(!selected && {
+                    cursor: 'not-allowed',
+                    filter: 'grayscale(1)',
+                  }),
+                }}
+              >
+                <Tooltip title={option.label} placement="top">
+                  <Link
+                    component={RouterLink}
+                    href={option.path}
+                    sx={{ ...(!selected && { pointerEvents: 'none' }) }}
+                  >
+                    <Box
+                      component="img"
+                      alt={option.label}
+                      src={option.icon}
+                      sx={{ width: 32, height: 32 }}
+                    />
+                  </Link>
+                </Tooltip>
+              </Box>
+            );
+          })}
+        </Box>
+      )}
     </Box>
   );
 }

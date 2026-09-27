@@ -30,7 +30,7 @@ const bell = shell.indexOf("<NotificationBell");
 const toggle = shell.indexOf("<ThemeToggle");
 const account = shell.indexOf("<AccountButton");
 assert.ok(bell > 0 && bell < toggle && toggle < account, "header order: notifications, theme toggle, account");
-assert.match(shell, /<WorkspacesButton/, "park scope uses the template workspaces switcher trigger");
+assert.match(shell, /<WorkspacesPopover\b/, "park scope uses the template-derived WorkspacesPopover (trigger + list)");
 
 // The page scrolls the body (template MainSection); `.main` must not become a scroll container again.
 const glue = readFileSync(new URL("../layouts/mesha-layout.css", import.meta.url), "utf8");

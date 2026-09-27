@@ -3,9 +3,5 @@
     "Shrink-only drift baseline for design:guard rule template-verbatim (scripts/lib/template-verbatim.mjs).",
     "Each file that still differs from its MUI Minimal template source maps to the sha256 of its CURRENT bytes. Remove a line once the file is verbatim (the guard fails on a stale entry). Nothing may be added, and a listed file whose bytes change fails: restore it to the template instead. Never re-record a hash. Must reach zero in PR #294."
   ],
-  "drift": {
-    "layouts/auth-split/layout.tsx": "79a9028a8af9ded0952d6de12318a3ee589857f2c6cb5463db52208a98875279",
-    "layouts/auth-split/section.tsx": "0d33d3ef6d57bdd3392cbf2a3d9456095099f663ae6367dc4871099913e95654",
-    "layouts/components/workspaces-button.tsx": "13fa9cf5b1514315cb7670be268fa3bf331540e1498b0686640b3d5ebd4a1409"
-  }
+  "drift": {}
 }

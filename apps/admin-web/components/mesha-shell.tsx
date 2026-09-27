@@ -16,7 +16,6 @@ import Typography from "@mui/material/Typography";
 import type { Theme } from "@mui/material/styles";
 import { CustomPopover } from "@/components/minimal/custom-popover";
 import { Iconify } from "@/components/minimal/iconify";
-import { Label } from "@/components/minimal/label";
 import { TAP_MIN } from "@/components/app/tap";
 import {
   Banknote,
@@ -43,7 +42,7 @@ import {
 import type { NavSectionProps } from "@/layouts/template/nav-section";
 import { DashboardContent, DashboardLayout } from "@/layouts/dashboard";
 import { AccountButton } from "@/layouts/components/account-button";
-import { WorkspacesButton } from "@/layouts/components/workspaces-button";
+import { WorkspacesPopover } from "@/layouts/app/components/workspaces-popover";
 import "@/layouts/mesha-layout.css";
 import { ThemeToggle } from "@/components/app/theme-toggle";
 import Alert from "@mui/material/Alert";
@@ -270,6 +269,11 @@ function normalizeTrail(items: TrailItem[]): TrailItem[] {
 
 
 /** Header popover rows: the template's MenuItem, with the webview tap floor at phone width. */
+// Park-scope switcher (template WorkspacesPopover): the "all parks" option id and the park mark image
+// that fills the template's workspace-logo slot.
+const ALL_PARKS_ID = "all";
+const PARK_MARK = "/assets/icons/workspaces/park-mark.svg";
+
 const menuRowSx = (theme: Theme) => ({ gap: 1.5, [theme.breakpoints.down("sm")]: { minHeight: TAP_MIN } });
 
 export function MeshaShell({
@@ -406,10 +410,9 @@ export function MeshaShell({
     ROUTE_FAMILIES_WITH_LOCAL_OR_NO_PARK_SCOPE,
     ROUTE_PATTERNS_WITH_LOCAL_OR_NO_PARK_SCOPE,
   );
-  // Top-bar menus are the template's header popovers (layouts/components/workspaces-popover and
-  // account-popover): CustomPopover owns the portal, outside-click and Escape dismissal and focus
+  // Top-bar menus are the template's header popovers (the template-derived WorkspacesPopover in
+  // layouts/app/components, and account-popover): CustomPopover owns the portal, outside-click and Escape dismissal and focus
   // return, and opening one is a modal layer, so the other can never stay open underneath it.
-  const scopeMenu = usePopover();
   const roleMenu = usePopover();
   const [routePending, setRoutePending] = useState(false);
   const [navTrail, setNavTrail] = useState<TrailItem[]>([]);
@@ -807,85 +810,62 @@ export function MeshaShell({
     });
   }
 
-  // Park / shed scope switcher: the template header's WorkspacesPopover (layouts/components/
-  // workspaces-popover.tsx) -- same slot (header left, after the menu button), same ButtonBase trigger
-  // (24px mark, subtitle2 name + Label from sm, carbon chevron-sort) and CustomPopover list. park_id is
-  // backend-honored; per-shed scope is NOT wired in this slice, so the Label reads "all sheds" -- never
-  // a faked shed filter. Links write the backend-safe ?park=uuid. Pages that own the park in their own
-  // filter bar HIDE it (maintainer decision 2026-08-18, 7be3a816e).
+  // Park / shed scope switcher: the template header's WorkspacesPopover (template-derived copy in
+  // layouts/app/components/workspaces-popover.tsx) in the same slot (header left, after the menu
+  // button): ButtonBase trigger (24px mark, subtitle2 name + Label from sm, carbon chevron-sort) and its
+  // CustomPopover list. park_id is backend-honored; per-shed scope is NOT wired in this slice, so a park's
+  // Label reads "all sheds" -- never a faked shed filter. Options link to the backend-safe ?park=uuid.
+  // Pages that own the park in their own filter bar HIDE it (maintainer decision 2026-08-18, 7be3a816e).
   const headerLeft = (
     <>
       {lockTopBarParkSelector ? null : (
         <Box data-park-scope sx={{ display: "flex", alignItems: "center" }}>
-          <WorkspacesButton
+          <WorkspacesPopover
             data-park-scope-trigger
-            open={scopeMenu.open}
-            name={activeParkLabel}
-            plan={activeParkId ? shellCopy(contract, "scope.all_sheds") : null}
-            onClick={scopeMenu.onOpen}
-            aria-expanded={scopeMenu.open}
-            aria-haspopup="listbox"
+            value={activeParkId ?? ALL_PARKS_ID}
+            data={[
+              {
+                id: ALL_PARKS_ID,
+                name: shellCopy(contract, "scope.all_parks"),
+                logo: PARK_MARK,
+                plan:
+                  renderedScope.mode === "park"
+                    ? (parkScopeOption?.label ?? shellCopy(contract, "scope.company_wide"))
+                    : shellCopy(contract, "scope.company_wide"),
+                href: currentScopeHref({ park: null, mode: renderedScope.mode }),
+              },
+              ...parks.map((p) => ({
+                id: p.id,
+                name: p.name,
+                logo: PARK_MARK,
+                plan: shellCopy(contract, "scope.all_sheds"),
+                href: currentScopeHref({ park: p.id, mode: "park" }),
+              })),
+            ]}
             aria-label={`${contract.top_bar.park_selector.label}: ${activeParkLabel}`}
             title={contract.top_bar.park_selector.label}
+            // WebView tap floor: 44px trigger below sm (the template sx array takes the caller's sx last).
+            sx={{ minHeight: { xs: TAP_MIN, sm: "auto" } }}
+            slotProps={{
+              menuList: {
+                role: "listbox",
+                "aria-label": shellCopy(contract, "scope.park_menu_aria"),
+                subheader: (
+                  <ListSubheader disableSticky sx={{ typography: "overline", color: "text.secondary", lineHeight: 2.5, bgcolor: "transparent" }}>
+                    {contract.top_bar.park_selector.label}
+                  </ListSubheader>
+                ),
+              },
+            }}
+            slots={{
+              bottomArea:
+                parks.length === 0 ? (
+                  <Typography variant="caption" sx={{ display: "block", px: 1, py: 1, color: "text.secondary" }}>
+                    {shellCopy(contract, "scope.no_parks_for_tenant")}
+                  </Typography>
+                ) : null,
+            }}
           />
-          <CustomPopover
-            open={scopeMenu.open}
-            anchorEl={scopeMenu.anchorEl}
-            onClose={scopeMenu.onClose}
-            slotProps={{ arrow: { placement: "top-left" }, paper: { sx: { mt: 0.5, ml: -1.55, width: 280 } } }}
-          >
-            <MenuList
-              role="listbox"
-              aria-label={shellCopy(contract, "scope.park_menu_aria")}
-              subheader={
-                <ListSubheader disableSticky sx={{ typography: "overline", color: "text.secondary", lineHeight: 2.5, bgcolor: "transparent" }}>
-                  {contract.top_bar.park_selector.label}
-                </ListSubheader>
-              }
-              sx={{ maxHeight: 360, overflowY: "auto" }}
-            >
-              <MenuItem
-                component={Link}
-                href={currentScopeHref({ park: null, mode: renderedScope.mode })}
-                replace
-                scroll={false}
-                onClick={scopeMenu.onClose}
-                role="option"
-                aria-selected={!activeParkId}
-                selected={!activeParkId}
-                sx={menuRowSx}
-              >
-                <Box component="span" sx={{ flexGrow: 1, minWidth: 0, whiteSpace: "normal" }}>
-                  {shellCopy(contract, "scope.all_parks")}{" "}
-                  <Box component="span" sx={{ color: "text.secondary" }}>
-                    · {renderedScope.mode === "park" ? (parkScopeOption?.label ?? shellCopy(contract, "scope.company_wide")) : shellCopy(contract, "scope.company_wide")}
-                  </Box>
-                </Box>
-                {!activeParkId ? <Iconify icon="eva:checkmark-fill" sx={{ color: "primary.main", flex: "none" }} /> : null}
-              </MenuItem>
-              {parks.map((p) => (
-                <MenuItem
-                  key={p.id}
-                  component={Link}
-                  href={currentScopeHref({ park: p.id, mode: "park" })}
-                  replace
-                  scroll={false}
-                  onClick={scopeMenu.onClose}
-                  role="option"
-                  aria-selected={activeParkId === p.id}
-                  selected={activeParkId === p.id}
-                  sx={menuRowSx}
-                >
-                  {p.code ? <Label variant="soft" color="default" sx={{ flex: "none" }}>{p.code}</Label> : null}
-                  <Box component="span" sx={{ flexGrow: 1, minWidth: 0, whiteSpace: "normal" }}>{p.name}</Box>
-                  {activeParkId === p.id ? <Iconify icon="eva:checkmark-fill" sx={{ color: "primary.main", flex: "none" }} /> : null}
-                </MenuItem>
-              ))}
-              {parks.length === 0 ? (
-                <Typography component="li" variant="caption" sx={{ px: 1, py: 1, color: "text.secondary" }}>{shellCopy(contract, "scope.no_parks_for_tenant")}</Typography>
-              ) : null}
-            </MenuList>
-          </CustomPopover>
         </Box>
       )}
     </>

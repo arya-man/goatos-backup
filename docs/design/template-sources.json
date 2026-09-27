@@ -66,12 +66,10 @@
     "components/minimal/table/utils.ts": "src/components/table/utils.ts",
     "layouts/auth-split/content.tsx": "src/layouts/auth-split/content.tsx",
     "layouts/auth-split/index.ts": "src/layouts/auth-split/index.ts",
-    "layouts/auth-split/layout.tsx": "src/layouts/auth-split/layout.tsx",
     "layouts/auth-split/section.tsx": "src/layouts/auth-split/section.tsx",
     "layouts/components/account-button.tsx": "src/layouts/components/account-button.tsx",
     "layouts/components/menu-button.tsx": "src/layouts/components/menu-button.tsx",
     "layouts/components/nav-toggle-button.tsx": "src/layouts/components/nav-toggle-button.tsx",
-    "layouts/components/workspaces-button.tsx": "src/layouts/components/workspaces-popover.tsx",
     "layouts/core/classes.ts": "src/layouts/core/classes.ts",
     "layouts/core/css-vars.ts": "src/layouts/core/css-vars.ts",
     "layouts/core/header-section.tsx": "src/layouts/core/header-section.tsx",
@@ -775,27 +773,6 @@
         "./content"
       ]
     },
-    "layouts/auth-split/layout.tsx": {
-      "sha256": "b9e2d12f128ce1a68ae7d56ac71d24c789c0cf3ec70abc19a5ba11ef3d394c3b",
-      "imports": [
-        "@mui/material/styles",
-        "./section",
-        "./content",
-        "../core",
-        "es-toolkit",
-        "@mui/material/Box",
-        "@mui/material/Link",
-        "@mui/material/Alert",
-        "src/routes/paths",
-        "src/routes/components",
-        "src/global-config",
-        "src/components/logo",
-        "./section",
-        "./content",
-        "../components/settings-button",
-        "../core"
-      ]
-    },
     "layouts/auth-split/section.tsx": {
       "sha256": "185bf9f2b06f2733b32d13b17fa917778146e189ffd03ab92bb1e2b1134e55c7",
       "imports": [
@@ -835,27 +812,6 @@
         "minimal-shared/utils",
         "@mui/material/IconButton",
         "src/components/iconify"
-      ]
-    },
-    "layouts/components/workspaces-button.tsx": {
-      "sha256": "0b2b1b999953c84ac9f1ac26fb3308278cf250b534f3ca75c1d4feaa454b3a41",
-      "imports": [
-        "@mui/material/styles",
-        "@mui/material/ButtonBase",
-        "react",
-        "minimal-shared/hooks",
-        "@mui/material/Box",
-        "@mui/material/Avatar",
-        "@mui/material/Divider",
-        "@mui/material/MenuList",
-        "@mui/material/MenuItem",
-        "@mui/material/Typography",
-        "@mui/material/ButtonBase",
-        "@mui/material/Button",
-        "src/components/label",
-        "src/components/iconify",
-        "src/components/scrollbar",
-        "src/components/custom-popover"
       ]
     },
     "layouts/core/classes.ts": {

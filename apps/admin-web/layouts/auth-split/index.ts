@@ -1,3 +1,3 @@
-export * from './layout';
+export * from '@/layouts/app/auth-split/layout';
 
 export * from './content';
