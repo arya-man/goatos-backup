@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "@/components/no-prefetch-link";
-import { memo, type MouseEvent, type ReactNode } from "react";
+import { type MouseEvent, type ReactNode } from "react";
 import { varAlpha } from "minimal-shared/utils";
 import Box from "@mui/material/Box";
 import Tab from "@mui/material/Tab";
@@ -45,8 +45,12 @@ export type TemplateTabsProps = {
  * width. Link-driven strips navigate through `useUrlTabNav`: the clicked tab is selected NOW and the
  * page's UrlSuspense panels swap to their skeleton (guard: url-keyed-panel). `kit-tabs` is only the
  * shell's pending-dim exclusion hook, never styled. Renders only MUI + template parts.
+ *
+ * A plain function, never `memo()` (TR1-#38, guard: tab-strip-no-memo): a memo'd client component
+ * rendered from a server page remounted on every same-route navigation (the RSC reconcile did not
+ * match the memo wrapper), so each tab / filter click tore the strip down and rebuilt it.
  */
-export const TemplateTabs = memo(function TemplateTabs({ items, value, onChange, variant = "underline", ariaLabel, className, countTone, scrollButtons, sx }: TemplateTabsProps) {
+export function TemplateTabs({ items, value, onChange, variant = "underline", ariaLabel, className, countTone, scrollButtons, sx }: TemplateTabsProps) {
   const { pendingValue, navigate } = useUrlTabNav();
   const active = shownTabValue(value, pendingValue);
   const pending = pendingValue !== null;
@@ -111,7 +115,7 @@ export const TemplateTabs = memo(function TemplateTabs({ items, value, onChange,
       })}
     </Tabs>
   );
-});
+}
 
 /**
  * The active tab's body: an MUI Stack (spacing 3, the template's section rhythm) keyed by the tab,

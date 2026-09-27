@@ -18,6 +18,21 @@ test("the shell paints the target route skeleton on a path-changing click", () =
   assert.match(shell, /setRoutePending\(false\);\s*setPendingHref\(null\);/);
 });
 
+// REVIEW-40 O59: programmatic navigation (router.push from a calendar drive click, a row menu, an
+// editor) and the header back arrow paint the target's skeleton too: every startRoutePending call
+// passes the target href, and the shell turns UrlNavRouter's announced path changes into one.
+test("programmatic navigations and the back arrow pass a target href", () => {
+  const shell = read("./mesha-shell.tsx");
+  assert.doesNotMatch(shell, /startRoutePending\(\s*\)/, "a bare startRoutePending() leaves the old page up");
+  assert.match(shell, /startRoutePending\(null, last\?\.href, "back"\)/);
+  assert.match(shell, /window\.addEventListener\(URL_NAV_EVENT, onNav\)/);
+  assert.match(shell, /startRoutePending\(null, to, "programmatic"\)/);
+  // every router.push / replace below the shell is announced (so the shell sees it)
+  const router = read("./app/url-nav-router.tsx");
+  assert.match(router, /push: \(href: string[^)]*\) => \{\s*announceUrlNav\(href\);/);
+  assert.match(router, /replace: \(href: string[^)]*\) => \{\s*announceUrlNav\(href\);/);
+});
+
 test("every SOP library route (work instructions included) has its skeleton in the registry", () => {
   const reg = read("./route-skeleton.tsx");
   for (const route of ["configuration/work-instructions", "pc-care/sops", "procurement/sops", "milk/sops", "counts/sops", "feed/sops", "weighing/sops", "sales/sops"]) {

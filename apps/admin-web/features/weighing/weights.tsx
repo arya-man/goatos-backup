@@ -1,6 +1,7 @@
 import Table from "@mui/material/Table";
 import TableContainer from "@mui/material/TableContainer";
 import { UrlSuspense } from "@/components/app/url-suspense";
+import { LocalViewPane, LocalViewToggle } from "@/components/local-view-switch";
 import { PanelSkeleton } from "@/components/app/panel-skeleton";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import Typography from "@mui/material/Typography";
@@ -24,7 +25,6 @@ import { BalanceStatisticsCard } from "@/components/app/balance-statistics-card"
 import { RingCard } from "@/components/app/ring-card";
 import { KpiWidget, lastStepPercent } from "@/components/app/kpi-widget";
 import { MetricChart, ShedMetricChart } from "./metric-chart";
-import { SegmentedLinks } from "@/components/segmented-links";
 import { GAIN_STEP_COLOR, type GainThresholdRow } from "./gain-threshold-bars";
 import { WeightsExportControl, type WeightsExportShed } from "./weights-export";
 import { Tag } from "@/components/ui-primitives";
@@ -866,13 +866,18 @@ export async function WeighingWeightsPage({
   const gainThresholdView = one(params, GAIN_VIEW_PARAM) === "table" ? "table" : "chart";
   // Top-right (or under the chart), URL-driven like every other toggle on this page, so the
   // choice survives a reload and travels in a shared link.
+  // A local view (TR1-#38, guard: gain-view-local): both views render, the switch flips which one
+  // shows and rewrites `gain_view` in place (history, no server round trip), so the strip is never
+  // torn down with the panel and the choice still survives a reload / travels in a shared link.
   const gainViewSwitch = (
-    <SegmentedLinks
-      ariaLabel={copy(pageContract, "section.gain_thresholds.view_aria")}
+    <LocalViewToggle
+      param={GAIN_VIEW_PARAM}
       current={gainThresholdView}
+      defaultValue="chart"
+      ariaLabel={copy(pageContract, "section.gain_thresholds.view_aria")}
       options={[
-        { value: "chart", label: copy(pageContract, "view.chart"), href: hrefWith(params, { [GAIN_VIEW_PARAM]: null }) },
-        { value: "table", label: copy(pageContract, "view.table"), href: hrefWith(params, { [GAIN_VIEW_PARAM]: "table" }) },
+        { value: "chart", label: copy(pageContract, "view.chart") },
+        { value: "table", label: copy(pageContract, "view.table") },
       ]}
     />
   );
@@ -1014,9 +1019,9 @@ export async function WeighingWeightsPage({
 
         {/* Kids clearing each daily gain mark, by breed: the four bands are a real distribution
             that adds to the denominator (each kid counted once). Chart first; the exact counts are
-            one URL-driven switch away (SegmentedLinks, so the choice survives a reload). */}
+            one local switch away (LocalViewToggle writes gain_view, so the choice survives a reload). */}
         <Grid size={{ xs: 12, md: 6, lg: 8 }}>
-          {gainThresholdView === "chart" ? (
+          <LocalViewPane param={GAIN_VIEW_PARAM} value="chart" current={gainThresholdView}>
             <BalanceStatisticsCard
               aria-label={copy(pageContract, "section.gain_thresholds.aria")}
               title={copy(pageContract, "section.gain_thresholds.title")}
@@ -1052,7 +1057,8 @@ export async function WeighingWeightsPage({
             >
               <Box sx={{ px: 3, pb: 3 }}>{gainViewSwitch}</Box>
             </BalanceStatisticsCard>
-          ) : (
+          </LocalViewPane>
+          <LocalViewPane param={GAIN_VIEW_PARAM} value="table" current={gainThresholdView}>
             <Card aria-label={copy(pageContract, "section.gain_thresholds.aria")} sx={{ height: 1 }}>
               <CardHeader title={copy(pageContract, "section.gain_thresholds.title")} subheader={gainCaption} action={gainViewSwitch} sx={{ mb: 3 }} />
               {gainThresholdRows.length === 0 ? (
@@ -1089,7 +1095,7 @@ export async function WeighingWeightsPage({
                 </TableContainer>
               )}
             </Card>
-          )}
+          </LocalViewPane>
         </Grid>
 
         {/* The true growth charts: same-tag-twice ADG or weight. Breed (the long list) takes half the
@@ -1438,4 +1444,4 @@ export async function WeighingWeightsPage({
 }
 
 /** Params that never change the figures (the export drawer). */
-const PANEL_IGNORE = ["wt_export"] as const;
+const PANEL_IGNORE = ["wt_export", GAIN_VIEW_PARAM] as const;

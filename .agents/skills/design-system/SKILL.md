@@ -82,6 +82,16 @@ Skeleton twins (TR1): PageHeaderSkeleton = the verbatim CustomBreadcrumbs; the d
 card = the KpiWidget course card (corner icon tile); a card grid is compared by its first card (count is
 data); a `.screen` PageSkeleton keeps its gap on an inner grid. A state-only segment option (the
 "Custom" window) is `disabled` unless it is the served state (guard `window-custom-state`).
+Navigation shows the target's skeleton at once (guard `pending-route-skeleton`): a path-changing link
+click, any router.push / replace below the shell (announced by UrlNavRouter) and the header back arrow
+pass the target href to the shell, which paints `PendingRouteSkeleton` (ROUTE_SKELETONS registry: every
+loading.tsx is registered) in the same frame; a URL-branching loading shape reads
+`usePendingRouteSearch()` first. A route with a library/editor split keeps ONE predicate for the page,
+its UrlSuspense `fallbackBy` ("a|b" = any param is "1") and its loading.tsx (guard
+`sop-editor-predicate`: SOP builder = compose=1 or new=1). Tab strips are never `memo()` (guard
+`tab-strip-no-memo`: a memo'd client component remounts on every RSC navigation); a pure view switch
+inside a URL panel is a LocalViewToggle, not a server round trip (guard `gain-view-local`). The audit's
+chart-black rule reads drawn marks (path/rect/circle/polygon) only.
 Existing P0 debt is the shrink-only baseline `apps/admin-web/scripts/r2-visual-audit-baseline.json`
 (pattern -> route count): a NEW pattern or one reaching MORE routes fails; `GOATOS_VISUAL_GATE_STRICT=1`
 fails on every P0. Shrink it with `node apps/admin-web/scripts/r2-visual-audit.mjs --write-baseline`

@@ -83,7 +83,8 @@ test("the card opens on the chart and the toggle only changes the view", () => {
   // an ABSENT param means chart — so a link shared from the default view keeps meaning
   // chart rather than freezing whichever view it was copied in.
   assert.match(source, /one\(params, GAIN_VIEW_PARAM\) === "table" \? "table" : "chart"/);
-  assert.match(source, /GAIN_VIEW_PARAM\]: null/);
+  // The default view leaves the param out of the URL (LocalViewToggle defaultValue, TR1-#38).
+  assert.match(source, /param=\{GAIN_VIEW_PARAM\}\s+current=\{gainThresholdView\}\s+defaultValue="chart"/);
   // Both views render the SAME derived rows. A second source for one fact is how two
   // views of one card start disagreeing.
   assert.equal(source.match(/gainThresholdRows/g).length >= 4, true);

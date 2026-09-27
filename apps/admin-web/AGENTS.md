@@ -192,6 +192,13 @@ Spec: `docs/design/mui-minimal-spec.md`. Tokens: `app/minimal-tokens.css`. Gate:
   predicate (guard: `sop-editor-predicate`: page, UrlSuspense `fallbackBy` "a|b" and loading share it).
   Table cards are compared by their chrome above the rows (header, tabs, toolbar, thead): rows are data.
   PageHeaderSkeleton `titleWidth` = the title's width, so the phone header wraps its actions like the page.
+- **Tab strips stay mounted across navigation (guards: `tab-strip-no-memo`, `gain-view-local`).** A client
+  component rendered from a server page is never wrapped in `memo()` (it remounts on every RSC
+  navigation); a pure view switch inside a URL panel (chart/table) is LocalViewToggle + LocalViewPane.
+  Programmatic router.push / replace and the header back arrow also paint the target's skeleton (the
+  shell listens for UrlNavRouter's announcement).
+- **The audit's chart-black rule reads drawn marks only (TR1-#3, self-test in r2-visual-audit.test.mjs).**
+  A `g.apexcharts-series` / legend `svg` wrapper inherits the initial black fill but paints nothing.
 - **A state-only segment is disabled, not a dead link (guard: `window-custom-state`).** An option such as
   the "Custom" window, whose href is the page already shown, is `disabled` unless it is the served state.
 - **Template-fidelity guards (`components/app/template-fidelity-guards.test.mjs`, runs in `npm test`).**

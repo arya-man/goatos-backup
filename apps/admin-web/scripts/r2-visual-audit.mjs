@@ -403,6 +403,8 @@ export function isVisuallyHidden(cs, r) {
 
 function r2PageLib() {
   if (window.__r2lib) return;
+  /** A painted SVG shape (not a group / svg wrapper): the elements a chart colour lands on. */
+  function isChartMark(el) { return /^(path|rect|circle|ellipse|polygon|polyline)$/i.test(el.tagName); }
   const ROOT = ".minimal__layout__main__content, main";
   const SKEL = ".MuiSkeleton-root, [data-skeleton], [class*='skeleton'], [class*='Skeleton']";
   let lastMutation = performance.now();
@@ -574,9 +576,14 @@ function r2PageLib() {
       // chart-black (R3CNT 2026-09-27): an Apex series / legend mark painted pure black means its
       // colour never resolved (a palette KEY such as "primary" handed to chart.colors). Black is in
       // the palette (common.black), so off-palette alone cannot see it.
-      if (inSvg && el.closest(".apexcharts-series, .apexcharts-legend-marker")) {
+      // Only DRAWN marks count (TR1-#3): a `g.apexcharts-series` group or the legend marker's `svg`
+      // wrapper has the initial computed fill (black) by inheritance but paints nothing itself; the
+      // coloured path / rect inside it is the mark. A drawn mark with no own colour still paints black
+      // and is still caught (fill-opacity 0 / fully transparent marks paint nothing and are skipped).
+      if (inSvg && isChartMark(el) && el.closest(".apexcharts-series, .apexcharts-legend-marker")) {
         const f = parseColor(cs.fill);
-        if (f && f[3] > 0.5 && f[0] === 0 && f[1] === 0 && f[2] === 0) add("chart-black", el, `fill ${hex(f)} on a chart series mark`, { prop: "fill", value: hex(f) });
+        const fo = parseFloat(cs.fillOpacity || "1") * parseFloat(cs.opacity || "1");
+        if (f && f[3] > 0.5 && fo > 0.05 && f[0] === 0 && f[1] === 0 && f[2] === 0) add("chart-black", el, `fill ${hex(f)} on a chart series mark`, { prop: "fill", value: hex(f) });
       } else if (!inSvg && el.closest(".apexcharts-legend-marker")) {
         const b = parseColor(cs.backgroundColor);
         if (b && b[3] > 0.5 && b[0] === 0 && b[1] === 0 && b[2] === 0) add("chart-black", el, `background ${hex(b)} on a chart legend marker`, { prop: "background-color", value: hex(b) });

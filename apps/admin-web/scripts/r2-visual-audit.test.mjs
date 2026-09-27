@@ -105,6 +105,19 @@ test("compareBlocks: a table card is judged by its chrome above the rows (TR1-#1
   assert.equal(compareBlocks([skel], [{ x: 340, y: 320, w: 1060, h: 300, head: { x: 340, y: 320, w: 1060, h: 290 }, kind: "table" }]).mismatched.length, 1);
 });
 
+test("chart-black reads drawn marks only: a series group / legend svg wrapper inherits black but paints nothing (TR1-#3)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "r2-visual-audit.mjs"), "utf8");
+  const mark = src.match(/function isChartMark\(el\) \{ return (\/.*?\/i)\.test\(el\.tagName\); \}/);
+  assert.ok(mark, "isChartMark gate missing from the page lib");
+  const re = new Function(`return ${mark[1]}`)();
+  for (const tag of ["path", "rect", "circle", "polygon"]) assert.equal(re.test(tag), true, tag);
+  for (const tag of ["g", "svg", "text", "foreignObject"]) assert.equal(re.test(tag), false, tag);
+  assert.match(src, /inSvg && isChartMark\(el\) && el\.closest\("\.apexcharts-series, \.apexcharts-legend-marker"\)/);
+  // a transparent mark paints nothing; an opaque black one is still the P0
+  assert.match(src, /fo > 0\.05 && f\[0\] === 0 && f\[1\] === 0 && f\[2\] === 0/);
+});
+
 test("per-route ratchet: any new failure on a shell/touched route fails, other routes keep the P0 ratchet", () => {
   const pat = (pattern, routes, p0 = false) => ({ pattern, label: pattern, p0, routes, routeCount: routes.length });
   const baseline = { "tap|button": 2 };

@@ -4,6 +4,7 @@ import Link from "@/components/no-prefetch-link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { LinkNavPending } from "@/components/app/link-nav-pending";
 import { UrlNavRouter } from "@/components/app/url-nav-router";
+import { URL_NAV_EVENT } from "@/components/app/url-tab-nav";
 import { PendingRouteSkeleton } from "@/components/route-skeleton";
 import type { ElementType } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -661,11 +662,35 @@ export function MeshaShell({
 
   useEffect(() => clearRoutePending, [clearRoutePending]);
 
+  // Programmatic navigation (guard: pending-route-skeleton): every router.push / replace below the
+  // shell announces its href (UrlNavRouter). One that changes the PATH (a calendar drive click, a
+  // row menu "Open", an editor's publish) paints the target's skeleton like a link click does.
+  useEffect(() => {
+    const onNav = (event: Event) => {
+      const href = (event as CustomEvent<{ href?: string }>).detail?.href;
+      if (!href) return;
+      let dest: URL;
+      try {
+        dest = new URL(href, window.location.href);
+      } catch {
+        return;
+      }
+      if (dest.origin !== window.location.origin || dest.pathname === window.location.pathname) return;
+      const to = `${dest.pathname}${dest.search}`;
+      if (pendingNavigationRef.current?.to === to) return; // the click handler already started it
+      startRoutePending(null, to, "programmatic");
+    };
+    window.addEventListener(URL_NAV_EVENT, onNav);
+    return () => window.removeEventListener(URL_NAV_EVENT, onNav);
+  }, [startRoutePending]);
+
   const navTrailValue = useMemo<NavTrail>(
     () => ({
       items: navTrail,
       back: () => {
-        startRoutePending();
+        // The trail's last item IS where history.back() lands: its skeleton shows at once.
+        const last = trailRef.current[trailRef.current.length - 1];
+        startRoutePending(null, last?.href, "back");
         applyNavTrail(trailRef.current.slice(0, -1));
         router.back();
       },
