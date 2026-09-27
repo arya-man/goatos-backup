@@ -31,6 +31,8 @@ const TWINS = {
   "app/(admin)/leave/loading.tsx": ["features/leave/leave-page.tsx"],
   "features/procurement/source-entry-skeletons.tsx": ["features/procurement/source-entry-board.tsx"],
   "features/vaccination-live-tracker/live-tracker-skeleton.tsx": ["features/vaccination-live-tracker/live-tracker-board.tsx"],
+  "app/(admin)/tasks/loading.tsx": ["features/leadership-tasks/leadership-tasks-page.tsx"],
+  "app/(admin)/verify/loading.tsx": ["features/verification-review/verification-review-page.tsx"],
 };
 
 /** Whether each `crumbs={[{ … }` literal's first (parent) crumb carries an href. */

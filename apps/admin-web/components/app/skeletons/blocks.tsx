@@ -427,9 +427,7 @@ export function KpiRowSkeleton({
 export function StatStripSkeleton({ count, meta = false, card = true, wrapBelowMd = false, minHeight = true }: { count: number; meta?: boolean; card?: boolean; /** The page's strip Scrollbar keeps its min height (false: the strip is its cells' height). */ minHeight?: boolean; /** The cells' title and meta lines wrap to two lines each on a phone (200px cells, long copy); "title" when only the title wraps. */ wrapBelowMd?: boolean | "title" }) {
   const cols = count <= 4 ? Math.max(count, 1) : count % 3 === 0 && count % 4 !== 0 ? 3 : 4;
   const cell = (i: number) => (
-    // `&&&` outranks frame.css `.screen[aria-busy="true"] div { flex-wrap: wrap; min-width: 0 }`, which
-    // squeezed the 200px cells to a quarter of a phone and stacked ring over text.
-    <Box key={i} sx={{ width: 1, gap: 2.5, px: 2, display: "flex", alignItems: "center", justifyContent: "center", "&&&": { minWidth: 200, flexWrap: "nowrap" } }}>
+    <Box key={i} sx={{ width: 1, minWidth: 200, gap: 2.5, px: 2, display: "flex", alignItems: "center", justifyContent: "center" }}>
       <Skeleton variant="circular" width={56} height={56} sx={{ flexShrink: 0 }} />
       <Box sx={{ minWidth: 0, flex: "0 1 96px" }}>
         <SkeletonLine variant="subtitle1" width="100%" />
@@ -451,7 +449,7 @@ export function StatStripSkeleton({ count, meta = false, card = true, wrapBelowM
       </Box>
     ) : (
       <Box sx={{ minHeight: minHeight ? "calc(var(--sp-6) * 2.25)" : 0, overflow: "hidden" }}>
-        <Stack direction="row" divider={<Divider orientation="vertical" flexItem sx={{ borderStyle: "dashed" }} />} sx={{ py: 2, "&&&": { flexWrap: "nowrap" } }}>
+        <Stack direction="row" divider={<Divider orientation="vertical" flexItem sx={{ borderStyle: "dashed" }} />} sx={{ py: 2 }}>
           {Array.from({ length: count }, (_, i) => cell(i))}
         </Stack>
       </Box>

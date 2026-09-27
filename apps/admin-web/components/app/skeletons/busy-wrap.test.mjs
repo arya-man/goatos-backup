@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-// guard: skeleton-busy-nowrap (SK2). frame.css `.screen[aria-busy="true"] div { flex-wrap: wrap;
-// min-width: 0 }` reaches every div of a route skeleton. The loaded rows never wrap, so every shared
-// block that is a flex row / column pins itself with a selector that outranks it (`&&&`, or `&&` plus
-// a class): a wrapping Stack sized its children at max-content (a 456px column on a 390 phone), the
-// InvoiceAnalytic strip stacked its 200px cells ring-over-text, the order toolbar broke its row.
+// guard: skeleton-busy-nowrap (SK2, root cause SK1). frame.css used to force `flex-wrap: wrap; min-width: 0`
+// on every div of a busy `.screen` skeleton; the loaded rows never wrap, so blocks fought it with `&&&`
+// (a wrapping Stack sized children at max-content, the InvoiceAnalytic strip stacked ring-over-text,
+// the /verify strip ran 256px vs 108px at 390). The rule is deleted: blocks carry plain sx again, and
+// the rule must not come back.
 const blocks = readFileSync(new URL("./blocks.tsx", import.meta.url), "utf8");
 const body = (name) => {
   const start = blocks.indexOf(`export function ${name}(`);
@@ -14,13 +14,13 @@ const body = (name) => {
   return blocks.slice(start, blocks.indexOf("\nexport function ", start + 10));
 };
 
-test("flex-row / flex-column blocks outrank the busy wrap rule", () => {
-  assert.match(body("StackSkeleton"), /"&&&": \{ flexWrap: "nowrap" \}/);
-  assert.match(body("TabsSkeleton"), /"&& \.MuiTabs-list": \{ flexWrap: "nowrap" \}/);
-  assert.match(body("OrderToolbarSkeleton"), /"&&&": \{ flexWrap: "nowrap" \}/);
-  const strip = body("StatStripSkeleton");
-  assert.match(strip, /"&&&": \{ minWidth: 200, flexWrap: "nowrap" \}/);
-  assert.match(strip, /sx=\{\{ py: 2, "&&&": \{ flexWrap: "nowrap" \} \}\}/);
+test("no busy wrap rule, no outranking workarounds", () => {
+  const frame = readFileSync(new URL("../../../app/frame.css", import.meta.url), "utf8");
+  assert.doesNotMatch(frame, /\.screen\[aria-busy="true"\]\s+div\s*\{[^}]*flex-wrap/);
+  for (const name of ["StackSkeleton", "TabsSkeleton", "OrderToolbarSkeleton", "StatStripSkeleton"]) {
+    assert.doesNotMatch(body(name), /"&&&?[^"]*": \{[^}]*flexWrap: "nowrap"/, `${name}: stale busy-wrap workaround`);
+  }
+  assert.match(body("StatStripSkeleton"), /minWidth: 200/);
 });
 
 test("the order toolbar twin sizes its selects and search from the page's own sx", () => {
