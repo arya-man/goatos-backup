@@ -637,7 +637,6 @@
   .main table.counts-pens-table th,
   .main table.counts-pens-table td{padding-left:12px;padding-right:12px;vertical-align:middle}
   .main table.counts-pens-table th:first-child,
-  .main table.counts-pens-table td:first-child{padding-left:20px}
   .main table.counts-pens-table th:last-child,
   .main table.counts-pens-table td:last-child{padding-right:20px}
   .main table.counts-pens-table th:nth-child(1),.main table.counts-pens-table td:nth-child(1){width:8%}

@@ -57,12 +57,6 @@
 .wrap tbody tr{transition:background-color 150ms var(--ease)}
 .wrap tbody tr:hover>td{background:color-mix(in srgb,var(--fg) 4%,transparent)}
 .wrap .kit-dense tbody td{height:44px;padding:8px 16px}
-/* Minimal table anatomy, DESKTOP ONLY (>=768px): 57px sentence-case 14px/600 header, 72px body rows
-   with 16px cells. Phone/WebView tables (card-mode rows, sticky headers, tap targets) keep their
-   existing sizes exactly. Dense tables keep 44px. */
-@media(min-width:768px){.wrap thead th{height:57px;font-size:14px;line-height:24px;letter-spacing:0;text-transform:none;padding:16px}.wrap thead th:first-child{padding-left:24px}.wrap thead th:last-child{padding-right:24px}.wrap tbody td{height:auto;padding:16px}.wrap tbody td:first-child{padding-left:24px}.wrap tbody td:last-child{padding-right:24px}.wrap .kit-dense tbody td,.kit-dense tbody td{height:auto;padding-top:6px;padding-bottom:6px}}
-.wrap thead th:first-child,.wrap tbody td:first-child{padding-left:24px}
-.wrap thead th:last-child,.wrap tbody td:last-child{padding-right:24px}
 /* scroll hint: fade on the right edge while the table can scroll */
 /* Scroll hint: ScrollEdges (components/kit/scroll-edges.tsx) overlays a fade on the edge of any
    table scroller that still holds content in that direction. */
