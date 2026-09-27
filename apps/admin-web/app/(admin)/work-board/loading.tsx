@@ -12,7 +12,7 @@ export default function Loading() {
     <PageSkeleton root="wb">
       <StackSkeleton>
         <PageHeaderSkeleton crumbLink={false} titleWidth={90} mb={{ xs: 0, md: 2 }} />
-        <FilterCardSkeleton bare fields={WB_TOOLBAR_FIELDS} actionWidths={[WB_DAY_STEPPER_WIDTH]} />
+        <FilterCardSkeleton bare searchSmall fields={WB_TOOLBAR_FIELDS} actionWidths={[WB_DAY_STEPPER_WIDTH]} />
         <KanbanSkeleton lanes={WB_SKELETON_LANES} laneWidth={FOUR_LANE_COLUMN_WIDTH} />
       </StackSkeleton>
     </PageSkeleton>

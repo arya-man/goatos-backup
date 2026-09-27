@@ -1,4 +1,4 @@
-import { ChartCardSkeleton, ChipRowSkeleton, KpiRowSkeleton, StackSkeleton, TabsSkeleton, ToolbarSkeleton, type KpiShape } from "@/components/app/skeletons";
+import { ChartCardSkeleton, ChipSkeleton, ControlRowSkeleton, FieldSkeleton, KpiRowSkeleton, StackSkeleton, TabsSkeleton, type KpiShape } from "@/components/app/skeletons";
 
 // Shared by /feed/analytics loading.tsx and the page's tab-strip + Overview panel fallbacks, so the
 // skeleton is the page (guard: feed-analytics-loading-mirror).
@@ -27,7 +27,13 @@ export function FeedAnalyticsStripSkeleton() {
   return (
     <StackSkeleton spacing={2}>
       <TabsSkeleton count={FEED_ANALYTICS_TABS.length} />
-      <ToolbarSkeleton left={<ChipRowSkeleton count={FEED_ANALYTICS_RANGES.length} />} fields={[FEED_ANALYTICS_VIEW_TOGGLE_WIDTH]} small={false} />
+      {/* One wrapping row, as the page's chip group: the chips, then the toggle (its own line on a phone). */}
+      <ControlRowSkeleton>
+        {FEED_ANALYTICS_RANGES.map((r) => (
+          <ChipSkeleton key={r} width={72} />
+        ))}
+        <FieldSkeleton width={FEED_ANALYTICS_VIEW_TOGGLE_WIDTH} />
+      </ControlRowSkeleton>
     </StackSkeleton>
   );
 }

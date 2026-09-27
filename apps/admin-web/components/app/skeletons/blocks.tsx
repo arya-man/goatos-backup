@@ -217,6 +217,7 @@ export function FilterCardSkeleton({
   small = false,
   bare = false,
   summary = false,
+  searchSmall = false,
 }: {
   fields: FilterField[] | number;
   actions?: number;
@@ -235,13 +236,15 @@ export function FilterCardSkeleton({
    * result chip): the `px 2.5, pb 2.5` strip with the count, one chip and Clear all (30px row).
    */
   summary?: boolean;
+  /** The search field is the 44px phone field (a fullWidth TextField without a label) while the selects are full height. */
+  searchSmall?: boolean;
 }) {
   const list: FilterField[] = typeof fields === "number" ? Array.from({ length: fields }, () => 200) : fields;
   const acts = actionWidths ?? Array.from({ length: actions }, () => 88);
   const fixed = list.filter((f) => f !== "search");
   const field = (f: FilterField, i: number) =>
     f === "search" ? (
-      <FieldSkeleton key={i} grow small={small} />
+      <FieldSkeleton key={i} grow small={small || searchSmall} />
     ) : f === "chip" ? (
       <ChipSkeleton key={i} />
     ) : (

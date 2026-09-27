@@ -14,7 +14,7 @@ test("work-board loading mirrors the page", () => {
   const loading = read("../../app/(admin)/work-board/loading.tsx");
   const board = read("./work-board-board.tsx");
   for (const src of [loading, board]) assert.match(src, /<KanbanSkeleton lanes=\{WB_SKELETON_LANES\} laneWidth=\{FOUR_LANE_COLUMN_WIDTH\} \/>/);
-  assert.match(loading, /fields=\{WB_TOOLBAR_FIELDS\} actionWidths=\{\[WB_DAY_STEPPER_WIDTH\]\}/);
+  assert.match(loading, /searchSmall fields=\{WB_TOOLBAR_FIELDS\} actionWidths=\{\[WB_DAY_STEPPER_WIDTH\]\}/);
   assert.match(board, /width: \{ xs: 1, md: WB_MODULE_SELECT_WIDTH \}/);
   assert.match(read("./work-board-layout.ts"), /WB_TOOLBAR_FIELDS[^=]*= \[PEOPLE_DROPDOWN_WIDTH, WB_MODULE_SELECT_WIDTH, "search"\]/);
   assert.match(read("./work-board-page.tsx"), /<Box sx=\{\{ mb: WB_HEADER_MB \}\}>/);
