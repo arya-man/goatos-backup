@@ -47,7 +47,8 @@ const DETAIL_DRAWER = { overlay: ".MuiDrawer-root .MuiDrawer-paper[role=dialog]"
  * routeName -> steps. Route names match smoke-visual-live.mjs's route list.
  * step: { id, trigger (css), triggerText? (regex on the trigger's text), overlay, header?, body?,
  *         kind: "drawer"|"dialog"|"sheet"|"popover"|"nav", viewports?, close?: css, allowDialogTrigger?,
- *         minWidthRatio?, source }
+ *         minWidthRatio?, required? (trigger-absent fails instead of skipping), source }
+ * Every step also fails when opening the overlay moves the page scroll (guard overlay-no-scroll-jump).
  */
 export const overlayJourneys = {
   tasks: [
@@ -78,15 +79,31 @@ export const overlayJourneys = {
   people: [
     {
       id: "person-access-modal",
-      // features/people/person-access-launcher.tsx: button.btn.sm.ghost aria-label="Access — <name>" ; the
+      // features/people/person-access-launcher.tsx: MUI Button / phone IconButton aria-label="Access — <name>"; the
       // editor is a portalled MUI Dialog (person-access-modal.tsx: DialogTitle / DialogContent / close IconButton).
-      trigger: 'button.btn.sm.ghost[aria-label^="Access"]',
+      // required: the directory always renders Access buttons, so an absent trigger is a stale selector, not a skip
+      // (FJ1-P0-2 / FJ3-P0-3 stayed hidden while this pointed at the legacy button.btn.sm.ghost).
+      trigger: 'button[aria-label^="Access"]:visible', // phone rows render the compact IconButton; the desktop Button is hidden
       overlay: ".MuiDialog-paper[role=dialog]",
       header: ".MuiDialogTitle-root",
       body: ".MuiDialogContent-root",
       kind: "dialog",
+      required: true,
       close: ".MuiDialog-paper .MuiDialogTitle-root button[aria-label]",
       source: "features/people/person-access-launcher.tsx, person-access-modal.tsx",
+    },
+    {
+      id: "person-add-drawer",
+      // features/people/people-add-button.tsx: LocalOverlayLink <a aria-haspopup="dialog" href="?person=new"> ->
+      // person-add-drawer.tsx on the template MinimalDrawer (portal to <body>). FJ3-P0-2: it once rendered in
+      // flow below the table and scrolled the page there; the runner now fails any scroll jump on open.
+      trigger: 'a[aria-haspopup="dialog"][href*="person=new"]',
+      allowDialogTrigger: true,
+      overlay: ".MuiDrawer-modal .MuiDrawer-paper",
+      kind: "drawer",
+      required: true,
+      close: ".MuiDrawer-modal .MuiDrawer-paper button[aria-label]",
+      source: "features/people/people-add-button.tsx, person-add-drawer.tsx, components/minimal/drawer/minimal-drawer.tsx",
     },
   ],
   "action-center": [
@@ -325,11 +342,14 @@ export async function exerciseOverlays(page, { routeName, viewportLabel, screens
     const tag = `${routeName}:${step.id}`;
     const picked = await pickTrigger(page, step);
     if (!picked.target) {
+      if (step.required) throw new Error(`${routeName} ${viewportLabel} overlay ${step.id}: required trigger ${step.trigger} not found (${picked.reason}); the selector is stale`);
       console.log(`overlay_skip=${tag}:${picked.reason}`);
       continue;
     }
     await picked.target.scrollIntoViewIfNeeded().catch(() => {});
     await assertReadOnlyClickTarget(picked.target, { allowDialogTrigger: step.allowDialogTrigger });
+    // guard: overlay-no-scroll-jump. Opening a drawer / dialog must not move the page underneath it.
+    const scrollBefore = await page.evaluate(() => [window.scrollX, window.scrollY]);
     await picked.target.click({ timeout: 5_000 });
     const fail = async (what) => {
       await page.evaluate(inspectOverlayInPage, { ...step, mark: true }).catch(() => {});
@@ -351,6 +371,10 @@ export async function exerciseOverlays(page, { routeName, viewportLabel, screens
       await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
     }
     if (result.issues.length > 0) await fail(result.issues.slice(0, 3).join("; "));
+    const scrollAfter = await page.evaluate(() => [window.scrollX, window.scrollY]);
+    if (Math.abs(scrollAfter[1] - scrollBefore[1]) > 2 || Math.abs(scrollAfter[0] - scrollBefore[0]) > 2) {
+      await fail(`page jumped on open: scroll ${scrollBefore.join(",")} -> ${scrollAfter.join(",")}`);
+    }
     const shotPath = join(screenshotDir, `${viewportLabel}-${routeName}-${step.id}.png`);
     await page.screenshot({ path: shotPath });
     console.log(`screenshot_path=${relativeToRepo(shotPath)}`);

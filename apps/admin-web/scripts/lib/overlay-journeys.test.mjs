@@ -41,3 +41,17 @@ test("every journey targets a route in the live smoke list and names real source
 test("smoke calls exerciseOverlays right after manifest safe clicks", () => {
   assert.match(smokeSource, /exerciseManifestSafeClicks\(page, route\.name, viewport\.label\)\);\s*\n\s*await check\(\(\) => exerciseOverlays\(page,/);
 });
+
+test("people overlays are required journeys with live selectors; opening never scrolls (guard: overlay-no-scroll-jump)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const read = (rel) => readFileSync(new URL(`../../${rel}`, import.meta.url), "utf8");
+  const people = Object.fromEntries(overlayJourneys.people.map((step) => [step.id, step]));
+  for (const id of ["person-access-modal", "person-add-drawer"]) assert.equal(people[id]?.required, true, `${id} must be required`);
+  // Legacy kit classes are gone from the people feature; a trigger that still names them silently skips.
+  for (const step of overlayJourneys.people) assert.doesNotMatch(step.trigger, /\.(btn|ghost|iconbtn)\b/, `${step.id} uses a legacy class`);
+  assert.match(read("features/people/person-access-launcher.tsx"), /aria-label=\{`\$\{copy\(pageContract, "access\.open"\)\} — /);
+  assert.match(read("features/people/people-add-button.tsx"), /component=\{LocalOverlayLink\}[\s\S]*aria-haspopup="dialog"/);
+  const runner = read("scripts/lib/overlay-journeys.mjs");
+  assert.match(runner, /if \(step\.required\) throw new Error/);
+  assert.match(runner, /page jumped on open/);
+});

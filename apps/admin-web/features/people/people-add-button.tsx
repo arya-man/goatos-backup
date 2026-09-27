@@ -14,6 +14,7 @@ export function PeopleAddButton({ href, label }: { href: string; label: string }
       component={LocalOverlayLink}
       href={href}
       scroll={false}
+      aria-haspopup="dialog"
       variant="contained" color="primary"
       startIcon={<Iconify icon="mingcute:add-line" />}
       sx={{ minHeight: "var(--tap-min)", whiteSpace: "nowrap" }}

@@ -273,6 +273,7 @@ chapters below; do not review from the summary.
 
 - **Page rhythm / raw codes / phone FAB / blur / preflight (R3OPS).** Page root = `screen on` grid, never a fragment starting with PageHeader (r2 audit `rhythm|header-gap`). No snake_case backend code in a Label/Chip (`rhythm|raw-code-label`; humanizeEnum/optionLabel). Shell keeps <=620px bottom clearance for the floating Ask Mesha bubble (`phone-fab-clearance`). No backdrop blur on scrims/veils (`no-blur-scrim`). Template pseudo elements that set `borderWidth` also set `borderStyle` (Tailwind preflight; `preflight-pseudo-border`).
 - **Phone list rows stack (R3OPS-2).** Below sm drop secondary columns (header + cell class) and repeat assignee/status in the first cell; never leave a column clipped at the card edge (guard `tasks-phone-stacked-row`).
+- **Overlay journeys: required triggers, no scroll jump (R3OPS-3).** Always-present overlay triggers are `required: true` in `scripts/lib/overlay-journeys.mjs` (stale selector = failure, not `overlay_skip`); opening any overlay must leave window scroll unchanged (`overlay-no-scroll-jump`); LocalOverlayLink drawer triggers carry `aria-haspopup="dialog"`.
 
 ## Proven performance patterns (from main + #415)
 
