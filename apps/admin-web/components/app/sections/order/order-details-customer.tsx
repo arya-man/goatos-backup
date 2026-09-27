@@ -5,12 +5,15 @@
 // `title`, `headerAction` (the template's pen IconButton), `name` / `avatarUrl`, `lines` (its email +
 // IP-address lines), `action` (its "Add to blacklist" button).
 import type { ReactNode } from 'react';
+import type { SxProps, Theme } from '@mui/material/styles';
 
 import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
 import Avatar from '@mui/material/Avatar';
 import CardHeader from '@mui/material/CardHeader';
 import Typography from '@mui/material/Typography';
+
+import { mergeSx } from '@/components/app/merge-sx';
 
 // ----------------------------------------------------------------------
 
@@ -21,9 +24,11 @@ type Props = {
   avatarUrl?: string;
   lines?: ReactNode[];
   action?: ReactNode;
+  /** Declared override (template-derived.json): merged after each line's sx (long value wrap). */
+  slotProps?: { line?: SxProps<Theme> };
 };
 
-export function OrderDetailsCustomer({ title, headerAction, name, avatarUrl, lines = [], action }: Props) {
+export function OrderDetailsCustomer({ title, headerAction, name, avatarUrl, lines = [], action, slotProps }: Props) {
   return (
     <>
       <CardHeader
@@ -42,7 +47,7 @@ export function OrderDetailsCustomer({ title, headerAction, name, avatarUrl, lin
         <Stack spacing={0.5} sx={{ typography: 'body2', alignItems: 'flex-start' }}>
           <Typography variant="subtitle2">{name}</Typography>
           {lines.map((line, index) => (
-            <Box key={index} sx={{ color: 'text.secondary' }}>{line}</Box>
+            <Box key={index} sx={mergeSx({ color: 'text.secondary' }, slotProps?.line)}>{line}</Box>
           ))}
 
           {action}

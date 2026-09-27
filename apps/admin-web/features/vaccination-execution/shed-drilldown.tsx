@@ -18,6 +18,7 @@ import { Iconify } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { TableHeadCustom } from "@/components/app/table";
 import { OrderDetailsDelivery } from "@/components/app/sections/order/order-details-delivery";
+import { detailWrapSx } from "@/components/app/detail-wrap";
 import { getVaccinationExecutionShedDrilldown } from "@/lib/api/server";
 import type { VaccinationExecutionRow } from "@/lib/api/vaccination-execution";
 import { Tag, type Tone } from "@/components/ui-primitives";
@@ -223,7 +224,7 @@ export async function ShedExecutionDetailPage({
 
         <Grid size={{ xs: 12, md: 4 }}>
           <Card>
-            <OrderDetailsDelivery
+            <OrderDetailsDelivery slotProps={{ row: detailWrapSx }}
               title={copy(pageContract, "label.pen", "Pen")}
               rows={[
                 { key: "park", label: copy(pageContract, "label.park", "Park"), value: shed.parkName },

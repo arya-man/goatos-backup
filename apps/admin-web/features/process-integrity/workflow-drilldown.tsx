@@ -9,6 +9,7 @@ import { LinkButton } from "@/components/app/link-button";
 import { OrderDetailsToolbar } from "@/components/app/sections/order/order-details-toolbar";
 import { OrderDetailsHistory, type OrderHistoryItem, type OrderHistoryTone } from "@/components/app/sections/order/order-details-history";
 import { OrderDetailsCustomer } from "@/components/app/sections/order/order-details-customer";
+import { detailWrapSx } from "@/components/app/detail-wrap";
 import { OrderDetailsDelivery } from "@/components/app/sections/order/order-details-delivery";
 import type { LabelColor } from "@/components/minimal/label";
 import { operationalLocationLabel } from "@/lib/operational-location";
@@ -194,14 +195,14 @@ export async function VaccinationWorkflowDrilldownPage({
 
         <Grid size={{ xs: 12, md: 4 }}>
           <Card>
-            <OrderDetailsCustomer
+            <OrderDetailsCustomer slotProps={{ line: detailWrapSx }}
               title={copy(pageContract, "label.vaccination_drive")}
               name={drive}
               lines={[row.protocol_name, row.owner?.operator_name || copy(pageContract, "label.unassigned")]}
             />
 
             <Divider sx={{ borderStyle: "dashed" }} />
-            <OrderDetailsDelivery
+            <OrderDetailsDelivery slotProps={{ row: detailWrapSx }}
               title={copy(pageContract, "label.vaccination")}
               rows={[
                 { key: "park", label: copy(pageContract, "label.park", "Park"), value: row.park_name },

@@ -20,6 +20,7 @@ import { TableHeadCustom } from "@/components/app/table";
 import { OrderDetailsToolbar } from "@/components/app/sections/order/order-details-toolbar";
 import { OrderDetailsHistory, type OrderHistoryItem } from "@/components/app/sections/order/order-details-history";
 import { OrderDetailsCustomer } from "@/components/app/sections/order/order-details-customer";
+import { detailWrapSx } from "@/components/app/detail-wrap";
 import { OrderDetailsDelivery } from "@/components/app/sections/order/order-details-delivery";
 import { PagedRows } from "@/components/app/paged-rows";
 import { redirect } from "next/navigation";
@@ -634,10 +635,10 @@ export async function ProcurementLoadDetailPage({
 
         <Grid size={{ xs: 12, md: 4 }}>
           <Card>
-            <OrderDetailsCustomer title="Source party" name={sourceParty} lines={[sourceLocation ?? placeholder]} />
+            <OrderDetailsCustomer slotProps={{ line: detailWrapSx }} title="Source party" name={sourceParty} lines={[sourceLocation ?? placeholder]} />
 
             <Divider sx={{ borderStyle: "dashed" }} />
-            <OrderDetailsDelivery
+            <OrderDetailsDelivery slotProps={{ row: detailWrapSx }}
               title={copy(pageContract, "label.load")}
               rows={[
                 { key: "holding", label: cap(copy(pageContract, "label.holding_farm")), value: sourceLocation ?? placeholder },

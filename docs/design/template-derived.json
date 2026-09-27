@@ -613,7 +613,7 @@
     },
     "components/app/sections/order/order-details-customer.tsx": {
       "source": "src/sections/order/order-details-customer.tsx",
-      "replaced": "IOrderCustomer -> title/name/avatarUrl; SLOTS headerAction (pen IconButton), lines (email + IP address lines), action (Add to blacklist button)",
+      "replaced": "IOrderCustomer -> title/name/avatarUrl; SLOTS headerAction (pen IconButton), lines (email + IP address lines), action (Add to blacklist button); declared override slotProps.line (long value wrap, inside the lines slot)",
       "templateStrip": [
         [
           "action=\\{\\s*<IconButton>[\\s\\S]*?<\\/IconButton>\\s*\\}",
@@ -661,7 +661,7 @@
     },
     "components/app/sections/order/order-details-delivery.tsx": {
       "source": "src/sections/order/order-details-delivery.tsx",
-      "replaced": "IOrderDelivery -> title + rows (one template label/value line per row; the template's three fixed lines); SLOT action (pen IconButton)",
+      "replaced": "IOrderDelivery -> title + rows (one template label/value line per row; the template's three fixed lines); SLOT action (pen IconButton); declared override slotProps.row (value wrap)",
       "templateStrip": [
         [
           "action=\\{\\s*<IconButton>[\\s\\S]*?<\\/IconButton>\\s*\\}",
@@ -671,6 +671,10 @@
         "\\s*<Box sx=\\{\\{ display: 'flex', alignItems: 'center' \\}\\}>\\s*<Box component=\"span\"[^>]*>\\s*Tracking No\\.[\\s\\S]*?<\\/Link>\\s*<\\/Box>\\n"
       ],
       "strip": [
+        [
+          "mergeSx\\((\\{ display: 'flex', alignItems: 'center' \\}), slotProps\\?\\.row\\)",
+          "$1"
+        ],
         [
           "\\{rows\\.map\\(\\(row\\) => \\(\\s*",
           ""

@@ -20,6 +20,7 @@ import { OrderTableToolbar } from "@/components/app/sections/order/order-table-t
 import { orderToolbarSearchSx } from "@/components/app/order-toolbar-filter";
 import { OrderDetailsHistory, type OrderHistoryItem } from "@/components/app/sections/order/order-details-history";
 import { OrderDetailsDelivery } from "@/components/app/sections/order/order-details-delivery";
+import { detailWrapSx } from "@/components/app/detail-wrap";
 import { EmptyState } from "@/components/app/empty-state";
 import { dateTime } from "@/lib/format";
 
@@ -283,7 +284,7 @@ function TraceDetail({ trace }: { trace: TraceRecord }): React.ReactElement {
 
       <Grid size={{ xs: 12, md: 4 }}>
         <Card>
-          <OrderDetailsDelivery
+          <OrderDetailsDelivery slotProps={{ row: detailWrapSx }}
             title="Request summary"
             rows={[
               { key: "status", label: "Status", value: <Label variant="soft" color={colorFor(trace.status)}>{trace.status || "—"}</Label> },
@@ -296,7 +297,7 @@ function TraceDetail({ trace }: { trace: TraceRecord }): React.ReactElement {
           />
 
           <Divider sx={{ borderStyle: "dashed" }} />
-          <OrderDetailsDelivery
+          <OrderDetailsDelivery slotProps={{ row: detailWrapSx }}
             title="Model"
             rows={[
               { key: "actor", label: "Actor role", value: trace.actor_role || "—" },
