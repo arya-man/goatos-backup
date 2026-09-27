@@ -31,6 +31,7 @@ import { pickScopeOption } from '@/lib/scope';
 // in its place); slotProps.menuList carries the listbox role, label and subheader. Declared overrides
 // (manifest `replaced`): an option name wraps instead of noWrap and shows the park code as a caption
 // line under it; rows grow from a 48px floor (the xs key outranks MenuItem's own sm minHeight auto);
+// the list is 280 wide with a 360 scroll cap so a long park plus All parks show whole (O39);
 // a value outside `data` shows `fallback` on the trigger and selects no option (pickScopeOption).
 
 export type WorkspacesPopoverProps = ButtonBaseProps & {
@@ -140,10 +141,10 @@ export function WorkspacesPopover({
       onClose={onClose}
       slotProps={{
         arrow: { placement: 'top-left' },
-        paper: { sx: { mt: 0.5, ml: -1.55, width: 240 } },
+        paper: { sx: { mt: 0.5, ml: -1.55, width: 280 } },
       }}
     >
-      <Scrollbar sx={{ maxHeight: 240 }}>
+      <Scrollbar sx={{ maxHeight: 360 }}>
         <MenuList {...slotProps?.menuList}>
           {data.map((option) => (
             <MenuItem

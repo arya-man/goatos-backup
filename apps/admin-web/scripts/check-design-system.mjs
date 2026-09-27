@@ -1220,13 +1220,16 @@ async function selfTest() {
         // REVIEW-28 O34: a slot strip pins the slot's exact markup; an edit inside it (p: 9) fails.
         "derived-slot-ok": tplDerived.replace("<Box sx={{ typography: 'h3' }}>{v.total}</Box>", "<Box sx={{ typography: 'h3' }}>{v.total}</Box>{lines.map((l) => (<Box key={l} sx={mergeSx({ color: 'text.secondary' }, slotProps?.line)}>{l}</Box>))}"),
         "derived-slot-edit": tplDerived.replace("<Box sx={{ typography: 'h3' }}>{v.total}</Box>", "<Box sx={{ typography: 'h3' }}>{v.total}</Box>{lines.map((l) => (<Box key={l} sx={mergeSx({ color: 'text.secondary', p: 9 }, slotProps?.line)}>{l}</Box>))}"),
+        // REVIEW-33 O40: a conditional caption slot is pinned with its literal sx; a style edit inside it fails.
+        "derived-slot-cond-ok": tplDerived.replace("{v.total}</Box>", "{v.total}{v.code ? (<Box component=\"span\" sx={{ typography: 'caption' }}>{v.code}</Box>) : null}</Box>"),
+        "derived-slot-cond-edit": tplDerived.replace("{v.total}</Box>", "{v.total}{v.code ? (<Box component=\"span\" sx={{ typography: 'h3', color: 'red', p: 9 }}>{v.code}</Box>) : null}</Box>"),
       };
       const files = {};
       const declared = { ...entry, strip: [["mergeSx\\((\\{ typography: 'h3' \\}), slotProps\\?\\.row\\)", "$1"]] };
       for (const [name, text] of Object.entries(variants)) {
         put(`components/app/sections/demo/${name}.tsx`, text);
         const keyedAllow = { ...entry, allowProps: ["Chart:aria-label", "Box:..."] };
-        const pinned = { ...entry, strip: ["\\{lines\\.map\\(\\(l\\) => \\(<Box key=\\{l\\} sx=\\{mergeSx\\(\\{ color: 'text\\.secondary' \\}, slotProps\\?\\.line\\)\\}>\\{l\\}<\\/Box>\\)\\)\\}"] };
+        const pinned = { ...entry, strip: ["\\{lines\\.map\\(\\(l\\) => \\(<Box key=\\{l\\} sx=\\{mergeSx\\(\\{ color: 'text\\.secondary' \\}, slotProps\\?\\.line\\)\\}>\\{l\\}<\\/Box>\\)\\)\\}", "\\{v\\.code \\? \\(<Box component=\"span\" sx=\\{\\{ typography: 'caption' \\}\\}>\\{v\\.code\\}<\\/Box>\\) : null\\}"] };
         files[`components/app/sections/demo/${name}.tsx`] =
           name === "derived-override" || name === "derived-undeclared" ? declared : name.startsWith("derived-allowed") || name === "derived-wrong-el" || name === "derived-spread-sx" ? keyedAllow : name.startsWith("derived-slot") ? pinned : entry;
       }
@@ -1285,8 +1288,8 @@ async function selfTest() {
     process.exit(1);
   }
   const derivedHits = findings.filter((f) => f.check === "template-derived-anatomy").map((f) => f.file);
-  const wantDerived = ["derived-drift", "derived-height", "derived-px", "derived-type", "derived-style", "derived-undeclared", "derived-addprop", "derived-wrong-el", "derived-spread-sx", "derived-slot-edit"].map((n) => `components/app/sections/demo/${n}.tsx`);
-  if (["derived-ok", "derived-override", "derived-allowed-el", "derived-slot-ok"].some((n) => derivedHits.includes(`components/app/sections/demo/${n}.tsx`)) || wantDerived.some((f) => !derivedHits.includes(f))) {
+  const wantDerived = ["derived-drift", "derived-height", "derived-px", "derived-type", "derived-style", "derived-undeclared", "derived-addprop", "derived-wrong-el", "derived-spread-sx", "derived-slot-edit", "derived-slot-cond-edit"].map((n) => `components/app/sections/demo/${n}.tsx`);
+  if (["derived-ok", "derived-override", "derived-allowed-el", "derived-slot-ok", "derived-slot-cond-ok"].some((n) => derivedHits.includes(`components/app/sections/demo/${n}.tsx`)) || wantDerived.some((f) => !derivedHits.includes(f))) {
     console.error(`design_system_self_test=FAIL template-derived-anatomy flagged=${[...new Set(derivedHits)].join(",") || "none"} (want ${wantDerived.join(",")})`);
     process.exit(1);
   }

@@ -469,14 +469,10 @@ export async function VaccinationActionCenterPage({
                     {copy(pageContract, "filter.clear_all")}
                   </LinkButton>
                 ) : (
-                  <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-                    <LinkButton href="/vaccination/plan" color="inherit" size="small">
-                      {copy(pageContract, "action.open_config")}
-                    </LinkButton>
-                    <LinkButton href="/vaccination/plan" color="inherit" size="small">
-                      {copy(pageContract, "action.open_sops")}
-                    </LinkButton>
-                  </Box>
+                  // One CTA (O41): protocol rules and the vaccination SOP both live on the vaccination plan.
+                  <LinkButton href="/vaccination/plan" color="inherit" size="small">
+                    {copy(pageContract, "action.open_config")}
+                  </LinkButton>
                 )
               }
             >
