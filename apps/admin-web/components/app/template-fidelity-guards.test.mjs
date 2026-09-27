@@ -249,3 +249,20 @@ test("guard: legacy-card-css-deleted -- the retired chart-card / KPI-grid / dial
     assert.doesNotMatch(read(path), /className=\{?["'`][^"'`]*(?<![\w-])(?:wchart|wtable|g[2-6])(?![\w-])/, `${path}: renders a retired legacy class`);
   }
 });
+
+test("guard: kpi-deck-not-in-card -- a KPI row (KpiGrid) is a page row, never inside another Card", () => {
+  // R3CNT 2026-09-27: /weighing/weights Growth Director put six bordered KPI widgets inside a
+  // "Road to sale weight" card (a card grid in a card), then repeated the same title on the bands card.
+  const offenders = [];
+  for (const path of productTsx) {
+    const source = read(path);
+    for (const m of source.matchAll(/<KpiGrid\b/g)) {
+      const before = source.slice(0, m.index);
+      const open = (before.match(/<Card[\s>]/g) ?? []).length - (before.match(/<\/Card>/g) ?? []).length;
+      if (open > 0) offenders.push(path);
+    }
+  }
+  // Shrink-only: /weighing/analytics feed-by-weight-band card still nests its deck (follow-up).
+  const KNOWN = ["features/weighing/feed-weight-band-card.tsx"];
+  assert.deepEqual([...new Set(offenders)].filter((path) => !KNOWN.includes(path)), [], "KPI deck inside a Card");
+});

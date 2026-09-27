@@ -1040,6 +1040,14 @@ export async function WeighingWeightsPage({
                     })),
                   },
                 ],
+                // Axis: the breed on one line, its head count under it. Held on one line the four
+                // labels overlapped and Apex turned them 45 degrees, cutting "Anantapur Sheep (14 …".
+                options: {
+                  xaxis: {
+                    categories: gainThresholdRows.map((row) => [row.breed, `${row.animals.toLocaleString("en-IN")} ${gainKidsLabel}`]),
+                    labels: { rotate: 0, hideOverlappingLabels: false },
+                  },
+                },
               }}
               sx={{ height: 1 }}
             >
@@ -1086,7 +1094,7 @@ export async function WeighingWeightsPage({
         </Grid>
 
         {/* The true growth charts: same-tag-twice ADG or weight. Breed (the long list) takes half the
-            row; sex and stage, usually one or two bars, share the other half. */}
+            row; sex and stage, usually one or two bars, stack in the other half (side by side on sm). */}
         <Grid size={{ xs: 12, lg: 6 }}>
           <MetricChart
             initialMetric={breedMetric}
@@ -1110,7 +1118,9 @@ export async function WeighingWeightsPage({
             size="short"
           />
         </Grid>
-        <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+        <Grid size={{ xs: 12, lg: 6 }}>
+          <Stack spacing={3} direction={{ xs: "column", sm: "row", lg: "column" }} sx={{ height: 1 }}>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
           <MetricChart
             initialMetric={sexMetric}
             labels={metricLabels}
@@ -1131,8 +1141,8 @@ export async function WeighingWeightsPage({
             }}
             size="short"
           />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+          </Box>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
           <MetricChart
             initialMetric={stageMetric}
             labels={metricLabels}
@@ -1153,6 +1163,8 @@ export async function WeighingWeightsPage({
             }}
             size="short"
           />
+          </Box>
+          </Stack>
         </Grid>
 
         {/* Shed/partition figures. In gain mode this intentionally mixes two operational

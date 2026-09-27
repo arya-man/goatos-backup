@@ -341,3 +341,11 @@ test("the sex filter reaches the demographics read on both arms", () => {
   assert.match(repo, /\$5::text = '' OR/);
   assert.match(openapi, /required: \[label, animals,/);
 });
+
+test("breed axis labels never rotate: breed over its head count, two lines (R3CNT 2026-09-27)", () => {
+  // One-line "Beetal (31 male kids)" labels overlapped at lg 8 and Apex turned them 45 degrees, cutting
+  // the last breed. The axis takes [breed, count] pairs with rotation off; the series categories keep
+  // the one-line form for the tooltip and the empty check.
+  assert.match(source, /categories: gainThresholdRows\.map\(\(row\) => \[row\.breed, `\$\{row\.animals\.toLocaleString\("en-IN"\)\} \$\{gainKidsLabel\}`\]\)/);
+  assert.match(source, /labels: \{ rotate: 0, hideOverlappingLabels: false \}/);
+});

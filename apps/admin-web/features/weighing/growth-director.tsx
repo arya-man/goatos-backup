@@ -1,6 +1,5 @@
 import Alert from "@mui/material/Alert";
 import AlertTitle from "@mui/material/AlertTitle";
-import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
 import Grid from "@mui/material/Grid";
@@ -78,32 +77,28 @@ export function GrowthDirectorSection({
       </Grid>
 
       {/* ---------------- Road to sale weight ----------------
-          Total animals · lump-sum · pair denominator · moved up · held · slipped: one template
-          InvoiceAnalytic strip, so the three movement figures visibly sum to the pairs cell. */}
-      <Grid size={12}>
-        <Card aria-label={gd(pageContract, "road.title")}>
-          <CardHeader title={gd(pageContract, "road.title")} subheader={gd(pageContract, "road.caption")} sx={{ mb: 1 }} />
-          <Box sx={{ px: 3, pb: 3 }}>
-            <KpiGrid>
-              {([
-              { key: "total", label: gd(pageContract, "road.identities.sub"), value: road.total_animals, tone: "primary" as const },
-              { key: "lump", label: gd(pageContract, "road.lump.sub"), value: road.lump_sum_animals, tone: "info" as const },
-              { key: "pairs", label: gd(pageContract, "road.pairs.sub"), value: road.movement.pair_animals, tone: "neutral" as const },
-              { key: "up", label: gd(pageContract, "road.moved_up"), value: road.movement.moved_up, tone: "success" as const },
-              { key: "held", label: gd(pageContract, "road.held"), value: road.movement.held, tone: "warning" as const },
-              { key: "down", label: gd(pageContract, "road.moved_down"), value: road.movement.moved_down, tone: road.movement.moved_down > 0 ? ("error" as const) : ("neutral" as const) },
-              ] as { key: string; label: string; value: number; tone: KitTone }[]).map((cell) => (
-                <KpiWidget key={cell.key} title={cell.label} total={cell.value} color={kpiColor(cell.tone)} sx={{ height: 1, boxShadow: "none", border: 1, borderColor: "divider" }} />
-              ))}
-            </KpiGrid>
-          </Box>
-        </Card>
+          Total animals · lump-sum · pair denominator · moved up · held · slipped: one KPI row of
+          template widgets (never a deck inside another card, test kpi-deck-not-in-card), so the three
+          movement figures visibly sum to the pairs cell; the card below carries the title. */}
+      <Grid size={12} component="section" aria-label={gd(pageContract, "road.title")}>
+        <KpiGrid>
+          {([
+          { key: "total", label: gd(pageContract, "road.identities.sub"), value: road.total_animals, tone: "primary" as const },
+          { key: "lump", label: gd(pageContract, "road.lump.sub"), value: road.lump_sum_animals, tone: "info" as const },
+          { key: "pairs", label: gd(pageContract, "road.pairs.sub"), value: road.movement.pair_animals, tone: "neutral" as const },
+          { key: "up", label: gd(pageContract, "road.moved_up"), value: road.movement.moved_up, tone: "success" as const },
+          { key: "held", label: gd(pageContract, "road.held"), value: road.movement.held, tone: "warning" as const },
+          { key: "down", label: gd(pageContract, "road.moved_down"), value: road.movement.moved_down, tone: road.movement.moved_down > 0 ? ("error" as const) : ("neutral" as const) },
+          ] as { key: string; label: string; value: number; tone: KitTone }[]).map((cell) => (
+            <KpiWidget key={cell.key} title={cell.label} total={cell.value} color={kpiColor(cell.tone)} sx={{ height: 1 }} />
+          ))}
+        </KpiGrid>
       </Grid>
       {/* The six bands ARE the distribution: all six rows, each its share of the kids banded. */}
       <Grid size={{ xs: 12, md: 6 }}>
         <EcommerceSalesOverview
           title={gd(pageContract, "road.title")}
-          subheader={gd(pageContract, "period.note")}
+          subheader={`${gd(pageContract, "road.caption")} ${gd(pageContract, "period.note")}`}
           data={road.bands.map((band) => ({
             key: band.band,
             label: band.band,
