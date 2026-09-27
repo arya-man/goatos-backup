@@ -12,7 +12,7 @@ import {
 export default function Loading() {
   return (
     <PageSkeleton gap={3}>
-      <PageHeaderSkeleton actionWidths={[140]} />
+      <PageHeaderSkeleton crumbLink={false} actionWidths={[140]} />
       <StackSkeleton spacing={2}>
         <VaccinationCommandBoardSkeleton />
         <VaccinationInventorySkeleton />

@@ -10,7 +10,7 @@ import { HerdSignalsFilterSkeleton, HerdSignalsLivePanelSkeleton } from "@/featu
 export default function Loading() {
   return (
     <PageSkeleton root="herd-signals-page">
-      <PageHeaderSkeleton actionWidths={[150]} tabs={<TabsSkeleton count={HERD_SIGNALS_TABS.length} counts />} />
+      <PageHeaderSkeleton crumbLink={false} actionWidths={[150]} tabs={<TabsSkeleton count={HERD_SIGNALS_TABS.length} counts />} />
       <HerdSignalsFilterSkeleton />
       <HerdSignalsLivePanelSkeleton />
     </PageSkeleton>

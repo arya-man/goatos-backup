@@ -9,7 +9,7 @@ import { WeightsFilterSkeleton, WeightsGeneralPanelSkeleton } from "@/features/w
 export default function Loading() {
   return (
     <PageSkeleton gap={3} root="">
-      <PageHeaderSkeleton actionWidths={[112]} tabs={<TabsSkeleton count={WEIGHTS_TABS.length} />} />
+      <PageHeaderSkeleton crumbLink={false} actionWidths={[112]} tabs={<TabsSkeleton count={WEIGHTS_TABS.length} />} />
       <WeightsFilterSkeleton />
       <WeightsGeneralPanelSkeleton />
     </PageSkeleton>

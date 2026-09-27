@@ -8,7 +8,7 @@ import { ChipSkeleton, KpiRowSkeleton, OptionalSkeleton, PageHeaderSkeleton, Pag
 export default function Loading() {
   return (
     <PageSkeleton>
-      <PageHeaderSkeleton actionWidths={[176]} />
+      <PageHeaderSkeleton crumbLink={false} actionWidths={[176]} />
       <StackSkeleton>
         <KpiRowSkeleton count={4} size={{ xs: 12, sm: 6, md: 3 }} fact />
         <TableSkeleton columns={4} rows={7} subheader headerAction={<ChipSkeleton width={91} height={24} />} />

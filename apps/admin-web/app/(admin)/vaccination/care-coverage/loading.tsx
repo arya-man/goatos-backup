@@ -4,7 +4,7 @@ import { FilterCardSkeleton, PageHeaderSkeleton, PageSkeleton, TableSkeleton } f
 export default function Loading() {
   return (
     <PageSkeleton>
-      <PageHeaderSkeleton />
+      <PageHeaderSkeleton crumbLink={false} />
       <TableSkeleton columns={6} rows={25} headerAction toolbar={<FilterCardSkeleton inCard fields={[200, 200]} />} />
     </PageSkeleton>
   );

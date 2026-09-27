@@ -9,7 +9,7 @@ import { WeightsFilterSkeleton, WeightsKidsPanelSkeleton } from "@/features/weig
 export default function Loading() {
   return (
     <PageSkeleton gap={3} root="">
-      <PageHeaderSkeleton titleWidth={150} actionWidths={[112]} />
+      <PageHeaderSkeleton crumbLink={false} titleWidth={150} actionWidths={[112]} />
       <WeightsFilterSkeleton />
       <WeightsKidsPanelSkeleton />
     </PageSkeleton>
