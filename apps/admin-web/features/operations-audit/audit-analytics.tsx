@@ -8,7 +8,7 @@ import ButtonBase from "@mui/material/ButtonBase";
 import Link from "@/components/no-prefetch-link";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import type { IconifyName } from "@/components/minimal/iconify";
-import { InvoiceAnalytic } from "@/components/minimal/sections/invoice/invoice-analytic";
+import { InvoiceAnalytic } from "@/components/app/sections/invoice/invoice-analytic";
 
 /** Theme palette key for the ring + icon (resolved as `<key>.main`). */
 export type InvoiceAnalyticColor = "primary" | "secondary" | "info" | "success" | "warning" | "error";

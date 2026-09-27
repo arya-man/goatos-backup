@@ -1,10 +1,10 @@
 'use client';
 
-// Copied from the licensed MUI Minimal template (sections/invoice/invoice-analytic.tsx).
-// Mesha change: the "N invoices" + currency lines take the page's own readings — `caption` (the
+// Template-derived (docs/design/template-derived.json): sections/invoice/invoice-analytic.tsx.
+// Demo wiring as props: the "N invoices" + currency lines take the page's own readings — `caption` (the
 // muted middle line) and `value` (the subtitle2 line, defaults to the formatted total) — so a queue
 // can show "38%" and a count instead of an invoice total. Layout, sizes and colours are the template's.
-import type { IconifyName } from '../../iconify';
+import type { IconifyName } from '@/components/minimal/iconify';
 
 import { varAlpha } from 'minimal-shared/utils';
 
@@ -12,9 +12,9 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import CircularProgress from '@mui/material/CircularProgress';
 
-import { fNumber } from '../../_shared/format-number';
+import { fNumber } from '@/components/minimal/_shared/format-number';
 
-import { Iconify } from '../../iconify';
+import { Iconify } from '@/components/minimal/iconify';
 
 // ----------------------------------------------------------------------
 

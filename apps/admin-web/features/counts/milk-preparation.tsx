@@ -19,7 +19,7 @@ import { EmptyContent } from "@/components/minimal/empty-content";
 import { Label } from "@/components/minimal/label";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { TableHeadCustom } from "@/components/app/table";
-import { InvoiceAnalytic } from "@/components/minimal/sections/invoice/invoice-analytic";
+import { InvoiceAnalytic } from "@/components/app/sections/invoice/invoice-analytic";
 import { KpiWidget } from "@/components/app/kpi-widget";
 import { PageHeader } from "@/components/app/page-header";
 import { FeedAnalyticsExport as MilkPreparationExport } from "@/components/analytics-export";

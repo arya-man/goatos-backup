@@ -21,7 +21,6 @@
     "components/minimal/sections/job/job-item.tsx": "src/sections/job/job-item.tsx",
     "components/minimal/sections/job/job-list.tsx": "src/sections/job/job-list.tsx",
     "components/minimal/sections/user/user-table-row.tsx": "src/sections/user/user-table-row.tsx",
-    "components/minimal/sections/invoice/invoice-analytic.tsx": "src/sections/invoice/invoice-analytic.tsx",
     "components/minimal/sections/overview/analytics/analytics-website-visits.tsx": "src/sections/overview/analytics/analytics-website-visits.tsx",
     "components/minimal/_shared/format-number.ts": "src/utils/format-number.ts",
     "components/minimal/_shared/format-time.ts": "src/utils/format-time.ts",
@@ -505,18 +504,6 @@
         "@mui/material/Typography",
         "@mui/material/Box",
         "@mui/material/Typography"
-      ]
-    },
-    "components/minimal/sections/invoice/invoice-analytic.tsx": {
-      "sha256": "c9e385bdc3beac5acc792d31aecb82c9f7e7b64f5e4715d2cb21de7d40680901",
-      "imports": [
-        "src/components/iconify",
-        "minimal-shared/utils",
-        "@mui/material/Box",
-        "@mui/material/Typography",
-        "@mui/material/CircularProgress",
-        "src/utils/format-number",
-        "src/components/iconify"
       ]
     },
     "components/minimal/sections/job/job-item.tsx": {

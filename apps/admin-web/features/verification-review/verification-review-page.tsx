@@ -66,7 +66,7 @@ import { Iconify, type IconifyName } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { TablePaginationLinks } from "@/components/app/table";
 import { fPercent } from "@/components/minimal/_shared/format-number";
-import { InvoiceAnalytic } from "@/components/minimal/sections/invoice/invoice-analytic";
+import { InvoiceAnalytic } from "@/components/app/sections/invoice/invoice-analytic";
 import { VrQueueHead } from "./vr-queue-head";
 import { QUEUE_LIMIT } from "./verification-layout";
 

@@ -25,6 +25,45 @@
         "pr",
         "height"
       ]
+    },
+    "components/app/sections/invoice/invoice-analytic.tsx": {
+      "source": "src/sections/invoice/invoice-analytic.tsx",
+      "replaced": "'N invoices' line -> caption; fCurrency(price) line -> value (default fNumber(total)); title accepts nodes",
+      "tags": [
+        "Box",
+        "Box",
+        "Iconify",
+        "CircularProgress",
+        "CircularProgress",
+        "div",
+        "Typography",
+        "Box",
+        "Box"
+      ],
+      "sx": [
+        "width",
+        "gap",
+        "minWidth",
+        "display",
+        "alignItems",
+        "justifyContent",
+        "display",
+        "position",
+        "alignItems",
+        "justifyContent",
+        "position",
+        "opacity",
+        "top",
+        "left",
+        "opacity",
+        "position",
+        "color",
+        "my",
+        "display",
+        "typography",
+        "color",
+        "typography"
+      ]
     }
   }
 }
