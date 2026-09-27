@@ -90,7 +90,12 @@ export function LeadershipTasksTable({
           (`.lt-wide-col`), so the assignee and status sit here instead of a column clipped at the
           card edge. guard: tasks-phone-stacked-row */}
       <Box className="lt-phone-meta" sx={{ display: { xs: "flex", sm: "none" }, alignItems: "center", flexWrap: "wrap", gap: 1, mt: 0.75, typography: "body2", color: "text.secondary" }}>
-        <Box component="span" sx={{ overflowWrap: "anywhere" }}>{task.assignee}</Box>
+        {/* Same fallback as the laptop Assignee cell; an empty name renders nothing (no leading gap). */}
+        {task.assignee || task.isAssignee ? (
+          <Box component="span" sx={{ overflowWrap: "anywhere" }}>
+            {task.assignee || copy(pageContract, "label.assigned_to_me", "Assigned to me")}
+          </Box>
+        ) : null}
         <Label variant="soft" color={statusColor(task.status)}>{task.statusLabel}</Label>
       </Box>
     </>

@@ -92,5 +92,13 @@ for (const [name, source] of [
   const wide = table.match(/cellClassName: "[^"]*lt-wide-col[^"]*", headerClassName: "[^"]*lt-wide-col[^"]*"/g) ?? [];
   assert.equal(wide.length, 4, "assignee, raised_by, status and evidence all carry lt-wide-col on header and cell");
   assert.match(table, /down\("sm"\)\]: \{ "& \.lt-wide-col": \{ display: "none" \}/, "lt-wide-col hides below sm");
-  assert.match(table, /className="lt-phone-meta"[\s\S]{0,200}display: \{ xs: "flex", sm: "none" \}[\s\S]{0,300}task\.assignee[\s\S]{0,200}task\.statusLabel/, "the task cell stacks assignee + status on a phone");
+  assert.match(table, /className="lt-phone-meta"[\s\S]{0,200}display: \{ xs: "flex", sm: "none" \}[\s\S]{0,600}task\.assignee[\s\S]{0,400}task\.statusLabel/, "the task cell stacks assignee + status on a phone");
+  assert.match(table, /\{task\.assignee \|\| task\.isAssignee \? \(/, "an unassigned phone row renders no empty assignee span (no leading gap)");
+}
+
+// ---- guard: tasks-phone-search-row. At phone width the keyword field owns its row; "Dates" wraps.
+{
+  const filters = readFileSync(new URL("./leadership-tasks-filters.tsx", import.meta.url), "utf8");
+  assert.match(filters, /flexWrap: \{ xs: "wrap", sm: "nowrap" \}[\s\S]{0,1200}<TextField\s+fullWidth\s+type="search"/, "search row wraps at xs with a full-width field");
+  assert.doesNotMatch(filters, /maxWidth: \{ xs: "50%"/, "the Dates button no longer takes half the phone row");
 }

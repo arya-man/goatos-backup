@@ -276,6 +276,7 @@ chapters below; do not review from the summary.
 - **Phone list rows stack (R3OPS-2).** Below sm drop secondary columns (header + cell class) and repeat assignee/status in the first cell; never leave a column clipped at the card edge (guard `tasks-phone-stacked-row`).
 - **Overlay journeys: required triggers, no scroll jump (R3OPS-3).** Always-present overlay triggers are `required: true` in `scripts/lib/overlay-journeys.mjs` (stale selector = failure, not `overlay_skip`); opening any overlay must leave window scroll unchanged (`overlay-no-scroll-jump`); LocalOverlayLink drawer triggers carry `aria-haspopup="dialog"`.
 - **No letter-stacked text (R3OPS-3).** r2 audit P0 `text|letter-stack`: a text leaf under 2.2em wide and over 3 lines tall fails. Tables use Scrollbar + `minWidth` + nowrap identity cells; phones get stacked rows.
+- **Toolbars and pagers (R3OPS-3).** r2 audit P0 `controls|label-doubled`, `controls|control-overlap`, `controls|pager-clipped`. One label per field, no overlapping controls, arrows inside the card; phone search owns its row.
 
 ## Proven performance patterns (from main + #415)
 

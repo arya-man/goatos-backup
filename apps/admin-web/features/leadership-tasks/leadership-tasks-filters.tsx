@@ -487,7 +487,9 @@ export function LeadershipTasksFilters({
           ))}
         </TextField>
 
-        <Box sx={{ gap: 2, width: 1, flexGrow: 1, display: "flex", alignItems: "center", minWidth: 0 }}>
+        {/* Phone: the search takes the full row and "Dates" wraps under it, so the field is never
+            squeezed to a truncated placeholder beside the button. guard: tasks-phone-search-row */}
+        <Box sx={{ gap: 2, width: 1, flexGrow: 1, display: "flex", flexWrap: { xs: "wrap", sm: "nowrap" }, alignItems: "center", minWidth: 0 }}>
           <TextField
             fullWidth
             type="search"
@@ -530,7 +532,7 @@ export function LeadershipTasksFilters({
             aria-haspopup="true"
             startIcon={<Iconify icon="solar:calendar-date-bold" />}
             endIcon={<Iconify icon={datesPopover.open ? "eva:arrow-ios-upward-fill" : "eva:arrow-ios-downward-fill"} />}
-            sx={{ flexShrink: 0, fontWeight: "fontWeightSemiBold", maxWidth: { xs: "50%", md: 320 } }}
+            sx={{ flexShrink: 0, fontWeight: "fontWeightSemiBold", maxWidth: { xs: 1, md: 320 } }}
           >
             {datesLabel}:
             <Box component="span" sx={{ ml: 0.5, fontWeight: "fontWeightBold", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
