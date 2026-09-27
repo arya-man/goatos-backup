@@ -17,7 +17,8 @@ import { TableHeadCustom } from "@/components/minimal/table";
 import { OrderTableToolbar } from "@/components/minimal/sections/order/order-table-toolbar";
 import { JobItem } from "@/components/minimal/sections/job/job-item";
 import { JobList } from "@/components/minimal/sections/job/job-list";
-import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { SegmentTabs } from "@/components/minimal/list/segment-tabs";
+import { UrlTabs } from "@/components/app/url-tabs";
 import { AnimalPurchaseRecordedRange } from "./animal-purchase-recorded-range";
 import type { ReactNode } from "react";
 import Link from "@/components/no-prefetch-link";
@@ -251,11 +252,11 @@ export async function AnimalPurchasesPage({
           sx={{ mb: 3, "& .MuiCardHeader-action": { alignSelf: "center", m: 0 } }}
           action={
             /* The load FILTER as one pill strip: All loads · <selected>. Query-param links, no overlay. */
-            <AnimatedTabs
-              variant="pill"
+            <SegmentTabs
+              keepScroll
               ariaLabel={copy(pageContract, "filter.load")}
               value={loadId ? "selected" : "all"}
-              items={[
+              tabs={[
                 { value: "all", label: copy(pageContract, "filter.load.all"), href: hrefWithQuery(sp, { load_id: null, ap_cursor: null, ap_status: null, ap_code: null }) },
                 ...(loadId ? [{ value: "selected", label: selectedLoadRef ?? none, href: hrefWithQuery(sp, {}) }] : []),
               ]}
@@ -385,10 +386,9 @@ export async function AnimalPurchasesPage({
         {/* Decision chips are the response's own filters: label and WHOLE-FILTER count verbatim,
             selection as the backend reports it. A filter switch drops the cursor by construction. */}
         {filters.length > 0 ? (
-          <AnimatedTabs
+          <UrlTabs
             ariaLabel={copy(pageContract, "filter.decision")}
             value={filters.find((filter) => filter.selected)?.key ?? decision}
-            sx={{ px: { md: 2.5 } }}
             items={filters.map((filter) => ({
               value: filter.key,
               label: filter.label,

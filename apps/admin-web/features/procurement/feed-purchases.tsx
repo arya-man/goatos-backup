@@ -34,7 +34,7 @@ import {
 import { fmtDate } from "@/lib/format";
 import { Iconify } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
-import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { UrlTabs } from "@/components/app/url-tabs";
 import { TableHeadCustom } from "@/components/minimal/table/table-head-custom";
 import { InvoiceAnalytic } from "@/components/minimal/sections/invoice/invoice-analytic";
 import { deliveryStatusChip, paymentStatusChip } from "./feed-purchase-format";
@@ -230,7 +230,7 @@ export async function FeedPurchasesPage({
         {/* Delivery scope as the template's status Tabs (on the road / reached), the same
             `?delivery=` param the select used to write. Only the shown tab has a count: the
             backend counts the whole filter, never every status at once. */}
-        <AnimatedTabs
+        <UrlTabs
           ariaLabel={copy(pageContract, "filter.delivery")}
           value={delivery}
           items={[
@@ -241,7 +241,6 @@ export async function FeedPurchasesPage({
             href: hrefWithQuery(sp, { delivery: tab.value === DEFAULT_DELIVERY ? null : tab.value, offset: null, purchase_id: null }),
             count: tab.value === delivery ? total : undefined,
           }))}
-          sx={{ px: { md: 2.5 } }}
         />
 
         {/* Farm scope: a server-built link select, so the selection survives a reload and a

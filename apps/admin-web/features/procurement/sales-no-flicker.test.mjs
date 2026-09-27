@@ -17,8 +17,9 @@ test("Market analytics question and city chips are view-only client state", () =
   assert.match(trend, /^"use client";/);
   assert.doesNotMatch(trend, /<Link\b/, "a view-only pick must never navigate");
   assert.match(trend, /replaceLocalOverlayUrl\(/);
-  // MUI redesign: the chips are template tabs driven by client state (onChange, no href).
-  assert.match(trend, /onChange=\{\(next\) => pick\(next, city\)\}/);
+  // MUI redesign: the chips are template tabs driven by client state (onChange / onClick, no href).
+  assert.match(trend, /onChange=\{\(_event, next: string\) => pick\(next, city\)\}/);
+  assert.match(trend, /onClick: \(\) => pick\(question, tab\.value\)/);
   const page = read("./market-analytics.tsx");
   assert.doesNotMatch(page, /hrefWithQuery\(sp, \{ question:/);
   assert.doesNotMatch(page, /hrefWithQuery\(sp, \{ city:/);
@@ -53,17 +54,31 @@ test("Summary and Farm value stop reading what their filter does not change", ()
 });
 
 test("a pressed chip or pager says it is busy in place", () => {
-  // The farm chips are template pill tabs on the MUI redesign: AnimatedTabs draws its own pending
-  // line (aria-busy) on the pressed strip, which is the in-place busy mark.
+  // The farm chips are the template segmented tabs (SegmentTabs, Tabs indicatorColor="custom"):
+  // the pressed strip is aria-busy while its page is on its way, which is the in-place busy mark.
   assert.match(read("./sales-chrome.tsx"), /<LiveQueryTabs/);
-  assert.match(read("../../components/minimal/list/animated-tabs.tsx"), /aria-busy=\{pending \|\| undefined\}/);
+  assert.match(read("./live-query-link.tsx"), /<SegmentTabs/);
+  assert.match(read("../../components/minimal/list/segment-tabs.tsx"), /aria-busy=\{busy \|\| pendingValue !== null \|\| undefined\}/);
   // Pagers are the template TablePaginationLinks (via ProcurementTableFooter), whose arrows turn
-  // into a spinner while their link is pending; chip strips are AnimatedTabs (pending line above).
+  // into a spinner while their link is pending; chip strips are SegmentTabs (aria-busy above).
   assert.match(read("../../components/minimal/table/table-pagination-links.tsx"), /const \{ pending \} = useLinkStatus\(\);/);
   for (const file of ["./sales-sold.tsx", "./sales-buyer-analytics.tsx", "./sales-farm-born.tsx"]) {
     assert.match(read(file), /<ProcurementTableFooter/, file);
   }
   for (const file of ["./sales-loads.tsx", "./market-analytics.tsx"]) {
-    assert.match(read(file), /<AnimatedTabs/, file);
+    assert.match(read(file), /<SegmentTabs/, file);
+  }
+});
+
+// guard: procurement-template-tabs (PR #294 R3SP2). Procurement and sales pages use the template
+// tab strips only: UrlTabs (template list status Tabs + Label counts, useUrlTabNav) for URL
+// status/filter tabs, SegmentTabs (template segmented Tabs) for chip strips, MUI Tabs for client
+// state. The AnimatedTabs / StatStrip / KpiCard fakes are not imported here.
+test("procurement and sales features use template tabs and widgets, not the removed fakes", async () => {
+  const { readdirSync } = await import("node:fs");
+  for (const name of readdirSync(new URL(".", import.meta.url))) {
+    if (!/\.tsx?$/.test(name)) continue;
+    const src = read(`./${name}`);
+    assert.doesNotMatch(src, /\b(AnimatedTabs|StatStrip|KpiCard)\b(?!Skeleton)/, `${name} uses a removed fake (AnimatedTabs/StatStrip/KpiCard)`);
   }
 });

@@ -31,7 +31,7 @@ import { Label, type LabelColor } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { TableHeadCustom } from "@/components/minimal/table/table-head-custom";
-import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { UrlTabs } from "@/components/app/url-tabs";
 import { ProcurementTableFooter } from "./table-footer-links";
 import { ProcurementFiltersResult, type ToolbarChip } from "./table-toolbar";
 import { VendorFilterBar, type VendorFilterKey } from "./vendor-filter-bar";
@@ -241,7 +241,7 @@ export async function VendorBoardPage({
           table > pagination. The status tab is the `?status=` filter; only the shown tab has a
           count (the backend counts the whole filter, never every status at once). */}
       <Card>
-        <AnimatedTabs
+        <UrlTabs
           ariaLabel={copy(pageContract, "filter.status")}
           value={statusValue}
           items={statusTabs.map((tab) => ({
@@ -250,7 +250,6 @@ export async function VendorBoardPage({
             href: hrefWithQuery(pathname, sp, { status: tab.value || null, offset: null }),
             count: tab.value === statusValue ? total : undefined,
           }))}
-          sx={{ px: { md: 2.5 } }}
         />
 
         <VendorFilterBar

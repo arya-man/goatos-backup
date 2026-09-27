@@ -2,7 +2,7 @@ import { listOrEmpty } from "@/lib/list-or-empty";
 import { redirect } from "next/navigation";
 
 import { PageHeader } from "@/components/app/page-header";
-import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { SegmentTabs } from "@/components/minimal/list/segment-tabs";
 import { controlEnabled, copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError } from "@/lib/api/server";
@@ -82,11 +82,11 @@ export async function SalesLoadsPage({
         crumbs={[{ label: copy(pageContract, "crumb"), href: "/sales" }, { label: pageContract.title }]}
         tabs={
           views.length > 1 ? (
-            <AnimatedTabs
-              variant="pill"
+            <SegmentTabs
+              keepScroll
               ariaLabel={copy(pageContract, "page.tabs.aria")}
               value={view}
-              items={views.map((option) => ({
+              tabs={views.map((option) => ({
                 value: option.key,
                 label: option.label,
                 href: hrefWithQuery(sp, { view: option.key === DEFAULT_VIEW ? null : option.key }),

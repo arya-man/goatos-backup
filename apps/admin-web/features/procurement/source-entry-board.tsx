@@ -21,7 +21,7 @@ import { ProcurementPager } from "./pager";
 import { SourceEntryLocalDrawer, type SourceEntryDrawerItem } from "./source-entry-local-drawer";
 import { VaccinationFilterButton, VisibleTableSearch } from "@/features/preventive-care-vaccination";
 import { PageHeader } from "@/components/app/page-header";
-import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { UrlTabs } from "@/components/app/url-tabs";
 import { getProcurementOrigins } from "./load-detail";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
@@ -277,11 +277,9 @@ export async function SourceEntryBoardPage({
           server navigation; the kit TabPanel is NOT wrapped around the card (it branches on
           useReducedMotion(), which differs server/client and breaks hydration). */}
       <Card data-filter-scope="">
-        <AnimatedTabs
+        <UrlTabs
           ariaLabel={copy(pageContract, "filter.all_states")}
           value={statusFilter}
-          scrollButtons="auto"
-          sx={{ px: { md: 2.5 } }}
           items={[
             { value: "all", label: copy(pageContract, "filter.all_states"), href: statusHref("all"), count: statusFilter === "all" ? loads.length : undefined },
             ...sourceLoadStatuses.map((status) => ({

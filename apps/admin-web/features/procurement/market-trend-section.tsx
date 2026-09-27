@@ -8,7 +8,10 @@ import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
 import { Label } from "@/components/minimal/label";
-import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import Tab from "@mui/material/Tab";
+import Tabs from "@mui/material/Tabs";
+import { varAlpha } from "minimal-shared/utils";
+import { SegmentTabs } from "@/components/minimal/list/segment-tabs";
 import { replaceLocalOverlayUrl } from "@/components/local-overlay-link";
 import { SeriesLegend, SeriesLines, seriesColorVar, type LineSeries } from "@/components/svg-series";
 import type { MarketSeries } from "@/lib/api/market-server";
@@ -98,20 +101,24 @@ export function MarketTrendSection({
       {/* Template tabs driven by client state (no href): a pick redraws from the series the page
           already holds, and the URL follows without a navigation. */}
       <Box sx={{ mb: 1.75 }}>
-        <AnimatedTabs
-          ariaLabel={labels.questionGroup}
-          value={question}
-          onChange={(next) => pick(next, city)}
-          items={questions.map((q) => ({ value: q.id, label: q.label }))}
-        />
+        <Tabs
+          value={questions.some((q) => q.id === question) ? question : false}
+          onChange={(_event, next: string) => pick(next, city)}
+          variant="scrollable"
+          scrollButtons={false}
+          aria-label={labels.questionGroup}
+          sx={(theme) => ({ boxShadow: `inset 0 -2px 0 0 ${varAlpha(theme.vars.palette.grey["500Channel"], 0.08)}` })}
+        >
+          {questions.map((q) => (
+            <Tab key={q.id} value={q.id} label={q.label} />
+          ))}
+        </Tabs>
       </Box>
       <Box sx={{ mt: 0.75, mb: 1.75 }}>
-        <AnimatedTabs
-          variant="pill"
+        <SegmentTabs
           ariaLabel={labels.cityGroup}
           value={city}
-          onChange={(next) => pick(question, next)}
-          items={[{ value: "", label: labels.cityAll }, ...cities.map((c) => ({ value: c.id, label: c.label }))]}
+          tabs={[{ value: "", label: labels.cityAll }, ...cities.map((c) => ({ value: c.id, label: c.label }))].map((tab) => ({ ...tab, onClick: () => pick(question, tab.value) }))}
         />
       </Box>
       <SeriesLegend entries={lines.map((l) => ({ label: l.label, colorVar: l.colorVar }))} />

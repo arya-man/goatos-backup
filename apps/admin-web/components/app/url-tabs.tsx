@@ -22,8 +22,8 @@ export type UrlTabItem = {
   value: string;
   label: string;
   href: string;
-  /** The Label count; omitted = no Label. */
-  count?: number;
+  /** The Label count (a number, or the page's formatted figure); omitted = no Label. */
+  count?: number | string;
   /** The Label colour (the template colours each status). */
   color?: LabelColor;
 };

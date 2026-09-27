@@ -8,7 +8,7 @@ import TableCell from "@mui/material/TableCell";
 import { EmptyState } from "@/components/app/empty-state";
 import { KpiGrid } from "@/components/app/kpi-grid";
 import { KpiWidget } from "@/components/app/kpi-widget";
-import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { SegmentTabs } from "@/components/minimal/list/segment-tabs";
 import { redirect } from "next/navigation";
 
 import Link from "@/components/no-prefetch-link";
@@ -148,11 +148,11 @@ export async function MarketAnalyticsPage({
 
       <Box>
 
-        <AnimatedTabs
-          variant="pill"
+        <SegmentTabs
+          keepScroll
           ariaLabel={copy(pageContract, "filter.window.label")}
           value={String(windowDays)}
-          items={WINDOWS.map((w) => ({
+          tabs={WINDOWS.map((w) => ({
             value: String(w),
             label: copy(pageContract, `filter.window.${w}`),
             href: hrefWithQuery(sp, { window: w === DEFAULT_WINDOW ? null : String(w) }),

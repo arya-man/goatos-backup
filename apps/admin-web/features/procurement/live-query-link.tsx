@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 import { useSyncExternalStore } from "react";
 
 import Link from "@/components/no-prefetch-link";
-import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { SegmentTabs } from "@/components/minimal/list/segment-tabs";
 import { LOCAL_OVERLAY_URL_CHANGE_EVENT } from "@/components/local-overlay-link";
 import { liveQueryHref } from "./sales-park-scope";
 
@@ -60,7 +60,7 @@ export function LiveQueryLink({
  * every tab's href is rebuilt from the URL as it is NOW plus that tab's own `patch`, so an in-page
  * parameter (Farm value's applied Over 35 kg margin) survives a farm switch. Before hydration each
  * tab uses its server-built `fallbackHref`. The strip marks itself busy while the pressed tab's page
- * is on its way (AnimatedTabs' pending line), which is the chips' in-place pending mark.
+ * is on its way (SegmentTabs' aria-busy), which is the chips' in-place pending mark.
  */
 export function LiveQueryTabs({
   pagePath,
@@ -81,12 +81,12 @@ export function LiveQueryTabs({
     () => null,
   );
   return (
-    <AnimatedTabs
+    <SegmentTabs
       className={className}
-      variant="pill"
+      keepScroll
       ariaLabel={ariaLabel}
       value={value}
-      items={items.map(({ value: key, label, patch, fallbackHref }) => ({
+      tabs={items.map(({ value: key, label, patch, fallbackHref }) => ({
         value: key,
         label,
         href: search == null ? fallbackHref : liveQueryHref(pagePath, search, patch),
