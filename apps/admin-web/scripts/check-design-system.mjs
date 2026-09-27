@@ -32,7 +32,7 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { muiPaletteLockFindings, templateNeutralFindings } from "./lib/mui-palette-lock.mjs";
 import { CHART_TEMPLATE_CHECKS, CHART_TEMPLATE_SELFTEST, chartTemplateFindings } from "./lib/chart-template-guards.mjs";
-import { BRAND_LOCK, TOKEN_FILE, isDriftRemoval, retiredNeutralFindings, primaryStateFindings, themeLockFindings } from "./lib/design-palette.mjs";
+import { BRAND_LOCK, TOKEN_FILE, isDriftRemoval, removedTokenHexes, retiredNeutralFindings, primaryStateFindings, themeLockFindings } from "./lib/design-palette.mjs";
 import {
   RATCHET_CHECKS,
   cssDeclFindings,
@@ -749,10 +749,7 @@ function runGuard(root, { themeDiff }) {
         // Renaming a token is fine; a colour VALUE that existed on main and is gone is not.
         const current = readFileSync(join(root, theme), "utf8").toLowerCase();
         const removedValues = new Set();
-        for (const l of patch.split("\n")) {
-          if (!l.startsWith("-") || l.startsWith("---")) continue;
-          for (const m of l.matchAll(/#[0-9a-f]{6}\b/gi)) removedValues.add(m[0].toLowerCase()); // hex only: rgba() shadows/overlays are not palette
-        }
+        for (const value of removedTokenHexes(patch)) removedValues.add(value);
         for (const value of removedValues) {
           if (isDriftRemoval(value) && !current.replace(/\s+/g, "").includes(value)) findings.push(finding("theme-token-drift", theme, 1, `colour value ${value} removed`));
         }

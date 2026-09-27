@@ -52,7 +52,7 @@ const wideTableScrollOwnerSelector =
   // .feed-scroll is Feed Config's own scroll box (overflow-x:auto around each of its tables). Leaving
   // it out made the phone lane report the experiment table as "cannot be horizontally scrolled"
   // while it scrolled correctly inside that box (found 2026-09-24).
-  ".tablewrap,.twrap,.feed-stock-tablewrap,.feed-scroll,.pa-gridwrap,.lt-tablewrap,.health-analytics-scroll,.cbm-future-table-wrap,.MuiTableContainer-root";
+  ".tablewrap,.twrap,.feed-stock-tablewrap,.feed-scroll,.pa-gridwrap,.lt-tablewrap,.health-analytics-scroll,.MuiTableContainer-root";
 const smokeWideWindowTo = new Date().toISOString().slice(0, 10);
 const smokeWideWindowFrom = new Date(Date.now() - 43 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 

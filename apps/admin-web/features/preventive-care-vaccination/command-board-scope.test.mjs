@@ -18,7 +18,6 @@ const commandBoardDrilldownsSource = readFileSync(
   new URL("./command-board-drilldowns.ts", import.meta.url),
   "utf8",
 );
-const themeSource = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
 
 test("vaccination command board forwards top-bar park scope to the backend read", () => {
   assert.match(
@@ -109,7 +108,7 @@ test("command board defaults to all drives and renders the complete future progr
   assert.match(commandBoardViewSource, /pending === 0 && awaiting === 0 && rework === 0 && done === 0/);
   assert.match(
     commandBoardViewSource,
-    /pending > 0 \? "cbm-pending" : rework > 0 \? "cbm-rework" : awaiting > 0 \? "cbm-awaiting" : "cbm-clear"/,
+    /pending > 0 \? "error" : rework > 0 \? "secondary" : awaiting > 0 \? "warning" : "success"/,
   );
   assert.match(commandBoardViewSource, /const selectedShedVaccineCount = selectedShedVaccine/);
   assert.match(commandBoardViewSource, /selectedShedVaccine\.state === "rework"[\s\S]*selectedShedVaccine\.reworkAnimals/);
@@ -121,7 +120,9 @@ test("command board defaults to all drives and renders the complete future progr
   assert.match(commandBoardViewSource, /addBucket\("rework", cell\.reworkAnimals\)/);
   assert.match(commandBoardViewSource, /addBucket\("verifying", cell\.verifyingAnimals\)/);
   assert.match(commandBoardViewSource, /cell\.bucketCount/);
-  assert.match(themeSource, /\.cbm-pending-rework/);
+  // Rework pending chips are the template soft Chip in the rework (secondary) colour (TR1-#10).
+  assert.match(commandBoardViewSource, /rework: "secondary",\n  verifying: "warning",\n\};/);
+  assert.match(commandBoardViewSource, /color=\{PENDING_COLOR\[cell\.state\]\}/);
   assert.match(commandBoardViewSource, /shedVaccineDrilldown\.loading \? \(/);
   assert.match(commandBoardViewSource, /shedVaccineDrilldown\.error \? \(/);
   assert.match(commandBoardViewSource, /command_board\.shed_vaccine\.drawer\.loading/);

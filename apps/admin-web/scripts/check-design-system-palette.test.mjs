@@ -123,3 +123,16 @@ test("guard self-test proves retired-neutral-literal and template-neutrals fire"
   const r = spawnSync(process.execPath, [join(app, "scripts/check-design-system.mjs"), "--self-test"], { encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
 });
+
+test("theme-token-drift counts removed palette TOKENS, not deleted legacy rule literals (TR1-#10)", async () => {
+  const { removedTokenHexes } = await import("./lib/design-palette.mjs");
+  const patch = [
+    "--- a/apps/admin-web/app/mesha-theme.css",
+    "-  --brand: #54a02c; --brand-2:#7CCB45;",
+    "-  .cbm-cell.cbm-clear{background:#22633c;color:#d6f1e0}",
+    "+  .kpi{position:relative}",
+  ].join("\n");
+  const removed = removedTokenHexes(patch);
+  assert.ok(removed.has("#54a02c") && removed.has("#7ccb45"), "a removed token value is drift");
+  assert.ok(!removed.has("#22633c") && !removed.has("#d6f1e0"), "a deleted off-palette rule literal is the fix, not drift");
+});

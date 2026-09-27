@@ -10,6 +10,8 @@ function sizeFor(n: number): GridSize {
   if (n === 3) return { xs: 12, sm: 4 };
   if (n === 4) return { xs: 12, sm: 6, lg: 3 };
   if (n === 5) return { xs: 12, sm: 6, md: 4, xl: 12 / 5 };
+  // Eight (or any multiple of four) tiles: two full rows of four, never 3 + 3 + 2 (TR1-#30).
+  if (n % 4 === 0) return { xs: 12, sm: 6, md: 3 };
   return { xs: 12, sm: 6, md: 4, xl: 2 };
 }
 

@@ -155,3 +155,20 @@ export function retiredNeutralFindings(rel, text) {
 export function isDriftRemoval(hex) {
   return !RETIRED_NEUTRALS.has(hex.toLowerCase());
 }
+
+/**
+ * Hex colours a theme diff REMOVED from palette token declarations (`--name: #hex`). Only a token is
+ * palette: a hex literal inside a legacy rule (`.cbm-cell.cbm-clear{background:#22633c}`) is itself
+ * off-palette debt, and deleting that rule is the fix (TR1-#10), never drift. Hex only: rgba()
+ * shadows / overlays are not palette.
+ */
+export function removedTokenHexes(patch) {
+  const out = new Set();
+  for (const l of patch.split("\n")) {
+    if (!l.startsWith("-") || l.startsWith("---")) continue;
+    for (const decl of l.matchAll(/--[\w-]+\s*:\s*([^;}]*)/g)) {
+      for (const m of decl[1].matchAll(/#[0-9a-f]{6}\b/gi)) out.add(m[0].toLowerCase());
+    }
+  }
+  return out;
+}

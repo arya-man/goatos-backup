@@ -47,5 +47,5 @@ test("shed dose matrix renders park context under each pen", () => {
   // its park is not enough on the live tenant because same-looking operational pens exist across
   // farms, and the screenshot regression was exactly that missing context.
   assert.match(viewSource, /parkName: cell\.parkName \?\? null/);
-  assert.match(viewSource, /row\.parkName \? <span className="cbm-rowh-note">\{row\.parkName\}<\/span> : null/);
+  assert.match(viewSource, /<RowHeadCell primary=\{shedLabel\} secondary=\{row\.parkName \? row\.parkName : null\} \/>/);
 });

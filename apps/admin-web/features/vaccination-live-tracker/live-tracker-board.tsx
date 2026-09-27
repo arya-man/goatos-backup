@@ -17,6 +17,7 @@ import type { LiveTrackerShedRow } from "@/lib/api/vaccination-live-tracker";
 import { liveTrackerHref, liveTrackerResetHref, parseLiveTrackerParams } from "./params";
 import { vaccinationScheduleYear } from "@/features/preventive-care-vaccination";
 import { PageHeader } from "@/components/app/page-header";
+import { AppWelcome } from "@/components/app/sections/overview/app/app-welcome";
 import { Label } from "@/components/minimal/label";
 import { LiveTrackerKpis } from "./live-tracker-kpis";
 import { LiveTrackerOperators } from "./live-tracker-operators";
@@ -89,10 +90,6 @@ export async function LiveTrackerBoard({
             a measurement this branch does not have. */}
         <PageHead
           pageContract={pageContract}
-          businessDate={params.businessDate ?? ""}
-          activeParks={null}
-          isLiveDay={false}
-          generatedAt={null}
           scheduleHref={scheduleHref}
           commandHref={commandHref}
         />
@@ -140,13 +137,48 @@ export async function LiveTrackerBoard({
     <Box>
       <PageHead
         pageContract={pageContract}
-        businessDate={data.business_date}
-        activeParks={data.kpis.active_parks}
-        isLiveDay={data.is_live_day}
-        generatedAt={data.generated_at}
         scheduleHref={scheduleHref}
         commandHref={commandHref}
       />
+      {/* App overview welcome row (TR1-#31, template AppWelcome): the drive day, how many parks are
+          running and the live poller (LIVE toggle, updated time, interval) live here instead of as
+          header chips; an empty day says so in the welcome text with its reset action, never as a
+          separate info banner. The wording turns on hasNarrowing, which INCLUDES the top-bar park. */}
+      <Box sx={{ mb: 3 }}>
+        <AppWelcome
+          title={`${copy(pageContract, "page.heading_prefix")} — ${data.business_date ? fmtDriveDay(data.business_date) : copy(pageContract, "label.placeholder")}`}
+          description={
+            <>
+              <Label variant="soft" color={data.is_live_day ? "success" : "default"} sx={{ mb: 1 }}>
+                {data.kpis.active_parks}{" "}
+                {data.is_live_day
+                  ? copy(pageContract, data.kpis.active_parks === 1 ? "chip.parks_running_one" : "chip.parks_running_many")
+                  : copy(pageContract, data.kpis.active_parks === 1 ? "chip.parks_active_one" : "chip.parks_active_many")}
+              </Label>
+              {isEmpty ? (
+                <Box component="span" sx={{ display: "block" }}>
+                  <Box component="strong" sx={{ display: "block" }}>
+                    {params.hasNarrowing ? copy(pageContract, "state.empty_filtered_title") : copy(pageContract, "state.empty_title")}
+                  </Box>
+                  {params.hasNarrowing ? copy(pageContract, "state.empty_filtered_body") : copy(pageContract, "state.empty_body")}
+                </Box>
+              ) : null}
+            </>
+          }
+          action={
+            (data.generated_at && data.is_live_day) || (isEmpty && params.hasFilter) ? (
+              <Stack direction="row" spacing={1.5} useFlexGap sx={{ flexWrap: "wrap", alignItems: "center", justifyContent: { xs: "center", md: "flex-start" } }}>
+                {data.generated_at && data.is_live_day ? <LivePoller generatedAt={data.generated_at} pageContract={pageContract} /> : null}
+                {isEmpty && params.hasFilter ? (
+                  <Button component={Link} href={resetHref} replace scroll={false} variant="contained" color="primary">
+                    {copy(pageContract, "action.reset_filters")}
+                  </Button>
+                ) : null}
+              </Stack>
+            ) : undefined
+          }
+        />
+      </Box>
 
       <LiveTrackerFilters
         filters={filters}
@@ -166,27 +198,6 @@ export async function LiveTrackerBoard({
       {asOfDate && asOfDate !== data.business_date ? (
         <Alert severity="info" role="status">
           {copy(pageContract, "label.as_of_note")}
-        </Alert>
-      ) : null}
-
-      {/* The wording turns on hasNarrowing, which INCLUDES the top-bar park: "No vaccination drive
-          work on this day" is false with a park selected whenever the other park is running. */}
-      {isEmpty ? (
-        <Alert
-          severity="info"
-          variant="outlined"
-          action={
-            params.hasFilter ? (
-              <Button component={Link} href={resetHref} replace scroll={false} color="inherit" size="small">
-                {copy(pageContract, "action.reset_filters")}
-              </Button>
-            ) : undefined
-          }
-        >
-          <AlertTitle sx={{ mb: 0 }}>
-            {params.hasNarrowing ? copy(pageContract, "state.empty_filtered_title") : copy(pageContract, "state.empty_title")}
-          </AlertTitle>
-          {params.hasNarrowing ? copy(pageContract, "state.empty_filtered_body") : copy(pageContract, "state.empty_body")}
         </Alert>
       ) : null}
 
@@ -251,39 +262,20 @@ export async function LiveTrackerBoard({
 
 function PageHead({
   pageContract,
-  businessDate,
-  activeParks,
-  isLiveDay,
-  generatedAt,
   scheduleHref,
   commandHref,
 }: {
   pageContract: AdminUiPageContract;
-  // null = the read failed, so the number is UNKNOWN. It is not zero.
-  activeParks: number | null;
-  businessDate: string;
-  isLiveDay: boolean;
-  generatedAt: string | null;
   scheduleHref: string;
   commandHref: string;
 }) {
-  const dayLabel = businessDate ? fmtDriveDay(businessDate) : copy(pageContract, "label.placeholder");
   return (
     <Box sx={{ mb: { xs: 3, md: 5 } }}>
     <PageHeader
-      title={`${copy(pageContract, "page.heading_prefix")} — ${dayLabel}`}
+      title={copy(pageContract, "page.title")}
       crumbs={[{ label: copy(pageContract, "crumb") }, { label: copy(pageContract, "page.title") }]}
       actions={
         <>
-        {activeParks == null ? null : (
-          <Label variant="soft" color={isLiveDay ? "success" : "default"}>
-            {activeParks}{" "}
-            {isLiveDay
-              ? copy(pageContract, activeParks === 1 ? "chip.parks_running_one" : "chip.parks_running_many")
-              : copy(pageContract, activeParks === 1 ? "chip.parks_active_one" : "chip.parks_active_many")}
-          </Label>
-        )}
-        {generatedAt && isLiveDay ? <LivePoller generatedAt={generatedAt} pageContract={pageContract} /> : null}
         <Button component="a" href={scheduleHref} variant="outlined" color="inherit" startIcon={<Iconify icon="solar:calendar-date-bold" />}>
           {copy(pageContract, "action.full_schedule")}
         </Button>

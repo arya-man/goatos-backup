@@ -1633,6 +1633,76 @@
       "slotSx": [
         "paper:{ mt: 0.5, ml: -1.55, width: 240 }"
       ]
+    },
+    "components/app/sections/overview/app/app-welcome.tsx": {
+      "source": "src/sections/overview/app/app-welcome.tsx",
+      "replaced": "demo background photo (background-5.webp) dropped from the gradient (no template imagery); title/description accept nodes",
+      "templateStrip": [
+        "\\n\\s*`url\\(\\$\\{CONFIG\\.assetsDir\\}/assets/background/background-5\\.webp\\)`,"
+      ],
+      "tags": [
+        "Box",
+        "Box",
+        "Typography",
+        "Typography",
+        "Box"
+      ],
+      "sx": [
+        "images",
+        "pt",
+        "pb",
+        "pr",
+        "gap",
+        "borderRadius",
+        "display",
+        "height",
+        "md",
+        "position",
+        "pl",
+        "xs",
+        "md",
+        "alignItems",
+        "color",
+        "textAlign",
+        "xs",
+        "md",
+        "flexDirection",
+        "xs",
+        "md",
+        "border",
+        "sx",
+        "display",
+        "flex",
+        "flexDirection",
+        "alignItems",
+        "xs",
+        "md",
+        "whiteSpace",
+        "mb",
+        "opacity",
+        "maxWidth",
+        "mb",
+        "maxWidth"
+      ],
+      "sxValues": [
+        "[ (theme) => ({ ...theme.mixins.bgGradient({ images: [ `linear-gradient(to right, ${varAlpha(theme.vars.palette.grey['900Channel'], 0.88)} 0%, ${theme.vars.palette.grey[900]} 75%)`]}), pt: 5, pb: 5, pr: 3, gap: 5, borderRadius: 2, display: 'flex', height: { md: 1 }, position: 'relative', pl: { xs: 3, md: 5 }, alignItems: 'center', color: 'common.white', textAlign: { xs: 'center', md: 'left' }, flexDirection: { xs: 'column', md: 'row' }, border: `solid 1px ${theme.vars.palette.grey[800]}`}), ...(Array.isArray(sx) ? sx : [sx])]",
+        "{ display: 'flex', flex: '1 1 auto', flexDirection: 'column', alignItems: { xs: 'center', md: 'flex-start' }}",
+        "{ whiteSpace: 'pre-line', mb: 1 }",
+        "{ opacity: 0.64, maxWidth: 360, ...(action && { mb: 3 }) }",
+        "{ maxWidth: 260 }"
+      ],
+      "slotSx": [],
+      "props": [
+        "variant=h4",
+        "variant=body2"
+      ],
+      "propNames": [
+        "Box(...,sx)",
+        "Box(sx)",
+        "Typography(sx,variant)",
+        "Typography(sx,variant)",
+        "Box(sx)"
+      ]
     }
   }
 }

@@ -1,3 +1,7 @@
+import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
 import { getVaccinationCommandBoard } from "@/lib/api/server";
 import type { AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { copy } from "@/lib/admin-ui-contract";
@@ -28,14 +32,12 @@ interface VaccinationCommandBoardProps {
 
 function CommandBoardUnavailable({ pageContract }: VaccinationCommandBoardSkeletonProps) {
   return (
-    <section className="card cbm">
-      <div className="hd">
-        <h2>{copy(pageContract, "section.command_board.title")}</h2>
-      </div>
-      <div className="bd">
-        <div className="cbm-unavailable">{copy(pageContract, "section.command_board.unavailable")}</div>
-      </div>
-    </section>
+    <Card>
+      <CardHeader title={copy(pageContract, "section.command_board.title")} sx={{ mb: 2 }} />
+      <Box sx={{ px: 3, pb: 3 }}>
+        <Alert severity="warning">{copy(pageContract, "section.command_board.unavailable")}</Alert>
+      </Box>
+    </Card>
   );
 }
 

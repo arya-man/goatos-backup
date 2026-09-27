@@ -214,6 +214,7 @@ Spec: `docs/design/mui-minimal-spec.md`. Tokens: `app/minimal-tokens.css`. Gate:
   - `feed-config-template-anatomy` (`features/feed/feed-config-template-anatomy.test.mjs`): every /feed/config write opens the template quick-edit Dialog (DialogTitle + subject, DialogContent, outlined Cancel + contained Apply), never an inline form in a table cell or card header; declared session feeds are soft Chips with a delete, adds are template Buttons ("Add a feed"), the session plan edit is the CardHeader action IconButton; template Iconify icons, no lucide Pencil/Trash/Plus, no `.tag` chips.
   - `kpi-map-truth` (`components/app/kpi-widget.test.mjs`): an Ecommerce-overview row in docs/design/page-template-map.md names the widget each KPI tile really renders through the adapter (EcommerceWidgetSummary only with a weekly series, CourseWidgetSummary for trend-less tiles, AppWidgetSummary for 7d, BookingWidgetSummary for month).
   - `vaccination-plan-template` (`features/vaccination-plan/responsive-css.test.mjs`): /vaccination/plan and /plan/edit stay on template parts (CourseWidgetSummary KPI row, live table in UrlSuspense keyed by `page`, Card + CardHeader, TableHeadCustom, MUI Dialog / ToggleButtonGroup / Chip, Grid md 4 / md 8); no `.vplan` / `.vp-*` CSS or classes, no raw controls, no fixed-position div modals.
+  - `vaccination-template-anatomy` (`features/preventive-care-vaccination/vaccination-template-anatomy.test.mjs`, TR1-#10/#21): /vaccination matrices are template table Cards (`MatrixCard`: CardHeader + InfoTip, Label legend, Scrollbar table, soft Label state cells, 10-row PagedRows pager; cohort farms as Tabs with Label counts; status filters soft Chips). No `.cbm-*` class or rule, no raw controls, no colour literal; the TR1-#10 off-palette hexes stay deleted. `theme-token-drift` protects palette TOKENS (`--name: #hex`); deleting an off-palette rule literal from a legacy stylesheet is the fix, not drift (`removedTokenHexes`, test in `scripts/check-design-system-palette.test.mjs`).
   - `routine-drawer-template`, `dark-alert-tint`, `kanban-card-raised`: the routine drawer renders only
     MUI form parts; dark standard Alerts are a 16% main tint (the locked dark `darker` steps are mid
     tones); work-board cards are raised paper with the amber needs-attention border.
@@ -264,14 +265,14 @@ Spec: `docs/design/mui-minimal-spec.md`. Tokens: `app/minimal-tokens.css`. Gate:
   Operators / pens / combo are template table Cards (CardHeader, Scrollbar, PagedRows pager,
   LinearProgress closure cells), the rail is Card lists, error / empty states are Alerts, header
   controls are MUI Buttons. No legacy card / hd / bd / note / btn / lt-* classes and no raw
-  `<section>` come back; `lt-truncnote` is only the visible-reason marker.
+  `<section>` come back; `lt-truncnote` is only the visible-reason marker. The drive day, parks running and the live poller sit in the template AppWelcome row (template-derived, no demo image); the header carries only Full Schedule + Command Board; an empty day is welcome text with Reset, never an info Alert banner (guard `live-tracker-app-overview`, TR1-#31).
 - **Every info "i" is the shared InfoTip (guard: `info-tip-tap`, npm test).** No local
   `function InfoTip` / `InfoTooltip`, no `.ihelp` / `.tipwrap` button inside a hover Tooltip: those open
   on hover only, so a tap in the Android WebView does nothing (/herd-signals column help, REVIEW-15
   O19). Use `components/app/info-tip.tsx` (controlled Tooltip, 44px IconButton, opens on tap).
 - **/herd-signals shells are template anatomy (guard: `herd-signals-template-anatomy`, npm test).**
   Board / Alerts / Gateways / Insights render MUI Card + CardHeader, Alert, Grid and Label; no legacy
-  card / hd / bd / banner / gwcard / insight / rowitem / pager / btn classes.
+  card / hd / bd / banner / gwcard / insight / rowitem / pager / btn classes. Header live control is a soft Button (success / warning / neutral) with the "Updated … IST · stream …" line in its Tooltip, Export an outlined Button; no LIVE pill or header meta line. Eight KPI tiles = two rows of four (KpiGrid `n % 4 === 0` -> md 3; guard `herd-signals-live-header`, TR1-#30).
 - **Course widget icons are masks (guard: `mask-icon-not-img`, npm test).** COURSE_WIDGET_ICONS svgs
   render through SvgColor with a tone gradient, never `<Box component="img">` (they paint black).
 - **The shell is gated on every push (guard: r2 visual gate `shell|*`, scripts/r2-audit-checks/shell.mjs).**

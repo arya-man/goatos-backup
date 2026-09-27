@@ -4,7 +4,7 @@ import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
-import { useEffect, useMemo, useState, useTransition, type KeyboardEvent as ReactKeyboardEvent, useCallback } from "react";
+import { Fragment, useEffect, useMemo, useState, useTransition, type KeyboardEvent as ReactKeyboardEvent, useCallback } from "react";
 import { useBackCloses } from "@/components/use-back-closes";
 
 import type { CommandBoardCohortMatrixPage } from "@/lib/api/server";
@@ -22,12 +22,17 @@ import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import { MinimalDrawer } from "@/components/app/drawer";
 import { DrawerTableScroll } from "@/components/app/detail-drawer";
-import { InfoHint } from "@/components/app/info-hint";
 import { KpiWidget, type KpiIcon } from "@/components/app/kpi-widget";
 import type { PaletteColorKey } from "@/theme/core";
 import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
 import Chip from "@mui/material/Chip";
+import Divider from "@mui/material/Divider";
+import Tab from "@mui/material/Tab";
+import Tabs from "@mui/material/Tabs";
+import type { LabelColor } from "@/components/minimal/label";
+import { Label } from "@/components/minimal/label";
+import { EmptyRow, HeadCell, MatrixCard, RowHeadCell, StateCell, StateLegend } from "./command-board-cards";
 import Grid from "@mui/material/Grid";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
@@ -420,6 +425,30 @@ const STATUS_COLOR: Record<StatusKey, "success" | "warning" | "secondary" | "err
   scheduled: "info",
 };
 
+/** Pen × Vaccine cell state -> template Label colour (no colour: the quiet "not planned" dash). */
+const PEN_VACCINE_COLOR: Record<string, LabelColor | undefined> = {
+  behind: "error",
+  rework: "secondary",
+  verifying: "warning",
+  ok: "success",
+  not_planned: undefined,
+};
+/** Pending-by-pen chip colour per bucket (the colour of the same state in the matrix). */
+const PENDING_COLOR: Record<string, "error" | "secondary" | "warning"> = {
+  behind: "error",
+  rework: "secondary",
+  verifying: "warning",
+};
+/** Dose-matrix cell state -> template Label colour (legend and cells share it). */
+const SHED_DOSE_COLOR: Record<string, LabelColor> = {
+  verified: "success",
+  awaiting: "warning",
+  rework: "secondary",
+  overdue: "error",
+  scheduled: "info",
+  not_scoped: "default",
+};
+
 function keyDate(value?: string | null): string {
   return value?.match(/^(\d{4}-\d{2}-\d{2})/)?.[1] ?? "";
 }
@@ -777,6 +806,9 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     }),
   ];
 
+  // Cohort matrix farm tab: client state (a presentation switch over the rows already loaded).
+  const [farmTab, setFarmTab] = useState(0);
+
   const filterBar = (
     <Stack spacing={2} sx={{ px: 3, pb: 3 }}>
       <Stack direction={{ xs: "column", sm: "row" }} spacing={2} useFlexGap sx={{ flexWrap: "wrap" }}>
@@ -824,13 +856,15 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
           </Typography>
         )}
       </Stack>
-      {/* Status filter: template filter Chips (soft when on), each with its matrix-state dot. */}
+      {/* Status filter: template soft Chips (TR1-#21: never bordered outline pills). A pressed
+          status is its state colour, an unpressed one the neutral soft chip; the dot names the
+          colour the matrix cells use. */}
       <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
         {STATUS_KEYS.map((key) => (
           <Chip
             key={key}
             clickable
-            variant={statuses.has(key) ? "soft" : "outlined"}
+            variant="soft"
             color={statuses.has(key) ? STATUS_COLOR[key] : "default"}
             aria-pressed={statuses.has(key)}
             onClick={() => toggleStatus(key)}
@@ -871,9 +905,464 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     </Grid>
   );
 
-  // Three page-level blocks, never a card inside a card (AUDIT1 P1-14): the Command Board card with
-  // its filter toolbar, the KPI deck as page-level template widgets (the filters above drive it),
-  // then the matrices card.
+  // ---- Pen × Vaccine (dose collapsed) ------------------------------------------------------------
+  // This sits ABOVE the dose-qualified matrix on purpose. The dose matrix answers "how much of each
+  // dose", which is the follow-up; this one answers "is anything behind at all", which is the
+  // question actually asked walking into a pen. It is deliberately not filtered by the status chips:
+  // the chips select cell STATES of the dose matrix, and a red/green roll-up filtered to "scheduled"
+  // would be a contradiction.
+  const penVaccineCard = (() => {
+    if (!(view.shedVaccineMatrix.length > 0 && view.shedVaccineColumns.length > 0)) return null;
+    // Keyed by the operational location, not just parent shed. Partitioned sheds emit one backend
+    // row per physical pen, so shedId alone would overwrite sibling partitions.
+    const cellsByShed = new Map<string, Map<string, typeof view.shedVaccineMatrix[number]>>();
+    const shedOrder: string[] = [];
+    const shedLabel = new Map<string, { name: string; park?: string }>();
+    const nameCount = new Map<string, Set<string>>();
+    view.shedVaccineMatrix.forEach((cell) => {
+      const opKey = `${cell.shedId}|${cell.partition_label ?? ""}`;
+      let row = cellsByShed.get(opKey);
+      if (!row) {
+        row = new Map();
+        cellsByShed.set(opKey, row);
+        shedOrder.push(opKey);
+        shedLabel.set(opKey, {
+          name: cell.operational_location_display || operationalLocationLabel({ shedName: cell.shedName, partitionLabel: cell.partition_label }),
+          park: cell.parkName ?? undefined,
+        });
+      }
+      row.set(cell.vaccineCode, cell);
+      const cellLabel = cell.operational_location_display || operationalLocationLabel({ shedName: cell.shedName, partitionLabel: cell.partition_label });
+      const ids = nameCount.get(cellLabel) ?? new Set<string>();
+      ids.add(opKey);
+      nameCount.set(cellLabel, ids);
+    });
+    // Counts pens needing ANY attention (behind, rework, verifying), not just red ones: amber pens
+    // with doses waiting on a verifier are not "up to date".
+    const flaggedSheds = shedOrder.filter((shedId) =>
+      Array.from(cellsByShed.get(shedId)?.values() ?? []).some(
+        (c) => c.state === "behind" || c.state === "rework" || c.state === "verifying",
+      ),
+    ).length;
+    const rows = shedOrder.map((shedPartitionKey) => {
+      const label = shedLabel.get(shedPartitionKey);
+      // Park is shown ONLY when the pen name is ambiguous in this payload.
+      const ambiguous = (nameCount.get(label?.name ?? "")?.size ?? 0) > 1;
+      return (
+        <TableRow key={shedPartitionKey} hover>
+          <RowHeadCell primary={label?.name} secondary={ambiguous ? label?.park : undefined} />
+          {view.shedVaccineColumns.map((column) => {
+            const code = column.code;
+            const cell = cellsByShed.get(shedPartitionKey)?.get(code);
+            const state = cell?.state ?? "not_planned";
+            const openable = isOpenableShedVaccineCell(cell);
+            const title =
+              state === "behind"
+                ? `${cell?.behindAnimals ?? 0} of ${cell?.totalAnimals ?? 0} behind`
+                : state === "verifying"
+                  ? `${cell?.verifyingAnimals ?? 0} of ${cell?.totalAnimals ?? 0} given, video verification pending`
+                  : state === "rework"
+                    ? `${cell?.reworkAnimals ?? 0} of ${cell?.totalAnimals ?? 0} rejected proof, rework needed`
+                    : state === "ok"
+                      ? `${cell?.totalAnimals ?? 0} on track`
+                      : copy(pageContract, "command_board.shed_vaccine.state.not_planned");
+            // Only a cell that needs a person carries a count; a clean cell is a quiet tick and an
+            // unplanned one a dash, so the eye lands on the work first.
+            const value =
+              state === "behind"
+                ? `${cell?.behindAnimals ?? 0} ${copy(pageContract, "command_board.shed_vaccine.cell.behind_unit")}`
+                : state === "verifying"
+                  ? `${cell?.verifyingAnimals ?? 0} ${copy(pageContract, "command_board.shed_vaccine.cell.verifying_unit")}`
+                  : state === "rework"
+                    ? `${cell?.reworkAnimals ?? 0} ${copy(pageContract, "command_board.shed_vaccine.cell.rework_unit")}`
+                    : state === "ok"
+                      ? "✓"
+                      : "–";
+            return (
+              <StateCell
+                key={code}
+                color={PEN_VACCINE_COLOR[state]}
+                value={value}
+                title={title}
+                aria-label={`${label?.name ?? ""} · ${column.label || column.code}: ${title}`}
+                onActivate={openable ? () => setSelectedShedVaccine(cell) : undefined}
+              />
+            );
+          })}
+        </TableRow>
+      );
+    });
+    return (
+      <MatrixCard
+        title={copy(pageContract, "command_board.shed_vaccine.title")}
+        info={copy(pageContract, "command_board.shed_vaccine.meta")}
+        subheader={flaggedSheds > 0
+          ? `${flaggedSheds} / ${shedOrder.length} ${copy(pageContract, "command_board.shed_vaccine.summary_behind")}`
+          : copy(pageContract, "command_board.shed_vaccine.summary_clean")}
+        legend={
+          <StateLegend
+            items={(["behind", "rework", "verifying", "ok", "not_planned"] as const).map((state) => ({
+              key: state,
+              color: PEN_VACCINE_COLOR[state] ?? "default",
+              label: copy(pageContract, `command_board.shed_vaccine.state.${state}`),
+            }))}
+          />
+        }
+        ariaLabel={copy(pageContract, "command_board.shed_vaccine.title")}
+        minWidth={160 + view.shedVaccineColumns.length * 110}
+        head={
+          <TableRow>
+            <HeadCell>{copy(pageContract, "command_board.shed_vaccine.column.shed")}</HeadCell>
+            {/* Header text is SERVER copy: the label travels with the column so the client holds
+                no vaccine-name table of its own. Falling back to the code keeps an unlabelled
+                catalogue vaccine visible instead of blank. */}
+            {view.shedVaccineColumns.map((column) => (
+              <HeadCell key={column.code}>{column.label || column.code}</HeadCell>
+            ))}
+          </TableRow>
+        }
+        rows={rows}
+      />
+    );
+  })();
+
+  // ---- Pending vaccines by pen ------------------------------------------------------------------
+  const pendingCard = (
+    <MatrixCard
+      title={copy(pageContract, "command_board.pending_sheds.title")}
+      info={copy(pageContract, "command_board.pending_sheds.meta")}
+      ariaLabel={copy(pageContract, "command_board.pending_sheds.title")}
+      minWidth={560}
+      head={
+        <TableRow>
+          <HeadCell>{copy(pageContract, "command_board.pending_sheds.column.shed")}</HeadCell>
+          <HeadCell>{copy(pageContract, "command_board.pending_sheds.column.park")}</HeadCell>
+          <HeadCell>{copy(pageContract, "command_board.pending_sheds.column.vaccines")}</HeadCell>
+        </TableRow>
+      }
+      empty={<EmptyRow colSpan={3}>{copy(pageContract, "command_board.pending_sheds.empty")}</EmptyRow>}
+      rows={pendingVaccinesByShed.map((row) => (
+        <TableRow key={row.key} hover>
+          <RowHeadCell primary={row.name} />
+          <TableCell sx={{ whiteSpace: "nowrap" }}>{row.park ?? "—"}</TableCell>
+          <TableCell>
+            <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
+              {[...row.cells]
+                .sort((a, b) => a.label.localeCompare(b.label))
+                .map((cell) => (
+                  <Chip
+                    key={`${cell.vaccineCode}:${cell.state}`}
+                    size="small"
+                    variant="soft"
+                    clickable
+                    color={PENDING_COLOR[cell.state]}
+                    onClick={() => setSelectedShedVaccine(cell)}
+                    label={`${cell.label} · ${cell.bucketCount} ${copy(pageContract, `command_board.pending_sheds.state.${cell.state}`)}`}
+                    sx={{ minHeight: { xs: "var(--tap-min)", sm: "auto" } }}
+                  />
+                ))}
+            </Stack>
+          </TableCell>
+        </TableRow>
+      ))}
+    />
+  );
+
+  // ---- Vaccine × Pen status (dose-qualified) -----------------------------------------------------
+  // The shed grid is loaded AFTER first paint, like the cohort grid. An explicit loading state
+  // matters: an empty grid during the gap would read as "this tenant has no pens".
+  const shedDoseState = shedDoseSection.loading && shedDoseMatrix.length === 0
+    ? copy(pageContract, "command_board.shed_dose_matrix.loading")
+    : shedDoseSection.error
+      ? copy(pageContract, "command_board.shed_dose_matrix.unavailable")
+      : shedDoseMatrix.length === 0
+        ? copy(pageContract, "command_board.shed_dose_matrix.empty")
+        : "";
+  const shedDoseCard = (() => {
+    const grid = buildShedGrid(view.shedDoseMatrix);
+    // Queue age keyed by the same (pen, dose) grain the matrix cells use, so the number lands on
+    // the cell it describes rather than being matched by position.
+    const queueAgeDays = new Map<string, number>();
+    (view.verificationQueue ?? []).forEach((q) => {
+      if (q.daysInQueue !== undefined && q.daysInQueue !== null) {
+        const shedKey = `${q.shedId}|${q.partition_label ?? ""}`;
+        queueAgeDays.set(`${shedKey}|${q.doseRule}`, q.daysInQueue);
+      }
+    });
+    const waitingSuffix = copy(pageContract, "command_board.shed_matrix.waiting_suffix");
+    const rows = grid.byShed.map((row) => {
+      // shedId + partition keys the row; the label is the operational location display.
+      const shedKey = `${row.shedId}|${row.partitionLabel ?? ""}`;
+      const shedLabel = row.operational_location_display || operationalLocationLabel({
+        shedName: row.shedName,
+        partitionLabel: row.partitionLabel,
+      });
+      return (
+        <TableRow key={shedKey} hover>
+          <RowHeadCell primary={shedLabel} secondary={row.parkName ? row.parkName : null} />
+          {grid.byDose.map((dose) => {
+            const cell = row.cells[dose.key];
+            if (!cell) return <StateCell key={dose.key} value="—" />;
+            const locationTitle = row.parkName ? `${shedLabel} · ${row.parkName}` : shedLabel;
+            // Completed cells show the operator's actual administration date (verification can
+            // happen days later and never replaces the medical date); scheduled and overdue cells
+            // show their rule-derived due date.
+            const dateStr = cell.state === "verified" || cell.state === "awaiting"
+              ? formatDateSpan(cell.minAdministeredDate, cell.maxAdministeredDate)
+              : formatDateSpan(cell.minDueDate, cell.maxDueDate);
+            // An awaiting cell also carries how long it has been sitting with the verifier.
+            const waiting = cell.state === "awaiting" ? queueAgeDays.get(`${shedKey}|${dose.label}`) : undefined;
+            return (
+              <StateCell
+                key={dose.key}
+                color={SHED_DOSE_COLOR[cell.state] ?? "default"}
+                value={cell.animalCount}
+                title={`${locationTitle} · ${cell.animalCount} animals${waiting !== undefined ? ` · ${waiting}${waitingSuffix}` : ""}`}
+                caption={`${dateStr}${waiting !== undefined ? ` · ${waiting}${waitingSuffix}` : ""}`}
+              />
+            );
+          })}
+        </TableRow>
+      );
+    });
+    return (
+      <MatrixCard
+        id="cbm-shed-dose-matrix"
+        title={copy(pageContract, "command_board.shed_matrix.title")}
+        info={copy(pageContract, "command_board.shed_matrix.meta")}
+        legend={
+          <StateLegend
+            items={(["verified", "awaiting", "rework", "overdue", "scheduled", "not_scoped"] as const).map((state) => ({
+              key: state,
+              color: SHED_DOSE_COLOR[state] ?? "default",
+              label: copy(pageContract, `command_board.shed_matrix.legend.${state}`),
+            }))}
+          />
+        }
+        ariaLabel={copy(pageContract, "command_board.shed_matrix.title")}
+        minWidth={160 + grid.byDose.length * 150}
+        head={
+          <TableRow>
+            <HeadCell>{copy(pageContract, "command_board.shed_matrix.column.shed")}</HeadCell>
+            {grid.byDose.map((dose) => (
+              <HeadCell key={dose.key}>{dose.label}</HeadCell>
+            ))}
+          </TableRow>
+        }
+        empty={shedDoseState ? <EmptyRow colSpan={grid.byDose.length + 1}>{shedDoseState}</EmptyRow> : undefined}
+        rows={rows}
+      />
+    );
+  })();
+
+  // ---- Cohort matrix, FARMWISE -------------------------------------------------------------------
+  // One tab per farm, cohort ladder down the side, vaccines across the top. The headline number is
+  // the count of the state the Label colour denotes (who owes the next move), with the buckets that
+  // carry work spelled out under it. Loaded AFTER first paint (its own section, see
+  // useCohortMatrix), so an explicit loading state keeps an empty gap from reading as "no cohorts".
+  const cohortState = cohortSection.loading && cohortMatrix.length === 0
+    ? copy(pageContract, "command_board.cohort_matrix.loading")
+    : cohortSection.error
+      ? copy(pageContract, "command_board.cohort_matrix.unavailable")
+      : cohortMatrix.length === 0
+        ? copy(pageContract, "command_board.cohort_matrix.empty")
+        : "";
+  const cohortCard = (() => {
+    // MATCHING ladder (catch-all last) and READING order are different backend lists.
+    const ladder = optionGroup(pageContract, "command_board_cohort_ladder").map((o) => o.label);
+    // Declared stage -> row membership. Adults is a normal rung here, never a fallback.
+    const stageMap = new Map(
+      optionGroup(pageContract, "command_board_cohort_stage_map").map((o) => [o.key.toUpperCase(), o.label]),
+    );
+    const readingOrder = cohortRowOrder(pageContract);
+    const farms = cohortMatrix.length === 0 ? [] : buildCohortFarms(view.cohortMatrix, ladder, stageMap).map((farmBlock) => ({
+      ...farmBlock,
+      rows: [...farmBlock.rows].sort((a, b) => {
+        const ai = readingOrder.indexOf(a.cohort);
+        const bi = readingOrder.indexOf(b.cohort);
+        return (ai < 0 ? readingOrder.length : ai) - (bi < 0 ? readingOrder.length : bi);
+      }),
+    }));
+    const activeFarm = Math.min(farmTab, Math.max(0, farms.length - 1));
+    const current = farms[activeFarm];
+    const vaccines = current?.vaccines ?? [];
+    const farm = current?.farm ?? "";
+    const pendingWord = copy(pageContract, "command_board.cohort_matrix.pending_word");
+    const reworkWord = copy(pageContract, "command_board.cohort_matrix.rework_word");
+    const submittedWord = copy(pageContract, "command_board.cohort_matrix.submitted_word");
+    const verifiedWord = copy(pageContract, "command_board.cohort_matrix.verified_word");
+    const rows = (current?.rows ?? []).map((row, rowIndex) => {
+      const label = row.cohort;
+      const present = row.animals > 0;
+      const cells = vaccines.map((v) => {
+        const pending = row.pending[v];
+        if (!present || pending === undefined) return <StateCell key={v} value="—" />;
+        const awaiting = row.submitted[v] ?? 0;
+        const rework = row.rejectedRework[v] ?? 0;
+        const done = row.verified[v] ?? 0;
+        // Nothing owed and nothing done: stay neutral rather than pretend work was completed.
+        if (pending === 0 && awaiting === 0 && rework === 0 && done === 0) return <StateCell key={v} value="—" />;
+        const administered = row.administeredDates[v];
+        const administeredDate = formatDateSpan(administered?.min, administered?.max);
+        const headline = pending > 0 ? pending : rework > 0 ? rework : awaiting > 0 ? awaiting : done;
+        const dateLine = administeredDate
+          ? administeredDate
+          : done > 0
+            ? copy(pageContract, "command_board.cohort_matrix.date_unavailable")
+            : "";
+        // Only the buckets that carry work are spelled out.
+        const parts: string[] = [];
+        if (pending > 0) parts.push(`${pending} ${pendingWord}`);
+        if (rework > 0) parts.push(`${rework} ${reworkWord}`);
+        if (awaiting > 0) parts.push(`${awaiting} ${submittedWord}`);
+        if (done > 0) parts.push(`${done} ${verifiedWord}`);
+        const cellKey = `${farm}|${label}|${v}`;
+        const selection: SelectedCohortCell = {
+          key: cellKey,
+          farm,
+          cohort: label,
+          vaccine: v,
+          animals: row.animals,
+          pending,
+          submitted: awaiting,
+          rejectedRework: rework,
+          verified: done,
+          dateSpan: administeredDate,
+          cellRefs: row.cellRefs[v] ?? [],
+          members: row.members.map((member) => ({
+            label: member.label,
+            animals: member.animals,
+            pending: member.pending[v] ?? 0,
+            submitted: member.submitted[v] ?? 0,
+            rejectedRework: member.rejectedRework[v] ?? 0,
+            verified: member.verified[v] ?? 0,
+            dateSpan: formatDateSpan(member.administeredDates[v]?.min, member.administeredDates[v]?.max),
+          })),
+        };
+        const isOn = selectedCell?.key === cellKey;
+        return (
+          <StateCell
+            key={v}
+            // Colour follows who owes the next move.
+            color={pending > 0 ? "error" : rework > 0 ? "secondary" : awaiting > 0 ? "warning" : "success"}
+            value={headline}
+            caption={
+              <>
+                <Box component="span" sx={{ display: "block" }}>{parts.join(" · ")}</Box>
+                {dateLine ? <Box component="span" sx={{ display: "block" }}>{dateLine}</Box> : null}
+              </>
+            }
+            title={`${label} · ${v} · ${pending} ${pendingWord}, ${rework} ${reworkWord}, ${awaiting} ${submittedWord}, ${done} ${verifiedWord}${dateLine ? ` · ${dateLine}` : ""}`}
+            selected={isOn}
+            onActivate={() => (isOn ? setSelectedCell(null) : openCohortDrawer(selection))}
+          />
+        );
+      });
+      // Two rows of one farm can share a cohort label, so the row's position disambiguates.
+      return (
+        <TableRow key={`${farm || "no-farm"}|${row.cohort}|${rowIndex}`} hover>
+          <RowHeadCell primary={row.cohort} secondary={rowQualifier(pageContract, row.cohort) || undefined} />
+          {cells}
+          <TableCell sx={{ whiteSpace: "nowrap" }}>{row.animals > 0 ? row.animals : "—"}</TableCell>
+        </TableRow>
+      );
+    });
+    const farmPending = (block: (typeof farms)[number]) =>
+      block.rows.reduce((sum, row) => sum + Object.values(row.pending).reduce((a, n) => a + (n ?? 0), 0), 0);
+    return (
+      <MatrixCard
+        title={copy(pageContract, "command_board.cohort_matrix.title")}
+        ariaLabel={copy(pageContract, "command_board.cohort_matrix.title")}
+        minWidth={200 + vaccines.length * 150}
+        tabs={farms.length > 0 ? (
+          <Tabs
+            value={activeFarm}
+            onChange={(_, next: number) => {
+              setSelectedCell(null);
+              setFarmTab(next);
+            }}
+            variant="scrollable"
+            allowScrollButtonsMobile
+            sx={{ px: 2.5, boxShadow: (theme) => `inset 0 -2px 0 0 ${theme.vars.palette.divider}` }}
+          >
+            {farms.map((block, index) => {
+              const owed = farmPending(block);
+              return (
+                <Tab
+                  key={`${block.farm || "no-farm"}|${index}`}
+                  value={index}
+                  iconPosition="end"
+                  label={block.farm || copy(pageContract, "command_board.cohort_matrix.no_farm")}
+                  icon={
+                    <Label variant={index === activeFarm ? "filled" : "soft"} color={owed > 0 ? "error" : "success"}>
+                      <>{owed}</>
+                    </Label>
+                  }
+                />
+              );
+            })}
+          </Tabs>
+        ) : null}
+        head={
+          <TableRow>
+            <HeadCell>{copy(pageContract, "command_board.cohort_matrix.column.stage")}</HeadCell>
+            {vaccines.map((v) => (
+              <HeadCell key={v}>{v}</HeadCell>
+            ))}
+            <HeadCell>{copy(pageContract, "command_board.cohort_matrix.column.animals")}</HeadCell>
+          </TableRow>
+        }
+        empty={<EmptyRow colSpan={vaccines.length + 2}>{cohortState || copy(pageContract, "command_board.cohort_matrix.empty")}</EmptyRow>}
+        rows={rows}
+      />
+    );
+  })();
+
+  // ---- Scheduled ahead ---------------------------------------------------------------------------
+  // Paged by campaign: a campaign's operator days stay together (the campaign cell spans them).
+  const futureCard = futureCampaigns.length > 0 ? (
+    <MatrixCard
+      title={copy(pageContract, "command_board.future_drives.title")}
+      subheader={`${futureCampaigns.length} ${copy(pageContract, "command_board.future_drives.count_suffix")} · ${futureDrives.length} ${copy(pageContract, "command_board.future_drives.lines_suffix")}`}
+      ariaLabel={copy(pageContract, "command_board.future_drives.title")}
+      minWidth={880}
+      head={
+        <TableRow>
+          <HeadCell>{copy(pageContract, "command_board.future_drives.column.campaign")}</HeadCell>
+          <HeadCell>{copy(pageContract, "command_board.future_drives.column.drive")}</HeadCell>
+          <HeadCell>{copy(pageContract, "command_board.future_drives.column.dates")}</HeadCell>
+          <HeadCell>{copy(pageContract, "command_board.future_drives.column.sheds")}</HeadCell>
+          <HeadCell>{copy(pageContract, "command_board.future_drives.column.animals")}</HeadCell>
+          <HeadCell>{copy(pageContract, "command_board.future_drives.column.doses")}</HeadCell>
+        </TableRow>
+      }
+      rows={futureCampaigns.map((campaign, campaignIndex) => (
+        // Two campaigns can share a name (one per operator window), so position disambiguates.
+        <Fragment key={`${campaign.name}|${campaignIndex}`}>
+          {campaign.treatments.map((drive, index) => (
+            <TableRow key={drive.key} hover selected={Boolean(driveBatchId && drive.batchIds.includes(driveBatchId))}>
+              {index === 0 && (
+                <TableCell rowSpan={campaign.treatments.length} sx={{ verticalAlign: "top", minWidth: 200 }}>
+                  <Typography variant="subtitle2" component="div">{campaign.name}</Typography>
+                  <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>
+                    {campaign.targetCount} {copy(pageContract, "command_board.future_drives.campaign_animals")} · {campaign.doseCount} {copy(pageContract, "command_board.future_drives.campaign_doses")}
+                  </Typography>
+                </TableCell>
+              )}
+              <TableCell sx={{ whiteSpace: "nowrap" }}><Typography variant="subtitle2" component="span">{drive.driveName}</Typography></TableCell>
+              <TableCell sx={{ whiteSpace: "nowrap" }}>{formatScheduledDriveDates(drive.dateKeys)}</TableCell>
+              <TableCell sx={{ minWidth: 240 }}>{drive.shedNames.join(", ") || "—"}</TableCell>
+              <TableCell><Typography variant="subtitle2" component="span">{drive.targetCount}</Typography></TableCell>
+              <TableCell><Typography variant="subtitle2" component="span">{drive.doseCount}</Typography></TableCell>
+            </TableRow>
+          ))}
+        </Fragment>
+      ))}
+    />
+  ) : null;
+
+  // Page-level blocks, never a card inside a card (AUDIT1 P1-14): the Command Board filter card, the
+  // KPI deck as page-level template widgets, then one template table card per matrix.
   return (
     <Stack spacing={3} sx={{ minWidth: 0 }}>
     <Card>
@@ -883,613 +1372,30 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
         {/* KPI deck: template overview/course widget tiles; a click drills into the matrix. */}
         <Grid container spacing={3}>
           {kpiTile("command_board.kpi.targets", copy(pageContract, "command_board.kpi.targets"), view.kpis.targets, copy(pageContract, "command_board.kpi.targets_dl"), "info", "completed", undefined)}
-          {/* Missed sits FIRST, immediately after the roster total and ahead of Verified, because
-              it is the one tile that reports a failure rather than progress. It is also the tile
-              whose absence made the board wrong: 137 animals holding a missed dose were being
-              counted as Verified while Overdue read 0. */}
+          {/* Missed sits FIRST after the roster total and ahead of Verified: it is the one tile that
+              reports a failure rather than progress. */}
           {kpiTile("command_board.kpi.missed", copy(pageContract, "command_board.kpi.missed"), view.kpis.missedNotGiven, copy(pageContract, "command_board.kpi.missed_dl"), "error", "certificates", statusKpiClick("overdue", view.kpis.missedNotGiven))}
           {kpiTile("command_board.kpi.verified", copy(pageContract, "command_board.kpi.verified"), view.kpis.dosesVerified, copy(pageContract, "command_board.kpi.verified_dl"), "success", "completed", statusKpiClick("verified", view.kpis.dosesVerified))}
           {kpiTile("command_board.kpi.awaiting_verification", copy(pageContract, "command_board.kpi.awaiting_verification"), view.kpis.awaitingVerification, copy(pageContract, "command_board.kpi.awaiting_dl"), "warning", "progress", statusKpiClick("awaiting", view.kpis.awaitingVerification))}
           {kpiTile("command_board.kpi.rework_needed", copy(pageContract, "command_board.kpi.rework_needed"), view.kpis.reworkNeeded ?? 0, copy(pageContract, "command_board.kpi.rework_dl"), "secondary", "progress", statusKpiClick("rework", view.kpis.reworkNeeded ?? 0))}
           {kpiTile("command_board.kpi.overdue", copy(pageContract, "command_board.kpi.overdue"), view.kpis.overdueNotGiven, copy(pageContract, "command_board.kpi.overdue_dl"), "error", "certificates", statusKpiClick("overdue", view.kpis.overdueNotGiven))}
           {kpiTile("command_board.kpi.scheduled_ahead", copy(pageContract, "command_board.kpi.scheduled_ahead"), view.kpis.scheduledAhead, copy(pageContract, "command_board.kpi.scheduled_dl"), "info", "progress", statusKpiClick("scheduled", view.kpis.scheduledAhead))}
-          {/* The five buckets are a disjoint, EXHAUSTIVE partition of targets. Rendering only four
-              left the tiles summing to less than the total, so a reader could not tell a projection
-              bug from animals whose obligations genuinely closed with no dose. The tile is the START
-              of the CEO's question: "3 closed with no dose" is followed every time by "which animals".
-              Gated on the COUNT, not on the list — the animals are fetched when the drawer opens. */}
+          {/* The five buckets are a disjoint, EXHAUSTIVE partition of targets; the fifth opens the
+              animals that closed with no dose. Gated on the COUNT, not on the list — the animals are
+              fetched when the drawer opens. */}
           {kpiTile("command_board.kpi.closed_without_dose", copy(pageContract, "command_board.kpi.closed_without_dose"), view.kpis.closedWithoutDose, copy(pageContract, "command_board.kpi.closed_without_dose_dl"), "info", "certificates", closedWithoutDoseCount > 0 ? openClosedDrawer : undefined)}
         </Grid>
-    {/* The matrices: one template Card (`cbm` scopes the heat-cell legend paint only). */}
-    <Card className="cbm" sx={{ p: 3, minWidth: 0 }} aria-label={copy(pageContract, "section.command_board.title")}>
-      <Box tabIndex={0} role="region" aria-label={copy(pageContract, "section.command_board.title")} sx={{ minWidth: 0 }}>
+      {penVaccineCard}
+      {pendingCard}
+      {shedDoseCard}
+      {cohortCard}
+      {futureCard}
+      {/* The verification queue used to render as its own table, but every count in it (pen, dose,
+          awaiting) is already an amber cell in the dose matrix; its queue age rides in that cell. */}
 
-        {/* Shed × Vaccine, dose collapsed, red/green only.
-            This sits ABOVE the dose-qualified matrix on purpose. The dose matrix answers "how much
-            of each dose", which is the follow-up; this one answers "is anything behind at all",
-            which is the question actually asked walking into a shed. It is deliberately not
-            filtered by the status chips: the chips select cell STATES of the dose matrix, and a
-            red/green shed roll-up filtered to "scheduled" would be a contradiction. It carries no
-            counts and no future dates by design — a count invites reconciling it against the dose
-            matrix, and the two use different grains. */}
-        {view.shedVaccineMatrix.length > 0 && view.shedVaccineColumns.length > 0 && (() => {
-          // Keyed by the operational location, not just parent shed. Partitioned sheds emit one
-          // backend row per physical pen, so shedId alone would overwrite sibling partitions.
-          const cellsByShed = new Map<string, Map<string, typeof view.shedVaccineMatrix[number]>>();
-          const shedOrder: string[] = [];
-          const shedLabel = new Map<string, { name: string; park?: string }>();
-          const nameCount = new Map<string, Set<string>>();
-          view.shedVaccineMatrix.forEach((cell) => {
-            const opKey = `${cell.shedId}|${cell.partition_label ?? ""}`;
-            let row = cellsByShed.get(opKey);
-            if (!row) {
-              row = new Map();
-              cellsByShed.set(opKey, row);
-              shedOrder.push(opKey);
-              shedLabel.set(opKey, {
-                name: cell.operational_location_display || operationalLocationLabel({ shedName: cell.shedName, partitionLabel: cell.partition_label }),
-                park: cell.parkName ?? undefined,
-              });
-            }
-            row.set(cell.vaccineCode, cell);
-            const cellLabel = cell.operational_location_display || operationalLocationLabel({ shedName: cell.shedName, partitionLabel: cell.partition_label });
-            const ids = nameCount.get(cellLabel) ?? new Set<string>();
-            ids.add(opKey);
-            nameCount.set(cellLabel, ids);
-          });
-          // Counts sheds needing ANY attention, not just red ones. Counting only "behind" made the
-          // summary read "every shed is up to date on every vaccine" while three sheds sat amber
-          // with 137 doses waiting on a verifier -- the line directly contradicted the grid above it.
-          // Rework is the same kind of actionable attention: purple-only pens must not summarize as
-          // "up to date" while the grid and the pending-by-pen section are asking operators to resubmit.
-          const flaggedSheds = shedOrder.filter((shedId) =>
-            Array.from(cellsByShed.get(shedId)?.values() ?? []).some(
-              (c) => c.state === "behind" || c.state === "rework" || c.state === "verifying",
-            ),
-          ).length;
-          return (
-            <div className="cbm-shed-section cbm-sv">
-              <div className="cbm-section-head">
-                <h3>{copy(pageContract, "command_board.shed_vaccine.title")}</h3>
-                <InfoHint className="cbm-meta" text={copy(pageContract, "command_board.shed_vaccine.meta")} />
-              </div>
-              <div className="cbm-hm twrap" style={{ maxWidth: "100%", overflowX: "auto" }} tabIndex={0} aria-label={copy(pageContract, "command_board.shed_vaccine.title")}>
-                <Table className="cbm-heat cbm-sv-heat">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell component="th">{copy(pageContract, "command_board.shed_vaccine.column.shed")}</TableCell>
-                      {/* Header text is SERVER copy: the label travels with the column so the
-                          client holds no vaccine-name table of its own. Falling back to the code
-                          keeps an unlabelled catalogue vaccine visible instead of blank. */}
-                      {view.shedVaccineColumns.map((column) => (
-                        <TableCell component="th" key={column.code}>{column.label || column.code}</TableCell>
-                      ))}
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {shedOrder.map((shedPartitionKey) => {
-                      const label = shedLabel.get(shedPartitionKey);
-                      // Park is shown ONLY when the shed name is ambiguous in this payload, so the
-                      // row stays as short as the ask demanded until ambiguity forces otherwise.
-                      const ambiguous = (nameCount.get(label?.name ?? "")?.size ?? 0) > 1;
-                      return (
-                        <TableRow key={shedPartitionKey}>
-                          <TableCell className="cbm-sv-shed">
-                            {label?.name}
-                            {ambiguous && label?.park ? <span className="cbm-sv-shed-park">{label.park}</span> : null}
-                          </TableCell>
-                          {view.shedVaccineColumns.map((column) => {
-                            const code = column.code;
-                            const cell = cellsByShed.get(shedPartitionKey)?.get(code);
-                            const state = cell?.state ?? "not_planned";
-                            const behind = cell?.behindAnimals ?? 0;
-                            const openable = isOpenableShedVaccineCell(cell);
-                            return (
-                              <TableCell
-                                key={code}
-                                className={`cbm-sv-cell cbm-sv-${state}`}
-                                role={openable ? "button" : undefined}
-                                tabIndex={openable ? 0 : undefined}
-                                onClick={() => {
-                                  if (isOpenableShedVaccineCell(cell)) setSelectedShedVaccine(cell);
-                                }}
-                                onKeyDown={(e) => {
-                                  if (isOpenableShedVaccineCell(cell) && (e.key === "Enter" || e.key === " ")) {
-                                    e.preventDefault();
-                                    setSelectedShedVaccine(cell);
-                                  }
-                                }}
-                                title={
-                                  state === "behind"
-                                    ? `${behind} of ${cell?.totalAnimals ?? 0} behind`
-                                    : state === "verifying"
-                                      ? `${cell?.verifyingAnimals ?? 0} of ${cell?.totalAnimals ?? 0} given, video verification pending`
-                                      : state === "rework"
-                                        ? `${cell?.reworkAnimals ?? 0} of ${cell?.totalAnimals ?? 0} rejected proof, rework needed`
-                                    : state === "ok"
-                                      ? `${cell?.totalAnimals ?? 0} on track`
-                                      : copy(pageContract, "command_board.shed_vaccine.state.not_planned")
-                                }
-                              >
-                                {/* Only the RED cell carries a mark, and it is the NUMBER. A grid
-                                    of bright dots on every clean cell competed with the red for
-                                    attention and made the one thing worth finding HARDER to find,
-                                    while telling the reader nothing they could act on. Clean cells
-                                    are now a quiet tick and unplanned ones a dash, so the eye lands
-                                    on red first and the row still says "checked, fine" rather than
-                                    "no data". */}
-                                {state === "behind" ? (
-                                  <span className="cbm-sv-count">
-                                    {behind}
-                                    <i>{copy(pageContract, "command_board.shed_vaccine.cell.behind_unit")}</i>
-                                  </span>
-                                ) : state === "verifying" ? (
-                                  <span className="cbm-sv-verifying">
-                                    {cell?.verifyingAnimals ?? 0}
-                                    <i>{copy(pageContract, "command_board.shed_vaccine.cell.verifying_unit")}</i>
-                                  </span>
-                                ) : state === "rework" ? (
-                                  <span className="cbm-sv-rework">
-                                    {cell?.reworkAnimals ?? 0}
-                                    <i>{copy(pageContract, "command_board.shed_vaccine.cell.rework_unit")}</i>
-                                  </span>
-                                ) : state === "ok" ? (
-                                  <span className="cbm-sv-tick" aria-hidden="true">✓</span>
-                                ) : (
-                                  <span className="cbm-sv-none" aria-hidden="true">–</span>
-                                )}
-                                <span className="sr-only">
-                                  {copy(pageContract, `command_board.shed_vaccine.state.${state}`)}
-                                </span>
-                              </TableCell>
-                            );
-                          })}
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
-              <div className="cbm-legend cbm-sv-legend">
-                <span className="cbm-sv-behind"><i></i>{copy(pageContract, "command_board.shed_vaccine.state.behind")}</span>
-                <span className="cbm-sv-rework"><i></i>{copy(pageContract, "command_board.shed_vaccine.state.rework")}</span>
-                <span className="cbm-sv-verifying"><i></i>{copy(pageContract, "command_board.shed_vaccine.state.verifying")}</span>
-                <span className="cbm-sv-ok"><i></i>{copy(pageContract, "command_board.shed_vaccine.state.ok")}</span>
-                <span className="cbm-sv-not_planned"><i></i>{copy(pageContract, "command_board.shed_vaccine.state.not_planned")}</span>
-                <span className="cbm-meta">
-                  {flaggedSheds > 0
-                    ? `${flaggedSheds} / ${shedOrder.length} ${copy(pageContract, "command_board.shed_vaccine.summary_behind")}`
-                    : copy(pageContract, "command_board.shed_vaccine.summary_clean")}
-                </span>
-              </div>
-            </div>
-          );
-        })()}
-
-        <div className="cbm-shed-section cbm-pending-sheds">
-          <div className="cbm-section-head">
-            <h3>{copy(pageContract, "command_board.pending_sheds.title")}</h3>
-            <InfoHint className="cbm-meta" text={copy(pageContract, "command_board.pending_sheds.meta")} />
-          </div>
-          {pendingVaccinesByShed.length === 0 ? (
-            <p className="cbm-empty">{copy(pageContract, "command_board.pending_sheds.empty")}</p>
-          ) : (
-            <div className="cbm-hm twrap" style={{ maxWidth: "100%", overflowX: "auto" }} tabIndex={0} aria-label={copy(pageContract, "command_board.pending_sheds.title")}>
-              <Table className="cbm-heat cbm-pending-table">
-                <TableHead>
-                  <TableRow>
-                    <TableCell component="th">{copy(pageContract, "command_board.pending_sheds.column.shed")}</TableCell>
-                    <TableCell component="th">{copy(pageContract, "command_board.pending_sheds.column.park")}</TableCell>
-                    <TableCell component="th">{copy(pageContract, "command_board.pending_sheds.column.vaccines")}</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {pendingVaccinesByShed.map((row) => (
-                    <TableRow key={row.key}>
-                      <TableCell className="cbm-sv-shed">{row.name}</TableCell>
-                      <TableCell>{row.park ?? "—"}</TableCell>
-                      <TableCell className="cbm-pending-vaccines">
-                        {row.cells
-                          .sort((a, b) => a.label.localeCompare(b.label))
-                          .map((cell) => {
-                            return (
-                              <button
-                                key={`${cell.vaccineCode}:${cell.state}`}
-                                type="button"
-                                className={`cbm-pending-chip cbm-pending-${cell.state}`}
-                                onClick={() => setSelectedShedVaccine(cell)}
-                              >
-                                <strong>{cell.label}</strong>
-                                <span>
-                                  {cell.bucketCount} {copy(pageContract, `command_board.pending_sheds.state.${cell.state}`)}
-                                </span>
-                              </button>
-                            );
-                          })}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </div>
-
-        {/* Vaccine × Shed status - colored grid heatmap */}
-        <div id="cbm-shed-dose-matrix">
-        {/* The shed grid is loaded AFTER first paint, like the cohort grid. An explicit loading
-            state matters: an empty grid during the gap would read as "this tenant has no sheds",
-            which is a different and alarming fact. */}
-        {shedDoseSection.loading && shedDoseMatrix.length === 0 ? (
-          <div className="cbm-section-state" role="status" aria-live="polite">
-            {copy(pageContract, "command_board.shed_dose_matrix.loading")}
-          </div>
-        ) : null}
-        {shedDoseSection.error ? (
-          <div className="cbm-section-state cbm-section-state-error" role="status">
-            {copy(pageContract, "command_board.shed_dose_matrix.unavailable")}
-          </div>
-        ) : null}
-        {!shedDoseSection.loading && !shedDoseSection.error && shedDoseMatrix.length === 0 ? (
-          <div className="cbm-section-state">
-            {copy(pageContract, "command_board.shed_dose_matrix.empty")}
-          </div>
-        ) : null}
-        {view.shedDoseMatrix.length > 0 && (() => {
-          const grid = buildShedGrid(view.shedDoseMatrix);
-          // Queue age keyed by the same (shed, dose) grain the matrix cells use, so the number
-          // lands on the cell it describes rather than being matched by position.
-          const queueAgeDays = new Map<string, number>();
-          (view.verificationQueue ?? []).forEach((q) => {
-            if (q.daysInQueue !== undefined && q.daysInQueue !== null) {
-              // Key by shedId + partition to match the grid's row keys.
-              const shedKey = `${q.shedId}|${q.partition_label ?? ""}`;
-              queueAgeDays.set(`${shedKey}|${q.doseRule}`, q.daysInQueue);
-            }
-          });
-          return (
-            <div className="cbm-shed-section">
-              <div className="cbm-section-head">
-                <h3>{copy(pageContract, "command_board.shed_matrix.title")}</h3>
-                <InfoHint className="cbm-meta" text={copy(pageContract, "command_board.shed_matrix.meta")} />
-              </div>
-              <div className="cbm-hm twrap" style={{ maxWidth: "100%", overflowX: "auto" }} tabIndex={0} aria-label={copy(pageContract, "command_board.shed_matrix.title")}>
-                <Table className="cbm-heat">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell component="th" className="cbm-rowh">{copy(pageContract, "command_board.shed_matrix.column.shed")}</TableCell>
-                      {grid.byDose.map((dose) => (
-                        <TableCell component="th" key={dose.key}>{dose.label}</TableCell>
-                      ))}
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {grid.byShed.map((row) => {
-                      // Use shedId + partition for unique keying; render via operational_location_display or helper.
-                      const shedKey = `${row.shedId}|${row.partitionLabel ?? ""}`;
-                      const shedLabel = row.operational_location_display || operationalLocationLabel({
-                        shedName: row.shedName,
-                        partitionLabel: row.partitionLabel,
-                      });
-                      return (
-                        <TableRow key={shedKey}>
-                          <TableCell component="th" className="cbm-rowh">
-                            {shedLabel}
-                            {row.parkName ? <span className="cbm-rowh-note">{row.parkName}</span> : null}
-                          </TableCell>
-                          {grid.byDose.map((dose) => {
-                            const cell = row.cells[dose.key];
-                            if (!cell) {
-                              return <TableCell key={dose.key} className="cbm-cell cbm-na">—</TableCell>;
-                            }
-                            const locationTitle = row.parkName ? `${shedLabel} · ${row.parkName}` : shedLabel;
-                            // Completed cells show the operator's actual administration date. Verification
-                            // can happen days later and must never replace the medical date. Scheduled and
-                            // overdue cells continue to show their rule-derived due date.
-                            const dateStr = cell.state === "verified" || cell.state === "awaiting"
-                              ? formatDateSpan(cell.minAdministeredDate, cell.maxAdministeredDate)
-                              : formatDateSpan(cell.minDueDate, cell.maxDueDate);
-                            // An awaiting cell also carries how long it has been sitting with the
-                            // verifier — the one fact the removed queue table added.
-                            const waiting = cell.state === "awaiting" ? queueAgeDays.get(`${shedKey}|${dose.label}`) : undefined;
-                            return (
-                              <TableCell
-                                key={dose.key}
-                                className={`cbm-cell cbm-${cell.state}`}
-                                title={`${locationTitle} · ${cell.animalCount} animals${
-                                  waiting !== undefined ? ` · ${waiting}${copy(pageContract, "command_board.shed_matrix.waiting_suffix")}` : ""
-                                }`}
-                              >
-                              {cell.animalCount}
-                              <small>
-                                {dateStr}
-                                {waiting !== undefined ? ` · ${waiting}${copy(pageContract, "command_board.shed_matrix.waiting_suffix")}` : ""}
-                              </small>
-                            </TableCell>
-                            );
-                          })}
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
-              <div className="cbm-legend">
-                <span><i></i>{copy(pageContract, "command_board.shed_matrix.legend.verified")}</span>
-                <span><i></i>{copy(pageContract, "command_board.shed_matrix.legend.awaiting")}</span>
-                <span><i></i>{copy(pageContract, "command_board.shed_matrix.legend.rework")}</span>
-                <span><i></i>{copy(pageContract, "command_board.shed_matrix.legend.overdue")}</span>
-                <span><i></i>{copy(pageContract, "command_board.shed_matrix.legend.scheduled")}</span>
-                <span><i></i>{copy(pageContract, "command_board.shed_matrix.legend.not_scoped")}</span>
-              </div>
-            </div>
-          );
-        })()}
-        </div>
-
-        {/* Cohort matrix, FARMWISE: one table per farm, cohort ladder down the side, vaccines
-            across the top, pending count in the cell (red when > 0) with the verified count
-            beneath it so closure is readable without subtracting from the head count. */}
-        {/* The cohort grid is loaded AFTER first paint. Its three statements were ~420ms of the
-            board's ~850ms of SQL and alone held /vaccination/command over its latency budget, so it
-            became its own section. An explicit loading state matters here: an empty grid during the
-            gap would read as "this tenant has no cohorts", which is a different and alarming fact. */}
-        {cohortSection.loading && cohortMatrix.length === 0 ? (
-          <div className="cbm-section-state" role="status" aria-live="polite">
-            {copy(pageContract, "command_board.cohort_matrix.loading")}
-          </div>
-        ) : null}
-        {cohortSection.error ? (
-          <div className="cbm-section-state cbm-section-state-error" role="status">
-            {copy(pageContract, "command_board.cohort_matrix.unavailable")}
-          </div>
-        ) : null}
-        {!cohortSection.loading && !cohortSection.error && cohortMatrix.length === 0 ? (
-          <div className="cbm-section-state">
-            {copy(pageContract, "command_board.cohort_matrix.empty")}
-          </div>
-        ) : null}
-        {(() => {
-          if (cohortMatrix.length === 0) return null;
-          // MATCHING ladder (catch-all last) and READING order are different backend lists: the
-          // Adults catch-all must stay last for bucketing, but the CEO reads Adults before the
-          // not-adult cohorts.
-          const ladder = optionGroup(pageContract, "command_board_cohort_ladder").map((o) => o.label);
-          // Declared stage -> row membership. Adults is a normal rung here, never a fallback.
-          const stageMap = new Map(
-            optionGroup(pageContract, "command_board_cohort_stage_map").map((o) => [o.key.toUpperCase(), o.label]),
-          );
-          const readingOrder = cohortRowOrder(pageContract);
-          const farms = buildCohortFarms(view.cohortMatrix, ladder, stageMap).map((farmBlock) => ({
-            ...farmBlock,
-            rows: [...farmBlock.rows].sort((a, b) => {
-              const ai = readingOrder.indexOf(a.cohort);
-              const bi = readingOrder.indexOf(b.cohort);
-              return (ai < 0 ? readingOrder.length : ai) - (bi < 0 ? readingOrder.length : bi);
-            }),
-          }));
-          return (
-            <div className="cbm-cohort-section">
-              {/* Header carries the title only. The matrix explains itself through the cells and
-                  the drilldown; the CEO does not read a paragraph of legend first. */}
-              <div className="cbm-section-head">
-                <h3>{copy(pageContract, "command_board.cohort_matrix.title")}</h3>
-              </div>
-              {farms.length === 0 ? (
-                <div className="cbm-empty">{copy(pageContract, "command_board.cohort_matrix.empty")}</div>
-              ) : (
-                farms.map(({ farm, vaccines, rows }, farmIndex) => (
-                  <div key={`${farm || "no-farm"}|${farmIndex}`} className="cbm-farm-block">
-                    <h4 className="cbm-farm-name">{farm || copy(pageContract, "command_board.cohort_matrix.no_farm")}</h4>
-                    <div className="cbm-hm twrap" style={{ maxWidth: "100%", overflowX: "auto" }} tabIndex={0} aria-label={copy(pageContract, "command_board.cohort_matrix.title")}>
-                      <Table className="cbm-heat cbm-cohort-heat">
-                        <TableHead>
-                          <TableRow>
-                            <TableCell component="th" className="cbm-rowh">{copy(pageContract, "command_board.cohort_matrix.column.stage")}</TableCell>
-                            {vaccines.map((v) => (
-                              <TableCell component="th" key={v}>{v}</TableCell>
-                            ))}
-                            <TableCell component="th">{copy(pageContract, "command_board.cohort_matrix.column.animals")}</TableCell>
-                          </TableRow>
-                        </TableHead>
-                        <TableBody>
-                          {rows.map((row, rowIndex) => {
-                            // Three DISJOINT buckets, rendered together: the big number is what
-                            // the OPERATOR still owes, and the sub-line carries what the VERIFIER
-                            // owes (submitted) plus what is closed (verified). Showing pending
-                            // alone made a fully vaccinated, fully submitted park read identically
-                            // to an untouched one, and contradicted the "awaiting verification"
-                            // KPI directly above this table.
-                            const label = row.cohort;
-                            const present = row.animals > 0;
-                            const animals = row.animals;
-                            const pendingOf = row.pending;
-                            const submittedOf = row.submitted;
-                            const rejectedReworkOf = row.rejectedRework;
-                            const verifiedOf = row.verified;
-                            const administeredDatesOf = row.administeredDates;
-                            const cells =
-                              vaccines.map((v) => {
-                                const pending = pendingOf[v];
-                                if (!present || pending === undefined) {
-                                  return <TableCell key={v} className="cbm-cell cbm-na">—</TableCell>;
-                                }
-                                const awaiting = submittedOf[v] ?? 0;
-                                const rework = rejectedReworkOf[v] ?? 0;
-                                const done = verifiedOf[v] ?? 0;
-                                // Nothing owed and nothing done: stay neutral rather than
-                                // pretend work was completed. `awaiting` is part of the guard —
-                                // a submitted-but-unverified cell is real work and must render.
-                                if (pending === 0 && awaiting === 0 && rework === 0 && done === 0) {
-                                  return <TableCell key={v} className="cbm-cell cbm-na">—</TableCell>;
-                                }
-                                const pendingWord = copy(pageContract, "command_board.cohort_matrix.pending_word");
-                                const reworkWord = copy(pageContract, "command_board.cohort_matrix.rework_word");
-                                const submittedWord = copy(pageContract, "command_board.cohort_matrix.submitted_word");
-                                const verifiedWord = copy(pageContract, "command_board.cohort_matrix.verified_word");
-                                const administered = administeredDatesOf[v];
-                                const administeredDate = formatDateSpan(administered?.min, administered?.max);
-                                // The headline number is the count of the state the cell colour
-                                // denotes, so colour and number can never disagree.
-                                const headline = pending > 0 ? pending : rework > 0 ? rework : awaiting > 0 ? awaiting : done;
-                                // Actual medical dates belong to the VERIFIED doses only; show the
-                                // honest "date unavailable" rather than borrowing the drive's
-                                // planned date.
-                                const dateSuffix = administeredDate
-                                  ? ` · ${administeredDate}`
-                                  : done > 0
-                                    ? ` · ${copy(pageContract, "command_board.cohort_matrix.date_unavailable")}`
-                                    : "";
-                                // Only the buckets that carry work are spelled out. A CEO cell that
-                                // prints "0 pending · 0 submitted · 324 verified" makes the reader
-                                // subtract zeroes to find the one fact that matters.
-                                const parts: string[] = [];
-                                if (pending > 0) parts.push(`${pending} ${pendingWord}`);
-                                if (rework > 0) parts.push(`${rework} ${reworkWord}`);
-                                if (awaiting > 0) parts.push(`${awaiting} ${submittedWord}`);
-                                if (done > 0) parts.push(`${done} ${verifiedWord}`);
-                                const cellKey = `${farm}|${label}|${v}`;
-                                const selection: SelectedCohortCell = {
-                                  key: cellKey,
-                                  farm,
-                                  cohort: label,
-                                  vaccine: v,
-                                  animals,
-                                  pending,
-                                  submitted: awaiting,
-                                  rejectedRework: rework,
-                                  verified: done,
-                                  dateSpan: administeredDate,
-                                  cellRefs: row.cellRefs[v] ?? [],
-                                  members: row.members.map((member) => ({
-                                    label: member.label,
-                                    animals: member.animals,
-                                    pending: member.pending[v] ?? 0,
-                                    submitted: member.submitted[v] ?? 0,
-                                    rejectedRework: member.rejectedRework[v] ?? 0,
-                                    verified: member.verified[v] ?? 0,
-                                    dateSpan: formatDateSpan(member.administeredDates[v]?.min, member.administeredDates[v]?.max),
-                                  })),
-                                };
-                                // Colour follows who owes the next move.
-                                return (
-                                  <TableCell
-                                    key={v}
-                                    className={`cbm-cell cbm-cohort-cell ${pending > 0 ? "cbm-pending" : rework > 0 ? "cbm-rework" : awaiting > 0 ? "cbm-awaiting" : "cbm-clear"}${selectedCell?.key === cellKey ? " cbm-cell-on" : ""}`}
-                                    title={`${label} · ${v} · ${pending} ${pendingWord}, ${rework} ${reworkWord}, ${awaiting} ${submittedWord}, ${done} ${verifiedWord}${dateSuffix}`}
-                                    role="button"
-                                    tabIndex={0}
-                                    aria-pressed={selectedCell?.key === cellKey}
-                                    onClick={() => {
-                                      if (selectedCell?.key === cellKey) {
-                                        setSelectedCell(null);
-                                      } else {
-                                        openCohortDrawer(selection);
-                                      }
-                                    }}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter" || e.key === " ") {
-                                        e.preventDefault();
-                                        if (selectedCell?.key === cellKey) {
-                                          setSelectedCell(null);
-                                        } else {
-                                          openCohortDrawer(selection);
-                                        }
-                                      }
-                                    }}
-                                  >
-                                    <span className="cbm-cell-head">{headline}</span>
-                                    <small>{parts.join(" · ")}</small>
-                                    {administeredDate ? (
-                                      <small className="cbm-cell-date">{administeredDate}</small>
-                                    ) : done > 0 ? (
-                                      <small className="cbm-cell-date">{copy(pageContract, "command_board.cohort_matrix.date_unavailable")}</small>
-                                    ) : null}
-                                  </TableCell>
-                                );
-                              });
-
-                            // Two rows of one farm can share a cohort label (a stage split by
-                            // partition, or a stage-only row beside its shed rows), so the label
-                            // alone collided as a key. The row's position disambiguates.
-                            return (
-                              <TableRow key={`${farm || "no-farm"}|${row.cohort}|${rowIndex}`}>
-                                <TableCell component="th" className="cbm-rowh">
-                                  {row.cohort}
-                                  {rowQualifier(pageContract, row.cohort) ? (
-                                    <span className="cbm-rowh-note">{rowQualifier(pageContract, row.cohort)}</span>
-                                  ) : null}
-                                </TableCell>
-                                {cells}
-                                <TableCell className="cbm-cell cbm-na">{row.animals > 0 ? row.animals : "—"}</TableCell>
-                              </TableRow>
-                            );
-                          })}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          );
-        })()}
-        {futureCampaigns.length > 0 && (
-          <div className="cbm-future-section">
-            <div className="cbm-section-head">
-              <h3>{copy(pageContract, "command_board.future_drives.title")}</h3>
-              <span className="cbm-meta">
-                {futureCampaigns.length} {copy(pageContract, "command_board.future_drives.count_suffix")} · {futureDrives.length} {copy(pageContract, "command_board.future_drives.lines_suffix")}
-              </span>
-            </div>
-            <div className="cbm-future-table-wrap" tabIndex={0} aria-label={copy(pageContract, "command_board.future_drives.title")}>
-              <Table className="cbm-future-table">
-                <TableHead>
-                  <TableRow>
-                    <TableCell component="th">{copy(pageContract, "command_board.future_drives.column.campaign")}</TableCell>
-                    <TableCell component="th">{copy(pageContract, "command_board.future_drives.column.drive")}</TableCell>
-                    <TableCell component="th">{copy(pageContract, "command_board.future_drives.column.dates")}</TableCell>
-                    <TableCell component="th">{copy(pageContract, "command_board.future_drives.column.sheds")}</TableCell>
-                    <TableCell component="th">{copy(pageContract, "command_board.future_drives.column.animals")}</TableCell>
-                    <TableCell component="th">{copy(pageContract, "command_board.future_drives.column.doses")}</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {futureCampaigns.flatMap((campaign) => campaign.treatments.map((drive, index) => (
-                    <TableRow key={drive.key} className={driveBatchId && drive.batchIds.includes(driveBatchId) ? "is-selected" : undefined}>
-                      {index === 0 && (
-                        <TableCell rowSpan={campaign.treatments.length} className="cbm-campaign-cell">
-                          <strong>{campaign.name}</strong>
-                          <small>
-                            {campaign.targetCount} {copy(pageContract, "command_board.future_drives.campaign_animals")} · {campaign.doseCount} {copy(pageContract, "command_board.future_drives.campaign_doses")}
-                          </small>
-                        </TableCell>
-                      )}
-                      <TableCell><strong>{drive.driveName}</strong></TableCell>
-                      <TableCell>{formatScheduledDriveDates(drive.dateKeys)}</TableCell>
-                      <TableCell>{drive.shedNames.join(", ") || "—"}</TableCell>
-                      <TableCell><strong>{drive.targetCount}</strong></TableCell>
-                      <TableCell><strong>{drive.doseCount}</strong></TableCell>
-                    </TableRow>
-                  )))}
-                </TableBody>
-              </Table>
-            </div>
-          </div>
-        )}
-
-        {/* The verification queue used to render here as its own table, but every count in it
-            (shed, dose, awaiting) is already an amber cell in the shed matrix above. Only the
-            queue age was unique, so it now rides along in that cell and the duplicate table is
-            gone. */}
-      </Box>
-
-      {/* Closed, No Dose record drawer. Opens from the KPI tile with the animals already in the
-          payload -- no route re-run, no second fetch. Closes on X, scrim, and Escape. */}
       {/* The three drawers are the template MinimalDrawer (portalled MUI Drawer): focus trapped
           and restored, X / Escape / scrim close, and Back closes via useBackCloses above. */}
-      {/* Shed x Vaccine behind drawer. Same structure and the same reason as the Closed, No Dose
-          drawer below: a red cell states the alarm, this names the animals behind it. */}
+      {/* Pen x Vaccine drawer: a red / amber / purple cell states the alarm, this names the animals. */}
       {selectedShedVaccine && (
         <MinimalDrawer
           open
@@ -1512,99 +1418,90 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                 : `${selectedShedVaccine.behindAnimals} ${copy(pageContract, "command_board.shed_vaccine.drawer.behind_of")} ${selectedShedVaccine.totalAnimals}`}
               {selectedShedVaccine.parkName ? ` · ${selectedShedVaccine.parkName}` : ""}
             </Typography>
-            {/* The videos are SHED-and-day proof covering every animal below, so they belong once in
-                the header. Repeating a link on all 76 rows implied per-goat footage that does not
-                exist. */}
-            <div className="cbm-verify-videos">
+            {/* The videos are PEN-and-day proof covering every animal below, so they belong once in
+                the header, not on every row (which implied per-goat footage). */}
+            <Stack direction="row" spacing={1} useFlexGap sx={{ px: 2.5, pb: 1.5, flexWrap: "wrap", alignItems: "center" }}>
               {shedVaccineDrilldown.loading ? (
-                <span className="cbm-verify-novideo">
+                <Typography variant="caption" sx={{ color: "text.secondary" }}>
                   {copy(pageContract, "command_board.shed_vaccine.drawer.loading")}
-                </span>
+                </Typography>
               ) : shedVaccineDrilldown.error ? (
-                <span className="cbm-verify-novideo">
+                <Typography variant="caption" sx={{ color: "text.secondary" }}>
                   {copy(pageContract, "command_board.shed_vaccine.drawer.unavailable")}
-                </span>
+                </Typography>
               ) : shedVaccineDrilldown.data.proofVideos.length > 0 ? (
                 <>
-                  <span>{copy(pageContract, "command_board.shed_vaccine.drawer.shed_videos")}</span>
+                  <Typography variant="caption" sx={{ color: "text.secondary" }}>{copy(pageContract, "command_board.shed_vaccine.drawer.shed_videos")}</Typography>
                   {shedVaccineDrilldown.data.proofVideos.map((video, index) => (
-                    <a key={video.path} href={video.path} target="_blank" rel="noreferrer">
-                      {copy(pageContract, "command_board.shed_vaccine.drawer.clip")} {index + 1}
-                    </a>
+                    <Chip
+                      key={video.path}
+                      size="small"
+                      variant="soft"
+                      color="info"
+                      clickable
+                      component="a"
+                      href={video.path}
+                      target="_blank"
+                      rel="noreferrer"
+                      label={`${copy(pageContract, "command_board.shed_vaccine.drawer.clip")} ${index + 1}`}
+                      sx={{ minHeight: { xs: "var(--tap-min)", sm: "auto" } }}
+                    />
                   ))}
                 </>
               ) : (
-                <span className="cbm-verify-novideo">
+                <Typography variant="caption" sx={{ color: "text.secondary" }}>
                   {copy(pageContract, "command_board.shed_vaccine.drawer.no_video")}
-                </span>
+                </Typography>
               )}
-            </div>
+            </Stack>
             <Box sx={{ pb: 2 }}>
-              {/* One row per animal as a two-line card, not five columns. Five columns overflowed
-                  the drawer and pushed the animal identity off the left edge behind a horizontal
-                  scrollbar, leaving rows whose visible text was identical and gave the reader no way
-                  to tell which goat each belonged to. */}
+              {/* One row per animal as a two-line row, not five columns (five overflowed the drawer
+                  and hid the animal identity). */}
               {shedVaccineDrilldown.loading ? (
-                <p className="cbm-meta" role="status">
+                <Typography variant="body2" role="status" sx={{ color: "text.secondary", px: 2.5 }}>
                   {copy(pageContract, "command_board.shed_vaccine.drawer.loading")}
-                </p>
+                </Typography>
               ) : shedVaccineDrilldown.error ? (
-                <p className="cbm-meta" role="status">
+                <Typography variant="body2" role="status" sx={{ color: "text.secondary", px: 2.5 }}>
                   {copy(pageContract, "command_board.shed_vaccine.drawer.unavailable")}
-                </p>
+                </Typography>
               ) : (
                 <>
-                  <Table className="cbm-verify-table">
+                  <Table size="small">
                     <TableBody>
                       {shedVaccineDrilldown.data.animals.map((animal) => (
                         <TableRow key={animal.goatId}>
                           <TableCell>
-                            {/* EAR TAGS lead, both of them. Most of the herd carries two and an operator
-                                may be reading either ear, so printing one tag makes the row unmatchable
-                                at the animal. The internal id is not an identity on the farm and appears
-                                only for an animal that has no active tag at all. */}
-                            <div className="cbm-verify-who">
+                            {/* EAR TAGS lead, both of them: an operator may be reading either ear.
+                                The internal id appears only for an animal with no active tag. */}
+                            <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
                               {animal.tag || animal.tag2 ? (
                                 <>
-                                  {animal.tag ? <b>{animal.tag}</b> : null}
-                                  {animal.tag2 ? <b>{animal.tag2}</b> : null}
+                                  {animal.tag ? <Typography variant="subtitle2" component="span">{animal.tag}</Typography> : null}
+                                  {animal.tag2 ? <Typography variant="subtitle2" component="span">{animal.tag2}</Typography> : null}
                                 </>
                               ) : (
-                                <b>{animal.displayId}</b>
+                                <Typography variant="subtitle2" component="span">{animal.displayId}</Typography>
                               )}
-                            </div>
-                            {/* One muted line. The state is identical on every row in a verifying cell,
-                                so shouting it 76 times in amber added noise and no information -- the
-                                drawer header already says what the whole list is waiting on. */}
-                            {/* Location leads the meta line: it is the only thing that varies row to
-                                row and the only thing that tells a person which pen to walk into. The
-                                state is identical on every row of a verifying cell and the header
-                                already says it, so it is not repeated here. */}
-                            {/* The PEN and the date, nothing else. Park and shed are constant for every
-                                row in this cell and already sit in the drawer header, so rendering the
-                                full location display on each line repeated the partition twice over and
-                                the shed once per animal. The pen is the only part that varies row to row
-                                and the only part that sends a person to a physical place. */}
-                            <div className="cbm-verify-meta">
-                              {animal.partitionLabel ? (
-                                <span className="cbm-verify-pen">{animal.partitionLabel}</span>
-                              ) : null}
-                              <span>
-                                {copy(pageContract, "command_board.shed_vaccine.drawer.column.due")}{" "}
-                                {fmtDate(animal.dueAt ?? undefined)}
-                              </span>
-                            </div>
+                            </Stack>
+                            {/* The PEN and the date, nothing else: park and pen are constant for every
+                                row of this cell and already sit in the drawer header. */}
+                            <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>
+                              {animal.partitionLabel ? `${animal.partitionLabel} · ` : ""}
+                              {copy(pageContract, "command_board.shed_vaccine.drawer.column.due")}{" "}
+                              {fmtDate(animal.dueAt ?? undefined)}
+                            </Typography>
                           </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
                   </Table>
-                  {/* The COUNT is whole-scope truth and the list is capped, so a shorter list must say
-                      so rather than read as the complete set. */}
+                  {/* The COUNT is whole-scope truth and the list is capped, so a shorter list must
+                      say so rather than read as the complete set. */}
                   {shedVaccineDrilldown.data.animals.length < selectedShedVaccineCount && (
-                    <p className="cbm-meta">
+                    <Typography variant="caption" component="p" sx={{ color: "text.secondary", px: 2.5, pt: 1.5 }}>
                       {copy(pageContract, "command_board.shed_vaccine.drawer.truncated")}
-                    </p>
+                    </Typography>
                   )}
                 </>
               )}
@@ -1628,7 +1525,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
             <Box sx={{ p: 2.5 }}>
               {/* Four columns scroll sideways inside their own template Scrollbar, never clipped. */}
               <DrawerTableScroll>
-              <Table className="cbm-closed-table" sx={{ minWidth: 440 }}>
+              <Table sx={{ minWidth: 440 }}>
                 <TableHead>
                   <TableRow>
                     <TableCell component="th">{copy(pageContract, "command_board.closed_drawer.column.animal")}</TableCell>
@@ -1640,31 +1537,24 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                 <TableBody>
                   {closedAnimals.map((animal) => (
                     <TableRow key={animal.goatId}>
-                      {/* The tag on the animal's ear is what identifies it on the farm, so the
-                          tags lead and the internal id sits under them. An animal may carry two;
-                          both are shown so either ear matches. */}
+                      {/* The ear tags identify the animal on the farm, so they lead and the internal
+                          id sits under them; both tags are shown so either ear matches. */}
                       <TableCell>
                         {animal.tag1 || animal.tag2 ? (
                           <>
-                            {animal.tag1 ? <b>{animal.tag1}</b> : null}
-                            {animal.tag2 ? <b className="cbm-closed-tag2">{animal.tag2}</b> : null}
-                            <span className="cbm-closed-tag">{animal.displayId}</span>
+                            {animal.tag1 ? <Typography variant="subtitle2" component="div">{animal.tag1}</Typography> : null}
+                            {animal.tag2 ? <Typography variant="subtitle2" component="div">{animal.tag2}</Typography> : null}
+                            <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{animal.displayId}</Typography>
                           </>
                         ) : (
-                          <b>{animal.displayId}</b>
+                          <Typography variant="subtitle2" component="div">{animal.displayId}</Typography>
                         )}
                       </TableCell>
-                      {/* Ground location, partition included -- the parent shed name alone would
-                          send a park head to the wrong side of a partitioned shed. */}
+                      {/* Ground location, partition included (locationDisplay is the wire name of
+                          VaccinationCommandBoardClosedWithoutDoseAnimal). */}
                       <TableCell>
-                        {/* locationDisplay, not operational_location_display. This drawer asked for
-                            a field the server has never emitted -- the wire name is locationDisplay
-                            (VaccinationCommandBoardClosedWithoutDoseAnimal) -- so the ground
-                            location rendered BLANK, in the one column a park head needs to know
-                            which side of a partitioned shed to walk to. Pre-existing; surfaced when
-                            the drawer moved onto the contract-typed drilldown payload. */}
-                        {animal.locationDisplay}
-                        <span className="cbm-closed-park">{animal.parkName}</span>
+                        <Typography variant="body2" component="div">{animal.locationDisplay}</Typography>
+                        <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{animal.parkName}</Typography>
                       </TableCell>
                       <TableCell>{animal.vaccineLabel}</TableCell>
                       <TableCell>{animal.reason}</TableCell>
@@ -1674,16 +1564,15 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
               </Table>
               </DrawerTableScroll>
               {(view.kpis.closedWithoutDose ?? 0) > closedAnimals.length ? (
-                <div className="cbm-cohort-detail-muted" style={{ marginTop: 10 }}>
+                <Typography variant="caption" component="div" sx={{ color: "text.secondary", mt: 1.25 }}>
                   {copy(pageContract, "command_board.closed_drawer.capped")} {view.kpis.closedWithoutDose}
-                </div>
+                </Typography>
               ) : null}
             </Box>
         </MinimalDrawer>
       )}
 
-      {/* Cohort matrix cell detail drawer. Opens from clicking a cohort matrix cell with the data
-          already in the rendered row. Closes on X, scrim, and Escape. Only one drawer open at a time. */}
+      {/* Cohort matrix cell detail drawer, from the data already in the rendered row. */}
       {selectedCell && (
         <MinimalDrawer
           open
@@ -1696,56 +1585,45 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
         >
             <Box sx={{ p: 2.5, display: "flex", flexDirection: "column", gap: 2 }}>
               <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 2 }}>
-                <Box>
-                  <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{copy(pageContract, "command_board.cohort_matrix.detail.animals")}</Typography>
-                  <Typography variant="subtitle2" component="div">{selectedCell.animals}</Typography>
-                </Box>
-                <Box>
-                  <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{copy(pageContract, "command_board.cohort_matrix.pending_word")}</Typography>
-                  <Typography variant="subtitle2" component="div">{selectedCell.pending}</Typography>
-                </Box>
-                <Box>
-                  <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{copy(pageContract, "command_board.cohort_matrix.rework_word")}</Typography>
-                  <Typography variant="subtitle2" component="div">{selectedCell.rejectedRework}</Typography>
-                </Box>
-                <Box>
-                  <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{copy(pageContract, "command_board.cohort_matrix.submitted_word")}</Typography>
-                  <Typography variant="subtitle2" component="div">{selectedCell.submitted}</Typography>
-                </Box>
-                <Box>
-                  <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{copy(pageContract, "command_board.cohort_matrix.verified_word")}</Typography>
-                  <Typography variant="subtitle2" component="div">{selectedCell.verified}</Typography>
-                </Box>
-                <Box>
-                  <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{copy(pageContract, "command_board.cohort_matrix.detail.dates")}</Typography>
-                  <Typography variant="subtitle2" component="div">{selectedCell.dateSpan || copy(pageContract, "command_board.cohort_matrix.date_unavailable")}</Typography>
-                </Box>
+                {([
+                  ["command_board.cohort_matrix.detail.animals", selectedCell.animals],
+                  ["command_board.cohort_matrix.pending_word", selectedCell.pending],
+                  ["command_board.cohort_matrix.rework_word", selectedCell.rejectedRework],
+                  ["command_board.cohort_matrix.submitted_word", selectedCell.submitted],
+                  ["command_board.cohort_matrix.verified_word", selectedCell.verified],
+                  ["command_board.cohort_matrix.detail.dates", selectedCell.dateSpan || copy(pageContract, "command_board.cohort_matrix.date_unavailable")],
+                ] as const).map(([key, value]) => (
+                  <Box key={key}>
+                    <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{copy(pageContract, key)}</Typography>
+                    <Typography variant="subtitle2" component="div">{value}</Typography>
+                  </Box>
+                ))}
               </Box>
 
               {/* The day story: which day the operator actually dosed how many animals. */}
               <Box>
                 <Typography variant="overline" component="div" sx={{ color: "text.secondary", mb: 0.5 }}>{copy(pageContract, "command_board.cohort_matrix.detail.per_day")}</Typography>
                 {cohortDrilldown.data.days.length > 0 ? (
-                  <ul className="cbm-daylist">
+                  <Stack divider={<Divider flexItem sx={{ borderStyle: "dashed" }} />}>
                     {cohortDrilldown.data.days.map((day) => (
-                      <li key={day.date}>
-                        <span className="d">{formatDateSpan(day.date, day.date)}</span>
-                        <span className="n">{day.animalCount}</span>
-                        <span className="u">{copy(pageContract, "command_board.cohort_matrix.detail.animals_word")}</span>
-                      </li>
+                      <Stack key={day.date} direction="row" spacing={1.5} sx={{ py: 1, alignItems: "baseline" }}>
+                        <Typography variant="body2" sx={{ flex: "1 1 auto" }}>{formatDateSpan(day.date, day.date)}</Typography>
+                        <Typography variant="subtitle2">{day.animalCount}</Typography>
+                        <Typography variant="caption" sx={{ color: "text.secondary" }}>{copy(pageContract, "command_board.cohort_matrix.detail.animals_word")}</Typography>
+                      </Stack>
                     ))}
-                  </ul>
+                  </Stack>
                 ) : (
-                  <span className="cbm-cohort-detail-muted">
+                  <Typography variant="body2" sx={{ color: "text.secondary" }}>
                     {copy(pageContract, "command_board.cohort_matrix.date_unavailable")}
-                  </span>
+                  </Typography>
                 )}
               </Box>
 
               {/* Sub-cohorts breakdown table */}
               {selectedCell.members.length > 0 ? (
                 <DrawerTableScroll>
-                <Table className="cbm-cohort-detail-table" sx={{ minWidth: 640 }}>
+                <Table sx={{ minWidth: 640 }}>
                   <TableHead>
                     <TableRow>
                       <TableCell component="th">{copy(pageContract, "command_board.cohort_matrix.detail.breakdown")}</TableCell>
@@ -1776,7 +1654,6 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
             </Box>
         </MinimalDrawer>
       )}
-    </Card>
     </Stack>
   );
 

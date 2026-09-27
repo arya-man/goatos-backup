@@ -138,16 +138,17 @@ test("no internal identifier is ever rendered as user-visible text", () => {
 test("a failed read never fabricates a measurement", () => {
   // The error branch rendered a pulsing LIVE pill reading "0 parks running" — asserting that no park
   // is vaccinating, when in fact nothing is known because the read failed.
+  // TR1-#31: the parks Label and the poller now live only in the success branch's AppWelcome, so
+  // the error branch renders neither.
   const errorBranch = board.slice(board.indexOf("if (!result.ok)"), board.indexOf("const data = result.data"));
-  assert.match(errorBranch, /activeParks=\{null\}/, "unknown is null, not zero");
-  assert.match(board, /activeParks: number \| null/);
-  assert.match(board, /activeParks == null \? null :/, "no chip at all when the number is unknown");
+  assert.doesNotMatch(errorBranch, /parks_running|<LivePoller|AppWelcome/, "no parks count or poller when the read failed");
+  assert.match(board, /<AppWelcome[\s\S]*?data\.kpis\.active_parks/);
 });
 
 test("a past drive day is not rendered as running, and is not polled", () => {
   assert.match(board, /data\.is_live_day/);
   assert.match(board, /chip\.parks_active_one/, "a finished drive gets a neutral, past-tense chip");
-  assert.match(board, /generatedAt && isLiveDay \? <LivePoller/, "a closed drive day must stop polling");
+  assert.match(board, /data\.generated_at && data\.is_live_day \? <LivePoller/, "a closed drive day must stop polling");
 });
 
 test("the empty state never claims the whole day when a scope is narrowing it", () => {
@@ -426,4 +427,18 @@ test("live tracker renders template anatomy, not the legacy mock classes", () =>
     assert.deepEqual(legacy, [], `${name} uses legacy classes`);
     assert.ok(!/<section\b/.test(source), `${name} must use a template Card, not a raw <section>`);
   }
+});
+
+// guard: live-tracker-app-overview (TR1-#31). The mapped template is the App overview: the drive day,
+// parks running and the live poller sit in the template AppWelcome row (template-derived, no demo
+// image), the header carries only Full Schedule + Command Board, and an empty day is welcome text,
+// never an info Alert banner.
+test("live-tracker-app-overview: welcome row, clean header, no empty-state banner", () => {
+  assert.match(board, /import \{ AppWelcome \} from "@\/components\/app\/sections\/overview\/app\/app-welcome"/);
+  const head = board.slice(board.indexOf("function PageHead"));
+  assert.doesNotMatch(head.slice(0, head.indexOf("\n}\n")), /LivePoller|<Label|parks_running/);
+  assert.doesNotMatch(board, /<Alert[^>]*severity="info"[^>]*variant="outlined"/);
+  assert.doesNotMatch(board, /<AlertTitle[^>]*>\s*\{params\.hasNarrowing/);
+  const welcome = readFileSync(new URL("../../components/app/sections/overview/app/app-welcome.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(welcome, /assetsDir|url\(/, "no template demo imagery");
 });

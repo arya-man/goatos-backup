@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 
 // Every horizontal scroller in the app: kit wrappers, the legacy per-route ones, and any element
 // that opts in with `data-scroll-x`.
-const SELECTOR = ".tablewrap, .twrap, .tblwrap, .feed-scroll, .health-scroll, .cbm-hm, .cbm-future-table-wrap, .kit-scroll-x, [data-scroll-x], .kit-tabs, .metricseg, .subtabs";
+const SELECTOR = ".tablewrap, .twrap, .tblwrap, .feed-scroll, .health-scroll, .kit-scroll-x, [data-scroll-x], .kit-tabs, .metricseg, .subtabs";
 const FADE = 64;
 
 type Edge = { key: string; left: number; top: number; height: number; side: "left" | "right"; tone: "paper" | "bg"; radius: string };

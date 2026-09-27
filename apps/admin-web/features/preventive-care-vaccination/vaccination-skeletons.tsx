@@ -1,16 +1,36 @@
-import { FilterCardSkeleton, KpiRowSkeleton, StackSkeleton, StatStripSkeleton, TableSkeleton, TabsSkeleton, ChipRowSkeleton } from "@/components/app/skeletons";
+import Box from "@mui/material/Box";
+import { FilterCardSkeleton, KpiRowSkeleton, OptionalSkeleton, StackSkeleton, StatStripSkeleton, TableSkeleton, TabsSkeleton, ChipRowSkeleton } from "@/components/app/skeletons";
 
 // Panel fallbacks for /vaccination's streamed sections, composed ONLY from the shared skeleton blocks.
 // The route's loading.tsx stacks the same three, so a hard load and a panel stream paint one shape.
 
-/** Command board: the vaccine / operator-day filter card with status chips, the eight-card deck, the matrix card. */
+/**
+ * Command board (TR1-#21 template table cards): the vaccine / operator-day filter card with status
+ * chips, the eight-card deck, then one template table card per matrix — Pen × Vaccine (legend, only
+ * with data), Pending by pen, Vaccine × Pen status (legend), the farm-tabbed cohort matrix — each with
+ * its pager (MATRIX_ROWS_PER_PAGE rows).
+ */
 export function VaccinationCommandBoardSkeleton() {
   return (
-    <StackSkeleton spacing={2}>
-      <FilterCardSkeleton fields={[200, 200, "chip", "chip", "chip", "chip", "chip"]} />
+    <StackSkeleton spacing={3}>
+      <FilterCardSkeleton fields={[190, 320, "chip", "chip", "chip", "chip", "chip"]} />
       <KpiRowSkeleton count={8} icon />
-      <TableSkeleton columns={8} rows={8} pager={false} headerAction={<TabsSkeleton count={3} variant="pill" />} />
+      <OptionalSkeleton>
+        <TableSkeleton columns={7} rows={10} subheader headerAction toolbar={<LegendSkeleton count={5} />} />
+      </OptionalSkeleton>
+      <TableSkeleton columns={3} rows={10} headerAction />
+      <TableSkeleton columns={8} rows={10} headerAction toolbar={<LegendSkeleton count={6} />} />
+      <TableSkeleton columns={8} rows={10} tabs={<TabsSkeleton count={2} counts />} />
     </StackSkeleton>
+  );
+}
+
+/** The matrix legend row (template Labels) under a matrix card header. */
+function LegendSkeleton({ count }: { count: number }) {
+  return (
+    <Box sx={{ px: 3, pb: 2 }}>
+      <ChipRowSkeleton count={count} />
+    </Box>
   );
 }
 

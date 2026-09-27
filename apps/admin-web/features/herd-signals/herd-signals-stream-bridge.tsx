@@ -2,6 +2,10 @@
 
 import { useCallback, useMemo, useEffect, useState, useSyncExternalStore } from "react";
 import { useSearchParams } from "next/navigation";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Stack from "@mui/material/Stack";
+import Tooltip from "@mui/material/Tooltip";
 import type { HerdSignalsLiveResponse } from "@/lib/api/herd-signals";
 import { fmtClockSeconds } from "./format";
 import { useHerdSignalsLiveSnapshot, writeHerdSignalsLiveSnapshot } from "./herd-signals-live-store";
@@ -254,55 +258,66 @@ export function HerdSignalsStreamBridge({ generatedAt }: { generatedAt: string }
   const stale = live && streamConsumesLiveSnapshot && !tabHidden && Number.isFinite(ageMs) && ageMs > STALE_AFTER_MS;
   const staleSeconds = Math.max(0, Math.round(ageMs / 1000));
 
-  let badgeClass = "livebadge";
+  // Template header actions (TR1-#30): a soft Button for the live toggle (success = streaming,
+  // warning = stale / snapshot error, neutral = paused) whose tooltip carries the "Updated … IST ·
+  // stream …" line, and an outlined Export Button. No red-outline pill, no meta line in the header.
+  let liveColor: "success" | "warning" | "inherit" = "success";
   let badgeText = "LIVE";
   if (!live) {
-    badgeClass = "livebadge paused";
+    liveColor = "inherit";
     badgeText = tabHidden ? "PAUSED · tab hidden" : "PAUSED";
   } else if (tabHidden) {
-    badgeClass = "livebadge paused";
+    liveColor = "inherit";
     badgeText = "PAUSED · tab hidden";
   } else if (!streamConsumesLiveSnapshot) {
-    badgeClass = "livebadge paused";
+    liveColor = "inherit";
     badgeText = "LIVE · not used on this tab";
   } else if (streamState === "snapshot_error") {
-    badgeClass = "livebadge stale";
+    liveColor = "warning";
     badgeText = "LIVE · snapshot error";
   } else if (stale) {
-    badgeClass = "livebadge stale";
+    liveColor = "warning";
     badgeText = `LIVE · ${staleSeconds}s stale`;
   }
+  const updatedLine = `Updated ${fmtClockSeconds(new Date(updatedAtMs).toISOString())} IST · stream ${streamState}`;
 
   return (
-    <div className="herd-signals-livebar">
-      <button
-        type="button"
-        className={badgeClass}
-        onClick={toggleLive}
-        title={live ? "Pause live stream" : "Resume live stream"}
-        aria-pressed={live}
-      >
-        <span className="livedot" aria-hidden="true" />
-        {badgeText}
-      </button>
-      <div className="refreshmeta">
-        Updated <b>{fmtClockSeconds(new Date(updatedAtMs).toISOString())}</b> IST · stream {streamState}
-      </div>
+    <Stack direction="row" spacing={1.5} useFlexGap sx={{ flexWrap: "wrap", alignItems: "center" }}>
+      <Tooltip title={`${live ? "Pause live stream" : "Resume live stream"} · ${updatedLine}`} arrow>
+        <Button
+          variant="soft"
+          color={liveColor}
+          onClick={toggleLive}
+          aria-pressed={live}
+          aria-description={updatedLine}
+          startIcon={<Box component="span" aria-hidden="true" sx={{ width: "var(--sp-1)", height: "var(--sp-1)", borderRadius: "var(--r-round)", bgcolor: liveColor === "inherit" ? "text.disabled" : `${liveColor}.main` }} />}
+          sx={{ minHeight: { xs: "var(--tap-min)", sm: 36 } }}
+        >
+          {badgeText}
+        </Button>
+      </Tooltip>
       {exportDisabled ? (
-        <button type="button" className="btn" disabled title={unsupportedExportTab ? "Export is available on table tabs" : "Clear this page-only KPI filter before exporting"}>
-          Export
-        </button>
+        <Tooltip title={unsupportedExportTab ? "Export is available on table tabs" : "Clear this page-only KPI filter before exporting"} arrow>
+          <span>
+            <Button variant="outlined" color="inherit" disabled sx={{ minHeight: { xs: "var(--tap-min)", sm: 36 } }}>
+              Export
+            </Button>
+          </span>
+        </Tooltip>
       ) : (
-        <a
-          className="btn"
+        <Button
+          variant="outlined"
+          color="inherit"
+          component="a"
           href={exportHref}
           title="Download the current filtered view as CSV"
           // The file must match what is on screen, so the active filters ride along. Not a
           // LocalOverlayLink: this is a real download, not an in-page overlay.
+          sx={{ minHeight: { xs: "var(--tap-min)", sm: 36 } }}
         >
           Export
-        </a>
+        </Button>
       )}
-    </div>
+    </Stack>
   );
 }
