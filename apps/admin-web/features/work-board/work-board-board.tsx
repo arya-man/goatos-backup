@@ -48,7 +48,6 @@ import {
   PARAM_OWNER,
   type OwnerOption,
 } from "./work-board-model";
-import { ClockLabel, WorkProgress } from "./work-board-parts";
 
 // The board, in the mock's shape: search · assignee avatars · park pick · date nav · Module menu,
 // the rule line, then four columns of cards. Park, date, module and assignee write the URL and the
@@ -153,12 +152,8 @@ const HOT_CARD_SX = (t: Theme) => ({
 });
 const EMPTY_SX = {
   listStyle: "none",
-  p: 2,
-  border: 1,
-  borderStyle: "dashed",
-  borderColor: "divider",
-  borderRadius: "var(--kanban-item-radius)",
-  typography: "body2",
+  px: 0.5,
+  typography: "caption",
   color: "text.disabled",
 } as const;
 
@@ -201,6 +196,11 @@ function WorkCard({ pageContract, row, href }: { pageContract: AdminUiPageContra
     row.counts.needs_attention > 0 ? reading("warning.main", `${row.counts.needs_attention} ${copy(pageContract, "card.attention")}`, "hot") : null,
   ].filter(Boolean);
   const where = row.subtitle || row.pen.operational_location_display || "";
+  // Template kanban item (sections/kanban/item): priority arrow, one-line name, then the ItemInfo
+  // row. Module, park and the clock are words on the one caption line (the clock toned by severity),
+  // never a strip of chips (TR1-#24); the done / in-review readings sit in the info row.
+  const context = [where, moduleOpt?.label ?? row.module, parkLabel(parkOptions(pageContract), row)].filter(Boolean).join(" · ");
+  const clockTone = cardStatus(row) === "high" ? "error.main" : cardStatus(row) === "medium" ? "warning.main" : undefined;
   return (
     // Template kanban item: ItemRoot shell + ItemContent (priority arrow, name, info row).
     <KanbanItemRoot sx={hot ? HOT_CARD_SX : CARD_ROOT_SX}>
@@ -215,18 +215,14 @@ function WorkCard({ pageContract, row, href }: { pageContract: AdminUiPageContra
       >
         <ItemContent>
           <ItemStatus status={cardStatus(row)} />
-          <ItemName name={row.title} sx={{ pr: 2.5 }} />
-          {where ? (
-            <Typography component="span" variant="caption" noWrap title={where} sx={{ display: "block", mt: 0.5, color: "text.secondary" }}>
-              {where}
+          <ItemName name={row.title} title={row.title} sx={{ pr: 2.5 }} />
+          {context || row.clock_label ? (
+            <Typography component="span" variant="caption" noWrap title={[context, row.park_name, row.clock_label].filter(Boolean).join(" · ")} sx={{ display: "block", mt: 0.5, color: "text.secondary" }}>
+              {context}
+              {context && row.clock_label ? " · " : null}
+              {row.clock_label ? <Box component="span" sx={{ color: clockTone, fontVariantNumeric: "tabular-nums" }}>{row.clock_label}</Box> : null}
             </Typography>
           ) : null}
-          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, mt: 1.5, minWidth: 0 }}>
-            <Label variant="soft" color="primary">{moduleOpt?.label ?? row.module}</Label>
-            <Label variant="soft" title={row.park_name || undefined}>{parkLabel(parkOptions(pageContract), row)}</Label>
-            <ClockLabel row={row} />
-          </Box>
-          {total > 0 ? <Box sx={{ mt: 1.5 }}><WorkProgress row={row} /></Box> : null}
           <ItemInfo assignee={assignee} assigneeTitle={ownerLabel}>
             {readings}
           </ItemInfo>
@@ -430,7 +426,8 @@ export function WorkBoardBoard({
                 ) : (
                   // The header count is whole-filter; a column with work on OTHER pages but none
                   // on this one says so, instead of "Nothing here" under a non-zero count.
-                  <Box component="li" sx={EMPTY_SX}>{count > 0 ? copy(pageContract, "lane.empty.other_pages") : copy(pageContract, "lane.empty")}</Box>
+                  // An empty template column is just the empty list (no dashed "Nothing here" box, TR1-#24).
+                  count > 0 ? <Box component="li" sx={EMPTY_SX}>{copy(pageContract, "lane.empty.other_pages")}</Box> : <Box component="li" className="sr-only">{copy(pageContract, "lane.empty")}</Box>
                 )}
               {paged && !searching ? (
                 // Each column pages on its own: the header stays the whole count, the footer

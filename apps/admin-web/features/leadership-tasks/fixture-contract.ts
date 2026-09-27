@@ -169,6 +169,7 @@ export const leadershipTasksFixtureContract: AdminUiPageContract = {
     "edit.too_many": "A task carries at most 12 attachments.",
     "edit.save": "Save changes",
     "new.open": "New task",
+    "new.no_assignees": "No one can be given a task from here yet. Ask an admin to add people to Tasks on the People page.",
     "new.title": "New task",
     "new.for_field": "For",
     "new.for_placeholder": "Choose who this is for",

@@ -27,6 +27,7 @@ const GRID_IGNORE = ["event", "targets_cursor", "targets_page", "targets_cursor_
 
 import { CalendarRoot, CalendarToolbar, type CalendarView } from "@/components/app/calendar";
 import { pushLocalOverlayUrl } from "@/components/local-overlay-link";
+import { CalendarFilters, type CalendarFiltersModel } from "./calendar-filters";
 import { scopeHref, type Scope } from "@/lib/scope";
 import { fmtDate } from "@/lib/format";
 
@@ -52,10 +53,13 @@ export function CalendarFullView({
   viewOptions,
   noEventsText,
   toolbarCopy,
-  header,
+  filters,
 }: {
-  /** First row inside the card (the workstream Tabs, as the template list's status Tabs). */
-  header?: React.ReactNode;
+  /**
+   * The template filters drawer behind the toolbar's filter icon (window, owner, workstream). The
+   * card holds only CalendarRoot: no tab row above the toolbar (template calendar-view, TR1-#25).
+   */
+  filters?: CalendarFiltersModel;
   events: EventInput[];
   initialAsOf: string;
   // Scope + owner/status ride in as plain data so the client can build hrefs itself.
@@ -87,6 +91,7 @@ export function CalendarFullView({
   // template's mobile calendar and gives a phone-thumb-friendly, no-sideways-scroll surface).
   const [view, setView] = useState<CalendarView>(smUp ? "dayGridMonth" : "listWeek");
   const [title, setTitle] = useState<string>("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   // Keep the view in sync with viewport transitions (desktop <-> phone) exactly like the template's
   // useCalendar hook does. Only fires when the calendar API is mounted.
@@ -165,7 +170,6 @@ export function CalendarFullView({
         minHeight: { xs: "70vh", md: 0 },
       }}
     >
-      {header}
       <CalendarRoot sx={{ display: "flex", flexDirection: "column", flex: "1 1 auto", minHeight: 0 }}>
         <CalendarToolbar
           view={view}
@@ -177,10 +181,13 @@ export function CalendarFullView({
           previousLabel={toolbarCopy.previous}
           nextLabel={toolbarCopy.next}
           viewGroupAriaLabel={toolbarCopy.viewGroupAria}
+          onOpenFilters={filters ? () => setFiltersOpen(true) : undefined}
+          canReset={filters?.canReset}
+          filtersLabel={filters?.openLabel}
         />
 
-        {/* The events grid (guard: url-keyed-panel): an owner / workstream / week-history click swaps it
-            to its skeleton at once; the workstream strip and the toolbar stay on screen. */}
+        {/* The events grid (guard: url-keyed-panel): an owner / workstream / week-history choice swaps it
+            to its skeleton at once; the toolbar stays on screen. */}
         <UrlSuspense searchParams={gridParams} watch={[ALL_PARAMS]} ignore={GRID_IGNORE} fallback={<BlockSkeleton card={false} height={{ xs: "60vh", md: "calc(100dvh - 320px)" }} />}>
         <Box sx={{ flex: "1 1 auto", display: "flex", flexDirection: "column", "& .fc": { flex: "1 1 auto" } }}>
           <FullCalendar
@@ -211,6 +218,7 @@ export function CalendarFullView({
         </Box>
         </UrlSuspense>
       </CalendarRoot>
+      {filters ? <CalendarFilters open={filtersOpen} onClose={() => setFiltersOpen(false)} model={filters} /> : null}
     </Card>
   );
 }

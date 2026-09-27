@@ -2500,6 +2500,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// The New task modal (`new-task-modal.tsx`): every label it shows, so the modal
 			// never hard-codes a word the backend does not own (gate-1 #17, 2026-09-18).
 			"new.open":              "New task",
+			"new.no_assignees":      "No one can be given a task from here yet. Ask an admin to add people to Tasks on the People page.",
 			"new.title":             "New task",
 			"new.for_field":         "For",
 			"new.for_placeholder":   "Choose who this is for",
@@ -3261,6 +3262,7 @@ func pageSpecificCopy(id string) map[string]string {
 	case "calendar":
 		return map[string]string{
 			"filter.owner.aria":                       "Owner",
+			"filter.view.label":                       "View",
 			"filter.workstream.aria":                  "Calendar workstream",
 			"week.all_days_selected_label":            "all days selected",
 			"week.all_owners_selected_label":          "all owner lanes",

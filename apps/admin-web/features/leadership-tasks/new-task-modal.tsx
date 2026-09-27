@@ -2,12 +2,14 @@
 
 import { FileText, Image, Mic, Plus, X } from "lucide-react";
 import { useCallback, useId, useRef, useState } from "react";
+import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Dialog from "@mui/material/Dialog";
 import DialogContent from "@mui/material/DialogContent";
 import DialogTitle from "@mui/material/DialogTitle";
 import IconButton from "@mui/material/IconButton";
 import TextField from "@mui/material/TextField";
+import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 
 import { AssigneePicker } from "@/components/assignee-picker";
@@ -99,19 +101,26 @@ export function NewTaskModal({
 
   return (
     <>
-      <Button
-        ref={openerRef}
-        type="button"
-        variant="contained"
-        color="primary"
-        onClick={openModal}
-        disabled={!assignees.length}
-        startIcon={<Plus className="ic" aria-hidden="true" />}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-      >
-        {text("new.open", "New task")}
-      </Button>
+      {/* No assignable people (the assignees read came back empty): the button stays disabled,
+          and says WHY on hover and on tap -- never a silent grey control (TR1-#24,
+          guard: tasks-new-task-reason). */}
+      <Tooltip title={assignees.length ? "" : text("new.no_assignees", "No one can be given a task from here yet.")} enterTouchDelay={0} leaveTouchDelay={4000}>
+        <Box component="span" sx={{ display: "inline-flex" }}>
+          <Button
+            ref={openerRef}
+            type="button"
+            variant="contained"
+            color="primary"
+            onClick={openModal}
+            disabled={!assignees.length}
+            startIcon={<Plus className="ic" aria-hidden="true" />}
+            aria-haspopup="dialog"
+            aria-expanded={open}
+          >
+            {text("new.open", "New task")}
+          </Button>
+        </Box>
+      </Tooltip>
       <Dialog
         open={open}
         onClose={closeModal}
@@ -246,8 +255,7 @@ export function NewTaskModal({
                         <Icon className="ic" aria-hidden="true" />
                         <span className="lt-picker-label">{picker.label}</span>
                         {count ? <span className="cbq">{count}</span> : null}
-                        <input
-                          type="file"
+                        <input type="file"
                           name="attachment_file"
                           multiple
                           accept={picker.accept}

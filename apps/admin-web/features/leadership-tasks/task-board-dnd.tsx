@@ -365,11 +365,9 @@ export function TaskBoardColumns({
                         />
                       ))
                     ) : column.emptyMessage ? (
-                      <Box
-                        component="li"
-                        className="ltb-colempty"
-                        sx={{ p: 2, border: 1, borderStyle: "dashed", borderColor: "divider", borderRadius: "var(--kanban-item-radius)", typography: "body2", color: "text.disabled" }}
-                      >
+                      // An empty template column is the bare list: the message is for screen
+                      // readers only, never a dashed "Nothing here" box (TR1-#24).
+                      <Box component="li" className="ltb-colempty sr-only">
                         {column.emptyMessage}
                       </Box>
                     ) : null}

@@ -1,12 +1,10 @@
-import { FilterChip } from "@/components/app/list/filter-chip";
+import { LinkFiltersResult, type LinkFilterChip } from "@/components/app/link-filters-result";
 import { listOrEmpty } from "@/lib/list-or-empty";
 import { copy, actionFeedbackCopy, optionLabel, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { one, hrefWithoutAction, type RouteSearchParams } from "@/lib/search-params";
 import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import { todayIso } from "@/lib/format";
 import { PageHeader } from "@/components/app/page-header";
-import { TemplateTabs } from "@/components/app/template-tabs";
-import { LinkButton } from "@/components/app/link-button";
 import {
   fallbackCalendarPresentation,
   ownerMetaFromPresentation,
@@ -21,10 +19,9 @@ import { CalendarEventDrawer, type CalendarDrawerLoadResult } from "./calendar-e
 import { historyWindow, monthWindow } from "./calendar-window";
 import { toFullCalendarEvents } from "./calendar-fullcalendar-events";
 import { CalendarFullView, type CalendarViewOption } from "./calendar-full-view";
+import type { CalendarFiltersModel } from "./calendar-filters";
 import Alert from "@mui/material/Alert";
-import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
-import ButtonGroup from "@mui/material/ButtonGroup";
 
 const PATH = "/calendar";
 
@@ -69,8 +66,8 @@ async function loadCalendarDrawer(
 
 // VaccinationCalendarPage — /calendar on the template's Minimal calendar app (FullCalendar 6.1.20
 // on CalendarRoot). Read-only, one page for both "week" and "history" work (history = the completed
-// backfill), owner filter + workstream tabs above the calendar exactly like the template's user list
-// carries `LabelTabs` above the table. Drive rows open /calendar/drive/[eventId]; other rows open
+// backfill); window, owner and workstream are the template filters drawer behind the toolbar icon
+// (applied ones show as CalendarFiltersResult chips). Drive rows open /calendar/drive/[eventId]; other rows open
 // the shared CalendarEventDrawer via the #calendar_event=<id> fragment.
 export async function VaccinationCalendarPage({
   searchParams,
@@ -184,55 +181,84 @@ export async function VaccinationCalendarPage({
   const renderableEvents = events.filter(isRenderableCalendarEvent);
   const fcEvents = toFullCalendarEvents(renderableEvents, ownerMeta);
 
-  const workstreamTabs = presentation.workstream_tabs.length ? (
-    <TemplateTabs
-      variant="underline"
-      scrollButtons="auto"
-      sx={{ px: { md: 2.5 } }}
-      ariaLabel={copy(pageContract, "filter.workstream.aria")}
-      value={presentation.workstream_tabs.find((tab) => tab.active)?.key ?? ""}
-      items={presentation.workstream_tabs.map((tab) => ({
-        value: tab.key,
-        label: tab.label,
-        href: tab.enabled && !tab.active ? hrefForWorkstreamTab(tab) : undefined,
-        disabled: !tab.enabled,
-      }))}
-    />
-  ) : null;
+  // Template calendar view (sections/calendar/view/calendar-view): heading row, the filter result
+  // chips only when a filter is applied, then ONE Card holding CalendarRoot -> toolbar -> FullCalendar.
+  // The upcoming / history window, the owner lane and the workstream are the template filters
+  // drawer behind the toolbar's filter icon (TR1-#25): no segmented toggle in the heading, no chip
+  // row above the card and no tab row inside it. The template's "Add event" has no Mesha action
+  // (drives are planned on /vaccination/plan), so the heading carries none.
+  const ownerTabOn = (tab: CalendarOwnerPresentationTab) =>
+    tab.active || (!presentation.owner_tabs.some((t) => t.active) && tab.key === activeOwnerKey);
+  const defaultOwnerTab = presentation.owner_tabs.find((tab) => tab.key === "all") ?? presentation.owner_tabs[0];
+  const activeOwnerTab = presentation.owner_tabs.find(ownerTabOn);
+  const defaultWorkstreamTab = presentation.workstream_tabs[0];
+  const activeWorkstreamTab = presentation.workstream_tabs.find((tab) => tab.active);
+  const ownerFiltered = Boolean(activeOwnerTab && defaultOwnerTab && activeOwnerTab.key !== defaultOwnerTab.key);
+  const workstreamFiltered = Boolean(activeWorkstreamTab && defaultWorkstreamTab && activeWorkstreamTab.key !== defaultWorkstreamTab.key);
+  const resetHref = scopeHref(PATH, scope);
+  const filterChips: LinkFilterChip[] = [
+    ...(historyMode ? [{ id: "window", label: `${copy(pageContract, "filter.view.label", "View")}:`, value: historyTabLabel, href: weekHref }] : []),
+    ...(ownerFiltered && activeOwnerTab && defaultOwnerTab
+      ? [{ id: "owner", label: `${copy(pageContract, "filter.owner.aria")}:`, value: activeOwnerTab.label, href: hrefForOwnerTab(defaultOwnerTab) }]
+      : []),
+    ...(workstreamFiltered && activeWorkstreamTab && defaultWorkstreamTab
+      ? [{ id: "workstream", label: `${copy(pageContract, "filter.workstream.aria")}:`, value: activeWorkstreamTab.label, href: hrefForWorkstreamTab(defaultWorkstreamTab) }]
+      : []),
+  ];
+  const filters: CalendarFiltersModel = {
+    title: copy(pageContract, "action.filters", "Filters"),
+    closeLabel: copy(pageContract, "action.close", "Close"),
+    openLabel: copy(pageContract, "action.filters", "Filters"),
+    canReset: filterChips.length > 0,
+    resetHref,
+    groups: [
+      {
+        id: "window",
+        label: copy(pageContract, "filter.view.label", "View"),
+        options: [
+          { key: "week", label: weekTabLabel, href: weekHref, active: !historyMode },
+          { key: "history", label: historyTabLabel, href: historyHref, active: historyMode },
+        ],
+      },
+      ...(presentation.owner_tabs.length
+        ? [{
+            id: "owner",
+            label: copy(pageContract, "filter.owner.aria"),
+            options: presentation.owner_tabs.map((tab) => ({
+              key: tab.key,
+              label: tab.label,
+              href: tab.enabled ? hrefForOwnerTab(tab) : undefined,
+              active: ownerTabOn(tab),
+              disabled: !tab.enabled,
+            })),
+          }]
+        : []),
+      ...(presentation.workstream_tabs.length
+        ? [{
+            id: "workstream",
+            label: copy(pageContract, "filter.workstream.aria"),
+            options: presentation.workstream_tabs.map((tab) => ({
+              key: tab.key,
+              label: tab.label,
+              href: tab.enabled ? hrefForWorkstreamTab(tab) : undefined,
+              active: tab.active,
+              disabled: !tab.enabled,
+            })),
+          }]
+        : []),
+    ],
+  };
 
-  // Template calendar view (sections/calendar/view/calendar-view): heading row with the page
-  // action on the right, the filter result chips, then ONE Card holding CalendarRoot → toolbar →
-  // FullCalendar. The upcoming/history switch is the heading action; owner scope rides as the
-  // template's filter chips above the card; the workstream strip is the card's first row.
   return (
     <Stack spacing={3}>
       <PageHeader
         className="calendar-page-head"
         title={presentation.page_title || pageContract.title}
         crumbs={[{ label: pageContract.title }]}
-        actions={
-          <ButtonGroup variant="outlined" color="inherit" aria-label={copy(pageContract, "filter.view.aria", weekTabLabel)}>
-            <LinkButton href={weekHref} replace scroll={false} variant={historyMode ? "outlined" : "contained"} color={historyMode ? "inherit" : "primary"} aria-current={historyMode ? undefined : "page"}>
-              {weekTabLabel}
-            </LinkButton>
-            <LinkButton href={historyHref} replace scroll={false} variant={historyMode ? "contained" : "outlined"} color={historyMode ? "primary" : "inherit"} aria-current={historyMode ? "page" : undefined}>
-              {historyTabLabel}
-            </LinkButton>
-          </ButtonGroup>
-        }
       />
 
-      {/* Owner scope as the template's filter chips (CalendarFiltersResult row). */}
-      <Box role="group" aria-label={copy(pageContract, "filter.owner.aria")} sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
-        {presentation.owner_tabs.map((tab) => {
-          const on = tab.active || (!presentation.owner_tabs.some((t) => t.active) && tab.key === activeOwnerKey);
-          return tab.enabled ? (
-            <FilterChip key={tab.key} href={hrefForOwnerTab(tab)} on={on} replace label={tab.label} />
-          ) : (
-            <FilterChip key={tab.key} on={on} disabled label={tab.label} />
-          );
-        })}
-      </Box>
+      {/* Template CalendarFiltersResult: only when a filter is applied; a chip removes its filter. */}
+      <LinkFiltersResult totalResults={renderableEvents.length} chips={filterChips} resetHref={resetHref} placement="page" />
 
       {actionStatus ? (
         actionStatus === "success" ? (
@@ -258,7 +284,7 @@ export async function VaccinationCalendarPage({
       ) : null}
 
       <CalendarFullView
-        header={workstreamTabs}
+        filters={filters}
         events={fcEvents}
         initialAsOf={anchorKey}
         scope={scope}

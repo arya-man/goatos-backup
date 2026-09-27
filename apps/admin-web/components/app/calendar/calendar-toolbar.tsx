@@ -3,6 +3,7 @@
 import { usePopover } from "minimal-shared/hooks";
 
 import Box from "@mui/material/Box";
+import Badge from "@mui/material/Badge";
 import Button from "@mui/material/Button";
 import Tooltip from "@mui/material/Tooltip";
 import MenuList from "@mui/material/MenuList";
@@ -17,10 +18,10 @@ import type { IconifyName } from "@/layouts/template/iconify";
 import { CustomPopover } from "@/components/minimal/custom-popover";
 
 // CalendarToolbar (components/app, NOT a template file) — built on Minimal_TypeScript_v7.7.0 next-ts
-// src/sections/calendar/calendar-toolbar.tsx and adapted for our read-only
-// /calendar (no "Add event" button, no filters drawer button — those template
-// affordances belong to the editable demo). Prev / Today / Next, the date
-// title, and the view switcher stay unchanged.
+// src/sections/calendar/calendar-toolbar.tsx for our read-only /calendar. The view switcher,
+// Prev / title / Next, the solid error "Today" button and the filter IconButton (with the reset
+// dot) are the template's; "Add event" belongs to the editable demo and has no Mesha action.
+// The filter button renders only when the page passes `onOpenFilters` (no dead control).
 export type CalendarView = "dayGridMonth" | "timeGridWeek" | "timeGridDay" | "listWeek";
 
 type CalendarToolbarProps = {
@@ -35,6 +36,12 @@ type CalendarToolbarProps = {
   previousLabel: string;
   nextLabel: string;
   viewGroupAriaLabel: string;
+  /** Opens the page's filters drawer (template filter IconButton); omitted means no button. */
+  onOpenFilters?: () => void;
+  /** A non-default filter is applied: lights the template's error dot on the filter icon. */
+  canReset?: boolean;
+  /** Accessible name of the filter button (page copy). */
+  filtersLabel?: string;
 };
 
 export function CalendarToolbar({
@@ -48,6 +55,9 @@ export function CalendarToolbar({
   previousLabel,
   nextLabel,
   viewGroupAriaLabel,
+  onOpenFilters,
+  canReset = false,
+  filtersLabel,
 }: CalendarToolbarProps) {
   const mobileActions = usePopover();
 
@@ -136,16 +146,24 @@ export function CalendarToolbar({
     </Box>
   );
 
-  const renderToday = () => (
+  const renderTodayAndFilters = () => (
     <Box sx={{ gap: 1, display: "flex", alignItems: "center" }}>
       <Button
         size="small"
-        color="inherit"
-        variant="outlined"
+        color="error"
+        variant="contained"
         onClick={() => onDateNavigation("today")}
       >
         {todayLabel}
       </Button>
+
+      {onOpenFilters ? (
+        <IconButton onClick={onOpenFilters} aria-label={filtersLabel} aria-haspopup="dialog">
+          <Badge color="error" variant="dot" invisible={!canReset}>
+            <Iconify icon="ic:round-filter-list" />
+          </Badge>
+        </IconButton>
+      ) : null}
     </Box>
   );
 
@@ -170,7 +188,7 @@ export function CalendarToolbar({
       {renderDesktopMenuItems()}
       {renderMobileMenuItems()}
       {renderDateNavigation()}
-      {renderToday()}
+      {renderTodayAndFilters()}
       {loading && renderLoading()}
     </Box>
   );
