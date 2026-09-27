@@ -619,7 +619,7 @@ reformatted.
 A **month heading** (`Aug 2026`) and a bare **weekday** (`Mon`) are not dates —
 they have no day component — and keep their own form.
 
-Machine gate: `make date-format-guard` (repo-wide: admin-web, Android and backend
+Machine gate: `make date-format-guard` (also refuses the verbatim template format-time formatters fDate/fDateTime/fDateRangeShortLabel and useDateRangePicker().label/.shortLabel outside components/minimal + stories: they print "DD MMM YYYY"; use fmtDate) (repo-wide: admin-web, Android and backend
 copy; canaries on all three shared helpers + scans for a screen hand-writing its
 own date shape). Laundering a date through an intermediate variable before it
 reaches JSX is a stated blind spot that review owns. Canonical prose:

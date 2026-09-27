@@ -323,6 +323,35 @@ export function handRolledDashDateFailures(source) {
   return failures;
 }
 
+// Check 7 (REVIEW-20 O25). The verbatim template format-time (components/minimal/_shared/format-time.ts)
+// prints "DD MMM YYYY", and useDateRangePicker().label / .shortLabel are built from it. Outside the
+// template folder and stories nothing may import those formatters or read those labels.
+const TEMPLATE_TIME_FORMATTERS = /\b(fDate|fDateTime|fTime|fDateRangeShortLabel|fToNow)\b/;
+const TEMPLATE_TIME_IMPORT = /import\s*\{([^}]*)\}\s*from\s*["'][^"']*(?:_shared\/format-time|utils\/format-time)["']/g;
+export function templateDateFormatterFailures(source) {
+  const failures = [];
+  const lines = source.split("\n");
+  const hit = (index, text) => {
+    const lineNo = source.slice(0, index).split("\n").length;
+    if (!ignored(lines, lineNo)) failures.push({ line: lineNo, text });
+  };
+  let match;
+  TEMPLATE_TIME_IMPORT.lastIndex = 0;
+  while ((match = TEMPLATE_TIME_IMPORT.exec(source)) !== null) {
+    if (TEMPLATE_TIME_FORMATTERS.test(match[1])) hit(match.index, match[0].replace(/\s+/g, " "));
+  }
+  if (/\buseDateRangePicker\s*\(/.test(source)) {
+    const names = [...source.matchAll(/const\s+(\w+)\s*=\s*useDateRangePicker\s*\(/g)].map((m) => m[1]);
+    for (const name of names) {
+      const re = new RegExp(`\\b${name}\\.(?:shortLabel|label)\\b`, "g");
+      let m2;
+      while ((m2 = re.exec(source)) !== null) hit(m2.index, m2[0]);
+    }
+    for (const m3 of source.matchAll(/\{[^}]*\b(?:shortLabel|label)\b[^}]*\}\s*=\s*useDateRangePicker\s*\(/g)) hit(m3.index, m3[0]);
+  }
+  return failures;
+}
+
 function assert(condition, message) {
   if (!condition) {
     console.error(`self-test FAIL: ${message}`);
@@ -448,6 +477,11 @@ function selfTest() {
   assert(goCanaryFailures('const FarmDateFormat = "02/01/2006"').length === 0, "good FarmDateFormat flagged");
   assert(goCanaryFailures('const FarmDateFormat = "02-01-2006"').length === 1, "dashed FarmDateFormat not caught");
 
+  assert(templateDateFormatterFailures('import { fDate } from "@/components/minimal/_shared/format-time";').length === 1, "template fDate import not flagged");
+  assert(templateDateFormatterFailures("import { fIsAfter } from '../_shared/format-time';").length === 0, "non-display helper wrongly flagged");
+  assert(templateDateFormatterFailures("const rp = useDateRangePicker(a, b);\nreturn <span>{rp.shortLabel}</span>;").length === 1, "useDateRangePicker().shortLabel not flagged");
+  assert(templateDateFormatterFailures("const rp = useDateRangePicker(a, b);\nreturn <span>{fmtDate(rp.startDate)}</span>;").length === 0, "fmtDate over the picker dates wrongly flagged");
+
   console.log("date-format-guard self-test: PASS");
 }
 
@@ -501,6 +535,15 @@ function main() {
     if (file.includes("node_modules/")) continue;
     for (const hit of handRolledDashDateFailures(readFileSync(resolve(repo, file), "utf8"))) {
       failures.push(`${file}:${hit.line}: a date assembled by hand in reverse order with dashes (${hit.text}) — render DD/MM/YYYY via GoatOsDates / fmtDate (or mark ${IGNORE} <reason>)`);
+    }
+  }
+
+  // 7. the template's "DD MMM YYYY" formatters and date-range picker labels outside the template folder
+  for (const file of tracked("apps/admin-web")) {
+    if (!/\.(ts|tsx)$/.test(file) || file.includes(".test.") || file.includes("node_modules/")) continue;
+    if (file.startsWith("apps/admin-web/components/minimal/") || file.startsWith("apps/admin-web/stories/")) continue;
+    for (const hit of templateDateFormatterFailures(readFileSync(resolve(repo, file), "utf8"))) {
+      failures.push(`${file}:${hit.line}: template date formatter / picker label (${hit.text}) prints "DD MMM YYYY" — render DD/MM/YYYY with lib/format.ts fmtDate / fmtDateTime`);
     }
   }
 
