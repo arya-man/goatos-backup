@@ -84,3 +84,13 @@ for (const [name, source] of [
   assert.match(source, /useBackCloses\(open, closeModal\)/, `${name} must close on browser Back`);
 }
 
+
+// ---- guard: tasks-phone-stacked-row (FJ1-P1-11). Below sm the list is ONE column: the people,
+// status and evidence columns carry `lt-wide-col` on header AND body and are hidden, and the task
+// cell repeats the assignee + status, so nothing is clipped at the card edge mid-word.
+{
+  const wide = table.match(/cellClassName: "[^"]*lt-wide-col[^"]*", headerClassName: "[^"]*lt-wide-col[^"]*"/g) ?? [];
+  assert.equal(wide.length, 4, "assignee, raised_by, status and evidence all carry lt-wide-col on header and cell");
+  assert.match(table, /down\("sm"\)\]: \{ "& \.lt-wide-col": \{ display: "none" \}/, "lt-wide-col hides below sm");
+  assert.match(table, /className="lt-phone-meta"[\s\S]{0,200}display: \{ xs: "flex", sm: "none" \}[\s\S]{0,300}task\.assignee[\s\S]{0,200}task\.statusLabel/, "the task cell stacks assignee + status on a phone");
+}

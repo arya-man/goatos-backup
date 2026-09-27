@@ -86,6 +86,13 @@ export function LeadershipTasksTable({
           <DeadlineClock task={task} compact />
         </Box>
       ) : null}
+      {/* Stacked phone row (FJ1-P1-11): below sm the people / status / evidence columns are dropped
+          (`.lt-wide-col`), so the assignee and status sit here instead of a column clipped at the
+          card edge. guard: tasks-phone-stacked-row */}
+      <Box className="lt-phone-meta" sx={{ display: { xs: "flex", sm: "none" }, alignItems: "center", flexWrap: "wrap", gap: 1, mt: 0.75, typography: "body2", color: "text.secondary" }}>
+        <Box component="span" sx={{ overflowWrap: "anywhere" }}>{task.assignee}</Box>
+        <Label variant="soft" color={statusColor(task.status)}>{task.statusLabel}</Label>
+      </Box>
     </>
   );
 
@@ -121,12 +128,13 @@ export function LeadershipTasksTable({
           />
         </Box>
       ),
-      meta: { cellClassName: "lt-people-col", headerClassName: "lt-people-col" },
+      meta: { cellClassName: "lt-people-col lt-wide-col", headerClassName: "lt-people-col lt-wide-col" },
       sortValue: (task) => task.assignee,
     },
-    raised_by: { cell: (task) => task.raisedBy, meta: { cellClassName: "lt-people-col", headerClassName: "lt-people-col" }, sortValue: (task) => task.raisedBy },
+    raised_by: { cell: (task) => task.raisedBy, meta: { cellClassName: "lt-people-col lt-wide-col", headerClassName: "lt-people-col lt-wide-col" }, sortValue: (task) => task.raisedBy },
     status: {
       cell: (task) => <Label variant="soft" color={statusColor(task.status)}>{task.statusLabel}</Label>,
+      meta: { cellClassName: "lt-wide-col", headerClassName: "lt-wide-col" },
       sortValue: (task) => task.status,
     },
     evidence: {
@@ -137,6 +145,7 @@ export function LeadershipTasksTable({
           <Box component="span" sx={{ color: "text.secondary", typography: "caption" }}>{task.evidence}</Box>
         </Box>
       ),
+      meta: { cellClassName: "lt-wide-col", headerClassName: "lt-wide-col" },
       sortValue: (task) => task.attachments,
     },
   });
@@ -152,6 +161,7 @@ export function LeadershipTasksTable({
         "& td.lt-task-col": { minWidth: 220 },
         "& td.lt-days-col": { whiteSpace: "nowrap" },
         [theme.breakpoints.down("md")]: { "& .lt-days-col": { display: "none" } },
+        [theme.breakpoints.down("sm")]: { "& .lt-wide-col": { display: "none" }, "& td.lt-task-col": { minWidth: 0 } },
       })}
     >
       <DataTable<TaskRow>
