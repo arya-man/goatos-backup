@@ -3,8 +3,8 @@ import { readFileSync } from "node:fs";
 
 // The shell is the MUI Minimal DashboardLayout (layouts/dashboard). These checks read the components
 // that actually render the phone menu; the old `.side` / `.navscrim` CSS is not rendered any more.
-const navMobile = readFileSync(new URL("../layouts/dashboard/nav-mobile.tsx", import.meta.url), "utf8");
-const layout = readFileSync(new URL("../layouts/dashboard/layout.tsx", import.meta.url), "utf8");
+const navMobile = readFileSync(new URL("../layouts/app/dashboard/nav-mobile.tsx", import.meta.url), "utf8");
+const layout = readFileSync(new URL("../layouts/app/dashboard/layout.tsx", import.meta.url), "utf8");
 const shell = readFileSync(new URL("./mesha-shell.tsx", import.meta.url), "utf8");
 
 // R2 item 5 (Ravi 2026-09-26, supersedes invariant bc8864617): the phone menu is the template NavMobile
@@ -38,6 +38,6 @@ assert.match(glue, /\.msh-content\.main\{[^}]*overflow:visible[^}]*\}/, "page co
 assert.match(shell, /<DashboardContent[^>]*className="main msh-content"/, "page content keeps the `.main` class contract");
 
 // Invariant bd0c2c286: a mini-rail group icon navigates to the group's first leaf (its leaves are hidden).
-const navVertical = readFileSync(new URL("../layouts/dashboard/nav-vertical.tsx", import.meta.url), "utf8");
+const navVertical = readFileSync(new URL("../layouts/app/dashboard/nav-vertical.tsx", import.meta.url), "utf8");
 assert.match(navVertical, /<NavSectionMini[\s\S]*?enabledRootRedirect[\s\S]*?\/>/, "mini rail group icons must link to the group's first leaf");
 assert.match(shell, /path: groupFirstHref\(g\)/, "group path is the first enabled leaf");

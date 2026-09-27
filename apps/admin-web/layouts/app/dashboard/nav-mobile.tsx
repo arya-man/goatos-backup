@@ -15,7 +15,7 @@ import { Logo } from '@/layouts/template/logo';
 import { Scrollbar } from '@/layouts/template/scrollbar';
 import { NavSectionVertical } from '@/layouts/template/nav-section';
 
-import { layoutClasses } from '../core';
+import { layoutClasses } from '@/layouts/core';
 
 // ----------------------------------------------------------------------
 

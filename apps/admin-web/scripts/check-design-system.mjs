@@ -211,7 +211,7 @@ const CHECKS = {
   "section-client-boundary": { tier: "p0", why: "a template section under components/minimal/sections/ that uses hooks or a function sx/theme callback must start with 'use client'; a server page rendering it would otherwise pass a function to a client component and crash at render (typecheck cannot see it)" },
   "page-template-no-pastel": { tier: "p0", why: "a page listed in docs/design/page-template-map.md must not use KpiCard variant tint/gradient or AnalyticsWidgetSummary (pastel in dark); KPI rows are the template Ecommerce/Course/Banking widget summaries" },
   "page-template-legacy-card": { tier: "p0", why: "a page listed in docs/design/page-template-map.md must not render the legacy hand-made card markup (className \"card\"/\"wchart\"/\"wtable\"/\"kpi\", <h2 className=\"h\">); every block is a template section card (Card + CardHeader) fed our data" },
-  "shell-nav-template": { tier: "p0", why: "the sidebar is the template NavSectionVertical/NavSectionMini inside layouts/dashboard nav-vertical/nav-mobile (whole nav in the template Scrollbar, template 288px mobile drawer over the template backdrop); no custom footer (navBottom / msh-foot / navigation.footer), no default-open subtrees, no full-width/opaque phone menu or extra close button" },
+  "shell-nav-template": { tier: "p0", why: "the sidebar is the template NavSectionVertical/NavSectionMini inside layouts/app/dashboard nav-vertical/nav-mobile (whole nav in the template Scrollbar, template 288px mobile drawer over the template backdrop); no custom footer (navBottom / msh-foot / navigation.footer), no default-open subtrees, no full-width/opaque phone menu or extra close button" },
   "unsourced-minimal-file": { tier: "p0", why: "components/minimal/ holds template-derived code only; every file needs an entry in docs/design/template-sources.json mapping it to a Minimal template source path" },
   "template-derived-anatomy": { tier: "p0", why: "a template-derived section (docs/design/template-derived.json: demo wiring turned into props, lives in components/app/sections) keeps the template's markup and styles: its JSX element sequence and sx keys equal the template source's (recorded in the manifest; refresh with node scripts/refresh-template-derived.mjs). Only data / props may differ" },
   "template-verbatim": { tier: "p0", why: "every file mapped in docs/design/template-sources.json (components/minimal/**, layouts/**) equals its MUI Minimal template source byte-for-byte except import paths and a \"use client\" line (sha256 of the normalised template source is stored there; refresh with node scripts/refresh-template-hashes.mjs). Product behaviour (URL links, data shapes, copy) goes in components/app adapters or feature files that pass props to the verbatim template component; a hand-made component never wears a template path. Existing drift: docs/design/template-verbatim-baseline.json, shrink-only" },
@@ -979,22 +979,23 @@ function pageTemplateLegacyCardFindings(root) {
 }
 // R2 item 5 (Ravi): the sidebar drifted from the template (custom "Mesha · goat operating system"
 // footer, every default_open subtree expanded, full-width opaque phone menu with its own close
-// button). layouts/dashboard nav-vertical / nav-mobile must render the template NavSectionVertical
+// button). layouts/app/dashboard nav-vertical / nav-mobile must render the template NavSectionVertical
 // (and NavSectionMini) inside the template Scrollbar, and none of the shell deviations may return.
 function shellNavTemplateFindings(root) {
-  const dash = join(root, "layouts", "dashboard");
+  const dash = join(root, "layouts", "app", "dashboard");
   if (!existsSync(dash)) return [];
   const out = [];
   const read = (rel) => (existsSync(join(root, rel)) ? readFileSync(join(root, rel), "utf8") : null);
   const requireIn = (rel, pattern, what) => {
     const text = read(rel);
-    if (text !== null && !pattern.test(text)) out.push({ file: rel, line: 1, snippet: `must render the template ${what}` });
+    if (text === null) out.push({ file: rel, line: 1, snippet: `missing: the shell nav file must exist to render the template ${what}` });
+    else if (!pattern.test(text)) out.push({ file: rel, line: 1, snippet: `must render the template ${what}` });
   };
-  requireIn("layouts/dashboard/nav-vertical.tsx", /<NavSectionVertical\b/, "NavSectionVertical");
-  requireIn("layouts/dashboard/nav-vertical.tsx", /<NavSectionMini\b/, "NavSectionMini");
-  requireIn("layouts/dashboard/nav-vertical.tsx", /<Scrollbar fillContent>/, "Scrollbar (the whole nav scrolls, logo fixed)");
-  requireIn("layouts/dashboard/nav-mobile.tsx", /<NavSectionVertical\b/, "NavSectionVertical");
-  requireIn("layouts/dashboard/nav-mobile.tsx", /<Scrollbar fillContent>/, "Scrollbar");
+  requireIn("layouts/app/dashboard/nav-vertical.tsx", /<NavSectionVertical\b/, "NavSectionVertical");
+  requireIn("layouts/app/dashboard/nav-vertical.tsx", /<NavSectionMini\b/, "NavSectionMini");
+  requireIn("layouts/app/dashboard/nav-vertical.tsx", /<Scrollbar fillContent>/, "Scrollbar (the whole nav scrolls, logo fixed)");
+  requireIn("layouts/app/dashboard/nav-mobile.tsx", /<NavSectionVertical\b/, "NavSectionVertical");
+  requireIn("layouts/app/dashboard/nav-mobile.tsx", /<Scrollbar fillContent>/, "Scrollbar");
   const banned = [
     [/\bnavBottom\b|msh-foot|navigation\.footer/, "custom nav footer (the template has only the optional NavUpgrade card, which we do not use)"],
     [/\bdefaultOpen\b|default_open/, "default-open nav subtree (template opens only the active group)"],
@@ -1002,7 +1003,7 @@ function shellNavTemplateFindings(root) {
     [/100vw/, "full-width phone nav drawer (template width is var(--layout-nav-mobile-width))"],
     [/backdrop:\s*\{\s*sx:/, "custom phone nav backdrop (template backdrop)"],
   ];
-  const files = ["components/mesha-shell.tsx", ...["layout.tsx", "nav-vertical.tsx", "nav-mobile.tsx"].map((f) => `layouts/dashboard/${f}`)];
+  const files = ["components/mesha-shell.tsx", ...["layout.tsx", "nav-vertical.tsx", "nav-mobile.tsx"].map((f) => `layouts/app/dashboard/${f}`)];
   const navSection = join(root, "layouts", "template", "nav-section");
   if (existsSync(navSection)) files.push(...walk(navSection).map((abs) => toRel(root, abs)));
   for (const rel of files) {
@@ -1140,9 +1141,9 @@ async function selfTest() {
   put("components/minimal/sections/overview/demo/server-section.tsx", "export const S = () => <LinearProgress sx={[(theme) => ({ height: 8 })]} />;\n");
   // zero-arg sx callback (template BookingWidgetSummary `sx={[() => ({ p: 2 }), ...]}`) crashed /counts/mortality
   put("components/minimal/sections/overview/demo/server-zero-arg-sx.tsx", "export const Z = ({ sx }) => <Card sx={[() => ({ p: 2 }), sx]} />;\n");
-  put("layouts/dashboard/nav-vertical.tsx", "export const V = () => <Scrollbar fillContent><NavSectionVertical data={d} /></Scrollbar>;\n");
-  put("layouts/dashboard/nav-mobile.tsx", "export const M = () => <Drawer slotProps={{ backdrop: { sx: { bgcolor: 'var(--bg)' } }, paper: { sx: { width: '100vw' } } }}><NavSectionVertical data={d} /></Drawer>;\n");
-  put("layouts/dashboard/layout.tsx", 'export const L = () => <NavMobile slots={{ bottomArea: navBottom }} />;\n');
+  put("layouts/app/dashboard/nav-vertical.tsx", "export const V = () => <Scrollbar fillContent><NavSectionVertical data={d} /></Scrollbar>;\n");
+  put("layouts/app/dashboard/nav-mobile.tsx", "export const M = () => <Drawer slotProps={{ backdrop: { sx: { bgcolor: 'var(--bg)' } }, paper: { sx: { width: '100vw' } } }}><NavSectionVertical data={d} /></Drawer>;\n");
+  put("layouts/app/dashboard/layout.tsx", 'export const L = () => <NavMobile slots={{ bottomArea: navBottom }} />;\n');
   for (const [rel, text] of Object.entries(CHART_TEMPLATE_SELFTEST)) put(rel, text);
   // url-keyed-panel: a page whose feature (through the barrel) renders a URL strip with no UrlSuspense
   // is caught; the same page with its panel inside UrlSuspense is not.

@@ -49,7 +49,7 @@ test("guard: brand-primary-contained -- a contained Button always names its colo
 });
 
 test("guard: mesha-logo-mark -- the logo tile is the मे mark and global-error follows the user's theme", () => {
-  const logo = read("layouts/template/logo/logo.tsx");
+  const logo = read("layouts/app/logo/logo.tsx");
   assert.match(logo, /MESHA_LOGO_TEXT = 'मे'/, "Logo default text is the shell's मे mark (top_bar.logo_text)");
   assert.match(logo, /text = MESHA_LOGO_TEXT/);
   const offenders = productTsx.filter((path) => /logoText="M"|<Logo[^>]*text="M"/.test(read(path)));

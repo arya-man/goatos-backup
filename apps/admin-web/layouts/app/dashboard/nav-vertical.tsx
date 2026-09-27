@@ -12,8 +12,8 @@ import { Logo } from '@/layouts/template/logo';
 import { Scrollbar } from '@/layouts/template/scrollbar';
 import { NavSectionMini, NavSectionVertical } from '@/layouts/template/nav-section';
 
-import { layoutClasses } from '../core';
-import { NavToggleButton } from '../components/nav-toggle-button';
+import { layoutClasses } from '@/layouts/core';
+import { NavToggleButton } from '@/layouts/components/nav-toggle-button';
 
 // ----------------------------------------------------------------------
 

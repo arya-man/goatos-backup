@@ -793,7 +793,7 @@ export function MeshaShell({
       subheader: contract.copy["nav.eyebrow.groups"] ?? "Modules",
       items: groups.map((g) => ({
         title: g.label,
-        // Group path = first enabled leaf: the mini rail icon links there (layouts/dashboard/nav-vertical.tsx).
+        // Group path = first enabled leaf: the mini rail icon links there (layouts/app/dashboard/nav-vertical.tsx).
         path: groupFirstHref(g),
         icon: navIcon(g.icon),
         active: g.leaves.some((l) => l.enabled && navActive(l)),
@@ -907,7 +907,7 @@ export function MeshaShell({
         contractCopy={contract.copy}
       />
       {/* Theme toggle sits where the template header has its Settings button: after notifications,
-          before the account avatar (layouts/dashboard/layout.tsx in Minimal v7.7.0). */}
+          before the account avatar (layouts/app/dashboard/layout.tsx in Minimal v7.7.0). */}
       <ThemeToggle
         labelToLight={shellCopy(contract, "theme.switch_to_light")}
         labelToDark={shellCopy(contract, "theme.switch_to_dark")}

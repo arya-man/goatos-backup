@@ -206,13 +206,13 @@ export const overlayJourneys = {
   "control-tower": [
     {
       id: "mobile-nav",
-      // layouts/dashboard/layout.tsx: header MenuButton[data-nav-open] opens the template NavMobile drawer (paper.msh-side,
+      // layouts/app/dashboard/layout.tsx: header MenuButton[data-nav-open] opens the template NavMobile drawer (paper.msh-side,
       // <1200px, var(--layout-nav-mobile-width) over the template backdrop). Escape / backdrop tap / Back close it.
       trigger: "button[data-nav-open]",
       overlay: ".MuiDrawer-paper.msh-side",
       kind: "nav",
       viewports: ["mobile"],
-      source: "layouts/dashboard/layout.tsx (MenuButton, NavMobile); layouts/dashboard/nav-mobile.tsx",
+      source: "layouts/app/dashboard/layout.tsx (MenuButton, NavMobile); layouts/app/dashboard/nav-mobile.tsx",
     },
   ],
 };

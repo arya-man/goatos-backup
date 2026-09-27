@@ -81,9 +81,6 @@
     "layouts/dashboard/content.tsx": "src/layouts/dashboard/content.tsx",
     "layouts/dashboard/css-vars.ts": "src/layouts/dashboard/css-vars.ts",
     "layouts/dashboard/index.ts": "src/layouts/dashboard/index.ts",
-    "layouts/dashboard/layout.tsx": "src/layouts/dashboard/layout.tsx",
-    "layouts/dashboard/nav-mobile.tsx": "src/layouts/dashboard/nav-mobile.tsx",
-    "layouts/dashboard/nav-vertical.tsx": "src/layouts/dashboard/nav-vertical.tsx",
     "layouts/template/animate/animate-border.tsx": "src/components/animate/animate-border.tsx",
     "layouts/template/animate/features.ts": "src/components/animate/features.ts",
     "layouts/template/animate/index.ts": "src/components/animate/index.ts",
@@ -942,74 +939,6 @@
       "imports": [
         "./layout",
         "./content"
-      ]
-    },
-    "layouts/dashboard/layout.tsx": {
-      "sha256": "597afcd942c7fe69a68bed8150c7e40bd4c72d4ae535402fee280342870541a7",
-      "imports": [
-        "@mui/material/styles",
-        "src/components/nav-section",
-        "../core",
-        "es-toolkit",
-        "minimal-shared/hooks",
-        "@mui/material/Box",
-        "@mui/material/Alert",
-        "@mui/material/styles",
-        "@mui/material/IconButton",
-        "src/locales",
-        "src/_mock",
-        "src/components/logo",
-        "src/components/settings",
-        "src/auth/hooks",
-        "./nav-mobile",
-        "./content",
-        "./nav-vertical",
-        "./nav-horizontal",
-        "../nav-config-account",
-        "../components/searchbar",
-        "../nav-config-workspace",
-        "../components/menu-button",
-        "../components/account-drawer",
-        "../components/settings-button",
-        "../components/language-popover",
-        "../components/contacts-popover",
-        "../components/workspaces-popover",
-        "../nav-config-dashboard",
-        "./css-vars",
-        "../components/notifications-drawer",
-        "../core"
-      ]
-    },
-    "layouts/dashboard/nav-mobile.tsx": {
-      "sha256": "1017a01a29e2c8bc4fa937fdad10676d7d586ab8128ae20e3266b3630af36b71",
-      "imports": [
-        "src/components/nav-section",
-        "react",
-        "minimal-shared/utils",
-        "@mui/material/Box",
-        "@mui/material/Drawer",
-        "src/routes/hooks",
-        "src/components/logo",
-        "src/components/scrollbar",
-        "src/components/nav-section",
-        "../core",
-        "../components/nav-upgrade"
-      ]
-    },
-    "layouts/dashboard/nav-vertical.tsx": {
-      "sha256": "35e492691f206225f79f81bed3887105600937c17eb4b59b1d169465381dfe51",
-      "imports": [
-        "@mui/material/styles",
-        "src/components/nav-section",
-        "minimal-shared/utils",
-        "@mui/material/Box",
-        "@mui/material/styles",
-        "src/components/logo",
-        "src/components/scrollbar",
-        "src/components/nav-section",
-        "../core",
-        "../components/nav-upgrade",
-        "../components/nav-toggle-button"
       ]
     },
     "layouts/template/animate/animate-border.tsx": {

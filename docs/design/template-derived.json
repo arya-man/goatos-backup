@@ -1237,6 +1237,203 @@
       "propNames": [
         "LogoRoot(...,aria-label,className,component,href,sx,underline)"
       ]
+    },
+    "layouts/app/dashboard/nav-vertical.tsx": {
+      "source": "src/layouts/dashboard/nav-vertical.tsx",
+      "replaced": "bottomArea slot replaces the template NavUpgrade demo card (no default); declared: the mini rail enables the template enabledRootRedirect option (group icon opens its first leaf, bd0c2c286)",
+      "templateStrip": [
+        [
+          " \\?\\? <NavUpgrade \\/>",
+          ""
+        ]
+      ],
+      "strip": [
+        [
+          "\\s*enabledRootRedirect\\n",
+          "\n"
+        ]
+      ],
+      "tags": [
+        "Box",
+        "Logo",
+        "Scrollbar",
+        "NavSectionVertical",
+        "Box",
+        "Logo",
+        "NavSectionMini",
+        "NavRoot",
+        "NavToggleButton"
+      ],
+      "sx": [
+        "pl",
+        "pt",
+        "pb",
+        "px",
+        "flex",
+        "display",
+        "justifyContent",
+        "py",
+        "pb",
+        "px",
+        "flex",
+        "overflowY",
+        "display",
+        "[theme.breakpoints.up(layoutQuery)]",
+        "display"
+      ],
+      "sxValues": [
+        "{ pl: 3.5, pt: 2.5, pb: 1 }",
+        "{ px: 2, flex: '1 1 auto' }",
+        "{ display: 'flex', justifyContent: 'center', py: 2.5 }",
+        "[ (theme) => ({ ...theme.mixins.hideScrollY, pb: 2, px: 0.5, flex: '1 1 auto', overflowY: 'auto'})]",
+        "sx",
+        "[ (theme) => ({ display: 'none', [theme.breakpoints.up(layoutQuery)]: { display: 'inline-flex' }})]"
+      ],
+      "props": [],
+      "propNames": [
+        "Box(sx)",
+        "Logo()",
+        "Scrollbar(fillContent)",
+        "NavSectionVertical(checkPermissions,cssVars,data,sx)",
+        "Box(sx)",
+        "Logo()",
+        "NavSectionMini(checkPermissions,cssVars,data,sx)",
+        "NavRoot(...,className,isNavMini,layoutQuery,sx)",
+        "NavToggleButton(isNavMini,onClick,sx)"
+      ]
+    },
+    "layouts/app/dashboard/nav-mobile.tsx": {
+      "source": "src/layouts/dashboard/nav-mobile.tsx",
+      "replaced": "the template NavUpgrade demo card is not carried; declared WebView overrides: Android Back closes the drawer (useBackCloses) and the drawer paper clears notches / gesture bars (safe-area padding)",
+      "templateStrip": [
+        "\\n\\s*<NavUpgrade \\/>\\n(?=\\s*<\\/Scrollbar>)"
+      ],
+      "strip": [
+        [
+          "\\s*pt: 'env\\(safe-area-inset-top, 0px\\)',\\s*pb: 'env\\(safe-area-inset-bottom, 0px\\)',\\s*pl: 'env\\(safe-area-inset-left, 0px\\)',",
+          ""
+        ]
+      ],
+      "tags": [
+        "Drawer",
+        "Box",
+        "Logo",
+        "Scrollbar",
+        "NavSectionVertical"
+      ],
+      "sx": [
+        "pl",
+        "pt",
+        "pb",
+        "px",
+        "flex"
+      ],
+      "sxValues": [
+        "{ pl: 3.5, pt: 2.5, pb: 1 }",
+        "{ px: 2, flex: '1 1 auto' }"
+      ],
+      "props": [],
+      "propNames": [
+        "Drawer(onClose,open,slotProps)",
+        "Box(sx)",
+        "Logo()",
+        "Scrollbar(fillContent)",
+        "NavSectionVertical(...,checkPermissions,data,sx)"
+      ]
+    },
+    "layouts/app/dashboard/layout.tsx": {
+      "source": "src/layouts/dashboard/layout.tsx",
+      "replaced": "template mocks -> shell props: navData (bootstrap nav), headerLeft slot (park scope switcher, in place of the WorkspacesPopover demo), headerRight slot (notifications, theme toggle, account, in place of the Searchbar/Language/Notifications/Contacts/Settings/Account demo row), logo text/href into the nav topArea slots; showNav=false (contract nav_chrome \"minimal\") drops the sidebar and puts the logo in the header; the horizontal nav layout, the hidden demo Alert and the mocked-role checkPermissions are not carried; declared: MenuButton/NavMobile/NavVertical a11y labels and the msh-side hook, the header safe-area override (mergeSx), sidebar padding 0 without a nav",
+      "allowProps": [
+        "MenuButton:aria-label",
+        "MenuButton:aria-expanded",
+        "MenuButton:data-nav-open",
+        "NavMobile:className",
+        "NavMobile:aria-label",
+        "NavMobile:slots",
+        "NavVertical:className",
+        "NavVertical:aria-label",
+        "NavVertical:slots"
+      ],
+      "templateStrip": [
+        "\\s*topArea: \\(\\s*<Alert[\\s\\S]*?<\\/Alert>\\s*\\),",
+        "\\s*bottomArea: isNavHorizontal \\? \\(\\s*<NavHorizontal[\\s\\S]*?\\/>\\s*\\) : null,",
+        "\\s*checkPermissions=\\{canDisplayItemByRole\\}",
+        "\\s*\\{isNavHorizontal && \\(\\s*<Logo[\\s\\S]*?\\/>\\s*\\)\\}",
+        "\\s*\\{isNavHorizontal && \\(\\s*<VerticalDivider[\\s\\S]*?\\/>\\s*\\)\\}",
+        "\\s*<WorkspacesPopover[\\s\\S]*?\\/>",
+        "\\s*<Searchbar [^\\n]*\\/>",
+        "\\s*<LanguagePopover [^\\n]*\\/>",
+        "\\s*<NotificationsDrawer [^\\n]*\\/>",
+        "\\s*<ContactsPopover [^\\n]*\\/>",
+        "\\s*<SettingsButton \\/>",
+        "\\s*<AccountDrawer [^\\n]*\\/>"
+      ],
+      "strip": [
+        "\\s*const renderLogo = \\(\\) => <Logo text=\\{logoText\\} href=\\{logoHref\\} \\/>;",
+        [
+          "leftArea: showNav \\? \\(",
+          "leftArea: ("
+        ],
+        [
+          "\\) : \\(\\s*<>\\s*\\{renderLogo\\(\\)\\}\\s*\\{headerLeft\\}\\s*<\\/>\\s*\\),",
+          "),"
+        ],
+        "\\{headerLeft\\}",
+        "\\{headerRight\\}",
+        "\\s*slots=\\{\\{\\s*topArea: [\\s\\S]*?\\),\\s*\\}\\}",
+        [
+          "sx=\\{mergeSx\\(\\{ pt: 'env\\(safe-area-inset-top, 0px\\)' \\}, slotProps\\?\\.header\\?\\.sx\\)\\}",
+          "sx={slotProps?.header?.sx}"
+        ],
+        [
+          "pl: showNav\\s*\\?\\s*isNavMini\\s*\\?\\s*'var\\(--layout-nav-mini-width\\)'\\s*:\\s*'var\\(--layout-nav-vertical-width\\)'\\s*:\\s*0,",
+          "pl: isNavMini ? 'var(--layout-nav-mini-width)' : 'var(--layout-nav-vertical-width)',"
+        ]
+      ],
+      "tags": [
+        "MenuButton",
+        "NavMobile",
+        "Box",
+        "HeaderSection",
+        "NavVertical",
+        "MainSection",
+        "LayoutSection"
+      ],
+      "sx": [
+        "mr",
+        "ml",
+        "[theme.breakpoints.up(layoutQuery)]",
+        "display",
+        "display",
+        "alignItems",
+        "gap",
+        "xs",
+        "sm",
+        "[theme.breakpoints.up(layoutQuery)]",
+        "pl",
+        "var(--layout-nav-mini-width)",
+        "transition",
+        "easing",
+        "duration",
+        "sx"
+      ],
+      "sxValues": [
+        "{ mr: 1, ml: -1, [theme.breakpoints.up(layoutQuery)]: { display: 'none' } }",
+        "{ display: 'flex', alignItems: 'center', gap: { xs: 0, sm: 0.75 } }",
+        "slotProps?.header?.sx",
+        "[ { [`& .${layoutClasses.sidebarContainer}`]: { [theme.breakpoints.up(layoutQuery)]: { pl: isNavMini ? 'var(--layout-nav-mini-width)' : 'var(--layout-nav-vertical-width)', transition: theme.transitions.create(['padding-left'], { easing: 'var(--layout-transition-easing)', duration: 'var(--layout-transition-duration)'})}}}, ...(Array.isArray(sx) ? sx : [sx])]"
+      ],
+      "props": [],
+      "propNames": [
+        "MenuButton(onClick,sx)",
+        "NavMobile(cssVars,data,onClose,open)",
+        "Box(sx)",
+        "HeaderSection(...,disableElevation,layoutQuery,slotProps,slots,sx)",
+        "NavVertical(cssVars,data,isNavMini,layoutQuery,onToggleNav)",
+        "MainSection(...)",
+        "LayoutSection(cssVars,footerSection,headerSection,sidebarSection,sx)"
+      ]
     }
   }
 }

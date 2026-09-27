@@ -2,7 +2,7 @@
 
 import type { Breakpoint } from '@mui/material/styles';
 import type { NavSectionProps } from '@/layouts/template/nav-section';
-import type { MainSectionProps, HeaderSectionProps, LayoutSectionProps } from '../core';
+import type { MainSectionProps, HeaderSectionProps, LayoutSectionProps } from '@/layouts/core';
 
 import { merge } from 'es-toolkit';
 import { useBoolean } from 'minimal-shared/hooks';
@@ -10,14 +10,15 @@ import { useBoolean } from 'minimal-shared/hooks';
 import Box from '@mui/material/Box';
 import { useTheme } from '@mui/material/styles';
 
+import { mergeSx } from '@/components/app/merge-sx';
 import { Logo } from '@/layouts/template/logo';
 import { useSettingsContext } from '@/layouts/template/settings';
 
 import { NavMobile } from './nav-mobile';
 import { NavVertical } from './nav-vertical';
-import { MenuButton } from '../components/menu-button';
-import { dashboardLayoutVars, dashboardNavColorVars } from './css-vars';
-import { MainSection, layoutClasses, HeaderSection, LayoutSection } from '../core';
+import { MenuButton } from '@/layouts/components/menu-button';
+import { dashboardLayoutVars, dashboardNavColorVars } from '@/layouts/dashboard/css-vars';
+import { MainSection, layoutClasses, HeaderSection, LayoutSection } from '@/layouts/core';
 
 // ----------------------------------------------------------------------
 
@@ -71,7 +72,7 @@ export function DashboardLayout({
 
   const isNavMini = settings.state.navLayout === 'mini';
 
-  const renderLogo = (sx?: object) => <Logo text={logoText} href={logoHref} sx={sx} />;
+  const renderLogo = () => <Logo text={logoText} href={logoHref} />;
 
   const renderHeader = () => {
     const headerSlotProps: HeaderSectionProps['slotProps'] = {
@@ -126,11 +127,8 @@ export function DashboardLayout({
         {...slotProps?.header}
         slots={{ ...headerSlots, ...slotProps?.header?.slots }}
         slotProps={merge(headerSlotProps, slotProps?.header?.slotProps ?? {})}
-        // Mesha WebView: header clears the status-bar notch under viewport-fit=cover.
-        sx={[
-          { pt: 'env(safe-area-inset-top, 0px)' },
-          ...(Array.isArray(slotProps?.header?.sx) ? slotProps.header.sx : [slotProps?.header?.sx]),
-        ]}
+        // Declared override (Mesha WebView): the header clears the status-bar notch under viewport-fit=cover.
+        sx={mergeSx({ pt: 'env(safe-area-inset-top, 0px)' }, slotProps?.header?.sx)}
       />
     );
   };
@@ -150,9 +148,16 @@ export function DashboardLayout({
           <Box sx={{ pl: 3.5, pt: 2.5, pb: 1 }}>{renderLogo()}</Box>
         ),
       }}
-      onToggleNav={() => settings.setField('navLayout', isNavMini ? 'vertical' : 'mini')}
+      onToggleNav={() =>
+        settings.setField(
+          'navLayout',
+          settings.state.navLayout === 'vertical' ? 'mini' : 'vertical'
+        )
+      }
     />
   );
+
+  const renderFooter = () => null;
 
   const renderMain = () => <MainSection {...slotProps?.main}>{children}</MainSection>;
 
@@ -160,7 +165,7 @@ export function DashboardLayout({
     <LayoutSection
       headerSection={renderHeader()}
       sidebarSection={showNav ? renderSidebar() : null}
-      footerSection={null}
+      footerSection={renderFooter()}
       cssVars={{ ...dashboardLayoutVars(theme), ...navVars.layout, ...cssVars }}
       sx={[
         {
