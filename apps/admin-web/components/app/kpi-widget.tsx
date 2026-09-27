@@ -46,8 +46,6 @@ export type KpiWidgetProps = {
   color?: PaletteColorKey;
   icon?: KpiIcon;
   trend?: KpiTrend | null;
-  /** @deprecated use `trend` with period "week". */
-  weekChange?: { percent: number; series: number[]; categories: string[] } | null;
   href?: string;
   /** Link component for `href` (e.g. LocalOverlayLink for a same-page overlay). Default: no-prefetch Link. */
   linkComponent?: ElementType;
@@ -99,9 +97,9 @@ export function sevenDayPercent(series: readonly (number | null | undefined)[]):
 // line height so an unavailable figure does not collapse the card.
 const SUBLINE_ROOM = { pb: 5.5, "& .MuiBox-root:empty": { minHeight: "1.5em" } };
 
-export function KpiWidget({ title, total, caption, color = "primary", icon, trend, weekChange, href, linkComponent, sx, "data-testid": testId }: KpiWidgetProps) {
+export function KpiWidget({ title, total, caption, color = "primary", icon, trend, href, linkComponent, sx, "data-testid": testId }: KpiWidgetProps) {
   const figure = total ?? Number.NaN;
-  const t: KpiTrend | null = trend ?? (weekChange ? { ...weekChange, period: "week" } : null);
+  const t: KpiTrend | null = trend ?? null;
   const cardSx = [{ height: 1 }, ...(caption ? [SUBLINE_ROOM] : [{ "& .MuiBox-root:empty": { minHeight: "1.5em" } }]), ...(Array.isArray(sx) ? sx : [sx])] as SxProps<Theme>;
   let card;
   if (t && t.period === "week" && (t.series?.length ?? 0) > 1) {
