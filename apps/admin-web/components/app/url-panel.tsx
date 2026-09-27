@@ -125,8 +125,18 @@ export function UrlPanel({
     };
   }, [pending, pendingFrom]);
 
+  // `display: contents` makes the panel's children the page grid's items, so the page root's
+  // `> * { min-width: 0 }` never reaches them. Without it a wide child (a 960px table, a chart)
+  // sizes the page's one grid track to its min-content and the whole page — header, KPI row,
+  // toolbar — overflows the content column (TR1-#5, /sales/loads 1561px in 1060px).
+  // guard: url-panel-min-width
   return (
-    <Box data-url-panel="" data-url-panel-pending={showFallback ? "" : undefined} aria-busy={pending || undefined} sx={{ display: "contents" }}>
+    <Box
+      data-url-panel=""
+      data-url-panel-pending={showFallback ? "" : undefined}
+      aria-busy={pending || undefined}
+      sx={{ display: "contents", "& > *": { minWidth: 0 } }}
+    >
       {showFallback ? (targetValue !== null && fallbackBy?.shapes[targetValue]) || fallback : children}
     </Box>
   );

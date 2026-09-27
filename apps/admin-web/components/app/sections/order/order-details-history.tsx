@@ -96,7 +96,7 @@ export function OrderDetailsHistory({ title, action, timeline, summary = [], mor
 
             <TimelineContent>
               <Typography variant="subtitle2">{item.title}</Typography>
-              {item.body}
+              {item.body ? <Box sx={{ typography: 'body2', color: 'text.secondary' }}>{item.body}</Box> : null}
               <Box component="span" sx={{ color: 'text.disabled', typography: 'caption', mt: 0.5 }}>
                 {item.time}
               </Box>

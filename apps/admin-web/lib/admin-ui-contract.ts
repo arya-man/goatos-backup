@@ -883,6 +883,12 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "date.invalid": "Pick a valid date.",
     "field.hour": "Hour",
     "field.minute": "Minute",
+    // The New load drawer's location select (605fcc0f8). An API one release older than the web
+    // (the shared :18250 at 5d9e9cbed) does not serve them, and the drawer renders on page load,
+    // so a missing key took the whole board to the error boundary (TR1-#4). Same copy as the
+    // backend's source-entry contract.
+    "location.select_optional_location": "select location...",
+    "location.no_origins": "No active source locations are available from Location master.",
   },
   "sales-sold": {
     // The singular count nouns (2026-09-26: "1 lines", "1 live animals", "about every 1 days").

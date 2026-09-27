@@ -727,7 +727,7 @@
     },
     "components/app/sections/order/order-details-history.tsx": {
       "source": "src/sections/order/order-details-history.tsx",
-      "replaced": "IOrderHistory -> title/timeline/summary props (time caption preformatted instead of fDateTime; optional body line + tone dot colour); Show more -> optional more link; declared: header action, Card sx/props passthrough",
+      "replaced": "IOrderHistory -> title/timeline/summary props (time caption preformatted instead of fDateTime; optional body line (own block under the title, so the time caption keeps its own line: TR1-#27) + tone dot colour); Show more -> optional more link; declared: header action, Card sx/props passthrough",
       "allowProps": [
         "CardHeader:action",
         "Button:component",
@@ -738,7 +738,7 @@
           "<Card sx=\\{sx\\} \\{\\.\\.\\.other\\}>",
           "<Card>"
         ],
-        "\\{item\\.body\\}"
+        "\\{item\\.body \\? <Box sx=\\{\\{ typography: 'body2', color: 'text\\.secondary' \\}\\}>\\{item\\.body\\}</Box> : null\\}"
       ],
       "tags": [
         "Paper",
