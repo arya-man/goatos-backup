@@ -35,6 +35,9 @@ test("layout lists mirror the backend page contract", () => {
   assert.deepEqual(constList(feed, "FEED_DELIVERY_STATUS_KEYS"), contractOptions("feed_purchase_delivery_statuses"));
   assert.deepEqual(constList(source, "SOURCE_LOAD_COLUMNS"), contractColumns("source-loads"));
   assert.deepEqual(constList(source, "SOURCE_LOAD_STATUS_KEYS"), contractOptions("source_load_status"));
+  const animals = read("./animal-purchases-layout.ts");
+  assert.deepEqual(constList(animals, "ANIMAL_LOAD_COLUMNS"), contractColumns("animal-purchase-loads"));
+  assert.deepEqual(constList(animals, "ANIMAL_DECISION_KEYS"), contractOptions("animal_purchase_decisions"));
 });
 
 test("pages read their tab lists, widths and page sizes from the same layout files", () => {
@@ -53,11 +56,17 @@ test("the twins retype no layout number", () => {
     "operations/dlq": read("../../app/(admin)/operations/dlq/loading.tsx"),
     "feed-purchases": read("./feed-purchases-skeletons.tsx"),
     "source-entry": read("./source-entry-skeletons.tsx"),
+    "animal-purchases": read("./animal-purchases-skeletons.tsx"),
   };
   for (const [name, src] of Object.entries(twins)) {
     assert.match(src, /-layout"/, `${name} imports its layout file`);
     assert.doesNotMatch(src, /(columns|rows|count)=\{\d+\}|fields=\{\[\d|trailing=\{\[\d|buttons=\{\[\d/, `${name}: a layout number is retyped`);
   }
   assert.match(read("./source-entry-board.tsx"), /fallback=\{<SourceLoadRowsSkeleton /);
+  const animalPage = read("./animal-purchases.tsx");
+  assert.match(animalPage, /fallback=\{<AnimalLoadRowsSkeleton rows=\{loadsLimit\} \/>\}/);
+  assert.match(animalPage, /fallback=\{<AnimalCardsSkeleton \/>\}/);
+  assert.match(animalPage, /size=\{ANIMAL_KPI_SIZE\}/);
+  assert.match(read("../../app/(admin)/procurement/animal-purchases/loading.tsx"), /<AnimalPurchasesSkeleton \/>/);
   assert.match(read("../../app/(admin)/procurement/source-entry/loading.tsx"), /<SourceEntrySkeleton \/>/);
 });

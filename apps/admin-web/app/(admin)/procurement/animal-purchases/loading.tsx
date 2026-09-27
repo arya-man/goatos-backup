@@ -1,14 +1,6 @@
-import { KpiRowSkeleton, ListCardSkeleton, PageHeaderSkeleton, PageSkeleton, TableSkeleton, TabsSkeleton } from "@/components/app/skeletons";
+import { AnimalPurchasesSkeleton } from "@/features/procurement/animal-purchases-skeletons";
 
-/** /procurement/animal-purchases: header, four KPI cards, the loads table card, the animals card. */
+/** /procurement/animal-purchases: the page's own twin (its loads rows and animal cards are the UrlSuspense fallbacks too). */
 export default function Loading() {
-  return (
-    <PageSkeleton>
-      <PageHeaderSkeleton />
-      <KpiRowSkeleton count={4} />
-      {/* Contract table "animal-purchase-loads": 9 columns. */}
-      <TableSkeleton columns={9} rows={5} headerAction={<TabsSkeleton count={2} variant="pill" />} />
-      <ListCardSkeleton rows={6} />
-    </PageSkeleton>
-  );
+  return <AnimalPurchasesSkeleton />;
 }
