@@ -1,3 +1,4 @@
+import { Fragment, type ReactNode } from "react";
 import Box from "@mui/material/Box";
 import { orderToolbarFilterSx } from "@/components/app/order-toolbar-filter";
 import { DividedStack } from "@/components/app/divided-stack";
@@ -45,7 +46,7 @@ import { ProcurementFiltersResult, ProcurementListToolbar, type ToolbarChip } fr
 import { FeedPurchaseDrawer } from "./feed-purchase-drawer";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
-import { DEFAULT_DELIVERY, DEFAULT_LIMIT } from "./feed-purchases-layout";
+import { DEFAULT_DELIVERY, DEFAULT_LIMIT, FEED_STRIP_CELLS, FEED_TOOLBAR_FILTERS } from "./feed-purchases-layout";
 
 const PATHNAME = "/procurement/feed-purchases";
 const DEFAULT_FARM = "all";
@@ -150,6 +151,32 @@ export async function FeedPurchasesPage({
   ];
   const countWord = copy(pageContract, total === 1 ? "summary.count.one" : "summary.count");
 
+  // The strip's cells in FEED_STRIP_CELLS order (feed-purchases-layout.ts, shared with the twin).
+  const stripCells: Record<(typeof FEED_STRIP_CELLS)[number], ReactNode> = {
+    purchases: (
+      <InvoiceAnalytic
+        title={ledgerTable.title}
+        total={total}
+        caption={`${total} ${countWord}`}
+        value={`${copy(pageContract, "summary.spend")} ${inr(spendRupees)}`}
+        percent={100}
+        icon="solar:bill-list-bold-duotone"
+        color="info.main"
+      />
+    ),
+    quantity: (
+      <InvoiceAnalytic
+        title={copy(pageContract, "summary.quantity")}
+        total={quantityKg}
+        caption={farm === DEFAULT_FARM ? copy(pageContract, "filter.farm.all", farmLabel) : farmLabel}
+        value={`${num(quantityKg, 0)} kg`}
+        percent={100}
+        icon="solar:cart-3-bold"
+        color="success.main"
+      />
+    ),
+  };
+
   return (
     <div className="screen on">
       <PageHeader
@@ -203,24 +230,9 @@ export async function FeedPurchasesPage({
             direction="row"
             sx={{ py: 2 }}
           >
-            <InvoiceAnalytic
-              title={ledgerTable.title}
-              total={total}
-              caption={`${total} ${countWord}`}
-              value={`${copy(pageContract, "summary.spend")} ${inr(spendRupees)}`}
-              percent={100}
-              icon="solar:bill-list-bold-duotone"
-              color="info.main"
-            />
-            <InvoiceAnalytic
-              title={copy(pageContract, "summary.quantity")}
-              total={quantityKg}
-              caption={farm === DEFAULT_FARM ? copy(pageContract, "filter.farm.all", farmLabel) : farmLabel}
-              value={`${num(quantityKg, 0)} kg`}
-              percent={100}
-              icon="solar:cart-3-bold"
-              color="success.main"
-            />
+            {FEED_STRIP_CELLS.map((key) => (
+              <Fragment key={key}>{stripCells[key]}</Fragment>
+            ))}
           </DividedStack>
         </Scrollbar>
       </Card>
@@ -251,8 +263,8 @@ export async function FeedPurchasesPage({
           columnsLabel={copy(pageContract, "action.columns", "Columns")}
           exportLabel={copy(pageContract, "action.export", "Export")}
           moreLabel={copy(pageContract, "action.more", "More")}
-          filters={
-            <Box sx={[orderToolbarFilterSx, { "& .MuiTextField-root": { width: 1 } }]}>
+          filters={FEED_TOOLBAR_FILTERS.map((key) => (
+            <Box key={key} sx={[orderToolbarFilterSx, { "& .MuiTextField-root": { width: 1 } }]}>
               <LinkSelect
                 label={copy(pageContract, "filter.farm")}
                 value={farm}
@@ -267,7 +279,7 @@ export async function FeedPurchasesPage({
                 }))}
               />
             </Box>
-          }
+          ))}
         />
 
         <ProcurementFiltersResult
