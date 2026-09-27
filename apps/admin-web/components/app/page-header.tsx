@@ -5,6 +5,7 @@ import type { MouseEvent, ReactNode } from "react";
 import Box from "@mui/material/Box";
 
 import { CustomBreadcrumbs } from "@/components/minimal/custom-breadcrumbs";
+import { BackLink } from "@/components/minimal/custom-breadcrumbs/back-link";
 import { useNavTrail } from "@/components/shell/nav-trail-context";
 import { iconifyClasses } from "@/components/minimal/iconify";
 
@@ -50,23 +51,34 @@ export function PageHeader({ title, crumbs: crumbsIn, actions, backHref, tabs, t
         // sideways overflow (WebView rule), so the arrow sits inline there instead of being cut off.
         [`& .minimal__breadcrumbs__back .${iconifyClasses.root}`]: { ml: { xs: 0, md: "-18px" } },
       }}>
+      {/* The back arrow is the verbatim template BackLink rendered as the heading (CustomBreadcrumbs
+          prints `heading` inside its h1); the in-app trail makes it a history back with its own title. */}
       <CustomBreadcrumbs
-        heading={title}
-        backHref={back}
+        heading={
+          (back ? (
+            <BackLink
+              href={back}
+              label={title}
+              className="minimal__breadcrumbs__back"
+              {...(last
+                ? {
+                    title: trail.backTitle(last),
+                    "data-nav-back": "true",
+                    onClick: (event: MouseEvent<HTMLAnchorElement>) => {
+                      event.preventDefault();
+                      trail.back();
+                    },
+                  }
+                : {})}
+            />
+          ) : (
+            title
+          )) as unknown as string
+        }
         links={crumbs.map((crumb) => ({ name: crumb.label, href: crumb.href }))}
         action={actions ? <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5, alignItems: "center" }}>{actions}</Box> : undefined}
         slotProps={{
           heading: { as: "h1", className: "kit-page-title" } as never,
-          backLink: last
-            ? {
-                title: trail.backTitle(last),
-                "data-nav-back": "true",
-                onClick: (event: MouseEvent<HTMLAnchorElement>) => {
-                  event.preventDefault();
-                  trail.back();
-                },
-              } as never
-            : undefined,
         }}
       />
       {tabs ? <div>{tabs}</div> : null}

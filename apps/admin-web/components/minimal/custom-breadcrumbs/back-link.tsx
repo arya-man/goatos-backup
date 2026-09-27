@@ -2,7 +2,7 @@ import type { LinkProps } from '@mui/material/Link';
 
 import Link from '@mui/material/Link';
 
-import RouterLink from '@/components/no-prefetch-link';
+import { RouterLink } from '@/layouts/template/routes/components';
 
 import { Iconify, iconifyClasses } from '../iconify';
 
@@ -16,7 +16,6 @@ export function BackLink({ sx, label, ...other }: BackLinkProps) {
   return (
     <Link
       component={RouterLink}
-      className="minimal__breadcrumbs__back"
       color="inherit"
       underline="none"
       sx={[

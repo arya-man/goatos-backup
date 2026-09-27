@@ -10,7 +10,7 @@ import Box from '@mui/material/Box';
 import { styled } from '@mui/material/styles';
 import Typography from '@mui/material/Typography';
 
-import { MINIMAL_ASSETS } from '../_shared/config';
+import { CONFIG } from '@/layouts/template/global-config';
 
 // ----------------------------------------------------------------------
 
@@ -43,7 +43,7 @@ export function EmptyContent({
       <Box
         component="img"
         alt="Empty content"
-        src={imgUrl ?? `${MINIMAL_ASSETS}/icons/empty/ic-content.svg`}
+        src={imgUrl ?? `${CONFIG.assetsDir}/assets/icons/empty/ic-content.svg`}
         {...slotProps?.img}
         sx={[
           {

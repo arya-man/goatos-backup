@@ -1,5 +1,3 @@
-// Copied from the licensed MUI Minimal template (src/sections/product/product-skeleton.tsx);
-// exports renamed from Product* to generic card/details names. Markup unchanged.
 'use client';
 
 import type { GridProps } from '@mui/material/Grid';
@@ -13,11 +11,11 @@ import Skeleton from '@mui/material/Skeleton';
 
 // ----------------------------------------------------------------------
 
-type ItemCardSkeletonProps = PaperProps & {
+type ProductItemSkeletonProps = PaperProps & {
   itemCount?: number;
 };
 
-export function ItemCardSkeleton({ sx, itemCount = 16, ...other }: ItemCardSkeletonProps) {
+export function ProductItemSkeleton({ sx, itemCount = 16, ...other }: ProductItemSkeletonProps) {
   return Array.from({ length: itemCount }, (_, index) => (
     <Paper
       key={index}
@@ -47,7 +45,7 @@ export function ItemCardSkeleton({ sx, itemCount = 16, ...other }: ItemCardSkele
 
 // ----------------------------------------------------------------------
 
-export function DetailsSkeleton({ ...other }: GridProps) {
+export function ProductDetailsSkeleton({ ...other }: GridProps) {
   return (
     <Grid container spacing={8} {...other}>
       <Grid size={{ xs: 12, md: 6, lg: 7 }}>

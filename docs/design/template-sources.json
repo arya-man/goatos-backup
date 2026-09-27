@@ -23,7 +23,6 @@
     "components/minimal/sections/user/user-table-row.tsx": "src/sections/user/user-table-row.tsx",
     "components/minimal/sections/invoice/invoice-analytic.tsx": "src/sections/invoice/invoice-analytic.tsx",
     "components/minimal/sections/overview/analytics/analytics-website-visits.tsx": "src/sections/overview/analytics/analytics-website-visits.tsx",
-    "components/minimal/_shared/config.ts": "src/global-config.ts",
     "components/minimal/_shared/format-number.ts": "src/utils/format-number.ts",
     "components/minimal/_shared/format-time.ts": "src/utils/format-time.ts",
     "components/minimal/_shared/tap.ts": "src/theme/core/components/button.tsx",
@@ -63,7 +62,6 @@
     "components/minimal/label/index.ts": "src/components/label/index.ts",
     "components/minimal/link-button.tsx": "src/routes/components/router-link.tsx",
     "components/minimal/loading-screen/loading-screen.tsx": "src/components/loading-screen/loading-screen.tsx",
-    "components/minimal/loading-screen/index.ts": "src/components/loading-screen/index.ts",
     "components/minimal/progress-list/progress-item.tsx": "src/sections/overview/e-commerce/ecommerce-sales-overview.tsx",
     "components/minimal/sections/overview/banking/banking-expenses-categories.tsx": "src/sections/overview/banking/banking-expenses-categories.tsx",
     "components/minimal/sections/overview/analytics/analytics-conversion-rates.tsx": "src/sections/overview/analytics/analytics-conversion-rates.tsx",
@@ -80,7 +78,6 @@
     "components/minimal/search-not-found/index.ts": "src/components/search-not-found/index.ts",
     "components/minimal/skeletons/card-skeleton.tsx": "src/sections/product/product-skeleton.tsx",
     "components/minimal/skeletons/list-skeleton.tsx": "src/sections/mail/mail-skeleton.tsx",
-    "components/minimal/skeletons/index.ts": "src/sections/product/product-skeleton.tsx",
     "components/minimal/svg-color/index.ts": "src/components/svg-color/index.ts",
     "components/minimal/table/index.ts": "src/components/table/index.ts",
     "components/minimal/table/table-empty-rows.tsx": "src/components/table/table-empty-rows.tsx",
@@ -189,13 +186,6 @@
     "components/minimal/upload/default/styles.tsx": "src/components/upload/default/styles.tsx"
   },
   "verbatim": {
-    "components/minimal/_shared/config.ts": {
-      "sha256": "dfbe5a354d45505534ad00872cd1afaa210a0fc3f611038bf9010e2e2544f8af",
-      "imports": [
-        "src/routes/paths",
-        "../package.json"
-      ]
-    },
     "components/minimal/_shared/format-number.ts": {
       "sha256": "50ca910b2f74c964241b5abb097d894081ef8de795ffc78da9215a9a3a42f4d9",
       "imports": [
@@ -532,13 +522,6 @@
       "sha256": "ab116fd92c1be3a869441ffd43ac74a1047dfc4fc7891403ef3c5534a3256ab6",
       "imports": [
         "next/link"
-      ]
-    },
-    "components/minimal/loading-screen/index.ts": {
-      "sha256": "7fc3c24bf4c822e4e4f021272caf728823357950c134bf5d95d66892d8eaa00f",
-      "imports": [
-        "./splash-screen",
-        "./loading-screen"
       ]
     },
     "components/minimal/loading-screen/loading-screen.tsx": {
@@ -956,18 +939,6 @@
       ]
     },
     "components/minimal/skeletons/card-skeleton.tsx": {
-      "sha256": "33b9fbd938609e01d814ab63bd8a1debefcdeea749790b2e331a791e01a2d5dd",
-      "imports": [
-        "@mui/material/Grid",
-        "@mui/material/Paper",
-        "@mui/material/Box",
-        "@mui/material/Grid",
-        "@mui/material/Stack",
-        "@mui/material/Paper",
-        "@mui/material/Skeleton"
-      ]
-    },
-    "components/minimal/skeletons/index.ts": {
       "sha256": "33b9fbd938609e01d814ab63bd8a1debefcdeea749790b2e331a791e01a2d5dd",
       "imports": [
         "@mui/material/Grid",

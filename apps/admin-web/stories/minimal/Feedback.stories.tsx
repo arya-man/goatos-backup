@@ -7,10 +7,11 @@ import Typography from "@mui/material/Typography";
 import { Iconify } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { EmptyContent } from "@/components/minimal/empty-content";
-import { LoadingScreen } from "@/components/minimal/loading-screen";
+import { LoadingScreen } from "@/components/minimal/loading-screen/loading-screen";
 import { SearchNotFound } from "@/components/minimal/search-not-found";
 import { CustomBreadcrumbs } from "@/components/minimal/custom-breadcrumbs";
-import { ItemCardSkeleton, ListItemSkeleton, NavItemSkeleton } from "@/components/minimal/skeletons";
+import { ProductItemSkeleton } from "@/components/minimal/skeletons/card-skeleton";
+import { MailItemSkeleton, MailNavItemSkeleton } from "@/components/minimal/skeletons/list-skeleton";
 import { withMinimalTheme, mobile } from "./_minimal";
 
 function Breadcrumbs() {
@@ -43,11 +44,11 @@ function All() {
         </Box>
       </Card>
       <Box sx={{ display: "grid", gap: 3, gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))", md: "repeat(4, minmax(0, 1fr))" } }}>
-        <ItemCardSkeleton itemCount={4} />
+        <ProductItemSkeleton itemCount={4} />
       </Box>
       <Box sx={{ display: "grid", gap: 3, gridTemplateColumns: { xs: "1fr", md: "240px minmax(0, 1fr)" } }}>
-        <Card sx={{ p: 2 }}><NavItemSkeleton itemCount={4} /></Card>
-        <Card sx={{ p: 2 }}><ListItemSkeleton itemCount={4} /></Card>
+        <Card sx={{ p: 2 }}><MailNavItemSkeleton itemCount={4} /></Card>
+        <Card sx={{ p: 2 }}><MailItemSkeleton itemCount={4} /></Card>
       </Box>
       <Card sx={{ p: 0, height: 160 }}>
         <Scrollbar sx={{ p: 3 }}>

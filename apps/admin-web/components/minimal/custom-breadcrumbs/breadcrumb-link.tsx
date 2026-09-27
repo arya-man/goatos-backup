@@ -3,7 +3,7 @@ import type { Theme, SxProps } from '@mui/material/styles';
 import Link from '@mui/material/Link';
 import { styled } from '@mui/material/styles';
 
-import RouterLink from '@/components/no-prefetch-link';
+import { RouterLink } from '@/layouts/template/routes/components';
 
 // ----------------------------------------------------------------------
 

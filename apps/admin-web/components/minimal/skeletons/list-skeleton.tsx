@@ -1,5 +1,3 @@
-// Copied from the licensed MUI Minimal template (src/sections/mail/mail-skeleton.tsx);
-// exports renamed from Mail* to generic list names. Markup unchanged.
 import type { BoxProps } from '@mui/material/Box';
 
 import { varAlpha } from 'minimal-shared/utils';
@@ -9,11 +7,11 @@ import Skeleton from '@mui/material/Skeleton';
 
 // ----------------------------------------------------------------------
 
-type NavItemSkeletonProps = BoxProps & {
+type MailNavItemSkeletonProps = BoxProps & {
   itemCount?: number;
 };
 
-export function NavItemSkeleton({ itemCount = 6, sx, ...other }: NavItemSkeletonProps) {
+export function MailNavItemSkeleton({ itemCount = 6, sx, ...other }: MailNavItemSkeletonProps) {
   return Array.from({ length: itemCount }, (_, index) => (
     <Box
       key={index}
@@ -38,11 +36,11 @@ export function NavItemSkeleton({ itemCount = 6, sx, ...other }: NavItemSkeleton
 
 // ----------------------------------------------------------------------
 
-type ListItemSkeletonProps = BoxProps & {
+type MailItemSkeletonProps = BoxProps & {
   itemCount?: number;
 };
 
-export function ListItemSkeleton({ sx, itemCount = 6, ...other }: ListItemSkeletonProps) {
+export function MailItemSkeleton({ sx, itemCount = 6, ...other }: MailItemSkeletonProps) {
   return Array.from({ length: itemCount }, (_, index) => (
     <Box
       key={index}

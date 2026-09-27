@@ -2,7 +2,6 @@
 
 import type { Theme, SxProps } from '@mui/material/styles';
 import type { BreadcrumbsProps } from '@mui/material/Breadcrumbs';
-import type { BackLinkProps } from './back-link';
 import type { MoreLinksProps } from './more-links';
 import type { BreadcrumbsLinkProps } from './breadcrumb-link';
 
@@ -27,7 +26,6 @@ export type CustomBreadcrumbsSlotProps = {
   heading: React.ComponentProps<typeof BreadcrumbsHeading>;
   content: React.ComponentProps<typeof BreadcrumbsContent>;
   container: React.ComponentProps<typeof BreadcrumbsContainer>;
-  backLink: Omit<BackLinkProps, 'href' | 'label'>;
 };
 
 export type CustomBreadcrumbsSlots = {
@@ -62,7 +60,7 @@ export function CustomBreadcrumbs({
 
   const renderHeading = () => (
     <BreadcrumbsHeading {...slotProps?.heading}>
-      {backHref ? <BackLink href={backHref} label={heading} {...slotProps?.backLink} /> : heading}
+      {backHref ? <BackLink href={backHref} label={heading} /> : heading}
     </BreadcrumbsHeading>
   );
 

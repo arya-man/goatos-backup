@@ -1,2 +1,5 @@
-// Shared with the Phase 1 shell: one copy of the template component lives in layouts/template/scrollbar.
-export * from '@/layouts/template/scrollbar';
+export * from '@/layouts/template/scrollbar/classes';
+
+export * from '@/layouts/template/scrollbar/scrollbar';
+
+export type * from '@/layouts/template/scrollbar/types';
