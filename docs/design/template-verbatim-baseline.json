@@ -9,7 +9,6 @@
     "layouts/components/workspaces-button.tsx": "13fa9cf5b1514315cb7670be268fa3bf331540e1498b0686640b3d5ebd4a1409",
     "layouts/dashboard/layout.tsx": "2cfd8cbffcc2df64d60e216b85f4746dacb6f356e6bced2b99a7ef42df7d55b7",
     "layouts/dashboard/nav-mobile.tsx": "30026bee9a9b218328ec21653cc50034ca7b8a66cfe93aec57975aaf16c56512",
-    "layouts/dashboard/nav-vertical.tsx": "36bdad6ce364898d6dfbeddab2cd33ad07d316d9028dc74c08af8efa62a3e771",
-    "layouts/template/logo/logo.tsx": "a9be023bc6c4c226336b6f69214a946fb86a849fe5860d3638664228d3baf12f"
+    "layouts/dashboard/nav-vertical.tsx": "36bdad6ce364898d6dfbeddab2cd33ad07d316d9028dc74c08af8efa62a3e771"
   }
 }

@@ -108,7 +108,6 @@
     "layouts/template/label/types.ts": "src/components/label/types.ts",
     "layouts/template/logo/classes.ts": "src/components/logo/classes.ts",
     "layouts/template/logo/index.ts": "src/components/logo/index.ts",
-    "layouts/template/logo/logo.tsx": "src/components/logo/logo.tsx",
     "layouts/template/nav-section/index.ts": "src/components/nav-section/index.ts",
     "layouts/template/nav-section/types.ts": "src/components/nav-section/types.ts",
     "layouts/template/nav-section/components/index.ts": "src/components/nav-section/components/index.ts",
@@ -1392,18 +1391,6 @@
       "sha256": "7fc3c24bf4c822e4e4f021272caf728823357950c134bf5d95d66892d8eaa00f",
       "imports": [
         "./logo",
-        "./classes"
-      ]
-    },
-    "layouts/template/logo/logo.tsx": {
-      "sha256": "84cb85900ced1da46284c3a8797a9943857efbee7e9f7bedfeeb02eac7cb3edc",
-      "imports": [
-        "@mui/material/Link",
-        "react",
-        "minimal-shared/utils",
-        "@mui/material/Link",
-        "@mui/material/styles",
-        "src/routes/components",
         "./classes"
       ]
     },

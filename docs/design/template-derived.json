@@ -1203,6 +1203,40 @@
         "NavUl(sx)",
         "NavList(checkPermissions,cssVars,data,depth,enabledRootRedirect,render,slotProps)"
       ]
+    },
+    "layouts/app/logo/logo.tsx": {
+      "source": "src/components/logo/logo.tsx",
+      "replaced": "brand mark: the Minimal SVG single/full logos (template brand point) -> the Mesha tile (text prop, bootstrap top_bar.logo_text); declared override: 44px tap target around the 40px tile (WebView rule)",
+      "templateStrip": [
+        "  const uniqueId = useId\\(\\);[\\s\\S]*?(?=\\n  return \\()"
+      ],
+      "strip": [
+        "  const singleLogo = \\(\\s*<Box[\\s\\S]*?<\\/Box>\\s*\\);\\s*const fullLogo = singleLogo;\\n",
+        [
+          "width: 44,\\s*height: 44,\\s*m: '-2px',\\s*display: 'grid',\\s*placeItems: 'center',",
+          "width: 40, height: 40,"
+        ]
+      ],
+      "tags": [
+        "LogoRoot"
+      ],
+      "sx": [
+        "width",
+        "height",
+        "width",
+        "height",
+        "pointerEvents",
+        "sx"
+      ],
+      "sxValues": [
+        "[ { width: 40, height: 40, ...(!isSingle && { width: 102, height: 36 }), ...(disabled && { pointerEvents: 'none' })}, ...(Array.isArray(sx) ? sx : [sx])]"
+      ],
+      "props": [
+        "underline=none"
+      ],
+      "propNames": [
+        "LogoRoot(...,aria-label,className,component,href,sx,underline)"
+      ]
     }
   }
 }

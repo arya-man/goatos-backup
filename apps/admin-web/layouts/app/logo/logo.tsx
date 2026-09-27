@@ -10,7 +10,7 @@ import { styled, useTheme } from '@mui/material/styles';
 
 import { RouterLink } from '@/layouts/template/routes/components';
 
-import { logoClasses } from './classes';
+import { logoClasses } from '@/layouts/template/logo/classes';
 
 // ----------------------------------------------------------------------
 
@@ -24,8 +24,6 @@ export type LogoProps = LinkProps & {
   text?: string;
 };
 
-// Mesha adaptation: the template logo box (40x40 single, RouterLink root) with the Mesha tile in place
-// of the Minimal SVG mark. Colours come from the theme palette (locked Mesha brand).
 export function Logo({
   sx,
   disabled,
@@ -37,7 +35,9 @@ export function Logo({
 }: LogoProps) {
   const theme = useTheme();
 
-  const tile = (
+  // Template brand point (its "OR using local (public folder)" note): the Mesha tile replaces the
+  // Minimal SVG mark. Colours come from the theme palette (locked Mesha brand).
+  const singleLogo = (
     <Box
       component="span"
       aria-hidden="true"
@@ -58,6 +58,8 @@ export function Logo({
     </Box>
   );
 
+  const fullLogo = singleLogo;
+
   return (
     <LogoRoot
       component={RouterLink}
@@ -67,7 +69,8 @@ export function Logo({
       className={mergeClasses([logoClasses.root, className])}
       sx={[
         {
-          // 40px template tile, 44px tap target (Mesha WebView rule); -2px margin keeps the layout template-exact.
+          // Declared override (Mesha WebView rule): 40px template tile, 44px tap target; the -2px
+          // margin keeps the layout template-exact.
           width: 44,
           height: 44,
           m: '-2px',
@@ -80,7 +83,7 @@ export function Logo({
       ]}
       {...other}
     >
-      {tile}
+      {isSingle ? singleLogo : fullLogo}
     </LogoRoot>
   );
 }
