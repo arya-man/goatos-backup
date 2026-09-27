@@ -43,8 +43,22 @@ test("herd-signals-live-header: live toggle + export are template Buttons, KPI r
 test("herd-signals-table-scroll: wide tables sit in the template Scrollbar", () => {
   for (const name of ["herd-signals-table.tsx", "herd-signals-mapping-table.tsx"]) {
     const src = readFileSync(new URL(`./${name}`, import.meta.url), "utf8");
-    assert.match(src, /<div className=\{`tblwrap\$\{[^}]+\}`\}>\s*\{\/\*[^*]*\*\/\}\s*<Scrollbar>\s*<Table/, `${name}: Table inside Scrollbar`);
+    assert.match(src, /<div className="tblwrap">\s*\{\/\*[^*]*\*\/\}\s*<Scrollbar>\s*<Table/, `${name}: Table inside Scrollbar`);
   }
   const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8") + readFileSync(new URL("../../app/frame.css", import.meta.url), "utf8");
   assert.doesNotMatch(css, /\.herd-signals-page \.tblwrap\{[^}]*(overflow|max-height)/);
+});
+
+// REVIEW-43 (guard: pending-dim): no stale, clickable rows while the next answer loads. The live table
+// and KPI deck swap to the Live panel skeleton (UrlSuspense ALL_PARAMS); the mapping table shows the
+// table skeleton through a write's router.refresh() or a filter transition.
+test("herd-signals-no-stale-rows: no .wfbusy hold; the mapping table skeletons while busy", () => {
+  for (const name of ["herd-signals-table.tsx", "herd-signals-mapping-table.tsx", "herd-signals-kpis.tsx"]) {
+    const src = readFileSync(new URL(`./${name}`, import.meta.url), "utf8");
+    assert.doesNotMatch(src, /wfbusy/, `${name}: no .wfbusy hold class`);
+  }
+  const mapping = readFileSync(new URL("./herd-signals-mapping-table.tsx", import.meta.url), "utf8");
+  assert.match(mapping, /\{busy \? \(\s*<TableSkeleton bare/, "mapping table: busy renders the table skeleton");
+  const board = readFileSync(new URL("./herd-signals-board.tsx", import.meta.url), "utf8");
+  assert.match(board, /fallback=\{<HerdSignalsLivePanelSkeleton \/>\}/, "Live panel UrlSuspense uses the shared twin");
 });

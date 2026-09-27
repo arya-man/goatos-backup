@@ -26,6 +26,7 @@
 //   node scripts/r2-visual-audit.mjs [--base http://127.0.0.1:3450] [--template http://127.0.0.1:3480]
 //        [--out <dir>] [--only sales,weighing] [--concurrency 5] [--checks scan,interact,drawers,skeleton,sbs]
 //        [--page-map ~/mesha/mui-page-map.md] [--query scope_mode=company] [--max-interactions 10]
+//        [--skeleton-profiles 1440-dark,390-dark] [--skeleton-nav push|click]
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -890,6 +891,9 @@ async function main() {
   // --fast: the pre-push lane (~2-3 min): shell routes + touched routes, scan (3 profiles, shell
   // checks included) + tab/filter interactions; drawers / skeleton / side-by-sides stay in the full run.
   const fast = !!args.fast;
+  // --skeleton-profiles 1440-dark,390-dark: the skeleton twin check per profile (default 1440 dark).
+  const skeletonNav = String(args["skeleton-nav"] ?? "push");
+  const skeletonProfiles = args["skeleton-profiles"] ? String(args["skeleton-profiles"]).split(",").map((l) => PROFILES.find((p) => p.label === l.trim())).filter(Boolean) : [PROFILES[0]];
   const checks = new Set(args.checks ? String(args.checks).split(",") : fast ? ["scan", "interact"] : ALL_CHECKS);
   const only = args.only ? String(args.only).split(",").map((s) => s.trim()).filter(Boolean) : null;
   const exactRoutes = args.routes ? String(args.routes).split(",").map((s) => s.trim()).filter(Boolean) : null;
@@ -1351,8 +1355,8 @@ async function main() {
     } finally { await ctx.close(); }
   }
 
-  async function skeletonJob(route, path) {
-    const profile = PROFILES[0];
+  async function skeletonJob(route, path, profile = PROFILES[0]) {
+    const tag = profile === PROFILES[0] ? "" : `__${profile.label}`;
     const info = routeInfo.get(route.route);
     const ctx = await newContext(profile, false);
     try {
@@ -1373,14 +1377,24 @@ async function main() {
       await page.evaluate((u) => window.next?.router?.prefetch?.(u), targetRel).catch(() => {});
       await sleep(1500);
       hold = true;
-      const pushed = await page.evaluate((u) => { if (!window.next?.router?.push) return false; window.next.router.push(u); return true; }, targetRel).catch(() => false);
+      // --skeleton-nav click: a link click (the shell paints the target's registry skeleton, as a
+      // sidebar click does); works on `next dev`, where nothing is prefetched. Default: router.push.
+      const pushed = await page.evaluate(([u, click]) => {
+        if (!window.next?.router?.push) return false;
+        if (!click) { window.next.router.push(u); return true; }
+        const a = document.createElement("a");
+        a.href = u; a.textContent = "r2 skeleton nav"; a.style.cssText = "position:fixed;left:0;top:0;opacity:0";
+        a.addEventListener("click", (e) => { e.preventDefault(); window.next.router.push(u); a.remove(); });
+        // in a [data-page-header] wrapper: the shell starts no back trail (as router.push)
+        const w = document.createElement("div"); w.dataset.pageHeader = ""; w.appendChild(a); document.body.appendChild(w); a.click(); w.remove(); return true;
+      }, [targetRel, skeletonNav === "click"]).catch(() => false);
       if (!pushed) { release(); add({ check: "skeleton", severity: "info", pattern: "skeleton|no-router", label: "Skeleton not captured (no client router)", route: route.route, profile: profile.label, detail: "window.next.router missing" }); return; }
       const seen = await page.waitForFunction(() => window.__r2lib.skeletonCount() > 0, null, { timeout: 4000, polling: 50 }).then(() => true).catch(() => false);
       let skel = [], skelShot = null;
       if (seen) {
         await sleep(300);
         skel = await safeEval(page, () => window.__r2lib.blocks(), undefined, []);
-        skelShot = join(outDir, "skeleton", `${slug(route.route)}__skeleton.jpg`);
+        skelShot = join(outDir, "skeleton", `${slug(route.route)}${tag}__skeleton.jpg`);
         await page.screenshot({ path: skelShot, type: "jpeg", quality: 80 });
       }
       hold = false; release();
@@ -1392,14 +1406,14 @@ async function main() {
         return;
       }
       const loaded = await safeEval(page, () => window.__r2lib.blocks(), undefined, []);
-      const loadedShot = join(outDir, "skeleton", `${slug(route.route)}__loaded.jpg`);
+      const loadedShot = join(outDir, "skeleton", `${slug(route.route)}${tag}__loaded.jpg`);
       await page.screenshot({ path: loadedShot, type: "jpeg", quality: 80 });
       const cmp = compareBlocks(skel, loaded);
       const boxes = [
         ...skel.map((b) => ({ ...b, side: "left", bad: cmp.extra.includes(b) || cmp.mismatched.some((m) => m.skel === b), label: b.kind })),
         ...loaded.map((b) => ({ ...b, side: "right", bad: cmp.missing.includes(b) || cmp.mismatched.some((m) => m.loaded === b), label: b.kind })),
       ];
-      const sbs = join(outDir, "skeleton", `${slug(route.route)}__skeleton_vs_loaded.jpg`);
+      const sbs = join(outDir, "skeleton", `${slug(route.route)}${tag}__skeleton_vs_loaded.jpg`);
       await sideBySide(skelShot, loadedShot, `skeleton ${route.route}`, "loaded", sbs, boxes).catch(() => {});
       const evidence = rel(sbs);
       for (const m of cmp.mismatched) add({ check: "skeleton", pattern: `skeleton|mismatch|${m.loaded.kind}`, label: `Skeleton block shape ≠ loaded (IoU < 0.8): ${m.loaded.kind}`, route: route.route, profile: profile.label, detail: `IoU ${m.iou}: skeleton ${m.skel.w}x${m.skel.h}@${m.skel.x},${m.skel.y} vs loaded ${m.loaded.w}x${m.loaded.h}@${m.loaded.x},${m.loaded.y} (${m.loaded.sig})`, evidence });
@@ -1430,7 +1444,7 @@ async function main() {
     const js = [];
     if (checks.has("interact")) js.push({ name: "interact", route: route.route, run: () => interactJob(route, path) });
     if (checks.has("drawers")) js.push({ name: "drawers", route: route.route, run: () => drawerJob(route, path) });
-    if (checks.has("skeleton")) js.push({ name: "skeleton", route: route.route, run: () => skeletonJob(route, path) });
+    if (checks.has("skeleton")) for (const p of skeletonProfiles) js.push({ name: `skeleton ${p.label}`, route: route.route, run: () => skeletonJob(route, path, p) });
     if (checks.has("scan") || checks.has("sbs")) for (const p of PROFILES) js.push({ name: `scan ${p.label}`, route: route.route, run: () => scanJob(route, path, p) });
     return js;
   };

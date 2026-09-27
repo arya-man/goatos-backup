@@ -23,6 +23,7 @@ import { TemplateTabs } from "@/components/app/template-tabs";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { PanelSkeleton } from "@/components/app/panel-skeleton";
+import { WeightsGeneralPanelSkeleton } from "./weights-skeletons";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import { WorklistPager } from "@/components/worklist-pager";
 import { copy, optionGroup, table, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -630,7 +631,7 @@ export async function WeighingWeightsAnalyticsPage({
 const PANEL_IGNORE = ["wt_export"] as const;
 /** Each tab's panel skeleton, from the shared blocks (the loaded tab's KPI / chart / table shape). */
 const TAB_SKELETON: Record<Tab, ReactNode> = {
-  general: <PanelSkeleton kpis={4} charts={2} table={8} spark />,
+  general: <WeightsGeneralPanelSkeleton />,
   breed: <PanelSkeleton charts={2} table={8} />,
   birth: <PanelSkeleton charts={2} table={8} />,
   shed: <PanelSkeleton charts={1} table={10} />,

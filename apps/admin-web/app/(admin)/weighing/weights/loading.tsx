@@ -1,32 +1,17 @@
-import Stack from "@mui/material/Stack";
-import { ChartCardSkeleton, FilterCardSkeleton, GridSkeleton, KpiCardSkeleton, PageHeaderSkeleton, PageSkeleton } from "@/components/app/skeletons";
+import { PageHeaderSkeleton, PageSkeleton } from "@/components/app/skeletons";
+import { WeightsFilterSkeleton, WeightsKidsPanelSkeleton } from "@/features/weighing/weights-skeletons";
 
 /**
- * /weighing/weights: header + download, the filter card, four EcommerceWidgetSummary cards, the
- * sale-ready ring (lg 4) beside breed-wise daily gain (lg 8), then breed (lg 6) beside sex + stage stacked (lg 6).
+ * /weighing/weights: the page's Stack spacing 3 — header + Download (a short title: on a phone the
+ * button sits beside it), the WorklistFilters card, then the SAME panel skeleton the page's
+ * UrlSuspense shows on a filter change.
  */
 export default function Loading() {
   return (
     <PageSkeleton gap={3} root="">
-      <PageHeaderSkeleton actions={1} />
-      <FilterCardSkeleton fields={[160, 260, 160, 160, 160]} />
-      <GridSkeleton
-        items={[
-          ...Array.from({ length: 4 }, () => ({ size: { xs: 12, sm: 6, lg: 3 }, node: <KpiCardSkeleton hint /> })),
-          { size: { xs: 12, md: 6, lg: 4 }, node: <ChartCardSkeleton height={420} subheader /> },
-          { size: { xs: 12, md: 6, lg: 8 }, node: <ChartCardSkeleton height={420} subheader legend /> },
-          { size: { xs: 12, lg: 6 }, node: <ChartCardSkeleton height={360} action /> },
-          {
-            size: { xs: 12, lg: 6 },
-            node: (
-              <Stack spacing={3} direction={{ xs: "column", sm: "row", lg: "column" }}>
-                <ChartCardSkeleton height={120} action />
-                <ChartCardSkeleton height={120} action />
-              </Stack>
-            ),
-          },
-        ]}
-      />
+      <PageHeaderSkeleton titleWidth={150} actionWidths={[112]} />
+      <WeightsFilterSkeleton />
+      <WeightsKidsPanelSkeleton />
     </PageSkeleton>
   );
 }

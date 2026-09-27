@@ -2,7 +2,7 @@ import Table from "@mui/material/Table";
 import TableContainer from "@mui/material/TableContainer";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { LocalViewPane, LocalViewToggle } from "@/components/local-view-switch";
-import { PanelSkeleton } from "@/components/app/panel-skeleton";
+import { WeightsKidsPanelSkeleton } from "./weights-skeletons";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import Typography from "@mui/material/Typography";
 import TableHead from "@mui/material/TableHead";
@@ -947,7 +947,7 @@ export async function WeighingWeightsPage({
 
       {/* Every figure below the filters (guard: url-keyed-panel): a filter / toggle / page change
           swaps it to its skeleton at once; header and filters stay on screen. */}
-      <UrlSuspense searchParams={params} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<PanelSkeleton kpis={4} charts={3} table={10} />}>
+      <UrlSuspense searchParams={params} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<WeightsKidsPanelSkeleton />}>
 
       <Grid container spacing={3}>
         {/* Four widgets, no sixth "median gain" card (maintainer, 2026-08-12): the daily gain is

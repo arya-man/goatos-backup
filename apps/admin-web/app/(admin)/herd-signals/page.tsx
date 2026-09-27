@@ -11,9 +11,10 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rou
   // NO key on the Suspense boundary below. key={JSON.stringify(sp)} minted a NEW boundary on every
   // searchParam change, so each filter/KPI/pagination click UNMOUNTED the whole board and showed
   // the skeleton -- which is exactly the "changing a filter refreshes the whole page" the
-  // maintainer reported repeatedly. Without the key React reuses the boundary and keeps the
-  // previous content on screen through the transition, which is what .wfbusy/.wfspin are for: the
-  // old answer stays readable and visibly held back until the new one lands.
+  // maintainer reported repeatedly. Without the key React reuses this boundary; the board's own
+  // URL-keyed panels (UrlSuspense) swap only the KPIs + table to their skeleton on a filter / KPI /
+  // sort / page change, while header, tabs and filters stay. Nothing is dimmed and no stale rows
+  // stay on screen (REVIEW-43, guard: pending-dim).
   // (A `{/* ... */}` JSX comment cannot be the direct child of `return (` -- as written it was a
   // syntax error and the whole route failed to compile.)
   return (

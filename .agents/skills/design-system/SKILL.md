@@ -92,7 +92,9 @@ its UrlSuspense `fallbackBy` ("a|b" = any param is "1") and its loading.tsx (gua
 `tab-strip-no-memo`: a memo'd client component remounts on every RSC navigation); a pure view switch
 inside a URL panel is a LocalViewToggle, not a server round trip (guard `gain-view-local`). The audit's
 chart-black rule reads drawn marks (path/rect/circle/polygon) only. No dimming while navigating
-(guard `pending-dim`, P0): the affected area shows its skeleton; nothing fades the old content.
+(guard `pending-dim`, P0): the affected area shows its skeleton; nothing fades the old content. No feature
+toggles `.wfbusy` (stale clickable rows); a PageSkeleton on a framed root carries the 24px frame gap
+itself; skeleton twins are checked at 1440 AND 390 (`--skeleton-profiles 1440-dark,390-dark`).
 Existing P0 debt is the shrink-only baseline `apps/admin-web/scripts/r2-visual-audit-baseline.json`
 (pattern -> route count): a NEW pattern or one reaching MORE routes fails; `GOATOS_VISUAL_GATE_STRICT=1`
 fails on every P0. Shrink it with `node apps/admin-web/scripts/r2-visual-audit.mjs --write-baseline`

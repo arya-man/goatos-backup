@@ -54,13 +54,21 @@ const FIELD_H = 54;
 
 const wobble = (i: number, base = 44, span = 36) => `${base + ((i * 37) % span)}%`;
 
+const FRAME_GAP_ROOTS = new Set(["screen", "pagegrid", "herd-signals-page", "lt-page"]);
+
 /**
  * The page root while loading: the SAME root the page renders (`.screen.on` by default — the 24px
  * block rhythm of the page column), busy for assistive tech. `root` is the page root's own class list
  * when it is not `screen on` (weights-page, vplan, wb, pagegrid …); `gap` mirrors a root that sets its
  * own gap.
  */
-export function PageSkeleton({ children, root = "screen on", className, gap }: { children: ReactNode; root?: string; className?: string; gap?: number }) {
+export function PageSkeleton({ children, root = "screen on", className, gap: gapIn }: { children: ReactNode; root?: string; className?: string; gap?: number }) {
+  // frame.css gives a page root that is a DIRECT child of `.wrap` (`.screen`, `.pagegrid`,
+  // `.herd-signals-page`, `.lt-page`) its 24px block gap. The shell's pending-route skeleton (a
+  // sidebar / link click) sits one `display: contents` box deeper, so that rule missed it and the
+  // click-path skeleton ran 24px short of loading.tsx and the page. The gap is carried here instead.
+  const framed = root.split(/\s+/).some((c) => FRAME_GAP_ROOTS.has(c));
+  const gap = gapIn ?? (framed ? 3 : undefined);
   // `.screen.on { display: block }` (mesha-theme.css, two classes) beats a one-class emotion
   // `display: grid`, which silently dropped the gap (the SOP filter card butted against the KPI row).
   // A `.screen` root therefore carries the gap on an inner column, as the pages do
@@ -77,7 +85,7 @@ export function PageSkeleton({ children, root = "screen on", className, gap }: {
     );
   }
   return (
-    <Box className={[root, className].filter(Boolean).join(" ")} aria-busy="true" data-skel-root="" sx={gap != null ? { display: "grid", gap } : undefined}>
+    <Box className={[root, className].filter(Boolean).join(" ")} aria-busy="true" data-skel-root="" sx={gap != null ? { display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap } : undefined}>
       {children}
     </Box>
   );
@@ -267,8 +275,13 @@ export type KpiShape = {
   trend?: boolean;
   /** The KpiWidget `caption` sub-line (body2, mt 1) under the card body. */
   hint?: boolean;
-  /** Lines the caption wraps to when the page's caption is a sentence (default 1); per breakpoint when the card width changes the wrap. */
+  /** Lines the caption wraps to at the page's card width (a long backend explanation); default 1. Per breakpoint: `{ xs: 1, md: 2 }`. */
   hintLines?: number | Partial<Record<"xs" | "sm" | "md" | "lg" | "xl", number>>;
+  /**
+   * A text fact tile (not a number widget): Card > CardHeader with a 40px icon avatar, an h6 value
+   * and a body2 label, `pb: 3` (the /vaccination/plan live-version facts).
+   */
+  fact?: boolean;
   /** @deprecated retired KpiCard anatomy; the loaded decks are all KpiWidget. Renders the course card. */
   icon?: boolean;
   /** @deprecated see `icon`. */
@@ -286,7 +299,20 @@ export type KpiShape = {
  *  - `booking`: BookingWidgetSummary (p 2, pl 3; the same rows, 120px round icon).
  * `hint` is the adapter's caption sub-line (body2 with mt 1, reserved inside the card).
  */
-export function KpiCardSkeleton({ spark, booking, trend, hint, hintLines = 1 }: KpiShape) {
+export function KpiCardSkeleton({ spark, booking, trend, hint, hintLines = 1, fact }: KpiShape) {
+  if (fact) {
+    return (
+      <Card aria-hidden="true" data-skel-kpi="fact" sx={{ height: 1 }}>
+        <CardHeader
+          avatar={<Skeleton variant="rounded" width={40} height={40} />}
+          title={<Skeleton variant="text" width="56%" />}
+          subheader={<Skeleton variant="text" width="72%" />}
+          slotProps={{ title: { variant: "h6" } }}
+          sx={{ pb: 3 }}
+        />
+      </Card>
+    );
+  }
   const lines = typeof hintLines === "number" ? { xs: hintLines } : hintLines;
   const most = Math.max(1, ...Object.values(lines).map((n) => n ?? 1));
   // Line i shows at a breakpoint whose caption wraps to more than i lines; the last shown is short.
@@ -685,16 +711,16 @@ export function ControlRowSkeleton({ children, caption }: { children: ReactNode;
 }
 
 /** One chip-sized pill (FilterChip / Label). */
-export function ChipSkeleton({ width = 88 }: { width?: number }) {
-  return <Skeleton variant="rounded" width={width} height={32} sx={{ borderRadius: "var(--r-md)", flexShrink: 0 }} />;
+export function ChipSkeleton({ width = 88, height = 32 }: { width?: number; height?: number | Record<string, number> }) {
+  return <Skeleton variant="rounded" width={width} sx={{ height, borderRadius: "var(--r-md)", flexShrink: 0 }} />;
 }
 
 /** A row of chips (FilterChip rows, severity chips). */
-export function ChipRowSkeleton({ count, widths }: { count: number; widths?: number[] }) {
+export function ChipRowSkeleton({ count, widths, height }: { count: number; widths?: number[]; /** A clickable chip row is 44px tall below sm (tap floor): `{ xs: 44, sm: 32 }`. */ height?: number | Record<string, number> }) {
   return (
     <Box aria-hidden="true" data-skel="chips" sx={{ display: "flex", flexWrap: "wrap", gap: 1, alignItems: "center" }}>
       {Array.from({ length: count }, (_, i) => (
-        <ChipSkeleton key={i} width={widths?.[i] ?? 72 + ((i * 29) % 40)} />
+        <ChipSkeleton key={i} width={widths?.[i] ?? 72 + ((i * 29) % 40)} height={height} />
       ))}
     </Box>
   );
@@ -832,9 +858,14 @@ export function OrderToolbarSkeleton({ filters, trailing = [], search = true, me
 }
 
 /** Loading twin of a controls card: a tab strip and / or a toolbar in one Card, no table (audit, DLQ). */
-export function ControlsCardSkeleton({ tabs, toolbar }: { tabs?: ReactNode; toolbar?: ReactNode }) {
+export function ControlsCardSkeleton({ tabs, toolbar, header = false }: { tabs?: ReactNode; toolbar?: ReactNode; /** A CardHeader title over the controls (template `CardHeader sx={{ mb: 2.5 }}`). */ header?: boolean }) {
   return (
     <Card aria-hidden="true" data-skel="controls">
+      {header ? (
+        <Box sx={{ mb: 2.5 }}>
+          <CardHeaderSkeleton />
+        </Box>
+      ) : null}
       {tabs ? <Box sx={{ px: 2.5 }}>{tabs}</Box> : null}
       {toolbar}
     </Card>

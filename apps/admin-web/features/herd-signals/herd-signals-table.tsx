@@ -327,7 +327,9 @@ export function HerdSignalsTable({
 
   return (
     <>
-      <div className={`tblwrap${isPending ? " wfbusy" : ""}`}>
+      {/* A filter / sort / page change swaps this table to the panel skeleton (UrlSuspense ALL_PARAMS
+          in herd-signals-board; UrlNavRouter announces every router.push) — no dimmed stale rows. */}
+      <div className="tblwrap">
         {/* Wide table scrolls inside the template Scrollbar (TR1-#20), never outside its card. */}
         <Scrollbar>
         <Table className={`resp herd-signals-table${variant === "animals" ? " herd-signals-animals-table" : ""}`}>

@@ -132,12 +132,13 @@ const KPI_DEFS: KpiDef[] = [
 // "clicking a KPI reloads the whole page" defect: no pending affordance, table just blanked and
 // reappeared.
 export function HerdSignalsKpis({ summary, params, liveKey }: { summary: HerdSignalsSummary; params: HerdSignalsParams; liveKey: string }) {
-  const { isPending, navigate } = useHerdSignalsNav();
+  const { navigate } = useHerdSignalsNav();
   const liveSnapshot = useHerdSignalsLiveSnapshot(liveKey);
   const displayedSummary = liveSnapshot?.data.summary ?? summary;
   const serverMovementKpis = new Set(["moving_now", "active_1m", "moving_15m", "quiet"]);
   return (
-    <div className={`herd-signals-kpis${isPending ? " wfbusy" : ""}`} aria-busy={isPending}>
+    // A KPI click swaps this deck to the panel skeleton (UrlSuspense ALL_PARAMS in herd-signals-board).
+    <div className="herd-signals-kpis">
       <KpiGrid min={220}>
         {KPI_DEFS.map((def, index) => {
           const filterKey = index === 0 ? undefined : def.key;

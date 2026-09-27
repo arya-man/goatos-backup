@@ -2,7 +2,8 @@ import { listOrEmpty } from "@/lib/list-or-empty";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { PanelSkeleton } from "@/components/app/panel-skeleton";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
-import { FilterCardSkeleton, KpiRowSkeleton, StackSkeleton, TableSkeleton } from "@/components/app/skeletons";
+import { FilterCardSkeleton, TableSkeleton } from "@/components/app/skeletons";
+import { HerdSignalsLivePanelSkeleton, HerdSignalsLiveTabSkeleton } from "./herd-signals-skeletons";
 import type { ReactNode } from "react";
 import Alert from "@mui/material/Alert";
 import AlertTitle from "@mui/material/AlertTitle";
@@ -324,7 +325,7 @@ function LiveMonitorTab({
       <HerdSignalsFilters params={params} sheds={sheds} />
       {/* KPIs + table (guard: url-keyed-panel): a filter / KPI / sort / page click swaps them to their
           skeleton at once; the filter bar stays on screen. */}
-      <UrlSuspense searchParams={searchParams} watch={[ALL_PARAMS]} fallback={<StackSkeleton spacing={2}><KpiRowSkeleton count={8} /><TableSkeleton columns={21} rows={LIMIT_DEFAULT} /></StackSkeleton>}>
+      <UrlSuspense searchParams={searchParams} watch={[ALL_PARAMS]} fallback={<HerdSignalsLivePanelSkeleton />}>
       <HerdSignalsKpis summary={summary} params={params} liveKey={liveKey} />
       {/* Template table card: CardHeader (title + count Label, the aggregate note as subheader). */}
       <Card sx={{ mt: 3 }}>
@@ -528,13 +529,7 @@ function InsightsTab({ result }: { result: ApiResult<HerdInsightsResponse> | nul
 
 /** Each tab's body skeleton, from the shared blocks. */
 const TAB_SKELETON: Record<string, ReactNode> = {
-  live: (
-    <StackSkeleton spacing={2}>
-      <FilterCardSkeleton fields={["search", 180, 180, 120]} />
-      <KpiRowSkeleton count={8} />
-      <TableSkeleton columns={21} rows={LIMIT_DEFAULT} />
-    </StackSkeleton>
-  ),
+  live: <HerdSignalsLiveTabSkeleton />,
   animals: <TableSkeleton columns={12} rows={LIMIT_DEFAULT} toolbar={<FilterCardSkeleton inCard fields={["search", 180, 180]} />} />,
   mapping: <TableSkeleton columns={10} rows={LIMIT_DEFAULT} toolbar={<FilterCardSkeleton inCard fields={["search", 180, 180]} />} />,
   alerts: <TableSkeleton columns={12} rows={LIMIT_DEFAULT} toolbar={<FilterCardSkeleton inCard fields={["search", 180]} />} />,

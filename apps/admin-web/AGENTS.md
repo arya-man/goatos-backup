@@ -192,10 +192,20 @@ Spec: `docs/design/mui-minimal-spec.md`. Tokens: `app/minimal-tokens.css`. Gate:
   predicate (guard: `sop-editor-predicate`: page, UrlSuspense `fallbackBy` "a|b" and loading share it).
   Table cards are compared by their chrome above the rows (header, tabs, toolbar, thead): rows are data.
   PageHeaderSkeleton `titleWidth` = the title's width, so the phone header wraps its actions like the page.
+  SK3 twins: a framed PageSkeleton root (`screen`, `pagegrid`, `herd-signals-page`, `lt-page`) carries the
+  24px frame gap itself (the shell's pending skeleton sits one `display: contents` box below `.wrap`, where
+  frame.css's `.wrap>.screen` gap missed it, so click-path skeletons ran 24px short); a gap root is a
+  `minmax(0,1fr)` grid (a scrollable TabsSkeleton otherwise widens it past a phone). A WorklistFilters /
+  FilterBar fold card is `FilterCardSkeleton fold` (fields leave for one Filters button below md). One
+  `features/<x>/<x>-skeletons.tsx` per page feeds loading.tsx AND the page's UrlSuspense fallbacks.
+  Verify the click path on `next dev` with `r2-visual-audit --checks skeleton --skeleton-profiles
+  1440-dark,390-dark --skeleton-nav click` (push is the default and needs `next start`).
 - **No dimming while navigating (guard: `pending-dim` in design:guard, P0; Ravi 2026-09-28 "just switch
   and show shimmer").** A path / tab / segment / filter / sort / pager navigation swaps the affected
   area to its skeleton (UrlSuspense panel, the shell's pending route skeleton). Never `opacity: <pending>
   ? …`, never CSS opacity / filter on `[data-nav-pending]`, a `.wrap` busy root or a `*busy` class.
+  A feature never toggles the retired `.wfbusy` hold class (REVIEW-43): rows being replaced (a filter
+  transition, a write's `router.refresh()`) give way to the table skeleton, never stay on screen clickable.
 - **Tab strips stay mounted across navigation (guards: `tab-strip-no-memo`, `gain-view-local`).** A client
   component rendered from a server page is never wrapped in `memo()` (it remounts on every RSC
   navigation); a pure view switch inside a URL panel (chart/table) is LocalViewToggle + LocalViewPane.

@@ -11,8 +11,8 @@ import {
  */
 export default function Loading() {
   return (
-    <PageSkeleton>
-      <PageHeaderSkeleton actions={1} />
+    <PageSkeleton gap={3}>
+      <PageHeaderSkeleton actionWidths={[140]} />
       <StackSkeleton spacing={2}>
         <VaccinationCommandBoardSkeleton />
         <VaccinationInventorySkeleton />

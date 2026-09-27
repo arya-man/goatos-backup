@@ -17,6 +17,7 @@ import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
 import { herdSignalsHref, type HerdSignalsParams } from "./params";
 import { EmptyState } from "@/components/app/empty-state";
+import { TableSkeleton } from "@/components/app/skeletons";
 import Box from "@mui/material/Box";
 import Alert from "@mui/material/Alert";
 import Paper from "@mui/material/Paper";
@@ -775,7 +776,13 @@ export function HerdSignalsMappingTable({
     return (
       <>
         {pager("top")}
-        <div className={`tblwrap${busy ? " wfbusy" : ""}`}>
+        {/* A write's router.refresh() (no URL change, so no UrlSuspense swap) or a filter / pager
+            transition: the rows being replaced give way to the table skeleton, never stay on screen
+            clickable (REVIEW-43; no dimming, guard: pending-dim). */}
+        {busy ? (
+          <TableSkeleton bare header={false} pager={false} columns={10} rows={Math.min(Math.max(items.length, 1), 10)} />
+        ) : (
+        <div className="tblwrap">
         {/* Wide table scrolls inside the template Scrollbar (TR1-#20), never outside its card. */}
         <Scrollbar>
           <Table className="resp">
@@ -872,6 +879,7 @@ export function HerdSignalsMappingTable({
           </Table>
         </Scrollbar>
         </div>
+        )}
         {pager("bottom")}
       </>
     );

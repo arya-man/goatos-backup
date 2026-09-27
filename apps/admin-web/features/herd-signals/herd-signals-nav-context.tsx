@@ -9,8 +9,8 @@ import { useRouter } from "next/navigation";
 // leaving the others looking frozen. This exists because of a real defect: filters were already
 // wrapped in startTransition (so React correctly keeps the OLD table on screen instead of
 // remounting to the Suspense fallback), but nothing ever READ `isPending`, so there was no visual
-// difference between "request in flight" and "page reloaded" — see mesha-theme.css's own
-// .wfbusy/.wfspin comment, which describes this exact defect class on a sibling screen.
+// difference between "request in flight" and "page reloaded". Today the URL-keyed panels
+// (UrlSuspense, fed by UrlNavRouter's announcement of this router.push) show their skeleton.
 type HerdSignalsNav = {
   isPending: boolean;
   navigate: (href: string) => void;

@@ -681,6 +681,9 @@ function runGuard(root, { themeDiff }) {
     // REVIEW-42 O65: nothing sets the retired page-column dim hook at all.
     const NAV_PENDING_ATTR = /setAttribute\(\s*["']data-nav-pending["']|data-nav-pending=/;
     const TSX_SPREAD_DIM = /\b(?:is)?[pP]ending\b[^?\n]*\?\s*\{[^}]*\bopacity\s*:/;
+    // REVIEW-43: a feature toggling the retired `.wfbusy` hold class keeps the old rows on screen,
+    // clickable, while the next answer loads; the area shows its skeleton instead.
+    const FEATURE_WFBUSY = /\?\s*["'`]\s*wfbusy\b|["'`]\s*wfbusy\s*["'`]\s*:/;
     // CSS: a pending-navigation hook ([data-nav-pending], a busy page root under .wrap) that lowers
     // opacity or filters. `opacity:1` resets (skeleton roots painting at once) are not dims.
     const CSS_DIM = /(?:\[data-nav-pending[^\]]*\]|\.wrap[^{,]*\[aria-busy[^\]]*\]|\.[\w-]*busy\b[^{,]*)[^{]*\{[^}]*(?:opacity\s*:\s*(?:0?\.\d|0\b)|filter\s*:\s*[^;}]*opacity)/;
@@ -691,7 +694,7 @@ function runGuard(root, { themeDiff }) {
       if (!isCss && !/\.tsx?$/.test(rel)) continue;
       readFileSync(abs, "utf8").split("\n").forEach((line, index) => {
         const code = isCss ? line : line.replace(/\/\/.*$/, "");
-        if (isCss ? CSS_DIM.test(code) : TSX_DIM.test(code) || TSX_SPREAD_DIM.test(code) || NAV_PENDING_ATTR.test(code)) findings.push(finding("pending-dim", rel, index + 1, line));
+        if (isCss ? CSS_DIM.test(code) : TSX_DIM.test(code) || TSX_SPREAD_DIM.test(code) || NAV_PENDING_ATTR.test(code) || (rel.startsWith("features/") && FEATURE_WFBUSY.test(code))) findings.push(finding("pending-dim", rel, index + 1, line));
       });
     }
   }
@@ -1111,6 +1114,7 @@ async function selfTest() {
   // A template drawer width on the template drawer is allowed (no fixed-px-width, no drawer finding).
   put("features/dim-bad.tsx", 'export const X = ({ isPending }) => <Box sx={{ opacity: isPending ? 0.6 : 1 }} />;\n');
   put("features/dim-attr.tsx", 'export const Z = (el) => el.setAttribute("data-nav-pending", "true");\n');
+  put("features/dim-wfbusy.tsx", 'export const W = ({ busy }) => <div className={`tblwrap${busy ? " wfbusy" : ""}`} />;\n');
   put("features/dim-ok.tsx", 'export const Y = ({ flashing }) => <Box sx={{ opacity: flashing ? 1 : 0 }} />;\n');
   put("app/dim-bad.css", '.wrap[data-nav-pending]>*{filter:opacity(.6)}\n.x-busy tbody{opacity:.6}\n');
   put("features/ok-drawer.tsx", [
@@ -1284,7 +1288,7 @@ async function selfTest() {
   const expected = Object.keys(CHECKS).filter((c) => c !== "theme-token-drift" && c !== "brand-lock");
   const missing = expected.filter((c) => !got.has(c));
   const okPageFlagged = findings.some((f) => f.file === "app/(admin)/ok/page.tsx");
-  if (!findings.some((f) => f.check === "pending-dim" && f.file === "features/dim-bad.tsx") || !findings.some((f) => f.check === "pending-dim" && f.file === "app/dim-bad.css") || !findings.some((f) => f.check === "pending-dim" && f.file === "features/dim-attr.tsx")) {
+  if (!findings.some((f) => f.check === "pending-dim" && f.file === "features/dim-bad.tsx") || !findings.some((f) => f.check === "pending-dim" && f.file === "app/dim-bad.css") || !findings.some((f) => f.check === "pending-dim" && f.file === "features/dim-attr.tsx") || !findings.some((f) => f.check === "pending-dim" && f.file === "features/dim-wfbusy.tsx")) {
     console.error("design_system_self_test=FAIL pending-dim missed an opacity tied to a pending flag or a [data-nav-pending] CSS dim");
     process.exit(1);
   }
