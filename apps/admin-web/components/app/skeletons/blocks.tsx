@@ -207,6 +207,7 @@ export function FilterCardSkeleton({
   actions = 0,
   actionWidths,
   fold = false,
+  foldSearch = false,
   inCard = false,
   small = false,
   bare = false,
@@ -218,6 +219,8 @@ export function FilterCardSkeleton({
   actionWidths?: number[];
   /** FilterBar `fold`: below md the fixed fields leave the bar for a "Filters" button (search stays). */
   fold?: boolean;
+  /** With `fold`: the search folds too (it sits in the md+ controls box, in field order: HerdSignalsFilters). */
+  foldSearch?: boolean;
   inCard?: boolean;
   small?: boolean;
   /** FilterBar `bare`: no card, no padding (the template job-list toolbar on the page). */
@@ -242,8 +245,14 @@ export function FilterCardSkeleton({
   const body = fold ? (
     // FilterBar's own order: the controls Box (md+), the search, the Filters button (< md), actions.
     <Box sx={{ p: bare ? 0 : 2.5, gap: 2, display: "flex", flexWrap: "wrap", alignItems: "center" }}>
-      {fixed.length ? <Box sx={{ display: { xs: "none", md: "flex" }, flexWrap: "wrap", gap: 2, alignItems: "center" }}>{fixed.map((f, i) => (f === "chip" ? <ChipSkeleton key={i} /> : <FieldSkeleton key={i} width={f} small={small} />))}</Box> : null}
-      {list.includes("search") ? <FieldSkeleton grow small={small} /> : null}
+      {foldSearch ? (
+        <Box sx={{ display: { xs: "none", md: "flex" }, flexWrap: "wrap", gap: 2, alignItems: "center", flex: "1 1 auto", minWidth: 0 }}>
+          {list.map((f, i) => (f === "search" ? <FieldSkeleton key={i} grow small={small} /> : f === "chip" ? <ChipSkeleton key={i} /> : <FieldSkeleton key={i} width={f} small={small} />))}
+        </Box>
+      ) : fixed.length ? (
+        <Box sx={{ display: { xs: "none", md: "flex" }, flexWrap: "wrap", gap: 2, alignItems: "center" }}>{fixed.map((f, i) => (f === "chip" ? <ChipSkeleton key={i} /> : <FieldSkeleton key={i} width={f} small={small} />))}</Box>
+      ) : null}
+      {!foldSearch && list.includes("search") ? <FieldSkeleton grow small={small} /> : null}
       <Skeleton variant="rounded" width={96} sx={{ height: tapHeight(36), display: { xs: "block", md: "none" } }} />
       {acts.length ? (
         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, alignItems: "center", ml: "auto" }}>

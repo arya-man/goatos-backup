@@ -17,6 +17,7 @@ import { MOVEMENT_LABEL, MAPPING_LABEL, PATTERN_LABEL, RISK_LABEL } from "./form
 import { useHerdSignalsNav } from "./herd-signals-nav-context";
 import { HerdSignalsKpiChip } from "./herd-signals-kpis";
 import { herdSignalsHref, type HerdSignalsParams } from "./params";
+import { HERD_SIGNALS_SEARCH_SX, HERD_SIGNALS_SELECT_MIN } from "./herd-signals-layout";
 import hs from "./herd-signals-filters.module.css";
 import { Label } from "@/components/minimal/label";
 
@@ -102,7 +103,7 @@ export function HerdSignalsFilters({
         value={q}
         onChange={(event) => onSearchChange(event.target.value)}
         autoComplete="off"
-        sx={{ flex: "1 1 280px", minWidth: { xs: 1, md: 240 } }}
+        sx={HERD_SIGNALS_SEARCH_SX}
         slotProps={{
           htmlInput: { "aria-label": "Search animal, RFID, smart tag, BLE MAC, pen, breed or gateway" },
           input: {
@@ -140,7 +141,7 @@ export function HerdSignalsFilters({
         label="Pen"
         value={sheds.some((shed) => shed.id === params.shedId) ? params.shedId : ""}
         onChange={({ target: { value } }) => go(herdSignalsHref(params, { hs_shed: value || undefined }))}
-        sx={{ minWidth: { xs: 0, sm: 160 }, flexShrink: 0, maxWidth: 1 }}
+        sx={{ minWidth: { xs: 0, sm: HERD_SIGNALS_SELECT_MIN }, flexShrink: 0, maxWidth: 1 }}
         slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
       >
         <MenuItem value="">All pens</MenuItem>
@@ -156,7 +157,7 @@ export function HerdSignalsFilters({
         label="Movement"
         value={params.movementState ?? ""}
         onChange={({ target: { value } }) => go(herdSignalsHref(params, { hs_move: value || undefined, hs_kpi: undefined }))}
-        sx={{ minWidth: { xs: 0, sm: 160 }, flexShrink: 0, maxWidth: 1 }}
+        sx={{ minWidth: { xs: 0, sm: HERD_SIGNALS_SELECT_MIN }, flexShrink: 0, maxWidth: 1 }}
         slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
       >
         <MenuItem value="">Any movement state</MenuItem>
@@ -192,7 +193,7 @@ export function HerdSignalsFilters({
         label="Mapping"
         value={params.mappingState ?? ""}
         onChange={({ target: { value } }) => go(herdSignalsHref(params, { hs_map: value || undefined }))}
-        sx={{ minWidth: { xs: 0, sm: 160 }, flexShrink: 0, maxWidth: 1 }}
+        sx={{ minWidth: { xs: 0, sm: HERD_SIGNALS_SELECT_MIN }, flexShrink: 0, maxWidth: 1 }}
         slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
       >
         <MenuItem value="">Mapped + unmapped</MenuItem>
@@ -208,7 +209,7 @@ export function HerdSignalsFilters({
         label="Pattern"
         value={params.pattern ?? ""}
         onChange={({ target: { value } }) => go(herdSignalsHref(params, { hs_pattern: value || undefined }))}
-        sx={{ minWidth: { xs: 0, sm: 160 }, flexShrink: 0, maxWidth: 1 }}
+        sx={{ minWidth: { xs: 0, sm: HERD_SIGNALS_SELECT_MIN }, flexShrink: 0, maxWidth: 1 }}
         slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
       >
         <MenuItem value="">Any pattern</MenuItem>
@@ -224,7 +225,7 @@ export function HerdSignalsFilters({
         label="Watchlist"
         value={params.risk ?? ""}
         onChange={({ target: { value } }) => go(herdSignalsHref(params, { hs_risk: value || undefined }))}
-        sx={{ minWidth: { xs: 0, sm: 160 }, flexShrink: 0, maxWidth: 1 }}
+        sx={{ minWidth: { xs: 0, sm: HERD_SIGNALS_SELECT_MIN }, flexShrink: 0, maxWidth: 1 }}
         slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
       >
         <MenuItem value="">Any watchlist</MenuItem>
@@ -241,7 +242,7 @@ export function HerdSignalsFilters({
         label="Movement window"
         value={params.liveWindow}
         onChange={({ target: { value } }) => go(herdSignalsHref(params, { hs_live_window: value }))}
-        sx={{ minWidth: { xs: 0, sm: 160 }, flexShrink: 0, maxWidth: 1 }}
+        sx={{ minWidth: { xs: 0, sm: HERD_SIGNALS_SELECT_MIN }, flexShrink: 0, maxWidth: 1 }}
         slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
       >
         {LIVE_WINDOW_OPTIONS.map(([key, label]) => (
@@ -256,7 +257,7 @@ export function HerdSignalsFilters({
         label="Compare to self"
         value={params.ownBaseline}
         onChange={({ target: { value } }) => go(herdSignalsHref(params, { hs_own_base: value }))}
-        sx={{ minWidth: { xs: 0, sm: 160 }, flexShrink: 0, maxWidth: 1 }}
+        sx={{ minWidth: { xs: 0, sm: HERD_SIGNALS_SELECT_MIN }, flexShrink: 0, maxWidth: 1 }}
         slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
       >
         {OWN_BASELINE_OPTIONS.map(([key, label]) => (
@@ -271,7 +272,7 @@ export function HerdSignalsFilters({
         label="Compare to pen"
         value={params.shedBaseline}
         onChange={({ target: { value } }) => go(herdSignalsHref(params, { hs_shed_base: value }))}
-        sx={{ minWidth: { xs: 0, sm: 160 }, flexShrink: 0, maxWidth: 1 }}
+        sx={{ minWidth: { xs: 0, sm: HERD_SIGNALS_SELECT_MIN }, flexShrink: 0, maxWidth: 1 }}
         slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
       >
         {SHED_BASELINE_OPTIONS.map(([key, label]) => (
