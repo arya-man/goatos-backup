@@ -1,4 +1,5 @@
 import Box from "@mui/material/Box";
+import { InfoTip } from "@/components/app/info-tip";
 import Table from "@mui/material/Table";
 import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
@@ -13,7 +14,7 @@ import type {
   VaccinationShedStatus,
   VaccinationShedSummaryRow,
 } from "@/lib/api/vaccination-sheds";
-import { Tag, InfoTooltip, ClipText, type Tone } from "@/components/ui-primitives";
+import { Tag, ClipText, type Tone } from "@/components/ui-primitives";
 import {
   copy,
   optionLabel,
@@ -288,9 +289,7 @@ export async function VaccinationShedBoard({
                       {col.key === "sessions" ? (
                         <span style={{ display: "inline-flex", alignItems: "center" }}>
                           {col.label}
-                          <InfoTooltip label={copy(pageContract, "tooltip.sessions.label")}>
-                            {copy(pageContract, "tooltip.sessions.body")}
-                          </InfoTooltip>
+                          <InfoTip title={copy(pageContract, "tooltip.sessions.body")} />
                         </span>
                       ) : col.key === "manager" ? (
                         copy(pageContract, "label.operators")

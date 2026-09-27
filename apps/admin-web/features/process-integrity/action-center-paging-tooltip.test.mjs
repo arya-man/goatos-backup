@@ -26,3 +26,32 @@ test("InfoTip opens on click/tap and is a 44px named IconButton", () => {
   assert.match(tip, /aria-label=\{title\}/);
   assert.match(tip, /width: "var\(--tap-min\)", height: "var\(--tap-min\)"/);
 });
+
+// guard: info-tip-tap (REVIEW-15 O19). No hand-made "i" button may come back: a local Tooltip around
+// an .ihelp / "i" button opens on hover only, so a tap in the Android WebView does nothing
+// (/herd-signals column help). Every info "i" is components/app/info-tip.tsx.
+test("no local hover-only info buttons: every info tip is the shared InfoTip", async () => {
+  const { readdirSync, statSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const root = new URL("../../", import.meta.url).pathname;
+  const offenders = [];
+  const walk = (dir) => {
+    for (const name of readdirSync(dir)) {
+      if (name === "node_modules" || name === ".next" || name === "minimal") continue;
+      const abs = join(dir, name);
+      if (statSync(abs).isDirectory()) walk(abs);
+      else if (/\.tsx$/.test(name) && !abs.endsWith("components/app/info-tip.tsx")) {
+        const text = readFileSync(abs, "utf8");
+        if (/className=["'][^"']*\b(ihelp|tipwrap)\b/.test(text)) offenders.push(`${abs.slice(root.length)} (.ihelp/.tipwrap)`);
+        if (/function\s+Info(Tip|Tooltip)\s*\(/.test(text)) offenders.push(`${abs.slice(root.length)} (local InfoTip)`);
+        if (/<Tooltip\b[^>]*>\s*(<span[^>]*>\s*)?<(button|IconButton)[^>]*>\s*i\s*</.test(text)) offenders.push(`${abs.slice(root.length)} (Tooltip "i" button)`);
+      }
+    }
+  };
+  for (const dir of ["features", "components", "app"]) walk(join(root, dir));
+  assert.deepEqual(offenders, []);
+  // self-test: the patterns catch the shapes they are meant to catch.
+  assert.match('<Tooltip title={t}><span className="tipwrap"><button className="ihelp">i</button></span></Tooltip>', /className=["'][^"']*\b(ihelp|tipwrap)\b/);
+  assert.match("function InfoTip({ label }) {", /function\s+Info(Tip|Tooltip)\s*\(/);
+  assert.match('<Tooltip title={t}><button type="button">i</button></Tooltip>', /<Tooltip\b[^>]*>\s*(<span[^>]*>\s*)?<(button|IconButton)[^>]*>\s*i\s*</);
+});

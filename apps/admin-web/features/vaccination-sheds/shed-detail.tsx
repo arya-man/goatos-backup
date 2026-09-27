@@ -1,4 +1,5 @@
 import Table from "@mui/material/Table";
+import { InfoTip } from "@/components/app/info-tip";
 import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
@@ -19,7 +20,7 @@ import type {
   VaccinationShedDetail,
   VaccinationShedVaccineRow,
 } from "@/lib/api/vaccination-sheds";
-import { Tag, InfoTooltip, ClipText, type Tone } from "@/components/ui-primitives";
+import { Tag, ClipText, type Tone } from "@/components/ui-primitives";
 import { fmtDate } from "@/lib/format";
 import { copy, optionLabel, optionTone, table, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { backendScope, parseScope, scopeHref } from "@/lib/scope";
@@ -138,9 +139,7 @@ function PlannedSessionsCard({ detail, pageContract }: { detail: VaccinationShed
                 {col.key === "capacity" ? (
                   <>
                     {col.label}
-                    <InfoTooltip label={copy(pageContract, "tooltip.capacity.label")}>
-                      {copy(pageContract, "tooltip.capacity.body")}
-                    </InfoTooltip>
+                    <InfoTip title={copy(pageContract, "tooltip.capacity.body")} />
                   </>
                 ) : (
                   col.label

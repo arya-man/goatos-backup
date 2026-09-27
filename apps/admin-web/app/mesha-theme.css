@@ -146,18 +146,7 @@
   .parkpick button:disabled{opacity:.55;cursor:not-allowed}
   .parkpick button:disabled.on{opacity:.75}
   .pm-hint{font-size:11px;color:var(--faint);padding:8px 10px 3px;border-top:1px solid var(--line2);margin-top:5px}
-  /* contextual help (ℹ) + in-screen park filter */
-  .ihelp{display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;border:1px solid var(--line);color:var(--muted);font-size:10px;font-weight:800;cursor:pointer;margin-left:6px;vertical-align:middle;font-style:normal;line-height:1}
-  .ihelp:hover{border-color:var(--brand);color:var(--brand)}
-  /* Hover/focus info popover (Sessions + Capacity tooltips). CSS-only, no JS: the .tip text is always in
-     the DOM (read/testable), revealed on hover/focus-within. Modeled on the .parkmenu popover idiom. */
-  .tipwrap{position:relative;display:inline-flex;align-items:center;justify-content:center;margin-left:5px;vertical-align:middle}
-  .tipwrap .ihelp{display:inline-grid;place-items:center;width:18px;height:18px;margin-left:0;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--muted);font-size:11px;font-weight:800;line-height:1;text-transform:none;letter-spacing:0;cursor:help}
-  .tipwrap .ihelp:hover{border-color:var(--line);background:var(--bg);color:var(--ink)}
-  .tipwrap .ihelp:focus-visible{outline:2px solid var(--ring);outline-offset:2px;border-color:var(--brand);color:var(--brand)}
-  .tipwrap .tip{position:absolute;z-index:60;top:calc(100% + 6px);left:0;min-width:230px;max-width:300px;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);padding:9px 11px;font-size:12px;line-height:1.5;font-weight:500;color:var(--ink);text-transform:none;letter-spacing:normal;white-space:normal;opacity:0;visibility:hidden;pointer-events:none;transform:translateY(-4px);transition:opacity .14s,transform .14s,visibility .14s}
-  .tipwrap:hover .tip,.tipwrap:focus-within .tip{opacity:1;visibility:visible;transform:translateY(0)}
-  th .tipwrap .tip{right:0;left:auto}
+  /* in-screen park filter */
   .pscope{display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:6px 10px;font-weight:600;font-size:12.5px;color:var(--ink);cursor:pointer;white-space:nowrap;flex:none}
   .pscope:hover{border-color:var(--brand)}
   .pscope b{color:var(--brand-d)}
@@ -1569,7 +1558,7 @@
     .main table.shed-summary-table .shed-summary-row-link,
     .main table.shed-animal-roster-table .shed-animal-roster-row-link{min-height:40px}
     .schedule-vaccine-toggle{min-width:40px;min-height:40px;padding:8px 10px}
-    .tipwrap .ihelp{min-width:40px;min-height:40px}
+    
     /* Tabs, quick-filter tabs, and filter chips are real controls — keep them >=40px on touch widths. */
     .subtabs a,.subtabs button{min-height:40px}
     /* Form controls are real tap targets on touch widths — selects + text-like inputs >=40px (checkbox/

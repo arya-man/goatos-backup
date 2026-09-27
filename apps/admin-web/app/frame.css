@@ -213,7 +213,6 @@ details.top-date-picker:not([open])>.top-date-popover,details.move-date-picker:n
 .herd-signals-page tr.hs-selectable td:first-child > a:not(.hs-row-hit){min-height:0;line-height:20px}
 .herd-signals-page .tblwrap tbody td.animcell small{display:block;line-height:16px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:320px}
 .herd-signals-page .hs-watch{gap:2px;min-width:0;max-width:240px}
-.herd-signals-page .hs-watch small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .herd-signals-page .tblwrap tbody tr.hs-selectable{transition:background-color var(--dur-fast) var(--ease)}
 .herd-signals-page .tblwrap tbody tr.hs-selectable:hover td{background:var(--hover)}
 /* Herd Signals drawer header/body gutter and readings grid are owned by mesha-theme.css (system-ui

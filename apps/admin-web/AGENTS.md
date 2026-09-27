@@ -263,6 +263,10 @@ Spec: `docs/design/mui-minimal-spec.md`. Tokens: `app/minimal-tokens.css`. Gate:
   LinearProgress closure cells), the rail is Card lists, error / empty states are Alerts, header
   controls are MUI Buttons. No legacy card / hd / bd / note / btn / lt-* classes and no raw
   `<section>` come back; `lt-truncnote` is only the visible-reason marker.
+- **Every info "i" is the shared InfoTip (guard: `info-tip-tap`, npm test).** No local
+  `function InfoTip` / `InfoTooltip`, no `.ihelp` / `.tipwrap` button inside a hover Tooltip: those open
+  on hover only, so a tap in the Android WebView does nothing (/herd-signals column help, REVIEW-15
+  O19). Use `components/app/info-tip.tsx` (controlled Tooltip, 44px IconButton, opens on tap).
 - **The shell is gated on every push (guard: r2 visual gate `shell|*`, scripts/r2-audit-checks/shell.mjs).**
   Sidebar root items + subheaders start at nav.left + 16px with padding-left 12px (template
   NavSectionVertical: content on the logo column), the active item is a translucent primary tint,

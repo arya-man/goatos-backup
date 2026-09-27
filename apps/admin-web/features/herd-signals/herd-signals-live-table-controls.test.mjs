@@ -197,7 +197,7 @@ test("live table exposes own-baseline and group-comparison risk signals", () => 
   assert.match(filters, /<TextField\s+select\s+label="Watchlist"[\s\S]{0,200}hs_risk: value/, "Watchlist filter must be available in the filter bar and write hs_risk");
 
   const table = read("./herd-signals-table.tsx");
-  assert.match(table, /Watchlist rules/, "Watchlist column needs explanatory copy");
+  assert.match(table, /Watchlist\s*<InfoTip title={RISK_RULES} \/>/, "Watchlist column needs explanatory copy (shared InfoTip, opens on tap)");
   assert.match(table, /own_motion_delta_pct/, "Risk cell must show own-baseline motion comparison");
   assert.match(table, /group_motion_delta_pct/, "Risk cell must show same-pen group motion comparison");
   assert.match(table, /group_temp_delta_c/, "Risk cell must show same-pen temperature comparison");

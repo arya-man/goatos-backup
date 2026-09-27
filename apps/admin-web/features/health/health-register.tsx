@@ -1,4 +1,5 @@
 import Table from "@mui/material/Table";
+import { InfoTip } from "@/components/app/info-tip";
 import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
@@ -17,7 +18,7 @@ import {
 import { RegisterEditor } from "./health-register-editor";
 import { StaleVersionNotice } from "./health-stale-version-recovery";
 import { RegisterSheetControls, RegisterSheetHeaderControls } from "./health-register-sheet";
-import { InfoTooltip, Tag } from "@/components/ui-primitives";
+import { Tag } from "@/components/ui-primitives";
 import { OpenRegisterDraftButton } from "./health-register-open";
 import Alert from "@mui/material/Alert";
 
@@ -165,9 +166,7 @@ export async function HealthRegisterSection({
       <section className="card" style={{ marginBottom: 16 }}>
         <div className="hd">
           <h3>{copy(pageContract, "section.registers.title")}</h3>
-          <InfoTooltip label={copy(pageContract, "section.registers.title")}>
-            {copy(pageContract, "note.how_it_works")}
-          </InfoTooltip>
+          <InfoTip title={copy(pageContract, "note.how_it_works")} />
           <span className="small muted">{copy(pageContract, "section.registers.caption")}</span>
           <div className="sp" style={{ flex: 1 }} />
           {/* The template is one file for every type, and what an upload does is one fact, so

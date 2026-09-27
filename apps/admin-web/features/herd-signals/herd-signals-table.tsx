@@ -1,5 +1,6 @@
 "use client";
 import Table from "@mui/material/Table";
+import { InfoTip } from "@/components/app/info-tip";
 import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
@@ -44,7 +45,6 @@ import { HerdSignalsHistoryFullscreen } from "./herd-signals-history-fullscreen"
 import { HerdSignalsAnimalsHead, HerdSignalsAnimalsRow } from "./herd-signals-animals-table";
 import { useNowMs } from "./herd-signals-stream-bridge";
 import { useHerdSignalsLiveSnapshot } from "./herd-signals-live-store";
-import Tooltip from "@mui/material/Tooltip";
 import { TablePaginationLinks } from "@/components/app/table/table-pagination-links";
 import { EmptyState } from "@/components/app/empty-state";
 
@@ -318,7 +318,7 @@ export function HerdSignalsTable({
         <TableSortLabel component={Link} href={sortHref(sort)} hideSortIcon active={active} direction={active ? params.sortDir : "asc"} title={`Sort by ${label}`}>
           {label}
         </TableSortLabel>
-        {help ? <InfoTip label={`${label} rules`} text={help} /> : null}
+        {help ? <InfoTip title={help} /> : null}
       </TableCell>
     );
   };
@@ -342,28 +342,28 @@ export function HerdSignalsTable({
               {sortableHead("Motion count", "motion_count", "num", "Cumulative counter maintained by the tag firmware. It can stay flat while packets are received.")}
               <TableCell component="th" className="num">
                 {liveWindowLabel(params.liveWindow)} delta
-                <InfoTip label="Selected movement window" text="Movement counter delta for the selected window. Use 30s or 1m for live checks; 15m remains the sustained activity window." />
+                <InfoTip title="Movement counter delta for the selected window. Use 30s or 1m for live checks; 15m remains the sustained activity window." />
               </TableCell>
               {sortableHead("Tag temp", "tag_temp", "num", "Tag housing temperature, not the animal's body temperature.")}
               {sortableHead("15m delta", "delta_15m", "num", "Current 15-minute motion-count delta: latest counter minus the baseline reading for the window.")}
               {sortableHead("1h delta", "delta_1h", "num", "Current 1-hour motion-count delta when enough readings exist; blank means the window is not established yet.")}
               <TableCell component="th" className="num">
                 24h delta
-                <InfoTip label="24h delta rules" text="Rolling 24-hour motion-counter delta. This is movement units from the tag firmware, not a step count." />
+                <InfoTip title="Rolling 24-hour motion-counter delta. This is movement units from the tag firmware, not a step count." />
               </TableCell>
               <TableCell component="th">
                 15m activity
-                <InfoTip label="Activity rules" text={ACTIVITY_RULES} />
+                <InfoTip title={ACTIVITY_RULES} />
               </TableCell>
               <TableCell component="th">Own baseline</TableCell>
               <TableCell component="th">Pen peers</TableCell>
               <TableCell component="th">
                 Pattern
-                <InfoTip label="Pattern rules" text={PATTERN_RULES} />
+                <InfoTip title={PATTERN_RULES} />
               </TableCell>
               <TableCell component="th">
                 Watchlist
-                <InfoTip label="Watchlist rules" text={RISK_RULES} />
+                <InfoTip title={RISK_RULES} />
               </TableCell>
               <TableCell component="th">Battery</TableCell>
               {sortableHead("Last seen", "last_seen", undefined, "When the backend last received a packet from this tag. Sorting by this can move rows during live refresh.")}
@@ -506,18 +506,6 @@ export function HerdSignalsTable({
       />
       <HerdSignalsHistoryFullscreen rows={visible} closeHref={drawerCloseHref} />
     </>
-  );
-}
-
-function InfoTip({ label, text }: { label: string; text: string }) {
-  return (
-    <Tooltip title={text} placement="top" slotProps={{ tooltip: { sx: { maxWidth: 300 } } }}>
-      <span className="tipwrap">
-        <button type="button" className="ihelp" aria-label={label}>
-          i
-        </button>
-      </span>
-    </Tooltip>
   );
 }
 

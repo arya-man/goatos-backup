@@ -1,10 +1,10 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { InfoTip } from "@/components/app/info-tip";
 import { Download, Upload } from "lucide-react";
 
 import { copy, optionalCopy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { InfoTooltip } from "@/components/ui-primitives";
 
 import {
   IDEMPOTENCY_HEADER,
@@ -186,9 +186,7 @@ export function RegisterSheetHeaderControls({ pageContract }: { pageContract: Ad
       </a>
       {/* Opens LEFTWARD: this "i" sits at the right end of the card header, and `.card` clips
           its overflow, so a rightward panel was cut off mid-sentence. */}
-      <InfoTooltip label={copy(pageContract, "action.upload_sheet")} align="end">
-        {optionalCopy(pageContract, "note.sheet_writes_a_draft") ?? ""}
-      </InfoTooltip>
+      <InfoTip title={optionalCopy(pageContract, "note.sheet_writes_a_draft") ?? ""} />
     </span>
   );
 }
