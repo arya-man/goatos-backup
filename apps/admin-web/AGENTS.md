@@ -270,6 +270,8 @@ Spec: `docs/design/mui-minimal-spec.md`. Tokens: `app/minimal-tokens.css`. Gate:
 - **/herd-signals shells are template anatomy (guard: `herd-signals-template-anatomy`, npm test).**
   Board / Alerts / Gateways / Insights render MUI Card + CardHeader, Alert, Grid and Label; no legacy
   card / hd / bd / banner / gwcard / insight / rowitem / pager / btn classes.
+- **Course widget icons are masks (guard: `mask-icon-not-img`, npm test).** COURSE_WIDGET_ICONS svgs
+  render through SvgColor with a tone gradient, never `<Box component="img">` (they paint black).
 - **The shell is gated on every push (guard: r2 visual gate `shell|*`, scripts/r2-audit-checks/shell.mjs).**
   Sidebar root items + subheaders start at nav.left + 16px with padding-left 12px (template
   NavSectionVertical: content on the logo column), the active item is a translucent primary tint,

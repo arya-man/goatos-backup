@@ -2643,10 +2643,10 @@ select:disabled { opacity: .45 }
 .herd-signals-page .fsel.search{flex:1 1 320px;min-width:220px}
 .herd-signals-page .fsel.search input{border:0;background:transparent;outline:0;font:inherit;color:var(--ink);flex:1;min-width:0;padding:0;line-height:normal}
 .herd-signals-page .fsel.search input::placeholder{color:var(--fg-faint);opacity:1}
-.herd-signals-page .fnote{color:color-mix(in srgb,var(--muted) 76%,var(--ink));font-size:11px;margin-left:auto;white-space:nowrap}
+.herd-signals-page .fnote{color:var(--muted);font-size:11px;margin-left:auto;white-space:nowrap}
 .herd-signals-page .hd > .small.faint,
-.herd-signals-page table .faint{color:color-mix(in srgb,var(--muted) 70%,var(--ink))}
-.herd-signals-page .animcell small{color:color-mix(in srgb,var(--muted) 72%,var(--ink))}
+.herd-signals-page table .faint{color:var(--muted)}
+.herd-signals-page .animcell small{color:var(--muted)}
 
 /* mock/herd-signals-mock.html `.achip{font-weight:700}` — the shared global `.achip` rule above is
    600 for other screens; scope the mock's exact weight to this page only. */
@@ -2695,10 +2695,10 @@ select:disabled { opacity: .45 }
 .herd-signals-page table.resp td.animcell{font-weight:650}
 .herd-signals-page .animcell a{color:inherit;text-decoration:none;border-bottom:1px dashed var(--line)}
 .herd-signals-page .animcell a:hover{color:var(--brand-d);border-color:var(--brand-d)}
-.herd-signals-page .animcell small{display:block;color:color-mix(in srgb,var(--muted) 72%,var(--ink));font-weight:600;font-size:10.5px}
+.herd-signals-page .animcell small{display:block;color:var(--muted);font-weight:600;font-size:10.5px}
 .herd-signals-page .hs-watch{display:grid;gap:4px;min-width:180px;max-width:280px;white-space:normal}
 .herd-signals-page .hs-watch .tag{justify-self:start}
-.herd-signals-page .hs-watch small{display:block;font-size:11px;line-height:1.35;color:color-mix(in srgb,var(--muted) 78%,var(--ink))}
+.herd-signals-page .hs-watch small{display:block;font-size:11px;line-height:1.35;color:var(--muted)}
 .herd-signals-page .delta{font-variant-numeric:tabular-nums;font-weight:700}
 .herd-signals-page .delta.up{color:var(--ok)}
 .herd-signals-page .delta.zero{color:var(--muted)}
@@ -2728,7 +2728,7 @@ select:disabled { opacity: .45 }
 .herd-signals-page .empty .eicon svg.ic{width:22px;height:22px}
 .herd-signals-page .empty h4{margin:0;font-size:14px;font-weight:720}
 .herd-signals-page .empty p{margin:0;max-width:460px;color:var(--muted);font-size:12.5px}
-.herd-signals-page .empty .eact{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:4px}
+
 .herd-signals-page .empty.dngstate .eicon{background:var(--dangerx);border-color:color-mix(in srgb,var(--danger) 38%,var(--line));color:var(--danger)}
 
 .herd-signals-page .pager{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:11px 15px;border-top:1px solid var(--line2);font-size:12px;color:var(--muted)}
@@ -2753,12 +2753,12 @@ select:disabled { opacity: .45 }
 .herd-signals-page .hs-btn.sm{padding:4px 9px;font-size:11.5px;border-radius:7px}
 
 .herd-signals-livebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.herd-signals-page .livebadge{display:inline-flex;align-items:center;gap:7px;min-height:40px;background:var(--dangerx);border:1px solid color-mix(in srgb,var(--danger) 45%,var(--line));color:var(--ink);border-radius:999px;padding:5px 13px;font-weight:800;font-size:12px;letter-spacing:.6px;cursor:pointer}
+.herd-signals-page .livebadge{display:inline-flex;align-items:center;gap:7px;min-height:40px;background:var(--dangerx);border:1px solid var(--danger);color:var(--ink);border-radius:999px;padding:5px 13px;font-weight:800;font-size:12px;letter-spacing:.6px;cursor:pointer}
 .herd-signals-page .livedot{width:8px;height:8px;border-radius:50%;background:var(--danger);animation:hs-lp 1.4s ease-in-out infinite}
 @keyframes hs-lp{0%,100%{opacity:1;box-shadow:0 0 0 0 color-mix(in srgb,var(--danger) 55%,transparent)}50%{opacity:.55;box-shadow:0 0 0 5px transparent}}
 .herd-signals-page .livebadge.paused{background:var(--panel-2);border-color:var(--line);color:var(--muted)}
 .herd-signals-page .livebadge.paused .livedot{background:var(--faint);animation:none}
-.herd-signals-page .livebadge.stale{background:var(--warnx);border-color:color-mix(in srgb,var(--warn) 45%,var(--line));color:var(--ink)}
+.herd-signals-page .livebadge.stale{background:var(--warnx);border-color:var(--warn);color:var(--ink)}
 .herd-signals-page .livebadge.stale .livedot{background:var(--warn);animation:none}
 .herd-signals-page .refreshmeta{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;white-space:nowrap}
 .herd-signals-page .refreshmeta b{color:var(--ink);font-variant-numeric:tabular-nums}
@@ -2948,7 +2948,6 @@ select:disabled { opacity: .45 }
 .herd-signals-page .banner.info{background:var(--infox);border-color:color-mix(in srgb,var(--info) 34%,var(--line));color:var(--info)}
 .herd-signals-page .banner.warn{background:var(--warnx);border-color:color-mix(in srgb,var(--warn) 40%,var(--line));color:var(--warn)}
 .herd-signals-page .banner.dng{background:var(--dangerx);border-color:color-mix(in srgb,var(--danger) 40%,var(--line));color:var(--danger-tag-ink)}
-
 
 /* The app-wide `.card` carries `margin-top:16px`; inside a `.grid2` that pushes the second
    row of cards out of alignment with the first. The mock's `.card` has no margin. */

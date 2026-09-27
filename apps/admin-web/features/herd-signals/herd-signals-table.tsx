@@ -1,6 +1,7 @@
 "use client";
 import Table from "@mui/material/Table";
 import { InfoTip } from "@/components/app/info-tip";
+import MuiLink from "@mui/material/Link";
 import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
@@ -400,9 +401,18 @@ export function HerdSignalsTable({
                       the profile live in the cell's tooltip and in the drawer; four stacked lines
                       made a 94px row (judge M2 round 4 #4). */}
                   <TableCell data-l="Animal" className="animcell wide" title={[animalRfidLine(item), animalProfileLine(item)].filter(Boolean).join(" · ") || undefined}>
-                    <LocalOverlayLink href={href} scroll={false} title="Open tag detail">
+                    {/* 44px tap box on a phone (webview rule); the desktop row keeps its compact line. */}
+                    <MuiLink
+                      component={LocalOverlayLink}
+                      href={href}
+                      scroll={false}
+                      title="Open tag detail"
+                      color="inherit"
+                      underline="hover"
+                      sx={{ typography: "subtitle2", display: "inline-flex", alignItems: "center", minHeight: { xs: "var(--tap-min)", md: "auto" } }}
+                    >
                       {animalPrimaryLabel(item)}
-                    </LocalOverlayLink>
+                    </MuiLink>
                     <small>
                       {item.display_id && (item.animal_identifier_1 || item.animal_identifier_2) ? `${item.display_id} · ` : ""}
                       {item.mapping_state === "conflict" ? "mapping conflict" : MAPPING_LABEL[item.mapping_state].toLowerCase()}

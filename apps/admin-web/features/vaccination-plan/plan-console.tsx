@@ -15,6 +15,7 @@ import { PageHeader } from "@/components/app/page-header";
 import { COURSE_WIDGET_ICONS } from "@/lib/minimal-icons";
 import { Label } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
+import { SvgColor } from "@/components/minimal/svg-color";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { LinkButton } from "@/components/app/link-button";
 import { TableHeadCustom, TablePaginationLinks } from "@/components/app/table";
@@ -190,7 +191,10 @@ export function VaccinationPlanConsole({ searchParams, versions, catalog, change
                       = the fact, subheader = its label), not a template number widget. */}
                   <Card sx={{ height: 1 }}>
                     <CardHeader
-                      avatar={<Box component="img" alt="" src={kpi.icon} sx={{ width: 40, height: 40 }} />}
+                      avatar={
+                        // Template CourseWidgetSummary icon: the svg as a mask filled with the tone gradient (a plain <img> of the mask svg painted it black).
+                        <SvgColor src={kpi.icon} sx={{ width: 40, height: 40, background: `linear-gradient(135deg, var(--palette-${kpi.tone}-main) 0%, var(--palette-${kpi.tone}-dark) 100%)` }} />
+                      }
                       title={kpi.value}
                       subheader={kpi.hint ? `${kpi.label} · ${kpi.hint}` : kpi.label}
                       slotProps={{ title: { variant: "h6" } }}
