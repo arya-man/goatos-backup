@@ -4,7 +4,7 @@ import Chip from "@mui/material/Chip";
 
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Columns3, Download, X } from "lucide-react";
+import { Download, X } from "lucide-react";
 import Button from "@mui/material/Button";
 import { RowMenu } from "@/components/app/row-menu";
 import { FilterBar } from "@/components/app/filter-bar";
@@ -119,7 +119,6 @@ export function RoutinesToolbarRow({
   labels,
 }: RoutinesToolbarRowProps) {
   const router = useRouter();
-  const { setDense } = useContext(DenseContext);
   const [query, setQuery] = useState(searchValue);
   // Every label is backend copy handed in by the page (chromeLabels in routines-page.tsx); the
   // chrome composes none of its own.
@@ -158,7 +157,7 @@ export function RoutinesToolbarRow({
   };
 
   return (
-      <Box sx={{ px: { xs: 2, sm: 3 }, pb: 1.5 }}>
+      <Box>
         <FilterBar
           search={{
             value: query,
@@ -168,15 +167,11 @@ export function RoutinesToolbarRow({
           }}
           actions={
             <>
-              <Button color="primary" variant="text" size="small" startIcon={<Columns3 size={16} />} onClick={() => setDense((d) => !d)}>
-                {L("columns")}
-              </Button>
-              <Button color="primary" variant="text" size="small" startIcon={<Download size={16} />} onClick={exportCsv}>
-                {L("export")}
-              </Button>
+              {/* Template list toolbar: one ⋮ popover (TR1-#23). Dense lives in the table footer switch. */}
               <RowMenu
                 ariaLabel={L("more")}
                 actions={[
+                  { label: L("export"), icon: <Download size={15} />, onSelect: exportCsv },
                   { label: L("apply_search"), onSelect: () => patch({ [searchParam]: query.trim() || null }) },
                   { label: L("reset"), icon: <X size={15} />, onSelect: clearAll, disabled: chips.length === 0 },
                 ]}
@@ -185,7 +180,7 @@ export function RoutinesToolbarRow({
           }
           summary={
             <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-              <Box component="span" sx={{ typography: "body2", color: "text.secondary" }}>{shown} / {total}</Box>
+              {chips.length ? <Box component="span" sx={{ typography: "body2", color: "text.secondary" }}>{shown} / {total}</Box> : null}
               {/* Template filters-result chip: soft small Chip with its own delete affordance. */}
               {chips.map((c) => (
                 <Chip

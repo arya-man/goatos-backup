@@ -52,3 +52,15 @@ test("leave: the client chrome receives copy as a labels map, never a function",
   for (const key of chrome.matchAll(/copyFor\("([^"]+)"\)/g)) assert.ok(src.includes(`"${key[1]}"`), `LEAVE_CHROME_COPY_KEYS lists ${key[1]}`);
   assert.doesNotMatch(chrome, /copyFor: \(key: string\) => string;/, "the chrome props declare no function");
 });
+
+// guard: list-toolbar-kebab (TR1-#23). The template list toolbar ends in one ⋮ popover: Export is a
+// menu item, the Dense switch is the table footer's (no "Columns" text button that toggled it), and
+// the "shown / total" count shows only beside active filter chips (never a stray "0 / 0").
+test("leave and routines toolbars: one ⋮ menu, no stray count", () => {
+  for (const file of ["../leave/leave-toolbar.tsx", "../pen-routines/routines-chrome.tsx"]) {
+    const src = readFileSync(new URL(file, import.meta.url), "utf8");
+    assert.doesNotMatch(src, /<Button[^>]*startIcon=\{<(Columns3|Download)\b/, `${file}: Columns / Export text buttons`);
+    assert.match(src, /<RowMenu[\s\S]{0,200}onSelect: exportCsv/, `${file}: Export in the ⋮ menu`);
+    assert.match(src, /\{chips\.length \? <Box component="span"[^>]*>\{shown\} \/ \{total\}<\/Box> : null\}/, `${file}: count only with chips`);
+  }
+});

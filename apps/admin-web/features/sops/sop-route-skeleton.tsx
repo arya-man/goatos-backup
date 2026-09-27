@@ -8,26 +8,21 @@ import {
   FilterCardSkeleton,
   PageHeaderSkeleton,
   PageSkeleton,
-  KpiRowSkeleton,
   StackSkeleton,
   BlockSkeleton,
 } from "@/components/app/skeletons";
-import { SOP_SKELETON_CARDS, SOP_STAT_CELLS } from "./sop-library-layout";
+import { SOP_SKELETON_CARDS } from "./sop-library-layout";
 
 /**
  * The module SOP libraries' loading shape (all SOP routes share `sop-library.tsx`, so they share
- * this): header + New SOP, the stat strip card, the FilterBar (status + trigger selects, search,
- * Columns / Export / more), the job-list card grid (one page of cards).
+ * this): header + New SOP, the bare FilterBar (status + trigger selects, search, the ⋮ menu), the
+ * job-list card grid (one page of cards). No KPI row (TR1-#33: the template job list has none).
  */
 export function SopLibrarySkeleton() {
   return (
     <PageSkeleton className="sop-kit" gap={3}>
       <PageHeaderSkeleton actions={1} />
-      {/* The KPI row is KpiGrid + KpiWidget (template CourseWidgetSummary): its loading twin is the
-          `hero` card row (title + figure, no icon badge: the CourseWidgetSummary height), not the retired
-          StatStrip ring strip (audit skeleton IoU). The page and this twin share gap 3. */}
-      <KpiRowSkeleton count={SOP_STAT_CELLS} hero />
-      <FilterCardSkeleton fields={[160, 160, "search"]} actions={3} />
+      <FilterCardSkeleton bare fields={[160, 160, "search"]} actions={1} />
       {/* One row of the 1/2/3 grid: most module libraries hold one to three SOPs, so a full page
           of twelve placeholder cards was three rows taller than the page it stands in for. */}
       <CardGridSkeleton count={SOP_SKELETON_CARDS} />

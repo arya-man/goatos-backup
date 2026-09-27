@@ -27,6 +27,11 @@ export type FilterBarProps = {
    */
   fold?: { label: string; closeLabel?: string; count?: number };
   className?: string;
+  /**
+   * Page-level toolbar with no Card (template job/tour list: search + filter controls sit on the
+   * page, above the card grid). TR1-#33: the SOP library's filter card.
+   */
+  bare?: boolean;
 };
 
 /**
@@ -35,7 +40,7 @@ export type FilterBarProps = {
  * (FiltersResult chips / counts) under it. Below `md` a foldable bar keeps search + actions and moves
  * the controls into the template's filters drawer (MinimalDrawer), badge = filters in effect.
  */
-export function FilterBar({ children, actions, search, summary, fold, className }: FilterBarProps) {
+export function FilterBar({ children, actions, search, summary, fold, className, bare }: FilterBarProps) {
   const [open, setOpen] = useState(false);
   const foldable = Boolean(fold && children);
   return (
@@ -43,11 +48,13 @@ export function FilterBar({ children, actions, search, summary, fold, className 
       className={cx("kit-filterbar", className)}
       sx={{
         overflow: "visible",
+        ...(bare ? { boxShadow: "none", bgcolor: "transparent", borderRadius: 0, "& > .kit-filterbar-row": { p: 0 }, "& > .kit-filterbar-summary": { px: 0, pt: 2, pb: 0 } } : null),
         // Inside another card (a table card) the toolbar is part of that card, as in the template list.
         ".MuiCard-root &, .card &": { boxShadow: "none", bgcolor: "transparent", borderRadius: 0 },
       }}
     >
       <Box
+        className="kit-filterbar-row"
         sx={{
           p: 2.5,
           gap: 2,
@@ -98,7 +105,7 @@ export function FilterBar({ children, actions, search, summary, fold, className 
         ) : null}
         {actions ? <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, alignItems: "center", ml: "auto" }}>{actions}</Box> : null}
       </Box>
-      {summary ? <Box sx={{ px: 2.5, pb: 2.5 }}>{summary}</Box> : null}
+      {summary ? <Box className="kit-filterbar-summary" sx={{ px: 2.5, pb: 2.5 }}>{summary}</Box> : null}
       {foldable ? (
         <MinimalDrawer open={open} onClose={() => setOpen(false)} title={fold?.label} aria-label={fold?.label}>
           <Box sx={{ p: 2.5, display: "flex", flexDirection: "column", gap: 2.5, "& .MuiFormControl-root": { width: 1 } }}>{children}</Box>

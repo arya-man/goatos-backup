@@ -68,16 +68,19 @@ test("SOP select options keep their backend description as the menu item title",
   assert.match(read("./toxin-editor.tsx"), /options=\{kinds\.map\(\(k\) => \(\{ value: k\.key, label: k\.label, title: k\.title \}\)\)\}/);
 });
 
-// guard: sop-library-skeleton-kpi-row (R3SP2 audit re-run). The library's KPI row became KpiGrid +
-// KpiWidget (template CourseWidgetSummary); its loading twin kept the retired StatStrip ring strip,
-// twice as tall, so the filter card and the cards jumped when the page arrived (skeleton IoU P0).
-test("SOP library skeleton mirrors the KPI widget row", () => {
-  assert.match(read("./sop-library.tsx"), /<KpiGrid>/);
+// guard: sop-library-template-job-list (TR1-#23/#33, replaces sop-library-skeleton-kpi-row). The template
+// job list has a search field plus filters and one ⋮ popover over the card grid: no KPI row, no filter
+// card, no Columns / Export text buttons. Cards take the JobItem logo slot (rounded 48px Avatar with
+// the letter fallback), not a green icon tile. The loading twin draws the same blocks.
+test("SOP library is the template job list and its skeleton mirrors it", () => {
+  const src = read("./sop-library.tsx");
+  assert.doesNotMatch(src, /<KpiGrid>|KpiWidget/);
+  assert.match(src, /<FilterBar\s+bare\b/);
+  assert.doesNotMatch(src, /<Button[^>]*startIcon=\{<(Columns3|Download)\b/, "Columns / Export belong in the ⋮ menu");
+  assert.match(src, /<Avatar alt=\{[^}]+\} variant="rounded" sx=\{\{ width: 48, height: 48, mb: 2 \}\}>/);
   const skel = read("./sop-route-skeleton.tsx");
-  assert.match(skel, /<KpiRowSkeleton count=\{SOP_STAT_CELLS\} hero \/>/);
-  // Page and skeleton stack their blocks with the same gap (the page had none: header, KPI row,
-  // filter card and cards touched).
-  assert.match(read("./sop-library.tsx"), /<div className="kit-enter screen on sop-kit">\s*\{\/\*[\s\S]*?\*\/\}\s*<Box sx=\{\{ display: "flex", flexDirection: "column", gap: 3 \}\}>/);
+  assert.doesNotMatch(skel, /KpiRowSkeleton|StatStripSkeleton/);
+  assert.match(skel, /<FilterCardSkeleton bare /);
+  assert.match(src, /<div className="kit-enter screen on sop-kit">\s*\{\/\*[\s\S]*?\*\/\}\s*<Box sx=\{\{ display: "flex", flexDirection: "column", gap: 3 \}\}>/);
   assert.match(skel, /<PageSkeleton className="sop-kit" gap=\{3\}>/);
-  assert.doesNotMatch(skel, /StatStripSkeleton/);
 });

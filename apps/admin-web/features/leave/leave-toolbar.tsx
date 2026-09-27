@@ -4,7 +4,7 @@ import Chip from "@mui/material/Chip";
 
 import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Columns3, Download, X } from "lucide-react";
+import { Download, X } from "lucide-react";
 import Button from "@mui/material/Button";
 import { RowMenu } from "@/components/app/row-menu";
 import { FilterBar } from "@/components/app/filter-bar";
@@ -40,7 +40,7 @@ type LeaveToolbarProps = {
  * data. The filters narrow the window the route already fetched — the backend list endpoint takes
  * only `status`, `limit` and `cursor`, so person/park/designation/date are applied in the page.
  */
-function LeaveToolbar({ value, parkOptions, designationOptions, basePath, currentQuery, labels, shown, total, csv, csvName, dense, onDenseChange }: LeaveToolbarProps) {
+function LeaveToolbar({ value, parkOptions, designationOptions, basePath, currentQuery, labels, shown, total, csv, csvName }: LeaveToolbarProps) {
   const copyFor = (key: string) => labels[key] ?? "";
   const router = useRouter();
   const [q, setQ] = useState(value.q);
@@ -91,15 +91,11 @@ function LeaveToolbar({ value, parkOptions, designationOptions, basePath, curren
       }}
       actions={
         <>
-          <Button color="primary" variant="text" size="small" startIcon={<Columns3 size={16} />} onClick={() => onDenseChange(!dense)}>
-            {copyFor("action.columns")}
-          </Button>
-          <Button color="primary" variant="text" size="small" startIcon={<Download size={16} />} onClick={exportCsv}>
-            {copyFor("action.export")}
-          </Button>
+          {/* Template list toolbar: one ⋮ popover (TR1-#23). Dense lives in the table footer switch. */}
           <RowMenu
             ariaLabel={copyFor("action.more")}
             actions={[
+              { label: copyFor("action.export"), icon: <Download size={15} />, onSelect: exportCsv },
               { label: copyFor("action.apply_search"), onSelect: () => patch({ q: q.trim() || null }) },
               { label: copyFor("action.reset_filters"), icon: <X size={15} />, onSelect: clearAll, disabled: chips.length === 0 },
             ]}
@@ -108,7 +104,7 @@ function LeaveToolbar({ value, parkOptions, designationOptions, basePath, curren
       }
       summary={
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-          <Box component="span" sx={{ typography: "body2", color: "text.secondary" }}>{shown} / {total}</Box>
+          {chips.length ? <Box component="span" sx={{ typography: "body2", color: "text.secondary" }}>{shown} / {total}</Box> : null}
           {/* Template filters-result chip: soft small Chip with its own delete affordance. */}
           {chips.map((c) => (
             <Chip
@@ -249,7 +245,7 @@ export function LeaveDenseScope({ children }: { children: ReactNode }) {
 export function LeaveToolbarRow({ toolbar }: { toolbar: Omit<LeaveToolbarProps, "dense" | "onDenseChange"> }) {
   const { dense, setDense } = useContext(DenseContext);
   return (
-    <Box sx={{ px: { xs: 2, sm: 3 }, pb: 1.5 }}>
+    <Box>
       <LeaveToolbar {...toolbar} dense={dense} onDenseChange={setDense} />
     </Box>
   );

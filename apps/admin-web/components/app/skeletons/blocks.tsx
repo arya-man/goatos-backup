@@ -141,10 +141,10 @@ export type FilterField = number | "search" | "chip";
  * (select / date), "search" takes the remaining width, "chip" is a chip-sized pill.
  * `inCard` drops the Card for a toolbar that sits inside another card.
  */
-export function FilterCardSkeleton({ fields, actions = 0, inCard = false, small = false }: { fields: FilterField[] | number; actions?: number; inCard?: boolean; small?: boolean }) {
+export function FilterCardSkeleton({ fields, actions = 0, inCard = false, small = false, bare = false }: { fields: FilterField[] | number; actions?: number; inCard?: boolean; small?: boolean; /** FilterBar `bare`: no card, no padding. */ bare?: boolean }) {
   const list: FilterField[] = typeof fields === "number" ? Array.from({ length: fields }, () => 200) : fields;
   const body = (
-    <Box sx={{ p: 2.5, gap: 2, display: "flex", flexWrap: "wrap", alignItems: "center" }}>
+    <Box sx={{ p: bare ? 0 : 2.5, gap: 2, display: "flex", flexWrap: "wrap", alignItems: "center" }}>
       {list.map((f, i) =>
         f === "search" ? (
           <FieldSkeleton key={i} grow small={small} />
@@ -159,7 +159,7 @@ export function FilterCardSkeleton({ fields, actions = 0, inCard = false, small 
       ))}
     </Box>
   );
-  if (inCard) return <div data-skel="filters">{body}</div>;
+  if (inCard || bare) return <div data-skel="filters">{body}</div>;
   return (
     <Card aria-hidden="true" data-skel="filters" sx={{ overflow: "visible" }}>
       {body}

@@ -13,7 +13,6 @@ import {
   Download,
   FileText,
   Info,
-  Clock,
   Hash,
   List,
   ListChecks,
@@ -21,14 +20,11 @@ import {
   NotebookPen,
   Plus,
   ScanLine,
-  SquarePen,
   Type as TypeIcon,
-  Users,
   Video,
   X,
-  Zap,
 } from "lucide-react";
-import { type SopCardView, type SopTrigger } from "./sop-derive";
+import { type SopCardView } from "./sop-derive";
 import { FollowUpStepsSummary } from "./followup-summary";
 import { InspectionSummary } from "./inspection-summary";
 import { PcCareSummary } from "./pc-care-summary";
@@ -50,7 +46,6 @@ import Divider from "@mui/material/Divider";
 import Typography from "@mui/material/Typography";
 import ListItemText from "@mui/material/ListItemText";
 import Pagination, { paginationClasses } from "@mui/material/Pagination";
-import { varAlpha } from "minimal-shared/utils";
 import { Label, type LabelColor } from "@/components/minimal/label";
 import { EmptyContent } from "@/components/minimal/empty-content";
 import TextField from "@mui/material/TextField";
@@ -70,19 +65,10 @@ import type { Theme } from "@mui/material/styles";
 import Chip from "@mui/material/Chip";
 import MuiCard from "@mui/material/Card";
 import Paper from "@mui/material/Paper";
-import { KpiGrid } from "@/components/app/kpi-grid";
-import { KpiWidget } from "@/components/app/kpi-widget";
 import { CARDS_PER_PAGE } from "./sop-library-layout";
 
 // The New SOP builder is a dedicated full-page surface at <module SOP page>?compose=1 — the same
 // route as the module page (never a nested /new page). Legacy `?new=1` deep-links resolve to it too.
-
-const TRIGGER_ICON: Record<SopTrigger, React.ElementType> = {
-  form: SquarePen,
-  cron: Clock,
-  sensor: Zap,
-  manual: Users,
-};
 
 const FIELD_ICON: Record<string, React.ElementType> = {
   text: TypeIcon,
@@ -177,16 +163,6 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
   const page = Math.min(requestedPage, totalPages);
   const pagedList = list.slice((page - 1) * pageSize, page * pageSize);
 
-  const stats = useMemo(
-    () => ({
-      total: sops.length,
-      active: sops.filter((s) => s.status === "active").length,
-      draft: sops.filter((s) => s.status === "draft").length,
-      retired: sops.filter((s) => s.status === "retired").length,
-    }),
-    [sops],
-  );
-
   const statusOptions = useMemo(
     () => [
       { value: "", label: copy(pageContract, "filter.status.all", "All statuses") },
@@ -264,22 +240,11 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
         />
       </div>
 
-      {/* Spec §5 stat strip — derived from the cards already in hand. Template invoice list:
-          template CourseWidgetSummary tiles (KpiWidget). */}
-      <KpiGrid>
-        {[
-          { key: "total", label: copy(pageContract, "stat.total"), value: stats.total, color: "primary" as const },
-          { key: "active", label: copy(pageContract, "filter.status.active"), value: stats.active, color: "success" as const },
-          { key: "draft", label: copy(pageContract, "filter.status.draft"), value: stats.draft, color: "warning" as const },
-          { key: "retired", label: copy(pageContract, "filter.status.retired"), value: stats.retired, color: "info" as const },
-        ].map((cell) => (
-          <KpiWidget key={cell.key} title={cell.label} total={cell.value} color={cell.color} sx={{ height: 1 }} />
-        ))}
-      </KpiGrid>
 
       {/* Spec §2 toolbar: search + status/trigger filters, right-aligned actions, filter chips. */}
       <div>
         <FilterBar
+          bare
           fold={{ label: copy(pageContract, "action.filters", "Filters"), count: activeChips.filter((chip) => chip.id !== "q").length }}
           search={{
             value: query,
@@ -292,21 +257,19 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
           }}
           actions={
             <>
-              <Button color="primary" variant="text" size="small" startIcon={<Columns3 size={16} />} onClick={() => setColumnsOpen(true)}>
-                {copy(pageContract, "action.columns")}
-              </Button>
-              <Button color="primary" variant="text" size="small" startIcon={<Download size={16} />} onClick={exportCsv}>
-                {copy(pageContract, "action.export", "Export")}
-              </Button>
+              {/* Template list toolbar: one ⋮ popover (TR1-#23). */}
               <RowMenu
                 ariaLabel={copy(pageContract, "action.more")}
                 actions={[
+                  { label: copy(pageContract, "action.columns"), icon: <Columns3 size={15} />, onSelect: () => setColumnsOpen(true) },
+                  { label: copy(pageContract, "action.export", "Export"), icon: <Download size={15} />, onSelect: exportCsv },
                   { label: copy(pageContract, "action.reset_filters", "Reset filters"), icon: <X size={15} />, onSelect: clearAll, disabled: activeChips.length === 0 },
                 ]}
               />
             </>
           }
           summary={
+            activeChips.length === 0 && list.length === sops.length ? undefined : (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
               {list.length !== sops.length ? (
                 <Tag tone="mut">
@@ -333,6 +296,7 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
                 </Button>
               ) : null}
             </Box>
+            )
           }
         >
           <TextField
@@ -490,7 +454,6 @@ type SopItemProps = {
 // Template sections/job/job-item anatomy: ⋮ action menu pinned top-right, rounded 48px avatar,
 // subtitle1 title link + caption, primary caption line, dashed divider, 2-column caption facts.
 function SopItem({ view, facets, pageContract, justPublished, onView, onEdit }: SopItemProps) {
-  const TrigIcon = view.trigger ? TRIGGER_ICON[view.trigger] : BookText;
   const facts: Array<{ key: string; label: string; icon: React.ReactNode }> = [];
   if (facets.domain) facts.push({ key: "domain", label: view.domainLabel, icon: <Iconify width={16} icon="solar:tag-horizontal-bold-duotone" sx={{ flexShrink: 0 }} /> });
   if (facets.trigger && view.trigger) facts.push({ key: "trigger", label: view.trigger, icon: <Iconify width={16} icon="solar:clock-circle-bold" sx={{ flexShrink: 0 }} /> });
@@ -519,11 +482,10 @@ function SopItem({ view, facets, pageContract, justPublished, onView, onEdit }: 
       </Box>
 
       <Box sx={{ p: 3, pb: 2 }}>
-        <Avatar
-          variant="rounded"
-          sx={(theme) => ({ width: 48, height: 48, mb: 2, color: "primary.main", bgcolor: varAlpha(theme.vars.palette.primary.mainChannel, 0.16) })}
-        >
-          <TrigIcon aria-hidden="true" />
+        {/* Template JobItem logo slot: a rounded 48px Avatar. An SOP has no logo, so it takes the
+            template's letter fallback from its module (TR1-#33). */}
+        <Avatar alt={view.domainLabel || view.name} variant="rounded" sx={{ width: 48, height: 48, mb: 2 }}>
+          {(view.domainLabel || view.name).charAt(0).toUpperCase()}
         </Avatar>
 
         <ListItemText
