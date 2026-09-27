@@ -1,4 +1,5 @@
 import Table from "@mui/material/Table";
+import TableContainer from "@mui/material/TableContainer";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { PanelSkeleton } from "@/components/app/panel-skeleton";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
@@ -136,7 +137,7 @@ function BreakdownCard({
         action={pager && pageCount > 1 ? <Label variant="soft" color="default">{num(rows.length)} {pager.noun}</Label> : null}
         sx={{ mb: 2, [`& .${cardHeaderClasses.action}`]: { alignSelf: "center" } }}
       />
-      <Box id={tableId} tabIndex={0} role="region" aria-label={title} sx={cardTableScrollSx}>
+      <TableContainer id={tableId} tabIndex={0} role="region" aria-label={title} sx={cardTableScrollSx}>
         <Table sx={FB_TABLE_SX}>
           <TableHead>
             <TableRow>
@@ -190,7 +191,7 @@ function BreakdownCard({
             )}
           </TableBody>
         </Table>
-      </Box>
+      </TableContainer>
       {pager && pageCount > 1 ? (
         <ProcurementTableFooter
           denseLabel={copy(pageContract, "action.dense", "Dense")}
@@ -315,7 +316,7 @@ function FarmBornSections({
           }
           sx={{ mb: 2, [`& .${cardHeaderClasses.action}`]: { alignSelf: "center" } }}
         />
-        <Box id="farm-born-sold" tabIndex={0} role="region" aria-label={copy(pageContract, "section.sold.aria")} sx={cardTableScrollSx}>
+        <TableContainer id="farm-born-sold" tabIndex={0} role="region" aria-label={copy(pageContract, "section.sold.aria")} sx={cardTableScrollSx}>
           <FarmBornSoldTable
             contract={table(pageContract, "sales-farm-born-sold")}
             rows={data.sold.map((row) => ({ ...row, stage: stageVocabularyLabel(row.stage, stageNames) }))}
@@ -331,7 +332,7 @@ function FarmBornSections({
               empty: <EmptyState title={copy(pageContract, "empty.sold")} />,
             }}
           />
-        </Box>
+        </TableContainer>
         {pageCount > 1 ? (
           <ProcurementTableFooter
             denseLabel={copy(pageContract, "action.dense", "Dense")}

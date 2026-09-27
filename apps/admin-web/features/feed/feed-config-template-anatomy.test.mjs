@@ -9,6 +9,21 @@ import test from "node:test";
 const editor = readFileSync(new URL("./feed-config-editor.tsx", import.meta.url), "utf8");
 const page = readFileSync(new URL("./feed-config.tsx", import.meta.url), "utf8");
 
+/** Legacy markup a template page must not carry (REVIEW-36 O47/O48). */
+export function legacyViolations(src) {
+  const out = [];
+  for (const [re, what] of [
+    [/feed-table|feed-scroll/, "legacy .feed-table / .feed-scroll class"],
+    [/className="fld"/, "legacy .fld wrapper"],
+    [/<label\b/, "raw <label> (use TextField label)"],
+    [/className="(?:small|muted)[^"]*"/, "legacy small / muted text class"],
+    [/style=\{\{/, "inline style (use sx)"],
+    [/<TableHead>/, "bare TableHead (use TableHeadCustom)"],
+  ]) if (re.test(src.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, ""))) out.push(what);
+  for (const m of src.matchAll(/<Alert\b[\s\S]*?<\/Alert>/g)) if (/<Table\b/.test(m[0])) out.push("table inside an Alert (alerts hold text only)");
+  return out;
+}
+
 export function shellViolations(src) {
   const out = [];
   const shell = src.slice(src.indexOf("function FeedConfigFormShell("), src.indexOf("function Outcome("));
@@ -27,6 +42,17 @@ test("feed-config-template-anatomy: self-test", () => {
   assert.ok(v.includes("FeedConfigFormShell does not open a Dialog"));
   assert.ok(v.includes("legacy .tag chip"));
   assert.ok(v.includes("lucide action icons instead of template Iconify"));
+});
+
+test("feed-config-template-anatomy: legacy self-test", () => {
+  assert.deepEqual(legacyViolations(`<Table sx={{}}><TableHeadCustom /></Table>`), []);
+  const v = legacyViolations(`<Alert><Table className="feed-table" /></Alert>\n<div className="fld" style={{ a: 1 }}><label>x</label></div>\n<span className="small muted">y</span>`);
+  for (const what of ["legacy .feed-table / .feed-scroll class", "legacy .fld wrapper", "raw <label> (use TextField label)", "legacy small / muted text class", "inline style (use sx)", "table inside an Alert (alerts hold text only)"]) assert.ok(v.includes(what), what);
+});
+
+test("feed-config-template-anatomy: page and editors carry no legacy markup", () => {
+  assert.deepEqual(legacyViolations(page), []);
+  assert.deepEqual(legacyViolations(editor), []);
 });
 
 test("feed-config-template-anatomy: editors open the template dialog", () => {

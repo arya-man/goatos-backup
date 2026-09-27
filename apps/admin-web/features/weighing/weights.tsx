@@ -1,4 +1,5 @@
 import Table from "@mui/material/Table";
+import TableContainer from "@mui/material/TableContainer";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { PanelSkeleton } from "@/components/app/panel-skeleton";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
@@ -1057,7 +1058,7 @@ export async function WeighingWeightsPage({
               {gainThresholdRows.length === 0 ? (
                 <EmptyState title={gainEmptyLabel} />
               ) : (
-                <Box sx={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.gain_thresholds.aria")}>
+                <TableContainer tabIndex={0} role="group" aria-label={copy(pageContract, "section.gain_thresholds.aria")}>
                   <Table aria-label={copy(pageContract, "section.gain_thresholds.aria")}>
                     <TableHead>
                       <TableRow>
@@ -1085,7 +1086,7 @@ export async function WeighingWeightsPage({
                       ))}
                     </TableBody>
                   </Table>
-                </Box>
+                </TableContainer>
               )}
             </Card>
           )}
@@ -1240,7 +1241,7 @@ export async function WeighingWeightsPage({
             {loadPlacementRows.length === 0 ? (
               <EmptyState title={copy(pageContract, "empty.load_placements.body")} />
             ) : (
-              <Box sx={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.load_placements.aria")}>
+              <TableContainer tabIndex={0} role="group" aria-label={copy(pageContract, "section.load_placements.aria")}>
                 <Table aria-label={copy(pageContract, "section.load_placements.aria")}>
                   <TableHead>
                     <TableRow>
@@ -1277,7 +1278,7 @@ export async function WeighingWeightsPage({
                     ))}
                   </TableBody>
                 </Table>
-              </Box>
+              </TableContainer>
             )}
             {demo ? (
               <Typography variant="body2" sx={{ p: 3, color: "text.secondary" }}>
@@ -1303,7 +1304,7 @@ export async function WeighingWeightsPage({
               />
             ) : (
               <>
-                <Box sx={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.sheds.aria")}>
+                <TableContainer tabIndex={0} role="group" aria-label={copy(pageContract, "section.sheds.aria")}>
                   <Table>
                     <TableHead>
                       <TableRow>
@@ -1359,7 +1360,7 @@ export async function WeighingWeightsPage({
                       })}
                     </TableBody>
                   </Table>
-                </Box>
+                </TableContainer>
                 <WorklistPager
                   pageContract={pageContract}
                   offset={offset}
@@ -1386,7 +1387,7 @@ export async function WeighingWeightsPage({
               <EmptyState title={copy(pageContract, "empty.losing.title")} description={copy(pageContract, "empty.losing.body")} />
             ) : (
               <>
-                <Box sx={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.losing.aria")}>
+                <TableContainer tabIndex={0} role="group" aria-label={copy(pageContract, "section.losing.aria")}>
                   <Table>
                     <TableHead>
                       <TableRow>
@@ -1413,7 +1414,7 @@ export async function WeighingWeightsPage({
                       ))}
                     </TableBody>
                   </Table>
-                </Box>
+                </TableContainer>
                 <WorklistPager
                   pageContract={pageContract}
                   offset={losingOffset}

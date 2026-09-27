@@ -1,4 +1,5 @@
 import Table from "@mui/material/Table";
+import TableContainer from "@mui/material/TableContainer";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
@@ -507,7 +508,7 @@ async function SoldLedgerPanel({ sp, farm, pageContract }: { sp: RouteSearchPara
         {deals.length === 0 ? (
           <EmptyState title={farm !== SALES_DEFAULT_FARM ? copy(pageContract, "empty.deals") : copy(pageContract, "empty.deals.unset")} />
         ) : (
-          <Box id="sales-sold-deals" tabIndex={0} role="region" aria-label={copy(pageContract, "section.ledger.aria")} sx={{ overflowX: "auto", maxWidth: "100%" }}>
+          <TableContainer id="sales-sold-deals" tabIndex={0} role="region" aria-label={copy(pageContract, "section.ledger.aria")} sx={{ maxWidth: "100%" }}>
             <Table
               className="sales-deals-table"
               aria-label={copy(pageContract, "section.ledger.aria")}
@@ -563,7 +564,7 @@ async function SoldLedgerPanel({ sp, farm, pageContract }: { sp: RouteSearchPara
                 })}
               </TableBody>
             </Table>
-          </Box>
+          </TableContainer>
         )}
 
         {pageCount > 1 ? (

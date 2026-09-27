@@ -249,7 +249,6 @@ export function RationGridTable({
       </Box>
       <Box sx={{ display: { xs: "none", md: "block" } }}>
         <DataTable
-          className="feed-table"
           ariaLabel={ariaLabel}
           columns={columns}
           data={rows}

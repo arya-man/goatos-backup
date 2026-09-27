@@ -35,6 +35,8 @@ export function FormSelect({
   minWidth = 160,
   className,
   title,
+  helperText,
+  fullWidth = false,
 }: {
   /** Omit for a select that only drives other fields and submits nothing of its own. */
   name?: string;
@@ -48,6 +50,10 @@ export function FormSelect({
   minWidth?: number;
   className?: string;
   title?: string;
+  /** The field's hint under it (MUI TextField helperText). */
+  helperText?: React.ReactNode;
+  /** Stretch to the container (dialog grid fields). */
+  fullWidth?: boolean;
 }) {
   const [own, setOwn] = useState(defaultValue ?? "");
   const controlled = value !== undefined;
@@ -61,6 +67,8 @@ export function FormSelect({
         value={options.some((option) => option.value === current) ? current : ""}
         disabled={disabled}
         title={title}
+        helperText={helperText}
+        fullWidth={fullWidth}
         onChange={({ target: { value: next } }) => {
           if (!controlled) setOwn(next);
           onChange?.(next);

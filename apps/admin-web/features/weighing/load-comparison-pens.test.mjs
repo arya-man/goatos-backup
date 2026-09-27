@@ -70,6 +70,6 @@ test("the loads ledger names the pens too, on the template table card", () => {
   // The ledger is a template table card (Card + CardHeader, the table scrolling sideways in its own
   // box), never the legacy `.card.wtable` section with hand-set padding.
   assert.match(source, /<CardHeader title=\{copy\(pageContract, "table\.loads\.title"\)\}/);
-  assert.match(source, /<Box sx=\{\{ overflowX: "auto" \}\}/);
+  assert.match(source, /<TableContainer\b/, "the table scrolls in the template TableContainer (TR1-#20)");
   assert.doesNotMatch(source, /className="card/);
 });

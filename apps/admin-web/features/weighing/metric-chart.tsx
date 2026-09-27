@@ -1,6 +1,7 @@
 "use client";
 import { chartClasses } from "@/components/minimal/chart/classes";
 import Table from "@mui/material/Table";
+import TableContainer from "@mui/material/TableContainer";
 import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
@@ -207,7 +208,7 @@ function ShedMetricTable({
     ));
   return (
     <>
-      <Box sx={{ overflowX: "auto" }}>
+      <TableContainer>
         <Table aria-label={active.chartLabel}>
           <TableHead>
             <TableRow>
@@ -238,7 +239,7 @@ function ShedMetricTable({
             ))}
           </TableBody>
         </Table>
-      </Box>
+      </TableContainer>
       {/* The template table pagination, client-side over the rows already served (nothing
           navigates): range and arrows, ends disabled rather than hidden. */}
       <TablePaginationCustom

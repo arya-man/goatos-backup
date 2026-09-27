@@ -1,4 +1,5 @@
 import Table from "@mui/material/Table";
+import TableContainer from "@mui/material/TableContainer";
 import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
@@ -307,7 +308,7 @@ export function LoadComparisonTab({
       <Grid size={12}>
         <Card>
           <CardHeader title={copy(pageContract, "table.loads.title")} subheader={copy(pageContract, "note.load.denominator")} sx={{ mb: 3 }} />
-          <Box sx={{ overflowX: "auto" }} tabIndex={0} role="region" aria-label={copy(pageContract, "table.loads.title")}>
+          <TableContainer tabIndex={0} role="region" aria-label={copy(pageContract, "table.loads.title")}>
             <Table aria-label={copy(pageContract, "table.loads.title")}>
               <TableHead>
                 <TableRow>
@@ -338,7 +339,7 @@ export function LoadComparisonTab({
                 ))}
               </TableBody>
             </Table>
-          </Box>
+          </TableContainer>
           <Typography variant="body2" sx={{ p: 3, color: "text.secondary" }}>
             {copy(pageContract, "note.load.filters")}
           </Typography>

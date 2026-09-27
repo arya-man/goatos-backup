@@ -30,12 +30,12 @@ test("an editor opens on the plain stored number, with no padding and no thousan
   assert.equal(fmtInputNumber("abc"), "abc");
 });
 
-test("feed-config tables keep the sticky first column and scroll-edge fades (data-scroll-x on every scroller)", async () => {
-  // REVIEW-10 O16: the template conversion swapped div.feed-scroll for a bare Box, which dropped the
-  // frame.css sticky first column and components/app/scroll-edges fades (both key on the marker).
+test("feed-config tables scroll in the template Scrollbar (TR1-#20)", async () => {
+  // Every section table sits in the template Scrollbar (the ration grid in DataTable's own), never a
+  // bare overflow Box / legacy .feed-scroll div.
   const { readFileSync } = await import("node:fs");
   const page = readFileSync(new URL("./feed-config.tsx", import.meta.url), "utf8");
-  const scrollers = page.match(/<Box\n\s+(?:data-scroll-x=""\n\s+)?sx=\{\{ overflowX: "auto" \}\}/g) ?? [];
-  assert.ok(scrollers.length >= 4, "four table scrollers");
-  for (const box of scrollers) assert.match(box, /data-scroll-x=""/);
+  assert.ok((page.match(/<Scrollbar\b/g) ?? []).length >= 4, "four table scrollers");
+  assert.doesNotMatch(page, /<Box\b[^>]*overflowX: "auto"/, "no bare overflow Box around a table");
+  assert.doesNotMatch(page, /feed-scroll/, "no legacy .feed-scroll wrapper");
 });

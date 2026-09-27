@@ -2,7 +2,6 @@ import Table from "@mui/material/Table";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import type { WorklistFilterField } from "@/components/worklist-filters";
 import { TableSkeleton } from "@/components/app/skeletons";
-import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
@@ -61,6 +60,11 @@ import { groupMissingRates, groupRetiredFeedGaps, type MissingRate, type Retired
 import { stageLabel } from "@/lib/stage-labels";
 import { EmptyState } from "@/components/app/empty-state";
 import Alert from "@mui/material/Alert";
+import AlertTitle from "@mui/material/AlertTitle";
+import Typography from "@mui/material/Typography";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { TableHeadCustom } from "@/components/app/table";
+import { visuallyHidden } from "@mui/utils";
 import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
@@ -132,18 +136,18 @@ function EffectiveWindow({
 }) {
   const open = !validTo;
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+    <Stack spacing={0.5} sx={{ alignItems: "flex-start" }}>
       <Label
         variant="soft" color={open ? "success" : "default"}
         title={copy(pageContract, open ? "label.effective_open_note" : "label.effective_closed_note")}
       >
         {copy(pageContract, open ? "label.effective_open" : "label.effective_closed")}
       </Label>
-      <span className="muted" style={{ fontSize: 11 }}>
+      <Typography variant="caption" sx={{ color: "text.secondary" }}>
         {fmtDate(validFrom)}
         {validTo ? ` · ${fmtDate(validTo)}` : ""}
-      </span>
-    </div>
+      </Typography>
+    </Stack>
   );
 }
 
@@ -259,14 +263,11 @@ function SectionError({
 }) {
   if (!result || result.ok) return null;
   return (
-    <Alert severity="error" style={{ marginBottom: 16 }}><div>
-        <b>{copy(pageContract, titleKey)}</b>
-        <div className="small muted">
-          {/* The message only: the machine code ("invalid_filter", "internal_error") is for logs. A
-              malformed park or pen id can only have come from the link, so it says that plainly. */}
-          {result.error.code === "invalid_field" ? copy(pageContract, "state.bad_link") : result.error.message}
-        </div>
-      </div>
+    <Alert severity="error">
+      <AlertTitle>{copy(pageContract, titleKey)}</AlertTitle>
+      {/* The message only: the machine code ("invalid_filter", "internal_error") is for logs. A
+          malformed park or pen id can only have come from the link, so it says that plainly. */}
+      {result.error.code === "invalid_field" ? copy(pageContract, "state.bad_link") : result.error.message}
     </Alert>
   );
 }
@@ -764,8 +765,10 @@ export async function FeedConfigPage({
   );
   const splitMismatch = activeSessions.length > 0 && splitTotalMilli !== 10000;
 
+  const gridLabel = (key: string) => gridTable.columns.find((column) => column.key === key)?.label ?? key;
+
   return (
-    <div className="kit-enter screen on">
+    <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
       <FeedFaroView routeId={pageContract.route_id} parkId={scope.parkId} />
 
       <div>
@@ -780,8 +783,7 @@ export async function FeedConfigPage({
       {/* The park constraint is the Park filter's helper (InfoHint on the field), not a paragraph. */}
 
       {locations.parks.length === 0 ? (
-        <Alert severity="error" style={{ marginBottom: 16 }}><div>{copy(pageContract, "state.parks_unavailable")}</div>
-        </Alert>
+        <Alert severity="error">{copy(pageContract, "state.parks_unavailable")}</Alert>
       ) : null}
 
       <SectionError result={ratesResult} titleKey="state.ration_grid_unavailable" pageContract={pageContract} />
@@ -790,62 +792,67 @@ export async function FeedConfigPage({
       <div>
       <Card>
         <CardHeader title={copy(pageContract, "section.ration_grid.title")} sx={{ mb: 2 }} />
+        {/* Alerts hold text only (template Alert + AlertTitle); the missing-rate rows are their own
+            table under it, on the card's table parts. */}
         {retiredFeeds.sessions.length + retiredFeeds.experimentPens.length > 0 ? (
           <Alert severity="warning" sx={{ mx: 3, mb: 2 }} role="group" aria-label={copy(pageContract, "section.retired_feeds.title")}>
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div>
-                <b>{copy(pageContract, "section.retired_feeds.title")}</b> · {copy(pageContract, "section.retired_feeds.caption")}
-              </div>
-              <ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
-                {retiredFeeds.sessions.map((entry) => (
-                  <li key={`session:${entry.session}`}>
-                    <b>{entry.session}</b> · {copy(pageContract, "label.retired_session")} {entry.pens}{" "}
-                    {copy(pageContract, entry.pens === 1 ? "label.retired_pen_one" : "label.retired_pen_many")}
-                  </li>
-                ))}
-                {retiredFeeds.experimentPens.map((pen) => (
-                  <li key={`pen:${pen}`}>
-                    <b>{pen}</b> · {copy(pageContract, "label.retired_experiment_pen")}
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <AlertTitle>{copy(pageContract, "section.retired_feeds.title")}</AlertTitle>
+            {copy(pageContract, "section.retired_feeds.caption")}
+            <Box component="ul" sx={{ m: 0, mt: 1, pl: 2.25 }}>
+              {retiredFeeds.sessions.map((entry) => (
+                <li key={`session:${entry.session}`}>
+                  <b>{entry.session}</b> · {copy(pageContract, "label.retired_session")} {entry.pens}{" "}
+                  {copy(pageContract, entry.pens === 1 ? "label.retired_pen_one" : "label.retired_pen_many")}
+                </li>
+              ))}
+              {retiredFeeds.experimentPens.map((pen) => (
+                <li key={`pen:${pen}`}>
+                  <b>{pen}</b> · {copy(pageContract, "label.retired_experiment_pen")}
+                </li>
+              ))}
+            </Box>
           </Alert>
         ) : null}
         {missingRates.length > 0 ? (
-          <Alert severity="warning" sx={{ mx: 3, mb: 2 }} role="group" aria-label={copy(pageContract, "kpi.gaps.label")}>
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div>
-                <b>{copy(pageContract, "kpi.gaps.label")}</b> · {copy(pageContract, "section.missing_rates.caption")}
-              </div>
-              <div className="feed-scroll" style={{ overflowX: "auto", marginTop: 8 }}>
-                <Table className="feed-table" aria-label={copy(pageContract, "kpi.gaps.label")}>
-                  <TableBody>
-                    {missingRates.map((gap) => (
-                      <TableRow key={`${gap.rationGroup}|${gap.shedTag}|${gap.feedItem}`}>
-                        <TableCell>{gap.rationGroup}</TableCell>
-                        <TableCell>{gap.shedTag}</TableCell>
-                        <TableCell>{gap.feedItem}</TableCell>
-                        <TableCell className="muted small" style={{ whiteSpace: "normal" }}>
-                          {copy(pageContract, "label.missing_rate_pens")} {gap.pens.join(", ")}
-                        </TableCell>
-                        <TableCell>
-                          <RationRateEditor
-                            pageContract={pageContract}
-                            action={saveRationRate}
-                            parkId={scope.parkId}
-                            rationGroup={gap.rationGroup}
-                            shedTag={gap.shedTag}
-                            feedItem={gap.feedItem}
-                          />
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            </div>
-          </Alert>
+          <>
+            <Alert severity="warning" sx={{ mx: 3, mb: 2 }}>
+              <AlertTitle>{copy(pageContract, "kpi.gaps.label")}</AlertTitle>
+              {copy(pageContract, "section.missing_rates.caption")}
+            </Alert>
+            <Scrollbar sx={{ mb: 2 }}>
+              <Table aria-label={copy(pageContract, "kpi.gaps.label")} sx={{ minWidth: 720 }}>
+                <TableHeadCustom
+                  headCells={[
+                    { id: "ration_group", label: gridLabel("ration_group") },
+                    { id: "shed_tag", label: gridLabel("shed_tag") },
+                    { id: "feed_item", label: gridLabel("feed_item") },
+                    { id: "pens", label: copy(pageContract, "label.missing_rate_pens") },
+                    { id: "edit", label: <Box component="span" sx={visuallyHidden}>{copy(pageContract, "action.add_rate")}</Box>, width: 88 },
+                  ]}
+                />
+                <TableBody>
+                  {missingRates.map((gap) => (
+                    <TableRow key={`${gap.rationGroup}|${gap.shedTag}|${gap.feedItem}`}>
+                      <TableCell sx={{ whiteSpace: "nowrap" }}>{gap.rationGroup}</TableCell>
+                      <TableCell sx={{ whiteSpace: "nowrap" }}>{gap.shedTag}</TableCell>
+                      <TableCell sx={{ whiteSpace: "nowrap" }}>{gap.feedItem}</TableCell>
+                      <TableCell sx={{ color: "text.secondary" }}>{gap.pens.join(", ")}</TableCell>
+                      <TableCell align="right">
+                        <RationRateEditor
+                          pageContract={pageContract}
+                          action={saveRationRate}
+                          parkId={scope.parkId}
+                          rationGroup={gap.rationGroup}
+                          shedTag={gap.shedTag}
+                          feedItem={gap.feedItem}
+                        />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Scrollbar>
+          </>
         ) : null}
         {/* STAGED, not applied per control. Six filters sit on this bar and an author normally
             narrows by several at once — park, then breed, then item — and every one of those picks
@@ -871,13 +878,7 @@ export async function FeedConfigPage({
             these rows being held back. They stay readable while the new page is fetched — the old
             answer is still true until the new one lands — but go inert, so a stale row cannot be
             clicked or mistaken for the result of the filter just applied. */}
-        <Box
-          data-scroll-x=""
-          sx={{ overflowX: "auto" }}
-          tabIndex={0}
-          role="group"
-          aria-label={copy(pageContract, "section.ration_grid.aria")}
-        >
+        <Box role="group" aria-label={copy(pageContract, "section.ration_grid.aria")}>
           {/* Headless table: TanStack owns the column model and the page-local sort; the markup
               stays the mock's `.feed-table` anatomy. Column keys, labels and which headers sort
               come from the compiled contract, so this page declares no local column list. */}
@@ -991,29 +992,16 @@ export async function FeedConfigPage({
           }}
         >
         <UrlSuspense searchParams={sp} watch={[...sectionParams(experimentFilterFields), "fc_exp_offset", "fc_exp_limit", ...SCOPE_PARAMS]} fallback={<TableSkeleton bare header={false} pager={false} columns={experimentCols.length + 1} rows={experimentLimit} />}>
-        <Box
-          data-scroll-x=""
-          sx={{ overflowX: "auto" }}
-          tabIndex={0}
-          role="group"
-          aria-label={copy(pageContract, "section.experiment.aria")}
-        >
-          <Table className="feed-table" aria-label={copy(pageContract, "table.experiment.aria")}>
-            <TableHead>
-              <TableRow>
-                {/* Headers wrap in THIS table only. "Head count (informational)" is a deliberately
-                    long header — the parenthetical is what stops anyone multiplying by it — and held
-                    on one line it reserved a column far wider than the two-digit counts under it.
-                    Wrapping the header costs a line of height and keeps the whole table inside its
-                    container, matching the four tables above. The DATA cells stay nowrap. */}
-                {experimentCols.map((col) => (
-                  <TableCell component="th" key={col} style={{ whiteSpace: "normal" }}>
-                    {col}
-                  </TableCell>
-                ))}
-                <TableCell component="th" style={{ whiteSpace: "normal" }}>{copy(pageContract, "action.edit_experiment_cell")}</TableCell>
-              </TableRow>
-            </TableHead>
+        <Scrollbar tabIndex={0} role="group" aria-label={copy(pageContract, "section.experiment.aria")}>
+          {/* Headers wrap in THIS table only ("Head count (informational)" is deliberately long);
+              data cells stay on one line. */}
+          <Table aria-label={copy(pageContract, "table.experiment.aria")} sx={{ minWidth: 960, "& td": { whiteSpace: "nowrap" } }}>
+            <TableHeadCustom
+              headCells={[
+                ...experimentCols.map((col, index) => ({ id: `c${index}`, label: col })),
+                { id: "edit", label: <Box component="span" sx={visuallyHidden}>{copy(pageContract, "action.edit_experiment_cell")}</Box>, width: 88 },
+              ]}
+            />
             <TableBody>
               {experimentSheds.length === 0 ? (
                 <TableRow>
@@ -1060,10 +1048,8 @@ export async function FeedConfigPage({
                             name cannot disambiguate them -- Castro, Gandhi and Yashoda each exist in
                             both. Muted because in a single-park view it repeats the header chip; it
                             is the cross-park view that needs it. */}
-                        <TableCell className="muted">{parkCodeById.get(shed.parkId) ?? shed.parkName}</TableCell>
-                        <TableCell>
-                          <b>{shedName}</b>
-                        </TableCell>
+                        <TableCell sx={{ color: "text.secondary" }}>{parkCodeById.get(shed.parkId) ?? shed.parkName}</TableCell>
+                        <TableCell sx={{ typography: "subtitle2" }}>{shedName}</TableCell>
                         {/* The ONLY wrapping cell in this table. Arms are descriptive prose from the
                             workbook and run long ("Mixed (9 Goat F, 1 Sheep F, 5 Goat M) NEW -
                             warmup 20:80"); left nowrap they pushed the table 218px past its
@@ -1074,13 +1060,12 @@ export async function FeedConfigPage({
                             to two lines is the correct rendering for it. */}
                         <TableCell
                           title={copy(pageContract, "label.experiment_category_note")}
-                          style={{ maxWidth: 200, whiteSpace: "normal", overflowWrap: "break-word" }}
+                          sx={{ maxWidth: 200, whiteSpace: "normal !important", overflowWrap: "break-word" }}
                         >
                           {stageLabel(shed.category)}
                         </TableCell>
                         <TableCell
-                          className="muted"
-                          style={{ fontVariantNumeric: "tabular-nums" }}
+                          sx={{ color: "text.secondary", fontVariantNumeric: "tabular-nums" }}
                           title={copy(pageContract, "label.experiment_head_count_note")}
                         >
                           {/* A LIVE census, so 0 is printed as 0: an experiment pen the animals have
@@ -1106,7 +1091,7 @@ export async function FeedConfigPage({
                           </Label>
                         </TableCell>
                         <TableCell>
-                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                          <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
                             {/* The switch offers the OPPOSITE of the current state, so the button
                                 always names the change it makes rather than the state it is in. */}
                             <ExperimentShedSwitch
@@ -1137,7 +1122,7 @@ export async function FeedConfigPage({
                                 )}
                               />
                             ) : null}
-                          </div>
+                          </Box>
                         </TableCell>
                       </TableRow>
                       {/* A pen returned to the normal grid shows its header row only (maintainer
@@ -1179,20 +1164,17 @@ export async function FeedConfigPage({
                                   : "label.experiment_absolute_kg_note",
                               )}
                             >
-                              <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
-                                <span
-                                  style={{
-                                    fontVariantNumeric: "tabular-nums",
-                                    fontWeight: authoredZero ? 500 : 700,
-                                    color: authoredZero ? "var(--muted)" : "var(--brand-d)",
-                                  }}
+                              <Box component="span" sx={{ display: "inline-flex", alignItems: "baseline", gap: 0.75 }}>
+                                <Box
+                                  component="span"
+                                  sx={{ fontVariantNumeric: "tabular-nums", typography: authoredZero ? "body2" : "subtitle2", color: authoredZero ? "text.secondary" : "primary.main" }}
                                 >
                                   {perAnimal ? fmtGrams(quantity) : quantity}
-                                </span>
-                                <span className="small muted" style={{ whiteSpace: "nowrap" }}>
+                                </Box>
+                                <Typography component="span" variant="caption" sx={{ color: "text.secondary" }}>
                                   {unit}
-                                </span>
-                              </span>
+                                </Typography>
+                              </Box>
                             </TableCell>
                             <TableCell>
                               <Label variant="soft" color={row.status === "active" ? "success" : "default"}>
@@ -1220,7 +1202,7 @@ export async function FeedConfigPage({
               )}
             </TableBody>
           </Table>
-        </Box>
+        </Scrollbar>
 
         {/* The experiment section paginates too. It had no pager while the ration grid above did, so
             a park whose pens hold more cells than one page silently lost the overflow — and because
@@ -1264,21 +1246,9 @@ export async function FeedConfigPage({
           }
           sx={{ mb: 2 }}
         />
-        <Box
-          data-scroll-x=""
-          sx={{ overflowX: "auto" }}
-          tabIndex={0}
-          role="group"
-          aria-label={copy(pageContract, "section.session_template.aria")}
-        >
-          <Table className="feed-table" aria-label={copy(pageContract, "table.session_template.aria")}>
-            <TableHead>
-              <TableRow>
-                {sessionCols.map((col) => (
-                  <TableCell component="th" key={col}>{col}</TableCell>
-                ))}
-              </TableRow>
-            </TableHead>
+        <Scrollbar tabIndex={0} role="group" aria-label={copy(pageContract, "section.session_template.aria")}>
+          <Table aria-label={copy(pageContract, "table.session_template.aria")} sx={{ minWidth: 720 }}>
+            <TableHeadCustom headCells={sessionCols.map((col, index) => ({ id: `c${index}`, label: col }))} />
             <TableBody>
               {(sessions?.items ?? []).length === 0 ? (
                 <TableRow>
@@ -1293,10 +1263,10 @@ export async function FeedConfigPage({
               ) : (
                 (sessions?.items ?? []).map((row) => (
                   <TableRow key={row.session_template_id}>
-                    <TableCell style={{ fontVariantNumeric: "tabular-nums" }}>{row.session_no}</TableCell>
-                    <TableCell>{row.session_label}</TableCell>
+                    <TableCell sx={{ fontVariantNumeric: "tabular-nums" }}>{row.session_no}</TableCell>
+                    <TableCell sx={{ typography: "subtitle2", whiteSpace: "nowrap" }}>{row.session_label}</TableCell>
                     <TableCell
-                      style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}
+                      sx={{ fontVariantNumeric: "tabular-nums", typography: "subtitle2" }}
                       title={copy(pageContract, "label.session_split_note")}
                     >
                       {fmtSplit(row.split_fraction)}
@@ -1305,7 +1275,7 @@ export async function FeedConfigPage({
                         list, so this sits between split_fraction and status exactly as the contract
                         orders them — a column added to one side only shifts every header sideways,
                         which is what TestFeedTableColumnsAreExact pins. */}
-                    <TableCell style={{ whiteSpace: "normal" }}>
+                    <TableCell>
                       <SessionFeedsCell
                         pageContract={pageContract}
                         action={saveSessionFeed}
@@ -1325,12 +1295,11 @@ export async function FeedConfigPage({
               )}
             </TableBody>
           </Table>
-        </Box>
+        </Scrollbar>
       </Card>
       </div>
       {splitMismatch ? (
-        <Alert severity="error" style={{ marginBottom: 16 }}><div>{copy(pageContract, "state.split_mismatch")}</div>
-        </Alert>
+        <Alert severity="error">{copy(pageContract, "state.split_mismatch")}</Alert>
       ) : null}
 
       {/* -------------------------------------------------------------- feeding schedule (editable) */}
@@ -1338,22 +1307,14 @@ export async function FeedConfigPage({
       <div>
       <Card>
         <CardHeader title={copy(pageContract, "section.schedule.title")} subheader={copy(pageContract, "section.schedule.caption")} sx={{ mb: 2 }} />
-        <Box
-          data-scroll-x=""
-          sx={{ overflowX: "auto" }}
-          tabIndex={0}
-          role="group"
-          aria-label={copy(pageContract, "section.schedule.aria")}
-        >
-          <Table className="feed-table" aria-label={copy(pageContract, "table.schedule.aria")}>
-            <TableHead>
-              <TableRow>
-                {scheduleCols.map((col) => (
-                  <TableCell component="th" key={col}>{col}</TableCell>
-                ))}
-                <TableCell component="th">{copy(pageContract, "action.edit_schedule")}</TableCell>
-              </TableRow>
-            </TableHead>
+        <Scrollbar tabIndex={0} role="group" aria-label={copy(pageContract, "section.schedule.aria")}>
+          <Table aria-label={copy(pageContract, "table.schedule.aria")} sx={{ minWidth: 720, "& td": { whiteSpace: "nowrap" } }}>
+            <TableHeadCustom
+              headCells={[
+                ...scheduleCols.map((col, index) => ({ id: `c${index}`, label: col })),
+                { id: "edit", label: <Box component="span" sx={visuallyHidden}>{copy(pageContract, "action.edit_schedule")}</Box>, width: 88 },
+              ]}
+            />
             <TableBody>
               {(schedule?.items ?? []).length === 0 && missingScheduleWorkflows.length === 0 ? (
                 <TableRow>
@@ -1380,13 +1341,13 @@ export async function FeedConfigPage({
                         three moments sit hours apart on the same afternoon, so without it the pair
                         14:00 / 15:45 reads as a feeding window rather than issue-and-cutoff. */}
                     <TableCell
-                      style={{ fontVariantNumeric: "tabular-nums" }}
+                      sx={{ fontVariantNumeric: "tabular-nums" }}
                       title={copy(pageContract, "label.direction_time_note")}
                     >
                       {fmtClock(row.direction_time)}
                     </TableCell>
                     <TableCell
-                      style={{ fontVariantNumeric: "tabular-nums" }}
+                      sx={{ fontVariantNumeric: "tabular-nums" }}
                       title={copy(pageContract, "label.correction_time_note")}
                     >
                       {fmtClock(row.correction_time)}
@@ -1395,8 +1356,7 @@ export async function FeedConfigPage({
                         and rendering it as a blank cell would read as "no deadline". The contract's
                         placeholder is used so the gap is visible as a gap. */}
                     <TableCell
-                      className="muted"
-                      style={{ fontVariantNumeric: "tabular-nums" }}
+                      sx={{ color: "text.secondary", fontVariantNumeric: "tabular-nums" }}
                       title={copy(pageContract, "label.transport_time_note")}
                     >
                       {row.transport_time ? fmtClock(row.transport_time) : copy(pageContract, "label.placeholder")}
@@ -1445,10 +1405,10 @@ export async function FeedConfigPage({
               ))}
             </TableBody>
           </Table>
-        </Box>
+        </Scrollbar>
       </Card>
       </div>
-    </div>
+    </Stack>
   );
 }
 
