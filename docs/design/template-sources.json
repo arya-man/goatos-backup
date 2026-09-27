@@ -84,7 +84,6 @@
     "layouts/dashboard/layout.tsx": "src/layouts/dashboard/layout.tsx",
     "layouts/dashboard/nav-mobile.tsx": "src/layouts/dashboard/nav-mobile.tsx",
     "layouts/dashboard/nav-vertical.tsx": "src/layouts/dashboard/nav-vertical.tsx",
-    "layouts/template/global-config.ts": "src/global-config.ts",
     "layouts/template/animate/animate-border.tsx": "src/components/animate/animate-border.tsx",
     "layouts/template/animate/features.ts": "src/components/animate/features.ts",
     "layouts/template/animate/index.ts": "src/components/animate/index.ts",
@@ -132,11 +131,9 @@
     "layouts/template/nav-section/vertical/nav-list.tsx": "src/components/nav-section/vertical/nav-list.tsx",
     "layouts/template/nav-section/vertical/nav-section-vertical.tsx": "src/components/nav-section/vertical/nav-section-vertical.tsx",
     "layouts/template/routes/components/index.ts": "src/routes/components/index.ts",
-    "layouts/template/routes/components/router-link.tsx": "src/routes/components/router-link.tsx",
     "layouts/template/routes/hooks/index.ts": "src/routes/hooks/index.ts",
     "layouts/template/routes/hooks/use-params.ts": "src/routes/hooks/use-params.ts",
     "layouts/template/routes/hooks/use-pathname.ts": "src/routes/hooks/use-pathname.ts",
-    "layouts/template/routes/hooks/use-router.ts": "src/routes/hooks/use-router.ts",
     "layouts/template/routes/hooks/use-search-params.ts": "src/routes/hooks/use-search-params.ts",
     "layouts/template/scrollbar/classes.ts": "src/components/scrollbar/classes.ts",
     "layouts/template/scrollbar/index.ts": "src/components/scrollbar/index.ts",
@@ -145,7 +142,6 @@
     "layouts/template/scrollbar/types.ts": "src/components/scrollbar/types.ts",
     "layouts/template/settings/index.ts": "src/components/settings/index.ts",
     "layouts/template/settings/server.ts": "src/components/settings/server.ts",
-    "layouts/template/settings/settings-config.ts": "src/components/settings/settings-config.ts",
     "layouts/template/settings/types.ts": "src/components/settings/types.ts",
     "layouts/template/settings/context/index.ts": "src/components/settings/context/index.ts",
     "layouts/template/settings/context/settings-context.ts": "src/components/settings/context/settings-context.ts",
@@ -167,7 +163,36 @@
     "components/minimal/color-utils/index.ts": "src/components/color-utils/index.ts",
     "components/minimal/color-utils/color-preview.tsx": "src/components/color-utils/color-preview.tsx",
     "components/minimal/color-utils/color-picker.tsx": "src/components/color-utils/color-picker.tsx",
-    "components/minimal/color-utils/classes.ts": "src/components/color-utils/classes.ts"
+    "components/minimal/color-utils/classes.ts": "src/components/color-utils/classes.ts",
+    "layouts/template/animate/animate-logo.tsx": "src/components/animate/animate-logo.tsx",
+    "layouts/template/animate/back-to-top-button.tsx": "src/components/animate/back-to-top-button.tsx",
+    "layouts/template/animate/motion-viewport.tsx": "src/components/animate/motion-viewport.tsx",
+    "layouts/template/animate/animate-text.tsx": "src/components/animate/animate-text.tsx",
+    "layouts/template/animate/animate-count-up.tsx": "src/components/animate/animate-count-up.tsx",
+    "layouts/template/animate/motion-container.tsx": "src/components/animate/motion-container.tsx",
+    "layouts/template/animate/variants/scale.ts": "src/components/animate/variants/scale.ts",
+    "layouts/template/animate/variants/path.ts": "src/components/animate/variants/path.ts",
+    "layouts/template/animate/variants/rotate.ts": "src/components/animate/variants/rotate.ts",
+    "layouts/template/animate/variants/fade.ts": "src/components/animate/variants/fade.ts",
+    "layouts/template/animate/variants/flip.ts": "src/components/animate/variants/flip.ts",
+    "layouts/template/animate/variants/bounce.ts": "src/components/animate/variants/bounce.ts",
+    "layouts/template/animate/variants/container.ts": "src/components/animate/variants/container.ts",
+    "layouts/template/animate/variants/background.ts": "src/components/animate/variants/background.ts",
+    "layouts/template/animate/variants/index.ts": "src/components/animate/variants/index.ts",
+    "layouts/template/animate/variants/zoom.ts": "src/components/animate/variants/zoom.ts",
+    "layouts/template/animate/variants/slide.ts": "src/components/animate/variants/slide.ts",
+    "layouts/template/animate/scroll-progress/scroll-progress.tsx": "src/components/animate/scroll-progress/scroll-progress.tsx",
+    "layouts/template/animate/scroll-progress/use-scroll-progress.ts": "src/components/animate/scroll-progress/use-scroll-progress.ts",
+    "layouts/template/animate/scroll-progress/index.ts": "src/components/animate/scroll-progress/index.ts",
+    "layouts/template/settings/drawer/fullscreen-button.tsx": "src/components/settings/drawer/fullscreen-button.tsx",
+    "layouts/template/settings/drawer/settings-drawer.tsx": "src/components/settings/drawer/settings-drawer.tsx",
+    "layouts/template/settings/drawer/styles.tsx": "src/components/settings/drawer/styles.tsx",
+    "layouts/template/settings/drawer/presets-options.tsx": "src/components/settings/drawer/presets-options.tsx",
+    "layouts/template/settings/drawer/font-options.tsx": "src/components/settings/drawer/font-options.tsx",
+    "layouts/template/settings/drawer/nav-layout-option.tsx": "src/components/settings/drawer/nav-layout-option.tsx",
+    "layouts/template/settings/drawer/icons.tsx": "src/components/settings/drawer/icons.tsx",
+    "layouts/template/settings/drawer/index.ts": "src/components/settings/drawer/index.ts",
+    "layouts/template/settings/drawer/base-option.tsx": "src/components/settings/drawer/base-option.tsx"
   },
   "verbatim": {
     "components/minimal/_shared/format-number.ts": {
@@ -1003,6 +1028,52 @@
         "src/theme/create-classes"
       ]
     },
+    "layouts/template/animate/animate-count-up.tsx": {
+      "sha256": "c10f818cb414f0a320488ed0de74de98f0a031d29927727c8c0ea4ae9b039689",
+      "imports": [
+        "framer-motion",
+        "@mui/material/Typography",
+        "react",
+        "framer-motion",
+        "@mui/material/Typography"
+      ]
+    },
+    "layouts/template/animate/animate-logo.tsx": {
+      "sha256": "64be387bebdcc3d8adcd07ce6c7aca01011edd52dd0bf07226e985a6d37fd3e3",
+      "imports": [
+        "@mui/material/styles",
+        "../logo",
+        "framer-motion",
+        "minimal-shared/utils",
+        "@mui/material/styles",
+        "../logo"
+      ]
+    },
+    "layouts/template/animate/animate-text.tsx": {
+      "sha256": "7b1d42933c035af34a547de546fc2867d8f85f7a40e9f2fca68d5c230828e806",
+      "imports": [
+        "@mui/material/styles",
+        "@mui/material/Typography",
+        "framer-motion",
+        "react",
+        "minimal-shared/utils",
+        "framer-motion",
+        "@mui/material/styles",
+        "@mui/material/Typography",
+        "src/theme/create-classes",
+        "./variants"
+      ]
+    },
+    "layouts/template/animate/back-to-top-button.tsx": {
+      "sha256": "c021724ec75c5f5a0ed65da3c9fa512268a267c49d7521b9e56b6a448d2fc2e3",
+      "imports": [
+        "@mui/material/Fab",
+        "react",
+        "minimal-shared/hooks",
+        "@mui/material/Fab",
+        "../iconify"
+      ]
+    },
     "layouts/template/animate/features.ts": {
       "sha256": "36d1298d7122ffa6b4540273939c8345298428593e5cde2b26cfb50d99858f55",
       "imports": [
@@ -1023,11 +1094,62 @@
         "./back-to-top-button"
       ]
     },
+    "layouts/template/animate/motion-container.tsx": {
+      "sha256": "4825efc98a0a27fd22df6abcca2ad3e20ba4c073a04fa39b991309c5c2444d26",
+      "imports": [
+        "framer-motion",
+        "@mui/material/Box",
+        "framer-motion",
+        "@mui/material/Box",
+        "./variants"
+      ]
+    },
     "layouts/template/animate/motion-lazy.tsx": {
       "sha256": "d99ecfaf54ae1d2c01828d68a0185adde3f7db5bd1c34767ca0dbd942e79985b",
       "imports": [
         "framer-motion",
         "./features"
+      ]
+    },
+    "layouts/template/animate/motion-viewport.tsx": {
+      "sha256": "790ced83d09528689b5a0ff232b329912d3fafee0fe4867fc16da531eebec08c",
+      "imports": [
+        "framer-motion",
+        "@mui/material/Box",
+        "framer-motion",
+        "@mui/material/Box",
+        "@mui/material/useMediaQuery",
+        "./variants"
+      ]
+    },
+    "layouts/template/animate/scroll-progress/index.ts": {
+      "sha256": "7fc3c24bf4c822e4e4f021272caf728823357950c134bf5d95d66892d8eaa00f",
+      "imports": [
+        "./scroll-progress",
+        "./use-scroll-progress"
+      ]
+    },
+    "layouts/template/animate/scroll-progress/scroll-progress.tsx": {
+      "sha256": "da828a18a871a26c9898ad0af2d6887a7d0904365a45446e471d63fa827487d3",
+      "imports": [
+        "@mui/material/Box",
+        "@mui/material/styles",
+        "framer-motion",
+        "src/theme/core",
+        "minimal-shared/utils",
+        "framer-motion",
+        "@mui/material/Box",
+        "@mui/material/Portal",
+        "@mui/material/styles",
+        "src/theme/create-classes"
+      ]
+    },
+    "layouts/template/animate/scroll-progress/use-scroll-progress.ts": {
+      "sha256": "6e514ed48ec5c4684a1cb99f047fe9eb65fd698fb0f5c0d3724be2765ad4351a",
+      "imports": [
+        "framer-motion",
+        "react",
+        "framer-motion"
       ]
     },
     "layouts/template/animate/variants/actions.ts": {
@@ -1036,10 +1158,94 @@
         "framer-motion"
       ]
     },
+    "layouts/template/animate/variants/background.ts": {
+      "sha256": "ccb1101268660ba724e11f253ba9047eb38b4c6c9374dd1953c1c2c4953886df",
+      "imports": [
+        "framer-motion"
+      ]
+    },
+    "layouts/template/animate/variants/bounce.ts": {
+      "sha256": "66def9f54c6c6f47267a75eb99ce3cba8b20e522550d454f242f958cbd667fd8",
+      "imports": [
+        "framer-motion",
+        "./transition"
+      ]
+    },
+    "layouts/template/animate/variants/container.ts": {
+      "sha256": "6132a5c6d340b941ab9791c57ef5def76c3dac2fb928653cb729e1a91cb23762",
+      "imports": [
+        "framer-motion"
+      ]
+    },
+    "layouts/template/animate/variants/fade.ts": {
+      "sha256": "17f716bd50cc2afc63cc2d0ad0784a5395e3339731756eb1824a3f77d440db30",
+      "imports": [
+        "framer-motion",
+        "./transition"
+      ]
+    },
+    "layouts/template/animate/variants/flip.ts": {
+      "sha256": "d270d41c080a077d38060d9fd9df3aa4683c4ee295f0378cde9874961eea5bdb",
+      "imports": [
+        "framer-motion",
+        "./transition"
+      ]
+    },
+    "layouts/template/animate/variants/index.ts": {
+      "sha256": "251aee30dcddebe823893749fdc9e86d73c24f80532a9f7aa50dc45224d75d1c",
+      "imports": [
+        "./path",
+        "./fade",
+        "./zoom",
+        "./flip",
+        "./slide",
+        "./scale",
+        "./bounce",
+        "./rotate",
+        "./actions",
+        "./container",
+        "./transition",
+        "./background"
+      ]
+    },
+    "layouts/template/animate/variants/path.ts": {
+      "sha256": "2bb7d8de6267e6389bd6beb843840abedddfc47010972d31efe7a9ebf483b774",
+      "imports": [
+        "framer-motion"
+      ]
+    },
+    "layouts/template/animate/variants/rotate.ts": {
+      "sha256": "5aceacc2c9f154a2c8ac38053a1f98682d19d51975a10cfcf1e0af2f9eadec2c",
+      "imports": [
+        "framer-motion",
+        "./transition"
+      ]
+    },
+    "layouts/template/animate/variants/scale.ts": {
+      "sha256": "edcf4cc854e1aca638c76c43b8e3efac3e3f6a393cc914ff74ab84ea8da19f27",
+      "imports": [
+        "framer-motion",
+        "./transition"
+      ]
+    },
+    "layouts/template/animate/variants/slide.ts": {
+      "sha256": "347f7b069ac8f2ba3a873bd7f941174622993dd4677839104f9e2188e8181fb3",
+      "imports": [
+        "framer-motion",
+        "./transition"
+      ]
+    },
     "layouts/template/animate/variants/transition.ts": {
       "sha256": "ea286c42f8697fb00f413dae4162a396d525536dfceb3bdcc4d4ea9c0f3f1bc0",
       "imports": [
         "framer-motion"
+      ]
+    },
+    "layouts/template/animate/variants/zoom.ts": {
+      "sha256": "938aeacd95e5ee1e939e74bafa5f6936b0264f35e5ac5abb33d3d7664d95819a",
+      "imports": [
+        "framer-motion",
+        "./transition"
       ]
     },
     "layouts/template/custom-popover/custom-popover.tsx": {
@@ -1096,13 +1302,6 @@
         "@mui/material/Popover",
         "./hooks",
         "./types"
-      ]
-    },
-    "layouts/template/global-config.ts": {
-      "sha256": "dfbe5a354d45505534ad00872cd1afaa210a0fc3f611038bf9010e2e2544f8af",
-      "imports": [
-        "src/routes/paths",
-        "../package.json"
       ]
     },
     "layouts/template/iconify/classes.ts": {
@@ -1462,12 +1661,6 @@
         "./router-link"
       ]
     },
-    "layouts/template/routes/components/router-link.tsx": {
-      "sha256": "ab116fd92c1be3a869441ffd43ac74a1047dfc4fc7891403ef3c5534a3256ab6",
-      "imports": [
-        "next/link"
-      ]
-    },
     "layouts/template/routes/hooks/index.ts": {
       "sha256": "2187203cec39fef477760f7b011ba2d4c476ea6d0c540f23a06826f46f221299",
       "imports": [
@@ -1486,15 +1679,6 @@
     "layouts/template/routes/hooks/use-pathname.ts": {
       "sha256": "d6002a4f150102bdcd49f7a891df37bde9937a7e482dc5b76697754280eff379",
       "imports": [
-        "next/navigation"
-      ]
-    },
-    "layouts/template/routes/hooks/use-router.ts": {
-      "sha256": "827633bdcd9920f195a6b83df19a92fbba280c242fb7371faf4b6acd2e2a2786",
-      "imports": [
-        "nprogress",
-        "react",
-        "minimal-shared/utils",
         "next/navigation"
       ]
     },
@@ -1575,6 +1759,109 @@
         "./settings-context"
       ]
     },
+    "layouts/template/settings/drawer/base-option.tsx": {
+      "sha256": "1a9a17483c6d0bd1462c5e7e91b26241660b3780655d69e0fb45b385443f23b4",
+      "imports": [
+        "@mui/material/ButtonBase",
+        "minimal-shared/utils",
+        "@mui/material/Switch",
+        "@mui/material/Tooltip",
+        "@mui/material/styles",
+        "@mui/material/ButtonBase",
+        "../../iconify"
+      ]
+    },
+    "layouts/template/settings/drawer/font-options.tsx": {
+      "sha256": "248735ebf991f9dd028b0bf36eeb0a83f2fa5a3c05fb2c6294be1bdc57ee142e",
+      "imports": [
+        "@mui/material/Box",
+        "@mui/material/Slider",
+        "../types",
+        "minimal-shared/utils",
+        "@mui/material/Box",
+        "@mui/material/Slider",
+        "./styles"
+      ]
+    },
+    "layouts/template/settings/drawer/fullscreen-button.tsx": {
+      "sha256": "8e263488806de1aad1cbb98de323a5a93d978d208f02e4053a7245ce89b66390",
+      "imports": [
+        "react",
+        "@mui/material/Tooltip",
+        "@mui/material/IconButton",
+        "../../iconify"
+      ]
+    },
+    "layouts/template/settings/drawer/icons.tsx": {
+      "sha256": "f3bb9019b8f1687b5f1a7cb531aa46cdbdca5b895d1f8c144cb78b5ad61bd39d",
+      "imports": []
+    },
+    "layouts/template/settings/drawer/index.ts": {
+      "sha256": "69a84224d0d67c834c845b29b38b74149c9f32d8e14ccfc4a64a9af7e8faabc3",
+      "imports": [
+        "./settings-drawer"
+      ]
+    },
+    "layouts/template/settings/drawer/nav-layout-option.tsx": {
+      "sha256": "554ce22a265d15639cda6f7212b0ec304810345ab14840219611f8f0f92d5ddb",
+      "imports": [
+        "@mui/material/Box",
+        "../types",
+        "minimal-shared/utils",
+        "@mui/material/Box",
+        "./styles"
+      ]
+    },
+    "layouts/template/settings/drawer/presets-options.tsx": {
+      "sha256": "29aabb41b861c278f02f19b9c166e8013281ea4e941158860fe149bd7a0bdabe",
+      "imports": [
+        "@mui/material/Box",
+        "../types",
+        "@mui/material/Box",
+        "@mui/material/styles",
+        "./styles"
+      ]
+    },
+    "layouts/template/settings/drawer/settings-drawer.tsx": {
+      "sha256": "f7a9c452b7ce9b3d1d60c6beaad9f61a24a4c09c91c83435dcc92d56eb727325",
+      "imports": [
+        "../types",
+        "react",
+        "minimal-shared/utils",
+        "@mui/material/Box",
+        "@mui/material/Badge",
+        "@mui/material/Drawer",
+        "@mui/material/SvgIcon",
+        "@mui/material/Tooltip",
+        "@mui/material/IconButton",
+        "@mui/material/Typography",
+        "@mui/material/styles",
+        "src/theme/theme-config",
+        "src/theme/with-settings",
+        "../../label",
+        "./icons",
+        "../../iconify",
+        "./base-option",
+        "../../scrollbar",
+        "./styles",
+        "./presets-options",
+        "./fullscreen-button",
+        "./font-options",
+        "../context/use-settings-context",
+        "./nav-layout-option"
+      ]
+    },
+    "layouts/template/settings/drawer/styles.tsx": {
+      "sha256": "45bed745b269967e51c116ae0965713c7df62e03e5a4d30c494fa7766e181cd5",
+      "imports": [
+        "@mui/material/ButtonBase",
+        "minimal-shared/utils",
+        "@mui/material/Tooltip",
+        "@mui/material/styles",
+        "@mui/material/ButtonBase",
+        "../../iconify"
+      ]
+    },
     "layouts/template/settings/index.ts": {
       "sha256": "33f35d44302650361eeb4ef6dcb93601c4723fb23e716892b20dcee28902ad9f",
       "imports": [
@@ -1590,14 +1877,6 @@
         "./types",
         "next/headers",
         "./settings-config"
-      ]
-    },
-    "layouts/template/settings/settings-config.ts": {
-      "sha256": "f3254afeffdb26e27ce3b14ab4a5f4003f730106df654b35043401f9797deab7",
-      "imports": [
-        "./types",
-        "src/global-config",
-        "src/theme/theme-config"
       ]
     },
     "layouts/template/settings/types.ts": {

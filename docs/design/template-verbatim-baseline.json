@@ -10,17 +10,9 @@
     "layouts/dashboard/layout.tsx": "2cfd8cbffcc2df64d60e216b85f4746dacb6f356e6bced2b99a7ef42df7d55b7",
     "layouts/dashboard/nav-mobile.tsx": "30026bee9a9b218328ec21653cc50034ca7b8a66cfe93aec57975aaf16c56512",
     "layouts/dashboard/nav-vertical.tsx": "36bdad6ce364898d6dfbeddab2cd33ad07d316d9028dc74c08af8efa62a3e771",
-    "layouts/template/animate/index.ts": "e93976dfaa63024a175f07689af1bebd388dd22e2987608215c036c926e034c1",
-    "layouts/template/global-config.ts": "45f3c9daf88543b34806212d91502a4112fc50b23b5076e12ec2cc5a37304b4e",
     "layouts/template/logo/logo.tsx": "a9be023bc6c4c226336b6f69214a946fb86a849fe5860d3638664228d3baf12f",
     "layouts/template/nav-section/mini/nav-list.tsx": "c6c586785945768d5c81c50c8cb459227e138d095a1108fa0288116c255d1e49",
     "layouts/template/nav-section/types.ts": "e9f43eb25e8cba4e346550e1c0f2ab346ba57d0a4f968fb7d0f40817bbccf05f",
-    "layouts/template/nav-section/vertical/nav-list.tsx": "60fef469c26534697b8548017de4a2b824ad80a70d9848bbd1b904c79455306c",
-    "layouts/template/routes/components/router-link.tsx": "be8f7ecea90adfc521fd37659b7a437a36dce6c21078feb29bae9343b8b1d096",
-    "layouts/template/routes/hooks/use-router.ts": "a6a9ca7c0595ee8953f4c3c4796c6afbf028a26b1e07426412cfd0b5a39fea6f",
-    "layouts/template/settings/context/settings-provider.tsx": "80f0e387ba8e7c9648371d886c1e056f5f984736d55b47332a04c9742d3620e8",
-    "layouts/template/settings/index.ts": "3858b536cec2f5413fe994ca3265399ca3315a3cf9ea963f3e73d20b041911d9",
-    "layouts/template/settings/server.ts": "bb4594e698a2870336c755bc0f2d9fb2e5fb9ce7f4c1e8cb6141bf34117130e7",
-    "layouts/template/settings/settings-config.ts": "d1192d22942ca456c76f428e3b87bcbb0441047b6c64f735b9a8fa0e8e7fddd7"
+    "layouts/template/nav-section/vertical/nav-list.tsx": "60fef469c26534697b8548017de4a2b824ad80a70d9848bbd1b904c79455306c"
   }
 }

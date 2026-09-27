@@ -1,4 +1,17 @@
-export * from './motion-lazy';
+export * from './variants';
+
+export * from './animate-text';
+
+export * from './animate-logo';
+
 export * from './animate-border';
-export * from './variants/actions';
-export * from './variants/transition';
+
+export * from './motion-viewport';
+
+export * from './scroll-progress';
+
+export * from './animate-count-up';
+
+export * from './motion-container';
+
+export * from './back-to-top-button';

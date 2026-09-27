@@ -12,13 +12,14 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import '@/components/app/apex-globals';
 import { PhoneTapStyles } from '@/components/app/phone-tap-styles';
 
-import { MotionLazy } from '@/layouts/template/animate';
+import { MotionLazy } from '@/layouts/template/animate/motion-lazy';
 
 import { defaultSettings, SettingsProvider } from '@/layouts/template/settings';
 
 import { themeConfig } from './theme-config';
 import { ThemeProvider } from './theme-provider';
 import { LegacyBaseline } from './legacy-baseline';
+import { NavRailSync } from '@/components/app/nav-rail-sync';
 
 // ----------------------------------------------------------------------
 
@@ -47,6 +48,7 @@ export function AppThemeStack({ children, cookieSettings }: { children: React.Re
         <LegacyBaseline />
         <PhoneTapStyles />
         <ModeSync />
+        <NavRailSync />
         <LocalizationProvider dateAdapter={AdapterDayjs}>
           <MotionLazy>{children}</MotionLazy>
         </LocalizationProvider>

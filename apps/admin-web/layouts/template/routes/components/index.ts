@@ -1,1 +1,1 @@
-export * from './router-link';
+export * from '@/lib/template-config/router-link';

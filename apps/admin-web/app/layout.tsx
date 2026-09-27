@@ -43,7 +43,7 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // Template cookieSettings path: the nav rail cookie lets the server render the mini rail (and the
+  // Template cookieSettings path: the settings cookie lets the server render the mini rail (and the
   // shell skeleton, via html[data-nav-rail]) directly, instead of 300px then 88px after hydration.
   const settings = await detectSettings();
   return (
