@@ -2,7 +2,8 @@
 
 // Template-derived (docs/design/template-derived.json): Minimal v7.7.0 next-ts
 // src/sections/overview/banking/banking-balance-statistics.tsx with ONLY its demo wiring as props:
-// the default select (demo 'Yearly') is the first real series; the fCurrency tooltip and the fixed
+// the default select (demo 'Yearly') is the first real series; the fCurrency tooltip (and the y-axis
+// labels, en-IN grouped with the series unit) and the fixed
 // legend values / +43% sublabels become each series' own unit / digits / values / sublabels / notes;
 // `children` render at the card foot. Markup, sx and chart options are the template's
 // (guard: template-derived-anatomy).
@@ -68,6 +69,7 @@ export function BankingBalanceStatistics({ title, subheader, chart, sx, children
     stroke: { width: 2, colors: ['transparent'] },
     colors: chartColors,
     xaxis: { categories: currentSeries?.categories },
+    yaxis: { labels: { formatter: (value: number) => formatSeriesValue(value, currentSeries?.unit ?? '', 0) } },
     tooltip: {
       y: {
         formatter: (value: number, opts?: { seriesIndex: number; dataPointIndex: number }) => {

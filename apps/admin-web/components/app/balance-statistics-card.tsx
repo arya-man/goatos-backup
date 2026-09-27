@@ -4,9 +4,8 @@ import Box from '@mui/material/Box';
 import Card from '@mui/material/Card';
 import CardHeader from '@mui/material/CardHeader';
 
-import { BankingBalanceStatistics, type BalanceStatisticsSeries } from '@/components/app/sections/overview/banking/banking-balance-statistics';
+import { BankingBalanceStatistics } from '@/components/app/sections/overview/banking/banking-balance-statistics';
 
-export type { BalanceStatisticsSeries };
 
 type Props = React.ComponentProps<typeof BankingBalanceStatistics> & { empty?: React.ReactNode };
 
