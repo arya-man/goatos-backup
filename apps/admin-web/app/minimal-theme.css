@@ -478,20 +478,6 @@ td.kit-rowactions,td.kit-check{position:relative;z-index:3}
 /* Skeleton header strip: the same tint the real `th` carries, so a route-shaped shimmer never has
    to repeat the literal colour. Layout/tint only; the value is the one `th` already uses above. */
 
-/* -- kit DateRangeField: two themed calendars inside one outlined field -- */
-.kit-daterange-control{padding:0 6px 0 6px;gap:4px;cursor:default}
-.kit-daterange-control .move-date-picker{flex:1 1 0;min-width:0}
-.kit-daterange-control .move-date-button{height:30px;gap:8px;border:0;box-shadow:none;background:transparent;padding:0 6px;border-radius:6px;font-size:14px;font-weight:500;color:var(--fg)}
-.kit-daterange-control .move-date-button>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.kit-daterange-control .move-date-button:hover,.kit-daterange-control .move-date-picker[open] .move-date-button{box-shadow:none;background:color-mix(in srgb,var(--fg) 8%,transparent)}
-.kit-daterange-control .move-date-picker:not(.has-value) .move-date-button>span{color:var(--fg-muted)}
-.kit-daterange-sep{color:var(--fg-faint);flex:0 0 auto}
-.kit-daterange-clear{display:inline-grid;place-items:center;width:24px;height:24px;border:0;border-radius:50%;background:transparent;color:var(--fg-muted);cursor:pointer;flex:0 0 auto;transition:background-color 150ms var(--ease)}
-.kit-daterange-clear:hover{background:color-mix(in srgb,var(--fg) 10%,transparent);color:var(--fg)}
-.kit-daterange-clear svg{width:14px;height:14px}
-.kit-daterange-control .move-date-popover{z-index:40}
-.ap-filter-date .move-date-button{height:40px}
-@media (max-width:767px){.kit-daterange{min-width:0!important;width:100%}}
 
 /* ---- kit DateTimeField (calendar + hour/minute listboxes) ---- */
 .kit-datetime{display:grid;grid-template-columns:minmax(0,1fr) 92px 92px;gap:10px;align-items:end;position:relative;min-width:0}
@@ -572,7 +558,6 @@ input[type="radio"],input[type="checkbox"]{accent-color:var(--primary)}
 
 /* Phone: a native radio stays 18px (MUI size); its <label> row carries the 40px tap target. The
    40px min-size floor was drawing a giant radio circle next to 18px checkboxes. */
-.kit-daterange-control .move-date-button>span{flex:none}
 
 /* Kit table metrics (spec §7): 57px head / 72px rows on desktop; Dense keeps the compact rows; phones unchanged. */
 @media (min-width:768px){

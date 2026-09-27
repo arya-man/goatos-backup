@@ -1,7 +1,14 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronRight } from "lucide-react";
+import Box from "@mui/material/Box";
+import IconButton from "@mui/material/IconButton";
+import Stack from "@mui/material/Stack";
+import TableCell from "@mui/material/TableCell";
+import TableRow from "@mui/material/TableRow";
+import Typography from "@mui/material/Typography";
+import { Iconify } from "@/components/minimal/iconify";
+import { Label, type LabelColor } from "@/components/minimal/label";
 
 import { DataTable, columnsFromContract } from "@/components/data-table";
 import { copy, type AdminUiPageContract, type AdminUiTableContract } from "@/lib/admin-ui-contract";
@@ -38,6 +45,24 @@ import Button from "@mui/material/Button";
  * inline editors exactly as the combination table does.
  */
 type GrainRow = CountsBreakdownPenRow["rows"][number];
+
+/** How many composition Labels a pen line shows before the "+N" Label. */
+const COMPOSITION_SHOWN = 3;
+
+/** "7 kids · 46 adults": the figure in subtitle2, its noun as a secondary caption. */
+function Split({ parts }: { parts: readonly (readonly [number, string])[] }) {
+  return (
+    <Box component="span" sx={{ whiteSpace: "nowrap" }}>
+      {parts.map(([value, noun], index) => (
+        <Box component="span" key={noun}>
+          {index > 0 ? <Box component="span" sx={{ color: "text.disabled" }}> · </Box> : null}
+          <Box component="span" sx={{ typography: "subtitle2" }}>{value}</Box>{" "}
+          <Box component="span" sx={{ typography: "caption", color: "text.secondary" }}>{noun}</Box>
+        </Box>
+      ))}
+    </Box>
+  );
+}
 
 // sliceOf names the row the way the correction write matches it. Every field participates in the
 // predicate, so this must stay a faithful copy of the row rather than a convenient subset.
@@ -121,24 +146,32 @@ export function CountsBreakdownPensTable({
   );
 
   // One composition cell. A single bucket reads as plain text (its count IS the pen's count);
-  // several read as chips, each carrying its own count, largest first as the backend orders them.
+  // several read as soft Labels (template), each carrying its own count, largest first as the
+  // backend orders them. At most COMPOSITION_SHOWN; the rest is one "+N" Label whose title lists
+  // them, and every bucket is also its own row when the pen opens.
   function composition(
     points: CountsBreakdownPoint[],
     emptyLabel: string,
-    tone?: (key: string) => string,
+    tone?: (key: string) => LabelColor,
     vocabulary: ReadonlyMap<string, string> = genderLabels,
   ) {
-    if (points.length === 0) return <span className="muted">{emptyLabel}</span>;
+    if (points.length === 0) return <Box component="span" sx={{ color: "text.secondary" }}>{emptyLabel}</Box>;
     if (points.length === 1) return <span>{pointLabel(points[0], emptyLabel, vocabulary)}</span>;
+    const shown = points.slice(0, COMPOSITION_SHOWN);
+    const rest = points.slice(COMPOSITION_SHOWN);
     return (
-      <span className="dimchips">
-        {points.map((point) => (
-          <span key={point.key || "__blank"} className={`dimchip${tone ? ` ${tone(point.key)}` : ""}`}>
-            <span>{pointLabel(point, emptyLabel, vocabulary)}</span>
-            <b>{point.count}</b>
-          </span>
+      <Box component="span" sx={{ display: "inline-flex", flexWrap: "wrap", gap: 0.5 }}>
+        {shown.map((point) => (
+          <Label key={point.key || "__blank"} variant="soft" color={tone ? tone(point.key) : "default"}>
+            {pointLabel(point, emptyLabel, vocabulary)}&nbsp;{point.count}
+          </Label>
         ))}
-      </span>
+        {rest.length ? (
+          <Label variant="soft" color="default" title={rest.map((point) => `${pointLabel(point, emptyLabel, vocabulary)} ${point.count}`).join(" · ")}>
+            +{rest.length}
+          </Label>
+        ) : null}
+      </Box>
     );
   }
 
@@ -148,17 +181,19 @@ export function CountsBreakdownPensTable({
         farm: {
           cell: (pen) => pen.park_label || noParkLabel,
           sortValue: (pen) => pen.park_label || noParkLabel,
-          meta: { cellClassName: "muted" },
+          meta: { cellStyle: { color: "var(--palette-text-secondary)" } },
         },
         shed: {
           cell: (pen) => {
             const isOpen = open.has(penRowId(pen));
             const combos = pen.rows.length;
             return (
-              <span className="xcell">
-                <button
-                  type="button"
-                  className="xtoggle"
+              // Template collapsible row (order-table-row): the expand IconButton with the rotating
+              // arrow, the pen name over its combination count.
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <IconButton
+                  size="small"
+                  color={isOpen ? "inherit" : "default"}
                   aria-expanded={isOpen}
                   aria-controls={penDetailDomId(pen)}
                   aria-label={`${isOpen ? copy(pageContract, "action.expand.close_aria") : copy(pageContract, "action.expand.open_aria")} · ${penLabel(pen)}`}
@@ -167,16 +202,17 @@ export function CountsBreakdownPensTable({
                     event.stopPropagation();
                     toggle(pen);
                   }}
+                  sx={{ ...(isOpen ? { bgcolor: "action.hover" } : {}) }}
                 >
-                  <span className="caret" aria-hidden="true">
-                    <ChevronRight size={12} strokeWidth={3} />
-                  </span>
-                  <span className="xname">{penLabel(pen)}</span>
-                </button>
-                <span className="small muted xsub">
-                  {combos} {copy(pageContract, combos === 1 ? "detail.combinations_one" : "detail.combinations_many")}
-                </span>
-              </span>
+                  <Iconify icon="eva:arrow-ios-downward-fill" sx={{ transition: "transform .15s", ...(isOpen ? {} : { transform: "rotate(-90deg)" }) }} />
+                </IconButton>
+                <Stack sx={{ minWidth: 0 }}>
+                  <Typography variant="subtitle2" component="span" sx={{ whiteSpace: "nowrap" }}>{penLabel(pen)}</Typography>
+                  <Typography variant="caption" component="span" sx={{ color: "text.secondary" }}>
+                    {combos} {copy(pageContract, combos === 1 ? "detail.combinations_one" : "detail.combinations_many")}
+                  </Typography>
+                </Stack>
+              </Box>
             );
           },
           sortValue: (pen) => penLabel(pen),
@@ -227,7 +263,7 @@ export function CountsBreakdownPensTable({
           sortValue: (pen) => dominantKey(pen.breeds) || noBreedLabel,
         },
         gender: {
-          cell: (pen) => composition(pen.sexes, noSexLabel ?? noBreedLabel, (key) => (key === "female" ? "f" : key === "male" ? "m" : "")),
+          cell: (pen) => composition(pen.sexes, noSexLabel ?? noBreedLabel, (key) => (key === "female" ? "warning" : key === "male" ? "info" : "default")),
           sortValue: (pen) => dominantKey(pen.sexes),
         },
         // Female · Male for EVERY row, in the same shape as Kids · Adults beside it.
@@ -246,34 +282,18 @@ export function CountsBreakdownPensTable({
               pen.sexes.find((point: CountsBreakdownPoint) => point.key === key)?.count ?? 0;
             const other = pen.count - of("female") - of("male");
             return (
-              <span className="agesplit">
-                <b>{of("female")}</b> <small>{copy(pageContract, "label.female_short")}</small>
-                <span className="muted"> · </span>
-                <b>{of("male")}</b> <small>{copy(pageContract, "label.male_short")}</small>
-                {other > 0 ? (
-                  <>
-                    <span className="muted"> · </span>
-                    <b>{other}</b> <small>{copy(pageContract, "label.sex_other_short")}</small>
-                  </>
-                ) : null}
-              </span>
+              <Split parts={[[of("female"), copy(pageContract, "label.female_short")], [of("male"), copy(pageContract, "label.male_short")], ...(other > 0 ? [[other, copy(pageContract, "label.sex_other_short")] as const] : [])]} />
             );
           },
           sortValue: (pen) => pen.sexes.find((point: CountsBreakdownPoint) => point.key === "female")?.count ?? 0,
         },
         kids_adults: {
-          cell: (pen) => (
-            <span className="agesplit">
-              <b>{pen.kid_count}</b> <small>{copy(pageContract, "label.kid_short")}</small>
-              <span className="muted"> · </span>
-              <b>{pen.adult_count}</b> <small>{copy(pageContract, "label.adult_short")}</small>
-            </span>
-          ),
+          cell: (pen) => <Split parts={[[pen.kid_count, copy(pageContract, "label.kid_short")], [pen.adult_count, copy(pageContract, "label.adult_short")]]} />,
         },
         count: {
           cell: (pen) => pen.count,
           sortValue: (pen) => pen.count,
-          meta: { align: "right", cellStyle: { fontWeight: 700, color: "var(--brand-d)", fontSize: 15 } },
+          meta: { align: "right", cellStyle: { fontWeight: 600 } },
         },
       }),
     // `open` is read inside the shed cell for the caret state, so the columns rebuild on toggle.
@@ -285,9 +305,8 @@ export function CountsBreakdownPensTable({
     <>
       {/* Table toolbar: the pen count on the left, expand/collapse as a soft kit button on the
           right — the same row anatomy as every other table card, not a lone button. */}
-      <div className="xbar cb-xbar">
-        <span className="muted small">{pens.length} {copy(pageContract, "table.pens.noun")}{pens.length === 1 ? "" : "s"}</span>
-        <span className="sp" />
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, px: 3, py: 1.5 }}>
+        <Typography variant="body2" sx={{ color: "text.secondary", flex: "1 1 auto" }}>{pens.length} {copy(pageContract, "table.pens.noun")}{pens.length === 1 ? "" : "s"}</Typography>
         <Button
           type="button"
           variant="soft"
@@ -298,7 +317,7 @@ export function CountsBreakdownPensTable({
         >
           {everyOpen ? copy(pageContract, "action.collapse_all") : copy(pageContract, "action.expand_all")}
         </Button>
-      </div>
+      </Box>
       <DataTable
         className="counts-breakdown-table counts-pens-table"
         ariaLabel={ariaLabel}
@@ -317,7 +336,7 @@ export function CountsBreakdownPensTable({
             pen.rows.map((row, index) => {
               const last = index === pen.rows.length - 1;
               const cells: Record<string, React.ReactNode> = {
-                farm: index === 0 ? <span className="xsplit">{copy(pageContract, "detail.title")}</span> : null,
+                farm: index === 0 ? <Typography variant="caption" sx={{ color: "text.secondary", whiteSpace: "nowrap" }}>{copy(pageContract, "detail.title")}</Typography> : null,
                 shed: null,
                 stage: row.shed_id ? (
                   <ShedTagEditor
@@ -366,31 +385,25 @@ export function CountsBreakdownPensTable({
                 // A grain row is ONE sex by construction, so its split is its own count under
                 // its own sex -- filled in rather than left blank, so a reader running down the
                 // column never meets a hole where a number belongs.
-                female_male: (
-                  <span className="agesplit">
-                    <b>{row.sex === "female" ? row.count : 0}</b>{" "}
-                    <small>{copy(pageContract, "label.female_short")}</small>
-                    <span className="muted"> · </span>
-                    <b>{row.sex === "male" ? row.count : 0}</b>{" "}
-                    <small>{copy(pageContract, "label.male_short")}</small>
-                  </span>
-                ),
+                female_male: <Split parts={[[row.sex === "female" ? row.count : 0, copy(pageContract, "label.female_short")], [row.sex === "male" ? row.count : 0, copy(pageContract, "label.male_short")]]} />,
                 kids_adults: null,
-                count: <b className="xcount">{row.count}</b>,
+                count: row.count,
               };
+              // Template collapse content (order-table-row): the pen's combinations on the neutral
+              // ground under the line, dashed dividers, the last one closing the group.
               return (
-                <tr
+                <TableRow
                   key={`${row.management_stage}|${row.breed}|${row.sex}`}
-                  className={`xdetail${index === 0 ? " first" : ""}${last ? " last" : ""}`}
                   id={index === 0 ? penDetailDomId(pen) : undefined}
                   aria-label={index === 0 ? `${copy(pageContract, "detail.aria")} · ${penLabel(pen)}` : undefined}
+                  sx={{ bgcolor: "background.neutral", ...(last ? {} : { "& td": { borderBottomStyle: "dashed" } }) }}
                 >
                   {visibleKeys.map((key) => (
-                    <td key={key} style={key === "count" ? { textAlign: "right" } : undefined}>
+                    <TableCell key={key} align={key === "count" ? "right" : undefined} sx={{ py: 1, typography: "body2" }}>
                       {cells[key] ?? null}
-                    </td>
+                    </TableCell>
                   ))}
-                </tr>
+                </TableRow>
               );
             }),
         }}

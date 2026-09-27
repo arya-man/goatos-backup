@@ -38,7 +38,6 @@ export function AnimalPurchaseRecordedRange({
       previousMonthLabel={previousMonthLabel}
       nextMonthLabel={nextMonthLabel}
       onChange={setRange}
-      className="ap-filter ap-filter-date"
     />
   );
 }

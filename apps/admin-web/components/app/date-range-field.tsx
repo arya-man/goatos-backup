@@ -1,7 +1,7 @@
 "use client";
 
 import dayjs, { type Dayjs } from "dayjs";
-import Box from "@mui/material/Box";
+import Stack from "@mui/material/Stack";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 
 export type DateRangeFieldProps = {
@@ -49,13 +49,16 @@ export function DateRangeField({
     nextIconButton: { "aria-label": nextMonthLabel } as never,
   };
   const key = (value: Dayjs | null): string | null => (value === null ? "" : value.isValid() ? value.format("YYYY-MM-DD") : null);
-  const fieldSx = { flex: "1 1 0", minWidth: { xs: 0, sm: Math.max(150, Math.round(minWidth / 2) - 8) } };
+  const fieldSx = { flex: { sm: "1 1 0" }, width: { xs: 1, sm: "auto" }, minWidth: { xs: 0, sm: Math.max(160, Math.round(minWidth / 2) - 8) } };
   return (
-    <Box
+    // Side by side from sm (MUI Stack row, template DatePicker sizing); stacked full width on phones.
+    <Stack
       role="group"
       aria-label={label}
       className={className}
-      sx={{ display: "flex", gap: 2, minWidth: 0, maxWidth: 1, flexWrap: { xs: "wrap", sm: "nowrap" } }}
+      direction={{ xs: "column", sm: "row" }}
+      spacing={2}
+      sx={{ minWidth: 0, maxWidth: 1, width: { xs: 1, sm: "auto" }, flex: { sm: "1 1 auto" } }}
     >
       <input type="hidden" name={`${name}_from`} value={from} />
       <input type="hidden" name={`${name}_to`} value={to} />
@@ -81,6 +84,6 @@ export function DateRangeField({
         }}
         slotProps={{ ...arrows, field: { clearable: true } as never, textField: { sx: fieldSx } }}
       />
-    </Box>
+    </Stack>
   );
 }

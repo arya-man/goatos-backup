@@ -1,12 +1,10 @@
 import { listOrEmpty } from "@/lib/list-or-empty";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
-import { KpiRowSkeleton, TableSkeleton } from "@/components/app/skeletons";
+import { TableSkeleton } from "@/components/app/skeletons";
 import { redirect } from "next/navigation";
 
 import { PageHeader } from "@/components/app/page-header";
-import { CourseWidgetSummary } from "@/components/minimal/sections/overview/course/course-widget-summary";
-import { COURSE_WIDGET_ICONS } from "@/lib/minimal-icons";
 import { TablePaginationLinks } from "@/components/app/table";
 import { TemplateTabs } from "@/components/app/template-tabs";
 
@@ -95,12 +93,6 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
   const successSentence = approvalSuccessSentence(feedback.status, feedback.code);
 
   const clearRow = { ap_row: null, ap_status: null, ap_code: null } as const;
-  const kpis = [
-    { key: "pending", title: COPY.kpi.pendingInView, total: countStatus(items, "pending"), icon: COURSE_WIDGET_ICONS.progress, color: "warning" as const },
-    { key: "birth-death", title: COPY.kpi.birthDeathInView, total: items.filter((i) => i.request_type === "birth" || i.request_type === "death").length, icon: COURSE_WIDGET_ICONS.completed, color: "info" as const },
-    { key: "shifting", title: COPY.kpi.shiftingInView, total: items.filter((i) => i.request_type === "shifting").length, icon: COURSE_WIDGET_ICONS.certificates, color: "secondary" as const },
-    { key: "rows", title: COPY.kpi.rowsInView, total: items.length, icon: COURSE_WIDGET_ICONS.completed, color: "primary" as const },
-  ];
 
   return (
     <Box className="screen on">
@@ -120,21 +112,8 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
           </Alert>
         )}
 
-        {/* A deck of zeros is a wall, not a reading: the tiles render only once the view has rows.
-            Template overview/course: CourseWidgetSummary count tiles on a spacing-3 Grid. */}
-        {/* KPI tiles + queue rows swap to their skeleton on a tab / filter / page click (guard:
-            url-keyed-panel); the type tabs and the toolbar stay on screen. */}
-        <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<KpiRowSkeleton count={4} size={{ xs: 12, sm: 6, md: 3 }} />}>
-        {items.length > 0 ? (
-          <Grid container spacing={3}>
-            {kpis.map((kpi) => (
-              <Grid key={kpi.key} size={{ xs: 12, sm: 6, md: 3 }}>
-                <CourseWidgetSummary title={kpi.title} total={kpi.total} icon={kpi.icon} color={kpi.color} />
-              </Grid>
-            ))}
-          </Grid>
-        ) : null}
-        </UrlSuspense>
+        {/* No KPI row (TR1-#18): the template order list has none, and the old "in view" tiles only
+            re-counted the rows of the page already on screen -- no figure the approver needs. */}
 
         {/* Template order list: the request-type Tabs are the card's first row, the status, farm and
             date filters the toolbar row under them. The type tabs carry no counts: the server applies
@@ -244,9 +223,6 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
   );
 }
 
-function countStatus(items: AdminWebApprovalItem[], status: AdminWebApprovalStatus): number {
-  return items.filter((item) => item.status === status).length;
-}
 
 function hrefWith(params: RouteSearchParams, updates: Record<string, string | null | undefined>): string {
   return approvalsHref(params, updates);

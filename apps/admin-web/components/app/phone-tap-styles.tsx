@@ -46,7 +46,6 @@ export function PhoneTapStyles() {
             // Grouped toggles take their size from the group's --size rule (0,2,0), so outrank it.
             '.MuiToggleButton-root.MuiToggleButton-root',
             '.MuiToggleButtonGroup-root .MuiToggleButton-root.MuiToggleButton-root',
-            '.kit-daterange-clear.kit-daterange-clear',
           ].join(', ')]: { minWidth: TAP, minHeight: TAP },
           // The switch thumb button is 32px (18px small); padding grows it to 44px and `left` keeps the thumb
           // exactly where the template draws it.

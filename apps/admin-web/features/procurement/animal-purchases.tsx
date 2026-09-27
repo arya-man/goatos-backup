@@ -410,9 +410,7 @@ export async function AnimalPurchasesPage({
             page cursor are dropped on submit by construction (they are not form fields). The
             fields sit in the template OrderTableToolbar row. */}
         <Form action={PATHNAME} scroll={false} role="search" aria-label={copy(pageContract, "filter.load")}>
-        <Box
-          sx={{ "& .kit-daterange.ap-filter-date": { height: "auto", p: 0, border: 0, borderRadius: 0, background: "none", flex: "1 1 20rem", minWidth: { xs: 0, sm: "17.5rem" }, maxWidth: { md: 480 } } }}
-        >
+        <Box>
           {decision !== DEFAULT_DECISION ? <input type="hidden" name="decision" value={decision} /> : null}
           <OrderTableToolbar
             filters={

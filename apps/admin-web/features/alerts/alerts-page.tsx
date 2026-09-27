@@ -1,6 +1,7 @@
 import Table from "@mui/material/Table";
 import { UrlSuspense } from "@/components/app/url-suspense";
-import { KpiRowSkeleton, TableSkeleton } from "@/components/app/skeletons";
+import { TableSkeleton } from "@/components/app/skeletons";
+import Typography from "@mui/material/Typography";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
@@ -8,7 +9,6 @@ import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Card from "@mui/material/Card";
-import Grid from "@mui/material/Grid";
 import IconButton from "@mui/material/IconButton";
 import MuiLink from "@mui/material/Link";
 import Stack from "@mui/material/Stack";
@@ -19,8 +19,6 @@ import Link from "@/components/no-prefetch-link";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
 import { LinkSelect } from "@/components/app/link-select";
-import { CourseWidgetSummary } from "@/components/minimal/sections/overview/course/course-widget-summary";
-import { COURSE_WIDGET_ICONS } from "@/lib/minimal-icons";
 import { TableHeadCustom } from "@/components/app/table";
 import { Label, type LabelColor } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
@@ -80,8 +78,6 @@ export async function AlertsPage({ searchParams, pageContract }: { searchParams?
   const allRows: AlertRow[] = pages.flatMap((page) => page.rows);
   const rows = severity ? allRows.filter((row) => row.severity === severity) : allRows;
   // Whole-scope counts summed from each park's backend counts, not the filtered page.
-  const total = pages.reduce((sum, page) => sum + page.total, 0);
-  const critical = pages.reduce((sum, page) => sum + page.critical, 0);
   const rulesRun = new Set(pages.flatMap((page) => page.rules_run));
   const degraded = new Set(pages.flatMap((page) => page.degraded ?? []));
   // Rules the backend left out for this date (a live-figure rule on a past day), de-duplicated
@@ -110,11 +106,6 @@ export async function AlertsPage({ searchParams, pageContract }: { searchParams?
   const closeHref = href({ [PARAM_CONFIGURE]: undefined });
 
   const severityColor = (key: string): LabelColor => (key === "critical" ? "error" : "warning");
-  const kpis = [
-    { key: "total", title: t("kpi.total"), total, className: "kpi-total", icon: COURSE_WIDGET_ICONS.progress, color: critical > 0 ? ("error" as const) : ("primary" as const) },
-    { key: "critical", title: t("kpi.critical"), total: critical, className: "kpi-critical", icon: COURSE_WIDGET_ICONS.certificates, color: "error" as const },
-    { key: "rules", title: t("kpi.rules"), total: rulesRun.size, className: undefined, icon: COURSE_WIDGET_ICONS.completed, color: "info" as const },
-  ];
   const head = labels.map((label, index) => ({ id: `c${index}`, label, sortable: false }));
 
   return (
@@ -146,18 +137,8 @@ export async function AlertsPage({ searchParams, pageContract }: { searchParams?
       />
 
       <Stack spacing={3}>
-        {/* Template overview/course: CourseWidgetSummary count tiles on a spacing-3 Grid. */}
-        {/* KPI tiles + the alert rows read park / day (severity filters rows only); both swap to
-            their skeleton on the click (guard: url-keyed-panel), the strip and toolbar stay. */}
-        <UrlSuspense searchParams={sp} watch={[PARAM_PARK, PARAM_DATE]} fallback={<KpiRowSkeleton count={3} size={{ xs: 12, sm: 4 }} />}>
-        <Grid container spacing={3}>
-          {kpis.map((kpi) => (
-            <Grid key={kpi.key} size={{ xs: 12, sm: 4 }}>
-              <CourseWidgetSummary title={kpi.title} total={kpi.total} className={kpi.className} icon={kpi.icon} color={kpi.color} />
-            </Grid>
-          ))}
-        </Grid>
-        </UrlSuspense>
+        {/* No KPI row (TR1-#18): the total and critical counts are the severity tabs' own Labels
+            below; the one figure the tabs cannot carry, how many checks ran, closes the toolbar. */}
 
         {/* Template order list: severity Tabs with Label counts, then the toolbar row (park, day),
             then the table. Counts are over the UNFILTERED day, so every badge keeps its number when
@@ -207,6 +188,9 @@ export async function AlertsPage({ searchParams, pageContract }: { searchParams?
                 <Iconify icon="eva:arrow-ios-forward-fill" />
               </IconButton>
             </Box>
+            <Typography variant="body2" data-testid="alerts-rules-run" sx={{ color: "text.secondary", ml: { md: "auto" }, whiteSpace: "nowrap" }}>
+              {t("kpi.rules")}: {rulesRun.size.toLocaleString("en-IN")}
+            </Typography>
           </Box>
 
           {/* Park / severity / date all re-fetch the list. Keyed on the three of them together, the
