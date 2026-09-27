@@ -49,6 +49,11 @@ const CARD_ROOT_SX = (t: Theme) => ({
   ...t.applyStyles("dark", { bgcolor: "background.paper" }),
 });
 
+/** The one selector for a board card, shared by the shell below, the Filters / My tasks panel
+ *  (search + owner hide cards with it) and the smoke scripts. REVIEW-35: the panel still queried
+ *  the deleted `.taskboard .task`, so its filters hid nothing. guard: action-center-card-selector */
+export const ACTION_CENTER_CARD_SELECTOR = "[data-ac-board] [data-ac-card]";
+
 /** Template kanban item shell (`li`) for one Action Center card; the search filter hides it whole. */
 export function ActionCenterCardShell({ children }: { children: ReactNode }) {
   return (

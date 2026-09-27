@@ -1,16 +1,15 @@
-import { ChipRowSkeleton, KanbanSkeleton, PageHeaderSkeleton, PageSkeleton, PagerSkeleton, StackSkeleton, TabsSkeleton, ToolbarSkeleton } from "@/components/app/skeletons";
+import { PageHeaderSkeleton, PageSkeleton, StackSkeleton, TabsSkeleton } from "@/components/app/skeletons";
+import { VIEW_SKELETON } from "@/features/process-integrity/action-center-skeletons";
 
-/** /action-center: header, board / verify tabs, then the board panel (chip + search toolbar, severity chips, lanes, pager). */
+/** /action-center: header, board / verify tabs, then the SAME board panel shape the page streams
+ *  behind (quick tiles, toolbar, kanban lanes, pager). guard: action-center-loading-mirrors-page */
 export default function Loading() {
   return (
     <PageSkeleton>
-      <PageHeaderSkeleton />
-      <TabsSkeleton count={2} counts />
-      <StackSkeleton spacing={2}>
-        <ToolbarSkeleton left={<ChipRowSkeleton count={4} />} fields={["search", 120, 120]} />
-        <ChipRowSkeleton count={4} />
-        <KanbanSkeleton layout="grid" lanes={[3, 3, 2, 2, 1]} minHeight={360} />
-        <PagerSkeleton />
+      <StackSkeleton spacing={3}>
+        <PageHeaderSkeleton />
+        <TabsSkeleton count={2} />
+        {VIEW_SKELETON[""]}
       </StackSkeleton>
     </PageSkeleton>
   );

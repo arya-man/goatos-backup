@@ -360,6 +360,7 @@ export async function ProtocolAdherencePage({
           />
           <UrlTabs
             ariaLabel={copy(pageContract, "label.all_states")}
+            scrollButtons="auto"
             value={workStateFilter}
             items={[
               { value: "all", label: copy(pageContract, "label.all_states"), count: summary?.expected_count, href: hrefWith({ state: "all", adh_page: "1" }) },

@@ -6,6 +6,7 @@ import { InfoHint } from "@/components/app/info-hint";
 import { useEffect, useRef, useState } from "react";
 import { Search, Users, X } from "lucide-react";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { ACTION_CENTER_CARD_SELECTOR } from "./action-center-board-parts";
 
 type FilterLink = {
   label: string;
@@ -58,7 +59,7 @@ export function ActionCenterFiltersButton({
   function applyLocalFilters(nextQuery = query, nextOwner = owner) {
     const q = nextQuery.trim().toLowerCase();
     const o = nextOwner.trim().toLowerCase();
-    for (const card of Array.from(document.querySelectorAll<HTMLElement>(".taskboard .task"))) {
+    for (const card of Array.from(document.querySelectorAll<HTMLElement>(ACTION_CENTER_CARD_SELECTOR))) {
       const text = (card.textContent ?? "").toLowerCase();
       const match = (!q || text.includes(q)) && (!o || text.includes(o));
       card.style.display = match ? "" : "none";
@@ -68,7 +69,7 @@ export function ActionCenterFiltersButton({
   function clearLocalFilters() {
     setQuery("");
     setOwner("");
-    for (const card of Array.from(document.querySelectorAll<HTMLElement>(".taskboard .task"))) {
+    for (const card of Array.from(document.querySelectorAll<HTMLElement>(ACTION_CENTER_CARD_SELECTOR))) {
       card.style.display = "";
     }
   }

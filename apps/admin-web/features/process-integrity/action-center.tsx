@@ -53,7 +53,8 @@ import { ActionCenterQuickTile } from "./action-center-board-parts";
 import { fmtDate } from "@/lib/format";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
-import { ChipRowSkeleton, KanbanSkeleton, KpiRowSkeleton, PagerSkeleton, StackSkeleton, TableSkeleton, ToolbarSkeleton } from "@/components/app/skeletons";
+import { KpiRowSkeleton, TableSkeleton } from "@/components/app/skeletons";
+import { BOARD_LANES_SKELETON, VIEW_SKELETON } from "./action-center-skeletons";
 
 const PATH = "/action-center";
 
@@ -522,20 +523,3 @@ export async function VaccinationActionCenterPage({
 
 /** Params that never change the Action Center's data: the local row drawer and the action feedback banner. */
 const PANEL_IGNORE = ["ac_row", "action_status", "action_key"] as const;
-const BOARD_LANES_SKELETON = (
-  <StackSkeleton spacing={2}>
-    <KanbanSkeleton lanes={[3, 3, 2, 2, 1]} />
-    <PagerSkeleton />
-  </StackSkeleton>
-);
-/** Each view's skeleton ("" = the status board, the default). */
-const VIEW_SKELETON = {
-  "": (
-    <StackSkeleton spacing={3}>
-      <KpiRowSkeleton count={3} icon />
-      <ToolbarSkeleton left={<ChipRowSkeleton count={4} />} fields={["search", 120, 120]} />
-      {BOARD_LANES_SKELETON}
-    </StackSkeleton>
-  ),
-  verify: <TableSkeleton columns={4} rows={10} toolbar={<ToolbarSkeleton fields={["search", 120]} sx={{ p: 2.5 }} />} />,
-};

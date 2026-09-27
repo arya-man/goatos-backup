@@ -28,19 +28,34 @@ export type UrlTabItem = {
   color?: LabelColor;
 };
 
-export function UrlTabs({ items, value, ariaLabel }: { items: UrlTabItem[]; value: string; ariaLabel: string }) {
+export function UrlTabs({
+  items,
+  value,
+  ariaLabel,
+  scrollButtons = false,
+}: {
+  items: UrlTabItem[];
+  value: string;
+  ariaLabel: string;
+  /** "auto": more tabs than the card holds get MUI's scroll arrows (phones included, 44px taps), so
+   *  a strip that overflows says so instead of cutting its last tab off (TR1-#29, /protocol-adherence
+   *  with 12 work states). Default keeps the template's plain scrollable strip. */
+  scrollButtons?: false | "auto";
+}) {
   const { pendingValue, navigate } = useUrlTabNav();
   const active = shownTabValue(value, pendingValue);
   return (
     <Tabs
       value={items.some((item) => item.value === active) ? active : false}
       variant="scrollable"
-      scrollButtons={false}
+      scrollButtons={scrollButtons}
+      allowScrollButtonsMobile={scrollButtons === "auto"}
       aria-label={ariaLabel}
       aria-busy={pendingValue !== null || undefined}
       sx={[
         (theme) => ({
-          px: 2.5,
+          px: scrollButtons === "auto" ? 0.5 : 2.5,
+          ...(scrollButtons === "auto" ? { "& .MuiTabs-scrollButtons": { width: "var(--tap-min)", flexShrink: 0 }, "& .MuiTabs-scrollButtons.Mui-disabled": { opacity: 0.3 } } : {}),
           boxShadow: `inset 0 -2px 0 0 ${varAlpha(theme.vars.palette.grey["500Channel"], 0.08)}`,
         }),
       ]}

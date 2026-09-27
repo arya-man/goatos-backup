@@ -54,3 +54,43 @@ test("adherence-ledger-readable: ledger fits 1440, scrolls below it, and wraps i
   assert.doesNotMatch(adherence, /ClipText/, "no ellipsis cells in the ledger");
   assert.match(adherence, /\{row\.next_action\} →/);
 });
+
+// REVIEW-35 guards.
+//   action-center-card-selector: the Filters / My tasks panel hides board cards through the SAME
+//     selector the card shell carries (the panel still queried the deleted `.taskboard .task`, so
+//     search and owner filters hid nothing).
+//   action-center-loading-mirrors-page: the route loading.tsx paints the page's own board skeleton
+//     (quick tiles, toolbar, kanban lanes, pager), never the retired grid lanes (TR1-#1 jump).
+//   adherence-tabs-scroll-buttons: the 12-state adherence strip shows template scroll arrows
+//     (phones included) instead of cutting its last tabs at the card edge.
+const filters = read("./action-center-filters.tsx");
+const skeletons = read("./action-center-skeletons.tsx");
+const loading = read("../../app/(admin)/action-center/loading.tsx");
+const urlTabs = read("../../components/app/url-tabs.tsx");
+
+test("action-center-card-selector: filters hide cards through the shared card selector", () => {
+  assert.match(parts, /export const ACTION_CENTER_CARD_SELECTOR = "\[data-ac-board\] \[data-ac-card\]";/);
+  assert.match(filters, /import \{ ACTION_CENTER_CARD_SELECTOR \} from "\.\/action-center-board-parts";/);
+  const uses = filters.match(/querySelectorAll<HTMLElement>\(ACTION_CENTER_CARD_SELECTOR\)/g) ?? [];
+  assert.equal(uses.length, 2, "apply and clear both use the shared selector");
+  assert.doesNotMatch(filters, /taskboard|\.task\b/, "no retired board selector");
+  for (const rel of ["../../scripts/smoke-action-center-local-drawer-live.mjs", "../../scripts/smoke-vaccination-click-matrix-live.mjs", "../../scripts/smoke-visual-live.mjs"]) {
+    assert.doesNotMatch(read(rel), /\.taskboard/, `${rel} must not query the retired board`);
+  }
+});
+
+test("action-center-loading-mirrors-page: loading.tsx renders the page's own board skeleton", () => {
+  assert.match(loading, /import \{ VIEW_SKELETON \} from "@\/features\/process-integrity\/action-center-skeletons";/);
+  assert.match(loading, /\{VIEW_SKELETON\[""\]\}/);
+  assert.doesNotMatch(loading, /layout="grid"|KanbanSkeleton/);
+  assert.match(page, /import \{ BOARD_LANES_SKELETON, VIEW_SKELETON \} from "\.\/action-center-skeletons";/);
+  assert.doesNotMatch(page, /const (BOARD_LANES_SKELETON|VIEW_SKELETON) =/, "one definition, shared");
+  assert.doesNotMatch(skeletons, /layout="grid"/, "lanes are the kanban layout the board renders");
+});
+
+test("adherence-tabs-scroll-buttons: the adherence strip carries template scroll arrows", () => {
+  assert.match(adherence, /<UrlTabs\s+ariaLabel=\{copy\(pageContract, "label\.all_states"\)\}\s+scrollButtons="auto"/);
+  assert.match(urlTabs, /scrollButtons=\{scrollButtons\}/);
+  assert.match(urlTabs, /allowScrollButtonsMobile=\{scrollButtons === "auto"\}/);
+  assert.match(urlTabs, /"& \.MuiTabs-scrollButtons": \{ width: "var\(--tap-min\)"/);
+});
