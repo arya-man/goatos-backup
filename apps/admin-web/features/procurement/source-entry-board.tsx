@@ -26,7 +26,7 @@ import { getProcurementOrigins } from "./load-detail";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import { UrlSuspense } from "@/components/app/url-suspense";
-import { TableSkeleton } from "@/components/app/skeletons";
+import { SourceLoadRowsSkeleton } from "./source-entry-skeletons";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { Iconify } from "@/components/minimal/iconify";
 import { TableHeadCustom } from "@/components/app/table";
@@ -312,7 +312,7 @@ export async function SourceEntryBoardPage({
 
         {/* The loads (guard: url-keyed-panel): a stage tab / page click swaps them to their skeleton at
             once; tabs, toolbar and chips stay on screen. The load drawer param never suspends it. */}
-        <UrlSuspense searchParams={sp} watch={LOADS_WATCH} fallback={<TableSkeleton bare header={false} columns={Math.max(loadLabels.length, 1)} rows={10} />}>
+        <UrlSuspense searchParams={sp} watch={LOADS_WATCH} fallback={<SourceLoadRowsSkeleton columns={Math.max(loadLabels.length, 1)} />}>
         <Box sx={LOAD_CARDS_SX} role="group" aria-label={copy(pageContract, "section.loads.aria")}>
           <Scrollbar>
             <Table className="source-loads-table" sx={{ minWidth: 960 }}>

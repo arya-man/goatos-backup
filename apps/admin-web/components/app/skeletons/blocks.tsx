@@ -425,7 +425,7 @@ export function KpiRowSkeleton({
  * optional body2 meta, subtitle2 figure; one row of dashed-divided cells up to four, rows of three or
  * four after that (the same `stripColumns` rule).
  */
-export function StatStripSkeleton({ count, meta = false, card = true, wrapBelowMd = false }: { count: number; meta?: boolean; card?: boolean; /** The cells' title and meta lines wrap to two lines each on a phone (200px cells, long copy). */ wrapBelowMd?: boolean }) {
+export function StatStripSkeleton({ count, meta = false, card = true, wrapBelowMd = false, minHeight = true }: { count: number; meta?: boolean; card?: boolean; /** The page's strip Scrollbar keeps its min height (false: the strip is its cells' height). */ minHeight?: boolean; /** The cells' title and meta lines wrap to two lines each on a phone (200px cells, long copy); "title" when only the title wraps. */ wrapBelowMd?: boolean | "title" }) {
   const cols = count <= 4 ? Math.max(count, 1) : count % 3 === 0 && count % 4 !== 0 ? 3 : 4;
   const cell = (i: number) => (
     // `&&&` outranks frame.css `.screen[aria-busy="true"] div { flex-wrap: wrap; min-width: 0 }`, which
@@ -438,7 +438,7 @@ export function StatStripSkeleton({ count, meta = false, card = true, wrapBelowM
         {meta ? (
           <Box sx={{ my: 0.5 }}>
             <SkeletonLine variant="body2" width="80%" />
-            {wrapBelowMd ? <SkeletonLine variant="body2" width="50%" sx={{ display: { md: "none" } }} /> : null}
+            {wrapBelowMd === true ? <SkeletonLine variant="body2" width="50%" sx={{ display: { md: "none" } }} /> : null}
           </Box>
         ) : null}
         <SkeletonLine variant="subtitle2" width="56%" />
@@ -451,7 +451,7 @@ export function StatStripSkeleton({ count, meta = false, card = true, wrapBelowM
         {Array.from({ length: count }, (_, i) => cell(i))}
       </Box>
     ) : (
-      <Box sx={{ minHeight: "calc(var(--sp-6) * 2.25)", overflow: "hidden" }}>
+      <Box sx={{ minHeight: minHeight ? "calc(var(--sp-6) * 2.25)" : 0, overflow: "hidden" }}>
         <Stack direction="row" divider={<Divider orientation="vertical" flexItem sx={{ borderStyle: "dashed" }} />} sx={{ py: 2, "&&&": { flexWrap: "nowrap" } }}>
           {Array.from({ length: count }, (_, i) => cell(i))}
         </Stack>

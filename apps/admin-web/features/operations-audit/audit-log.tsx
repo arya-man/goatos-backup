@@ -67,7 +67,7 @@ import { LinkFiltersResult, type LinkFilterChip } from "@/components/app/link-fi
 import { AuditAnalytics } from "./audit-analytics";
 import { AuditLogLocalDrawer, type AuditDrawerRecord } from "./audit-log-local-drawer";
 import Alert from "@mui/material/Alert";
-import { PAGE_SIZE } from "./audit-layout";
+import { AUDIT_FAMILY_SELECT_WIDTH, AUDIT_OPERATOR_SKELETON_ROWS, AUDIT_STATUS_TABS, AUDIT_STRIP_CELLS, PAGE_SIZE } from "./audit-layout";
 
 const PATHNAME = "/operations/audit";
 const ACTOR_TYPES = ["human", "system", "worker", "service", "user"] as const;
@@ -91,12 +91,7 @@ const OPERATION_FAMILIES: Array<{ key: string; domain: string | null; icon: type
 ];
 
 // Result/status tabs map to real list filters.
-const STATUS_TABS: Array<{ key: string; status?: string; result?: string; proofGaps?: boolean }> = [
-  { key: "all_results" },
-  { key: "awaiting", status: "verification_pending" },
-  { key: "rejected", result: "rejected" },
-  { key: "proof_gaps", proofGaps: true },
-];
+const STATUS_TABS = AUDIT_STATUS_TABS;
 
 export async function OperationsAuditPage({
   searchParams,
@@ -201,7 +196,7 @@ export async function OperationsAuditPage({
 
       {/* Summary tiles, trail rows + pager and the operator list swap to their skeletons on a tab /
           filter / search / page click (guard: url-keyed-panel); tabs, toolbar and search stay. */}
-      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<StatStripSkeleton count={4} meta wrapBelowMd />}>
+      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<StatStripSkeleton count={AUDIT_STRIP_CELLS} meta wrapBelowMd />}>
       <AuditAnalytics
         cells={[
           { key: "actions", title: copy(pageContract, "label.actions_in_view"), total: copy(pageContract, "label.tap_clear_filters"), price: summary ? String(summary.actions) : "—", percent: summary ? 100 : 0, icon: "solar:bill-list-bold", color: "info", href: clearedHref },
@@ -232,7 +227,7 @@ export async function OperationsAuditPage({
             <LinkSelect
               label={copy(pageContract, "filter.family_title_prefix")}
               value={filters.domain ?? ""}
-              minWidth={200}
+              minWidth={AUDIT_FAMILY_SELECT_WIDTH}
               options={[
                 { value: "", label: copy(pageContract, "filter.all_option"), href: hrefWithUpdates(sp, { domain: null, module: null, category: null, ...resetPage }) },
                 ...OPERATION_FAMILIES.filter((family) => family.domain).map((family) => ({
@@ -328,7 +323,7 @@ export async function OperationsAuditPage({
                 <SearchTextField name="actor_q" defaultValue={one(sp, "actor_q") ?? ""} placeholder={copy(pageContract, "filter.actor_placeholder")} />
               </Box>
             </Form>
-            <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<Box sx={{ p: 3, pt: 2 }}><ListRowsSkeleton rows={6} /></Box>}>
+            <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<Box sx={{ p: 3, pt: 2 }}><ListRowsSkeleton rows={AUDIT_OPERATOR_SKELETON_ROWS} /></Box>}>
             <Scrollbar sx={{ maxHeight: 420 }}>
               <Box sx={{ p: 3, pt: 2, display: "flex", flexDirection: "column", gap: 1 }}>
                 {actors.length === 0 ? (

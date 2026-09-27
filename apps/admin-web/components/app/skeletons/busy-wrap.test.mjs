@@ -33,8 +33,8 @@ test("operations and feed purchases route skeletons use the order toolbar twin a
   const read = (p) => readFileSync(new URL(p, import.meta.url), "utf8");
   assert.match(read("../../../app/(admin)/operations/audit/loading.tsx"), /<OrderToolbarSkeleton /);
   assert.match(read("../../../app/(admin)/operations/dlq/loading.tsx"), /<OrderToolbarSkeleton /);
-  assert.match(read("../../../features/operations-audit/audit-log.tsx"), /fallback=\{<StatStripSkeleton count=\{4\} meta wrapBelowMd \/>\}/);
-  assert.match(read("../../../app/(admin)/operations/audit/loading.tsx"), /<StatStripSkeleton count=\{4\} meta wrapBelowMd \/>/);
+  assert.match(read("../../../features/operations-audit/audit-log.tsx"), /fallback=\{<StatStripSkeleton count=\{AUDIT_STRIP_CELLS\} meta wrapBelowMd \/>\}/);
+  assert.match(read("../../../app/(admin)/operations/audit/loading.tsx"), /<StatStripSkeleton count=\{AUDIT_STRIP_CELLS\} meta wrapBelowMd \/>/);
   assert.match(read("../../../features/procurement/feed-purchases.tsx"), /fallback=\{<FeedPurchasesStripSkeleton \/>\}/);
   assert.match(read("../../../app/(admin)/procurement/feed-purchases/loading.tsx"), /<FeedPurchasesSkeleton \/>/);
 });

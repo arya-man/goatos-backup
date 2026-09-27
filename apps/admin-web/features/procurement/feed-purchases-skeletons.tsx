@@ -2,7 +2,7 @@
 
 import Box from "@mui/material/Box";
 import { OrderToolbarSkeleton, PageHeaderSkeleton, PageSkeleton, StatStripSkeleton, TableSkeleton, TabsSkeleton } from "@/components/app/skeletons";
-import { DEFAULT_LIMIT } from "./feed-purchases-layout";
+import { DEFAULT_LIMIT, FEED_DELIVERY_TAB_COUNT, FEED_PURCHASE_COLUMNS, FEED_STRIP_CELLS, FEED_TOOLBAR_SELECTS } from "./feed-purchases-layout";
 
 /**
  * The aggregate strip (two InvoiceAnalytic cells in a Card with `mb: { xs: 3, md: 5 }`), layout-
@@ -13,14 +13,14 @@ export function FeedPurchasesStripSkeleton() {
   return (
     <Box sx={{ display: "contents" }}>
       <Box sx={{ mb: { xs: 3, md: 5 } }}>
-        <StatStripSkeleton count={2} />
+        <StatStripSkeleton count={FEED_STRIP_CELLS} />
       </Box>
     </Box>
   );
 }
 
 /** The ledger rows (their UrlSuspense fallback): head, one page of rows, the footer. */
-export function FeedPurchasesRowsSkeleton({ columns = 11, rows = DEFAULT_LIMIT }: { columns?: number; rows?: number }) {
+export function FeedPurchasesRowsSkeleton({ columns = FEED_PURCHASE_COLUMNS.length, rows = DEFAULT_LIMIT }: { columns?: number; rows?: number }) {
   return <TableSkeleton bare header={false} columns={columns} rows={rows} />;
 }
 
@@ -30,7 +30,7 @@ export function FeedPurchasesSkeleton() {
     <PageSkeleton>
       <PageHeaderSkeleton crumbLink={false} actions={1} />
       <FeedPurchasesStripSkeleton />
-      <TableSkeleton columns={11} rows={DEFAULT_LIMIT} header={false} tabs={<TabsSkeleton count={3} />} toolbar={<OrderToolbarSkeleton filters={1} search={false} menu />} />
+      <TableSkeleton columns={FEED_PURCHASE_COLUMNS.length} rows={DEFAULT_LIMIT} header={false} tabs={<TabsSkeleton count={FEED_DELIVERY_TAB_COUNT} />} toolbar={<OrderToolbarSkeleton filters={FEED_TOOLBAR_SELECTS} search={false} menu />} />
     </PageSkeleton>
   );
 }

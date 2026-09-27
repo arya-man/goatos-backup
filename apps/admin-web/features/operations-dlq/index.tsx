@@ -37,9 +37,10 @@ import { LinkFiltersResult, type LinkFilterChip } from "@/components/app/link-fi
 import { DLQAnalytics } from "./dlq-analytics";
 import { DLQLocalDrawer, type DLQDrawerRecord } from "./dlq-local-drawer";
 import Alert from "@mui/material/Alert";
+import { DLQ_EVENT_COLUMNS, DLQ_FIELD_WIDTH, DLQ_SKELETON_ROWS, DLQ_STATUS_KEYS, DLQ_STRIP_CELLS } from "./dlq-layout";
 
 const PATHNAME = "/operations/dlq";
-const STATUS_KEYS = ["dead_letter", "failed", "discarded"] as const;
+const STATUS_KEYS = DLQ_STATUS_KEYS;
 const DRAWER_PARAMS = { dlq_id: null, action_status: null, action_key: null, action_code: null, updated: null } as const;
 
 // Template invoice list view (sections/invoice/view/invoice-list-view.tsx): the InvoiceAnalytic strip
@@ -128,7 +129,7 @@ export async function OperationsDLQPage({
 
       {/* Summary tiles and event rows swap to their skeleton on a tab / filter / search change (guard:
           url-keyed-panel); tabs and toolbar stay on screen. */}
-      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<StatStripSkeleton count={4} />}>
+      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<StatStripSkeleton count={DLQ_STRIP_CELLS} minHeight={false} />}>
       <DLQAnalytics
         cells={analytics.map((cell) => ({
           key: cell.key,
@@ -161,8 +162,8 @@ export async function OperationsDLQPage({
           filters={
             <Form action={PATHNAME} prefetch={false} style={{ display: "contents" }}>
               {hiddenInputs(sp, ["event_type", "topic", "dlq_id", "action_status", "action_key", "action_code", "updated"])}
-              <TextField id="dlq-event-type" name="event_type" label={copy(pageContract, "filter.event_type_label")} placeholder={copy(pageContract, "filter.event_type_placeholder")} defaultValue={eventType ?? ""} sx={{ width: { xs: 1, md: 200 }, flexShrink: 0 }} slotProps={{ inputLabel: { shrink: true } }} />
-              <TextField id="dlq-topic" name="topic" label={copy(pageContract, "filter.topic_label")} placeholder={copy(pageContract, "filter.topic_placeholder")} defaultValue={topic ?? ""} sx={{ width: { xs: 1, md: 200 }, flexShrink: 0 }} slotProps={{ inputLabel: { shrink: true } }} />
+              <TextField id="dlq-event-type" name="event_type" label={copy(pageContract, "filter.event_type_label")} placeholder={copy(pageContract, "filter.event_type_placeholder")} defaultValue={eventType ?? ""} sx={{ width: { xs: 1, md: DLQ_FIELD_WIDTH }, flexShrink: 0 }} slotProps={{ inputLabel: { shrink: true } }} />
+              <TextField id="dlq-topic" name="topic" label={copy(pageContract, "filter.topic_label")} placeholder={copy(pageContract, "filter.topic_placeholder")} defaultValue={topic ?? ""} sx={{ width: { xs: 1, md: DLQ_FIELD_WIDTH }, flexShrink: 0 }} slotProps={{ inputLabel: { shrink: true } }} />
               <Button type="submit" variant="contained" color="primary" sx={{ flexShrink: 0 }}>
                 {copy(pageContract, "filter.apply")}
               </Button>
@@ -176,7 +177,7 @@ export async function OperationsDLQPage({
 
         <LinkFiltersResult totalResults={rows.length} chips={chips} resetHref={PATHNAME} />
 
-        <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<TableSkeleton bare header={false} columns={cols.length || 6} rows={10} />}>
+        <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<TableSkeleton bare header={false} columns={cols.length || DLQ_EVENT_COLUMNS.length} rows={DLQ_SKELETON_ROWS} />}>
         <TabPanel tabKey={status}>
           <Scrollbar>
             <Table sx={{ minWidth: 960 }} aria-label={copy(pageContract, "section.events.aria")}>
