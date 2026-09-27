@@ -7,6 +7,7 @@ import MuiLink from "@mui/material/Link";
 import Typography from "@mui/material/Typography";
 
 import Link from "@/components/no-prefetch-link";
+export { completeMonthPercent, lastStepPercent, sevenDayPercent } from "@/lib/kpi-trend";
 import { Iconify } from "@/components/minimal/iconify";
 import { AppWidgetSummary } from "@/components/minimal/sections/overview/app/app-widget-summary";
 import { BookingWidgetSummary } from "@/components/minimal/sections/overview/booking/booking-widget-summary";
@@ -72,44 +73,43 @@ function defaultIcon(color: PaletteColorKey | undefined): KpiIcon {
   return "progress";
 }
 
-/** Percent change of the last point against the one before it (null when not comparable). */
-export function lastStepPercent(series: readonly (number | null | undefined)[]): number | null {
-  const values = series.filter((v): v is number => typeof v === "number" && Number.isFinite(v));
-  if (values.length < 2) return null;
-  const prev = values[values.length - 2];
-  const cur = values[values.length - 1];
-  if (prev === 0) return null;
-  return Math.round(((cur - prev) / Math.abs(prev)) * 1000) / 10;
-}
-
-/** Sum of the last 7 points against the 7 before them, as a percent (null without 14 points). */
-export function sevenDayPercent(series: readonly (number | null | undefined)[]): number | null {
-  const values = series.map((v) => (typeof v === "number" && Number.isFinite(v) ? v : 0));
-  if (values.length < 14) return null;
-  const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
-  const cur = sum(values.slice(-7));
-  const prev = sum(values.slice(-14, -7));
-  if (prev === 0) return null;
-  return Math.round(((cur - prev) / Math.abs(prev)) * 1000) / 10;
-}
-
-// Room for the visible sub-line under the template card's own content; an empty figure keeps its
-// line height so an unavailable figure does not collapse the card.
-const SUBLINE_ROOM = { pb: 5.5, "& .MuiBox-root:empty": { minHeight: "1.5em" } };
+// The visible sub-line. The template card keeps its markup; the adapter (1) reserves the sub-line's
+// exact wrapped height inside the card with an invisible `::after` carrying the same text
+// (`data-kpi-caption`, spread onto the template Card via its CardProps), and (2) paints the real text
+// over that space, inset by the card's own padding so both wrap identically. The text wraps in full:
+// never truncated (a cut sub-line is hover-only again). An empty figure keeps its line height.
+type Insets = { left: number; right: number; bottom: number };
+const INSETS: Record<"course" | "ecommerce" | "app" | "booking", Insets> = {
+  course: { left: 24, right: 20, bottom: 24 }, // Card py 3, pl 3, pr 2.5
+  ecommerce: { left: 24, right: 24, bottom: 24 }, // Card p 3
+  app: { left: 24, right: 24, bottom: 24 }, // Card p 3
+  booking: { left: 24, right: 16, bottom: 16 }, // Card p 2, pl 3
+};
+const EMPTY_FIGURE = { "& .MuiBox-root:empty": { minHeight: "1.5em" } };
+const RESERVE_SUBLINE = {
+  flexWrap: "wrap",
+  "&::after": { content: "attr(data-kpi-caption)", display: "block", flexBasis: "100%", visibility: "hidden", typography: "body2", mt: 1, whiteSpace: "normal", overflowWrap: "anywhere" },
+};
 
 export function KpiWidget({ title, total, caption, color = "primary", icon, trend, href, linkComponent, sx, "data-testid": testId }: KpiWidgetProps) {
   const figure = total ?? Number.NaN;
   const t: KpiTrend | null = trend ?? null;
-  const cardSx = [{ height: 1 }, ...(caption ? [SUBLINE_ROOM] : [{ "& .MuiBox-root:empty": { minHeight: "1.5em" } }]), ...(Array.isArray(sx) ? sx : [sx])] as SxProps<Theme>;
+  const cardSx = [{ height: 1 }, EMPTY_FIGURE, ...(caption ? [RESERVE_SUBLINE] : []), ...(Array.isArray(sx) ? sx : [sx])] as SxProps<Theme>;
+  const reserve = caption ? { "data-kpi-caption": caption } : {};
   let card;
+  let insets: Insets;
   if (t && t.period === "week" && (t.series?.length ?? 0) > 1) {
-    card = <EcommerceWidgetSummary title={title} total={figure} percent={t.percent} chart={{ series: t.series ?? [], categories: t.categories ?? [] }} sx={cardSx} />;
+    insets = INSETS.ecommerce;
+    card = <EcommerceWidgetSummary title={title} total={figure} percent={t.percent} chart={{ series: t.series ?? [], categories: t.categories ?? [] }} sx={cardSx} {...reserve} />;
   } else if (t && t.period === "7d" && (t.series?.length ?? 0) > 1) {
-    card = <AppWidgetSummary title={title} total={figure} percent={t.percent} chart={{ series: t.series ?? [], categories: t.categories ?? [] }} sx={cardSx} />;
+    insets = INSETS.app;
+    card = <AppWidgetSummary title={title} total={figure} percent={t.percent} chart={{ series: t.series ?? [], categories: t.categories ?? [] }} sx={cardSx} {...reserve} />;
   } else if (t && t.period === "month") {
-    card = <BookingWidgetSummary title={title} total={figure} percent={t.percent} icon={<Iconify icon="solar:chart-square-outline" width={48} sx={{ color: `${color}.main`, opacity: 0.48 }} />} sx={cardSx} />;
+    insets = INSETS.booking;
+    card = <BookingWidgetSummary title={title} total={figure} percent={t.percent} icon={<Iconify icon="solar:chart-square-outline" width={48} sx={{ color: `${color}.main`, opacity: 0.48 }} />} sx={cardSx} {...reserve} />;
   } else {
-    card = <CourseWidgetSummary title={title} total={figure} color={color} icon={ICONS[icon ?? defaultIcon(color)]} sx={cardSx} />;
+    insets = INSETS.course;
+    card = <CourseWidgetSummary title={title} total={figure} color={color} icon={ICONS[icon ?? defaultIcon(color)]} sx={cardSx} {...reserve} />;
   }
   const body = (
     <Box data-testid={testId} data-kpi-widget="" sx={{ position: "relative", height: 1 }}>
@@ -117,10 +117,8 @@ export function KpiWidget({ title, total, caption, color = "primary", icon, tren
       {caption ? (
         <Typography
           variant="body2"
-          noWrap
-          title={caption}
           data-kpi-subline=""
-          sx={{ position: "absolute", left: 24, right: 20, bottom: 16, color: "text.secondary" }}
+          sx={{ position: "absolute", left: insets.left, right: insets.right, bottom: insets.bottom, color: "text.secondary", whiteSpace: "normal", overflowWrap: "anywhere" }}
         >
           {caption}
         </Typography>

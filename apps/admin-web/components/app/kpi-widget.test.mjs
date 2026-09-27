@@ -28,6 +28,9 @@ test("adapter: numeric figure only, visible sub-line", () => {
   assert.doesNotMatch(adapter, /total\??: [^;\n]*string/, "no string figure");
   assert.match(adapter, /<Typography[\s\S]{0,200}data-kpi-subline[\s\S]{0,300}\{caption\}/, "caption renders as visible Typography");
   assert.doesNotMatch(adapter, /<Tooltip\b/, "caption is not hover-only");
+  // REVIEW-11: a cut sub-line is hover-only again. It wraps in full: no noWrap / ellipsis / clamp.
+  assert.doesNotMatch(adapter, /\bnoWrap\b|textOverflow|WebkitLineClamp|lineClamp/, "sub-line never truncates");
+  assert.match(adapter, /content: "attr\(data-kpi-caption\)"/, "card reserves the wrapped sub-line height");
   // Each trend period maps to the template widget whose fixed period text is true.
   assert.match(adapter, /period === "week"[\s\S]{0,200}<EcommerceWidgetSummary/);
   assert.match(adapter, /period === "7d"[\s\S]{0,200}<AppWidgetSummary/);
