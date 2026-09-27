@@ -1,3 +1,4 @@
+import Alert from "@mui/material/Alert";
 import type { KitTone } from "@/lib/tone";
 import { KpiGrid } from "@/components/app/kpi-grid";
 import { KpiWidget, kpiColor } from "@/components/app/kpi-widget";
@@ -91,9 +92,9 @@ export function LiveTrackerKpis({
           under-reports the drive day by an unbounded amount, which is a wrong number rather than an
           error — so it is stated out loud instead of shipped silently. */}
       {truncated ? (
-        <div className="note lt-truncnote" role="status">
+        <Alert severity="warning" role="status" className="lt-truncnote">
           {copy(pageContract, "kpi.truncated_note")}
-        </div>
+        </Alert>
       ) : null}
       {/* A deck of zeros is a wall, not a reading: the tiles render only once the day has counts. */}
       {tiles.some((tile) => Number(tile.value) > 0) ? (

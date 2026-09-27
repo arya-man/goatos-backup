@@ -97,7 +97,6 @@ button.scrim{background:var(--scrim);transition:opacity 200ms var(--ease)}
 .main input:focus,.main select:focus,.main textarea:focus{outline:0;border-color:var(--fg);box-shadow:inset 0 0 0 1px var(--fg)}
 select option{background:var(--paper);color:var(--fg)}
 
-
 /* =====================================================================
    Kit components (components/kit/*)
    ===================================================================== */
@@ -112,7 +111,6 @@ select option{background:var(--paper);color:var(--fg)}
 
 @media(max-width:880px){.btn{min-height:44px}.btn.sm{min-height:44px;padding-top:8px;padding-bottom:8px}}
 .kit-press:active{transform:scale(.92)}
-
 
 .kit-pagehead{display:flex;align-items:center;gap:12px;min-width:0}
 .kit-pagehead h1{margin:0 auto 0 0;font-size:28px;line-height:36px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -305,7 +303,6 @@ a:focus-visible,button:focus-visible,[role="button"]:focus-visible,[tabindex="0"
 }
 @keyframes cx-grow-x{from{transform:scaleX(0)}to{transform:none}}
 @keyframes cx-fade-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
-
 
 /* -- Tab content transition (TabPanel) -- */
 
@@ -548,7 +545,7 @@ input[type="radio"],input[type="checkbox"]{accent-color:var(--primary)}
    Phone keeps a >=44px tap target via the phone floor; 48px there so filter rows stay short. */
 @media (min-width:768px){.main .tsearch:not(.wb .tsearch):not(.audit-toolbar>.tsearch):not(.dlq-toolbar .tsearch){min-height:56px;border-radius:8px;padding:0 14px;gap:10px}}
 @media (max-width:767px){.main .tsearch{min-height:48px;border-radius:8px;padding:0 14px}.main .wb .tsearch{height:48px}
-  .main .lt-page .lt-fsheet-host .lt-fsearch,.main .lt-page .lt-fsheet-host>.btn{height:48px;min-height:48px}}
+  }
 /* Minimal list toolbar: every control in the row shares the search field's height, so a Filters
    button beside the 56px (48px phone) search is not a 36px pill floating in the middle. */
 .main .card>.tbar:has(>.tsearch)>.btn{align-self:stretch;height:auto}

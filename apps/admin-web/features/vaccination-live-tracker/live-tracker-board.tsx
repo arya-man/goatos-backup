@@ -1,4 +1,10 @@
-import { Activity, AlertTriangle, CalendarDays } from "lucide-react";
+import Alert from "@mui/material/Alert";
+import AlertTitle from "@mui/material/AlertTitle";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Grid from "@mui/material/Grid";
+import Stack from "@mui/material/Stack";
+import { Iconify } from "@/components/minimal/iconify";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { PanelSkeleton } from "@/components/app/panel-skeleton";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
@@ -77,7 +83,7 @@ export async function LiveTrackerBoard({
 
   if (!result.ok) {
     return (
-      <div className="lt-page lt-live-page">
+      <Box>
         {/* activeParks is null, not 0. The read FAILED, so nothing is known about how many parks are
             running; rendering a hard zero under a pulsing LIVE badge asserts that none are, which is
             a measurement this branch does not have. */}
@@ -90,25 +96,20 @@ export async function LiveTrackerBoard({
           scheduleHref={scheduleHref}
           commandHref={commandHref}
         />
-        <section className="card lt-card">
-          <div className="bd lt-empty">
-            <AlertTriangle className="ic" aria-hidden="true" style={{ width: 18, height: 18, color: "var(--danger)", flexShrink: 0 }} />
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <b style={{ fontSize: 14 }}>{copy(pageContract, "state.error_title")}</b>
-              <span className="muted small" style={{ display: "block", marginTop: 2, lineHeight: 1.5 }}>
-                {copy(pageContract, "state.error_body")} {result.error.message}
-              </span>
-              {/* LivePoller unmounts on a failed read (it needs a real generated_at to report), and
-                  router.refresh() is this page's only refresh path. Without a retry control one
-                  transient read failure — a 6s API timeout is a realistic way in — freezes the board
-                  until the reader manually reloads the browser. */}
-              <Link href={liveTrackerHref(params)} replace className="btn sm" style={{ marginTop: 8 }}>
-                {copy(pageContract, "action.retry")}
-              </Link>
-            </div>
-          </div>
-        </section>
-      </div>
+        <Alert
+          severity="error"
+          action={
+            // LivePoller unmounts on a failed read and router.refresh() is this page's only refresh
+            // path: without a retry control one transient read failure freezes the board.
+            <Button component={Link} href={liveTrackerHref(params)} replace color="inherit" size="small">
+              {copy(pageContract, "action.retry")}
+            </Button>
+          }
+        >
+          <AlertTitle>{copy(pageContract, "state.error_title")}</AlertTitle>
+          {copy(pageContract, "state.error_body")} {result.error.message}
+        </Alert>
+      </Box>
     );
   }
 
@@ -136,7 +137,7 @@ export async function LiveTrackerBoard({
     data.activity.items.length === 0;
 
   return (
-    <div className="lt-page lt-live-page">
+    <Box>
       <PageHead
         pageContract={pageContract}
         businessDate={data.business_date}
@@ -161,34 +162,40 @@ export async function LiveTrackerBoard({
           DRIVE DAY board keyed on business_date — it does not honour as_of, and the sibling
           vaccination reads reject a past as_of outright. Silently answering with a different day
           than the URL claims is the failure mode; saying which day is on screen is the fix. */}
+      <Stack spacing={3}>
       {asOfDate && asOfDate !== data.business_date ? (
-        <div className="note lt-truncnote" role="status">
+        <Alert severity="info" role="status">
           {copy(pageContract, "label.as_of_note")}
-        </div>
+        </Alert>
       ) : null}
 
-      {/* The wording turns on hasNarrowing, which INCLUDES the top-bar park. "No vaccination drive
-          work on this day" is a claim about the whole day; with a park selected it is false whenever
-          the other park is running, and the reader is given no hint that a scope is even active. */}
+      {/* The wording turns on hasNarrowing, which INCLUDES the top-bar park: "No vaccination drive
+          work on this day" is false with a park selected whenever the other park is running. */}
       {isEmpty ? (
-        <div className="note lt-emptynote">
-          <b title={params.hasNarrowing ? copy(pageContract, "state.empty_filtered_body") : copy(pageContract, "state.empty_body")}>
-            {params.hasNarrowing
-              ? copy(pageContract, "state.empty_filtered_title")
-              : copy(pageContract, "state.empty_title")}
-          </b>
-          {params.hasFilter ? (
-            <Link href={resetHref} replace scroll={false} className="btn sm" style={{ marginTop: 8 }}>
-              {copy(pageContract, "action.reset_filters")}
-            </Link>
-          ) : null}
-        </div>
+        <Alert
+          severity="info"
+          variant="outlined"
+          action={
+            params.hasFilter ? (
+              <Button component={Link} href={resetHref} replace scroll={false} color="inherit" size="small">
+                {copy(pageContract, "action.reset_filters")}
+              </Button>
+            ) : undefined
+          }
+        >
+          <AlertTitle sx={{ mb: 0 }}>
+            {params.hasNarrowing ? copy(pageContract, "state.empty_filtered_title") : copy(pageContract, "state.empty_title")}
+          </AlertTitle>
+          {params.hasNarrowing ? copy(pageContract, "state.empty_filtered_body") : copy(pageContract, "state.empty_body")}
+        </Alert>
       ) : null}
 
       <LiveTrackerKpis kpis={data.kpis} truncated={data.cells_truncated} pageContract={pageContract} />
 
-      <div className="lt-grid">
-        <div className="lt-stack">
+      {/* Template overview grid: tables md 8, the live rail md 4. */}
+      <Grid container spacing={3}>
+        <Grid size={{ xs: 12, lg: 8 }}>
+        <Stack spacing={3}>
           <LiveTrackerOperators
             rows={data.operators}
             parkCount={data.kpis.scheduled_by_park.length}
@@ -213,7 +220,9 @@ export async function LiveTrackerBoard({
               that silently does something other than what it says. The card renders that branch
               disabled with its own visible reason instead. */}
           <LiveTrackerComboCard combo={data.combo} passportHref={passportHref} pageContract={pageContract} />
-        </div>
+        </Stack>
+        </Grid>
+        <Grid size={{ xs: 12, lg: 4 }}>
         <LiveTrackerRail
           activity={data.activity}
           scanCaptureTotal={data.kpis.scan_captures}
@@ -225,7 +234,9 @@ export async function LiveTrackerBoard({
           verifyHref={verifyHref}
           pageContract={pageContract}
         />
-      </div>
+        </Grid>
+      </Grid>
+      </Stack>
       </UrlSuspense>
 
       <LiveTrackerPassportDrawer
@@ -234,7 +245,7 @@ export async function LiveTrackerBoard({
         closeHref={closePassportHref}
         pageContract={pageContract}
       />
-    </div>
+    </Box>
   );
 }
 
@@ -258,6 +269,7 @@ function PageHead({
 }) {
   const dayLabel = businessDate ? fmtDriveDay(businessDate) : copy(pageContract, "label.placeholder");
   return (
+    <Box sx={{ mb: { xs: 3, md: 5 } }}>
     <PageHeader
       title={`${copy(pageContract, "page.heading_prefix")} — ${dayLabel}`}
       crumbs={[{ label: copy(pageContract, "crumb") }, { label: copy(pageContract, "page.title") }]}
@@ -272,19 +284,16 @@ function PageHead({
           </Label>
         )}
         {generatedAt && isLiveDay ? <LivePoller generatedAt={generatedAt} pageContract={pageContract} /> : null}
-        <div className="lt-headbtns">
-          <a href={scheduleHref} className="btn">
-            <CalendarDays className="ic" style={{ width: 14, height: 14 }} aria-hidden="true" />
-            {copy(pageContract, "action.full_schedule")}
-          </a>
-          <Link href={commandHref} className="btn p">
-            <Activity className="ic" style={{ width: 14, height: 14 }} aria-hidden="true" />
-            {copy(pageContract, "action.command_board")}
-          </Link>
-        </div>
+        <Button component="a" href={scheduleHref} variant="outlined" color="inherit" startIcon={<Iconify icon="solar:calendar-date-bold" />}>
+          {copy(pageContract, "action.full_schedule")}
+        </Button>
+        <Button component={Link} href={commandHref} variant="contained" color="primary" startIcon={<Iconify icon="solar:monitor-bold" />}>
+          {copy(pageContract, "action.command_board")}
+        </Button>
         </>
       }
     />
+    </Box>
   );
 }
 

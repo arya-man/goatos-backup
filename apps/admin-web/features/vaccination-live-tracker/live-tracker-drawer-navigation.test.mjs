@@ -11,7 +11,7 @@ const board = readFileSync(new URL("./live-tracker-board.tsx", import.meta.url),
 
 test("combo animal rows open the passport through LocalOverlayLink", () => {
   assert.match(combo, /import \{ LocalOverlayLink \} from "@\/components\/local-overlay-link"/);
-  assert.match(combo, /<LocalOverlayLink[\s\S]{0,400}passportHref\(row\.goat_id\)/);
+  assert.match(combo, /component=\{LocalOverlayLink\}[\s\S]{0,400}passportHref\(row\.goat_id\)/);
 });
 
 test("the drawer is mounted by the board and closes back to the same board state", () => {

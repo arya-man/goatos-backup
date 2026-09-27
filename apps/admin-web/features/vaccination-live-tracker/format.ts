@@ -86,3 +86,30 @@ export function progressTone(state: string): "" | "warn" | "dng" {
       return "";
   }
 }
+
+export type LivePaletteColor = "primary" | "secondary" | "info" | "success" | "warning" | "error" | "default";
+
+/** Contract tone (ok / warn / dng / info / mut / pur / teal / live) -> the template palette colour. */
+export function paletteOf(tone: string | null | undefined): LivePaletteColor {
+  switch (tone) {
+    case "ok":
+      return "success";
+    case "warn":
+      return "warning";
+    case "dng":
+    case "live":
+      return "error";
+    case "info":
+    case "teal":
+      return "info";
+    case "pur":
+      return "secondary";
+    default:
+      return "default";
+  }
+}
+
+/** progressTone() -> LinearProgress colour (closure on track is primary). */
+export function progressColor(tone: "" | "warn" | "dng"): "primary" | "warning" | "error" {
+  return tone === "dng" ? "error" : tone === "warn" ? "warning" : "primary";
+}

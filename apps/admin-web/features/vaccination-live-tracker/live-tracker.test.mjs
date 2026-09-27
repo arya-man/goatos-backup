@@ -241,8 +241,10 @@ test("the parsed top-bar park scope is authoritative for the live-tracker read p
 });
 
 test("dense tables pin their cells to one line, per the mock-anatomy rule", () => {
-  assert.match(css, /table\.lt-operator-table th[\s\S]{0,400}white-space:nowrap/);
-  assert.match(css, /table\.lt-shed-table th[\s\S]{0,400}white-space:nowrap/);
+  const ui = readFileSync(new URL("./live-ui.tsx", import.meta.url), "utf8");
+  assert.match(ui, /export function LiveHeadRow[\s\S]{0,500}whiteSpace: "nowrap"/);
+  assert.match(operators, /<LiveHeadRow/);
+  assert.match(sheds, /<LiveHeadRow/);
 });
 
 test("live tracker styles are scoped so they cannot restyle other boards", () => {
@@ -254,8 +256,7 @@ test("live tracker styles are scoped so they cannot restyle other boards", () =>
 });
 
 test("wrapped combo obligation chips stay visually grouped", () => {
-  assert.match(css, /\.lt-page \.lt-dosecell\{[^}]*column-gap:7px;row-gap:5px/);
-  assert.match(css, /\.lt-page \.lt-dosecell \.tag\{[^}]*line-height:1\.18;padding:3px 8px/);
+  assert.match(combo, /flexWrap: "wrap", gap: 0\.75 \}\}>\s*\{row\.doses\.map/);
 });
 
 test("counted labels do not read as broken singulars", () => {
@@ -281,7 +282,7 @@ test("the Full Schedule button's fragment matches a section id that is actually 
   assert.match(board, /view: "schedule"/, "the href must open the vaccination page's schedule component");
   assert.match(board, /schedule_year: String\(vaccinationScheduleYear\(params\.sp\)\)/, "the href must preserve the schedule year selector");
   assert.match(board, /"#" \+\s+FULL_SCHEDULE_ANCHOR/, "the href must be built from that constant");
-  assert.match(board, /<a href=\{scheduleHref\}/, "cross-page hash navigation should use a native anchor");
+  assert.match(board, /component="a" href=\{scheduleHref\}/, "cross-page hash navigation should use a native anchor");
   const schedule = readFileSync(
     new URL("../preventive-care-vaccination/full-vaccine-schedule.tsx", import.meta.url),
     "utf8",
@@ -371,15 +372,14 @@ test("the live tick is observed, not asserted", () => {
   const tick = readFileSync(new URL("./live-tick.tsx", import.meta.url), "utf8");
   assert.match(tick, /"use client"/, "the tick has to compare against the previous value client-side");
   assert.match(tick, /previous/, "the tick fires on a change, never unconditionally");
-  assert.match(css, /\.lt-page \.lt-tick\{[^}]*opacity:0/, "the tick must be hidden by default");
-  assert.match(css, /\.lt-page \.lt-tick\.on\{[^}]*opacity:1/);
+  assert.match(tick, /opacity: flashing \? 1 : 0/, "the tick must be hidden by default and shown only while flashing");
 });
 
 test("row status pills carry the mock's pulsing dot and never cast an unknown tone", () => {
   // Tag's Tone union has no "live" member; `as Tone` silenced tsc while `.t-live` painted the same
   // red wash as `.t-dng` with no dot, making "active now", "idle" and "not started" identical.
   const liveTag = readFileSync(new URL("./live-state-tag.tsx", import.meta.url), "utf8");
-  assert.match(liveTag, /<i \/>/, "the live pill must emit the mock's dot element");
+  assert.match(liveTag, /startIcon={<Box component="span"/, "the live pill must emit the mock's dot element");
   for (const [name, source] of Object.entries({ operators, sheds })) {
     assert.ok(!/as Tone/.test(code(source)), `${name} must not cast a backend tone into the design-system union`);
     assert.match(source, /LiveStateTag/, `${name} must render its status through the live-aware pill`);
@@ -412,4 +412,18 @@ test("PAUSED survives the Suspense remount every filter change triggers", () => 
   assert.match(poller, /LIVE_STORAGE_KEY/);
   assert.match(poller, /useSyncExternalStore\(subscribeLive/);
   assert.ok(!/useState\(true\)/.test(code(poller)), "the live flag must not be remount-local state");
+});
+
+// guard: live-tracker-template-anatomy. The board is template Cards / Tables / Alerts / Buttons; the
+// legacy mock markup (card / hd / bd / note / btn / chip classes, lt-* layout classes, raw <section>
+// and <div> wrappers) must not come back. `lt-truncnote` survives only as the visible-reason marker.
+test("live tracker renders template anatomy, not the legacy mock classes", () => {
+  const files = ["live-tracker-board.tsx", "live-tracker-operators.tsx", "live-tracker-sheds.tsx", "live-tracker-combo.tsx", "live-tracker-rail.tsx", "live-tracker-kpis.tsx", "live-poller.tsx", "live-tick.tsx", "live-state-tag.tsx", "live-ui.tsx"];
+  for (const name of files) {
+    const source = code(readFileSync(new URL(`./${name}`, import.meta.url), "utf8"));
+    const classes = [...source.matchAll(/className=\{?[`"]([^`"]*)[`"]/g)].flatMap((m) => m[1].split(/\s+/)).filter(Boolean);
+    const legacy = classes.filter((c) => c !== "lt-truncnote");
+    assert.deepEqual(legacy, [], `${name} uses legacy classes`);
+    assert.ok(!/<section\b/.test(source), `${name} must use a template Card, not a raw <section>`);
+  }
 });

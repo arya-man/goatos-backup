@@ -1,4 +1,16 @@
-import { Syringe } from "lucide-react";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import MuiLink from "@mui/material/Link";
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import TableHead from "@mui/material/TableHead";
+import TableRow from "@mui/material/TableRow";
+import Typography from "@mui/material/Typography";
+import { Label } from "@/components/minimal/label";
+import { Scrollbar } from "@/components/minimal/scrollbar";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { Tag, type Tone } from "@/components/ui-primitives";
 import {
@@ -8,6 +20,7 @@ import {
   type AdminUiPageContract,
 } from "@/lib/admin-ui-contract";
 import type { LiveTrackerCombo } from "@/lib/api/vaccination-live-tracker";
+import { LiveEmpty, LiveHeadRow } from "./live-ui";
 
 // Combo doses — one proof, multiple same-day obligations.
 //
@@ -25,104 +38,107 @@ export function LiveTrackerComboCard({
   pageContract: AdminUiPageContract;
 }) {
   const placeholder = copy(pageContract, "label.placeholder");
+  const head = [
+    copy(pageContract, "section.combo.header_animal"),
+    copy(pageContract, "section.combo.header_shed"),
+    copy(pageContract, "section.combo.header_proof"),
+    copy(pageContract, "section.combo.header_doses"),
+  ];
   return (
-    <section id="lt-combo" className="card lt-card" style={{ scrollMarginTop: 80 }}>
-      <div className="hd">
-        <Syringe className="ic" style={{ color: "var(--purple)" }} aria-hidden="true" />
-        <h3>{copy(pageContract, "section.combo.title")}</h3>
-        {/* ONE chip per distinct antigen actually present, never their union joined into a single
-            label. The mock's single combo slot describes ONE combo; real combos are variable-N and a
-            day can carry several different ones, so joining every label produced a four-antigen
-            combination no animal received. */}
-        {combo.vaccine_labels.map((label) => (
-          <span className="lt-combo-chip" key={label}>
-            {label}
-          </span>
-        ))}
-        <div className="sp" style={{ flex: 1 }} />
-        <span className="small muted">
-          {combo.animal_count}{" "}
-          {combo.animal_count === 1
-            ? copy(pageContract, "section.combo.count_suffix_one")
-            : copy(pageContract, "section.combo.count_suffix")}
-        </span>
-      </div>
-      <div className="bd">
+    <Card id="lt-combo" sx={{ scrollMarginTop: 80 }}>
+      <CardHeader
+        title={copy(pageContract, "section.combo.title")}
+        subheader={
+          // ONE Label per distinct antigen actually present, never their union joined into a single
+          // label: real combos are variable-N and a day can carry several different ones, so joining
+          // every label produced a combination no animal received.
+          combo.vaccine_labels.length ? (
+            <Box component="span" sx={{ mt: 1, display: "flex", flexWrap: "wrap", gap: 0.75 }}>
+              {combo.vaccine_labels.map((label) => (
+                <Label key={label} variant="soft" color="secondary">
+                  {label}
+                </Label>
+              ))}
+            </Box>
+          ) : null
+        }
+        action={
+          <Typography variant="caption" sx={{ color: "text.secondary", whiteSpace: "nowrap" }}>
+            {combo.animal_count}{" "}
+            {combo.animal_count === 1 ? copy(pageContract, "section.combo.count_suffix_one") : copy(pageContract, "section.combo.count_suffix")}
+          </Typography>
+        }
+        slotProps={{ subheader: { component: "div" } }}
+        sx={{ mb: 2 }}
+      />
 
-        {combo.rows.length === 0 ? (
-          <div className="lt-empty" style={{ padding: "6px 0" }}>
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <b style={{ fontSize: 14 }} title={copy(pageContract, "section.combo.empty_body")}>{copy(pageContract, "section.combo.empty_title")}</b>
-            </div>
-          </div>
-        ) : (
-          <>
-            <div className="lt-comborow lt-comborow-head">
-              <span>{copy(pageContract, "section.combo.header_animal")}</span>
-              <span>{copy(pageContract, "section.combo.header_shed")}</span>
-              <span>{copy(pageContract, "section.combo.header_proof")}</span>
-              <span>{copy(pageContract, "section.combo.header_doses")}</span>
-            </div>
-            {combo.rows.map((row) => {
-              const dualTagTitle = row.secondary_tag ? `${row.primary_tag} · ${row.secondary_tag}` : row.primary_tag;
-              return (
-                <div key={row.goat_id} className="lt-comborow">
-                  <span>
-                    <LocalOverlayLink
-                      href={passportHref(row.goat_id)}
-                      className="lt-goatid"
-                      scroll={false}
-                      title={dualTagTitle || row.display_id}
-                      aria-label={`${copy(pageContract, "drawer.passport.aria")} — ${row.display_id || row.primary_tag}`}
-                    >
-                      {row.primary_tag || row.display_id || placeholder}
-                    </LocalOverlayLink>
-                  </span>
-                  <span>{row.shed_label || placeholder}</span>
-                  <span>
-                    <Tag tone={optionTone(pageContract, "live_proof_state", row.proof_state) as Tone}>
-                      {optionLabel(pageContract, "live_proof_state", row.proof_state)}
-                    </Tag>
-                  </span>
-                  <span className="lt-dosecell">
-                    {row.doses.map((dose) => (
-                      <Tag key={dose.obligation_id} tone={optionTone(pageContract, "live_dose_state", dose.state) as Tone}>
-                        {dose.vaccine_label} · {optionLabel(pageContract, "live_dose_state", dose.state)}
+      {combo.rows.length === 0 ? (
+        <LiveEmpty title={copy(pageContract, "section.combo.empty_title")} body={copy(pageContract, "section.combo.empty_body")} />
+      ) : (
+        <Scrollbar>
+          <Table sx={{ minWidth: 640 }} aria-label={copy(pageContract, "section.combo.title")}>
+            <TableHead>
+              <LiveHeadRow labels={head} />
+            </TableHead>
+            <TableBody>
+              {combo.rows.map((row) => {
+                const dualTagTitle = row.secondary_tag ? `${row.primary_tag} · ${row.secondary_tag}` : row.primary_tag;
+                return (
+                  <TableRow hover key={row.goat_id}>
+                    <TableCell>
+                      <MuiLink
+                        component={LocalOverlayLink}
+                        href={passportHref(row.goat_id)}
+                        scroll={false}
+                        underline="hover"
+                        sx={{ minHeight: "var(--tap-min)", display: "inline-flex", alignItems: "center", typography: "subtitle2", fontFamily: "monospace" }}
+                        title={dualTagTitle || row.display_id}
+                        aria-label={`${copy(pageContract, "drawer.passport.aria")} — ${row.display_id || row.primary_tag}`}
+                      >
+                        {row.primary_tag || row.display_id || placeholder}
+                      </MuiLink>
+                    </TableCell>
+                    <TableCell>{row.shed_label || placeholder}</TableCell>
+                    <TableCell>
+                      <Tag tone={optionTone(pageContract, "live_proof_state", row.proof_state) as Tone}>
+                        {optionLabel(pageContract, "live_proof_state", row.proof_state)}
                       </Tag>
-                    ))}
-                  </span>
-                </div>
-              );
-            })}
-          </>
-        )}
+                    </TableCell>
+                    <TableCell>
+                      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75 }}>
+                        {row.doses.map((dose) => (
+                          <Tag key={dose.obligation_id} tone={optionTone(pageContract, "live_dose_state", dose.state) as Tone}>
+                            {dose.vaccine_label} · {optionLabel(pageContract, "live_dose_state", dose.state)}
+                          </Tag>
+                        ))}
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </Scrollbar>
+      )}
 
-        <div style={{ marginTop: 9 }}>
-          {/* The mock's all-combo-animals button implies a longer list behind the card. Neither
-              branch has one: no paginated combo-animal endpoint or route exists on this surface.
-              BOTH branches are therefore disabled-with-reason. Pointing the truncated branch at
-              rows[0] Goat Passport drawer — which is what shipped — is the failure the house rule
-              forbids: a control labelled with the full animal count that opens ONE animal instead,
-              leaving the truncated remainder unreachable, on the only code path a real high-volume
-              combo day would ever take. */}
-          <span
-            className="btn sm"
-            aria-disabled="true"
-            title={
-              combo.rows_truncated
-                ? copy(pageContract, "section.combo.truncated_reason")
-                : copy(pageContract, "section.combo.all_listed")
-            }
-          >
-            {copy(pageContract, "action.all_combo_animals")}
-          </span>
-          {combo.rows_truncated ? (
-            // A hover-only tooltip is invisible on touch, and this is the branch that actually hides
-            // animals from the reader, so the reason is also rendered as text.
-            <span className="muted small lt-truncnote">{copy(pageContract, "section.combo.truncated_reason")}</span>
-          ) : null}
-        </div>
-      </div>
-    </section>
+      {/* The all-combo-animals control implies a longer list behind the card. No paginated
+          combo-animal endpoint or route exists on this surface, so BOTH branches are disabled with a
+          visible reason — never pointed at rows[0]'s passport drawer. */}
+      <Box sx={{ p: 2, display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", borderTop: 1, borderColor: "divider", borderTopStyle: "dashed" }}>
+        <Button
+          size="small"
+          color="inherit"
+          disabled
+          title={combo.rows_truncated ? copy(pageContract, "section.combo.truncated_reason") : copy(pageContract, "section.combo.all_listed")}
+        >
+          {copy(pageContract, "action.all_combo_animals")}
+        </Button>
+        {combo.rows_truncated ? (
+          <Typography variant="caption" className="lt-truncnote" sx={{ color: "text.secondary" }}>
+            {copy(pageContract, "section.combo.truncated_reason")}
+          </Typography>
+        ) : null}
+      </Box>
+    </Card>
   );
 }

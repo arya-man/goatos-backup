@@ -2294,16 +2294,11 @@ select:disabled { opacity: .45 }
 /* The mock's tick is hidden by default and flashes only when a tile value actually bumps
    (mock: `.kpi .tick{opacity:0}` / `.kpi .tick.on{opacity:1}`). A permanently visible tick
    asserts liveness that is not being observed — including on a PAUSED board. */
-.lt-page .lt-tick{display:inline-block;margin-left:5px;font-size:10px;font-weight:700;color:var(--ok);opacity:0;transition:opacity .3s}
-.lt-page .lt-tick.on{opacity:1}
-@media (prefers-reduced-motion: reduce){.lt-page .lt-tick{transition:none}}
 
 .lt-page .lt-grid{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:14px;align-items:start}
 .lt-page .lt-grid.lt-grid-solo{grid-template-columns:minmax(0,1fr)}
 @media(max-width:1080px){.lt-page .lt-grid{grid-template-columns:1fr}}
-.lt-page .lt-stack{display:flex;flex-direction:column;gap:14px;min-width:0}
-.lt-page .card.lt-card{margin-top:0;overflow:hidden}
-.lt-page .card.lt-card .bd{padding:13px 15px}
+
 .lt-page .lt-tablewrap{padding:0}
 /* A SIDEWAYS SCROLL THAT SAYS SO (Gate-1 #1). At 1440 the list now has the whole card and its six
    columns fit, but below ~1180px (and at phone width) the table is still wider than its box, and
@@ -2332,8 +2327,7 @@ select:disabled { opacity: .45 }
 .lt-page .lt-tasklink::after{content:"";position:absolute;inset:0;z-index:1}
 .lt-page .lt-tasklink:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:6px}
 .lt-page .lt-tasklink:hover b{text-decoration:underline}
-.lt-page .lt-empty{display:flex;align-items:center;gap:12px;padding:18px 16px;flex-wrap:wrap}
-.lt-page .lt-emptynote{margin-bottom:14px}
+
 /* The generic `.metricseg` carries `margin-left:auto`; on this bar the SCOPE tabs are the
    page's primary navigation and sit at the left, the Board / List pair at the right. */
 /* ---- ONE STICKY GROUP (/tasks): the scope tabs and the filter bar pin together. `.lt-fbar`
@@ -2353,16 +2347,8 @@ select:disabled { opacity: .45 }
 
 /* Page head: the mock's own top bar collapses into the page head, since brand,
    park/date scope and theme are the app shell's job. */
-.lt-page .lt-headbtns{display:flex;gap:8px;flex-wrap:wrap}
-.lt-page .lt-livebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
-.lt-page .lt-livebadge{display:inline-flex;align-items:center;gap:7px;min-height:40px;background:var(--dangerx);border:1px solid color-mix(in srgb,var(--danger) 45%,var(--line));color:var(--ink);border-radius:999px;padding:5px 13px;font:inherit;font-weight:800;font-size:12px;letter-spacing:.6px;cursor:pointer}
-.lt-page .lt-livedot{width:8px;height:8px;border-radius:50%;background:var(--danger);animation:lt-lp 1.4s ease-in-out infinite}
-.lt-page .lt-livebadge.paused{background:var(--panel-2);border-color:var(--line);color:var(--muted)}
-.lt-page .lt-livebadge.paused .lt-livedot{background:var(--faint);animation:none}
+
 @keyframes lt-lp{0%,100%{opacity:1;box-shadow:0 0 0 0 color-mix(in srgb,var(--danger) 55%,transparent)}50%{opacity:.55;box-shadow:0 0 0 5px transparent}}
-.lt-page .lt-refreshmeta{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;white-space:nowrap}
-.lt-page .lt-refreshmeta b{color:var(--ink);font-variant-numeric:tabular-nums}
-.lt-page .lt-stale{display:inline-flex;align-items:center;gap:8px;background:var(--warnx);border:1px solid color-mix(in srgb,var(--warn) 40%,var(--line));color:var(--warn);border-radius:9px;padding:8px 13px;font-size:12px;font-weight:650}
 
 /* Persistent filter bar */
 .lt-page .lt-fbar{position:sticky;top:0;z-index:12;display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;margin:0 0 14px;background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow)}
@@ -2423,17 +2409,10 @@ select:disabled { opacity: .45 }
    ("Assignee · All", "Sort · Newest first", "Deadline · any"). This is the herd-signals
    `.fbar` / `.fsel` anatomy (`.fsel select{padding:0;line-height:normal}` is what keeps the
    native select from stretching its box to 47px). Tokens only, no new palette. */
-.lt-page .lt-fsheet-host .lt-fsearch,
-.lt-page .lt-fsheet-host .lt-chips.lt-seg,
-.lt-page .lt-fsheet-host .lt-fsel,
-.lt-page .lt-fsheet-host .lt-fdrop>button,
-.wb .lt-fdrop>button,
-.lt-page .lt-fsheet-host .btn.lt-fmore{box-sizing:border-box;height:var(--lt-ctl);min-height:var(--lt-ctl);border-radius:8px;border:1px solid var(--line);background:var(--bg);padding-top:0;padding-bottom:0;font-size:12.5px}
+.wb .lt-fdrop>button{box-sizing:border-box;height:var(--lt-ctl);min-height:var(--lt-ctl);border-radius:8px;border:1px solid var(--line);background:var(--bg);padding-top:0;padding-bottom:0;font-size:12.5px}
 /* The person-picker slots: containers the bar owns so a different picker can drop in. */
-.lt-page .lt-fsheet-host .lt-fsel select,
-.lt-page .lt-fsheet-host .lt-fsel input[type=date],
-.lt-page .lt-fsheet-host .lt-fsearch input{min-height:0;height:auto;padding:0;line-height:normal}
-.lt-page .lt-fsheet-host .lt-fdrop>button,.wb .lt-fdrop{--lt-ctl:36px}
+
+.wb .lt-fdrop{--lt-ctl:36px}
 .wb .lt-fdrop>button{padding:0 9px;display:inline-flex;align-items:center;gap:6px;font:inherit;font-weight:600;color:var(--ink);cursor:pointer}
 /* `display:contents`, not a nested flex box. As a box it was a second wrapping container INSIDE the
    bar, which is what stacked the controls into five rows (search alone with dead space above it,
@@ -2457,9 +2436,7 @@ select:disabled { opacity: .45 }
    menu rows use; its toolbar stack is 30px, its cards 22px) so two stacks of nine people fit
    beside a five-chip segment at 1440px; every other rule is the board's own, scoped by the `wb` class on the slot. */
 @media (min-width:761px){
-  @supports
-  ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) {
-}
+  
   /* Widths at 1440 with the 28px stacks (Gate-1 #6): search 120 + segment 414 + two stacks of
      116 + sort 181 + dates 133 + five 8px gaps = 1120 in a 1132px bar. The search floor and the
      segment's padding each gave up a little so the bar stays ONE row with no filter applied. */
@@ -2525,12 +2502,8 @@ select:disabled { opacity: .45 }
      opens a sheet, and pinning both would hold ~190px of a 390px screen). The wrapper becomes
      `display:contents` so the scope bar is a child of the page and can stick the whole way
      down, not just within the wrapper's own ~200px box. */
-  .lt-page .lt-scopebar .metricseg a,
-  .lt-page .lt-scopebar .subtabs a,
-  .lt-page .lt-scopebar .subtabs button{min-height:40px;padding:0 12px;font-size:13px;white-space:nowrap}
-  @supports
-  ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) {
-}
+  
+  
   /* `vh` first as the fallback for engines without `dvh`, then `dvh`: the WhatsApp in-app browser
      retracts its chrome, so a `vh` box is measured against a viewport that is not the one the
      reader has and the bottom of the sheet becomes unreachable. */
@@ -2540,13 +2513,9 @@ select:disabled { opacity: .45 }
      elements, which the app's generic phone touch block (`.main button,.btn,.btn.sm`) never
      matched — they were ~23px boxes. Scoped to `.lt-fsheet-host`, so `.achip` on every other
      page keeps its own size, and only inside this query, so the desktop bar is unchanged. */
-  .lt-page .lt-fsheet-host .lt-chips .achip,
-  .lt-page .lt-fsheet-host .achip.lt-fclear{min-height:40px;padding:4px 12px;font-size:12.5px}
-  .lt-page .lt-fsheet-host .btn,
-  .lt-page .lt-fsheet-host .btn.sm,
-  .lt-page .lt-fsheet-host button{min-height:44px}
-  .lt-page .lt-fsheet-host .lt-fsearch,
-  .lt-page .lt-fsheet-host .lt-fsel{min-height:var(--lt-ctl)}
+  
+  
+  
   /* ---- The new anatomy inside the SHEET. A popover cannot hang off a fixed sheet without being
      clipped by it, so each date disclosure opens IN PLACE here; the segment and the active chips
      go full width. Tap targets stay >=40px, which is this page's floor. */
@@ -2556,8 +2525,7 @@ select:disabled { opacity: .45 }
      dividers drawn by position: a left border on the right-hand cell, a top border on every row
      after the first. `gap:0` here beats the `.lt-fgroup.open .lt-chips{gap:7px}` rule above,
      which is for the ACTIVE-filter pills and not for a bordered segment. */
-  .lt-page .lt-fsheet-host .lt-chips.lt-seg,
-  .lt-page .lt-fsheet-host .lt-fgroup.open .lt-chips.lt-seg{display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;gap:0;width:100%}
+  
   /* In the sheet the key sits at the left edge and the value at the right, so the glue dot
      between them would float alone in the middle of the row. */
   /* The Work Board's picker inside the SHEET: full-width stack row, the list opening IN PLACE
@@ -2572,9 +2540,7 @@ select:disabled { opacity: .45 }
      so this page's floor does not depend on a rule it does not own.
      A second `.lt-page` breakpoint at 560/600px is forbidden by tasks-phone-viewport.test.mjs, and
      rightly: 760px is this page's one phone boundary. */
-  .lt-page .lt-scopebar .metricseg a,
-  .lt-page .lt-scopebar .subtabs a,
-  .lt-page .lt-scopebar .subtabs button{min-height:40px;display:inline-flex;align-items:center}
+  
   .lt-page .pager2 a,.lt-page .pager2 button,
   .lt-page .pager2 .btn,.lt-page .pager2 .btn.sm,
   .lt-page .pager a,.lt-page .pager button,
@@ -2604,48 +2570,15 @@ select:disabled { opacity: .45 }
 .lt-page tbody td:not(.MuiTableCell-root){padding:9px 12px;border-bottom:1px solid var(--line2);font-size:12.5px;vertical-align:middle}
 .lt-page tbody td .tag{vertical-align:middle}
 .lt-page th.num,.lt-page td.num{font-variant-numeric:tabular-nums;text-align:right}
-.lt-page table.lt-operator-table th,.lt-page table.lt-operator-table td,.lt-page table.lt-operator-table td .celllink,
-.lt-page table.lt-shed-table th,.lt-page table.lt-shed-table td,.lt-page table.lt-shed-table td .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}
-.lt-page table.lt-operator-table{min-width:960px}
-.lt-page table.lt-shed-table{min-width:940px}
-.lt-page table.lt-shed-table td:first-child{min-width:180px}
-.lt-page table.lt-operator-table td:first-child{min-width:190px}
-.lt-page tbody tr.lt-shed-row:hover{background:var(--bg)}
-
-.lt-page .lt-pbar{height:6px;background:var(--line2);border-radius:4px;overflow:hidden;min-width:90px;flex:1}
-.lt-page .lt-pbar i{display:block;height:100%;background:var(--brand);border-radius:4px;transition:width .6s ease}
-.lt-page .lt-pbar i.warn{background:var(--warn)}
-.lt-page .lt-pbar i.dng{background:var(--danger)}
-.lt-page .lt-pcell{display:flex;align-items:center;gap:9px}
-.lt-page .lt-pcell .pct{font-size:11px;font-weight:700;color:var(--muted);min-width:56px;text-align:right;font-variant-numeric:tabular-nums}
 
 .lt-page .lt-opname{display:grid;grid-template-columns:26px minmax(0,1fr);align-items:center;gap:9px;font-weight:650;line-height:1.2}
 .lt-page .lt-avx{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:10.5px;flex:none;background:var(--brand-soft);color:var(--brand-d);border:1px solid var(--line)}
 .lt-page .lt-code{display:block;margin-top:4px;margin-left:0;font-size:10.5px;line-height:1.1}
-.lt-page .lt-shedlbl{font-weight:650}
-.lt-page .lt-shedlbl small{display:block;color:color-mix(in srgb,var(--muted) 64%,var(--ink));font-weight:700;font-size:10.5px}
-.lt-page .lt-legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--muted);align-items:center}
-.lt-page .lt-legend span{display:inline-flex;align-items:center;gap:5px}
-.lt-page .lt-swatch{width:9px;height:9px;border-radius:3px;font-style:normal;display:inline-block;padding:0}
-.lt-page .lt-swatch.t-ok{background:var(--ok)}
-.lt-page .lt-swatch.t-live{background:var(--brand)}
-.lt-page .lt-swatch.t-warn{background:var(--warn)}
-.lt-page .lt-swatch.t-dng{background:var(--danger)}
-.lt-page .lt-swatch.t-mut{background:var(--line)}
 
 /* `t-live` is this page's own tone: a pulsing dot inside the pill, which is how
    the mock distinguishes "happening right now" from a static ok/warn state. */
 .lt-page .tag.t-live{display:inline-flex;align-items:center;gap:5px;background:var(--dangerx);color:color-mix(in srgb,var(--danger) 55%,var(--ink));border-radius:6px;padding:2px 8px;font-size:11px;font-weight:800;white-space:nowrap}
 .lt-page .tag.t-live i{width:6px;height:6px;border-radius:50%;background:var(--danger);animation:lt-lp 1.4s ease-in-out infinite;font-style:normal;display:inline-block}
-
-.lt-page .lt-combo-chip{display:inline-flex;align-items:center;gap:4px;background:var(--purplex);color:var(--purple);border-radius:6px;padding:1px 7px;font-size:10.5px;font-weight:800}
-.lt-page .lt-comborow{display:grid;grid-template-columns:auto 1fr auto minmax(0,1.4fr);gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line2);font-size:12.5px}
-.lt-page .lt-comborow:last-child{border-bottom:0}
-.lt-page .lt-comborow-head{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
-.lt-page .lt-dosecell{display:flex;column-gap:7px;row-gap:5px;flex-wrap:wrap;justify-content:flex-end;align-content:flex-start}
-.lt-page .lt-dosecell .tag{line-height:1.18;padding:3px 8px}
-.lt-page .lt-goatid{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;font-weight:700;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:2px 7px;color:var(--ink);text-decoration:none;display:inline-flex;align-items:center;min-height:40px}
-.lt-page .lt-goatid:hover{border-color:var(--brand);color:var(--brand-d)}
 
 /* The popup box itself, moved out of an inline style. React emits ONE `max-height` declaration, so
    inline `40dvh` left an engine without `dvh` support with NO cap at all and the list grew
@@ -2663,23 +2596,6 @@ select:disabled { opacity: .45 }
 .lt-page .lt-comment-form{display:grid;gap:10px;margin:0 0 14px}
 
 /* Live activity feed */
-.lt-page .lt-feedsummary{display:flex;gap:7px;flex-wrap:wrap;padding:10px 15px;border-top:1px solid var(--line);border-bottom:1px solid var(--line2);background:rgba(255,255,255,.02)}
-.lt-page .lt-feedsummary span{font-size:11px;color:var(--muted);border:1px solid var(--line);background:var(--bg);border-radius:999px;padding:4px 8px;white-space:nowrap}
-.lt-page .lt-feedsummary b{color:var(--ink);font-weight:800}
-.lt-page .lt-feed{max-height:560px;overflow:auto;padding:4px 0}
-.lt-page .lt-frow{display:flex;align-items:flex-start;gap:10px;padding:9px 15px;border-bottom:1px solid var(--line2)}
-.lt-page .lt-frow:last-child{border-bottom:0}
-.lt-page .lt-fdot{width:9px;height:9px;border-radius:50%;margin-top:4px;flex:none;background:var(--brand)}
-.lt-page .lt-fdot.f-ok{background:var(--brand)}
-.lt-page .lt-fdot.f-warn{background:var(--amber,var(--warn))}
-.lt-page .lt-fdot.f-info{background:var(--info)}
-.lt-page .lt-fdot.f-pur{background:var(--purple)}
-.lt-page .lt-fdot.f-dng{background:var(--danger)}
-.lt-page .lt-fdot.f-mut{background:var(--faint)}
-.lt-page .lt-ftx{flex:1;min-width:0;font-size:12.5px}
-.lt-page .lt-ftx b{font-weight:680}
-.lt-page .lt-fmeta{color:var(--muted);font-size:11px;margin-top:1px;overflow-wrap:anywhere}
-.lt-page .lt-ftime{color:var(--muted);font-size:11px;white-space:nowrap;flex:none;font-variant-numeric:tabular-nums}
 
 /* A disabled stand-in must LOOK disabled. `cursor:not-allowed` alone left the three unbacked
    attention chips at full enabled appearance, with the reason reachable only by hover — invisible
@@ -2687,10 +2603,10 @@ select:disabled { opacity: .45 }
 .lt-page [aria-disabled="true"]{cursor:not-allowed}
 .lt-page .chip[aria-disabled="true"],.lt-page span.btn[aria-disabled="true"]{opacity:.45}
 /* Truncation and other "why is this incomplete" notes: they exist to be read, not hovered. */
-.lt-page .lt-truncnote{display:block;margin-top:8px;font-size:11.5px;line-height:1.5;color:var(--muted)}
+
 @media (prefers-reduced-motion: reduce){
-  .lt-page .lt-livedot,.lt-page .tag.t-live i{animation:none}
-  .lt-page .lt-pbar i{transition:none}
+  .lt-page .tag.t-live i{animation:none}
+  
 }
 
 /* ---- Sales board readable charts (hbar-list.tsx + month-columns.tsx) ----
@@ -2962,21 +2878,21 @@ select:disabled { opacity: .45 }
 @media(max-width:760px){.herd-signals-page .grid2{grid-template-columns:1fr}}
 
 @media(max-width:640px){
-  .lt-page .lt-headbtns,.lt-page .lt-livebar{justify-content:flex-start}
-  .lt-page .lt-refreshmeta{white-space:normal}
+  
+  
   .lt-page .lt-fbar{position:static;display:grid;grid-template-columns:1fr;gap:8px;padding:10px}
   .lt-page .lt-fsel{width:100%;justify-content:space-between}
   .lt-page .lt-fsel select{width:100%;max-width:100%;min-width:0;text-overflow:ellipsis}
   .lt-page .lt-fnote{margin-left:0;white-space:normal}
-  .lt-live-page .lt-headbtns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;width:100%}
-  .lt-live-page .lt-headbtns .btn{min-width:0;min-height:42px;padding:0 10px;border-radius:10px;font-size:12.5px;justify-content:center;white-space:normal;text-align:center;line-height:1.15}
-  .lt-live-page .lt-livebar{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;width:100%;align-items:center}
-  .lt-live-page .lt-livebadge{min-height:36px;padding:4px 10px;font-size:11px;letter-spacing:.45px}
-  .lt-live-page .lt-refreshmeta{min-width:0;font-size:11.5px;line-height:1.35}
-  .lt-live-page .lt-fbar{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:8px;border-radius:12px;box-shadow:none;background:color-mix(in srgb,var(--panel) 96%,transparent)}
-  .lt-live-page .lt-fsel{min-height:44px;padding:4px 8px;border-radius:10px}
-  .lt-live-page .lt-fsel .ic{width:13px!important;height:13px!important}
-  .lt-live-page .lt-chips,.lt-live-page .lt-fnote{grid-column:1 / -1}
+  
+  
+  
+  
+  
+  
+  
+  
+  
   /* The shared bar turns position:static here, which drops it UNDER the positioned table card;
      the Pen dropdown hangs below the bar, so without this the card paints over it and eats taps. */
   .lt-page .lt-fbar.cc-fbar{position:relative;z-index:20}
@@ -3417,10 +3333,6 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 .alerts-page .tbl td:nth-child(2){min-width:220px}
 .alerts-page .tbl td:nth-child(5){min-width:260px}
 
-@media(max-width:760px){
-  .lt-page .lt-scopebar{flex-wrap:wrap}
-}
-
 /* ============================================================================================
    TASK DETAIL PANEL (.ltd-*) — the leadership Tasks desk's issue view, shaped like a modern Jira
    issue view (maintainer decision 2026-09-18; the old "Selected task" rail was an empty card).
@@ -3479,8 +3391,6 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 /* Two columns as soon as the panel itself is wide enough. A CONTAINER query, not a viewport one:
    the panel is a grid child whose width does not follow the viewport, so a media query would put
    two columns into a 360px rail. */
-@container (min-width:540px){
-}
 
 /* --------------------------------------------------------------------- Description / Activity */
 .ltd-quiet{margin:0;font-size:12.5px;line-height:1.55;color:var(--muted);overflow-wrap:anywhere}

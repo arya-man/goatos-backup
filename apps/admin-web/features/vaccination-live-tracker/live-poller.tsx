@@ -1,5 +1,8 @@
 "use client";
 
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Typography from "@mui/material/Typography";
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import { TAP_MIN } from "@/components/minimal/_shared/tap";
@@ -154,21 +157,40 @@ export function LivePoller({
   }
 
   return (
-    <div className="lt-livebar">
-      <button
-        type="button"
-        className={`lt-livebadge${live ? "" : " paused"}`}
+    <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 1.5 }}>
+      {/* Template soft Button: LIVE (error tint, pulsing dot) / PAUSED (neutral). */}
+      <Button
+        size="small"
+        variant="soft"
+        color={live ? "error" : "inherit"}
         onClick={toggleLive}
         title={copy(pageContract, "live.toggle_title")}
         aria-pressed={live}
+        startIcon={
+          <Box
+            component="span"
+            aria-hidden="true"
+            sx={{
+              width: "var(--sp-1)",
+              height: "var(--sp-1)",
+              borderRadius: "50%",
+              bgcolor: "currentColor",
+              animation: live ? "lt-pulse 1.6s ease-in-out infinite" : "none",
+              "@keyframes lt-pulse": { "0%, 100%": { opacity: 1 }, "50%": { opacity: 0.35 } },
+            }}
+          />
+        }
+        sx={{ minHeight: TAP_MIN, fontWeight: "fontWeightBold", letterSpacing: 0.5 }}
       >
-        <span className="lt-livedot" aria-hidden="true" />
         {live ? copy(pageContract, "live.badge_live") : copy(pageContract, "live.badge_paused")}
-      </button>
-      <div className="lt-refreshmeta">
-        {copy(pageContract, "live.updated_prefix")} <b>{fmtClockSeconds(generatedAt)}</b>{" "}
+      </Button>
+      <Typography variant="caption" sx={{ color: "text.secondary" }}>
+        {copy(pageContract, "live.updated_prefix")}{" "}
+        <Box component="b" sx={{ color: "text.primary" }}>
+          {fmtClockSeconds(generatedAt)}
+        </Box>{" "}
         {copy(pageContract, "live.updated_suffix")}
-      </div>
+      </Typography>
       {/* Template ToggleButtonGroup (exclusive): one tap sets the interval; full width on a phone. */}
       <ToggleButtonGroup
         exclusive
@@ -190,11 +212,10 @@ export function LivePoller({
           refresh, so generatedAt cannot move underneath it — deriving this instead of holding it in
           state is what lets PAUSED survive the Suspense remount that every filter change triggers. */}
       {!live ? (
-        <span className="lt-stale" role="status">
-          {copy(pageContract, "live.stale_prefix")} <b>{fmtClock(generatedAt)}</b>{" "}
-          {copy(pageContract, "live.stale_suffix")}
-        </span>
+        <Typography variant="caption" role="status" sx={{ color: "warning.main" }}>
+          {copy(pageContract, "live.stale_prefix")} <b>{fmtClock(generatedAt)}</b> {copy(pageContract, "live.stale_suffix")}
+        </Typography>
       ) : null}
-    </div>
+    </Box>
   );
 }

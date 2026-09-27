@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Typography from "@mui/material/Typography";
 
 // The mock's "▲ live" tick is `opacity:0` by default and flashes `.on` only when a tile's value
 // actually bumps (mock lines 81-82, 418-419, 432). Rendering it permanently — which is what shipped
@@ -26,8 +27,14 @@ export function LiveTick({ value, label }: { value: number; label: string }) {
   }, [value]);
 
   return (
-    <span className={`lt-tick${flashing ? " on" : ""}`} aria-hidden={!flashing}>
+    // Template caption under the KPI widget; fades in for FLASH_MS when the figure moves.
+    <Typography
+      variant="caption"
+      component="div"
+      aria-hidden={!flashing}
+      sx={{ mt: 0.5, px: 1, color: "success.main", opacity: flashing ? 1 : 0, transition: "opacity 300ms ease", fontWeight: "fontWeightSemiBold" }}
+    >
       {label}
-    </span>
+    </Typography>
   );
 }

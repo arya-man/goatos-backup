@@ -182,7 +182,7 @@
   :root .main summary,:root .main .chip,:root .main .pgbtn,:root .main .parkpick a,:root .main .datenav a,:root .main a.more,:root .main .wt-feedband-gone,:root .main .vaccination-schedule-legend a{display:inline-flex;align-items:center;justify-content:center;min-width:44px;box-sizing:border-box}
   :root .main .move-date-popover,:root .main .top-date-popover{width:min(100vw - 16px,360px);max-width:calc(100vw - 16px);left:0;right:auto;padding:12px}
   :root .main .top-date-grid{gap:1px}
-  :root .main .lt-livebar .livebadge{min-height:44px;min-width:44px}
+  
   :root .main .fbar a.btn{min-height:44px}
   :root .main .cfgchk label,:root .main label.chkline{min-height:44px;display:inline-flex;align-items:center;gap:8px}
   :root .main .qcard .ia{min-width:44px}
@@ -366,10 +366,6 @@ details.top-date-picker:not([open])>.top-date-popover,details.move-date-picker:n
 /* Tasks toolbar, laptop: 14px text on main's one-row, --lt-ctl (40px) controls (invariants
    860bd8d95 / 673ba2509: one row at 1440 with Dates in it; no 36px override, no wrap, main's
    130-300px search). Values are 600, never the 15px bold Sort value. */
-@media(min-width:641px){
-  .lt-page .lt-fsheet-host .lt-fsearch,.lt-page .lt-fsheet-host .lt-fsearch input,
-  .lt-page .lt-fsheet-host .lt-fsel,.lt-page .lt-fsheet-host .lt-fdrop>button{font-size:14px}
-}
 
 /* Audit Log toolbar: search and "Anomalies only" share one row, the status tabs take the row
    under them (they were three stacked rows with a lone button floating right). */

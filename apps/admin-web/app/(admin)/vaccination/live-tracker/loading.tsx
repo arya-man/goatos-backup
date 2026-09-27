@@ -3,7 +3,7 @@ import { FilterCardSkeleton, GridSkeleton, KpiRowSkeleton, ListCardSkeleton, Opt
 /** /vaccination/live-tracker (route loading AND the page's Suspense fallback): header + poller / schedule buttons, the filter card, the six-tile deck, operators / pens beside the activity rail. */
 export default function Loading() {
   return (
-    <PageSkeleton root="lt-page lt-live-page">
+    <PageSkeleton root="lt-page">
       <PageHeaderSkeleton actionWidths={[96, 120, 140, 150]} />
       <FilterCardSkeleton fields={[180, 180, 180, 180, 180]} />
       <OptionalSkeleton>

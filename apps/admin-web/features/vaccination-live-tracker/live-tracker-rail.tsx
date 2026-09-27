@@ -1,5 +1,11 @@
-import { Tag } from "@/components/ui-primitives";
-import { Activity, Video } from "lucide-react";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import Chip from "@mui/material/Chip";
+import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
+import { Label } from "@/components/minimal/label";
 import Link from "@/components/no-prefetch-link";
 import { copy, optionalOption, optionLabel, optionTone, optionTitle, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type {
@@ -8,7 +14,8 @@ import type {
   LiveTrackerAttentionRow,
   LiveTrackerVerification,
 } from "@/lib/api/vaccination-live-tracker";
-import { fmtClock } from "./format";
+import { fmtClock, paletteOf } from "./format";
+import { LiveDot, LiveEmpty } from "./live-ui";
 
 type ActivityAnimalRow = {
   key: string;
@@ -103,62 +110,79 @@ function ActivityCard({
   const animalRows = activityAnimalRows(activity.items);
   const scanRate = uniqueScanRate(activity.items);
   return (
-    <section id="lt-activity" className="card lt-card">
-      <div className="hd">
-        <Activity className="ic" style={{ color: "var(--danger)" }} aria-hidden="true" />
-        <h3>{copy(pageContract, "section.activity.title")}</h3>
-        <span className="tag t-live">
-          <i />
-          {scanRate == null
-            ? copy(pageContract, "live.feed_rate_unavailable")
-            : `${scanRate} ${copy(pageContract, "live.scan_rate_suffix")}`}
-        </span>
-        <div className="sp" style={{ flex: 1 }} />
-      </div>
+    <Card id="lt-activity">
+      <CardHeader
+        title={copy(pageContract, "section.activity.title")}
+        action={
+          <Label variant="soft" color="error" startIcon={<LiveDot color="error" size={6} />}>
+            {scanRate == null ? copy(pageContract, "live.feed_rate_unavailable") : `${scanRate} ${copy(pageContract, "live.scan_rate_suffix")}`}
+          </Label>
+        }
+        slotProps={{ action: { sx: { alignSelf: "center" } } }}
+      />
       {activity.items.length > 0 ? (
-        <div className="lt-feedsummary">
-          <span><b>{scanCaptureTotal}</b> {copy(pageContract, "live.scanned_label")}</span>
-          <span><b>{proofVideoTotal}</b> {copy(pageContract, "live.proofed_label")}</span>
-          <span><b>{activity.items.length}</b> {copy(pageContract, "live.events_label")}</span>
-          {activity.observed_per_min == null ? null : <span>{activity.observed_per_min}{copy(pageContract, "live.feed_rate_suffix")} {copy(pageContract, "live.events_label")}</span>}
-        </div>
+        // Template summary strip (booking / invoice analytic): figure over caption, dashed dividers.
+        <Box sx={{ mx: 3, mt: 2, display: "grid", gridTemplateColumns: "repeat(3, 1fr)", borderRadius: "var(--r-lg)", border: 1, borderColor: "divider", borderStyle: "dashed" }}>
+          {[
+            [scanCaptureTotal, copy(pageContract, "live.scanned_label")],
+            [proofVideoTotal, copy(pageContract, "live.proofed_label")],
+            [activity.items.length, copy(pageContract, "live.events_label")],
+          ].map(([value, label], index) => (
+            <Box key={String(label)} sx={{ py: 1.5, textAlign: "center", borderLeft: index ? 1 : 0, borderColor: "divider", borderLeftStyle: "dashed" }}>
+              <Typography variant="subtitle1">{value}</Typography>
+              <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                {label}
+              </Typography>
+            </Box>
+          ))}
+        </Box>
       ) : null}
-      <div
-        className="lt-feed"
-        aria-live="polite"
-        aria-label={copy(pageContract, "live.feed_aria")}
-        tabIndex={0}
-        role="log"
-      >
+      {activity.items.length > 0 && activity.observed_per_min != null ? (
+        <Typography variant="caption" component="div" sx={{ px: 3, pt: 1, color: "text.secondary" }}>
+          {activity.observed_per_min}
+          {copy(pageContract, "live.feed_rate_suffix")} {copy(pageContract, "live.events_label")}
+        </Typography>
+      ) : null}
+      <Box aria-live="polite" aria-label={copy(pageContract, "live.feed_aria")} tabIndex={0} role="log" sx={{ maxHeight: 420, overflowY: "auto", overscrollBehavior: "contain" }}>
         {activity.items.length === 0 ? (
-          <div className="lt-empty" style={{ padding: "14px 15px" }}>
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <b style={{ fontSize: 13.5 }} title={copy(pageContract, "section.activity.empty_body")}>{copy(pageContract, "section.activity.empty_title")}</b>
-            </div>
-          </div>
+          <Box sx={{ pt: 2 }}>
+            <LiveEmpty title={copy(pageContract, "section.activity.empty_title")} body={copy(pageContract, "section.activity.empty_body")} />
+          </Box>
         ) : (
-          animalRows.map((row) => {
-            const label = animalActivityLabel(row, pageContract) || placeholder;
-            // The detail is a scan outcome CODE ("unknown_tag"); it reaches the screen only through
-            // the contract's farm label, and a code the contract does not name is left off.
-            const detail = row.detailCode ? optionalOption(pageContract, "live_activity_detail", row.detailCode)?.label ?? "" : "";
-            const meta = [row.shedLabel, row.vaccineLabel, row.scannedIdentifier, detail]
-              .filter(Boolean)
-              .join(" · ");
-            return (
-              <div key={row.key} className="lt-frow">
-                <span className={`lt-fdot f-${row.kinds.has("scan_capture") ? "info" : optionTone(pageContract, "live_activity_kind", [...row.kinds][0]) || "mut"}`} aria-hidden="true" />
-                <div className="lt-ftx">
-                  <b>{row.actorName || placeholder}</b> · {label}
-                  <div className="lt-fmeta">{meta || placeholder}</div>
-                </div>
-                <span className="lt-ftime">{fmtClock(row.newestAt)}</span>
-              </div>
-            );
-          })
+          // Template list rows (AppTopAuthors / ecommerce latest products): dot, primary + caption, time.
+          <Stack spacing={2} sx={{ p: 3 }}>
+            {animalRows.map((row) => {
+              const label = animalActivityLabel(row, pageContract) || placeholder;
+              const detail = row.detailCode ? optionalOption(pageContract, "live_activity_detail", row.detailCode)?.label ?? "" : "";
+              const meta = [row.shedLabel, row.vaccineLabel, row.scannedIdentifier, detail].filter(Boolean).join(" · ");
+              const tone = row.kinds.has("scan_capture") ? "info" : optionTone(pageContract, "live_activity_kind", [...row.kinds][0]) || "mut";
+              return (
+                <Box key={row.key} sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, minWidth: 0 }}>
+                  <Box sx={{ pt: 0.75 }}>
+                    <LiveDot color={paletteOf(tone)} />
+                  </Box>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography variant="subtitle2" noWrap>
+                      {row.actorName || placeholder}
+                      <Box component="span" sx={{ color: "text.secondary", fontWeight: "fontWeightRegular" }}>
+                        {" · "}
+                        {label}
+                      </Box>
+                    </Typography>
+                    <Typography variant="caption" component="div" sx={{ color: "text.disabled", overflowWrap: "anywhere" }}>
+                      {meta || placeholder}
+                    </Typography>
+                  </Box>
+                  <Typography variant="caption" sx={{ color: "text.disabled", whiteSpace: "nowrap" }}>
+                    {fmtClock(row.newestAt)}
+                  </Typography>
+                </Box>
+              );
+            })}
+          </Stack>
         )}
-      </div>
-    </section>
+      </Box>
+    </Card>
   );
 }
 
@@ -180,71 +204,64 @@ function AttentionCard({
   pageContract: AdminUiPageContract;
 }) {
   return (
-    <section id="lt-attention" className="card lt-card">
-      <div className="hd">
-        <Activity className="ic" style={{ color: "var(--warn)" }} aria-hidden="true" />
-        <h3>{copy(pageContract, "section.attention.title")}</h3>
-        <div className="sp" style={{ flex: 1 }} />
-        <Tag tone="warn">{total}</Tag>
-      </div>
-      <div className="bd" style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+    <Card id="lt-attention">
+      <CardHeader
+        title={copy(pageContract, "section.attention.title")}
+        action={
+          <Label variant="soft" color="warning">
+            {total}
+          </Label>
+        }
+        slotProps={{ action: { sx: { alignSelf: "center" } } }}
+      />
+      <Stack spacing={2} sx={{ p: 3 }}>
         {truncated ? (
-          <div className="note lt-truncnote" role="status">
+          <Typography variant="caption" className="lt-truncnote" role="status" sx={{ color: "text.secondary" }}>
             <b>
               {attention.length}/{total}
             </b>{" "}
             {copy(pageContract, "section.attention.truncated_note")}
-          </div>
+          </Typography>
         ) : null}
         {attention.length === 0 ? (
-          <p className="muted small" style={{ margin: 0 }}>
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>
             {copy(pageContract, "section.attention.empty")}
-          </p>
+          </Typography>
         ) : (
           attention.map((row, index) => (
-            <div key={`${row.kind}|${row.shed_id}|${row.operator_id}|${index}`} className="note">
-              <b>{row.subject_label}</b> · {optionLabel(pageContract, "live_attention_kind", row.kind)}
-              <div className="muted small" style={{ marginTop: 3 }}>
+            <Box key={`${row.kind}|${row.shed_id}|${row.operator_id}|${index}`} sx={{ p: 2, borderRadius: "var(--r-lg)", bgcolor: "background.neutral" }}>
+              <Typography variant="subtitle2">
+                {row.subject_label}
+                <Box component="span" sx={{ color: "warning.main" }}>
+                  {" · "}
+                  {optionLabel(pageContract, "live_attention_kind", row.kind)}
+                </Box>
+              </Typography>
+              <Typography variant="caption" component="div" sx={{ mt: 0.5, color: "text.secondary" }}>
                 {row.metric_count}
                 {row.total_count > 0 ? `/${row.total_count}` : null}
-                {/* Never a bare integer. A reader seeing "0/8 · 137 · 15:32" cannot tell whether
-                    137 is minutes, animals or scans — and the backend no longer emits a policy
-                    threshold here, so this figure is always a measured idle gap. */}
-                {row.elapsed_minutes > 0
-                  ? ` · ${row.elapsed_minutes} ${copy(pageContract, "section.attention.elapsed_suffix")}`
-                  : null}
+                {/* Never a bare integer: the elapsed figure always carries its unit. */}
+                {row.elapsed_minutes > 0 ? ` · ${row.elapsed_minutes} ${copy(pageContract, "section.attention.elapsed_suffix")}` : null}
                 {row.since_at ? ` · ${fmtClock(row.since_at)}` : null}
                 {" · "}
                 {optionTitle(pageContract, "live_attention_kind", row.kind)}
-              </div>
-              {/* These three chips have no record behind them. Their labels used to be bare factual
-                  assertions about a dispatched nudge, a scheduled escalation and a projected finish
-                  time, with the reason reachable only through a hover title on a non-focusable span:
-                  invisible on touch and to assistive tech. A director was told the intervention had
-                  already happened, which suppresses the very action this card exists to prompt. The
-                  labels now name the missing capability and the reasons render as visible text, the
-                  same treatment the combo card's truncated branch already uses. */}
-              <div className="chipset" style={{ marginTop: 6, padding: 0 }}>
-                <span className="chip" aria-disabled="true">
-                  {copy(pageContract, "section.attention.nudge_label")}
-                </span>
-                <span className="chip" aria-disabled="true">
-                  {copy(pageContract, "section.attention.escalate_label")}
-                </span>
-                <span className="chip" aria-disabled="true">
-                  {copy(pageContract, "section.attention.pace_label")}
-                </span>
-              </div>
-              <div className="muted small lt-truncnote">
-                {copy(pageContract, "section.attention.nudge")}{" "}
-                {copy(pageContract, "section.attention.escalation")}{" "}
+              </Typography>
+              {/* These three have no record behind them: the labels name the missing capability and
+                  the reasons render as visible text below (never a hover title). */}
+              <Box sx={{ mt: 1.5, display: "flex", flexWrap: "wrap", gap: 0.75 }}>
+                <Chip size="small" variant="outlined" disabled aria-disabled="true" label={copy(pageContract, "section.attention.nudge_label")} />
+                <Chip size="small" variant="outlined" disabled aria-disabled="true" label={copy(pageContract, "section.attention.escalate_label")} />
+                <Chip size="small" variant="outlined" disabled aria-disabled="true" label={copy(pageContract, "section.attention.pace_label")} />
+              </Box>
+              <Typography variant="caption" component="div" className="lt-truncnote" sx={{ mt: 1, color: "text.disabled" }}>
+                {copy(pageContract, "section.attention.nudge")} {copy(pageContract, "section.attention.escalation")}{" "}
                 {copy(pageContract, "section.attention.pace")}
-              </div>
-            </div>
+              </Typography>
+            </Box>
           ))
         )}
-      </div>
-    </section>
+      </Stack>
+    </Card>
   );
 }
 
@@ -259,41 +276,43 @@ function VerificationCard({
 }) {
   const shedsSuffix = (count: number) =>
     copy(pageContract, count === 1 ? "section.verification.sheds_suffix_one" : "section.verification.sheds_suffix");
+  const figures: Array<[string, string, string]> = [
+    [copy(pageContract, "section.verification.awaiting"), `${verification.awaiting_review_sheds} ${shedsSuffix(verification.awaiting_review_sheds)}`, "text.primary"],
+    [copy(pageContract, "section.verification.verified"), `${verification.verified_today_sheds} ${shedsSuffix(verification.verified_today_sheds)}`, "success.main"],
+    [copy(pageContract, "section.verification.rework"), String(verification.rework_requested), "warning.main"],
+  ];
+  // Template summary rows (invoice / checkout summary): label left, figure right, action below.
   return (
-    <section id="lt-verification" className="card lt-card">
-      <div className="hd">
-        <Video className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
-        <h3>{copy(pageContract, "section.verification.title")}</h3>
-        <div className="sp" style={{ flex: 1 }} />
-        <span className="small muted">{copy(pageContract, "section.verification.badge")}</span>
-      </div>
-      <div className="bd" style={{ display: "flex", flexDirection: "column", gap: 7, fontSize: 12.5 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-          <span>{copy(pageContract, "section.verification.awaiting")}</span>
-          <b>
-            {verification.awaiting_review_sheds} {shedsSuffix(verification.awaiting_review_sheds)}
-          </b>
-        </div>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-          <span>{copy(pageContract, "section.verification.verified")}</span>
-          <b style={{ color: "var(--ok)" }}>
-            {verification.verified_today_sheds} {shedsSuffix(verification.verified_today_sheds)}
-          </b>
-        </div>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-          <span>{copy(pageContract, "section.verification.rework")}</span>
-          <b style={{ color: "var(--warn)" }}>{verification.rework_requested}</b>
-        </div>
-        <div>
-          {/* The counts above are park-scoped, and /verify reads parseScope. Linking bare "/verify"
-              landed the reader on a company-scoped queue whose totals contradicted the card they
-              just clicked through from. */}
-          <Link href={verifyHref} className="btn sm" style={{ marginTop: 5 }}>
+    <Card id="lt-verification">
+      <CardHeader
+        title={copy(pageContract, "section.verification.title")}
+        action={
+          <Typography variant="caption" sx={{ color: "text.secondary" }}>
+            {copy(pageContract, "section.verification.badge")}
+          </Typography>
+        }
+        slotProps={{ action: { sx: { alignSelf: "center" } } }}
+      />
+      <Stack spacing={1.5} sx={{ p: 3 }}>
+        {figures.map(([label, value, color]) => (
+          <Box key={label} sx={{ display: "flex", justifyContent: "space-between", gap: 2, typography: "body2" }}>
+            <Box component="span" sx={{ color: "text.secondary" }}>
+              {label}
+            </Box>
+            <Box component="span" sx={{ typography: "subtitle2", color, whiteSpace: "nowrap" }}>
+              {value}
+            </Box>
+          </Box>
+        ))}
+        {/* The counts above are park-scoped, and /verify reads parseScope: the hand-off carries the
+            same scope or the two screens disagree about the same queue. */}
+        <Box sx={{ pt: 1 }}>
+          <Button component={Link} href={verifyHref} size="small" variant="outlined" color="inherit">
             {copy(pageContract, "action.open_verify")}
-          </Link>
-        </div>
-      </div>
-    </section>
+          </Button>
+        </Box>
+      </Stack>
+    </Card>
   );
 }
 
@@ -319,7 +338,7 @@ export function LiveTrackerRail({
   pageContract: AdminUiPageContract;
 }) {
   return (
-    <div className="lt-stack">
+    <Stack spacing={3}>
       <ActivityCard
         activity={activity}
         scanCaptureTotal={scanCaptureTotal}
@@ -333,6 +352,6 @@ export function LiveTrackerRail({
         pageContract={pageContract}
       />
       <VerificationCard verification={verification} verifyHref={verifyHref} pageContract={pageContract} />
-    </div>
+    </Stack>
   );
 }

@@ -1,3 +1,5 @@
+import Box from "@mui/material/Box";
+import { Label } from "@/components/minimal/label";
 import { Tag, type Tone } from "@/components/ui-primitives";
 import { optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
@@ -28,11 +30,11 @@ export function LiveStateTag({
 }) {
   const tone = optionTone(pageContract, group, stateKey);
   if (tone === "live") {
+    // Template Label (soft error) with a leading dot: the running state reads as "live".
     return (
-      <span className="tag t-live" title={title}>
-        <i />
+      <Label variant="soft" color="error" title={title} startIcon={<Box component="span" sx={{ width: "var(--sp-half)", height: "var(--sp-half)", borderRadius: "50%", bgcolor: "currentColor" }} />}>
         {children}
-      </span>
+      </Label>
     );
   }
   return (

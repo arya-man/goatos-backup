@@ -258,6 +258,11 @@ Spec: `docs/design/mui-minimal-spec.md`. Tokens: `app/minimal-tokens.css`. Gate:
   from `<Stack divider={<Divider />}>` in the vaccination passport strip). Use
   `components/app/divided-stack` (`<DividedStack dividerOrientation="vertical">`) or a `"use client"`
   leaf that builds the element (PassportFormCheckbox). Children and directly-rendered props are fine.
+- **/vaccination/live-tracker is template anatomy (guard: `live-tracker-template-anatomy`, npm test).**
+  Operators / pens / combo are template table Cards (CardHeader, Scrollbar, PagedRows pager,
+  LinearProgress closure cells), the rail is Card lists, error / empty states are Alerts, header
+  controls are MUI Buttons. No legacy card / hd / bd / note / btn / lt-* classes and no raw
+  `<section>` come back; `lt-truncnote` is only the visible-reason marker.
 - **The shell is gated on every push (guard: r2 visual gate `shell|*`, scripts/r2-audit-checks/shell.mjs).**
   Sidebar root items + subheaders start at nav.left + 16px with padding-left 12px (template
   NavSectionVertical: content on the logo column), the active item is a translucent primary tint,
