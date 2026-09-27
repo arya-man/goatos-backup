@@ -783,7 +783,7 @@ npm run smoke:stories:baseline    # THE GATE: compare against committed baseline
 npm run smoke:stories:update-baseline   # ONLY for an intended visual change
 npm run smoke:visual:all          # stories + route baselines + sales tolerance
 # focused while iterating:
-node scripts/smoke-stories-visual.mjs --no-build --only kit-kpicard
+node scripts/smoke-stories-visual.mjs --no-build --only kit-tables
 ```
 
 It builds `storybook-static`, serves it locally, and drives Playwright over

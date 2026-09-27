@@ -107,7 +107,6 @@ select option{background:var(--paper);color:var(--fg)}
 .kit-iconbadge-sm{width:36px;height:36px;border-radius:10px}.kit-iconbadge-md{width:48px;height:48px}.kit-iconbadge-lg{width:56px;height:56px;border-radius:14px}
 .kit-iconbadge.kit-round{border-radius:50%}
 
-.kit-kpi-wrap{min-width:0}
 /* The grey rule is a background layer, not an inset box-shadow: an inset shadow on an overflow-x
    scroller broke at the GPU raster tile seam (~640px in), which read as a gap in the rule. */
 
@@ -506,18 +505,15 @@ td.kit-rowactions,td.kit-check{position:relative;z-index:3}
 .kit-datetime{min-width:280px}
 /* ---- card gutters: content placed directly in a card gets the 24px gutter (BarList, KPI grids,
    tab strips, chip rows); tables and toolbars own their own edges. ---- */
-.wrap .card>.kit-barlist,.wrap .card>.hbarlist,.wrap .card>.kit-prows,.wrap .card>.grid,.wrap .card>.chips,.wrap .card>.kit-kpi-wrap,.wrap .card>.pmx-radials,.wrap .card>.ap-filter-bar,.wrap .card>.subtabs,.wrap .card>form.ap-filter-bar{margin-left:24px;margin-right:24px;min-width:0;max-width:calc(100% - 48px)}
-.wrap .card>.kit-barlist:last-child,.wrap .card>.hbarlist:last-child,.wrap .card>.grid:last-child,.wrap .card>.kit-kpi-wrap:last-child,.wrap .card>.pmx-radials:last-child{margin-bottom:24px}
-.wrap .card>.hd+.kit-barlist,.wrap .card>.hd+.grid,.wrap .card>.hd+.kit-kpi-wrap,.wrap .card>.hd+.ap-filter-bar{margin-top:16px}
-@media(max-width:640px){.wrap .card>.kit-barlist,.wrap .card>.hbarlist,.wrap .card>.kit-prows,.wrap .card>.grid,.wrap .card>.chips,.wrap .card>.kit-kpi-wrap,.wrap .card>.pmx-radials,.wrap .card>.ap-filter-bar,.wrap .card>.subtabs{margin-left:20px;margin-right:20px;max-width:calc(100% - 40px)}}
+.wrap .card>.kit-barlist,.wrap .card>.hbarlist,.wrap .card>.kit-prows,.wrap .card>.grid,.wrap .card>.chips,.wrap .card>.pmx-radials,.wrap .card>.ap-filter-bar,.wrap .card>.subtabs,.wrap .card>form.ap-filter-bar{margin-left:24px;margin-right:24px;min-width:0;max-width:calc(100% - 48px)}
+.wrap .card>.kit-barlist:last-child,.wrap .card>.hbarlist:last-child,.wrap .card>.grid:last-child,.wrap .card>.pmx-radials:last-child{margin-bottom:24px}
+.wrap .card>.hd+.kit-barlist,.wrap .card>.hd+.grid,.wrap .card>.hd+.ap-filter-bar{margin-top:16px}
+@media(max-width:640px){.wrap .card>.kit-barlist,.wrap .card>.hbarlist,.wrap .card>.kit-prows,.wrap .card>.grid,.wrap .card>.chips,.wrap .card>.pmx-radials,.wrap .card>.ap-filter-bar,.wrap .card>.subtabs{margin-left:20px;margin-right:20px;max-width:calc(100% - 40px)}}
 /* Sticky first column keeps the row's hover tint (frame paints it paper). */
 .wrap .card>.tablewrap tbody tr:hover>th:first-child,.wrap .card>.twrap tbody tr:hover>th:first-child,.wrap .kit-tablecard .tablewrap tbody tr:hover>th:first-child,
 .wrap .card>.tablewrap tbody tr:hover>td:first-child,.wrap .card>.twrap tbody tr:hover>td:first-child,.wrap .kit-tablecard .tablewrap tbody tr:hover>td:first-child,.wrap .kit-tablecard .twrap tbody tr:hover>td:first-child{background:color-mix(in srgb,var(--fg) 4%,var(--paper))!important}
 /* Table footer: the rows-per-page floating label needs headroom above the footer's top edge. */
 .kit-timefield{display:inline-grid;grid-template-columns:92px 92px;gap:10px;position:relative;align-items:end}
-/* ---- StatStrip: one card, cells split by hairlines ---- */
-/* More than four cells wrap into rows (StatStrip adds these classes): no left hairline on a row's
-   first cell, a top hairline on every row after the first. */
 /* ---------- Spec pass (shell): Minimal vertical nav metrics ----------
    Sidebar 300px at >=1200px (260px from 881-1199 so content keeps its width), padding 20px 20px.
    Items: 44px min, 8px 12px 8px 16px, 6px radius, 16px icon gap, 24px icon, 14/22 label 500 -> 600
