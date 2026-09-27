@@ -1,7 +1,8 @@
 import Table from "@mui/material/Table";
 import { DividedStack } from "@/components/app/divided-stack";
+import { MILK_DEFAULT_PAGE_SIZE, MILK_KPI_SIZE } from "./milk-preparation-layout";
+import { MilkPreparationPanelSkeleton } from "./milk-preparation-skeletons";
 import { UrlSuspense } from "@/components/app/url-suspense";
-import { PanelSkeleton } from "@/components/app/panel-skeleton";
 import { TableSkeleton } from "@/components/app/skeletons";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import TableBody from "@mui/material/TableBody";
@@ -42,7 +43,7 @@ import { stageLabel } from "@/lib/stage-labels";
 import Alert from "@mui/material/Alert";
 
 const PAGE_PATH = "/counts/milk-preparation";
-const DEFAULT_PAGE_SIZE = 10;
+const DEFAULT_PAGE_SIZE = MILK_DEFAULT_PAGE_SIZE;
 
 type MilkPreparationSession = MilkPreparationRow["sessions"][number];
 
@@ -187,7 +188,7 @@ export async function MilkPreparationPage({
 
       {/* KPIs + farm states (guard: url-keyed-panel): a park / page change swaps them to their
           skeleton at once; header and the list toolbar stay on screen. */}
-      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} fallback={<PanelSkeleton kpis={4} />}>
+      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} fallback={<MilkPreparationPanelSkeleton />}>
       <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
       {summary ? (
         <Grid container spacing={3} component="section" aria-label={copy(pageContract, "section.preparation.title")}>
@@ -197,7 +198,7 @@ export async function MilkPreparationPage({
             { key: "milk", total: summary.total_required_ml / 1000, unit },
             { key: "citric", total: summary.citric_acid_grams, unit: copy(pageContract, "label.grams") },
           ].map((kpi) => (
-            <Grid key={kpi.key} size={{ xs: 12, sm: 6, md: 3 }}>
+            <Grid key={kpi.key} size={MILK_KPI_SIZE}>
               <KpiWidget
                 title={copy(pageContract, `kpi.${kpi.key}.label`)}
                 total={kpi.total}

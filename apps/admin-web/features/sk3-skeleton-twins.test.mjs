@@ -66,3 +66,18 @@ test("/vaccination/plan loading reads plan-layout.ts, as PlanConsole does", () =
   const facts = [...page.matchAll(/key: "([a-z]+)"/g)].map((m) => m[1]).filter((k) => keys.includes(k));
   assert.deepEqual(facts, keys);
 });
+
+test("/counts/milk-preparation twin reads milk-preparation-layout.ts, as the page does", () => {
+  const twin = read("counts/milk-preparation-skeletons.tsx");
+  assert.match(twin, /from "\.\/milk-preparation-layout"/);
+  assert.doesNotMatch(twin, LITERAL_SIZE);
+  const page = read("counts/milk-preparation.tsx");
+  assert.match(page, /size=\{MILK_KPI_SIZE\}/);
+  assert.match(page, /fallback=\{<MilkPreparationPanelSkeleton \/>\}/);
+  assert.match(app("counts/milk-preparation/loading.tsx"), /<MilkPreparationPanelSkeleton \/>/);
+  // The page's KPI keys and which carry a unit caption equal the layout's list.
+  const layout = read("counts/milk-preparation-layout.ts");
+  const want = [...layout.matchAll(/\{ key: "([a-z]+)", unit: (true|false) \}/g)].map((m) => `${m[1]}:${m[2]}`);
+  const got = [...page.matchAll(/\{ key: "([a-z]+)", total: [^}]*?(, unit[^}]*)? \}/g)].map((m) => `${m[1]}:${Boolean(m[2])}`);
+  assert.deepEqual(got, want);
+});
