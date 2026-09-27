@@ -1,42 +1,42 @@
 import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
-import { ArrowRight, Syringe } from "lucide-react";
-import type { ActionCenterObligation, WorkState } from "@/lib/api/server";
+import Box from "@mui/material/Box";
+import type { ActionCenterObligation, ProcessIntegritySeverity, WorkState } from "@/lib/api/server";
 import { copy, optionGroup, optionalOption, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import {
-  TONE_SWATCH,
-  type Tone,
-} from "./process-integrity";
-import { ClipText, Tag } from "@/components/ui-primitives";
+import { toneColor, type Tone } from "./process-integrity";
 import { fmtDate } from "@/lib/format";
 import { operationalLocationLabel } from "@/lib/operational-location.ts";
 import { actionDriveLabel, actionWorkTitle } from "./action-center-presenters";
 import { stageLabel } from "@/lib/stage-labels";
-import { Avatar } from "@/components/app/avatar";
+import { KanbanBoard, KanbanColumn } from "@/components/app/kanban";
+import { ItemContent, ItemInfo, ItemName, ItemStatus, type ItemStatusProps } from "@/components/app/kanban/item-styles";
+import { Label } from "@/components/minimal/label";
+import { ActionCenterCardShell } from "./action-center-board-parts";
 
 export { actionDriveLabel, actionWorkTitle } from "./action-center-presenters";
 
-// SLA tint for the due chip, mapped from the server-computed work state (no client date math).
-function slaClass(state: WorkState): string {
-  if (state === "overdue" || state === "rejected" || state === "blocked") return "brk";
-  if (state === "due" || state === "proof_pending" || state === "verification_pending") return "run";
-  if (state === "completed") return "ok";
-  return "";
+// Template kanban item anatomy (sections/kanban/item): priority arrow, one name line, caption lines,
+// then the info row. TR1-#26: at most TWO Labels per card (the work state, plus the drive-capacity
+// state when there is one); every other fact is a caption line, never another chip.
+// guard: action-center-card-anatomy
+export const MAX_CARD_LABELS = 2;
+
+// The template priority arrow reads the server severity: broken is high, at risk medium, watch low.
+function severityStatus(severity: ProcessIntegritySeverity): ItemStatusProps["status"] {
+  if (severity === "broken") return "high";
+  if (severity === "at_risk") return "medium";
+  if (severity === "watch") return "low";
+  return null;
 }
 
 function initials(name?: string): string {
-  if (!name) return "—";
+  if (!name) return "!";
   return name
     .split(/\s+/)
     .map((w) => w[0] ?? "")
     .join("")
     .slice(0, 2)
     .toUpperCase();
-}
-
-function displayBlocker(reason?: string | null): string | null {
-  if (!reason) return null;
-  return reason;
 }
 
 function driveCapacityTag(pageContract: AdminUiPageContract, row: ActionCenterObligation): { tone: Tone; label: string; title: string } | null {
@@ -69,10 +69,6 @@ function driveCapacityTag(pageContract: AdminUiPageContract, row: ActionCenterOb
   }
 }
 
-function eventCode(row: ActionCenterObligation): string {
-  return row.shed_name || row.dose_code;
-}
-
 function shortDueLabel(value: string): string {
   return fmtDate(value);
 }
@@ -89,84 +85,78 @@ function optionTone(options: AdminUiOption[], key: string): Tone {
   return (option.tone || "mut") as Tone;
 }
 
-// One mock-shaped task card for a single Action Center obligation (ported from the mock taskCard2).
-function WorkCard({ pageContract, row, href, localOverlay, index = 0 }: { pageContract: AdminUiPageContract; row: ActionCenterObligation; href: string; localOverlay: boolean; index?: number }) {
+const CAPTION_SX = { display: "block", mt: 0.5, typography: "caption", color: "text.secondary", overflowWrap: "anywhere" } as const;
+
+// One template kanban card for a single Action Center obligation. Same facts as before (drive, pen,
+// park, due date, stage, severity, work / proof / capacity state, progress, blocker, owner); only the
+// anatomy changed: they read as caption lines under the name instead of five chips.
+function WorkCard({ pageContract, row, href, localOverlay }: { pageContract: AdminUiPageContract; row: ActionCenterObligation; href: string; localOverlay: boolean }) {
   const operatorMissing = row.owner_state === "missing" || !row.owner?.operator_name;
-  const blocker = displayBlocker(row.blocker_reason);
+  const blocker = row.blocker_reason || null;
   const drive = actionDriveLabel(pageContract, row);
   const title = actionWorkTitle(pageContract, row);
-  const ownerLabel = operatorMissing ? copy(pageContract, "label.owner_chain_assign") : row.owner?.operator_name;
+  const ownerLabel = operatorMissing ? copy(pageContract, "label.owner_chain_assign") : (row.owner?.operator_name ?? "");
   const progress = row.expected_count > 0 ? `${row.completed_count}/${row.expected_count} ${copy(pageContract, "label.done_suffix")}` : null;
   const showBlocker = blocker && !operatorMissing;
-  const fallbackEvent = copy(pageContract, "label.vaccination");
   const shedDisplay = row.operational_location_display || operationalLocationLabel({ shedName: row.shed_name, partitionLabel: row.partition_label });
   const openLabel = `${copy(pageContract, "label.open_work_item_for")} ${shedDisplay || copy(pageContract, "label.shed_fallback")}`;
   const parkDisplay = optionalOption(pageContract, "park_display_chips", row.park_id);
   const parkLabel = parkDisplay?.label || row.park_name || row.park_id;
-  const parkTone = (parkDisplay?.tone || "info") as Tone;
   const severityOptions = optionGroup(pageContract, "severity_chips");
   const workStateOptions = optionGroup(pageContract, "work_state_filter_chips");
   const proofStateOptions = optionGroup(pageContract, "proof_state_chips");
+  const severityLabel = optionLabel(severityOptions, row.severity);
   const driveTag = driveCapacityTag(pageContract, row);
+  const proofLabel = row.proof_state !== "missing" ? optionLabel(proofStateOptions, row.proof_state) : null;
+  const labels = [
+    { key: "state", color: toneColor(optionTone(workStateOptions, row.work_state)), text: optionLabel(workStateOptions, row.work_state), title: undefined as string | undefined },
+    ...(driveTag ? [{ key: "drive", color: toneColor(driveTag.tone), text: driveTag.label, title: driveTag.title }] : []),
+  ].slice(0, MAX_CARD_LABELS);
+  const dueLine = `${copy(pageContract, "label.due_prefix")} ${shortDueLabel(row.due_at)}`;
+  const facts = [
+    [shedDisplay || copy(pageContract, "label.vaccination"), parkLabel].filter(Boolean).join(" · "),
+    [dueLine, stageLabel(row.animal_stage), severityLabel].filter(Boolean).join(" · "),
+    proofLabel,
+    row.drive_capacity_state === "over_cap_required"
+      ? `${(row.drive_animals_assigned ?? row.drive_animals_required ?? 0).toLocaleString("en-IN")} animals · ${(row.drive_available_operators ?? 0).toLocaleString("en-IN")} ops × ${(row.drive_operator_cap ?? 0).toLocaleString("en-IN")}`
+      : null,
+  ].filter((line): line is string => Boolean(line));
   const contents = (
-    <>
-      <div className="tt">
-        <span className="fic">
-          <Syringe className="ic" style={{ width: 14 }} aria-hidden="true" />
-        </span>
-        <span className="ec" title={eventCode(row) || fallbackEvent}>{eventCode(row) || fallbackEvent}</span>
-        <span className={`sla ${slaClass(row.work_state)}`} style={{ marginLeft: "auto" }} title={`${copy(pageContract, "label.due_prefix")} ${fmtDate(row.due_at)}`}>
-          {copy(pageContract, "label.due_prefix")} {shortDueLabel(row.due_at)}
-        </span>
-      </div>
-      <h4 title={title}>{title}</h4>
-      <div className="muted small ac-drive" title={drive}>
-        {drive}
-      </div>
-      <div className="row">
-        <Tag tone="mut">{copy(pageContract, "label.vaccination")}</Tag>
-        <Tag tone={parkTone}>{parkLabel}</Tag>
-        <Tag tone={optionTone(severityOptions, row.severity)}>{optionLabel(severityOptions, row.severity)}</Tag>
-      </div>
-      <div className="row" style={{ marginTop: 6 }}>
-        <Tag tone="info">{stageLabel(row.animal_stage)}</Tag>
-        <Tag tone={optionTone(workStateOptions, row.work_state)}>{optionLabel(workStateOptions, row.work_state)}</Tag>
-        {row.proof_state !== "missing" ? <Tag tone={optionTone(proofStateOptions, row.proof_state)}>{optionLabel(proofStateOptions, row.proof_state)}</Tag> : null}
-        {driveTag ? <Tag tone={driveTag.tone} title={driveTag.title}>{driveTag.label}</Tag> : null}
-        {progress ? <span className="muted small ac-progress">{progress}</span> : null}
-      </div>
-      {row.drive_capacity_state === "over_cap_required" ? (
-        <div className="muted small ac-progress" title={driveTag?.title}>
-          {(row.drive_animals_assigned ?? row.drive_animals_required ?? 0).toLocaleString("en-IN")} animals · {(row.drive_available_operators ?? 0).toLocaleString("en-IN")} ops × {(row.drive_operator_cap ?? 0).toLocaleString("en-IN")}
-        </div>
-      ) : null}
+    <ItemContent>
+      <ItemStatus status={severityStatus(row.severity)} aria-label={severityLabel} />
+      <ItemName name={title} sx={{ whiteSpace: "normal", pr: 2.5 }} />
+      <Box component="span" sx={CAPTION_SX}>{drive}</Box>
+      {facts.map((line, i) => (
+        <Box key={i} component="span" sx={CAPTION_SX}>{line}</Box>
+      ))}
       {showBlocker ? (
-        <div className="ac-blocker" title={blocker}>
-          {blocker.split(" - ")[0]}
-        </div>
+        <Box component="span" sx={{ ...CAPTION_SX, color: "error.main" }}>{blocker.split(" - ")[0]}</Box>
       ) : null}
-      <div className="who">
-        <Avatar name={row.owner?.operator_name ?? ""} initials={initials(row.owner?.operator_name)} size={22} decorative />
-        <ClipText title={ownerLabel} style={operatorMissing ? { color: "var(--danger)" } : undefined}>
-          {ownerLabel}
-        </ClipText>
-        <ArrowRight className="ic" style={{ width: 13, marginLeft: "auto", flexShrink: 0 }} aria-hidden="true" />
-      </div>
-    </>
+      <Box sx={{ mt: 1.5, display: "flex", flexWrap: "wrap", gap: 0.75 }}>
+        {labels.map((label) => (
+          <Label key={label.key} variant="soft" color={label.color} title={label.title}>{label.text}</Label>
+        ))}
+      </Box>
+      <ItemInfo
+        assignee={[{ id: row.row_id, name: ownerLabel, initial: initials(row.owner?.operator_name), color: operatorMissing ? "error" : "default" }]}
+        assigneeTitle={ownerLabel}
+      >
+        <Box component="span" sx={{ typography: "caption", color: operatorMissing ? "error.main" : "text.secondary" }}>{ownerLabel}</Box>
+        {progress ? <Box component="span" sx={{ typography: "caption", fontWeight: "fontWeightSemiBold", color: "text.secondary" }}>{progress}</Box> : null}
+      </ItemInfo>
+    </ItemContent>
   );
   const linkProps = {
     href,
     scroll: false,
-    className: "task task-ac cx-row",
-    "data-filter-row": true,
     "aria-label": openLabel,
-    title: `${title} · ${drive} · ${ownerLabel ?? copy(pageContract, "label.unassigned")}`,
-    style: { color: "inherit", textDecoration: "none", "--i": index } as React.CSSProperties,
+    title: `${title} · ${drive} · ${severityLabel} · ${ownerLabel || copy(pageContract, "label.unassigned")}`,
+    style: { display: "block", minHeight: "var(--tap-min)", color: "inherit", textDecoration: "none", borderRadius: "inherit" },
   } as const;
-  return localOverlay ? (
-    <LocalOverlayLink {...linkProps}>{contents}</LocalOverlayLink>
-  ) : (
-    <Link {...linkProps}>{contents}</Link>
+  return (
+    <ActionCenterCardShell>
+      {localOverlay ? <LocalOverlayLink {...linkProps}>{contents}</LocalOverlayLink> : <Link {...linkProps}>{contents}</Link>}
+    </ActionCenterCardShell>
   );
 }
 
@@ -215,9 +205,10 @@ function columnCount(column: BoardColumn, stateCounts?: ReadonlyMap<WorkState, n
   return column.states.reduce((sum, state) => sum + (stateCounts.get(state) ?? 0), 0);
 }
 
-// Mock-shaped status board (ported from the mock taskboard): one .tcol per visual lane, header swatch +
-// label + count, cards inside .tcards, and a "—" placeholder for empty columns. Source rows are the real
-// ActionCenterResponse items — server-computed work state, shown inside each card.
+// Template kanban status board (components/app/kanban over sections/kanban): one column per visual
+// lane (count Label + name), template cards inside, an empty column stays an empty column (no
+// placeholder box). Source rows are the real ActionCenterResponse items — server-computed work state,
+// shown inside each card.
 export function WorkBoard({
   pageContract,
   rows,
@@ -242,38 +233,24 @@ export function WorkBoard({
   const columns = showAllColumns ? contractColumns : contractColumns.filter((column) => (byColumn.get(column.key)?.length ?? 0) > 0);
 
   return (
-    <div className="taskboard" role="group" aria-label={copy(pageContract, "section.work_board.aria")} tabIndex={0}>
+    <KanbanBoard data-ac-board role="group" aria-label={copy(pageContract, "section.work_board.aria")} tabIndex={0}>
       {columns.map((column) => {
         const col = byColumn.get(column.key) ?? [];
         const count = columnCount(column, stateCounts) ?? col.length;
         return (
-          <div className="tcol" data-st={column.key} key={column.key}>
-            <div className="tcolh">
-              <span className="sw" style={{ background: TONE_SWATCH[column.tone] }} />
-              {column.label}
-              <span className="n">{count}</span>
-            </div>
-            <div className="tcards">
-              {col.length ? (
-                col.map((row, cardIndex) => (
-                  <WorkCard
-                    key={row.row_id}
-                    index={cardIndex}
-                    pageContract={pageContract}
-                    row={row}
-                    href={drawerHrefForRow ? drawerHrefForRow(row) : `/workflows/${encodeURIComponent(row.row_id)}`}
-                    localOverlay={Boolean(drawerHrefForRow)}
-                  />
-                ))
-              ) : (
-                <div className="muted small" style={{ padding: 10, textAlign: "center" }}>
-                  {copy(pageContract, "label.empty_placeholder")}
-                </div>
-              )}
-            </div>
-          </div>
+          <KanbanColumn key={column.key} title={column.label} count={count}>
+            {col.map((row) => (
+              <WorkCard
+                key={row.row_id}
+                pageContract={pageContract}
+                row={row}
+                href={drawerHrefForRow ? drawerHrefForRow(row) : `/workflows/${encodeURIComponent(row.row_id)}`}
+                localOverlay={Boolean(drawerHrefForRow)}
+              />
+            ))}
+          </KanbanColumn>
         );
       })}
-    </div>
+    </KanbanBoard>
   );
 }

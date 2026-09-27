@@ -5,7 +5,6 @@ import { LinkButton } from "@/components/app/link-button";
 import { FilterChip } from "@/components/app/list/filter-chip";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { TableHeadCustom } from "@/components/app/table/table-head-custom";
-import { CourseWidgetSummary } from "@/components/minimal/sections/overview/course/course-widget-summary";
 import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
@@ -50,6 +49,7 @@ import { actionCenterRequestPlan } from "./action-center-request-plan";
 import { ActionCenterLocalDrawer } from "./action-center-local-drawer";
 import { VerificationRowActions } from "./verification-row-actions";
 import { WorkBoard } from "./work-board";
+import { ActionCenterQuickTile } from "./action-center-board-parts";
 import { fmtDate } from "@/lib/format";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
@@ -391,15 +391,7 @@ export async function VaccinationActionCenterPage({
               const href = hrefWith({ state: on && tile.key !== "all" ? "all" : tile.key, ac_page: "1", ac_row: undefined });
               return (
                 <Grid key={tile.key} size={{ xs: 12, sm: 4 }}>
-                  <Link href={href} scroll={false} aria-pressed={on} style={{ display: "block", height: "100%", color: "inherit", textDecoration: "none" }}>
-                    <CourseWidgetSummary
-                      title={tile.title}
-                      total={tile.total}
-                      color={tile.color}
-                      icon={tile.icon}
-                      sx={on ? { height: 1, outline: 2, outlineColor: `${tile.color}.main` } : { height: 1 }}
-                    />
-                  </Link>
+                  <ActionCenterQuickTile href={href} on={on} title={tile.title} total={tile.total} color={tile.color} icon={tile.icon} />
                 </Grid>
               );
             })}
@@ -532,7 +524,7 @@ export async function VaccinationActionCenterPage({
 const PANEL_IGNORE = ["ac_row", "action_status", "action_key"] as const;
 const BOARD_LANES_SKELETON = (
   <StackSkeleton spacing={2}>
-    <KanbanSkeleton layout="grid" lanes={[3, 3, 2, 2, 1]} minHeight={360} />
+    <KanbanSkeleton lanes={[3, 3, 2, 2, 1]} />
     <PagerSkeleton />
   </StackSkeleton>
 );

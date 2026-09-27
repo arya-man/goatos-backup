@@ -271,12 +271,12 @@ async function verifyActionCenter(page) {
   await page.waitForURL((url) => url.searchParams.get("state") === "overdue", { timeout: 5_000 });
 
   await goto(page, "/action-center?scope_mode=company");
-  const task = page.locator(".taskboard .task").first();
+  const task = page.locator("[data-ac-board] [data-ac-card] a").first();
   if ((await task.count()) === 1) {
     await openDrawerAndClose(page, task, /ACTION/i, "Action Center work drawer");
     await openDrawerClickLink(page, task, /ACTION/i, /Workflow record/i, "/workflows");
     await goto(page, "/action-center?scope_mode=company");
-    await openDrawerClickLink(page, page.locator(".taskboard .task").first(), /ACTION/i, /Goat Passport/i, "/goats", { optional: true });
+    await openDrawerClickLink(page, page.locator("[data-ac-board] [data-ac-card] a").first(), /ACTION/i, /Goat Passport/i, "/goats", { optional: true });
   }
 }
 

@@ -29,7 +29,7 @@ import { copy, optionalCopy, optionGroup, optionLabel, optionTone, tableLabels, 
 import { boundedInt, hrefPreviousPagedCursor, hrefWithPagedCursor, one, type RouteSearchParams } from "@/lib/search-params";
 import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import { SEVERITY_ORDER, WORK_STATE_ORDER, type Tone } from "./process-integrity";
-import { ClipText, Tag } from "@/components/ui-primitives";
+import { Tag } from "@/components/ui-primitives";
 import { VaccinationFilterButton, VaccinationTablePager, type VaccinationPageSize } from "@/features/preventive-care-vaccination";
 import { vaccinationDriveDisplayName } from "@/lib/vaccine-display";
 import { ProtocolAdherenceLocalDrawer, type ProtocolAdherenceDrawerRecord } from "./protocol-adherence-local-drawer";
@@ -38,10 +38,15 @@ import { operationalLocationLabel } from "@/lib/operational-location";
 import { EvidenceMedia } from "./evidence-media";
 import Alert from "@mui/material/Alert";
 
-/** Ledger column widths (fixed layout): expected, actual, gap, severity, owner, next action, evidence. */
-const LEDGER_WIDTHS = [280, 140, 180, 110, 140, 170, 90];
+/** Ledger column widths (expected, actual, gap, severity, owner, next action, evidence). They sum to
+ *  LEDGER_MIN_WIDTH, which fits the 1440 content column, so every column (Evidence included) is on
+ *  screen there; narrower screens scroll the table inside the template Scrollbar. Cells WRAP, never
+ *  ellipsis: TR1-#29 found the next action cut to "Start SOP - overdu…" with no way to read it.
+ *  guard: adherence-ledger-readable */
+const LEDGER_WIDTHS = [240, 120, 150, 100, 120, 170, 100];
+const LEDGER_MIN_WIDTH = LEDGER_WIDTHS.reduce((sum, width) => sum + width, 0);
 /** A whole-cell row link that reads as table text (the template rows are not link-blue). */
-const CELL_LINK_SX = { display: "block", color: "inherit", textDecoration: "none", minWidth: 0 } as const;
+const CELL_LINK_SX = { display: "block", color: "inherit", textDecoration: "none", minWidth: 0, overflowWrap: "anywhere" } as const;
 
 function ownerOf(pageContract: AdminUiPageContract, row: AdherenceRow): string {
   return row.owner?.operator_name ?? row.owner?.park_head_name ?? copy(pageContract, "label.unassigned");
@@ -397,7 +402,7 @@ export async function ProtocolAdherencePage({
           {/* Severity and work-state filter ONE ledger. Keyed on both, the body cross-fades. */}
           <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<TableSkeleton bare header={false} columns={ledgerLabels.length || 7} rows={requestedPageSize} />}>
             <Scrollbar>
-              <Table sx={{ minWidth: 1080, tableLayout: "fixed" }} aria-label={copy(pageContract, "section.ledger.aria")}>
+              <Table sx={{ minWidth: LEDGER_MIN_WIDTH }} aria-label={copy(pageContract, "section.ledger.aria")}>
                 <TableHeadCustom headCells={head} />
                 <TableBody>
                   {paged.total === 0 ? (
@@ -417,9 +422,9 @@ export async function ProtocolAdherencePage({
                         <TableRow hover key={row.row_id}>
                           <TableCell>
                             <Box component={LocalOverlayLink} href={href} scroll={false} title={row.expected} sx={CELL_LINK_SX}>
-                              <ClipText title={expected.title} style={{ fontWeight: 600 }}>
+                              <Box component="span" sx={{ display: "block", typography: "subtitle2" }}>
                                 {expected.title}
-                              </ClipText>
+                              </Box>
                               <Box component="span" sx={{ display: "block", typography: "body2", color: "text.secondary" }}>
                                 {expectedDetail}
                               </Box>
@@ -427,7 +432,7 @@ export async function ProtocolAdherencePage({
                           </TableCell>
                           <TableCell sx={{ color: "text.secondary" }}>
                             <Box component={LocalOverlayLink} href={href} scroll={false} title={row.actual} sx={CELL_LINK_SX}>
-                              <ClipText title={actual}>{actual}</ClipText>
+                              {actual}
                             </Box>
                           </TableCell>
                           <TableCell>
@@ -447,12 +452,12 @@ export async function ProtocolAdherencePage({
                           </TableCell>
                           <TableCell sx={{ color: "text.secondary" }}>
                             <Box component={LocalOverlayLink} href={href} scroll={false} title={ownerOf(pageContract, row)} sx={CELL_LINK_SX}>
-                              <ClipText title={ownerOf(pageContract, row)}>{ownerOf(pageContract, row)}</ClipText>
+                              {ownerOf(pageContract, row)}
                             </Box>
                           </TableCell>
                           <TableCell>
                             <Box component={LocalOverlayLink} href={href} scroll={false} title={row.next_action} sx={{ ...CELL_LINK_SX, color: "primary.main", typography: "subtitle2" }}>
-                              <ClipText title={row.next_action}>{row.next_action} →</ClipText>
+                              {row.next_action} →
                             </Box>
                           </TableCell>
                           <TableCell>

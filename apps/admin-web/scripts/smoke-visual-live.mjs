@@ -1710,7 +1710,7 @@ async function assertCoreInteractions(page, routeName, viewportLabel) {
   }
 
   if (routeName === "action-center") {
-    const task = page.locator(".taskboard .task").first();
+    const task = page.locator("[data-ac-board] [data-ac-card] a").first();
     if ((await task.count()) === 1) {
       await openAndCloseDrawer(page, task, "ACTION", routeName);
     }
@@ -2303,7 +2303,7 @@ async function openAndCloseDrawer(page, trigger, expectedText, routeName, inspec
     try {
       await drawer.waitFor({ state: "visible", timeout: 10_000 });
     } catch (reloadError) {
-      const taskCount = await page.locator(".taskboard .task").count().catch(() => -1);
+      const taskCount = await page.locator("[data-ac-board] [data-ac-card] a").count().catch(() => -1);
       const bodyText = await page.locator("body").innerText().catch(() => "");
       throw new Error(
         `${routeName} drawer "${expectedText}" did not render after click+reload. url=${page.url()} href=${expectedUrl.toString()} tasks=${taskCount} body=${bodyText

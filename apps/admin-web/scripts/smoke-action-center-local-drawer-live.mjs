@@ -15,7 +15,7 @@ const page = await context.newPage();
 
 try {
   await page.goto(`${baseUrl}${actionCenterPath}`, { waitUntil: "networkidle", timeout: 30_000 });
-  const firstCard = page.locator(".taskboard .task-ac").first();
+  const firstCard = page.locator("[data-ac-board] [data-ac-card] a").first();
   if ((await firstCard.count()) !== 1) throw new Error("Action Center requires at least one work card for the drawer regression");
 
   const samePageRequests = [];
