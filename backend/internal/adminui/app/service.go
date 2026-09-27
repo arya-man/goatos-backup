@@ -8330,6 +8330,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.kids":                               "Kids",
 			"label.untagged_kids":                      "Untagged kids",
 			"label.total_records":                      "Total records",
+			"filter.status.all":                        "All",
+			"filter.status.aria":                       "Filter the herd by status",
 			"label.seeded_goat_rows":                   "animals ever recorded",
 			"label.dead":                               "Dead",
 			"label.sold":                               "Sold",

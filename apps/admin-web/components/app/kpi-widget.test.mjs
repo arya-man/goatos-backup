@@ -62,3 +62,43 @@ test("tiles that had a series still carry one (or the page chart draws it)", () 
   ];
   for (const [rel, re] of expect) assert.match(read(rel), re, rel);
 });
+
+// guard: kpi-map-truth (TR1-#17). A route mapped to the Ecommerce overview names the widget each of
+// its KPI tiles REALLY renders through the adapter: EcommerceWidgetSummary only where a tile passes a
+// weekly series (trend period "week") or renders the widget directly; a tile with no trend is a
+// CourseWidgetSummary and the row must say so; 7d -> AppWidgetSummary, month -> BookingWidgetSummary.
+export function kpiMapFindings(mapText, readSource) {
+  const out = [];
+  for (const line of mapText.split("\n")) {
+    if (!line.startsWith("| `/")) continue;
+    const cells = line.split("|").map((c) => c.trim());
+    if (!/Ecommerce overview/.test(cells[2] ?? "")) continue;
+    const route = cells[1];
+    const blocks = cells[5] ?? "";
+    const src = [...(cells[3] ?? "").matchAll(/`([^`]+\.tsx)`/g)].map((m) => readSource(m[1]) ?? "").join("\n");
+    const calls = [...src.matchAll(/<KpiWidget\b[\s\S]*?\/>/g)].map((m) => m[0]);
+    if (!calls.length) continue;
+    const week = /period: "week"/.test(src) || /<EcommerceWidgetSummary\b/.test(src);
+    const noTrend = calls.some((c) => !/\btrend=/.test(c));
+    if (/EcommerceWidgetSummary/.test(blocks) && !week) out.push(`${route}: claims EcommerceWidgetSummary but no tile passes a weekly series`);
+    if (noTrend && !/CourseWidgetSummary/.test(blocks)) out.push(`${route}: has trend-less tiles (CourseWidgetSummary) the row does not name`);
+    if (/period: "7d"/.test(src) && !/AppWidgetSummary/.test(blocks)) out.push(`${route}: 7-day tiles render AppWidgetSummary, not named`);
+    if (/period: "month"/.test(src) && !/BookingWidgetSummary/.test(blocks)) out.push(`${route}: monthly tiles render BookingWidgetSummary, not named`);
+  }
+  return out;
+}
+
+test("kpi-map-truth: self-test", () => {
+  const row = (blocks) => `| \`/x\` | Ecommerce overview | \`a.tsx\` | mods | ${blocks} |`;
+  const noSeries = () => `<KpiWidget title="t" total={1} />`;
+  assert.deepEqual(kpiMapFindings(row("KPIs → CourseWidgetSummary"), noSeries), []);
+  assert.equal(kpiMapFindings(row("KPIs → EcommerceWidgetSummary"), noSeries).length, 2);
+  const weekly = () => `<KpiWidget title="t" total={1} trend={{ percent: 1, period: "week", series }} />`;
+  assert.deepEqual(kpiMapFindings(row("gain → EcommerceWidgetSummary"), weekly), []);
+});
+
+test("kpi-map-truth: Ecommerce-overview map rows name the widgets their tiles render", () => {
+  const map = readFileSync(join(appDir, "../../docs/design/page-template-map.md"), "utf8");
+  const readSource = (rel) => { try { return read(rel); } catch { return null; } };
+  assert.deepEqual(kpiMapFindings(map, readSource), []);
+});

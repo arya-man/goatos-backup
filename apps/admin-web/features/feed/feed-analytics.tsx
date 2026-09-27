@@ -1066,9 +1066,12 @@ function DirectedTabs({
   // feed days of the SAME daily figures the tiles headline; the percent is those days' last 7 against
   // the 7 before (display only). The series stops at the settled day and drops a trailing half-issued
   // day (completeDaySeries on directed kg), so every tile ends on the same complete day.
-  const recentDays = data.days.filter((d) => view.settledDay >= d.feed_day).slice(-14);
-  const completeDays = completeDaySeries(recentDays.map((d) => num(d.directed_kg)))?.length ?? 0;
-  const sparkDays = recentDays.slice(0, completeDays);
+  // Trim the half-issued tail FIRST, then take the last 14: trimming after the slice left 13 days
+  // whenever the settled day was still being issued, so every tile fell back to a no-series card
+  // (TR1-#17) although the window held weeks of complete days.
+  const settledDays = data.days.filter((d) => view.settledDay >= d.feed_day);
+  const completeDays = completeDaySeries(settledDays.map((d) => num(d.directed_kg)))?.length ?? 0;
+  const sparkDays = settledDays.slice(0, completeDays).slice(-14);
   const dayTrend = (pick: (d: (typeof data.days)[number]) => number | null) => {
     const series = sparkDays.map((d) => pick(d) ?? 0);
     const percent = sevenDayPercent(series);
@@ -1080,7 +1083,9 @@ function DirectedTabs({
         <RangeCoverageNote key={`${range}-${coveredDays}`} message={coverageNote} />
       ) : null}
       {tab === "overview" ? (
-        // KPI row: template CourseWidgetSummary (KpiWidget) (overview/e-commerce), three per row.
+        // KPI row (overview/e-commerce, three per row): the three daily figures carry their 14-day
+        // series (AppWidgetSummary, "last 7 days"); adherence and cost per animal have no series and
+        // stay CourseWidgetSummary (DECIDED KPI rule).
         <Grid container spacing={3} component="section" aria-label={fa(pageContract, "chart.daily.title")}>
           {[
             { key: "directed", unit: fa(pageContract, "unit.kg"), total: latest ? num(latest.directed_kg) : null, trend: dayTrend((d) => num(d.directed_kg)) },
@@ -1135,7 +1140,8 @@ function DirectedTabs({
       ) : null}
 
       {tab === "overview" && stock && stock.expenditure.length > 0 ? (
-        // Spend by period: four template CourseWidgetSummary (KpiWidget) tiles.
+        // Spend by period: four template CourseWidgetSummary (KpiWidget) tiles. Backend period totals
+        // with no series behind them, so no sparkline (DECIDED KPI rule).
         <Grid container spacing={3} component="section" aria-label={fa(pageContract, "chart.spend.title")}>
           {([
             ["week", stock.spend.last_7_days],

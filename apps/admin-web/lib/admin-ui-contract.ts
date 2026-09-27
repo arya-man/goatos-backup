@@ -627,6 +627,9 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "vaccination.clinical_due": "clinical due",
   },
   "herd-register": {
+    // Status tabs (TR1-#18) can deploy one release before the backend copy.
+    "filter.status.all": "All",
+    "filter.status.aria": "Filter the herd by status",
     "action.open_workflow": "Open Workflow",
     "calendar.drive.breed_header": "Breed",
     "calendar.drive.display_id_header": "Display ID",

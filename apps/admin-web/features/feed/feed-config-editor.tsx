@@ -6,7 +6,17 @@ import { useEffect, useRef, useState } from "react";
 import MuiButton from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import MuiTextField from "@mui/material/TextField";
-import { CalendarClock, Check, ChevronDown, FlaskConical, Pencil, Plus, Power, SlidersHorizontal, Trash2, type LucideIcon } from "lucide-react";
+import Box from "@mui/material/Box";
+import Chip from "@mui/material/Chip";
+import Dialog from "@mui/material/Dialog";
+import DialogActions from "@mui/material/DialogActions";
+import DialogContent from "@mui/material/DialogContent";
+import DialogTitle from "@mui/material/DialogTitle";
+import Tooltip from "@mui/material/Tooltip";
+import Typography from "@mui/material/Typography";
+import { Check, ChevronDown } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
+import { Label } from "@/components/minimal/label";
 import { InfoHint } from "@/components/app/info-hint";
 
 import { FormSelect } from "@/components/form-select";
@@ -57,13 +67,42 @@ export type SaveAction = (formData: FormData) => SaveActionResult;
  */
 const SUCCESS_NOTICE_MS = 8000;
 
+/**
+ * The template icon for each kind of write (distinct per action: two pencils on one row said nothing).
+ * Names are registered in the offline icon set (guard: iconify-offline-set).
+ */
+const SHELL_ICONS = {
+  edit: "solar:pen-bold",
+  add: "mingcute:add-line",
+  schedule: "solar:clock-circle-bold",
+  factor: "solar:settings-bold",
+  experiment: "solar:atom-outline",
+  power: "ic:round-power-settings-new",
+} as const;
+export type ShellIcon = keyof typeof SHELL_ICONS;
+
+/**
+ * One Feed Config write, on template anatomy (sections/user user-table-row + user-quick-edit-form):
+ * the closed control is a template trigger, and the form opens in the template quick-edit Dialog
+ * (DialogTitle, DialogContent grid, DialogActions outlined Cancel + contained Apply). Never an inline
+ * form growing inside a table cell or a card header (TR1 /feed/config, guard: feed-config-template-anatomy).
+ *
+ * Triggers:
+ *  - "icon"   (default) row / CardHeader action: Tooltip + IconButton with the template icon;
+ *  - "button" template Button with a leading icon and the action's own label ("Add feed");
+ *  - "chip"   a declared item as a soft Chip whose delete opens the (confirm) dialog.
+ */
 function FeedConfigFormShell({
   pageContract,
   action,
   children,
   editLabel,
   openLabel,
-  icon: Icon = Pencil,
+  subject,
+  icon = "edit",
+  trigger = "icon",
+  chipLabel,
+  destructive = false,
   onSaved,
   onOptimistic,
   onRejected,
@@ -73,8 +112,14 @@ function FeedConfigFormShell({
   children: React.ReactNode;
   editLabel: string;
   openLabel: string;
-  /** Distinct per action (two pencils on one row said nothing): Pencil = rate, FlaskConical = experiment arm, Plus = add, Power = withdraw/restore, CalendarClock = schedule, SlidersHorizontal = factor. */
-  icon?: LucideIcon;
+  /** What the write is about ("Anantapur Sheep · Buck · COFS"), under the dialog title. */
+  subject?: string;
+  icon?: ShellIcon;
+  trigger?: "icon" | "button" | "chip";
+  /** The chip's text for trigger "chip". */
+  chipLabel?: string;
+  /** Apply reads as a destructive action (withdraw a feed). */
+  destructive?: boolean;
   /**
    * Called with the submitted form ONLY after a CONFIRMED save, so a caller can show the new value
    * before the route's re-render lands. Never called for a rejected write — the form already
@@ -117,6 +162,14 @@ function FeedConfigFormShell({
     setIdem(openIntent(() => crypto.randomUUID()));
   }
 
+  // Cancel drops a refusal with the form: the message was about values the operator just
+  // abandoned, and left under the closed control it reads as if something still failed.
+  function handleCancel() {
+    if (pending) return;
+    setIdem(CLOSED_STATE);
+    setResult(null);
+  }
+
   function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     // One write per press: a second submit before the first answered is dropped here, before the
@@ -144,71 +197,96 @@ function FeedConfigFormShell({
       if (outcome.ok) onSaved?.(formData);
       else onRejected?.(formData);
       setIdem((prev) => afterSubmit(prev, outcome.ok, () => crypto.randomUUID()));
-      // A CONFIRMED write ENDS the editing intent, so the form closes — the same rule the sibling
-      // authoring screen (/health/config) already follows, and three things depend on it:
-      //
-      //  1. The operator sees the write. The server action revalidates this route, so the row or
-      //     the catalog behind the form is already showing the new value; an open form sitting on
-      //     top of it, still holding the text that was typed, reads as "nothing happened" and is
-      //     what sent people to the browser reload button.
-      //  2. The screen stops disagreeing with the server. The inputs are UNCONTROLLED, so they keep
-      //     the characters that were typed rather than the value that was stored — after saving
-      //     "4.5" the form said 4.5 while the table said 4.500. Closing drops the stale copy; the
-      //     next open is rendered from the refreshed server props.
-      //  3. A stray second Apply cannot write again. The key rotates on success, so a resubmit of
-      //     the SAME still-filled form is not an idempotent replay — it is a second, real write.
-      //
-      // A rejection deliberately does NOT close: nothing was written, the values are still the
-      // operator's to fix, and the same key must be reused for that retry.
+      // A CONFIRMED write ENDS the editing intent, so the dialog closes: the server action has
+      // revalidated the route, the inputs are uncontrolled (a stale copy of what was typed), and the
+      // key rotates on success so a stray second Apply would be a second real write. A rejection
+      // deliberately does NOT close: nothing was written, the values are still the operator's to
+      // fix, and the same key must be reused for that retry.
       if (outcome.ok) setIdem(CLOSED_STATE);
     })();
   }
 
-  if (!idem.open) {
-    const openButton = (
-      // An icon button per row, not ten outlined "Edit rate" primaries down a column (judge M2 #13).
-      <IconButton type="button" size="small" onClick={handleOpen} title={editLabel + (openLabel && openLabel !== editLabel ? ` — ${openLabel}` : "")} aria-label={editLabel}>
-        <Icon className="ic" aria-hidden="true" />
-      </IconButton>
+  const hint = editLabel + (openLabel && openLabel !== editLabel ? ` — ${openLabel}` : "");
+  let openControl: React.ReactNode;
+  if (trigger === "chip") {
+    openControl = (
+      <Chip
+        size="small"
+        variant="soft"
+        label={chipLabel}
+        title={hint}
+        onClick={handleOpen}
+        onDelete={handleOpen}
+        deleteIcon={<Iconify icon="solar:close-circle-bold" aria-label={editLabel} />}
+      />
     );
-    // Nothing has been saved from this control yet — render exactly the bare button, so the closed
-    // state stays byte-identical to what every table cell and section header lays out today.
-    if (!result) return openButton;
-    return (
-      <span
-        style={{ display: "inline-flex", flexDirection: "column", alignItems: "flex-start", gap: 6, maxWidth: 220 }}
-      >
-        {openButton}
-        <Outcome result={result} pageContract={pageContract} />
-      </span>
+  } else if (trigger === "button") {
+    openControl = (
+      <MuiButton type="button" size="small" variant="soft" startIcon={<Iconify icon={SHELL_ICONS[icon]} />} onClick={handleOpen} title={hint}>
+        {editLabel}
+      </MuiButton>
+    );
+  } else {
+    openControl = (
+      <Tooltip title={editLabel} placement="top" arrow>
+        <IconButton type="button" onClick={handleOpen} aria-label={editLabel} color={idem.open ? "inherit" : "default"}>
+          <Iconify icon={SHELL_ICONS[icon]} />
+        </IconButton>
+      </Tooltip>
     );
   }
 
+  const dialog = (
+    <Dialog
+      fullWidth
+      maxWidth={false}
+      open={idem.open}
+      onClose={handleCancel}
+      slotProps={{ paper: { sx: { maxWidth: 480 } } }}
+    >
+      <DialogTitle>
+        {editLabel}
+        {subject ? (
+          <Typography component="span" variant="body2" sx={{ display: "block", mt: 0.5, color: "text.secondary" }}>
+            {subject}
+          </Typography>
+        ) : null}
+      </DialogTitle>
+      <form onSubmit={onSubmit}>
+        <DialogContent>
+          <input type="hidden" name="idempotency_key" value={idem.key ?? ""} />
+          <Box sx={{ rowGap: 2, display: "grid", pt: 1 }}>{children}</Box>
+          {result && !result.ok ? (
+            <Box sx={{ mt: 2 }}>
+              <Outcome result={result} pageContract={pageContract} />
+            </Box>
+          ) : null}
+        </DialogContent>
+        <DialogActions>
+          <MuiButton type="button" variant="outlined" onClick={handleCancel} disabled={pending}>
+            {copy(pageContract, "action.cancel")}
+          </MuiButton>
+          <MuiButton type="submit" variant="contained" color={destructive ? "error" : "primary"} loading={pending}>
+            {copy(pageContract, "action.apply")}
+          </MuiButton>
+        </DialogActions>
+      </form>
+    </Dialog>
+  );
+
+  // A confirmed write is confirmed OUT LOUD beside the control it came from, then clears itself.
   return (
-    <form onSubmit={onSubmit} style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 220 }}>
-      <input type="hidden" name="idempotency_key" value={idem.key ?? ""} />
-      {children}
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        <MuiButton type="submit" size="small" variant="contained" color="primary" loading={pending}>
-          {copy(pageContract, "action.apply")}
-        </MuiButton>
-        {/* Cancel drops a refusal with the form: the message was about values the operator just
-            abandoned, and left under the closed button it reads as if something still failed. */}
-        <MuiButton
-          type="button"
-          size="small"
-          variant="outlined"
-          onClick={() => {
-            setIdem(CLOSED_STATE);
-            setResult(null);
-          }}
-          disabled={pending}
-        >
-          {copy(pageContract, "action.cancel")}
-        </MuiButton>
-      </div>
-      <Outcome result={result} pageContract={pageContract} />
-    </form>
+    <>
+      {result && result.ok && !idem.open ? (
+        <Box component="span" sx={{ display: "inline-flex", flexDirection: "column", alignItems: "flex-start", gap: 0.75, maxWidth: 220 }}>
+          {openControl}
+          <Outcome result={result} pageContract={pageContract} />
+        </Box>
+      ) : (
+        openControl
+      )}
+      {dialog}
+    </>
   );
 }
 
@@ -278,6 +356,7 @@ export function RationRateEditor({
       pageContract={pageContract}
       action={action}
       editLabel={copy(pageContract, gramsPerHead === undefined ? "action.add_rate" : "action.edit_rate")}
+      subject={[rationGroup, shedTag, feedItem].filter(Boolean).join(" · ")}
       openLabel={copy(pageContract, "label.configured_zero_note")}
       // Shows the typed quantity in this row's cell at once, and takes it back if the write is
       // refused — the form's own error is then the only thing on screen, which is correct: nothing
@@ -336,10 +415,11 @@ export function ShedFactorEditor({
 }) {
   return (
     <FeedConfigFormShell
-      icon={SlidersHorizontal}
+      icon="factor"
       pageContract={pageContract}
       action={action}
       editLabel={copy(pageContract, multiplier === undefined ? "action.add_shed_factor" : "action.edit_shed_factor")}
+      subject={feedItem}
       openLabel={copy(pageContract, "section.shed_factors.note")}
     >
       <input type="hidden" name="park_id" value={parkId} />
@@ -412,10 +492,11 @@ export function ExperimentCellEditor({
   const fieldId = `exp-${shedId}-${partitionLabel}-${feedItem}`;
   return (
     <FeedConfigFormShell
-      icon={FlaskConical}
+      icon="experiment"
       pageContract={pageContract}
       action={action}
       editLabel={copy(pageContract, "action.edit_experiment_cell")}
+      subject={[partitionLabel, feedItem].filter(Boolean).join(" · ")}
       openLabel={copy(pageContract, "label.experiment_grams_per_head_note")}
     >
       <input type="hidden" name="park_id" value={parkId} />
@@ -505,7 +586,7 @@ export function ExperimentCellAdder({
   const fieldId = `exp-add-${shedId}-${partitionLabel}`;
   return (
     <FeedConfigFormShell
-      icon={Plus}
+      icon="add"
       pageContract={pageContract}
       action={action}
       editLabel={copy(pageContract, "action.add_experiment_item")}
@@ -602,7 +683,7 @@ export function ExperimentShedSwitch({
     targetStatus === "active" ? "label.experiment_active_note" : "label.experiment_retired_note";
   return (
     <FeedConfigFormShell
-      icon={Power}
+      icon="power"
       pageContract={pageContract}
       action={action}
       editLabel={copy(pageContract, labelKey)}
@@ -696,7 +777,8 @@ export function ExperimentPenEnroller({
   }
   return (
     <FeedConfigFormShell
-      icon={FlaskConical}
+      icon="add"
+      trigger="button"
       pageContract={pageContract}
       action={action}
       editLabel={copy(pageContract, "action.add_experiment_pen")}
@@ -965,7 +1047,8 @@ export function FeedItemCreator({
     // rather than width so it still shrinks on a narrow viewport.
     <div style={{ maxWidth: 380, width: "100%" }}>
       <FeedConfigFormShell
-      icon={Plus}
+      icon="add"
+        trigger="button"
         pageContract={pageContract}
         action={action}
         editLabel={copy(pageContract, "action.add_feed_item")}
@@ -1080,7 +1163,7 @@ export function ScheduleEditor({
 }) {
   return (
     <FeedConfigFormShell
-      icon={CalendarClock}
+      icon="schedule"
       pageContract={pageContract}
       action={action}
       editLabel={copy(pageContract, editLabelKey)}
@@ -1214,42 +1297,44 @@ export function SessionFeedsCell({
   const addable = catalogItems.filter((item) => !declared.has(item.toLowerCase()));
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 260 }}>
+    // Template anatomy: the declared feeds are soft Chips whose delete opens the withdraw dialog, and
+    // "Add feed" is a template Button, never bare names with trash icons and a lone "+".
+    <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 1, minWidth: 260 }}>
       {items.length === 0 ? (
         // An empty recipe is a REAL and blocking state, not missing data: this session's sheds get
-        // no sheet at all. It reads as a warning rather than a muted empty note for that reason.
-        <div className="small" style={{ color: "var(--danger)", whiteSpace: "normal", lineHeight: 1.5 }}>
+        // no sheet at all. It reads as an error Label rather than a muted empty note for that reason.
+        <Label variant="soft" color="error" sx={{ whiteSpace: "normal", height: "auto", minHeight: 24, py: 0.5 }}>
           {copy(pageContract, "empty.session_feeds")}
-        </div>
+        </Label>
       ) : (
         items.map((item) => (
-          <div key={item.session_template_item_id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span className="tag">{item.feed_item}</span>
-            <FeedConfigFormShell
-      icon={Trash2}
-              pageContract={pageContract}
-              action={action}
-              editLabel={copy(pageContract, "action.remove_session_feed")}
-              openLabel={copy(pageContract, "action.remove_session_feed_open")}
-            >
-              <input type="hidden" name="park_id" value={parkId} />
-              <input type="hidden" name="session_no" value={sessionNo} />
-              <input type="hidden" name="feed_item" value={item.feed_item} />
-              {/* Explicit "false", never an unchecked checkbox: an absent checkbox and a deliberate
-                  withdrawal are indistinguishable on the wire, and these two directions are opposite
-                  feeding decisions rather than a setting with a safe default. */}
-              <input type="hidden" name="declared" value="false" />
-              <div className="small" style={{ whiteSpace: "normal", lineHeight: 1.5, maxWidth: 260 }}>
-                {copy(pageContract, "action.remove_session_feed_open")}
-              </div>
-            </FeedConfigFormShell>
-          </div>
+          <FeedConfigFormShell
+            key={item.session_template_item_id}
+            trigger="chip"
+            chipLabel={item.feed_item}
+            destructive
+            subject={item.feed_item}
+            pageContract={pageContract}
+            action={action}
+            editLabel={copy(pageContract, "action.remove_session_feed")}
+            openLabel={copy(pageContract, "action.remove_session_feed_open")}
+          >
+            <input type="hidden" name="park_id" value={parkId} />
+            <input type="hidden" name="session_no" value={sessionNo} />
+            <input type="hidden" name="feed_item" value={item.feed_item} />
+            {/* Explicit "false", never an unchecked checkbox: an absent checkbox and a deliberate
+                withdrawal are indistinguishable on the wire, and these two directions are opposite
+                feeding decisions rather than a setting with a safe default. */}
+            <input type="hidden" name="declared" value="false" />
+            <Typography variant="body2">{copy(pageContract, "action.remove_session_feed_open")}</Typography>
+          </FeedConfigFormShell>
         ))
       )}
 
       {addable.length > 0 ? (
         <FeedConfigFormShell
-      icon={Plus}
+      icon="add"
+          trigger="button"
           pageContract={pageContract}
           action={action}
           editLabel={copy(pageContract, "action.add_session_feed")}
@@ -1278,6 +1363,6 @@ export function SessionFeedsCell({
           </div>
         </FeedConfigFormShell>
       ) : null}
-    </div>
+    </Box>
   );
 }

@@ -59,6 +59,7 @@ import {
 import { experimentEnrollerScopeKey } from "./experiment-enroller-scope";
 import { groupMissingRates, groupRetiredFeedGaps, type MissingRate, type RetiredFeedGaps } from "./missing-rates";
 import { stageLabel } from "@/lib/stage-labels";
+import { EmptyState } from "@/components/app/empty-state";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
@@ -1017,7 +1018,7 @@ export async function FeedConfigPage({
               {experimentSheds.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={experimentCols.length + 1}>
-                    <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
+                    <EmptyState filled title={<>
                       {/* THREE different states, and telling them apart is the whole point. A failed
                           read is an error. An empty UNFILTERED table is a real, meaningful fact: this
                           park runs no experiments and every shed in it is fed from the ration grid.
@@ -1030,7 +1031,7 @@ export async function FeedConfigPage({
                           ? copy(pageContract, "empty.experiment_filtered")
                           : copy(pageContract, "empty.experiment")
                         : copy(pageContract, "state.experiment_unavailable")}
-                    </div>
+                    </>} />
                   </TableCell>
                 </TableRow>
               ) : (
@@ -1246,19 +1247,23 @@ export async function FeedConfigPage({
       <SectionError result={sessionsResult} titleKey="state.session_template_unavailable" pageContract={pageContract} />
       <div>
       <Card>
-        <CardHeader title={copy(pageContract, "section.session_template.title")} subheader={copy(pageContract, "section.session_template.caption")} sx={{ mb: 2 }} />
-        {/* Its own full-width row under the header, never inside it: the open form holds a name and
-            a share per session, which the header's single line cannot lay out. */}
-        {scope.parkId && sessions ? (
-          <Box sx={{ px: 3, pb: 2 }}>
-            <SessionPlanEditor
-              pageContract={pageContract}
-              action={saveSessionPlan}
-              parkId={scope.parkId}
-              sessions={activeSessions.map((row) => ({ session_no: row.session_no, session_label: row.session_label, split_fraction: String(row.split_fraction) }))}
-            />
-          </Box>
-        ) : null}
+        {/* Template CardHeader action (order/details): the section's edit is the header IconButton,
+            which opens the sessions dialog; never a lone pencil row under the header. */}
+        <CardHeader
+          title={copy(pageContract, "section.session_template.title")}
+          subheader={copy(pageContract, "section.session_template.caption")}
+          action={
+            scope.parkId && sessions ? (
+              <SessionPlanEditor
+                pageContract={pageContract}
+                action={saveSessionPlan}
+                parkId={scope.parkId}
+                sessions={activeSessions.map((row) => ({ session_no: row.session_no, session_label: row.session_label, split_fraction: String(row.split_fraction) }))}
+              />
+            ) : null
+          }
+          sx={{ mb: 2 }}
+        />
         <Box
           data-scroll-x=""
           sx={{ overflowX: "auto" }}
@@ -1278,11 +1283,11 @@ export async function FeedConfigPage({
               {(sessions?.items ?? []).length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={sessionCols.length}>
-                    <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
+                    <EmptyState filled title={<>
                       {!sessionsResult || sessionsResult.ok
                         ? copy(pageContract, "empty.session_template")
                         : copy(pageContract, "state.session_template_unavailable")}
-                    </div>
+                    </>} />
                   </TableCell>
                 </TableRow>
               ) : (
@@ -1353,11 +1358,11 @@ export async function FeedConfigPage({
               {(schedule?.items ?? []).length === 0 && missingScheduleWorkflows.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={scheduleCols.length + 1}>
-                    <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
+                    <EmptyState filled title={<>
                       {!scheduleResult || scheduleResult.ok
                         ? copy(pageContract, "empty.schedule")
                         : copy(pageContract, "state.schedule_unavailable")}
-                    </div>
+                    </>} />
                   </TableCell>
                 </TableRow>
               ) : (
