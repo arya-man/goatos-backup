@@ -233,3 +233,18 @@ test("guard: labelled-filter-fields -- every worklist filter field shows its own
   for (const props of fields) assert.match(props, /\blabel=/, "each compare TextField has a visible label");
   assert.doesNotMatch(compare, /width: 96\b|sm: 120\b/, "no fixed widths that cut the label");
 });
+
+test("guard: legacy-card-css-deleted -- the retired chart-card / KPI-grid / dialog caret CSS stays deleted", () => {
+  // R3CNT 2026-09-27: no page renders `.card.wchart` / `.card.wtable` (guard page-template-legacy-card),
+  // the `.g2`..`.g6` KPI grids (template Grid + KpiGrid) or the work-board dialog `.it .car` caret any
+  // more, so their rules in the legacy stylesheets were dead weight that a stray class could revive.
+  const DEAD = /(?:^|[\s,{}>+~(])\.(?:wchart|wtable|g[2-6])(?![\w-])|\.wb-dialog\s+\.it(?:\.open)?\s+\.car(?![\w-])/;
+  for (const path of ["app/frame.css", "app/mesha-theme.css", "app/minimal-theme.css"]) {
+    const css = read(path).replace(/\/\*[\s\S]*?\*\//g, "");
+    const hits = css.split("\n").map((line, i) => [i + 1, line]).filter(([, line]) => DEAD.test(line));
+    assert.deepEqual(hits, [], `${path}: retired selector is back:\n${hits.map(([n, l]) => `${n}: ${l.trim()}`).join("\n")}`);
+  }
+  for (const path of productTsx) {
+    assert.doesNotMatch(read(path), /className=\{?["'`][^"'`]*(?<![\w-])(?:wchart|wtable|g[2-6])(?![\w-])/, `${path}: renders a retired legacy class`);
+  }
+});

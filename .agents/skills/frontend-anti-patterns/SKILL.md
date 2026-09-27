@@ -296,6 +296,7 @@ Apply the review-only rows (PP-7..PP-21) by hand when reviewing a hot read.
   blocker; `design:guard` (`page-template-map`, p0) enforces the listed imports.
 - **Server-rendered sections need 'use client' for function sx (guard `section-server-fn-sx`, p0).** A template section under `components/minimal/sections/` is rendered straight from Server Component pages; if it styles with `sx={(theme) => …}` / `sx={[(theme) => …]}` it must start with `'use client'`, or the function crosses the server/client boundary and the page throws "Functions cannot be passed directly to Client Components" (whole route falls back to client rendering or 500s).
 - **Progress bars take their length from the column, never a px floor (guard `progress-bar-px-min-width`, p0).** A template progress row (EcommerceSalesOverview `LinearProgress`, height 8, grey-500 16% track) fills its row or table column; size the column (`TableCell sx={{ width: "32%" }}`) and let the bar fill it. A raw `minWidth: 80` on the bar overflows narrow cells.
+- **Retired legacy CSS stays deleted (test `legacy-card-css-deleted`).** When pages stop rendering a legacy class, delete its rules from frame.css / mesha-theme.css / minimal-theme.css; `.wchart`, `.wtable`, `.g2`-`.g6` and `.wb-dialog .it .car` are gone and the test fails if a rule or a product className brings one back.
 
 ## Charts: template Chart + useChart, verbatim (R2CHARTS, 2026-09-27)
 

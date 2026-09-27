@@ -124,7 +124,7 @@ export function collectRegressionFindings({ mobile = false, limit = 40 } = {}) {
   const root = document.querySelector("main") ?? document.body;
 
   // ---------- A: HTML chart labels ----------
-  const CHART = ".gcols-scroll, .kit-barlist, .hbarlist, .wbars, .wgrouped, .wchart";
+  const CHART = ".gcols-scroll, .kit-barlist, .hbarlist, .wbars, .wgrouped";
   const LABELS = ".wbl, .wbl-text, .wbv, .hblab, .hbval, .kit-bar-label-text, .kit-bar-value";
   const byChart = new Map();
   for (const el of root.querySelectorAll(LABELS)) {
@@ -175,7 +175,7 @@ export function collectRegressionFindings({ mobile = false, limit = 40 } = {}) {
     if (!painted(chart)) continue;
     const bars = Array.from(chart.querySelectorAll(".hbfill, .wbar, .kit-bar-fill, rect, path, circle, polyline, line")).filter((b) => !hidden(b) && b.getBoundingClientRect().height > 0.5 && b.getBoundingClientRect().width > 0.5);
     // A chart card may draw its figures as a GRID rather than bars (the Time-wise pen and load
-    // week tables are .wchart cards): visible table rows are painted data, not an empty frame.
+    // week tables): visible table rows are painted data, not an empty frame.
     // Without this the rule passed those grids only when some cell happened to contain "0 ", and
     // flagged the 30-day load grid as empty while it showed seven loads (2026-09-24).
     const tableRows = Array.from(chart.querySelectorAll("tbody tr")).filter((row) => !hidden(row) && row.getBoundingClientRect().height > 0.5);

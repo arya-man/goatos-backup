@@ -26,12 +26,9 @@
 .card>.bd{padding:24px}
 .card>.hd+.bd{padding-top:0}
 .card>h2.h,.card>h3.h,section.card>h2{margin:0;padding:var(--card-head-pad);font-size:18px;line-height:28px;font-weight:700;font-family:var(--font-display);letter-spacing:0}
-.card.wchart,.card.wtable{padding:24px}
-.card.wchart>h2.h,.card.wtable>h2.h{padding:0}
-.card.wchart>.kit-barlist{margin-top:16px}
 .card>.tablewrap:last-child,.card>.twrap:last-child{border-radius:0 0 16px 16px}
 .card>.hd .sp{flex:1}
-@media(max-width:640px){.card>.bd{padding:20px}.card>.hd{padding:16px 20px 0}.card.wchart,.card.wtable{padding:20px}}
+@media(max-width:640px){.card>.bd{padding:20px}.card>.hd{padding:16px 20px 0}}
 @media(max-width:640px){
   .card,.kpi,.chartcard{border-radius:16px}
   .card>.bd{padding:16px}
@@ -49,7 +46,7 @@
 .kit-tablecard,.card:has(>.tablewrap),.card:has(>.twrap){padding:0;overflow:clip}
 .kit-tablecard>.hd,.card:has(>.tablewrap)>.hd{padding:20px 24px 16px}
 /* A table card whose title is a bare h2.h (weighing Pens): title + filter row live in the header area with the 24px padding. */
-.card:has(>.tablewrap)>h2.h,.card:has(>.twrap)>h2.h,.card.wtable:has(>.tablewrap)>h2.h{padding:20px 24px 12px}
+.card:has(>.tablewrap)>h2.h,.card:has(>.twrap)>h2.h{padding:20px 24px 12px}
 .tablewrap,.twrap{overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin;position:relative;min-width:0;max-width:100%}
 .card>.tablewrap,.card>.twrap,.kit-tablecard>.tablewrap,.kit-tablecard>.twrap,.kit-tablecard>.main{margin:0;border-radius:0}
 .tablewrap table,.twrap table,.kit-tablecard table{width:100%;border-collapse:separate;border-spacing:0;min-width:640px}
@@ -96,10 +93,7 @@
 @media(max-width:640px){
 
   /* Counts: KPI tiles should scan like compact dashboard stats, with the table/farm section sooner. */
-  .ha-kit-stack .kit-kpi-wrap,
-  .ha-kit-stack .g4,
-  .ha-kit-stack .g3,
-  .ha-kit-stack .g2{display:grid!important;grid-template-columns:minmax(0,1fr)!important;gap:10px!important;width:100%!important}
+  .ha-kit-stack .kit-kpi-wrap{display:grid!important;grid-template-columns:minmax(0,1fr)!important;gap:10px!important;width:100%!important}
   .ha-kit-stack .kpi{min-height:104px!important;padding:14px!important;border-radius:16px!important}
   .ha-kit-stack .kpi .lab{font-size:12px!important;line-height:16px!important;color:var(--fg-muted)!important;font-weight:700!important}
   .ha-kit-stack .kpi .val{font-size:min(clamp(24px,7vw,32px),16.5cqi)!important;line-height:1.05!important;margin-top:6px!important}

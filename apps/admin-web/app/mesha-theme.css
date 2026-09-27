@@ -236,8 +236,8 @@
 
   /* Feed Analytics > Consumption > Status-wise: one Feed Items-style card per status, no chart. */
 
-  .chartcard .lg,.wchart .lg{display:flex;gap:14px 18px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:8px}
-  .chartcard .lg span,.wchart .lg span{display:inline-flex;align-items:center;gap:5px;min-width:0}
+  .chartcard .lg{display:flex;gap:14px 18px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:8px}
+  .chartcard .lg span{display:inline-flex;align-items:center;gap:5px;min-width:0}
   .chartcard svg{display:block}
   .fchipsbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 12px;padding:8px 11px;background:var(--panel);border:1px solid var(--line);border-radius:9px}
   .achip{display:inline-flex;gap:6px;align-items:center;background:var(--brand-soft);color:var(--brand-d);border-radius:7px;padding:3px 9px;font-size:11.5px;font-weight:600}
@@ -411,7 +411,7 @@
     .layout{display:block;min-height:0}
     .main{overflow:visible;width:100%;max-width:100%}
     .wrap{width:100%;max-width:100%;padding:14px 10px 48px}
-    .pagegrid,.grid,.card,.chartcard,.wchart,.kpi{min-width:0;max-width:100%}
+    .pagegrid,.grid,.card,.chartcard,.kpi{min-width:0;max-width:100%}
     .card.pad{padding:14px}
     .card .hd{align-items:flex-start;flex-wrap:wrap;padding:12px 13px}
     .card .hd h3{white-space:normal;line-height:1.25}
@@ -423,14 +423,12 @@
     .metricseg a{min-height:40px;display:inline-flex;align-items:center;padding:0 12px}
     .metricseg button{min-height:40px;display:inline-flex;align-items:center;padding:0 12px}
 
-    .g4,.g3,.g2,.g5,.g6{grid-template-columns:1fr!important}
     .qgrid{grid-template-columns:1fr}
     .charts{column-width:auto;column-count:1}
     .chartcard{padding:12px}
 
-    .wchart{padding:12px 13px;overflow:hidden}
-    .wchart svg,.chartcard svg{max-width:100%;height:auto}
-    .wchart .lg,.chartcard .lg{gap:8px 10px}
+    .chartcard svg{max-width:100%;height:auto}
+    .chartcard .lg{gap:8px 10px}
     .main .feed-stock-tablewrap,.tablewrap,.twrap,.cfgtablewrap{
       max-width:100%;
       overflow-x:auto;
@@ -528,19 +526,6 @@
      .card .bd overflow-x:auto region) scrolls INSIDE its container instead of forcing the track — and the
      card — past the viewport edge on narrow widths. Only ALLOWS shrinking; items still fill their track. */
   .grid>*{min-width:0}
-  .g4{grid-template-columns:repeat(4,1fr)} .g3{grid-template-columns:repeat(3,1fr)} .g2{grid-template-columns:repeat(2,1fr)}
-  /* Six-across KPI row, as the mock lays out a compact metric strip. Steps down rather
-     than reflowing into a ragged row with an empty slot. */
-  .g6{grid-template-columns:repeat(6,minmax(0,1fr))}
-  /* Same responsive ladder as .g6, one column narrower — the weighing headline row dropped its
-     duplicated gain card and the remaining five share that width. */
-  .g5{grid-template-columns:repeat(5,minmax(0,1fr))}
-  @media(max-width:1400px){.g5{grid-template-columns:repeat(3,minmax(0,1fr))}}
-  @media(max-width:1080px){.g5{grid-template-columns:repeat(2,minmax(0,1fr))}}
-  @media(max-width:640px){.g5{grid-template-columns:1fr}}
-  @media(max-width:1400px){.g6{grid-template-columns:repeat(3,minmax(0,1fr))}}
-  @media(max-width:1080px){.g4{grid-template-columns:repeat(2,1fr)}.g3,.g2{grid-template-columns:1fr}.g6{grid-template-columns:repeat(2,minmax(0,1fr))}}
-  @media(max-width:640px){.g6{grid-template-columns:1fr}}
   /* Sidebar+main two-column layout (e.g. Audit: span-of-control rail + activity trail). Fixed rail on
      desktop, STACKS on narrow so the wide table never gets pushed offscreen (an inline 288px/1fr style
      would override the responsive stack — use this class instead). */
@@ -1594,12 +1579,9 @@
     label:has(> input[type="checkbox"]),label:has(> input[type="radio"]){min-height:40px}
     .chip{display:inline-flex;align-items:center;justify-content:center;min-width:40px;min-height:40px}
 
-    .g4{grid-template-columns:repeat(2,1fr)}
-    .g3,.g2{grid-template-columns:1fr}
     .kpi .val{font-size:21px}
     .brand b{font-size:14px}
   }
-  @media(max-width:380px){ .g4{grid-template-columns:1fr} }
   @media(max-width:1080px){ .audit-kpi-grid{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))} }
   @media(max-width:860px){
     .wrap{overflow-x:clip}
@@ -1852,7 +1834,6 @@
 .sales-loads-page .crumb{text-transform:none;letter-spacing:normal;font-size:12px}
 .sub { color: var(--muted); font-size: 12.5px; max-width: 820px }
 .grid { display: grid; gap: 12px }
-.g4 { grid-template-columns: repeat(4, 1fr) }
 .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 13px 14px; position: relative; overflow: hidden }
 .kpi .acc { position: absolute; top: 0; left: 0; width: 100%; height: 3px }
 .kpi .lab { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; display: flex; align-items: center; gap: 6px }
@@ -2161,62 +2142,6 @@ select:disabled { opacity: .45 }
    metric rows included — sits flush against the next with a literal 0px between
    them. Scoped to this page so the shared container is untouched. */
 .weights-page{display:flex;flex-direction:column;gap:16px}
-/* Chart cards carry their own inset. `.card` on this page resolves to 0 padding, so the
-   title, caption, bars and footnote all sat 1px off the border — the bar labels and the
-   "N sheds are not counted" line read as touching the frame. Scoped to the chart cards
-   by class rather than applied to every `.card`, because the shed and losing-kid TABLES
-   in the same page are deliberately full-bleed and would be inset away from their own
-   header row. */
-.wchart{padding:14px 16px}
-.wchart h2,.wchart .h,.wtable h2,.wtable .h{overflow-wrap:anywhere}
-
-/* Air between a chart's header block and its bars. The title row (`.h`) and the
-   caption under it sat directly on the first bar, so the heading read as part of the
-   series rather than above it. Applied to the bar list itself — not to the heading —
-   so a chart with no caption (sex, stage) gets the same gap as one with a caption
-   (shed, breed, load), and the empty state keeps the same box position as the
-   populated list so toggling weight/gain never shifts the card. */
-
-/* Footnote under a chart ("N sheds are not counted here…") — it butted straight up
-   against the bars above it. */
-
-.wchart .muted.small,
-.wtable > p.muted.small{color:color-mix(in srgb,var(--muted) 76%,var(--ink))}
-/* The full-width shed chart's two ranked columns — one per park, or the single
-   selected park's list split across both. The columns carry the header gap
-   themselves, so the generic `.wchart .wbars` top margin is zeroed inside: the gap
-   above the bars belongs between the caption and the COLUMN ROW, not under each
-   column heading. */
-
-/* The two TABLE cards (Sheds, Kids losing weight). `.card` resolves to 0 padding on this page, so
-   their title, caption, pager row and footnote all sat 1px off the frame — the heading touching the
-   top border and the pager touching the bottom-left corner.
-   The inset is deliberately NOT put on the card: the TABLE stays full-bleed so its header rule and
-   row separators still run edge to edge, which is the mock's table anatomy and the reason these
-   cards were left unpadded in the first place. So the card gets vertical padding only, and every
-   direct child EXCEPT the table wrapper gets the horizontal inset. `:not(.tablewrap)` rather than a
-   list of child classes, so a future row added to these cards is inset by default instead of
-   silently reintroducing the defect. */
-.wtable{padding:14px 0}
-/* `.twrap` is the same wrapper one class over (the loads ledger uses it); both own their own
-   horizontal scroll, so both must be excluded, or the table is inset away from its own rules. */
-.wtable > :not(.tablewrap):not(.twrap){padding-left:16px;padding-right:16px}
-/* The table needs air from the caption above it and the pager below it, which the card's own
-   padding no longer provides now that the wrapper is excluded from it. */
-.wtable > .tablewrap{margin:12px 0}
-/* Line the outer columns up with the card's own text (17px from the frame). The cells' default
-   12px left them 4px adrift of the title and the pager, which reads as a wobble down the left edge
-   of the card. Padding on the CELL, never a margin or inset on the table: the header rule and row
-   separators must still reach the frame. */
-.wtable table.tbl th:first-child,
-.wtable table.tbl td:first-child{padding-left:16px}
-/* The loads ledger, same treatment: its own wrapper gets the air the card no longer provides, and
-   its outer columns line up with the card's text. */
-.wtable > .twrap{margin:12px 0}
-.wtable table.loadwise-table th:first-child,
-.wtable table.loadwise-table td:first-child{padding-left:16px}
-.wtable table.loadwise-table th:last-child,
-.wtable table.loadwise-table td:last-child{padding-right:16px}
 /* The pens cell is the one column that may WRAP. Every other cell here is nowrap on purpose (a
    load number and a 3-letter park must never break character-by-character), but a load sitting in
    three pens is a sentence, and holding it on one line pushes the numeric columns behind a
@@ -2267,8 +2192,6 @@ select:disabled { opacity: .45 }
   
 }
 
-.wtable table.tbl th:last-child,
-.wtable table.tbl td:last-child{padding-right:16px}
 /* Feed by weight band (ADG Analytics, Weight-wise tab). The title's ⓘ reuses the Pen-wise
    legend's hint trigger (.wgl-hint / .wgl-i + template Tooltip, scoped there to .wgrouped), re-scoped
    to this card's heading; the values are the same so the two affordances read as one. The
@@ -3459,8 +3382,6 @@ input[type="checkbox"]:not(.lt-people-row input):not(.PrivateSwitchBase-input):d
 .wb-dialog .items{display:flex;flex-direction:column;gap:4px}
 .wb-dialog .it{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto auto;gap:10px;align-items:center;padding:7px 10px;border:1px solid var(--line2);border-radius:8px;font-size:13px;cursor:pointer;background:transparent;color:inherit;font-family:inherit;text-align:left;width:100%}
 .wb-dialog .it.hot{background:color-mix(in srgb,var(--warn) 10%,var(--panel))}
-.wb-dialog .it .car{width:14px;color:var(--faint);font-size:11px;transition:transform .15s}
-.wb-dialog .it.open .car{transform:rotate(90deg)}
 .wb-dialog .it .nm{min-width:0;overflow-wrap:anywhere}
 .wb-dialog .it .nm b{font-weight:650}
 .wb-dialog .it .nm .s{color:var(--muted);font-size:11.5px;margin-left:6px}
