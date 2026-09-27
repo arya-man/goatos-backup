@@ -76,11 +76,6 @@
     "tap|a.MuiButtonBase-root.MuiChip-root.MuiChip-filled": 1,
     "tap|button.btn.primary": 1,
     "tap|button.btn.sm.lt-fmore": 1,
-    "tap|button.cbm-chip.cbm-chip-awaiting": 1,
-    "tap|button.cbm-chip.cbm-chip-overdue": 1,
-    "tap|button.cbm-chip.cbm-chip-rework": 1,
-    "tap|button.cbm-chip.cbm-chip-scheduled": 1,
-    "tap|button.cbm-chip.cbm-chip-verified": 1,
     "tap|button.lt-livebadge": 1,
     "tap|button.sel": 1
   }
