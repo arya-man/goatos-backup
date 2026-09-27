@@ -59,3 +59,33 @@ test("legacy CSS backdrop blur declarations only shrink", () => {
   assert.ok(blurs <= 2, `backdrop blur declarations in legacy CSS: ${blurs} (max 2, shrink only)`);
   assert.doesNotMatch(css, /\.vr-results-loading\{backdrop-filter/);
 });
+
+// guard: header-gap-wrapped (R3OPS-3). The probe also measures a PageHeader wrapped alone in a div
+// inside the page column: the first block is the wrapper's next sibling. A 0px gap fails, 24px passes.
+test("header-gap probe sees through a header wrapper", async () => {
+  const { chromium } = await import("playwright");
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
+    const doc = (gap) => `<div class="screen on"><div style="display:flex;flex-direction:column;gap:${gap}px">
+      <div><header data-page-header style="height:60px">Title</header></div>
+      <div style="height:100px">KPI row</div></div></div>`;
+    await page.setContent(doc(0));
+    const bad = await page.evaluate(probePageRhythm);
+    assert.equal(bad.filter((f) => f.kind === "header-gap").length, 1, JSON.stringify(bad));
+    await page.setContent(doc(24));
+    assert.deepEqual((await page.evaluate(probePageRhythm)).filter((f) => f.kind === "header-gap"), []);
+  } finally {
+    await browser.close();
+  }
+});
+
+// Static twins for the two wrapped-header layouts the stricter probe found (R3OPS-3).
+test("/tasks and the SOP builder keep the page gap under the header", () => {
+  const tasks = readFileSync(join(root, "features/leadership-tasks/leadership-tasks-page.tsx"), "utf8");
+  assert.match(tasks, /<Box sx=\{\{ minWidth: 0, "& > \[data-page-header\]": \{ mb: 3 \} \}\}>/);
+  const builder = readFileSync(join(root, "features/sops/sop-builder.tsx"), "utf8");
+  // `.screen.on` pins the root to display:block, so the column is an inner Box (as in sop-library).
+  assert.match(builder, /<div className="kit-enter screen on sop-kit">\s*\{\/\*[\s\S]*?\*\/\}\s*<Box sx=\{\{ display: "flex", flexDirection: "column", gap: 3 \}\}>/);
+  assert.doesNotMatch(builder, /marginBottom: 12/, "notices take the column gap, not their own margin");
+});

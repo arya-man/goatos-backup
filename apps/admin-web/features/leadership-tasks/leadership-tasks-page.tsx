@@ -325,7 +325,9 @@ export function LeadershipTasksPage({
   // head and lays the template kanban columns under it on the page ground.
   return (
     <TaskViewProvider initial={params.view}>
-    <Box sx={{ minWidth: 0 }}>
+    {/* The page gap under the header (template CustomBreadcrumbs mb): the scope tabs sat 0px under the
+        breadcrumbs. guard: rhythm|header-gap */}
+    <Box sx={{ minWidth: 0, "& > [data-page-header]": { mb: 3 } }}>
       <PageHeader
         title={page?.title || pageContract.title}
         crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}

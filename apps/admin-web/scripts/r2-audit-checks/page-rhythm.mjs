@@ -15,8 +15,17 @@ export function probePageRhythm() {
   };
   const header = document.querySelector("[data-page-header]");
   if (header && visible(header)) {
-    let next = header.nextElementSibling;
-    while (next && !visible(next)) next = next.nextElementSibling;
+    // The header may sit alone in a wrapper (<div><PageHeader/></div> in a flex column): then the
+    // first block is the WRAPPER's next sibling. Walk up while the header is its wrapper's only
+    // visible content (the /configuration/work-instructions SOP library read 0px and slipped past).
+    let anchor = header;
+    let next = null;
+    for (let depth = 0; anchor && depth < 4; depth += 1) {
+      next = anchor.nextElementSibling;
+      while (next && !visible(next)) next = next.nextElementSibling;
+      if (next || !anchor.parentElement || anchor.parentElement.matches("main, body, .screen")) break;
+      anchor = anchor.parentElement;
+    }
     if (next) {
       const gap = Math.round(next.getBoundingClientRect().top - header.getBoundingClientRect().bottom);
       if (gap < 16) out.push({ kind: "header-gap", detail: `${gap}px between the page header and ${next.tagName.toLowerCase()}.${String(next.className).split(" ").slice(0, 2).join(".")}` });

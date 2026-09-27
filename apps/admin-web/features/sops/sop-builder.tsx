@@ -233,6 +233,9 @@ export function SopBuilder({
 
   return (
     <div className="kit-enter screen on sop-kit">
+      {/* One column with the template page gap between header, notices and the builder: an inner Box,
+          because `.screen.on` pins the root to display:block (as in sop-library). guard: rhythm|header-gap */}
+      <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
       <EditorHeader
         crumbs={[copy(pc, "crumb"), pc.title, editing ? copy(pc, "builder.crumb_edit") : copy(pc, "builder.crumb_current")]}
         title={editing ? copy(pc, "builder.title_edit") : copy(pc, "modal.builder.title")}
@@ -248,11 +251,11 @@ export function SopBuilder({
       {notice ? (
         <div>
           {notice.ok ? (
-            <div className="note" style={{ marginBottom: 12 }}>
+            <div className="note">
               <Tag tone="ok">{copy(pc, "modal.builder.notice_ok")}</Tag> {notice.message}
             </div>
           ) : (
-            <Alert severity="warning" style={{ marginBottom: 12 }}><div>{notice.message}</div>
+            <Alert severity="warning"><div>{notice.message}</div>
             </Alert>
           )}
         </div>
@@ -260,7 +263,7 @@ export function SopBuilder({
 
       {editBlocked ? (
         <div>
-          <Alert severity="warning" style={{ marginBottom: 12 }}><div>{copy(pc, "builder.edit_blocked")}</div>
+          <Alert severity="warning"><div>{copy(pc, "builder.edit_blocked")}</div>
           </Alert>
         </div>
       ) : null}
@@ -556,6 +559,7 @@ export function SopBuilder({
           <BuilderPreview pc={pc} steps={steps} />
         </DialogContent>
       </Dialog>
+      </Box>
     </div>
   );
 }
