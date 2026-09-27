@@ -2,7 +2,7 @@
 import Box from "@mui/material/Box";
 import Chip from "@mui/material/Chip";
 
-import { useCallback, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Columns3, Download, X } from "lucide-react";
 import Button from "@mui/material/Button";
@@ -22,7 +22,8 @@ type LeaveToolbarProps = {
   /** Base path + current query, used to patch a single param client-side. */
   basePath: string;
   currentQuery: string;
-  copyFor: (key: string) => string;
+  /** Backend copy by key, resolved by the server page (a function cannot cross to a client component). */
+  labels: Record<string, string>;
   shown: number;
   total: number;
   /** CSV rows, already serialised by the server (export is read-only). */
@@ -39,7 +40,8 @@ type LeaveToolbarProps = {
  * data. The filters narrow the window the route already fetched — the backend list endpoint takes
  * only `status`, `limit` and `cursor`, so person/park/designation/date are applied in the page.
  */
-function LeaveToolbar({ value, parkOptions, designationOptions, basePath, currentQuery, copyFor, shown, total, csv, csvName, dense, onDenseChange }: LeaveToolbarProps) {
+function LeaveToolbar({ value, parkOptions, designationOptions, basePath, currentQuery, labels, shown, total, csv, csvName, dense, onDenseChange }: LeaveToolbarProps) {
+  const copyFor = (key: string) => labels[key] ?? "";
   const router = useRouter();
   const [q, setQ] = useState(value.q);
 
@@ -188,7 +190,8 @@ type LeaveFooterProps = {
   cursorParam: string;
   dense: boolean;
   onDenseChange: (dense: boolean) => void;
-  copyFor: (key: string) => string;
+  /** Backend copy by key, resolved by the server page. */
+  labels: Record<string, string>;
 };
 
 /**
@@ -196,7 +199,8 @@ type LeaveFooterProps = {
  * window" rather than "of N", because the backend returns a cursor and no total. Previous walks
  * browser history, which is the only correct previous for an opaque forward cursor.
  */
-function LeaveCursorFooter({ shown, nextHref, hasPrevious, pageSizeOptions, pageSize, basePath, currentQuery, limitParam, cursorParam, dense, onDenseChange, copyFor }: LeaveFooterProps) {
+function LeaveCursorFooter({ shown, nextHref, hasPrevious, pageSizeOptions, pageSize, basePath, currentQuery, limitParam, cursorParam, dense, onDenseChange, labels }: LeaveFooterProps) {
+  const copyFor = (key: string) => labels[key] ?? "";
   const router = useRouter();
   const rowsHref = (size: number) => {
     const params = new URLSearchParams(currentQuery);
@@ -224,28 +228,51 @@ function LeaveCursorFooter({ shown, nextHref, hasPrevious, pageSizeOptions, page
   );
 }
 
+const DenseContext = createContext<{ dense: boolean; setDense: (dense: boolean) => void }>({ dense: false, setDense: () => undefined });
+
+/**
+ * One leave card's dense switch, shared by the toolbar (OUTSIDE the URL-keyed panel) and the table +
+ * footer (INSIDE it). A context, not props, because the two halves sit on either side of a server
+ * Suspense boundary.
+ */
+export function LeaveDenseScope({ children }: { children: ReactNode }) {
+  const [dense, setDense] = useState(false);
+  return <DenseContext.Provider value={{ dense, setDense }}>{children}</DenseContext.Provider>;
+}
+
+/**
+ * The filter toolbar row of one leave card. It renders OUTSIDE the card's UrlSuspense (guard:
+ * leave-toolbar-outside-panel): a filter change swaps only the rows to their skeleton, the control
+ * the reader just used stays on screen with its value, and an empty result still offers the
+ * filters to widen it.
+ */
+export function LeaveToolbarRow({ toolbar }: { toolbar: Omit<LeaveToolbarProps, "dense" | "onDenseChange"> }) {
+  const { dense, setDense } = useContext(DenseContext);
+  return (
+    <Box sx={{ px: { xs: 2, sm: 3 }, pb: 1.5 }}>
+      <LeaveToolbar {...toolbar} dense={dense} onDenseChange={setDense} />
+    </Box>
+  );
+}
+
 export type LeaveTableChromeProps = {
   /** The server-rendered <Table>, handed through as children so it stays a server component. */
   children: ReactNode;
-  toolbar: Omit<LeaveToolbarProps, "dense" | "onDenseChange">;
   footer: Omit<LeaveFooterProps, "dense" | "onDenseChange">;
   tableAriaLabel: string;
 };
 
 /**
- * Toolbar + table + footer for one leave table.
+ * Table + footer for one leave table (the toolbar is LeaveToolbarRow, outside the keyed panel).
  *
- * It is a client component only so the dense switch, the filter controls and the pager can share
- * one piece of state; the table itself is still rendered on the server and passed through as
+ * It is a client component only so the dense switch and the pager can share the card's
+ * LeaveDenseScope; the table itself is still rendered on the server and passed through as
  * children, so no row data crosses into the client bundle twice.
  */
-export function LeaveTableChrome({ children, toolbar, footer, tableAriaLabel }: LeaveTableChromeProps) {
-  const [dense, setDense] = useState(false);
+export function LeaveTableChrome({ children, footer, tableAriaLabel }: LeaveTableChromeProps) {
+  const { dense, setDense } = useContext(DenseContext);
   return (
     <>
-      <Box sx={{ px: { xs: 2, sm: 3 }, pb: 1.5 }}>
-        <LeaveToolbar {...toolbar} dense={dense} onDenseChange={setDense} />
-      </Box>
       <Box className={`tablewrap${dense ? " kit-dense" : ""}`} tabIndex={0} role="group" aria-label={tableAriaLabel} sx={{ overflow: "auto" }}>
         {children}
       </Box>

@@ -37,7 +37,7 @@ import { approveLeaveAction, rejectLeaveAction } from "./actions";
 import { LeaveConfigPanel } from "./leave-config-panel";
 import { LeaveActionTelemetry } from "./leave-telemetry";
 import { LeaveRejectDialog } from "./leave-reject-dialog";
-import { LeaveTableChrome } from "./leave-toolbar";
+import { LeaveDenseScope, LeaveTableChrome, LeaveToolbarRow } from "./leave-toolbar";
 import { DEFAULT_PAGE_SIZE, STATUS_FILTERS } from "./leave-layout";
 
 const PATHNAME = "/leave";
@@ -110,6 +110,8 @@ export async function LeavePage({
   if (authError) redirect(INTERNAL_LOGIN_PATH);
 
   const queueAll: LeaveRequest[] = queue?.ok ? listOrEmpty(queue.data.items) : [];
+  // Toolbar / pager copy, resolved here: a function prop cannot cross into the client chrome.
+  const chromeLabels = Object.fromEntries(LEAVE_CHROME_COPY_KEYS.map((key) => [key, copy(pageContract, key)]));
   const queueRows = applyFilters(queueAll, filters);
   const queueNext = queue?.ok ? queue.data.next_cursor : "";
   const listAll: LeaveRequest[] = list?.ok ? listOrEmpty(list.data.items) : [];
@@ -171,10 +173,26 @@ export async function LeavePage({
 
         {mayDecide ? (
             <Card className="kit-tablecard" data-testid="leave-queue">
+              <LeaveDenseScope>
               <CardHeader
                 sx={{ pt: 2.5, px: 3, pb: 1.5, mb: 2, alignItems: "center" }}
                 title={queueTable.title}
                 action={queueRows.length ? <Label variant="soft" color="info">{queueRows.length}</Label> : null}
+              />
+              {/* Filters stay OUTSIDE the keyed panel (guard: leave-toolbar-outside-panel). */}
+              <LeaveToolbarRow
+                toolbar={{
+                  value: filters,
+                  parkOptions,
+                  designationOptions,
+                  basePath: PATHNAME,
+                  currentQuery,
+                  labels: chromeLabels,
+                  shown: queueRows.length,
+                  total: queueAll.length,
+                  csv: toCsv(queueRows),
+                  csvName: "leave-approvals.csv",
+                }}
               />
               {/* Queue rows (guard: url-keyed-panel): a filter / page change swaps them to their skeleton at once. */}
               <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={QUEUE_IGNORE} fallback={<TableSkeleton bare header={false} columns={queueLabels.length || 6} rows={queueSize} />}>
@@ -188,18 +206,6 @@ export async function LeavePage({
               ) : (
                 <LeaveTableChrome
                   tableAriaLabel={queueTable.title}
-                  toolbar={{
-                    value: filters,
-                    parkOptions,
-                    designationOptions,
-                    basePath: PATHNAME,
-                    currentQuery,
-                    copyFor: (key) => copy(pageContract, key),
-                    shown: queueRows.length,
-                    total: queueAll.length,
-                    csv: toCsv(queueRows),
-                    csvName: "leave-approvals.csv",
-                  }}
                   footer={{
                     shown: queueRows.length,
                     nextHref: queueNext ? hrefWith(sp, { q_cursor: queueNext, lv_status: null, lv_code: null }) : "",
@@ -210,7 +216,7 @@ export async function LeavePage({
                     currentQuery,
                     limitParam: "q_limit",
                     cursorParam: "q_cursor",
-                    copyFor: (key) => copy(pageContract, key),
+                    labels: chromeLabels,
                   }}
                 >
                   <Table stickyHeader>
@@ -278,11 +284,13 @@ export async function LeavePage({
                 </LeaveTableChrome>
               )}
               </UrlSuspense>
+              </LeaveDenseScope>
             </Card>
         ) : null}
 
         {mayList ? (
             <Card className="kit-tablecard" data-testid="leave-list">
+              <LeaveDenseScope>
               <CardHeader
                 sx={{ pt: 2.5, px: 3, pb: 1.5, alignItems: "center" }}
                 title={listTable.title}
@@ -302,6 +310,21 @@ export async function LeavePage({
                       href: hrefWith(sp, { status: key || null, cursor: null, lv_status: null, lv_code: null }),
                     }))}
               />
+              {/* Filters stay OUTSIDE the keyed panel (guard: leave-toolbar-outside-panel). */}
+              <LeaveToolbarRow
+                toolbar={{
+                  value: filters,
+                  parkOptions,
+                  designationOptions,
+                  basePath: PATHNAME,
+                  currentQuery,
+                  labels: chromeLabels,
+                  shown: listRows.length,
+                  total: listAll.length,
+                  csv: toCsv(listRows),
+                  csvName: "leave-requests.csv",
+                }}
+              />
               {/* List rows (guard: url-keyed-panel): a status tab / filter / page click swaps them to
                   their skeleton at once; the card header and status tabs stay on screen. */}
               <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={LIST_IGNORE} fallback={<TableSkeleton bare header={false} columns={listLabels.length || 6} rows={listSize} />}>
@@ -315,18 +338,6 @@ export async function LeavePage({
               ) : (
                 <LeaveTableChrome
                   tableAriaLabel={listTable.title}
-                  toolbar={{
-                    value: filters,
-                    parkOptions,
-                    designationOptions,
-                    basePath: PATHNAME,
-                    currentQuery,
-                    copyFor: (key) => copy(pageContract, key),
-                    shown: listRows.length,
-                    total: listAll.length,
-                    csv: toCsv(listRows),
-                    csvName: "leave-requests.csv",
-                  }}
                   footer={{
                     shown: listRows.length,
                     nextHref: listNext ? hrefWith(sp, { cursor: listNext, lv_status: null, lv_code: null }) : "",
@@ -337,7 +348,7 @@ export async function LeavePage({
                     currentQuery,
                     limitParam: "limit",
                     cursorParam: "cursor",
-                    copyFor: (key) => copy(pageContract, key),
+                    labels: chromeLabels,
                   }}
                 >
                   <Table stickyHeader>
@@ -373,6 +384,7 @@ export async function LeavePage({
                 </LeaveTableChrome>
               )}
               </UrlSuspense>
+              </LeaveDenseScope>
             </Card>
         ) : !mayDecide ? (
             <Alert severity="error">{control(pageContract, "leave_list").disabled_reason ?? ""}</Alert>
@@ -495,3 +507,26 @@ const LIST_WATCH = ["status", "cursor", "limit"] as const;
 /** Params that never change a panel: the decision feedback banner, and the other table's pager. */
 const QUEUE_IGNORE = ["lv_status", "lv_code", "status", "cursor", "limit"] as const;
 const LIST_IGNORE = ["lv_status", "lv_code", "q_cursor", "q_limit"] as const;
+
+/** Copy keys the client toolbar + pager read (leave-toolbar.tsx `copyFor`). */
+const LEAVE_CHROME_COPY_KEYS = [
+  "action.apply_search",
+  "action.clear_all",
+  "action.columns",
+  "action.export",
+  "action.more",
+  "action.next",
+  "action.previous",
+  "action.remove_filter",
+  "action.reset_filters",
+  "filter.dates",
+  "filter.dates_from",
+  "filter.dates_to",
+  "filter.designation",
+  "filter.designation.all",
+  "filter.park",
+  "filter.park.all",
+  "filter.search_label",
+  "filter.search_placeholder",
+  "label.rows_per_page",
+] as const;

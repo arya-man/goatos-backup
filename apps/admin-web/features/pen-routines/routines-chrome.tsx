@@ -2,7 +2,7 @@
 import Box from "@mui/material/Box";
 import Chip from "@mui/material/Chip";
 
-import { useState, type ReactNode } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Columns3, Download, X } from "lucide-react";
 import Button from "@mui/material/Button";
@@ -33,7 +33,7 @@ export type ChromeDateRange = {
   toLabel: string;
 };
 
-export type RoutinesTableChromeProps = {
+export type RoutinesChromeProps = {
   /** The server-rendered <Table>, passed through so row data never crosses twice. */
   children: ReactNode;
   tableAriaLabel: string;
@@ -66,18 +66,42 @@ export type RoutinesTableChromeProps = {
   labels: Record<string, string>;
 };
 
+const DenseContext = createContext<{ dense: boolean; setDense: (next: boolean | ((d: boolean) => boolean)) => void }>({ dense: false, setDense: () => undefined });
+
 /**
- * Toolbar + table + footer for a routines table.
- *
- * This replaces the borrowed `ProcurementPager` (and with it `/routines`' dependency on
- * procurement's stylesheet). Every control writes a query parameter and lets the server re-render;
- * nothing here mutates a routine or a task. The table stays a server component, handed in as
- * children, so this client boundary exists only to share the dense switch between toolbar and
- * footer.
+ * One routines card's dense switch, shared by the toolbar (OUTSIDE the URL-keyed panel) and the
+ * table + footer (INSIDE it): a context, because the two halves sit on either side of a server
+ * Suspense boundary.
  */
-export function RoutinesTableChrome({
-  children,
-  tableAriaLabel,
+export function RoutinesDenseScope({ children }: { children: ReactNode }) {
+  const [dense, setDense] = useState(false);
+  return <DenseContext.Provider value={{ dense, setDense }}>{children}</DenseContext.Provider>;
+}
+
+type Patcher = { basePath: string; currentQuery: string; cursorParams: string[] };
+function hrefPatcher({ basePath, currentQuery, cursorParams }: Patcher) {
+  return (entries: Record<string, string | null>, keepCursor = false) => {
+    const params = new URLSearchParams(currentQuery);
+    for (const [k, v] of Object.entries(entries)) {
+      if (!v) params.delete(k);
+      else params.set(k, v);
+    }
+    if (!keepCursor) for (const p of cursorParams) params.delete(p);
+    const qs = params.toString();
+    return qs ? `${basePath}?${qs}` : basePath;
+  };
+}
+
+export type RoutinesToolbarRowProps = Omit<RoutinesChromeProps, "children" | "tableAriaLabel" | "footer">;
+
+/**
+ * The filter toolbar of a routines card. It renders OUTSIDE the card's UrlSuspense (guard:
+ * routines-toolbar-outside-panel): a filter change swaps only the rows to their skeleton, the
+ * control just used keeps its value on screen, and an empty result still offers the filters.
+ * Every control writes a query parameter and lets the server re-render; nothing here mutates a
+ * routine or a task.
+ */
+export function RoutinesToolbarRow({
   basePath,
   currentQuery,
   searchParam,
@@ -92,26 +116,15 @@ export function RoutinesTableChrome({
   total,
   csv,
   csvName,
-  footer,
   labels,
-}: RoutinesTableChromeProps) {
+}: RoutinesToolbarRowProps) {
   const router = useRouter();
-  const [dense, setDense] = useState(false);
+  const { setDense } = useContext(DenseContext);
   const [query, setQuery] = useState(searchValue);
   // Every label is backend copy handed in by the page (chromeLabels in routines-page.tsx); the
   // chrome composes none of its own.
   const L = (key: string) => labels[key] ?? "";
-
-  const patchHref = (entries: Record<string, string | null>, keepCursor = false) => {
-    const params = new URLSearchParams(currentQuery);
-    for (const [k, v] of Object.entries(entries)) {
-      if (!v) params.delete(k);
-      else params.set(k, v);
-    }
-    if (!keepCursor) for (const p of cursorParams) params.delete(p);
-    const qs = params.toString();
-    return qs ? `${basePath}?${qs}` : basePath;
-  };
+  const patchHref = hrefPatcher({ basePath, currentQuery, cursorParams });
   const patch = (entries: Record<string, string | null>, keepCursor = false) => {
     router.push(patchHref(entries, keepCursor), { scroll: false });
   };
@@ -145,7 +158,6 @@ export function RoutinesTableChrome({
   };
 
   return (
-    <>
       <Box sx={{ px: { xs: 2, sm: 3 }, pb: 1.5 }}>
         <FilterBar
           search={{
@@ -228,7 +240,29 @@ export function RoutinesTableChrome({
           ) : null}
         </FilterBar>
       </Box>
+  );
+}
 
+/**
+ * Table + footer for a routines table (the toolbar is RoutinesToolbarRow, outside the keyed panel).
+ * The table stays a server component, handed in as children; this client boundary exists only to
+ * share the card's dense switch with the footer.
+ */
+export function RoutinesTableChrome({
+  children,
+  tableAriaLabel,
+  basePath,
+  currentQuery,
+  cursorParams,
+  footer,
+  labels,
+}: Pick<RoutinesChromeProps, "children" | "tableAriaLabel" | "basePath" | "currentQuery" | "cursorParams" | "footer" | "labels">) {
+  const router = useRouter();
+  const { dense, setDense } = useContext(DenseContext);
+  const L = (key: string) => labels[key] ?? "";
+  const patchHref = hrefPatcher({ basePath, currentQuery, cursorParams });
+  return (
+    <>
       <Box className={`tablewrap${dense ? " kit-dense" : ""}`} tabIndex={0} role="group" aria-label={tableAriaLabel} sx={{ overflow: "auto", maxHeight: "62vh" }}>
         {children}
       </Box>

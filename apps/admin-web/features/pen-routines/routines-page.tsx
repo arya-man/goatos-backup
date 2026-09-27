@@ -1,7 +1,7 @@
 import Table from "@mui/material/Table";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
-import { FilterCardSkeleton, KpiRowSkeleton, TableSkeleton } from "@/components/app/skeletons";
+import { KpiRowSkeleton, TableSkeleton } from "@/components/app/skeletons";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
@@ -39,7 +39,7 @@ import type { PaletteColorKey } from "@/theme/core";
 import { fmtDate, todayIso } from "@/lib/format";
 import { all, boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { RoutineDrawerForm, RoutineSaveFooter } from "./routine-drawer";
-import { RoutinesTableChrome } from "./routines-chrome";
+import { RoutinesDenseScope, RoutinesTableChrome, RoutinesToolbarRow } from "./routines-chrome";
 import Button from "@mui/material/Button";
 
 /**
@@ -450,13 +450,53 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
         </UrlSuspense>
 
         <Card className="kit-tablecard" aria-label={routinesTable.title}>
+            <RoutinesDenseScope>
             <CardHeader
               sx={{ px: 3, pt: 2.5, pb: 1.5, alignItems: "center", gap: 1.5, flexWrap: "wrap" }}
               title={routinesTable.title}
               action={routines.length ? <Label variant="soft" color="info">{filteredRoutines.length}</Label> : null}
             />
             {!canConfigure ? <Alert severity="info" sx={{ mx: 3, mb: 1.5 }}>{c("configure.disabled_no_access")}</Alert> : null}
-            <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<TableSkeleton bare header={false} columns={routineColumns.length || 6} rows={8} toolbar={<FilterCardSkeleton inCard fields={["search", 160, 160, 160]} small />} />}>
+            {/* Filters stay OUTSIDE the keyed panel (guard: routines-toolbar-outside-panel). */}
+            <RoutinesToolbarRow
+              basePath={ROUTINES_PATH}
+              currentQuery={currentQuery}
+              searchParam={PARAM_Q}
+              searchValue={routineQuery}
+              searchPlaceholder={copy(pageContract, "filter.search_placeholder", c("filter.routine"))}
+              searchLabel={copy(pageContract, "filter.search_label", c("filter.routine"))}
+              filters={[
+                {
+                  param: PARAM_PARK,
+                  label: c("filter.park"),
+                  value: selectedPark,
+                  allLabel: copy(pageContract, "filter.park.all", c("filter.park")),
+                  options: parks.map((park) => ({ value: park.park_id, label: park.name })),
+                },
+                {
+                  param: PARAM_ROUTINE_STATUS,
+                  label: copy(pageContract, "filter.status", "Status"),
+                  value: routineStatus,
+                  allLabel: copy(pageContract, "filter.status.all", "All statuses"),
+                  options: routineStatusOptions,
+                },
+                {
+                  param: PARAM_ROLE,
+                  label: copy(pageContract, "filter.role", "Role"),
+                  value: routineRole,
+                  allLabel: copy(pageContract, "filter.role.all", "All roles"),
+                  options: roleOptions,
+                },
+              ]}
+              clearable={[PARAM_Q, PARAM_PARK, PARAM_ROUTINE_STATUS, PARAM_ROLE]}
+              cursorParams={[PARAM_CURSOR, PARAM_PAGE, PARAM_STACK]}
+              shown={filteredRoutines.length}
+              total={routines.length}
+              csv={routinesCsv(filteredRoutines)}
+              csvName="pen-routines.csv"
+              labels={chromeLabels}
+            />
+            <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<TableSkeleton bare header={false} columns={routineColumns.length || 6} rows={8} />}>
             {routines.length === 0 ? (
               <EmptyState title={c("empty.routines")} sx={{ mx: 3, mb: 3 }} />
             ) : (
@@ -464,39 +504,7 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
                 tableAriaLabel={routinesTable.title}
                 basePath={ROUTINES_PATH}
                 currentQuery={currentQuery}
-                searchParam={PARAM_Q}
-                searchValue={routineQuery}
-                searchPlaceholder={copy(pageContract, "filter.search_placeholder", c("filter.routine"))}
-                searchLabel={copy(pageContract, "filter.search_label", c("filter.routine"))}
-                filters={[
-                  {
-                    param: PARAM_PARK,
-                    label: c("filter.park"),
-                    value: selectedPark,
-                    allLabel: copy(pageContract, "filter.park.all", c("filter.park")),
-                    options: parks.map((park) => ({ value: park.park_id, label: park.name })),
-                  },
-                  {
-                    param: PARAM_ROUTINE_STATUS,
-                    label: copy(pageContract, "filter.status", "Status"),
-                    value: routineStatus,
-                    allLabel: copy(pageContract, "filter.status.all", "All statuses"),
-                    options: routineStatusOptions,
-                  },
-                  {
-                    param: PARAM_ROLE,
-                    label: copy(pageContract, "filter.role", "Role"),
-                    value: routineRole,
-                    allLabel: copy(pageContract, "filter.role.all", "All roles"),
-                    options: roleOptions,
-                  },
-                ]}
-                clearable={[PARAM_Q, PARAM_PARK, PARAM_ROUTINE_STATUS, PARAM_ROLE]}
                 cursorParams={[PARAM_CURSOR, PARAM_PAGE, PARAM_STACK]}
-                shown={filteredRoutines.length}
-                total={routines.length}
-                csv={routinesCsv(filteredRoutines)}
-                csvName="pen-routines.csv"
                 footer={{
                   nextHref: "",
                   hasPrevious: false,
@@ -524,9 +532,11 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
               </RoutinesTableChrome>
             )}
             </UrlSuspense>
+            </RoutinesDenseScope>
           </Card>
 
         <Card className="kit-tablecard" aria-label={tasksTable.title}>
+            <RoutinesDenseScope>
             <CardHeader
               sx={{ px: 3, pt: 2.5, pb: 1.5, alignItems: "center", gap: 1.5, flexWrap: "wrap" }}
               title={tasksTable.title}
@@ -538,7 +548,55 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
                 {data.tasks.error.message}
               </Alert>
             ) : null}
-            <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<TableSkeleton bare header={false} columns={taskColumns.length || 6} rows={10} toolbar={<FilterCardSkeleton inCard fields={["search", 160, 160, 160]} small />} />}>
+            {/* Filters stay OUTSIDE the keyed panel (guard: routines-toolbar-outside-panel). */}
+            <RoutinesToolbarRow
+              basePath={ROUTINES_PATH}
+              currentQuery={currentQuery}
+              searchParam={PARAM_Q}
+              searchValue={taskQuery}
+              searchPlaceholder={copy(pageContract, "filter.search_placeholder", c("filter.routine"))}
+              searchLabel={copy(pageContract, "filter.search_label", c("filter.routine"))}
+              filters={[
+                {
+                  param: PARAM_ROUTINE,
+                  label: c("filter.routine"),
+                  value: one(sp, PARAM_ROUTINE) ?? "",
+                  allLabel: copy(pageContract, "filter.routine.all", c("filter.routine")),
+                  options: todayRoutines.map((routine) => ({ value: routine.routine_id, label: routine.name })),
+                },
+                {
+                  param: PARAM_STATE,
+                  label: copy(pageContract, "filter.state", "State"),
+                  value: taskState,
+                  allLabel: copy(pageContract, "filter.state.all", "All states"),
+                  options: stateOptions,
+                },
+                {
+                  param: PARAM_ASSIGNEE,
+                  label: copy(pageContract, "filter.assignee", "Assignee"),
+                  value: taskAssignee,
+                  allLabel: copy(pageContract, "filter.assignee.all", "All assignees"),
+                  options: assigneeOptions,
+                },
+              ]}
+              dateRange={{
+                label: c("filter.business_date"),
+                fromParam: PARAM_DAY,
+                toParam: PARAM_TO,
+                from: data.businessDate,
+                to: one(sp, PARAM_TO) ?? "",
+                fromLabel: c("filter.business_date"),
+                toLabel: c("filter.business_date"),
+              }}
+              clearable={[PARAM_Q, PARAM_ROUTINE, PARAM_STATE, PARAM_ASSIGNEE, PARAM_TO]}
+              cursorParams={[PARAM_CURSOR, PARAM_PAGE, PARAM_STACK]}
+              shown={taskRows.length}
+              total={allTaskRows.length}
+              csv={tasksCsv(taskRows)}
+              csvName="pen-routine-tasks.csv"
+              labels={chromeLabels}
+            />
+            <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<TableSkeleton bare header={false} columns={taskColumns.length || 6} rows={10} />}>
             {allTaskRows.length === 0 ? (
               <EmptyState title={c("empty.tasks")} sx={{ mx: 3, mb: 3 }} />
             ) : (
@@ -546,48 +604,7 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
                 tableAriaLabel={tasksTable.title}
                 basePath={ROUTINES_PATH}
                 currentQuery={currentQuery}
-                searchParam={PARAM_Q}
-                searchValue={taskQuery}
-                searchPlaceholder={copy(pageContract, "filter.search_placeholder", c("filter.routine"))}
-                searchLabel={copy(pageContract, "filter.search_label", c("filter.routine"))}
-                filters={[
-                  {
-                    param: PARAM_ROUTINE,
-                    label: c("filter.routine"),
-                    value: one(sp, PARAM_ROUTINE) ?? "",
-                    allLabel: copy(pageContract, "filter.routine.all", c("filter.routine")),
-                    options: todayRoutines.map((routine) => ({ value: routine.routine_id, label: routine.name })),
-                  },
-                  {
-                    param: PARAM_STATE,
-                    label: copy(pageContract, "filter.state", "State"),
-                    value: taskState,
-                    allLabel: copy(pageContract, "filter.state.all", "All states"),
-                    options: stateOptions,
-                  },
-                  {
-                    param: PARAM_ASSIGNEE,
-                    label: copy(pageContract, "filter.assignee", "Assignee"),
-                    value: taskAssignee,
-                    allLabel: copy(pageContract, "filter.assignee.all", "All assignees"),
-                    options: assigneeOptions,
-                  },
-                ]}
-                dateRange={{
-                  label: c("filter.business_date"),
-                  fromParam: PARAM_DAY,
-                  toParam: PARAM_TO,
-                  from: data.businessDate,
-                  to: one(sp, PARAM_TO) ?? "",
-                  fromLabel: c("filter.business_date"),
-                  toLabel: c("filter.business_date"),
-                }}
-                clearable={[PARAM_Q, PARAM_ROUTINE, PARAM_STATE, PARAM_ASSIGNEE, PARAM_TO]}
                 cursorParams={[PARAM_CURSOR, PARAM_PAGE, PARAM_STACK]}
-                shown={taskRows.length}
-                total={allTaskRows.length}
-                csv={tasksCsv(taskRows)}
-                csvName="pen-routine-tasks.csv"
                 footer={{
                   nextHref: nextHref(sp, tasks?.next_cursor) ?? "",
                   hasPrevious: Boolean(previousHref(sp)),
@@ -614,6 +631,7 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
             )}
             </UrlSuspense>
 
+            </RoutinesDenseScope>
           </Card>
       </Stack>
 
