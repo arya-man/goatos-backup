@@ -1,6 +1,7 @@
-// Copied from the licensed MUI Minimal template
-// (next-ts src/sections/overview/e-commerce/ecommerce-best-salesman.tsx).
-// Mesha changes (data plumbing only, anatomy untouched):
+// Ranked table card (components/app adapter, NOT a template file): the template overview table card
+// anatomy (EcommerceBestSalesman: Card, CardHeader, TableHeadCustom, avatar + name lead cell, soft
+// rank Label) composed from MUI + template parts for a table of ANY width. The template section
+// itself has a fixed five-column demo row (email, flag, fCurrency, 'Top N'), so it is not used.
 //  - rows are the page's own cells (`cells`, aligned with `headCells`) behind the template's
 //    avatar + name lead cell, because the demo row shape (email, flag, rank) is not ours; a
 //    trailing Label cell keeps the template's soft rank chip;
@@ -10,7 +11,7 @@
 
 import type { CardProps } from '@mui/material/Card';
 import type { LabelColor } from '@/layouts/template/label/types';
-import type { TableHeadCellProps } from '@/components/minimal/table';
+import type { TableHeadCellProps } from '@/components/app/table';
 
 import Box from '@mui/material/Box';
 import Card from '@mui/material/Card';
@@ -22,7 +23,7 @@ import TableBody from '@mui/material/TableBody';
 import CardHeader from '@mui/material/CardHeader';
 
 import { Label } from '@/components/minimal/label';
-import { TableHeadCustom } from '@/components/minimal/table';
+import { TableHeadCustom } from '@/components/app/table';
 
 // ----------------------------------------------------------------------
 
@@ -45,7 +46,7 @@ type Props = Omit<CardProps, 'title'> & {
   }[];
 };
 
-export function EcommerceBestSalesman({
+export function RankedTableCard({
   title,
   subheader,
   action,

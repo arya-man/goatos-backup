@@ -13,8 +13,6 @@
     "components/minimal/sections/order/order-details-items.tsx": "b5574116cdd11388b5093b703719bca582a5b09e476286ec713d1cf82be0e36a",
     "components/minimal/sections/order/order-details-toolbar.tsx": "58cf011469986e81338b12dd9b5959379ba3441cac2090681099ff39c764de1e",
     "components/minimal/sections/order/order-table-toolbar.tsx": "531432b2f1cbac4a05b0d25f4556e4e6b33e2657dbd75398c93b464907912af7",
-    "components/minimal/sections/overview/banking/banking-expenses-categories.tsx": "368920e7931e19f43ecbb8e21682244b4ba146fee3fcd2d8cf4b39939e7bb30e",
-    "components/minimal/sections/overview/e-commerce/ecommerce-best-salesman.tsx": "b96ccbc9878557ff68013dfadaea1a77d314cbf15dceb5b77f3152238052e5ab",
     "components/minimal/sections/user/user-table-row.tsx": "1f53ba337e1bedb36c5b051d8fd41afc04164609ef3385704fdd4ae955226db6",
     "layouts/auth-split/layout.tsx": "79a9028a8af9ded0952d6de12318a3ee589857f2c6cb5463db52208a98875279",
     "layouts/auth-split/section.tsx": "0d33d3ef6d57bdd3392cbf2a3d9456095099f663ae6367dc4871099913e95654",

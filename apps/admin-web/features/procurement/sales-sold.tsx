@@ -11,7 +11,7 @@ import { Label } from "@/components/minimal/label";
 import { TableHeadCustom } from "@/components/app/table";
 import { KpiWidget } from "@/components/app/kpi-widget";
 import { EcommerceSalesOverview } from "@/components/app/sections/overview/e-commerce/ecommerce-sales-overview";
-import { EcommerceBestSalesman } from "@/components/minimal/sections/overview/e-commerce/ecommerce-best-salesman";
+import { RankedTableCard } from "@/components/app/ranked-table-card";
 import { EcommerceLatestProducts } from "@/components/app/sections/overview/e-commerce/ecommerce-latest-products";
 import { SalesSoldMonthly } from "./sales-sold-monthly";
 import ListItemText from "@mui/material/ListItemText";
@@ -307,7 +307,7 @@ function SoldSections({
 
       {/* Buyers -- template Best salesman table, the share of revenue as its rank chip. */}
       <Grid size={12}>
-        <EcommerceBestSalesman
+        <RankedTableCard
           component="section"
           aria-label={copy(pageContract, "section.buyers.title")}
           title={copy(pageContract, "section.buyers.title")}
@@ -357,7 +357,7 @@ function SoldSections({
               denseTargetId="sales-sold-buyers"
             />
           ) : null}
-        </EcommerceBestSalesman>
+        </RankedTableCard>
       </Grid>
     </Grid>
   );

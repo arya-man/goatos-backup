@@ -1,14 +1,9 @@
 'use client';
 
-// Copied from the licensed MUI Minimal template
-// (next-ts src/sections/overview/banking/banking-expenses-categories.tsx).
-// Mesha changes (data plumbing only, anatomy untouched):
-//  - legend sub-labels are pre-formatted by the page (`display`) instead of fCurrency, and the
-//    tooltip shows the same figure;
-//  - the two footer cells take the page's label/value pairs (the template shows demo constants);
-//  - the default colours are the locked Mesha categorical ramp (no error red for an ordinary
-//    category), passed as scheme-aware CSS variables the chart resolves at draw time.
-
+// Template-derived (docs/design/template-derived.json): next-ts
+// src/sections/overview/banking/banking-expenses-categories.tsx. Demo wiring as props (anatomy
+// guarded): fCurrency legend sub-labels / tooltip -> series display; the two demo footer cells
+// ('Categories' 9 / $18,765) -> footer. Colours come in through chart.colors (template prop).
 import type { CardProps } from '@mui/material/Card';
 import type { ChartOptions } from '@/components/minimal/chart';
 
@@ -25,13 +20,15 @@ import { Chart, useChart, ChartLegends } from '@/components/minimal/chart';
 type Props = Omit<CardProps, 'title'> & {
   title?: React.ReactNode;
   subheader?: React.ReactNode;
-  footer: { label: React.ReactNode; value: React.ReactNode }[];
+  /** The two footer cells (the template shows demo 'Categories' 9 / $18,765). */
+  footer: [{ label: React.ReactNode; value: React.ReactNode }, { label: React.ReactNode; value: React.ReactNode }];
   chart: {
     colors?: string[];
     icons?: React.ReactNode[];
     series: {
       label: string;
       value: number;
+      /** Page-formatted figure for the legend sub-label and tooltip (the template prints fCurrency). */
       display: string;
     }[];
     options?: ChartOptions;
@@ -42,13 +39,14 @@ export function BankingExpensesCategories({ title, subheader, footer, chart, sx,
   const theme = useTheme();
 
   const chartColors = chart.colors ?? [
-    theme.vars.palette.primary.main,
-    theme.vars.palette.info.main,
-    theme.vars.palette.secondary.main,
-    theme.vars.palette.warning.main,
-    'var(--teal)',
-    theme.vars.palette.grey[500],
-    'var(--violet-ink)',
+    theme.palette.secondary.dark,
+    theme.palette.error.main,
+    theme.palette.primary.main,
+    theme.palette.warning.main,
+    theme.palette.info.dark,
+    theme.palette.info.main,
+    theme.palette.success.main,
+    theme.palette.warning.dark,
   ];
 
   const chartSeries = chart.series.map((item) => item.value);
@@ -57,7 +55,7 @@ export function BankingExpensesCategories({ title, subheader, footer, chart, sx,
     chart: { offsetY: 12 },
     colors: chartColors,
     labels: chart.series.map((item) => item.label),
-    stroke: { width: 1, colors: [theme.vars.palette.background.paper] },
+    stroke: { width: 1, colors: [theme.palette.background.paper] },
     fill: { opacity: 0.88 },
     tooltip: {
       y: {
@@ -77,7 +75,6 @@ export function BankingExpensesCategories({ title, subheader, footer, chart, sx,
         sx={{
           pt: 4,
           pb: 3,
-          px: 3,
           rowGap: 3,
           columnGap: 5,
           display: 'flex',
@@ -109,18 +106,18 @@ export function BankingExpensesCategories({ title, subheader, footer, chart, sx,
           display: 'grid',
           typography: 'h4',
           textAlign: 'center',
-          gridTemplateColumns: `repeat(${Math.max(footer.length, 1)}, 1fr)`,
+          gridTemplateColumns: 'repeat(2, 1fr)',
         }}
       >
-        {footer.map((cell, index) => (
-          <Box
-            key={index}
-            sx={{ py: 2, ...(index < footer.length - 1 && { borderRight: `dashed 1px ${theme.vars.palette.divider}` }) }}
-          >
-            <Box sx={{ mb: 1, typography: 'body2', color: 'text.secondary' }}>{cell.label}</Box>
-            {cell.value}
-          </Box>
-        ))}
+        <Box sx={{ py: 2, borderRight: `dashed 1px ${theme.vars.palette.divider}` }}>
+          <Box sx={{ mb: 1, typography: 'body2', color: 'text.secondary' }}>{footer[0].label}</Box>
+          {footer[0].value}
+        </Box>
+
+        <Box sx={{ py: 2 }}>
+          <Box sx={{ mb: 1, typography: 'body2', color: 'text.secondary' }}>{footer[1].label}</Box>
+          {footer[1].value}
+        </Box>
       </Box>
     </Card>
   );

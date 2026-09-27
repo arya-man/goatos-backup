@@ -287,6 +287,71 @@
         "component=span",
         "component=span"
       ]
+    },
+    "components/app/sections/overview/banking/banking-expenses-categories.tsx": {
+      "source": "src/sections/overview/banking/banking-expenses-categories.tsx",
+      "replaced": "fCurrency legend sub-labels/tooltip -> series display; demo footer cells -> footer pair",
+      "tags": [
+        "Card",
+        "CardHeader",
+        "Box",
+        "Chart",
+        "ChartLegends",
+        "Divider",
+        "Box",
+        "Box",
+        "Box",
+        "Box",
+        "Box"
+      ],
+      "sx": [
+        "pt",
+        "pb",
+        "rowGap",
+        "columnGap",
+        "display",
+        "flexWrap",
+        "alignItems",
+        "justifyContent",
+        "width",
+        "xs",
+        "md",
+        "height",
+        "xs",
+        "md",
+        "gap",
+        "display",
+        "gridTemplateColumns",
+        "borderStyle",
+        "display",
+        "typography",
+        "textAlign",
+        "gridTemplateColumns",
+        "py",
+        "borderRight",
+        "mb",
+        "typography",
+        "color",
+        "py",
+        "mb",
+        "typography",
+        "color"
+      ],
+      "sxValues": [
+        "sx",
+        "{ pt: 4, pb: 3, rowGap: 3, columnGap: 5, display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center'}",
+        "{ width: { xs: 240, md: 280 }, height: { xs: 240, md: 280 } }",
+        "{ gap: 2.5, display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)' }",
+        "{ borderStyle: 'dashed' }",
+        "{ display: 'grid', typography: 'h4', textAlign: 'center', gridTemplateColumns: 'repeat(2, 1fr)'}",
+        "{ py: 2, borderRight: `dashed 1px ${theme.vars.palette.divider}` }",
+        "{ mb: 1, typography: 'body2', color: 'text.secondary' }",
+        "{ py: 2 }",
+        "{ mb: 1, typography: 'body2', color: 'text.secondary' }"
+      ],
+      "props": [
+        "type=polarArea"
+      ]
     }
   }
 }

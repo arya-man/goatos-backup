@@ -56,9 +56,7 @@
     "components/minimal/iconify/index.ts": "src/components/iconify/index.ts",
     "components/minimal/label/index.ts": "src/components/label/index.ts",
     "components/minimal/loading-screen/loading-screen.tsx": "src/components/loading-screen/loading-screen.tsx",
-    "components/minimal/sections/overview/banking/banking-expenses-categories.tsx": "src/sections/overview/banking/banking-expenses-categories.tsx",
     "components/minimal/sections/overview/analytics/analytics-conversion-rates.tsx": "src/sections/overview/analytics/analytics-conversion-rates.tsx",
-    "components/minimal/sections/overview/e-commerce/ecommerce-best-salesman.tsx": "src/sections/overview/e-commerce/ecommerce-best-salesman.tsx",
     "components/minimal/sections/overview/e-commerce/ecommerce-sale-by-gender.tsx": "src/sections/overview/e-commerce/ecommerce-sale-by-gender.tsx",
     "components/minimal/sections/overview/e-commerce/ecommerce-widget-summary.tsx": "src/sections/overview/e-commerce/ecommerce-widget-summary.tsx",
     "components/minimal/scrollbar/index.ts": "src/components/scrollbar/index.ts",
@@ -722,20 +720,6 @@
         "src/components/chart"
       ]
     },
-    "components/minimal/sections/overview/banking/banking-expenses-categories.tsx": {
-      "sha256": "1a6655ca9b285ee198c9e401eb0a19a57cba7823e9f62cce859480c9d8109e5b",
-      "imports": [
-        "@mui/material/Card",
-        "src/components/chart",
-        "@mui/material/Box",
-        "@mui/material/Card",
-        "@mui/material/Divider",
-        "@mui/material/styles",
-        "@mui/material/CardHeader",
-        "src/utils/format-number",
-        "src/components/chart"
-      ]
-    },
     "components/minimal/sections/overview/booking/booking-widget-summary.tsx": {
       "sha256": "7508c0706dc55899baeb8a7cc1d3e0825b4b9febc6a45723b3859a7c56791f80",
       "imports": [
@@ -756,26 +740,6 @@
         "@mui/material/Typography",
         "src/utils/format-number",
         "src/components/svg-color"
-      ]
-    },
-    "components/minimal/sections/overview/e-commerce/ecommerce-best-salesman.tsx": {
-      "sha256": "a8aa485e520de94c7a06122312b38b44132d3cd161d87f7d98a208c344d5864f",
-      "imports": [
-        "@mui/material/Card",
-        "src/components/table",
-        "@mui/material/Box",
-        "@mui/material/Card",
-        "@mui/material/Table",
-        "@mui/material/Avatar",
-        "@mui/material/TableRow",
-        "@mui/material/TableCell",
-        "@mui/material/TableBody",
-        "@mui/material/CardHeader",
-        "src/utils/format-number",
-        "src/components/label",
-        "src/components/flag-icon",
-        "src/components/scrollbar",
-        "src/components/table"
       ]
     },
     "components/minimal/sections/overview/e-commerce/ecommerce-sale-by-gender.tsx": {
