@@ -17,6 +17,7 @@ import { AlertTriangle, Check, ChevronDown, ChevronUp, Lock, Plus, X } from "luc
 import MuiButton from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import MuiTextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { blankProofSlot, blankQuestion, followQuestionKey, keyForTitle, type RemovalProofKind, type RemovalProofRow, type WeighingQuestionRow } from "./weighing-model";
 import { QuestionCard } from "./weighing-editor";
@@ -100,15 +101,12 @@ export function ShiftingEditor({ pageContract: pc, basePath, sopId, sopName, ver
             </div>
             <div className="bd">
               <div className="qcfg">
-                <label className="numfield">
-                  <span className="numlbl">{copy(pc, "ssop.instruction")}</span>
-                  <textarea className="qhelp" rows={3} value={block.instruction} onChange={(e) => patchSection(section, (s) => ({ ...s, instruction: e.target.value }))} />
-                </label>
+                <MuiTextField label={copy(pc, "ssop.instruction")} fullWidth multiline minRows={3} value={block.instruction} onChange={(e) => patchSection(section, (s) => ({ ...s, instruction: e.target.value }))} />
               </div>
 
               <div className="qcfg" style={{ marginTop: 10 }}>
                 <div className="qcfg-head">
-                  <span className="qcfg-title">{copy(pc, "ssop.proofs")}</span>
+                  <Typography variant="subtitle2" component="span">{copy(pc, "ssop.proofs")}</Typography>
                   <span className="muted small">{copy(pc, "ssop.proofs.subtitle")}</span>
                 </div>
                 <div className="qlist">
@@ -144,7 +142,7 @@ export function ShiftingEditor({ pageContract: pc, basePath, sopId, sopName, ver
 
               <div className="qcfg" style={{ marginTop: 10 }}>
                 <div className="qcfg-head">
-                  <span className="qcfg-title">{copy(pc, "ssop.questions")}</span>
+                  <Typography variant="subtitle2" component="span">{copy(pc, "ssop.questions")}</Typography>
                   <span className="muted small">{copy(pc, "ssop.questions.subtitle")}</span>
                 </div>
                 <div className="qlist">
