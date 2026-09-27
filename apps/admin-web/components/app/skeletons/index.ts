@@ -13,7 +13,6 @@ export {
   ToolbarSkeleton,
   ChartCardSkeleton,
   DetailCardSkeleton,
-  DetailsToolbarSkeleton,
   FieldSkeleton,
   FilterCardSkeleton,
   FormCardSkeleton,

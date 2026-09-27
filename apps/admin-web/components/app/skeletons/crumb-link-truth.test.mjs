@@ -42,8 +42,7 @@ export function skeletonCrumbLinks(src) {
 
 /**
  * Routes whose page crumbs are not a `crumbs={[...]}` literal, with the parent crumb's link state read
- * by hand (`linked`, checked against the skeleton like a literal) and the reason. `linked: null` = the
- * page draws no PageHeader trail (the skeleton's crumb row is then not checked here).
+ * by hand (`linked`, checked against the skeleton like a literal) and the reason.
  */
 const UNRESOLVED = {
   "/action-center": { linked: true, reason: "crumbItems: the section crumb links to / (href: \"/\")" },
@@ -140,16 +139,14 @@ const NO_CRUMB_ROW = {
   "/alerts": "crumbs [t(crumb), t(title)]: the crumb copy is the title, so PageHeader hides the trail",
   "/approvals": "crumbs [{ label: COPY.title }]: a trail that only repeats the title is hidden",
   "/routines": "crumbs [c(crumb), title]: the crumb copy is the title, so PageHeader hides the trail",
-  "/workflows/[row_id]": "OrderDetailsToolbar (DetailsToolbarSkeleton), no PageHeader",
-  "/procurement/source-entry/loads/[load_id]": "OrderDetailsToolbar, no PageHeader",
+  "/workflows/[row_id]": "OrderDetailsToolbar (OrderDetailsToolbarSkeleton), no PageHeader",
+  "/procurement/source-entry/loads/[load_id]": "OrderDetailsToolbar (OrderDetailsToolbarSkeleton), no PageHeader",
 };
 /**
  * Known mismatches with an owner, tolerated only while they last: the entry fails once the skeleton is
  * fixed, so it gets removed with the fix.
  */
-const PENDING_MISMATCH = {
-  "/procurement/source-entry/loads/[load_id]": "SK2 (REVIEW-50 O82): loading.tsx draws a PageHeader skeleton, the page renders OrderDetailsToolbar",
-};
+const PENDING_MISMATCH = {};
 const walk = (dir) => readdirSync(dir).flatMap((n) => {
   const full = join(dir, n);
   return statSync(full).isDirectory() ? walk(full) : n === "loading.tsx" ? [full] : [];
@@ -190,7 +187,6 @@ test("crumb-link-truth: every route skeleton's crumbLink equals its page's paren
       problems.push(`${route}: no crumbs={[...]} literal reachable from page.tsx (list it in UNRESOLVED with the reason)`);
       continue;
     } else linked = pageLinks.every(Boolean) ? true : pageLinks.every((l) => !l) ? false : undefined;
-    if (linked === null) continue;
     if (linked === undefined) {
       problems.push(`${route}: its reachable PageHeaders disagree on the parent crumb link (list it in UNRESOLVED)`);
       continue;
