@@ -20,7 +20,7 @@ import { SOP_SKELETON_CARDS } from "./sop-library-layout";
  */
 export function SopLibrarySkeleton() {
   return (
-    <PageSkeleton className="sop-kit" gap={3}>
+    <PageSkeleton gap={3}>
       <PageHeaderSkeleton actionWidths={[112]} />
       {/* FilterBar bare + fold: Status / Trigger selects from md, search, Filters button below md, ⋮. */}
       <FilterCardSkeleton bare fold fields={[160, 160, "search"]} actionWidths={[36]} />

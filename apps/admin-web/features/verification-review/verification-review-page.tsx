@@ -454,7 +454,7 @@ export async function VerificationReviewPage({
                   percent={100}
                   icon="solar:bill-list-bold-duotone"
                   color="info.main"
-                  caption={fPercent(100)}
+                  caption={statusTotal ? fPercent(100) : undefined}
                 />
               ) : null}
               {statusOptionsWithStatus.map((option) => (
@@ -465,7 +465,8 @@ export async function VerificationReviewPage({
                   percent={statusTotal ? ((statusCounts[option.status] ?? 0) / statusTotal) * 100 : 0}
                   icon={STATUS_ICON[option.status] ?? "solar:file-bold-duotone"}
                   color={`${STATUS_COLOR[option.status] ?? "info"}.main`}
-                  caption={fPercent(statusTotal ? ((statusCounts[option.status] ?? 0) / statusTotal) * 100 : 0)}
+                  // No "0%" repeated in every cell when nothing is counted (TR1-#35).
+                  caption={statusTotal ? fPercent(((statusCounts[option.status] ?? 0) / statusTotal) * 100) : undefined}
                 />
               ))}
             </DividedStack>

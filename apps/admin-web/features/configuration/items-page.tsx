@@ -24,7 +24,7 @@ import { Label, type LabelColor } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { TableHeadCustom, TablePaginationLinks, type TableHeadCellProps } from "@/components/app/table";
-import { OrderTableToolbar } from "@/components/app/sections/order/order-table-toolbar";
+import { RegisterToolbar } from "./register-toolbar";
 import { orderToolbarFilterSx, orderToolbarSearchSx } from "@/components/app/order-toolbar-filter";
 import { MailNavItem } from "@/components/app/sections/mail/mail-nav-item";
 
@@ -562,21 +562,6 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
                 sx={{ flexWrap: "wrap", gap: 1.5, "& .MuiCardHeader-action": { m: 0, display: "flex", flexWrap: "wrap", gap: 1 } }}
                 action={
                   <>
-                    {register?.list_key && canEdit && data.openList ? (
-                      <Button component={LocalOverlayLink} href={href(sp, { [PARAM_EDIT]: REFLIST_EDIT_PREFIX + register.list_key }, true)} scroll={false} size="small" color="inherit" variant="outlined" startIcon={<Iconify icon="solar:pen-bold" />}>
-                        {c("reference.edit_list")}
-                      </Button>
-                    ) : null}
-                    {register && canExport && !register.hidden ? (
-                      <Button component={LocalOverlayLink} href={editHref(SHEET_EDIT_ID)} scroll={false} size="small" color="inherit" variant="outlined" startIcon={<Iconify icon="solar:file-text-bold" />} data-testid="sheet-open">
-                        {c("sheet.title")}
-                      </Button>
-                    ) : null}
-                    {canExportWorkbook ? (
-                      <Button component={LocalOverlayLink} href={editHref(WORKBOOK_EDIT_ID)} scroll={false} size="small" color="inherit" variant="outlined" startIcon={<Iconify icon="solar:bill-list-bold" />} data-testid="workbook-open">
-                        {c("workbook.open")}
-                      </Button>
-                    ) : null}
                     {register?.read_only && register.edit_href ? (
                       <Button component={Link} href={register.edit_href} size="small" color="inherit" variant="contained">
                         {c("action.edit_elsewhere")} {register.edit_label ?? register.edit_href}
@@ -628,7 +613,13 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
                 </Box>
               ) : null}
 
-              <OrderTableToolbar
+              <RegisterToolbar
+                menuLabel={copy(pageContract, "action.more", "More")}
+                menuLinks={[
+                  ...(register?.list_key && canEdit && data.openList ? [{ key: "edit-list", label: c("reference.edit_list"), icon: "solar:pen-bold" as const, href: href(sp, { [PARAM_EDIT]: REFLIST_EDIT_PREFIX + register.list_key }, true) }] : []),
+                  ...(register && canExport && !register.hidden ? [{ key: "sheet", label: c("sheet.title"), icon: "solar:file-text-bold" as const, href: editHref(SHEET_EDIT_ID) }] : []),
+                  ...(canExportWorkbook ? [{ key: "workbook", label: c("workbook.open"), icon: "solar:bill-list-bold" as const, href: editHref(WORKBOOK_EDIT_ID) }] : []),
+                ]}
                 filters={filterColumns
                   .filter((column) => !(isCatalogue && column.key === "category_id"))
                   .map((column) => {

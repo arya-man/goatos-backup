@@ -27,7 +27,7 @@ test("the library announces the published version and lights that card", () => {
   assert.match(modulePage, /published=\{publishedFromSearch\(sp\)\}/);
   assert.match(library, /notice\.published\.title/);
   assert.match(library, /sop-just-published/);
-  assert.match(library, /sop-published-banner/);
+  assert.match(library, /data-published-sop=\{publishedSop\.sopId\}/);
 });
 
 test("publishedHref round-trips through the library's search params", () => {

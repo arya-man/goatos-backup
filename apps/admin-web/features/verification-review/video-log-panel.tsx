@@ -58,7 +58,8 @@ export function VideoLogPanel({
         href={`#${VIDEO_LOG_PANEL_SELECTION_KEY}=${VIDEO_LOG_PANEL_ID}`}
         replace
         scroll={false}
-        variant="contained" color="primary"
+        // Secondary header action: outlined like Randomization; the header has no primary action (TR1-#35).
+        variant="outlined" color="inherit"
         startIcon={<Clock size={18} aria-hidden="true" />}
         className="vr-videolog-btn"
       >

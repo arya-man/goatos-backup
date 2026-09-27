@@ -227,9 +227,10 @@ export async function AnimalPurchasesPage({
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <KpiWidget
             title={copy(pageContract, "summary.loads")}
-            // The loads read is one keyset page; the caption's trailing "+" says there are more than shown.
+            // The loads read is one keyset page; a caption only when there are more than shown (the
+            // trailing "+"). No caption repeating the title ("Loads / Loads", TR1-#34).
             total={loadsResult.ok ? loads.length : null}
-            caption={loadsResult.ok && loadsNextCursor ? `${num(loads.length)}+ · ${loadsTable.title}` : loadsTable.title}
+            caption={loadsResult.ok && loadsNextCursor ? `${num(loads.length)}+` : undefined}
           />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>

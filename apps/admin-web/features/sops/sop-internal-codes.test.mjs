@@ -77,12 +77,20 @@ test("SOP library is the template job list and its skeleton mirrors it", () => {
   assert.doesNotMatch(src, /<KpiGrid>|KpiWidget/);
   assert.match(src, /<FilterBar\s+bare\b/);
   assert.doesNotMatch(src, /<Button[^>]*startIcon=\{<(Columns3|Download)\b/, "Columns / Export belong in the ⋮ menu");
-  assert.match(src, /<Avatar alt=\{[^}]+\} variant="rounded" sx=\{\{ width: 48, height: 48, mb: 2 \}\}>/);
+  // Cards are the template-derived JobItem / JobList through their slots (as /procurement/animal-purchases),
+  // never a hand-built grid of MuiCards; the letter avatar fills the logo slot.
+  assert.match(src, /import \{ JobItem, type JobItemFact \} from "@\/components\/app\/sections\/job\/job-item";/);
+  assert.match(src, /import \{ JobList \} from "@\/components\/app\/sections\/job\/job-list";/);
+  assert.match(src, /<JobList pagination=\{/);
+  assert.match(src, /<JobItem\b[\s\S]{0,400}avatar=\{\(view\.domainLabel \|\| view\.name\)\.charAt\(0\)\.toUpperCase\(\)\}/);
+  assert.doesNotMatch(src, /from "@mui\/material\/(Card|Pagination)"|gridTemplateColumns: \{ xs: "repeat\(1, 1fr\)"/);
+  // No legacy wrapper classes or inline styles on the page (the banner is a template Alert with its action slot).
+  assert.doesNotMatch(src, /kit-enter|sop-kit|sop-published-banner|<Alert[^>]*style=\{/);
   const skel = read("./sop-route-skeleton.tsx");
   assert.doesNotMatch(skel, /KpiRowSkeleton|StatStripSkeleton/);
   assert.match(skel, /<FilterCardSkeleton bare /);
   // TR1-#1: the toolbar twin folds like the bar (selects md+, Filters button below md), ⋮ is 36 (44 below md).
   assert.match(skel, /<FilterCardSkeleton bare fold fields=\{\[160, 160, "search"\]\} actionWidths=\{\[36\]\} \/>/);
-  assert.match(src, /<div className="kit-enter screen on sop-kit">\s*\{\/\*[\s\S]*?\*\/\}\s*<Box sx=\{\{ display: "flex", flexDirection: "column", gap: 3 \}\}>/);
-  assert.match(skel, /<PageSkeleton className="sop-kit" gap=\{3\}>/);
+  assert.match(src, /<Box sx=\{\{ display: "flex", flexDirection: "column", gap: 3 \}\}>/);
+  assert.match(skel, /<PageSkeleton gap=\{3\}>/);
 });

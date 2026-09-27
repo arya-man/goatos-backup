@@ -159,3 +159,13 @@ test("selecting a load shows what the buying desk entered for it, not only its e
   assert.match(panel, /selectedLoad\.recorded_by_name \? \(/);
   assert.doesNotMatch(panel, /selectedLoad\.recorded_by\b(?!_name)/);
 });
+
+// guard: kpi-caption-not-title (TR1-#34): the Loads KPI caption never repeats the card title
+// ("Loads / Loads"); it only says there are more loads than shown.
+import { test as tr1Test } from "node:test";
+import { readFileSync as tr1Read } from "node:fs";
+import tr1Assert from "node:assert/strict";
+tr1Test("animal purchases Loads KPI caption is not the title again", () => {
+  const src = tr1Read(new URL("./animal-purchases.tsx", import.meta.url), "utf8");
+  tr1Assert.doesNotMatch(src, /caption=\{[^}]*loadsTable\.title/);
+});

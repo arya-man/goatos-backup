@@ -133,7 +133,8 @@ export async function OperationsDLQPage({
         cells={analytics.map((cell) => ({
           key: cell.key,
           title: cell.label,
-          total: fPercent(share(cell.count)),
+          // A share of nothing is not a figure: no "0%" caption repeated in every cell (TR1-#35).
+          total: total ? fPercent(share(cell.count)) : "",
           price: cell.count,
           percent: share(cell.count),
           icon: cell.icon,

@@ -53,7 +53,8 @@ export function AnalyticsPanel({
         href={`#${ANALYTICS_PANEL_SELECTION_KEY}=${ANALYTICS_PANEL_ID}`}
         replace
         scroll={false}
-        variant="contained" color="primary"
+        // Secondary header action: outlined like Randomization; the header has no primary action (TR1-#35).
+        variant="outlined" color="inherit"
         startIcon={<BarChart3 size={18} aria-hidden="true" />}
         className="vr-analytics-btn"
       >

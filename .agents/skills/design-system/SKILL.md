@@ -300,6 +300,25 @@ audit defect on PR #294:
   new failure on those routes fails). Never `next build` into the `.next` a live server is serving:
   it serves UA defaults (40px list indent, grey buttonface squares, blue links) until restarted.
 
+## TR-1 list and job-list rules (FXC, 2026-09-28)
+
+- `list-toolbar-kebab` (`features/leave/toolbar-outside-panel.test.mjs`): a list toolbar ends in ONE
+  ⋮ popover (RowMenu / OrderTableToolbar `menuActions`). Export, Columns, Reset, Sheet, Workbook are
+  menu items, never green text / outlined buttons beside it. The Dense switch lives only in the table
+  footer; a "shown / total" count shows only beside active filter chips (no stray "0 / 0").
+- `config-register-toolbar-menu` (`features/configuration/register-toolbar.test.mjs`): a register
+  CardHeader carries its title only; secondary list actions sit in the toolbar ⋮ and open their
+  same-page drawers through `pushLocalOverlayUrl`.
+- `sop-library-template-job-list` (`features/sops/sop-internal-codes.test.mjs`): the SOP libraries are
+  the template job list: no KPI row, a page-level toolbar with no card (FilterBar `bare`), cards
+  rendered through the template-derived `JobList` / `JobItem` slots (letter Avatar in the logo slot,
+  status Label as meta, facets as facts, View / Edit in the card ⋮), no legacy wrapper classes
+  (`kit-enter`, `sop-kit`) and no inline `style` on Alerts. The loading skeleton mirrors it.
+- `segment-tabs-rounded` (`features/procurement/sales-no-flicker.test.mjs`): a standalone
+  SegmentTabs strip is rounded (`var(--r-xl)`) like the template BankingOverview custom Tabs.
+- `url-panel-min-width` (r2 plugin `column-fit`, P0 `layout|wider-than-column`): no page block is wider
+  than the content column; `UrlPanel`'s `display: contents` box gives its children `min-width: 0`.
+
 ## Production bug CLASSES as guards (2026-09-26)
 
 `scripts/lib/visual-pattern-guards.mjs` codifies six recurring visible defect classes as automated

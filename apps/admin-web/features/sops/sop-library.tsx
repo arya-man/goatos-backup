@@ -3,7 +3,7 @@
 import { Tag } from "@/components/ui-primitives";
 
 import { useCallback, useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   BookText,
   Calendar,
@@ -11,8 +11,6 @@ import {
   Check,
   Columns3,
   Download,
-  FileText,
-  Info,
   Hash,
   List,
   ListChecks,
@@ -30,7 +28,6 @@ import { InspectionSummary } from "./inspection-summary";
 import { PcCareSummary } from "./pc-care-summary";
 import { WeighingSummary } from "./weighing-summary";
 import { FeedSummary } from "./feed-summary";
-import Card from "@mui/material/Card";
 import Button from "@mui/material/Button";
 import Dialog from "@mui/material/Dialog";
 import DialogTitle from "@mui/material/DialogTitle";
@@ -41,11 +38,10 @@ import { Iconify } from "@/components/minimal/iconify";
 import { RowMenu } from "@/components/app/row-menu";
 import { FilterBar } from "@/components/app/filter-bar";
 import Link from "@mui/material/Link";
-import Avatar from "@mui/material/Avatar";
-import Divider from "@mui/material/Divider";
 import Typography from "@mui/material/Typography";
-import ListItemText from "@mui/material/ListItemText";
-import Pagination, { paginationClasses } from "@mui/material/Pagination";
+import AlertTitle from "@mui/material/AlertTitle";
+import { JobItem, type JobItemFact } from "@/components/app/sections/job/job-item";
+import { JobList } from "@/components/app/sections/job/job-list";
 import { Label, type LabelColor } from "@/components/minimal/label";
 import { EmptyContent } from "@/components/minimal/empty-content";
 import TextField from "@mui/material/TextField";
@@ -63,7 +59,6 @@ import Stack from "@mui/material/Stack";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import type { Theme } from "@mui/material/styles";
 import Chip from "@mui/material/Chip";
-import MuiCard from "@mui/material/Card";
 import Paper from "@mui/material/Paper";
 import { CARDS_PER_PAGE } from "./sop-library-layout";
 
@@ -94,6 +89,9 @@ function moduleSegment(basePath: string): string {
 const STATUS_COLOR: Record<SopCardView["status"], LabelColor> = { active: "success", draft: "default", retired: "warning" };
 
 // Dialog body rhythm: theme spacing/typography only.
+/** The card page's search param (template JobList pagination links). */
+const PAGE_PARAM = "page";
+
 const DLG_BODY_SX = {
   "& .htl > .hrow": { borderRadius: "var(--r-md)", transition: (t: Theme) => t.transitions.create("background-color") },
   "& .htl > .hrow:hover": { bgcolor: "action.hover" },
@@ -146,7 +144,22 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
   const [editorPending, startEditorNav] = useTransition();
   const openEditor = (sopId: string) => startEditorNav(() => router.push(`${builderHref}&edit=${sopId}`));
   const openCaptureEditor = (sopId: string) => startEditorNav(() => router.push(`${builderHref}&edit=${sopId}&part=capture`));
-  const [requestedPage, setRequestedPage] = useState(1);
+  // The card page is the URL's `page` (template JobList pagination: each page item is a link). A
+  // filter change starts again at page 1 by dropping the param in place.
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const requestedPage = Math.max(1, Number(searchParams.get(PAGE_PARAM)) || 1);
+  const pageHref = (n: number) => {
+    const next = new URLSearchParams(searchParams.toString());
+    if (n <= 1) next.delete(PAGE_PARAM);
+    else next.set(PAGE_PARAM, String(n));
+    const qs = next.toString();
+    return qs ? `${pathname}?${qs}` : pathname;
+  };
+  const setRequestedPage = (n: number) => {
+    if (n === requestedPage) return;
+    router.replace(pageHref(n), { scroll: false });
+  };
   const pageSize = CARDS_PER_PAGE;
   // The page is pre-scoped to its module's SOP codes (SOP split, maintainer decision 2026-08-18).
   // Status and trigger are derived from the cards already in hand — no extra backend call.
@@ -189,12 +202,12 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
       clear: () => setStatusFilter(""),
     });
   if (triggerFilter) activeChips.push({ id: "trigger", label: triggerFilter, clear: () => setTriggerFilter("") });
-  const clearAll = useCallback(() => {
+  const clearAll = () => {
     setQuery("");
     setStatusFilter("");
     setTriggerFilter("");
     setRequestedPage(1);
-  }, []);
+  };
 
   // Export is read-only: it serialises exactly the rows already on screen, client-side.
   const exportCsv = useCallback(() => {
@@ -221,10 +234,9 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
   }, [list, basePath]);
 
   return (
-    <div className="kit-enter screen on sop-kit">
-      {/* One column with the template gap between header, KPI row, filter card and cards (the legacy
-          .screen root is display:block and its children carry no margins). */}
-      <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
+    // The module page mounts this below its own root, so the page grid's gap does not reach it: the
+    // column stacks header, toolbar and cards with the template gap itself.
+    <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
       <PageHeader
         title={pageContract.title}
         crumbs={[{ label: copy(pageContract, "crumb", moduleSegment(basePath)) || moduleSegment(basePath) }, { label: pageContract.title }]}
@@ -335,26 +347,30 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
       </div>
 
       {publishedSop ? (
-        <Alert severity="success" className="sop-published-banner" role="status" style={{ marginBottom: 14 }} data-published-sop={publishedSop.sopId}><div style={{ flex: 1 }}>
-            <b>{publishedTitle}</b>
-            <div className="small" style={{ marginTop: 2 }}>{copy(pageContract, "notice.published.body")}</div>
-          </div>
-          <Button color="primary" variant="text" size="small" onClick={() => setPublishedDismissed(true)}>
-            {copy(pageContract, "notice.published.dismiss")}
-          </Button>
+        <Alert
+          severity="success"
+          role="status"
+          data-published-sop={publishedSop.sopId}
+          action={
+            <Button color="inherit" size="small" onClick={() => setPublishedDismissed(true)}>
+              {copy(pageContract, "notice.published.dismiss")}
+            </Button>
+          }
+        >
+          <AlertTitle>{publishedTitle}</AlertTitle>
+          {copy(pageContract, "notice.published.body")}
         </Alert>
       ) : null}
 
       {authRequired ? (
-        <Alert severity="warning" style={{ marginBottom: 14 }}><div>{copy(pageContract, "auth.sign_in")}</div>
-        </Alert>
+        <Alert severity="warning">{copy(pageContract, "auth.sign_in")}</Alert>
       ) : error ? (
-        <Alert severity="warning" style={{ marginBottom: 14 }}>
+        <Alert severity="warning">
           {/* Farm words only (2026-09-25): this used to print the raw code in bold and the
               transport's own sentence ("backend_down Backend service is not reachable from the
               Mesha admin server."). A failed read of the library is never the reader's to fix
               field by field; the code stays in the logs. */}
-          <div>{copy(pageContract, "error.load")}</div>
+          {copy(pageContract, "error.load")}
         </Alert>
       ) : null}
 
@@ -374,33 +390,20 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
       ) : list.length === 0 ? (
         <EmptyContent filled title={copy(pageContract, "empty.no_match")} sx={{ py: 10 }} />
       ) : (
-        <>
-          {/* Template sections/job/job-list: 1/2/3-column card grid, gap 3, MUI Pagination centred below. */}
-          <Box
-            id="sopCards"
-            sx={{ gap: 3, display: "grid", gridTemplateColumns: { xs: "repeat(1, 1fr)", sm: "repeat(2, 1fr)", md: "repeat(3, 1fr)" } }}
-          >
-            {pagedList.map((s) => (
-              <SopItem
-                key={s.sopId}
-                view={s}
-                facets={facets}
-                pageContract={pageContract}
-                justPublished={Boolean(publishedSop && s.sopId === publishedSop.sopId)}
-                onView={() => setDetail(s)}
-                onEdit={() => openEditor(s.sopId)}
-              />
-            ))}
-          </Box>
-          {totalPages > 1 ? (
-            <Pagination
-              count={totalPages}
-              page={page}
-              onChange={(_, value) => setRequestedPage(value)}
-              sx={{ mt: { xs: 5, md: 8 }, [`& .${paginationClasses.ul}`]: { justifyContent: "center" } }}
+        // Template sections/job/job-list: the 1/2/3-column JobItem grid with the centred pagination.
+        <JobList pagination={{ page, hrefs: Array.from({ length: totalPages }, (_, i) => pageHref(i + 1)) }}>
+          {pagedList.map((s) => (
+            <SopItem
+              key={s.sopId}
+              view={s}
+              facets={facets}
+              pageContract={pageContract}
+              justPublished={Boolean(publishedSop && s.sopId === publishedSop.sopId)}
+              onView={() => setDetail(s)}
+              onEdit={() => openEditor(s.sopId)}
             />
-          ) : null}
-        </>
+          ))}
+        </JobList>
       )}
 
       {/* Columns: which facet rows the cards carry. Presentation only. */}
@@ -435,8 +438,7 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
           onEditCapture={() => openCaptureEditor(detail.sopId)}
         />
       ) : null}
-      </Box>
-    </div>
+    </Box>
   );
 }
 
@@ -452,7 +454,7 @@ type SopItemProps = {
 // Template sections/job/job-item anatomy: ⋮ action menu pinned top-right, rounded 48px avatar,
 // subtitle1 title link + caption, primary caption line, dashed divider, 2-column caption facts.
 function SopItem({ view, facets, pageContract, justPublished, onView, onEdit }: SopItemProps) {
-  const facts: Array<{ key: string; label: string; icon: React.ReactNode }> = [];
+  const facts: JobItemFact[] = [];
   if (facets.domain) facts.push({ key: "domain", label: view.domainLabel, icon: <Iconify width={16} icon="solar:tag-horizontal-bold-duotone" sx={{ flexShrink: 0 }} /> });
   if (facets.trigger && view.trigger) facts.push({ key: "trigger", label: view.trigger, icon: <Iconify width={16} icon="solar:clock-circle-bold" sx={{ flexShrink: 0 }} /> });
   if (facets.counts && view.stepCount !== null)
@@ -463,71 +465,34 @@ function SopItem({ view, facets, pageContract, justPublished, onView, onEdit }: 
     facts.push({ key: "operator", label: `${view.followUpStepCount} ${view.followUpStepCount === 1 ? copy(pageContract, "label.operator_step", copy(pageContract, "label.operator_steps")) : copy(pageContract, "label.operator_steps")}`, icon: <Iconify width={16} icon="solar:user-rounded-bold" sx={{ flexShrink: 0 }} /> });
   const gates = view.gates.length > 0 ? view.gates.slice(0, 3).join(" · ") : view.hasVersion ? copy(pageContract, "label.no_proof_gates") : copy(pageContract, "label.no_published_version");
 
+  if (facets.gates) facts.push({ key: "gates", label: gates, icon: <Iconify width={16} icon="solar:shield-check-bold" sx={{ flexShrink: 0 }} /> });
+
+  // Template JobItem through its slots: the logo slot takes the letter fallback (an SOP has no logo,
+  // TR1-#33), the title opens the detail, the version is the "posted" line, the status Label is the
+  // meta line, the facet captions are the fact grid and View / Edit the card's ⋮ menu.
   return (
-    <Card
+    <JobItem
       className={justPublished ? "sop-just-published" : undefined}
       data-sop-card={view.sopId}
       sx={[{ position: "relative" }, justPublished ? (theme) => ({ boxShadow: `0 0 0 2px ${theme.vars.palette.success.main}` }) : null]}
-    >
-      <Box sx={{ position: "absolute", top: 8, right: 8 }}>
-        <RowMenu
-          ariaLabel={`${copy(pageContract, "action.more")}: ${view.name}`}
-          actions={[
-            { label: copy(pageContract, "action.view_details"), icon: <Iconify icon="solar:eye-bold" />, onSelect: onView },
-            { label: copy(pageContract, "action.edit", "Edit"), icon: <Iconify icon="solar:pen-bold" />, onSelect: onEdit },
-          ]}
-        />
-      </Box>
-
-      <Box sx={{ p: 3, pb: 2 }}>
-        {/* Template JobItem logo slot: a rounded 48px Avatar. An SOP has no logo, so it takes the
-            template's letter fallback from its module (TR1-#33). */}
-        <Avatar alt={view.domainLabel || view.name} variant="rounded" sx={{ width: 48, height: 48, mb: 2 }}>
-          {(view.domainLabel || view.name).charAt(0).toUpperCase()}
-        </Avatar>
-
-        <ListItemText
-          sx={{ mb: 1, pr: 3 }}
-          primary={
-            <Link component="button" type="button" color="inherit" underline="hover" onClick={onView} sx={{ textAlign: "left", typography: "subtitle1", minWidth: { xs: 44, md: 0 } }}>
-              {view.name}
-            </Link>
-          }
-          secondary={view.versionLabel ?? undefined}
-          slotProps={{
-            primary: { sx: { typography: "subtitle1" } },
-            secondary: { sx: { mt: 1, typography: "caption", color: "text.disabled" } },
-          }}
-        />
-
+      avatar={(view.domainLabel || view.name).charAt(0).toUpperCase()}
+      title={
+        <Link component="button" type="button" color="inherit" underline="hover" onClick={onView} sx={{ textAlign: "left", typography: "subtitle1", minWidth: { xs: 44, md: 0 } }}>
+          {view.name}
+        </Link>
+      }
+      secondary={view.versionLabel ?? undefined}
+      meta={
         <Label variant="soft" color={STATUS_COLOR[view.status]}>
           {statusText(view)}
         </Label>
-      </Box>
-
-      {facts.length > 0 || facets.gates ? <Divider sx={{ borderStyle: "dashed" }} /> : null}
-
-      {facts.length > 0 || facets.gates ? (
-        <Box sx={{ p: 3, rowGap: 1.5, columnGap: 1, display: "grid", gridTemplateColumns: "repeat(2, 1fr)" }}>
-          {facts.map((item) => (
-            <Box key={item.key} sx={{ gap: 0.5, minWidth: 0, display: "flex", alignItems: "center", color: "text.disabled" }}>
-              {item.icon}
-              <Typography variant="caption" noWrap>
-                {item.label}
-              </Typography>
-            </Box>
-          ))}
-          {facets.gates ? (
-            <Box sx={{ gridColumn: "1 / -1", gap: 0.5, minWidth: 0, display: "flex", alignItems: "center", color: "text.disabled" }}>
-              <Iconify width={16} icon="solar:shield-check-bold" sx={{ flexShrink: 0 }} />
-              <Typography variant="caption" noWrap>
-                {gates}
-              </Typography>
-            </Box>
-          ) : null}
-        </Box>
-      ) : null}
-    </Card>
+      }
+      facts={facts}
+      menuActions={[
+        { key: "view", label: copy(pageContract, "action.view_details"), icon: <Iconify icon="solar:eye-bold" />, onClick: onView },
+        { key: "edit", label: copy(pageContract, "action.edit", "Edit"), icon: <Iconify icon="solar:pen-bold" />, onClick: onEdit },
+      ]}
+    />
   );
 }
 

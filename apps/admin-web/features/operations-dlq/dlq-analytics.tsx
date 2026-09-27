@@ -24,7 +24,7 @@ export function DLQAnalytics({ cells }: { cells: DLQAnalyticCell[] }) {
       <Scrollbar>
         <Stack direction="row" divider={<Divider orientation="vertical" flexItem sx={{ borderStyle: "dashed" }} />} sx={{ py: 2 }}>
           {cells.map((cell) => (
-            <InvoiceAnalytic key={cell.key} title={cell.title} total={typeof cell.price === "number" ? cell.price : 0} caption={cell.total} value={cell.price} percent={cell.percent} icon={cell.icon} color={`${cell.color}.main`} />
+            <InvoiceAnalytic key={cell.key} title={cell.title} total={typeof cell.price === "number" ? cell.price : 0} caption={cell.total || undefined} value={cell.price} percent={cell.percent} icon={cell.icon} color={`${cell.color}.main`} />
           ))}
         </Stack>
       </Scrollbar>
