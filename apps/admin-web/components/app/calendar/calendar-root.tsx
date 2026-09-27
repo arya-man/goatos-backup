@@ -27,6 +27,9 @@ const legacyTableReset: CSSObject = {
     letterSpacing: "normal",
   },
   "& .fc.fc th": { textAlign: "center", verticalAlign: "middle" },
+  // The dark shell's `:root:not(.light) .screen th:not(.MuiTableCell-root)` (0,4,1) grey fill
+  // outranks the (0,3,1) reset: a third .fc (0,4,1 + later cascade -> 0,5,1) keeps cells clear.
+  "& .fc.fc.fc th, & .fc.fc.fc td": { background: "transparent" },
   "& .fc.fc .fc-scrollgrid-section > td": { height: "1px" },
   "& .fc.fc .fc-scrollgrid-section-liquid > td": { height: "100%" },
   "& .fc.fc .fc-scrollgrid-section-header > *, & .fc.fc .fc-scrollgrid-section-footer > *": { borderBottomWidth: 0 },
@@ -34,10 +37,10 @@ const legacyTableReset: CSSObject = {
 };
 
 export const CalendarRoot = styled(TemplateCalendarRoot)(({ theme }) => {
-  // The weekday header: `.fc thead th.fc-col-header-cell` (three classes + two tags) matches the
-  // shell's `.wrap thead th` and wins over the reset, so the header stays one thin template row.
+  // The weekday header: `.fc.fc.fc thead th.fc-col-header-cell` (0,5,2) outranks the shell's
+  // `.wrap thead th` and dark `.screen th` fills and the reset, so the header stays one thin template row.
   const tableHeadStyles: CSSObject = {
-    "& .fc thead th.fc-col-header-cell": {
+    "& .fc.fc.fc thead th.fc-col-header-cell": {
       padding: 0,
       background: "transparent",
       textTransform: "none",
