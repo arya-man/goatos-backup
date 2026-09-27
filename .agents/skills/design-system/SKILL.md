@@ -5,7 +5,7 @@ description: >-
   page or feature, a route, table, chart, KPI card, filter bar, drawer, dialog, skeleton, tab
   strip, sidebar item, or the theme CSS — and when reviewing one. Holds the admin-web redesign
   contract: the locked Mesha palette and fonts, the page frame (PageShell/PageHeader), the kit
-  components every screen is built from (Card/TableCard/BarList/KpiCard/Skeleton/AnimatedTabs/
+  components every screen is built from (Card/TableCard/BarList/KpiWidget/Skeleton/AnimatedTabs/
   FilterBar/Overlay), the motion constants, the banned patterns, and the exact guard commands
   that must be green before a push. Machine backing: `npm run design:guard` (static),
   `npm run visual:stories` and `npm run visual:routes` (Storybook + route visual regression with
@@ -120,7 +120,7 @@ cannot bleed to the edges and matches the final layout's shape.
 **Kit.** `Card` (r16, p24, hairline, elevation-1) · `TableCard` (header band, 56/44px rows,
 StatusChip, portaled RowMenu, `TableFooter`, horizontal overflow scrolls inside the card) ·
 `BarList` (label · track · value, grows from zero, centred axis for negatives, shared tooltip) ·
-`KpiCard` (label · Barlow value · unit · TrendBadge · Sparkline, CountUp on mount) ·
+`KpiWidget` (components/app adapter over the verbatim template Course/Ecommerce widget summary; figure + visible sub-line) ·
 `AnimatedTabs` (one strip everywhere, count badges, scrolls with fade, never wraps) ·
 `FilterBar` (search · kit `SelectField`/`DateRangeField` · actions · summary) ·
 MUI `Dialog` (DialogTitle/Content/Actions) / `Drawer` (components/minimal/drawer) / template `CustomPopover` + `MenuList` (row actions: `components/app/row-menu`) ·
@@ -219,15 +219,15 @@ Neutrals are the MUI Minimal TEMPLATE's (Ravi 2026-09-27): grey scale `--grey-50
 
 ## Theme surfaces in both modes (R2, 2026-09-27)
 
-- **Surfaces and colours come from the theme, in BOTH modes.** KPI/widget cards are the template
-  widget summaries: `KpiCard` = EcommerceWidgetSummary (paper Card, chart right) by default and
-  CourseWidgetSummary (icon corner) with an icon; AnalyticsWidgetSummary (pastel in dark too, exactly
-  as the template ships it) only where a page truly maps to the analytics overview. Never paint a
+- **Surfaces and colours come from the theme, in BOTH modes.** KPI/widget cards are the VERBATIM template
+  widget summaries fed through `components/app/kpi-widget.tsx` (KpiWidget; client drill-in
+  `kpi-widget-action.tsx`; row `components/app/kpi-grid.tsx`): EcommerceWidgetSummary for a real
+  weekly series + percent, CourseWidgetSummary otherwise. KpiCard / StatStrip are deleted. Never paint a
   surface `common.white` / `#fff` / `grey.50-200` (P0 `light-surface-literal`; the dark shell shows a
   light box) and never select a `.Mui*` class in the legacy stylesheets to set a colour, background
   or border (P0 `legacy-css-mui-colour`; frame/minimal-theme/mesha-theme/menu-surface/globals.css
   only shrink). Tints are `varAlpha(theme.vars.palette.<c>.<x>Channel, a)` over the paper.
-  Source test: `components/kpi-card-anatomy.test.mjs`. A legacy rule that paints a bare `th`/`td`/`tr` repaints MUI tables too: exclude MUI parts
+  A legacy rule that paints a bare `th`/`td`/`tr` repaints MUI tables too: exclude MUI parts
   (`td:not(.MuiTableCell-root)`, waivable `legacy-table-paint`), and no `rgb()`/`rgba()` colour
   literal in TSX (waivable `rgb-colour-in-code`).
 ## Template-fidelity guards (AFIX12, 2026-09-27)
@@ -321,7 +321,7 @@ Full pattern → guard table and the how-to-add-a-page ordering: `docs/design/RE
 - Review check: a changed page that drops a mapped template import, or a new page with no map row, is a
   blocker; `design:guard` (`page-template-map`, p0) enforces the listed imports.
 - **Template files are verbatim (guard `template-verbatim`, design:guard p0, self-test).** Ravi 2026-09-27: "use the SAME mesha-ui template across the pages and just put our content." Every file mapped in `docs/design/template-sources.json` (`components/minimal/**`, `layouts/**`) equals its source in `~/mesha/mesha-ui/vendor/minimal/Minimal_TypeScript_v7.7.0/next-ts` byte-for-byte, except import paths (`src/...` -> `@/components/minimal/...`, `@/layouts/...`, `@/theme/...`; package imports unchanged) and a leading `"use client"`. No prop, sx, copy, comment or behaviour edits inside them; Mesha colours come only from the theme. The manifest stores the sha256 of each normalised template source (the template is not in CI); refresh with `node apps/admin-web/scripts/refresh-template-hashes.mjs` after copying a new template file. A component with no true template source never lives under `components/minimal/` (no KpiCard / StatStrip / progress-item / AnimatedTabs wearing a template path): use the real template component (EcommerceWidgetSummary / CourseWidgetSummary / BookingWidgetSummary, the template Tabs + Label anatomy, EcommerceSalesOverview progress rows). Product behaviour (URL-linked tabs/pagination, data mapping, i18n labels) lives in `components/app/` adapters or feature files that only render template/MUI components and pass props/children (no own CSS, no raw px/colours). Remaining drift is the shrink-only list in `docs/design/template-verbatim-baseline.json` (a healed file must be removed; nothing may be added). The drift baseline keys each listed file on the sha256 of its bytes: editing a baselined file fails too (restore it to the template and drop the entry; never re-record a hash).
-- **No pastel fallback on mapped pages (guard `page-template-no-pastel`, p0).** A page with a row in `docs/design/page-template-map.md` must not render `KpiCard variant="tint"/"gradient"` or `AnalyticsWidgetSummary`; KPI rows are `EcommerceWidgetSummary` / `CourseWidgetSummary` / `BankingWidgetSummary`, charts are template chart cards (CardHeader + select), lists use the template table anatomy.
+- **No pastel fallback on mapped pages (guard `page-template-no-pastel`, p0).** A page with a row in `docs/design/page-template-map.md` must not render `AnalyticsWidgetSummary`; KPI rows are `EcommerceWidgetSummary` / `CourseWidgetSummary` (via `components/app/kpi-widget.tsx`), charts are template chart cards (CardHeader + select), lists use the template table anatomy.
 - **Template sections keep their client boundary (guard `section-client-boundary`, p0).** A file under `apps/admin-web/components/minimal/sections/` that calls a hook or passes a function `sx`/`(theme) =>` callback must start with `'use client'`; a server page rendering it would pass a function across the RSC boundary and crash at render. `next build` must pass before every push. Modules that import `useLinkStatus` / `useRouter` / `useSearchParams` / `usePathname` straight from `next/link` or `next/navigation` must start with `'use client'` (test `client-only-hook-directive`, `components/client-only-hooks-directive.test.mjs`).
 - **No legacy card shells on mapped pages (guard `page-template-legacy-card`, p0).** A page with a row in `docs/design/page-template-map.md` must not render `className="card"` / `"wchart"` / `"wtable"` / `"kpi"` sections or `<h2 className="h">` headings: every block is a template section card (Card + CardHeader, e.g. `BankingBalanceStatistics`, `AnalyticsWebsiteVisits`, `EcommerceSaleByGender`) fed our data, and the legacy CSS behind those classes is deleted as pages stop using it.
 - **Sidebar and header are the template dashboard layout (guard `shell-nav-template`, p0; test `components/sidebar-viewport.test.mjs`).** The nav is `NavSectionVertical` / `NavSectionMini` (layouts/template/nav-section, verbatim) inside `layouts/dashboard/nav-vertical.tsx` / `nav-mobile.tsx`, fed by the backend bootstrap nav. The whole nav scrolls in the template `Scrollbar`, logo fixed; only the active group opens (no `default_open` subtrees); no custom nav footer (`navBottom`, `msh-foot`, `navigation.footer` - the template only has the optional NavUpgrade card, which we do not use); the phone nav is the template drawer (`var(--layout-nav-mobile-width)` over the template backdrop, no full-width/opaque scrim, no extra close button; Android Back closes it). Header right order follows the template: notifications (IconButton + Badge + solar bell) -> theme toggle (template Settings slot) -> account; the park scope is the template WorkspacesPopover trigger in the header left slot (`layouts/components/workspaces-button.tsx`).

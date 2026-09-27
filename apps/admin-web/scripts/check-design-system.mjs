@@ -104,7 +104,7 @@ const RAW_UNIT_TEMPLATE = /\$\{(?![^}]*(?:fmt|format|Format|dash|num\(|kg\(|toLo
 // or the theme palette with varAlpha().
 const RGB_COLOUR = /rgba?\(\s*\d{1,3}\s*[,\s]\s*\d{1,3}/;
 const LIGHT_SURFACE = /(?:bgcolor|backgroundColor|background)\s*:\s*["'`](?:common\.white|#fff(?:fff)?|white|grey\.(?:50|100|200))["'`]/;
-const LIGHT_SURFACE_ALLOWED = new Set(["components/minimal/widgets/analytics-widget-summary.tsx", "components/minimal/widgets/kpi-card.tsx"]);
+const LIGHT_SURFACE_ALLOWED = new Set();
 // Legacy stylesheets only shrink; a rule there that selects a MUI class and sets a colour fights the
 // theme in one of the two modes. MUI colours come from the theme palette (theme/core).
 const LEGACY_CSS = new Set(["app/frame.css", "app/minimal-theme.css", "app/mesha-theme.css", "app/menu-surface.css", "app/globals.css"]);

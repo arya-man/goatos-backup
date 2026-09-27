@@ -140,9 +140,9 @@ export const overlayJourneys = {
   vaccination: [
     {
       id: "closed-no-dose-drawer",
-      // features/preventive-care-vaccination/command-board-view.tsx: the Closed, No Dose KpiCard
-      // (components/minimal/widgets/kpi-card.tsx: clickable tile = MUI CardActionArea button) -> closed drawer
-      trigger: ".kit-kpi button.MuiCardActionArea-root",
+      // features/preventive-care-vaccination/command-board-view.tsx: the Closed, No Dose tile
+      // (template CourseWidgetSummary Card with role=button + onClick via kpiTile) -> closed drawer
+      trigger: ".MuiCard-root[role=button]",
       triggerText: /closed/i,
       // The closed drawer is the template MinimalDrawer (portalled MUI Drawer paper, role=dialog).
       overlay: ".MuiDrawer-paper[role=dialog]",
