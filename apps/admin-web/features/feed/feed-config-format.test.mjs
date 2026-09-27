@@ -29,3 +29,13 @@ test("an editor opens on the plain stored number, with no padding and no thousan
   assert.equal(fmtInputNumber(undefined), "");
   assert.equal(fmtInputNumber("abc"), "abc");
 });
+
+test("feed-config tables keep the sticky first column and scroll-edge fades (data-scroll-x on every scroller)", async () => {
+  // REVIEW-10 O16: the template conversion swapped div.feed-scroll for a bare Box, which dropped the
+  // frame.css sticky first column and components/app/scroll-edges fades (both key on the marker).
+  const { readFileSync } = await import("node:fs");
+  const page = readFileSync(new URL("./feed-config.tsx", import.meta.url), "utf8");
+  const scrollers = page.match(/<Box\n\s+(?:data-scroll-x=""\n\s+)?sx=\{\{ overflowX: "auto" \}\}/g) ?? [];
+  assert.ok(scrollers.length >= 4, "four table scrollers");
+  for (const box of scrollers) assert.match(box, /data-scroll-x=""/);
+});

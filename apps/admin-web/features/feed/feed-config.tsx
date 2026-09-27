@@ -871,6 +871,7 @@ export async function FeedConfigPage({
             answer is still true until the new one lands — but go inert, so a stale row cannot be
             clicked or mistaken for the result of the filter just applied. */}
         <Box
+          data-scroll-x=""
           sx={{ overflowX: "auto" }}
           tabIndex={0}
           role="group"
@@ -990,6 +991,7 @@ export async function FeedConfigPage({
         >
         <UrlSuspense searchParams={sp} watch={[...sectionParams(experimentFilterFields), "fc_exp_offset", "fc_exp_limit", ...SCOPE_PARAMS]} fallback={<TableSkeleton bare header={false} pager={false} columns={experimentCols.length + 1} rows={experimentLimit} />}>
         <Box
+          data-scroll-x=""
           sx={{ overflowX: "auto" }}
           tabIndex={0}
           role="group"
@@ -1258,6 +1260,7 @@ export async function FeedConfigPage({
           </Box>
         ) : null}
         <Box
+          data-scroll-x=""
           sx={{ overflowX: "auto" }}
           tabIndex={0}
           role="group"
@@ -1331,6 +1334,7 @@ export async function FeedConfigPage({
       <Card>
         <CardHeader title={copy(pageContract, "section.schedule.title")} subheader={copy(pageContract, "section.schedule.caption")} sx={{ mb: 2 }} />
         <Box
+          data-scroll-x=""
           sx={{ overflowX: "auto" }}
           tabIndex={0}
           role="group"
