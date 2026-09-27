@@ -208,7 +208,7 @@
         "LinearProgress(color,sx,value,variant)"
       ],
       "allowProps": [
-        "aria-label"
+        "LinearProgress:aria-label"
       ]
     },
     "components/app/sections/overview/e-commerce/ecommerce-current-balance.tsx": {
@@ -280,7 +280,7 @@
         "Button(color,fullWidth,variant)"
       ],
       "allowProps": [
-        "onClick"
+        "Button:onClick"
       ]
     },
     "components/app/sections/overview/e-commerce/ecommerce-latest-products.tsx": {
@@ -383,8 +383,9 @@
         "ColorPreview(colors,limit)"
       ],
       "allowProps": [
-        "role",
-        "wrapNames"
+        "Box:role",
+        "Item:role",
+        "Item:wrapNames"
       ]
     },
     "components/app/sections/overview/banking/banking-expenses-categories.tsx": {
@@ -520,7 +521,7 @@
         "Iconify(icon)"
       ],
       "allowProps": [
-        "aria-label"
+        "IconButton:aria-label"
       ]
     },
     "components/app/sections/user/user-table-row.tsx": {
@@ -607,7 +608,7 @@
         "Iconify(icon)"
       ],
       "allowProps": [
-        "..."
+        "Link:..."
       ]
     },
     "components/app/sections/order/order-details-customer.tsx": {
@@ -713,9 +714,9 @@
       "source": "src/sections/order/order-details-history.tsx",
       "replaced": "IOrderHistory -> title/timeline/summary props (time caption preformatted instead of fDateTime; optional body line + tone dot colour); Show more -> optional more link; declared: header action, Card sx/props passthrough",
       "allowProps": [
-        "action",
-        "component",
-        "href"
+        "CardHeader:action",
+        "Button:component",
+        "Button:href"
       ],
       "strip": [
         [
@@ -793,7 +794,7 @@
       "propNames": [
         "Paper(sx,variant)",
         "Box(sx)",
-        "Box(sx)",
+        "Box(component,sx)",
         "Timeline(sx)",
         "TimelineItem()",
         "TimelineSeparator()",
@@ -801,7 +802,7 @@
         "TimelineConnector()",
         "TimelineContent()",
         "Typography(variant)",
-        "Box(sx)",
+        "Box(component,sx)",
         "Card()",
         "CardHeader(title)",
         "Box(sx)",
@@ -814,8 +815,8 @@
       "source": "src/sections/order/order-details-toolbar.tsx",
       "replaced": "demo order -> title (page h1) / status + statusColor / subtitle (instead of fDateTime); status menu kept via statusOptions/onChangeStatus; SLOT actions (Print / Edit buttons); back IconButton only with backHref + aria-label; declared override: slotProps.actions merged after the action-row sx",
       "allowProps": [
-        "aria-label",
-        "component"
+        "IconButton:aria-label",
+        "Typography:component"
       ],
       "templateStrip": [
         "\\s*<Button\\s+color=\"inherit\"\\s+variant=\"outlined\"\\s+startIcon=[\\s\\S]*?Print\\s*<\\/Button>\\n",
@@ -889,7 +890,7 @@
         "MenuItem(onClick,selected)",
         "Box(sx)",
         "Box(sx)",
-        "IconButton(href)",
+        "IconButton(component,href)",
         "Iconify(icon)",
         "Stack(spacing)",
         "Box(sx)",

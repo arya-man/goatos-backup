@@ -1212,12 +1212,18 @@ async function selfTest() {
         "derived-override": tplDerived.replace("<Box sx={{ typography: 'h3' }}>", "<Box sx={mergeSx({ typography: 'h3' }, slotProps?.row)}>"),
         "derived-undeclared": tplDerived.replace("<Box sx={{ typography: 'h3' }}>", "<Box sx={mergeSx({ typography: 'h3' }, slotProps?.label)}>"),
         "derived-addprop": tplDerived.replace('<Chart type="bar"', '<Chart disabled type="bar"'),
+        // REVIEW-26 O32: allowProps are keyed by element; a spread carrying sx is drift.
+        "derived-allowed-el": tplDerived.replace('<Chart type="bar"', '<Chart aria-label="x" type="bar"'),
+        "derived-wrong-el": tplDerived.replace("<Box sx={{ typography: 'h3' }}>", "<Box aria-label=\"x\" sx={{ typography: 'h3' }}>"),
+        "derived-spread-sx": tplDerived.replace("<Box sx={{ typography: 'h3' }}>", "<Box {...{ sx: { p: 9 } }} sx={{ typography: 'h3' }}>"),
       };
       const files = {};
       const declared = { ...entry, strip: [["mergeSx\\((\\{ typography: 'h3' \\}), slotProps\\?\\.row\\)", "$1"]] };
       for (const [name, text] of Object.entries(variants)) {
         put(`components/app/sections/demo/${name}.tsx`, text);
-        files[`components/app/sections/demo/${name}.tsx`] = name === "derived-override" || name === "derived-undeclared" ? declared : entry;
+        const keyedAllow = { ...entry, allowProps: ["Chart:aria-label", "Box:..."] };
+        files[`components/app/sections/demo/${name}.tsx`] =
+          name === "derived-override" || name === "derived-undeclared" ? declared : name.startsWith("derived-allowed") || name === "derived-wrong-el" || name === "derived-spread-sx" ? keyedAllow : entry;
       }
       put("docs/design/template-derived.json", JSON.stringify({ files }));
     }
@@ -1274,8 +1280,8 @@ async function selfTest() {
     process.exit(1);
   }
   const derivedHits = findings.filter((f) => f.check === "template-derived-anatomy").map((f) => f.file);
-  const wantDerived = ["derived-drift", "derived-height", "derived-px", "derived-type", "derived-style", "derived-undeclared", "derived-addprop"].map((n) => `components/app/sections/demo/${n}.tsx`);
-  if (["derived-ok", "derived-override"].some((n) => derivedHits.includes(`components/app/sections/demo/${n}.tsx`)) || wantDerived.some((f) => !derivedHits.includes(f))) {
+  const wantDerived = ["derived-drift", "derived-height", "derived-px", "derived-type", "derived-style", "derived-undeclared", "derived-addprop", "derived-wrong-el", "derived-spread-sx"].map((n) => `components/app/sections/demo/${n}.tsx`);
+  if (["derived-ok", "derived-override", "derived-allowed-el"].some((n) => derivedHits.includes(`components/app/sections/demo/${n}.tsx`)) || wantDerived.some((f) => !derivedHits.includes(f))) {
     console.error(`design_system_self_test=FAIL template-derived-anatomy flagged=${[...new Set(derivedHits)].join(",") || "none"} (want ${wantDerived.join(",")})`);
     process.exit(1);
   }

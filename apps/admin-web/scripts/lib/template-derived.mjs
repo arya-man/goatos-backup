@@ -125,14 +125,26 @@ export function propNames(text, allow = []) {
       const c = body[i];
       if (quote) { if (c === quote) quote = null; continue; }
       if (depth === 0 && (c === '"' || c === "'")) { quote = c; continue; }
-      if (c === "{") { if (depth === 0 && body.slice(i, i + 4) === "{...") names.add("..."); depth++; continue; }
+      if (c === "{") {
+        if (depth === 0 && body.slice(i, i + 4) === "{...") {
+          // A spread that carries its own sx / style is style drift, never allowable (REVIEW-26 O32).
+          const end = matchBrace(body, i);
+          names.add(/\b(sx|style)\s*:/.test(body.slice(i, end)) ? "...sx!" : "...");
+        }
+        depth++;
+        continue;
+      }
       if (c === "}") { depth--; continue; }
       if (depth > 0) continue;
       if (/[\w-]/.test(c)) token += c;
       else { if (token && (c === "=" || /\s|\/|>/.test(c))) names.add(token); token = ""; }
     }
     names.delete("key");
-    for (const a of allow) names.delete(a);
+    // allowProps are keyed by element: "IconButton:aria-label", "Link:..." (REVIEW-26 O32).
+    for (const a of allow) {
+      const [el, prop] = a.includes(":") ? a.split(/:(.*)/s) : [null, a];
+      if (el === name && prop !== "...sx!") names.delete(prop);
+    }
     out.push(`${name}(${[...names].sort().join(",")})`);
   }
   return out;
