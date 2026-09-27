@@ -362,49 +362,56 @@ export function MeshaShell({
     "/sales/loads",
     "/sales/farm-born",
   ];
+  // TOP-BAR PARK RULE (the one place; TR1-#12). The header park switcher shows on EVERY route that
+  // reads the shell's `park` scope. It is hidden on exactly two kinds of route, and every entry below
+  // is tagged with which one it is (test `top-bar-park-rule`, components/park-switcher.test.mjs):
+  //   own-filter -- the page renders its own park / farm control on the same choice (a second
+  //                 selector in the header would be a duplicate answer to one question);
+  //   no-park    -- the page reads tenant-level data and sends no park anywhere (an authority,
+  //                 config or SOP surface), so a park chip in the header would be a false filter.
   const PAGES_WITH_LOCAL_OR_NO_PARK_SCOPE = [
-    "/approvals",
-    "/alerts",
-    "/ceo-ai-admin",
-    "/configuration/items",
-    "/configuration/work-instructions",
-    "/counts/breakdown",
-    "/counts/sops",
-    "/feed/sops",
-    "/health/config",
-    "/leave",
-    "/milk/sops",
-    "/operations/audit",
-    "/operations/dlq",
-    "/people",
-    "/procurement/animal-purchases",
-    "/procurement/feed-purchases",
-    "/procurement/source-entry",
-    "/procurement/vendors",
-    "/procurement/sops",
-    "/sales/config",
-    "/sales/market-analytics",
-    "/sales/sops",
-    "/weighing/weights",
-    "/weighing/analytics",
-    "/weighing/sops",
+    "/approvals", // own-filter: Farm filter
+    "/alerts", // no-park
+    "/ceo-ai-admin", // no-park
+    "/configuration/items", // own-filter: park column filter
+    "/configuration/work-instructions", // no-park
+    "/counts/breakdown", // own-filter: Farm filter
+    "/counts/sops", // no-park
+    "/feed/sops", // no-park
+    "/health/config", // no-park
+    "/leave", // no-park
+    "/milk/sops", // no-park
+    "/operations/audit", // no-park
+    "/operations/dlq", // no-park
+    "/people", // own-filter: park filter
+    "/procurement/animal-purchases", // no-park
+    "/procurement/feed-purchases", // own-filter: park field filter
+    "/procurement/source-entry", // no-park
+    "/procurement/vendors", // no-park
+    "/procurement/sops", // no-park
+    "/sales/config", // no-park
+    "/sales/market-analytics", // no-park
+    "/sales/sops", // no-park
+    "/weighing/weights", // own-filter: filter bar park
+    "/weighing/analytics", // own-filter: filter bar park
+    "/weighing/sops", // no-park
     // The Sales read pages that carry the farm chips -- spread, not copied, so the list the
     // sales-pages guard checks is the list the shell actually hides the top bar on.
-    ...PAGES_OWNING_PARK_SCOPE,
-    "/sales/vendors",
-    "/tasks",
-    "/vaccination/plan",
-    "/vaccination/live-tracker",
+    ...PAGES_OWNING_PARK_SCOPE, // own-filter: farm chips
+    "/sales/vendors", // no-park
+    "/tasks", // no-park
+    "/vaccination/plan", // no-park
+    "/vaccination/live-tracker", // own-filter: lt_park chips
   ];
   const ROUTE_FAMILIES_WITH_LOCAL_OR_NO_PARK_SCOPE = [
-    "/calendar/drive",
-    "/goats",
-    "/procurement/source-entry/loads",
-    "/vaccination/execution/sheds",
-    "/vaccination/plan",
+    "/calendar/drive", // no-park: one fixed drive
+    "/goats", // no-park: one fixed animal
+    "/procurement/source-entry/loads", // no-park: one fixed load
+    "/vaccination/execution/sheds", // no-park: one fixed pen
+    "/vaccination/plan", // no-park
   ];
   const ROUTE_PATTERNS_WITH_LOCAL_OR_NO_PARK_SCOPE = [
-    /^\/workflows\/[^/]+$/,
+    /^\/workflows\/[^/]+$/, // no-park: one fixed workflow row
   ];
   const lockTopBarParkSelector = routeOwnsOrIgnoresTopBarPark(
     pathname,

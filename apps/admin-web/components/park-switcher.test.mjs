@@ -26,3 +26,19 @@ test("O38: unknown ?park reads the selected-park copy and selects no option", ()
   assert.doesNotMatch(popover, /\?\? data\[0\]/, "never falls back to the first option (All parks) for a set value");
   assert.match(shell, /fallback=\{\{ name: shellCopy\(contract, "scope\.selected_park"\)/, "shell passes the selected-park copy");
 });
+
+// guard: top-bar-park-rule (TR1-#12). The header park switcher shows on every park-scoped route; it is
+// hidden only where the page has its own park filter (own-filter) or reads no park at all (no-park).
+// The rule lives in one place (mesha-shell.tsx) and every hidden route states which case it is.
+{
+  const { readFileSync: read } = await import("node:fs");
+  const shellSrc = read(new URL("./mesha-shell.tsx", import.meta.url), "utf8");
+  assert.match(shellSrc, /TOP-BAR PARK RULE \(the one place/);
+  for (const name of ["PAGES_WITH_LOCAL_OR_NO_PARK_SCOPE", "ROUTE_FAMILIES_WITH_LOCAL_OR_NO_PARK_SCOPE", "ROUTE_PATTERNS_WITH_LOCAL_OR_NO_PARK_SCOPE"]) {
+    const block = shellSrc.match(new RegExp(`const ${name} = \\[([\\s\\S]*?)\\n  \\];`));
+    assert.ok(block, `${name} exists`);
+    const entries = block[1].split("\n").filter((l) => /^\s*("|\/\^|\.\.\.)/.test(l));
+    assert.ok(entries.length > 0, `${name} has entries`);
+    for (const line of entries) assert.match(line, /\/\/ (own-filter|no-park)\b/, `${name}: "${line.trim()}" must say own-filter or no-park`);
+  }
+}

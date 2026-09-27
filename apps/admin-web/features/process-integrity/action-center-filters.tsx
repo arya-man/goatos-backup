@@ -1,10 +1,19 @@
 "use client";
 
 import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Dialog from "@mui/material/Dialog";
+import DialogActions from "@mui/material/DialogActions";
+import DialogContent from "@mui/material/DialogContent";
+import DialogTitle from "@mui/material/DialogTitle";
+import IconButton from "@mui/material/IconButton";
+import TextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
 import Link from "@/components/no-prefetch-link";
 import { InfoHint } from "@/components/app/info-hint";
-import { useEffect, useRef, useState } from "react";
-import { Search, Users, X } from "lucide-react";
+import { FilterChip } from "@/components/app/list/filter-chip";
+import { Iconify } from "@/components/minimal/iconify";
+import { useState } from "react";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { ACTION_CENTER_CARD_SELECTOR } from "./action-center-board-parts";
 
@@ -35,26 +44,8 @@ export function ActionCenterFiltersButton({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [owner, setOwner] = useState("");
-  const modalRef = useRef<HTMLDivElement>(null);
-  const Icon = mode === "my" ? Users : Search;
+  const icon = mode === "my" ? "solar:users-group-rounded-bold" : "eva:search-fill";
   const title = mode === "my" ? copy(pageContract, "filter.my_tasks.title") : copy(pageContract, "filter.drawer.title");
-
-  useEffect(() => {
-    if (!open) return;
-    const node = modalRef.current;
-    const first = node?.querySelector<HTMLElement>('a[href],button:not([disabled]),input:not([disabled])');
-    (first ?? node)?.focus();
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("keydown", onKey);
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prevOverflow;
-    };
-  }, [open]);
 
   function applyLocalFilters(nextQuery = query, nextOwner = owner) {
     const q = nextQuery.trim().toLowerCase();
@@ -74,117 +65,93 @@ export function ActionCenterFiltersButton({
     }
   }
 
+  // TR1-#7: the template Dialog (portal, visible backdrop, focus trap, Escape / backdrop close), not a
+  // hand-made `div.modal.on.card` with no backdrop layer. guard: action-center-filters-dialog
   return (
     <>
-      <button type="button" className="btn sm" onClick={() => setOpen(true)} aria-haspopup="dialog">
-        <Icon className="ic" style={{ width: 13 }} aria-hidden="true" /> {label}
-      </button>
-      {open ? (
-        <>
-	          <button
-	            type="button"
-	            aria-label={copy(pageContract, "filter.close_label")}
-	            onClick={() => setOpen(false)}
-	            style={{ position: "fixed", inset: 0, background: "var(--scrim)", zIndex: 210, border: 0 }}
-	          />
-          <div
-            ref={modalRef}
-            className="modal on card"
-	            role="dialog"
-	            aria-modal="true"
-	            aria-label={title}
-	            tabIndex={-1}
-	            style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}
-	          >
-	            <div className="hd" style={{ borderBottom: "1px solid var(--line2)", flex: "0 0 auto" }}>
-	              <Icon className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-	              <h3>{title}</h3>
-	              <div className="sp" style={{ flex: 1 }} />
-	              <button type="button" className="iconbtn" onClick={() => setOpen(false)} aria-label={copy(pageContract, "filter.close_button_label")}>
-	                <X className="ic" />
-	              </button>
-	            </div>
-            <div className="bd" style={{ display: "flex", flexDirection: "column", gap: 14, overflow: "auto" }}>
-	              <div className="muted small">{rowsLabel}</div>
-	              <div className="fld" style={{ marginBottom: 0 }}>
-	                <label>{copy(pageContract, "filter.search_label")}</label>
-	                <input
-	                  value={query}
-	                  placeholder={copy(pageContract, "filter.search_placeholder")}
-	                  onChange={(event) => {
-	                    setQuery(event.target.value);
-	                    applyLocalFilters(event.target.value, owner);
-	                  }}
-	                />
-	              </div>
-	              <Facet title={copy(pageContract, "filter.work_state.title")} links={stateLinks} onPick={() => setOpen(false)} />
-	              <Facet title={copy(pageContract, "filter.severity.title")} links={severityLinks} onPick={() => setOpen(false)} />
-	              <div className="fld" style={{ marginBottom: 0 }}>
-	                <label>{copy(pageContract, "filter.owner_label")}</label>
-	                <input
-	                  value={owner}
-	                  placeholder={copy(pageContract, "filter.owner_placeholder")}
-	                  onChange={(event) => {
-	                    setOwner(event.target.value);
-	                    applyLocalFilters(query, event.target.value);
-                  }}
-	                />
-	              </div>
-	              <Box sx={{ display: "flex", justifyContent: "flex-end" }}><InfoHint text={copy(pageContract, "filter.scope_note")} /></Box>
-	            </div>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                borderTop: "1px solid var(--line2)",
-                background: "var(--panel)",
-                padding: "14px 16px",
-              }}
-            >
-	              <Link href={clearHref} replace scroll={false} className="btn" onClick={() => setOpen(false)}>
-	                {copy(pageContract, "filter.clear_all")}
-	              </Link>
-	              <button type="button" className="btn" onClick={clearLocalFilters}>
-	                {copy(pageContract, "filter.clear_local")}
-	              </button>
-              <div className="sp" style={{ flex: 1 }} />
-              <button
-                type="button"
-                className="btn p"
-                onClick={() => {
-                  applyLocalFilters();
-	                  setOpen(false);
-	                }}
-	              >
-	                {copy(pageContract, "filter.done")}
-	              </button>
-            </div>
-          </div>
-        </>
-      ) : null}
+      <Button variant="outlined" color="inherit" size="small" startIcon={<Iconify icon={icon} />} onClick={() => setOpen(true)} aria-haspopup="dialog">
+        {label}
+      </Button>
+      <Dialog fullWidth maxWidth="xs" open={open} onClose={() => setOpen(false)} aria-label={title}>
+        <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <Box component="span" sx={{ flexGrow: 1 }}>{title}</Box>
+          <IconButton onClick={() => setOpen(false)} aria-label={copy(pageContract, "filter.close_button_label")}>
+            <Iconify icon="mingcute:close-line" />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 2.5, pt: 1 }}>
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>{rowsLabel}</Typography>
+          <TextField
+            fullWidth
+            slotProps={{ inputLabel: { shrink: true } }}
+            label={copy(pageContract, "filter.search_label")}
+            value={query}
+            placeholder={copy(pageContract, "filter.search_placeholder")}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              applyLocalFilters(event.target.value, owner);
+            }}
+          />
+          <Facet title={copy(pageContract, "filter.work_state.title")} links={stateLinks} onPick={() => setOpen(false)} />
+          <Facet title={copy(pageContract, "filter.severity.title")} links={severityLinks} onPick={() => setOpen(false)} />
+          <TextField
+            fullWidth
+            slotProps={{ inputLabel: { shrink: true } }}
+            label={copy(pageContract, "filter.owner_label")}
+            value={owner}
+            placeholder={copy(pageContract, "filter.owner_placeholder")}
+            onChange={(event) => {
+              setOwner(event.target.value);
+              applyLocalFilters(query, event.target.value);
+            }}
+          />
+          <Box sx={{ display: "flex", justifyContent: "flex-end" }}><InfoHint text={copy(pageContract, "filter.scope_note")} /></Box>
+        </DialogContent>
+        <DialogActions sx={{ gap: 1.5, "& > :not(style) ~ :not(style)": { ml: 0 } }}>
+          <Button component={Link} href={clearHref} replace scroll={false} variant="outlined" color="inherit" onClick={() => setOpen(false)}>
+            {copy(pageContract, "filter.clear_all")}
+          </Button>
+          <Button variant="outlined" color="inherit" onClick={clearLocalFilters}>
+            {copy(pageContract, "filter.clear_local")}
+          </Button>
+          <Box sx={{ flexGrow: 1 }} />
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={() => {
+              applyLocalFilters();
+              setOpen(false);
+            }}
+          >
+            {copy(pageContract, "filter.done")}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </>
   );
 }
 
 function Facet({ title, links, onPick }: { title: string; links: FilterLink[]; onPick: () => void }) {
+  const shown = links
+    // Hide empty buckets — a chip that reads "0" is dead microcopy. Keep the active one so the
+    // current selection never vanishes, and keep count-less facets (e.g. severity) untouched.
+    .filter((link) => link.active || link.count !== 0);
   return (
     <div>
-      <div className="muted small" style={{ marginBottom: 8, fontWeight: 700 }}>
+      <Typography variant="subtitle2" sx={{ mb: 1 }}>
         {title}
-      </div>
-      <div className="chipset">
-        {links
-          // Hide empty buckets — a chip that reads "0" is dead microcopy. Keep the active one so the
-          // current selection never vanishes, and keep count-less facets (e.g. severity) untouched.
-          .filter((link) => link.active || link.count !== 0)
-          .map((link) => (
-            <Link key={link.label} href={link.href} replace scroll={false} className={`chip${link.active ? " on" : ""}`} onClick={onPick}>
-              {link.label}
-              {typeof link.count === "number" ? <span className="cbq">{link.count}</span> : null}
-            </Link>
-          ))}
-      </div>
+      </Typography>
+      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }} onClick={onPick}>
+        {shown.map((link) => (
+          <FilterChip
+            key={link.label}
+            href={link.href}
+            replace
+            on={link.active}
+            label={typeof link.count === "number" ? `${link.label} ${link.count}` : link.label}
+          />
+        ))}
+      </Box>
     </div>
   );
 }

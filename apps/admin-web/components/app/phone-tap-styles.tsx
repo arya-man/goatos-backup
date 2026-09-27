@@ -43,7 +43,9 @@ export function PhoneTapStyles() {
             // TR1-#8: a one-word chip ("All", "OK") was 41-43px wide; the /tasks Board/List icon
             // toggle was 30x30; the date-range clear "x" was 24px wide.
             '.MuiChip-root.MuiChip-root',
+            // Grouped toggles take their size from the group's --size rule (0,2,0), so outrank it.
             '.MuiToggleButton-root.MuiToggleButton-root',
+            '.MuiToggleButtonGroup-root .MuiToggleButton-root.MuiToggleButton-root',
             '.kit-daterange-clear.kit-daterange-clear',
           ].join(', ')]: { minWidth: TAP, minHeight: TAP },
           // The switch thumb button is 32px (18px small); padding grows it to 44px and `left` keeps the thumb

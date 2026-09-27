@@ -169,3 +169,13 @@ test("tap-target check skips visually hidden controls only", () => {
   assert.equal(body(lib), body(src.slice(src.indexOf("export function isVisuallyHidden"))), "page-lib copy equals the exported rule");
   assert.match(lib, /if \(isVisuallyHidden\(cs, r\)\) continue;/, "tap loop consults the rule");
 });
+
+// guard: popover-not-dialog (TR1-#7). The /counts/breakdown tag picker is the template CustomPopover
+// (invisible backdrop by design); it was reported as a dialog with no backdrop. Real Dialog / Drawer
+// papers are still measured.
+test("overlay probe ignores anchored popovers, keeps dialogs and drawers", () => {
+  const src = readFileSync(join(appRoot, "scripts", "r2-visual-audit.mjs"), "utf8");
+  const probe = src.slice(src.indexOf("function overlayInfo()"), src.indexOf("function overlayInfo()") + 1200);
+  assert.match(probe, /\.MuiDrawer-paper, \.MuiDialog-paper, \[role=dialog\]/);
+  assert.match(probe, /!p\.closest\("\.MuiPopover-root"\)/);
+});

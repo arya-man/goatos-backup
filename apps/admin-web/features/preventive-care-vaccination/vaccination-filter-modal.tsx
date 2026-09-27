@@ -138,7 +138,6 @@ export function VaccinationFilterButton({
         aria-label={title}
         onReset={clearVisibleTableFilter}
         canReset={filteredCount !== null}
-        width={360}
         footer={
           <>
             <Button variant="outlined" color="inherit" onClick={clearVisibleTableFilter}>

@@ -2635,7 +2635,6 @@ select:disabled { opacity: .45 }
 .herd-signals-page tr.hs-selectable:focus-visible{outline:2px solid var(--brand);outline-offset:-2px}
 .herd-signals-page tr.hs-selectable.on{background:var(--brand-soft)}
 .herd-signals-page tr.hs-selectable td:first-child{position:relative}
-.herd-signals-page tr.hs-selectable td:first-child > a:not(.hs-row-hit){display:inline-flex;align-items:center;min-height:40px}
 .herd-signals-page tr.hs-selectable.on td:first-child{box-shadow:inset 3px 0 0 var(--brand)}
 
 /* Post-write confirmation. Sits between the action bar and the card so the outcome is next to the

@@ -41,7 +41,6 @@ export function HerdFiltersModal({ open, pageContract, searchParams = {}, onClos
       title={title}
       aria-label={title}
       closeLabel={copy(pageContract, "filter.drawer.close_label")}
-      width={360}
       footer={
         <>
           <Button component={Link} href={clearAllHref(searchParams)} replace scroll={false} variant="outlined" color="inherit" onClick={onClose}>

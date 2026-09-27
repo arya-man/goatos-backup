@@ -814,7 +814,10 @@ function r2PageLib() {
 
   /** Measure the open drawer/dialog. */
   function overlayInfo() {
-    const papers = [...document.querySelectorAll(".MuiDrawer-paper, .MuiDialog-paper, [role=dialog]")].filter((p) => { const b = p.getBoundingClientRect(); return b.width > 40 && b.height > 40 && visible(p) && !p.closest("nav, .minimal__layout__nav, [class*='nav__vertical']"); });
+    // An anchored template popover (CustomPopover / MUI Popover, e.g. the /counts/breakdown tag picker)
+    // is not a dialog: the template draws it over an INVISIBLE backdrop by design, so it is never held
+    // to the dialog backdrop rule (TR1-#7). guard: popover-not-dialog (r2-visual-audit.test.mjs)
+    const papers = [...document.querySelectorAll(".MuiDrawer-paper, .MuiDialog-paper, [role=dialog]")].filter((p) => { const b = p.getBoundingClientRect(); return b.width > 40 && b.height > 40 && visible(p) && !p.closest("nav, .minimal__layout__nav, [class*='nav__vertical']") && !p.closest(".MuiPopover-root"); });
     const paper = papers.find((p) => p.matches(".MuiDrawer-paper, .MuiDialog-paper")) || papers[0];
     if (!paper) return null;
     document.querySelectorAll("[data-r2-paper]").forEach((e) => e.removeAttribute("data-r2-paper"));
