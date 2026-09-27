@@ -1,4 +1,4 @@
-import { ChartCardSkeleton, GridSkeleton, KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton, StackSkeleton, ToolbarSkeleton } from "@/components/app/skeletons";
+import { ChartCardSkeleton, ControlRowSkeleton, FieldSkeleton, GridSkeleton, KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton, StackSkeleton } from "@/components/app/skeletons";
 
 /**
  * /counts/analytics: header + export, date range, six EcommerceWidgetSummary cards, the flow chart
@@ -7,9 +7,15 @@ import { ChartCardSkeleton, GridSkeleton, KpiRowSkeleton, PageHeaderSkeleton, Pa
 export default function Loading() {
   return (
     <PageSkeleton gap={3} root="">
-      <PageHeaderSkeleton actions={1} />
-      <ToolbarSkeleton fields={[300]} small={false} />
-      <KpiRowSkeleton count={6} shapes={[{ hint: false }, { hint: true }, { spark: true }, { spark: true }, { spark: true }, {}]} />
+      {/* "Herd Analytics" is short: on a phone Export sits beside it. */}
+      <PageHeaderSkeleton crumbLink={false} titleWidth={150} actionWidths={[89]} />
+      {/* The small Window select: full width on a phone (44px tap floor), 300 x 56 from md. */}
+      <ControlRowSkeleton>
+        <FieldSkeleton width={{ xs: "100%", sm: 300 }} height={{ xs: 44, md: 56 }} />
+      </ControlRowSkeleton>
+      {/* KpiWidget course cards (no weekly series is served, so no ecommerce sparkline); only the
+          second carries a caption line. */}
+      <KpiRowSkeleton count={6} shapes={[{}, { hint: true }, {}, {}, {}, {}]} />
       <GridSkeleton
         items={[
           { size: { xs: 12, lg: 8 }, node: <ChartCardSkeleton height={364} /> },

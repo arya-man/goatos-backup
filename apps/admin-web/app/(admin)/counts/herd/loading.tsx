@@ -4,7 +4,7 @@ import { FilterCardSkeleton, GridSkeleton, KpiCardSkeleton, PageHeaderSkeleton, 
 export default function Loading() {
   return (
     <PageSkeleton gap={3} root="">
-      <PageHeaderSkeleton actions={2} />
+      <PageHeaderSkeleton crumbLink={false} actionWidths={[154, 154]} />
       <GridSkeleton items={Array.from({ length: 3 }, () => ({ size: { xs: 12, sm: 4 }, node: <KpiCardSkeleton hint /> }))} />
       {/* Contract table "herd-register": 11 labels, the first three folded into the avatar lead cell. */}
       <TableSkeleton columns={9} rows={10} header={false} tabs={<TabsSkeleton count={5} counts />} toolbar={<FilterCardSkeleton inCard fields={["search", 120]} />} />
