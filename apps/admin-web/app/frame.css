@@ -302,12 +302,6 @@ details.top-date-picker:not([open])>.top-date-popover,details.move-date-picker:n
 
 /* ---- Feed Packing: reduce nested operational panels to the shared card language ---- */
 
-.herd-signals-page .insight{background:var(--paper);border-radius:16px;box-shadow:var(--shadow-card);padding:20px 24px;display:grid;gap:8px}
-:root:not(.light) .herd-signals-page .insight{box-shadow:var(--shadow-card),inset 0 0 0 1px var(--line)}
-.herd-signals-page .insight .ih{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:var(--fg-muted)}
-.herd-signals-page .insight .ih .srcl{margin-left:auto}
-.herd-signals-page .insight .iv{font-family:var(--font-display);font-size:30px;line-height:38px;font-weight:700;font-variant-numeric:tabular-nums}
-.herd-signals-page .insight .if{font-size:12px;line-height:18px;color:var(--fg-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .herd-signals-page .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:24px}
 .kit-dense tbody td,.card.kit-dense tbody td,.kit-tablecard.kit-dense tbody td{height:44px;padding-top:8px;padding-bottom:8px}
 

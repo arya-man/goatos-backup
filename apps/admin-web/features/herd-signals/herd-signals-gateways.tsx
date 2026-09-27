@@ -1,3 +1,14 @@
+import Alert from "@mui/material/Alert";
+import Avatar from "@mui/material/Avatar";
+import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import Grid from "@mui/material/Grid";
+import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
+import { DividedStack } from "@/components/app/divided-stack";
+import { Iconify } from "@/components/minimal/iconify";
+import { Label } from "@/components/minimal/label";
 import { Tag } from "@/components/ui-primitives";
 import type { HerdGateway } from "@/lib/api/herd-signals";
 import { operationalLocationLabel } from "@/lib/operational-location";
@@ -63,122 +74,115 @@ export function HerdSignalsGateways({ gateways, nowMs }: { gateways: HerdGateway
   }
 
   const online = gateways.filter((gateway) => gateway.status === "online").length;
+  const isOnline = (gateway: HerdGateway) => gateway.status === "online";
 
   return (
-    <>
-      <div className="grid2">
-        {gateways.map((gateway) => (
-          <div key={gateway.gateway_id} className="gwcard">
-            <div className="gwh">
-              <RadioIcon />
-              <b>{gatewayName(gateway)}</b>
-              <Tag tone={gateway.status === "online" ? "ok" : "dng"}>
-                {gateway.status === "online" ? "Online" : "Offline"}
-              </Tag>
-              <div className="sp" />
-              {/* The mock always shows this chip; an absent one silently drops a field the reader
-                  expects to see. Em dash when the gateway has not reported how it backhauls yet —
-                  never a guessed mode, but never a missing chip either. */}
-              <Tag tone="mut">{gateway.network_mode ? NETWORK_MODE_LABEL[gateway.network_mode] : "—"}</Tag>
-            </div>
+    <Stack spacing={3}>
+      {/* Template card grid (job / tour list cards): header row, location caption, dashed stat strip,
+          mono footer. */}
+      <Grid container spacing={3}>
+        {gateways.map((gateway) => {
+          const stats: Array<[string, string, string | undefined, boolean]> = [
+            [fmtCount(gateway.tags_seen_in_window), "Tags seen", "15m window", gateway.tags_seen_in_window === null],
+            [fmtCount(gateway.distinct_motion_deltas), "Moving", "15m window", gateway.distinct_motion_deltas === null],
+            [fmtCount(gateway.packets_received_in_window), "Packets", "15m window", gateway.packets_received_in_window === null],
+            [fmtAgo(gateway.last_seen_at, nowMs), "Last packet", undefined, false],
+          ];
+          return (
+            <Grid key={gateway.gateway_id} size={{ xs: 12, md: 6 }}>
+              <Card sx={{ p: 3, height: 1, display: "flex", flexDirection: "column", gap: 2 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
+                  <Avatar variant="rounded" sx={{ bgcolor: isOnline(gateway) ? "success.lighter" : "error.lighter", color: isOnline(gateway) ? "success.darker" : "error.darker" }}>
+                    <Iconify icon="solar:monitor-bold" />
+                  </Avatar>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography variant="subtitle1" noWrap>
+                      {gatewayName(gateway)}
+                    </Typography>
+                    <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>
+                      {locationLine(gateway)}
+                    </Typography>
+                  </Box>
+                  <Tag tone={isOnline(gateway) ? "ok" : "dng"}>{isOnline(gateway) ? "Online" : "Offline"}</Tag>
+                  {/* Always shown; an em dash when the gateway has not reported how it backhauls yet —
+                      never a guessed mode, never a missing chip. */}
+                  <Tag tone="mut">{gateway.network_mode ? NETWORK_MODE_LABEL[gateway.network_mode] : "—"}</Tag>
+                </Box>
 
-            <div className="muted small">{locationLine(gateway)}</div>
+                {!isOnline(gateway) ? (
+                  <Alert severity="error">
+                    <b>Gateway {gatewayName(gateway)} is offline.</b> No packet for {fmtAgo(gateway.last_seen_at, nowMs)}. A tag
+                    heard by ANOTHER gateway keeps reporting normally; only a tag no gateway can hear for 30+ minutes
+                    reads as missing signal. Either way that is a statement about the radio path, never a claim that
+                    those animals are missing.
+                  </Alert>
+                ) : null}
 
-            {gateway.status !== "online" ? (
-              <div className="banner dng" style={{ margin: "10px 0 0" }}>
-                <svg className="ic" viewBox="0 0 24 24">
-                  <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
-                  <path d="M12 9v4" />
-                  <path d="M12 17h.01" />
-                </svg>
-                <div>
-                  <b>Gateway {gatewayName(gateway)} is offline.</b> No packet for{" "}
-                  {fmtAgo(gateway.last_seen_at, nowMs)}. A tag heard by ANOTHER gateway keeps
-                  reporting normally; only a tag no gateway can hear for 30+ minutes reads as missing
-                  signal. Either way that is a statement about the radio path, never a claim that
-                  those animals are missing.
-                </div>
-              </div>
-            ) : null}
+                <Box sx={{ display: "grid", gridTemplateColumns: { xs: "repeat(2, 1fr)", sm: "repeat(4, 1fr)" }, borderRadius: "var(--r-lg)", border: 1, borderColor: "divider", borderStyle: "dashed" }}>
+                  {stats.map(([value, label, window, pending], index) => (
+                    <Box key={label} sx={{ py: 1.5, px: 1, textAlign: "center", borderLeftWidth: { xs: index % 2 ? 1 : 0, sm: index ? 1 : 0 }, borderColor: "divider", borderLeftStyle: "dashed" }}>
+                      <Typography variant="h6" title={pending ? "Not computed yet" : undefined}>
+                        {value}
+                      </Typography>
+                      <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>
+                        {label}
+                      </Typography>
+                      {window ? (
+                        <Typography variant="caption" component="div" sx={{ color: "text.disabled" }}>
+                          {window}
+                        </Typography>
+                      ) : null}
+                    </Box>
+                  ))}
+                </Box>
 
-            <div className="gwstats">
-              <div>
-                <div className="v" title={gateway.tags_seen_in_window === null ? "Not computed yet" : undefined}>
-                  {fmtCount(gateway.tags_seen_in_window)}
-                </div>
-                <div className="l">Tags seen<br /><small>15m window</small></div>
-              </div>
-              <div>
-                <div className="v" title={gateway.distinct_motion_deltas === null ? "Not computed yet" : undefined}>
-                  {fmtCount(gateway.distinct_motion_deltas)}
-                </div>
-                <div className="l">Moving<br /><small>15m window</small></div>
-              </div>
-              <div>
-                <div className="v" title={gateway.packets_received_in_window === null ? "Not computed yet" : undefined}>
-                  {fmtCount(gateway.packets_received_in_window)}
-                </div>
-                <div className="l">Packets<br /><small>15m window</small></div>
-              </div>
-              <div>
-                <div className="v">{fmtAgo(gateway.last_seen_at, nowMs)}</div>
-                <div className="l">Last packet</div>
-              </div>
-            </div>
+                {/* Always printed: an unreported MAC reads as an honest em dash. */}
+                <Typography variant="caption" sx={{ mt: "auto", fontFamily: "monospace", color: "text.disabled" }}>
+                  {`BLE ${gateway.ble_mac ? fmtBleMac(gateway.ble_mac) : "—"}`}
+                  {gateway.wifi_mac ? ` · WiFi ${fmtBleMac(gateway.wifi_mac)}` : ""}
+                </Typography>
+              </Card>
+            </Grid>
+          );
+        })}
+      </Grid>
 
-            {/* The mock always prints this footer line. Matching that structurally means an
-                unreported MAC reads as an honest em dash, not a vanished line the reader has no
-                way to tell apart from "this card has no footer". */}
-            <div className="mono faint small">
-              {`BLE ${gateway.ble_mac ? fmtBleMac(gateway.ble_mac) : "—"}`}
-              {gateway.wifi_mac ? ` · WiFi ${fmtBleMac(gateway.wifi_mac)}` : ""}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="grid2" style={{ marginTop: 14 }}>
-        <div className="card">
-          <div className="hd">
-            <RadioIcon />
-            <h3>Coverage summary</h3>
-            <div className="sp" style={{ flex: 1 }} />
-            <span className="small faint">
-              {online} of {gateways.length} posting
-            </span>
-          </div>
-          <div className="bd">
-            {gateways.map((gateway) => (
-              <div
-                key={gateway.gateway_id}
-                style={{ display: "flex", alignItems: "center", gap: 9, padding: "7px 0", borderBottom: "1px solid var(--line2)" }}
-              >
-                <RadioIcon className="ic" />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <b className="mono">{gateway.gateway_id}</b>
-                  <div className="faint small">
-                    {fmtCount(gateway.tags_seen_recently)} tags · {fmtAgo(gateway.last_seen_at, nowMs)}
-                  </div>
-                </div>
-                <Tag tone={gateway.status === "online" ? "ok" : "dng"}>
-                  {gateway.status === "online" ? "Online" : "Offline"}
-                </Tag>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="hd">
-            <svg className="ic" viewBox="0 0 24 24">
-              <rect x="2" y="7" width="16" height="10" rx="2" />
-              <path d="M22 11v2" />
-            </svg>
-            <h3>Battery outlook</h3>
-            <div className="sp" style={{ flex: 1 }} />
-            <Tag tone="mut">Not computed</Tag>
-          </div>
-          <div className="bd">
+      <Grid container spacing={3}>
+        <Grid size={{ xs: 12, md: 6 }}>
+          <Card sx={{ height: 1 }}>
+            <CardHeader
+              title="Coverage summary"
+              action={
+                <Label variant="soft" color={online === gateways.length ? "success" : "warning"}>
+                  {online} of {gateways.length} posting
+                </Label>
+              }
+              slotProps={{ action: { sx: { alignSelf: "center" } } }}
+            />
+            <DividedStack sx={{ px: 3, py: 1.5 }}>
+              {gateways.map((gateway) => (
+                <Box key={gateway.gateway_id} sx={{ py: 1.5, display: "flex", alignItems: "center", gap: 2 }}>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography variant="subtitle2" sx={{ fontFamily: "monospace" }}>
+                      {gateway.gateway_id}
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                      {fmtCount(gateway.tags_seen_recently)} tags · {fmtAgo(gateway.last_seen_at, nowMs)}
+                    </Typography>
+                  </Box>
+                  <Tag tone={isOnline(gateway) ? "ok" : "dng"}>{isOnline(gateway) ? "Online" : "Offline"}</Tag>
+                </Box>
+              ))}
+            </DividedStack>
+          </Card>
+        </Grid>
+        <Grid size={{ xs: 12, md: 6 }}>
+          <Card sx={{ height: 1 }}>
+            <CardHeader
+              title="Battery outlook"
+              action={<Label variant="soft">Not computed</Label>}
+              slotProps={{ action: { sx: { alignSelf: "center" } } }}
+            />
             <EmptyState
               icon={<svg className="ic" viewBox="0 0 24 24">
                 <rect x="2" y="7" width="16" height="10" rx="2" />
@@ -186,11 +190,10 @@ export function HerdSignalsGateways({ gateways, nowMs }: { gateways: HerdGateway
               </svg>}
               title="No battery outlook on this tab yet"
               description="Per-tag battery voltage is on the Live Monitor tab and in each tag's drawer."
-              style={{ padding: "26px 12px" }}
             />
-          </div>
-        </div>
-      </div>
-    </>
+          </Card>
+        </Grid>
+      </Grid>
+    </Stack>
   );
 }

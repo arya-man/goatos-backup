@@ -2803,19 +2803,6 @@ select:disabled { opacity: .45 }
 /* The metagrid cells must grow to their content: a fixed row height plus the
    grid's overflow:hidden clipped 'Ho Chi Minh 1' mid-glyph in the drawer. */
 
-.herd-signals-page .gwcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r2);padding:13px 14px;box-shadow:var(--shadow)}
-.herd-signals-page .gwh{display:flex;align-items:center;gap:9px;margin-bottom:9px}
-.herd-signals-page .gwh b{font-size:13.5px}
-.herd-signals-page .gwstats{display:grid;grid-template-columns:repeat(auto-fit,minmax(78px,1fr));gap:9px;margin:10px 0 8px}
-.herd-signals-page .gwstats div{background:var(--bg);border:1px solid var(--line2);border-radius:8px;padding:7px 9px}
-.herd-signals-page .gwstats .v{font-size:17px;font-weight:740;font-variant-numeric:tabular-nums}
-.herd-signals-page .gwstats .l{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:750}
-
-.herd-signals-page .insight{background:var(--panel);border:1px solid var(--line);border-radius:var(--r2);padding:13px 14px;box-shadow:var(--shadow)}
-.herd-signals-page .insight .ih{display:flex;align-items:center;gap:8px;font-weight:700;font-size:13px;margin-bottom:3px}
-.herd-signals-page .insight .iv{font-size:23px;font-weight:760;font-variant-numeric:tabular-nums;letter-spacing:-.4px}
-.herd-signals-page .insight .if{font-size:11.5px;color:var(--muted);margin-top:5px}
-
 /* Full-screen history overlay — a client-local overlay (URL hash `hs_history`), never a route
    navigation. Positioning/stacking now belong to the MUI Dialog (fullScreen, portalled). */
 .herd-signals-page .fs{min-height:100%;background:var(--bg);display:flex;flex-direction:column}
@@ -2962,19 +2949,11 @@ select:disabled { opacity: .45 }
 .herd-signals-page .banner.warn{background:var(--warnx);border-color:color-mix(in srgb,var(--warn) 40%,var(--line));color:var(--warn)}
 .herd-signals-page .banner.dng{background:var(--dangerx);border-color:color-mix(in srgb,var(--danger) 40%,var(--line));color:var(--danger-tag-ink)}
 
-/* Alerts tab is a `.rowlist` in the mock, not a table. Neither class had a rule here. */
-.herd-signals-page .rowlist{display:flex;flex-direction:column}
-.herd-signals-page .rowitem{display:flex;align-items:center;gap:10px;padding:10px 15px;border-bottom:1px solid var(--line2);font-size:12.5px}
-.herd-signals-page .rowitem:last-child{border-bottom:0}
-.herd-signals-page .rowitem .rt{font-weight:650}
-.herd-signals-page .rowitem .rs{color:var(--muted);font-size:11.5px}
-@media(max-width:760px){.herd-signals-page .rowitem{flex-wrap:wrap;align-items:flex-start}}
 
 /* The app-wide `.card` carries `margin-top:16px`; inside a `.grid2` that pushes the second
    row of cards out of alignment with the first. The mock's `.card` has no margin. */
 .herd-signals-page .grid2>.card{margin-top:0}
 /* `.sp` is a flex spacer in the mock; the app defines it only under `.card .hd`. */
-.herd-signals-page .gwh .sp{flex:1}
 
 /* --- Mock parity: three token bugs with page-wide reach (pixel judge, 2026-08-22) ---
    1. NEUTRAL chips resolved to --bg where the mock uses --panel-2. Inside the

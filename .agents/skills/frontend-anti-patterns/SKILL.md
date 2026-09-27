@@ -249,6 +249,9 @@ chapters below; do not review from the summary.
   `function InfoTip` / `InfoTooltip`, no `.ihelp` / `.tipwrap` button inside a hover Tooltip: those open
   on hover only, so a tap in the Android WebView does nothing (/herd-signals column help, REVIEW-15
   O19). Use `components/app/info-tip.tsx` (controlled Tooltip, 44px IconButton, opens on tap).
+- **/herd-signals shells are template anatomy (guard: `herd-signals-template-anatomy`, npm test).**
+  Board / Alerts / Gateways / Insights render MUI Card + CardHeader, Alert, Grid and Label; no legacy
+  card / hd / bd / banner / gwcard / insight / rowitem / pager / btn classes.
 - **The shell is gated on every push (guard: r2 visual gate `shell|*`, scripts/r2-audit-checks/shell.mjs).**
   Sidebar root items + subheaders start at nav.left + 16px with padding-left 12px (template
   NavSectionVertical: content on the logo column), the active item is a translucent primary tint,

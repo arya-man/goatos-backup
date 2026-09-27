@@ -4,6 +4,15 @@ import { PanelSkeleton } from "@/components/app/panel-skeleton";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import { FilterCardSkeleton, KpiRowSkeleton, StackSkeleton, TableSkeleton } from "@/components/app/skeletons";
 import type { ReactNode } from "react";
+import Alert from "@mui/material/Alert";
+import AlertTitle from "@mui/material/AlertTitle";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import Typography from "@mui/material/Typography";
+import { DividedStack } from "@/components/app/divided-stack";
+import { Label } from "@/components/minimal/label";
 import Link from "@/components/no-prefetch-link";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
@@ -215,7 +224,7 @@ export async function HerdSignalsBoard({
   if (gatewaysResult.ok) tabCounts.gateways = listOrEmpty(gatewaysResult.data.gateways).length;
 
   return (
-    <div className="herd-signals-page">
+    <Box className="herd-signals-page">
       {/* One shared pending-transition flag for the stream bridge, the KPI cards, the filter bar and every
           pagination control on this tab — see herd-signals-nav-context.tsx for why a plain <Link>
           per control was the "clicking a filter reloads the whole page" defect. */}
@@ -272,28 +281,23 @@ export async function HerdSignalsBoard({
         )}
         </UrlSuspense>
       </HerdSignalsNavProvider>
-    </div>
+    </Box>
   );
 }
 
 function ReadFailed({ message, retryHref }: { message: string; retryHref: string }) {
   return (
-    <div className="empty dngstate">
-      <div className="eicon">
-        <svg className="ic" viewBox="0 0 24 24">
-          <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
-          <path d="M12 9v4" />
-          <path d="M12 17h.01" />
-        </svg>
-      </div>
-      <h4>The read failed</h4>
-      <p>{message}</p>
-      <div className="eact">
-        <Link href={retryHref} className="btn sm">
+    <Alert
+      severity="error"
+      action={
+        <Button component={Link} href={retryHref} color="inherit" size="small">
           Retry
-        </Link>
-      </div>
-    </div>
+        </Button>
+      }
+    >
+      <AlertTitle>The read failed</AlertTitle>
+      {message}
+    </Alert>
   );
 }
 
@@ -322,26 +326,20 @@ function LiveMonitorTab({
           skeleton at once; the filter bar stays on screen. */}
       <UrlSuspense searchParams={searchParams} watch={[ALL_PARAMS]} fallback={<StackSkeleton spacing={2}><KpiRowSkeleton count={8} /><TableSkeleton columns={21} rows={LIMIT_DEFAULT} /></StackSkeleton>}>
       <HerdSignalsKpis summary={summary} params={params} liveKey={liveKey} />
-      <div className="small faint" style={{ margin: "-6px 0 14px" }}>
-        Counts are whole-filter aggregates computed by the backend from the same tenant-scoped query
-        as the table — never summed from the rows on the fetched page.
-      </div>
-      <div className="card">
-        <div className="hd">
-          <svg className="ic" viewBox="0 0 24 24">
-            <path d="M4.9 19.1a10 10 0 0 1 0-14.2" />
-            <path d="M7.8 16.2a6 6 0 0 1 0-8.4" />
-            <circle cx="12" cy="12" r="2" />
-            <path d="M16.2 7.8a6 6 0 0 1 0 8.4" />
-            <path d="M19.1 4.9a10 10 0 0 1 0 14.2" />
-          </svg>
-          <h3>Live tag signals</h3>
-          <Tag tone="mut">{summary.tags_seen} tags</Tag>
-        </div>
-        <div className="bd flush">
-          <HerdSignalsTable items={items} nextCursor={next_cursor} params={params} nowMs={nowMs} tagsSeen={summary.tags_seen} liveKey={liveKey} />
-        </div>
-      </div>
+      {/* Template table card: CardHeader (title + count Label, the aggregate note as subheader). */}
+      <Card sx={{ mt: 3 }}>
+        <CardHeader
+          title={
+            <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 1 }}>
+              Live tag signals
+              <Label variant="soft">{summary.tags_seen} tags</Label>
+            </Box>
+          }
+          subheader="Counts are whole-filter aggregates computed by the backend from the same tenant-scoped query as the table — never summed from the rows on the fetched page."
+          sx={{ mb: 2 }}
+        />
+        <HerdSignalsTable items={items} nextCursor={next_cursor} params={params} nowMs={nowMs} tagsSeen={summary.tags_seen} liveKey={liveKey} />
+      </Card>
       </UrlSuspense>
     </>
   );
@@ -369,11 +367,9 @@ function FilteredTableTab({
   // when the gateway IS posting and simply nothing is mapped yet).
   if (items.length === 0 && !params.hasFilter && summary.mapped_animals === 0) {
     return (
-      <div className="card">
-        <div className="hd">
-          <h3>{title}</h3>
-        </div>
-        <div className="bd flush">
+      <Card>
+        <CardHeader title={title} sx={{ mb: 2 }} />
+        <Box>
           <EmptyState
             icon={<svg className="ic" viewBox="0 0 24 24">
               <path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0 1 18 0Z" />
@@ -385,26 +381,20 @@ function FilteredTableTab({
               : "No BLE gateway has posted for this tenant yet."}{" "}
               Map a tag to an animal identifier in Tag Mapping to see it here.</>}
             action={
-              <Link href={herdSignalsHref(params, { hs_tab: "mapping" })} className="btn sm">
+              <Button component={Link} href={herdSignalsHref(params, { hs_tab: "mapping" })} variant="outlined" color="inherit" size="small">
                 Go to Tag Mapping
-              </Link>
+              </Button>
             }
           />
-        </div>
-      </div>
+        </Box>
+      </Card>
     );
   }
   return (
-    <div className="card">
-      <div className="hd">
-        <h3>{title}</h3>
-        <div className="sp" style={{ flex: 1 }} />
-        <span className="small faint">{note}</span>
-      </div>
-      <div className="bd flush">
-        <HerdSignalsTable items={items} nextCursor={next_cursor} params={params} nowMs={nowMs} tagsSeen={summary.tags_seen} liveKey={liveKey} variant="animals" />
-      </div>
-    </div>
+    <Card>
+      <CardHeader title={title} subheader={note} sx={{ mb: 2 }} />
+      <HerdSignalsTable items={items} nextCursor={next_cursor} params={params} nowMs={nowMs} tagsSeen={summary.tags_seen} liveKey={liveKey} variant="animals" />
+    </Card>
   );
 }
 
@@ -441,13 +431,9 @@ function AlertsTab({
   // Watchlist animal. Do not derive this from the currently fetched Live Monitor page.
   const { items, next_cursor } = result.data;
   return (
-    <div className="card">
-      <div className="hd">
-        <h3>Tags needing attention</h3>
-        <div className="sp" style={{ flex: 1 }} />
-        <span className="small faint">Shortlist only — confirm with clinical checks before action</span>
-      </div>
-      <div className="bd flush">
+    <Card>
+      <CardHeader title="Tags needing attention" subheader="Shortlist only — confirm with clinical checks before action" sx={{ mb: 1 }} />
+      <Box>
         {items.length === 0 ? (
           <EmptyState
             icon={<svg className="ic" viewBox="0 0 24 24">
@@ -460,16 +446,16 @@ function AlertsTab({
           />
         ) : (
           <>
-            <div className="rowlist">
+            <DividedStack sx={{ px: 3, py: 1 }}>
               {items.map((item) => (
                 <AlertRow key={item.tag_id} item={item} />
               ))}
-            </div>
+            </DividedStack>
             {next_cursor ? (
-              <div className="pager">
-                <Link href={herdSignalsHref(params, { hs_cursor: next_cursor })} className="pgbtn">
+              <Box sx={{ px: 3, py: 2, display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap", borderTop: 1, borderColor: "divider", borderTopStyle: "dashed", typography: "body2", color: "text.secondary" }}>
+                <Button component={Link} href={herdSignalsHref(params, { hs_cursor: next_cursor })} variant="outlined" color="inherit" size="small">
                   Next &rarr;
-                </Link>
+                </Button>
                 <span>
                   Showing <b>{items.length.toLocaleString("en-IN")}</b>
                   {alertingTotal !== undefined ? (
@@ -480,12 +466,12 @@ function AlertsTab({
                   ) : null}{" "}
                   tags needing attention
                 </span>
-              </div>
+              </Box>
             ) : null}
           </>
         )}
-      </div>
-    </div>
+      </Box>
+    </Card>
   );
 }
 
@@ -507,16 +493,24 @@ function AlertRow({ item }: { item: HerdSignalItem }) {
   const tone = item.risk_state ? RISK_TONE[item.risk_state] : "warn";
   const reasons = item.risk_reasons?.length ? item.risk_reasons.map(readableRiskReason).join("; ") : "Baseline or group comparison changed enough to review.";
   return (
-    <div className="rowitem">
+    // Template list row: status Label, subtitle2 + body2 secondary, caption on the right.
+    <Box sx={{ py: 2, display: "flex", alignItems: "flex-start", gap: 2, flexWrap: { xs: "wrap", sm: "nowrap" } }}>
       <Tag tone={tone}>{label}</Tag>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div className="rt">
-          {item.display_id ?? "No animal mapped to this tag"} <span className="mono faint">{item.tag_id}</span>
-        </div>
-        <div className="rs">{reasons}</div>
-      </div>
-      <span className="faint small">{location}</span>
-    </div>
+      <Box sx={{ flex: "1 1 240px", minWidth: 0 }}>
+        <Typography variant="subtitle2">
+          {item.display_id ?? "No animal mapped to this tag"}{" "}
+          <Box component="span" sx={{ fontFamily: "monospace", color: "text.disabled", fontWeight: "fontWeightRegular" }}>
+            {item.tag_id}
+          </Box>
+        </Typography>
+        <Typography variant="body2" sx={{ mt: 0.5, color: "text.secondary" }}>
+          {reasons}
+        </Typography>
+      </Box>
+      <Typography variant="caption" sx={{ color: "text.disabled", whiteSpace: "nowrap" }}>
+        {location}
+      </Typography>
+    </Box>
   );
 }
 
