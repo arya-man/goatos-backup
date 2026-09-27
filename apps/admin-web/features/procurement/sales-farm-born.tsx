@@ -1,7 +1,7 @@
 import Table from "@mui/material/Table";
 import TableContainer from "@mui/material/TableContainer";
 import { UrlSuspense } from "@/components/app/url-suspense";
-import { PanelSkeleton } from "@/components/app/panel-skeleton";
+import { SalesFarmBornBodySkeleton } from "./sales-skeletons";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
@@ -546,7 +546,7 @@ export async function SalesFarmBornPage({
       >
         {/* The sections (guard: url-keyed-panel): a farm / filter / sort / page change swaps them to
             their skeleton at once; header, farm chips and the filter bar stay on screen. */}
-        <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} fallback={<PanelSkeleton kpis={4} charts={2} table={limit} />}>
+        <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} fallback={<SalesFarmBornBodySkeleton limit={limit} />}>
         {!result.ok ? (
           <Alert severity="error" sx={{ mb: 1.75 }}>
             {salesErrorText(result.error, copy(pageContract, "error.load"))}

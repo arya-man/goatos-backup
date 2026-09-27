@@ -86,14 +86,14 @@ test("procurement and sales features use template tabs and widgets, not the remo
   }
 });
 
-// guard: market-loading-mirrors-panels (R3SP2 audit re-run). The route loading shape drew tall
-// "hero" KPI cards and a short table, while the page's own in-place fallbacks (and the loaded page)
-// are the KpiWidget row, a six-row table card with a header and a 320px chart card: skeleton IoU P0.
+// guard: market-loading-mirrors-panels (R3SP2 audit re-run; SK2 twins). The route loading shape and
+// the page's own in-place fallbacks are the SAME components (features/procurement/sales-skeletons),
+// so neither can drift from the other.
 test("market analytics route loading uses the page's in-place fallback shapes", () => {
   const loading = read("../../app/(admin)/sales/market-analytics/loading.tsx");
   const page = read("./market-analytics.tsx");
-  assert.match(page, /fallback=\{<KpiRowSkeleton count=\{4\} hero \/>\}/);
-  assert.match(loading, /<KpiRowSkeleton count=\{4\} hero \/>/);
-  assert.match(page, /<TableSkeleton columns=\{5\} rows=\{6\} pager=\{false\} subheader headerAction \/><ChartCardSkeleton height=\{320\} subheader \/>/);
-  assert.match(loading, /<TableSkeleton columns=\{5\} rows=\{6\} pager=\{false\} subheader headerAction \/>\s*<ChartCardSkeleton height=\{320\} subheader \/>/);
+  for (const twin of ["SalesMarketKpisSkeleton", "SalesMarketPanelsSkeleton"]) {
+    assert.match(page, new RegExp(`fallback=\\{<${twin} />\\}`), twin);
+    assert.match(loading, new RegExp(`<${twin} />`), twin);
+  }
 });

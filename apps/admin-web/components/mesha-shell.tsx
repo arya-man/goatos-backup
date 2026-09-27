@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { UrlNavRouter } from "@/components/app/url-nav-router";
 import { URL_NAV_EVENT } from "@/components/app/url-tab-nav";
 import { PendingRouteSkeleton } from "@/components/route-skeleton";
+import { ShellParksContext } from "@/components/app/shell-parks";
 import type { ElementType } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePopover } from "minimal-shared/hooks";
@@ -1023,12 +1024,14 @@ export function MeshaShell({
                 </Alert>
               ),
             )}
-            {pendingHref ? (
-              <Box data-route-skeleton-el="" sx={{ display: "contents" }}>
-                <PendingRouteSkeleton href={pendingHref} />
-              </Box>
-            ) : null}
-            <UrlNavRouter>{children}</UrlNavRouter>
+            <ShellParksContext.Provider value={parks}>
+              {pendingHref ? (
+                <Box data-route-skeleton-el="" sx={{ display: "contents" }}>
+                  <PendingRouteSkeleton href={pendingHref} />
+                </Box>
+              ) : null}
+              <UrlNavRouter>{children}</UrlNavRouter>
+            </ShellParksContext.Provider>
           </div>
         </DashboardContent>
       </DashboardLayout>

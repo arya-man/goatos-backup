@@ -1,6 +1,6 @@
 import Table from "@mui/material/Table";
 import { UrlSuspense } from "@/components/app/url-suspense";
-import { ChartCardSkeleton, KpiRowSkeleton, TableSkeleton } from "@/components/app/skeletons";
+import { SalesMarketKpisSkeleton, SalesMarketPanelsSkeleton } from "./sales-skeletons";
 import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
@@ -125,7 +125,7 @@ export async function MarketAnalyticsPage({
       <Stack spacing={3}>
       {/* The window's figures (guard: url-keyed-panel): a window click swaps the KPI deck and the
           price panels to their skeletons at once; header and window strip stay on screen. */}
-      <UrlSuspense searchParams={sp} watch={WINDOW_WATCH} fallback={<KpiRowSkeleton count={4} hero />}>
+      <UrlSuspense searchParams={sp} watch={WINDOW_WATCH} fallback={<SalesMarketKpisSkeleton />}>
       <KpiGrid>
         <KpiWidget color="primary" title={copy(pageContract, "kpi.cities.label")} total={cities.length} />
         <KpiWidget color="info" title={copy(pageContract, "kpi.days.label")} total={analytics.days} icon="certificates" />
@@ -161,7 +161,7 @@ export async function MarketAnalyticsPage({
 
       </Box>
 
-      <UrlSuspense searchParams={sp} watch={WINDOW_WATCH} fallback={<Stack spacing={3}><TableSkeleton columns={5} rows={6} pager={false} subheader headerAction /><ChartCardSkeleton height={320} subheader /></Stack>}>
+      <UrlSuspense searchParams={sp} watch={WINDOW_WATCH} fallback={<SalesMarketPanelsSkeleton />}>
       {analytics.series.length === 0 ? (
         <Card>
           <EmptyState sx={{ py: 10 }}

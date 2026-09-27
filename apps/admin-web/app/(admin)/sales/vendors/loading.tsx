@@ -1,13 +1,6 @@
-import { FilterCardSkeleton, PageHeaderSkeleton, PageSkeleton, TableSkeleton } from "@/components/app/skeletons";
-import { PAGE_SIZE, VENDOR_FILTER_KEYS } from "@/features/procurement/vendor-layout";
+import { VendorBoardSkeleton } from "@/features/procurement/vendor-skeletons";
 
-/** sales vendors: header + Add, the search + five-select filter card, the vendor register card. */
+/** Vendors: the shared VendorBoardPage twin. */
 export default function Loading() {
-  return (
-    <PageSkeleton>
-      <PageHeaderSkeleton actions={1} />
-      <FilterCardSkeleton fields={["search", ...VENDOR_FILTER_KEYS.map(() => 160)]} actions={1} />
-      <TableSkeleton columns={5} rows={PAGE_SIZE} />
-    </PageSkeleton>
-  );
+  return <VendorBoardSkeleton />;
 }

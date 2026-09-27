@@ -55,7 +55,7 @@ import { SALES_DEFAULT_FARM, SalesFarmToggle, SalesPageHeader, hrefWithQuery, re
 import { salesErrorText } from "./sales-error";
 import Alert from "@mui/material/Alert";
 import { UrlSuspense } from "@/components/app/url-suspense";
-import { PanelSkeleton } from "@/components/app/panel-skeleton";
+import { SalesSoldLedgerSkeleton, SalesSoldOverviewSkeleton } from "./sales-skeletons";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 
@@ -400,11 +400,11 @@ export async function SalesSoldPage({
         clears={["offset", "buyers_page", "deal_id"]}
       />
 
-      <UrlSuspense searchParams={sp} watch={OVERVIEW_WATCH} fallback={<PanelSkeleton kpis={4} charts={2} spark />}>
+      <UrlSuspense searchParams={sp} watch={OVERVIEW_WATCH} fallback={<SalesSoldOverviewSkeleton />}>
         <SoldOverviewPanel sp={sp} farm={farm} pageContract={pageContract} />
       </UrlSuspense>
 
-      <UrlSuspense searchParams={sp} watch={LEDGER_WATCH} fallback={<PanelSkeleton table={8} tableWidths={["1.4fr", "1.2fr", "1fr", "0.9fr", "0.9fr", "0.7fr"]} />}>
+      <UrlSuspense searchParams={sp} watch={LEDGER_WATCH} fallback={<SalesSoldLedgerSkeleton />}>
         <SoldLedgerPanel sp={sp} farm={farm} pageContract={pageContract} />
       </UrlSuspense>
     </div>

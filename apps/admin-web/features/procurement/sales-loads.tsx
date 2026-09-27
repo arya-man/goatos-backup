@@ -14,7 +14,7 @@ import { pensFromPlacements } from "@/lib/load-pens";
 import { LoadwiseSection, type LoadCurrentWeights, type LoadPensByRef } from "./loadwise-section";
 import { SalesFarmToggle, readSalesParkScope } from "./sales-chrome";
 import { UrlSuspense } from "@/components/app/url-suspense";
-import { PanelSkeleton } from "@/components/app/panel-skeleton";
+import { SalesLoadsBodySkeleton } from "./sales-skeletons";
 
 const PAGE_PATH = "/sales/loads";
 /** The tab the page opens on when the URL names none — the first option the contract serves. */
@@ -107,7 +107,7 @@ export async function SalesLoadsPage({
 
       {/* The load-wise panel streams (guard: url-keyed-panel): a tab or farm click swaps it to its
           skeleton at once; header, tabs and farm chips stay on screen. */}
-      <UrlSuspense searchParams={sp} watch={PANEL_WATCH} fallback={<PanelSkeleton kpis={4} charts={2} table={8} />}>
+      <UrlSuspense searchParams={sp} watch={PANEL_WATCH} fallback={<SalesLoadsBodySkeleton />}>
         <SalesLoadsPanel sp={sp} pageContract={pageContract} view={view} parkId={parkId} />
       </UrlSuspense>
     </div>

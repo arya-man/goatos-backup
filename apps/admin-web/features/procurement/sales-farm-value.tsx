@@ -1,5 +1,5 @@
 import { UrlSuspense } from "@/components/app/url-suspense";
-import { PanelSkeleton } from "@/components/app/panel-skeleton";
+import { SalesFarmValueBodySkeleton } from "./sales-skeletons";
 import { redirect } from "next/navigation";
 
 import Grid from "@mui/material/Grid";
@@ -242,7 +242,7 @@ export async function SalesFarmValuePage({
 
       {/* The valuation streams (guard: url-keyed-panel): a farm click swaps it to its skeleton at
           once; header and farm chips stay on screen. */}
-      <UrlSuspense searchParams={sp} watch={VALUE_WATCH} fallback={<PanelSkeleton kpis={4} charts={2} />}>
+      <UrlSuspense searchParams={sp} watch={VALUE_WATCH} fallback={<SalesFarmValueBodySkeleton />}>
         <FarmValuePanel sp={sp} pageContract={pageContract} parkId={parkId} farm={farm} />
       </UrlSuspense>
     </div>

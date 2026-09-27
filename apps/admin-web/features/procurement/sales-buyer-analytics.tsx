@@ -37,7 +37,7 @@ import { tableOrderFromParams, type TableOrder } from "./table-order";
 import { salesErrorText } from "./sales-error";
 import Box from "@mui/material/Box";
 import { UrlSuspense } from "@/components/app/url-suspense";
-import { PanelSkeleton } from "@/components/app/panel-skeleton";
+import { SalesBuyerAnalyticsBodySkeleton } from "./sales-skeletons";
 import type { SxProps, Theme } from "@mui/material/styles";
 import { cardTableScrollSx } from "./procurement-sx";
 
@@ -311,7 +311,7 @@ export async function SalesBuyerAnalyticsPage({
 
       {/* The buyer read streams (guard: url-keyed-panel): a farm / sort / page click swaps it to its
           skeleton at once; header and farm chips stay on screen. */}
-      <UrlSuspense searchParams={sp} watch={BUYERS_WATCH} fallback={<PanelSkeleton kpis={3} charts={1} table={10} />}>
+      <UrlSuspense searchParams={sp} watch={BUYERS_WATCH} fallback={<SalesBuyerAnalyticsBodySkeleton />}>
         <BuyerAnalyticsPanel sp={sp} pageContract={pageContract} farm={farm} />
       </UrlSuspense>
     </div>

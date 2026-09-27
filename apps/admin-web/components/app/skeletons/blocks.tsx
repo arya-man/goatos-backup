@@ -28,6 +28,7 @@ import Breadcrumbs from "@mui/material/Breadcrumbs";
 import { CustomBreadcrumbs } from "@/components/minimal/custom-breadcrumbs";
 import { BreadcrumbsSeparator } from "@/components/minimal/custom-breadcrumbs/styles";
 import { KpiGrid } from "@/components/app/kpi-grid";
+import { orderToolbarFilterSx, orderToolbarSearchSx } from "@/components/app/order-toolbar-filter";
 
 type Typo = "h3" | "h4" | "h5" | "h6" | "subtitle1" | "subtitle2" | "body1" | "body2" | "caption";
 
@@ -47,6 +48,9 @@ export function SkeletonLine({ variant = "body2", width = "60%", sx }: { variant
  * `md`, so a button placeholder is 44 there and its desktop height from md up.
  */
 const tapHeight = (desktop: number) => ({ xs: Math.max(44, desktop), md: desktop });
+
+/** The template outlined TextField height (medium). */
+const FIELD_H = 54;
 
 const wobble = (i: number, base = 44, span = 36) => `${base + ((i * 37) % span)}%`;
 
@@ -85,6 +89,7 @@ export function PageSkeleton({ children, root = "screen on", className, gap }: {
  */
 export function PageHeaderSkeleton({
   crumbs = true,
+  crumbLink = true,
   titleWidth = 260,
   actions = 0,
   actionWidths,
@@ -93,6 +98,8 @@ export function PageHeaderSkeleton({
 }: {
   /** The page shows a crumb trail (PageHeader hides one that only repeats the title). */
   crumbs?: boolean;
+  /** The parent crumb is a link (it has an href; a 44px tap target below md). */
+  crumbLink?: boolean;
   /**
    * The title's rendered width. On a phone the header's actions sit beside the title block when both
    * fit (a short title) and wrap under it otherwise; the placeholder must wrap the same way.
@@ -118,7 +125,14 @@ export function PageHeaderSkeleton({
             ? {
                 breadcrumbs: (
                   <Breadcrumbs separator={<BreadcrumbsSeparator />} sx={{ typography: "body2" }}>
-                    <Skeleton variant="text" width={52} />
+                    {/* The parent crumb is a link: PhoneTapStyles grows `li > a` to 44px below md. */}
+                    {crumbLink ? (
+                      <Box component="a" aria-hidden="true" tabIndex={-1}>
+                        <Skeleton variant="text" width={52} />
+                      </Box>
+                    ) : (
+                      <Skeleton variant="text" width={52} />
+                    )}
                     <Skeleton variant="text" width={110} />
                   </Breadcrumbs>
                 ),
@@ -142,7 +156,7 @@ export function PageHeaderSkeleton({
 }
 
 /** Loading twin of `TemplateTabs`: the template MUI Tabs strip, labels as text Skeletons. */
-export function TabsSkeleton({ count, variant = "underline", counts = false, sx }: { count: number; variant?: "underline" | "pill"; counts?: boolean; sx?: SxProps<Theme> }) {
+export function TabsSkeleton({ count, variant = "underline", counts = false, widths, links = false, sx }: { count: number; variant?: "underline" | "pill"; counts?: boolean; /** Per-tab label widths when the page's labels are known (default: a wobble 56-95). */ widths?: number[]; /** The page's tabs are links (SegmentTabs with hrefs): `a` tabs, which the legacy `.main button` min-height rules do not reach. */ links?: boolean; sx?: SxProps<Theme> }) {
   return (
     <Tabs
       value={false}
@@ -151,16 +165,18 @@ export function TabsSkeleton({ count, variant = "underline", counts = false, sx 
       aria-hidden="true"
       data-skel="tabs"
       indicatorColor={variant === "pill" ? ("custom" as never) : undefined}
-      sx={[variant === "pill" ? { borderRadius: "var(--r-md)" } : {}, ...(Array.isArray(sx) ? sx : [sx])]}
+      // The strip scrolls, never wraps: `&&` outranks frame.css `.screen[aria-busy="true"] div { flex-wrap: wrap }`.
+      sx={[{ "&& .MuiTabs-list": { flexWrap: "nowrap" } }, variant === "pill" ? { width: "fit-content", maxWidth: "100%", borderRadius: "var(--r-md)" } : {}, ...(Array.isArray(sx) ? sx : [sx])]}
     >
       {Array.from({ length: count }, (_, i) => (
         <Tab
           key={i}
           disabled
           tabIndex={-1}
+          {...(links ? { component: "a" as const } : {})}
           label={
             <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 1 }}>
-              <Skeleton variant="text" width={56 + ((i * 23) % 40)} />
+              <Skeleton variant="text" width={widths?.[i] ?? 56 + ((i * 23) % 40)} />
               {counts ? <Skeleton variant="rounded" width={24} height={24} /> : null}
             </Box>
           }
@@ -172,7 +188,7 @@ export function TabsSkeleton({ count, variant = "underline", counts = false, sx 
 
 /** One outlined field (select / date / search) at the template TextField height. */
 export function FieldSkeleton({ width = 200, grow = false, small = false, height }: { width?: number | string | Record<string, number | string>; grow?: boolean; small?: boolean; height?: number | Record<string, number> }) {
-  return <Skeleton variant="rounded" sx={{ height: height ?? (small ? tapHeight(40) : 54), width: grow ? "auto" : width, flexGrow: grow ? 1 : 0, flexShrink: 1, flexBasis: grow ? 240 : "auto", maxWidth: 1, minWidth: 0 }} />;
+  return <Skeleton variant="rounded" sx={{ height: height ?? (small ? tapHeight(40) : FIELD_H), width: grow ? "auto" : width, flexGrow: grow ? 1 : 0, flexShrink: 1, flexBasis: grow ? 240 : "auto", maxWidth: 1, minWidth: 0 }} />;
 }
 
 export type FilterField = number | "search" | "chip";
@@ -251,6 +267,8 @@ export type KpiShape = {
   trend?: boolean;
   /** The KpiWidget `caption` sub-line (body2, mt 1) under the card body. */
   hint?: boolean;
+  /** Lines the caption wraps to when the page's caption is a sentence (default 1); per breakpoint when the card width changes the wrap. */
+  hintLines?: number | Partial<Record<"xs" | "sm" | "md" | "lg" | "xl", number>>;
   /** @deprecated retired KpiCard anatomy; the loaded decks are all KpiWidget. Renders the course card. */
   icon?: boolean;
   /** @deprecated see `icon`. */
@@ -268,8 +286,19 @@ export type KpiShape = {
  *  - `booking`: BookingWidgetSummary (p 2, pl 3; the same rows, 120px round icon).
  * `hint` is the adapter's caption sub-line (body2 with mt 1, reserved inside the card).
  */
-export function KpiCardSkeleton({ spark, booking, trend, hint }: KpiShape) {
-  const caption = hint ? <SkeletonLine variant="body2" width="72%" sx={{ mt: 1, flexBasis: "100%" }} /> : null;
+export function KpiCardSkeleton({ spark, booking, trend, hint, hintLines = 1 }: KpiShape) {
+  const lines = typeof hintLines === "number" ? { xs: hintLines } : hintLines;
+  const most = Math.max(1, ...Object.values(lines).map((n) => n ?? 1));
+  // Line i shows at a breakpoint whose caption wraps to more than i lines; the last shown is short.
+  const shown = (i: number) => Object.fromEntries(Object.entries(lines).map(([bp, n]) => [bp, i < Math.max(1, n ?? 1) ? "block" : "none"]));
+  const lastShort = (i: number) => Object.fromEntries(Object.entries(lines).map(([bp, n]) => [bp, i === Math.max(1, n ?? 1) - 1 ? "72%" : "100%"]));
+  const caption = hint ? (
+    <Box sx={{ mt: 1, flexBasis: "100%" }}>
+      {Array.from({ length: most }, (_, i) => (
+        <SkeletonLine key={i} variant="body2" width={lastShort(i) as never} sx={{ display: shown(i) }} />
+      ))}
+    </Box>
+  ) : null;
   const trendRow = (
     <Box sx={{ gap: 0.5, display: "flex", alignItems: "center", height: "var(--sp-3)" }}>
       <Skeleton variant="circular" width={24} height={24} />
@@ -562,7 +591,7 @@ export function PaginationSkeleton({ pages = 5 }: { pages?: number }) {
 }
 
 /** Loading twin of a detail / form card: CardHeader then label-value rows (`columns` side by side). */
-export function DetailCardSkeleton({ rows = 5, columns = 1, header = true, height }: { rows?: number; columns?: number; header?: boolean; height?: number }) {
+export function DetailCardSkeleton({ rows = 5, columns = 1, header = true, height }: { rows?: number; columns?: number; header?: boolean; /** A fixed height, or "100%" per breakpoint where the page stretches the card to its Grid row. */ height?: number | string | Record<string, number | string> }) {
   return (
     <Card aria-hidden="true" data-skel="detail" sx={{ ...(height ? { height } : {}) }}>
       {header ? <CardHeaderSkeleton /> : null}
@@ -683,24 +712,25 @@ export function HeadingSkeleton({ variant = "h6", width = 180 }: { variant?: Typ
 /** The page's own `Stack spacing={3}` wrapper when its blocks live inside one (leave, routines, ceo-ai-admin). */
 export function StackSkeleton({ children, spacing = 3 }: { children: ReactNode; spacing?: number }) {
   return (
-    <Stack spacing={spacing} aria-hidden="true" data-skel="stack" sx={{ minWidth: 0 }}>
+    // `&&&` outranks frame.css `.screen[aria-busy="true"] div { flex-wrap: wrap }`: a wrapping flex
+    // column sizes its items at max-content, so a wide tab strip pushed the whole column past a phone.
+    <Stack spacing={spacing} aria-hidden="true" data-skel="stack" sx={{ minWidth: 0, "&&&": { flexWrap: "nowrap" } }}>
       {children}
     </Stack>
   );
 }
 
 /** The page's own MUI `Grid container spacing={3}`: each child with its Grid `size`. */
-export function GridSkeleton({ items, spacing = 3 }: { items: { size: number | Record<string, number>; node: ReactNode }[]; spacing?: number }) {
+export function GridSkeleton({ items, spacing = 3, fill = false }: { items: { size: number | Record<string, number>; node: ReactNode }[]; spacing?: number; /** The page's nested Grid container fills its parent Grid item (`sx={{ height: 1 }}`). */ fill?: boolean }) {
   return (
-    <div aria-hidden="true" data-skel="grid">
-      <Grid container spacing={spacing}>
-        {items.map((item, i) => (
-          <Grid key={i} size={item.size as never} sx={{ minWidth: 0 }}>
-            {item.node}
-          </Grid>
-        ))}
-      </Grid>
-    </div>
+    // The Grid container itself, no wrapper: the twin nests exactly as deep as the page's Grid.
+    <Grid container spacing={spacing} aria-hidden="true" data-skel="grid" sx={fill ? { height: 1 } : undefined}>
+      {items.map((item, i) => (
+        <Grid key={i} size={item.size as never} sx={{ minWidth: 0 }}>
+          {item.node}
+        </Grid>
+      ))}
+    </Grid>
   );
 }
 
@@ -768,6 +798,35 @@ export function OptionalSkeleton({ children }: { children: ReactNode }) {
   return (
     <Box data-skel-optional="" sx={{ display: "contents" }}>
       {children}
+    </Box>
+  );
+}
+
+/**
+ * Loading twin of `OrderTableToolbar` (components/app/sections/order): `filters` select fields on
+ * `orderToolbarFilterSx` (full width on a phone, `0 1 160px` from md), the `trailing` buttons at the
+ * input height, then the search (`orderToolbarSearchSx`) and the ⋮ menu; a column below md, aligned
+ * right, as the template order toolbar is.
+ */
+export function OrderToolbarSkeleton({ filters, trailing = [], search = true, menu = false }: { filters: number; trailing?: number[]; search?: boolean; menu?: boolean }) {
+  // `&&&` outranks frame.css `.screen[aria-busy="true"] div { flex-wrap: wrap }`: the loaded row never wraps.
+  const noWrap = { "&&&": { flexWrap: "nowrap" } } as const;
+  return (
+    <Box
+      aria-hidden="true"
+      data-skel="toolbar"
+      sx={{ p: 2.5, gap: 2, display: "flex", pr: { xs: 2.5, md: 1 }, flexDirection: { xs: "column", md: "row" }, alignItems: { xs: "flex-end", md: "center" }, ...noWrap }}
+    >
+      {Array.from({ length: filters }, (_, i) => (
+        <Skeleton key={i} variant="rounded" sx={{ ...orderToolbarFilterSx, height: FIELD_H }} />
+      ))}
+      {trailing.map((w, i) => (
+        <Skeleton key={`t${i}`} variant="rounded" sx={{ height: "var(--input-h)", width: w, flexShrink: 0 }} />
+      ))}
+      <Box sx={{ gap: 2, width: 1, flexGrow: 1, display: "flex", alignItems: "center", ...noWrap }}>
+        {search ? <Skeleton variant="rounded" sx={{ ...orderToolbarSearchSx, height: FIELD_H }} /> : <Box sx={{ flexGrow: 1 }} />}
+        {menu ? <Skeleton variant="circular" sx={{ width: tapHeight(36), height: tapHeight(36), flexShrink: 0 }} /> : null}
+      </Box>
     </Box>
   );
 }

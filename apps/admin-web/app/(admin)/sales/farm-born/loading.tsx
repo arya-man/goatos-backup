@@ -1,23 +1,18 @@
-import { FilterCardSkeleton, GridSkeleton, KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton, StackSkeleton, TableSkeleton, TabsSkeleton, ToolbarSkeleton } from "@/components/app/skeletons";
+import { FilterCardSkeleton, PageHeaderSkeleton, PageSkeleton } from "@/components/app/skeletons";
+import { SalesFarmBornBodySkeleton, SalesFarmTabsSkeleton } from "@/features/procurement/sales-skeletons";
 
-/** /sales/farm-born: header, farm chips, then the page's template grid 1:1 (same Grid sizes, cards, order). */
+/**
+ * /sales/farm-born: header (no subtitle), farm tabs, the WorklistFilters bar (fields from md, one
+ * Filters button below; the staged Apply sits with the fields), then the sections' own twin (also
+ * their UrlSuspense fallback).
+ */
 export default function Loading() {
   return (
-    <PageSkeleton className="sales-farm-born-page">
+    <PageSkeleton className="kit-enter sales-farm-born-page">
       <PageHeaderSkeleton />
-      <ToolbarSkeleton left={<TabsSkeleton count={3} variant="pill" />} />
-      <StackSkeleton>
-        <FilterCardSkeleton fields={[260, 160, 160, 160, 160, 160]} actions={1} />
-        <KpiRowSkeleton count={4} icon hint />
-        <GridSkeleton
-          items={[
-            { size: { xs: 12, md: 6 }, node: <TableSkeleton columns={6} rows={8} pager={false} /> },
-            { size: { xs: 12, md: 6 }, node: <TableSkeleton columns={6} rows={4} pager={false} /> },
-          ]}
-        />
-        <TableSkeleton columns={5} rows={10} />
-      </StackSkeleton>
-  
+      <SalesFarmTabsSkeleton />
+      <FilterCardSkeleton fields={[260, 160, 160, 160, 160, 160, 88]} fold />
+      <SalesFarmBornBodySkeleton />
     </PageSkeleton>
   );
 }

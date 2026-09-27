@@ -20,6 +20,7 @@ export {
   ListCardSkeleton,
   ListRowsSkeleton,
   OptionalSkeleton,
+  OrderToolbarSkeleton,
   PageHeaderSkeleton,
   PageSkeleton,
   PagerSkeleton,
