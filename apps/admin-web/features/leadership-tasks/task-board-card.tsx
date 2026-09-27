@@ -5,8 +5,8 @@ import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import type { DragEvent } from "react";
 
-import { KanbanItemRoot } from "@/components/minimal/kanban";
-import { ItemContent, ItemInfo, ItemName, ItemStatus } from "@/components/minimal/sections/kanban/item/styles";
+import { KanbanItemRoot } from "@/components/app/kanban";
+import { ItemContent, ItemInfo, ItemName, ItemStatus } from "@/components/app/kanban/item-styles";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 import { DeadlineClock } from "./deadline-clock";

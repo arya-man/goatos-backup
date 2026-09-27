@@ -21,8 +21,10 @@
 // notifications-drawer, 480 kanban-details (`{ xs: 1, sm: 480 }`).
 export const TEMPLATE_DRAWER_WIDTHS = new Set([320, 360, 420, 480]);
 
-// The template drawer shell itself (and its stories) may render the raw MUI Drawer.
-const SHELL_OWNERS = [/^components\/minimal\//, /^layouts\/template\//, /^stories\//];
+// The template drawer shells themselves (and their stories) may render the raw MUI Drawer. The kanban
+// details shell (template sections/kanban/details anatomy, moved out of components/minimal because it
+// is adapted) is one; it keeps the visible backdrop like every other right drawer.
+const SHELL_OWNERS = [/^components\/minimal\//, /^layouts\/template\//, /^stories\//, /^components\/app\/kanban\/kanban-details\.tsx$/];
 const isShellOwner = (rel) => SHELL_OWNERS.some((re) => re.test(rel));
 
 const DRAWER_OPEN = /<(MinimalDrawer|DetailDrawer|Drawer|SwipeableDrawer)\b/g;

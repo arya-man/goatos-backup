@@ -1,6 +1,6 @@
 'use client';
 
-// Copied from the licensed MUI Minimal template (sections/kanban/details/kanban-details.tsx drawer
+// Mesha kanban adapter (components/app, NOT a template file) built on the MUI Minimal template (sections/kanban/details/kanban-details.tsx drawer
 // shell + BlockLabel, and sections/kanban/details/kanban-details-toolbar.tsx header row).
 // Changes: presentational only -- the page passes the toolbar's status control, its trailing
 // actions, the tab list and each tab's body (the template's mock task, like/delete handlers,
@@ -16,8 +16,8 @@ import Tooltip from '@mui/material/Tooltip';
 import IconButton from '@mui/material/IconButton';
 import { styled } from '@mui/material/styles';
 
-import { Iconify } from '../../../iconify';
-import { Scrollbar } from '../../../scrollbar';
+import { Iconify } from '@/components/minimal/iconify';
+import { Scrollbar } from '@/components/minimal/scrollbar';
 
 // ----------------------------------------------------------------------
 
@@ -115,7 +115,6 @@ export function KanbanDetails({
       anchor="right"
       slotProps={{
         ...slotProps,
-        backdrop: { invisible: true },
         paper: {
           ...(slotProps?.paper as object | undefined),
           'aria-label': ariaLabel,

@@ -8,9 +8,9 @@ import Alert from "@mui/material/Alert";
 import Typography from "@mui/material/Typography";
 import { varAlpha } from "minimal-shared/utils";
 
-import { KanbanBoard } from "@/components/minimal/kanban";
+import { KanbanBoard } from "@/components/app/kanban";
 import { Label } from "@/components/minimal/label";
-import { ColumnList, ColumnRoot, ColumnWrapper, kanbanColumnState } from "@/components/minimal/sections/kanban/column/styles";
+import { ColumnList, ColumnRoot, ColumnWrapper, kanbanColumnState } from "@/components/app/kanban/column-styles";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 

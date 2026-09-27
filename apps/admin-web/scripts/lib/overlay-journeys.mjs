@@ -73,7 +73,7 @@ export const overlayJourneys = {
       header: ".MuiTabs-root",
       kind: "drawer",
       close: ".MuiDrawer-paper button[aria-label]",
-      source: "features/work-board/work-board-board.tsx, work-board-modal.tsx, components/minimal/sections/kanban/details/kanban-details.tsx",
+      source: "features/work-board/work-board-board.tsx, work-board-modal.tsx, components/app/kanban/kanban-details.tsx",
     },
   ],
   people: [

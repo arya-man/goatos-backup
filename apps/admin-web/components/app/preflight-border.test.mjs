@@ -16,7 +16,7 @@ function files(dir) {
 }
 
 export function columnRootOffences(src) {
-  if (!/from "@\/components\/minimal\/sections\/kanban\/column\/styles"/.test(src)) return [];
+  if (!/from "@\/components\/app\/kanban\/column-styles"/.test(src)) return [];
   const out = [];
   for (const m of src.matchAll(/<ColumnRoot\b[\s\S]*?>/g)) {
     if (!/"&::before":\s*\{\s*borderStyle:/.test(m[0])) out.push(m[0].slice(0, 60));
@@ -25,7 +25,7 @@ export function columnRootOffences(src) {
 }
 
 test("self-test", () => {
-  const imp = `import { ColumnRoot } from "@/components/minimal/sections/kanban/column/styles";\n`;
+  const imp = `import { ColumnRoot } from "@/components/app/kanban/column-styles";\n`;
   assert.equal(columnRootOffences(imp + `<ColumnRoot sx={{ flexGrow: 1 }}>`).length, 1);
   assert.equal(columnRootOffences(imp + `<ColumnRoot sx={{ flexGrow: 1, "&::before": { borderStyle: "none" } }}>`).length, 0);
 });

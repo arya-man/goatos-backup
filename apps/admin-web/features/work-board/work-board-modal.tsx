@@ -9,7 +9,7 @@ import Typography from "@mui/material/Typography";
 import { Label } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
 import { LinkButton } from "@/components/minimal/link-button";
-import { BlockLabel, KanbanDetails } from "@/components/minimal/sections/kanban/details/kanban-details";
+import { BlockLabel, KanbanDetails } from "@/components/app/kanban/kanban-details";
 import { useLocalOverlaySelection } from "@/components/local-overlay-link";
 import { control, controlEnabled, copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { WorkBoardRow } from "@/lib/api/work-board-server";

@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import IconButton from "@mui/material/IconButton";
 import { Iconify } from "@/components/minimal/iconify";
-import { KanbanBoard, KanbanColumn, KanbanTaskCard } from "@/components/minimal/kanban";
+import { KanbanBoard, KanbanColumn, KanbanTaskCard } from "@/components/app/kanban";
 import { withMinimalTheme, mobile } from "./_minimal";
 
 const PEOPLE = [{ id: "a", name: "Anil" }, { id: "b", name: "Bhavya" }, { id: "c", name: "Chetan" }, { id: "d", name: "Divya" }];

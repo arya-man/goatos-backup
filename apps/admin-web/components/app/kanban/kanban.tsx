@@ -1,6 +1,6 @@
 "use client";
 
-// Copied from the licensed MUI Minimal template (sections/kanban: view vars, column/styles.tsx,
+// Mesha kanban adapter (components/app, NOT a template file) built on the MUI Minimal template (sections/kanban: view vars, column/styles.tsx,
 // column/kanban-column-toolbar.tsx, item/styles.tsx). Presentational only: no drag-and-drop,
 // rename or add-task behaviour (pages own behaviour).
 import type { BoxProps } from '@mui/material/Box';
@@ -13,9 +13,9 @@ import { styled } from '@mui/material/styles';
 import Typography from '@mui/material/Typography';
 import AvatarGroup, { avatarGroupClasses } from '@mui/material/AvatarGroup';
 
-import { Label } from '../label';
-import { Iconify } from '../iconify';
-import type { IconifyName } from '../iconify';
+import { Label } from '@/components/minimal/label';
+import { Iconify } from '@/components/minimal/iconify';
+import type { IconifyName } from '@/components/minimal/iconify';
 
 export type KanbanPriority = 'low' | 'medium' | 'high';
 
@@ -53,14 +53,14 @@ const ColumnRoot = styled('section')(({ theme }) => ({
   display: 'flex',
   flexDirection: 'column',
   gap: 'var(--kanban-item-gap)',
-  width: 'min(var(--kanban-column-width), calc(100vw - 48px))',
+  width: 'min(var(--kanban-column-width), calc(100vw - var(--sp-3) * 2))',
   borderRadius: 'var(--kanban-column-radius)',
   backgroundColor: theme.vars.palette.background.neutral,
 }));
 
 const ColumnList = styled('ul')({
   margin: 0,
-  minHeight: 80,
+  minHeight: 'calc(var(--sp-2) * 5)',
   display: 'flex',
   listStyle: 'none',
   flexDirection: 'column',
@@ -83,7 +83,7 @@ export function KanbanColumn({ title, count, actions, children }: KanbanColumnPr
     <ColumnRoot>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, pt: 'var(--kanban-column-pt)', px: 'var(--kanban-column-px)' }}>
         <Label sx={(theme) => ({ borderRadius: '50%', borderColor: varAlpha(theme.vars.palette.grey['500Channel'], 0.24) })}>{count}</Label>
-        <Typography variant="h6" noWrap sx={{ flexGrow: 1, minWidth: 0, fontSize: '1rem' }}>
+        <Typography variant="h6" noWrap sx={{ flexGrow: 1, minWidth: 0, fontSize: 'var(--fs-subtitle1)' }}>
           {title}
         </Typography>
         {actions}
@@ -144,7 +144,7 @@ export function KanbanTaskCard({ name, priority, meta, comments = 0, attachments
           position: 'relative',
           px: 2,
           py: 2.5,
-          minHeight: 44,
+          minHeight: 'var(--tap-min)',
           textAlign: 'left',
           border: 0,
           font: 'inherit',
@@ -182,7 +182,7 @@ export function KanbanTaskCard({ name, priority, meta, comments = 0, attachments
             </Box>
             <Box component="span" sx={{ flexGrow: 1 }} />
             {assignees.length ? (
-              <AvatarGroup max={3} sx={{ [`& .${avatarGroupClasses.avatar}`]: { width: 24, height: 24, fontSize: '0.75rem' } }}>
+              <AvatarGroup max={3} sx={{ [`& .${avatarGroupClasses.avatar}`]: { width: 'var(--sp-3)', height: 'var(--sp-3)', fontSize: 'var(--fs-caption)' } }}>
                 {assignees.map((u) => (
                   <Avatar key={u.id} alt={u.name} src={u.avatarUrl}>
                     {u.name.slice(0, 1)}

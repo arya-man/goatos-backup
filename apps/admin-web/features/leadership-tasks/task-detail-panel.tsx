@@ -14,7 +14,7 @@ import ListItemText from "@mui/material/ListItemText";
 import { Label } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
 import { EmptyContent } from "@/components/minimal/empty-content";
-import { BlockLabel } from "@/components/minimal/sections/kanban/details/kanban-details";
+import { BlockLabel } from "@/components/app/kanban/kanban-details";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { LeadershipTaskAssignee } from "@/lib/api/server";

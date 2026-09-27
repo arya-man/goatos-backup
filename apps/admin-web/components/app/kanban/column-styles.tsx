@@ -1,6 +1,6 @@
 'use client';
 
-// Copied from the licensed MUI Minimal template (sections/kanban/column/styles.tsx, with the state
+// Mesha kanban adapter (components/app, NOT a template file) built on the MUI Minimal template (sections/kanban/column/styles.tsx, with the state
 // class names from sections/kanban/classes.ts inlined).
 // Changes: ColumnWrapper is a plain flex item (no framer-motion `m.li`, the page owns no column
 // drag), so it carries the column width itself and never exceeds a phone viewport; ColumnList does
@@ -25,7 +25,7 @@ export const ColumnWrapper = styled('section')({
   flexShrink: 0,
   display: 'flex',
   flexDirection: 'column',
-  width: 'min(var(--kanban-column-width), calc(100vw - 48px))',
+  width: 'min(var(--kanban-column-width), calc(100vw - var(--sp-3) * 2))',
 });
 
 export const ColumnRoot = styled('div')(({ theme }) => {
@@ -81,7 +81,7 @@ export const ColumnRoot = styled('div')(({ theme }) => {
 
 export const ColumnList = styled('ul')({
   margin: 0,
-  minHeight: 80,
+  minHeight: 'calc(var(--sp-2) * 5)',
   display: 'flex',
   listStyle: 'none',
   overflowAnchor: 'none',

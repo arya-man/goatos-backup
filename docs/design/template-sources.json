@@ -21,9 +21,6 @@
     "components/minimal/sections/job/job-item.tsx": "src/sections/job/job-item.tsx",
     "components/minimal/sections/job/job-list.tsx": "src/sections/job/job-list.tsx",
     "components/minimal/sections/user/user-table-row.tsx": "src/sections/user/user-table-row.tsx",
-    "components/minimal/sections/kanban/column/styles.tsx": "src/sections/kanban/column/styles.tsx",
-    "components/minimal/sections/kanban/details/kanban-details.tsx": "src/sections/kanban/details/kanban-details.tsx",
-    "components/minimal/sections/kanban/item/styles.tsx": "src/sections/kanban/item/styles.tsx",
     "components/minimal/sections/invoice/invoice-analytic.tsx": "src/sections/invoice/invoice-analytic.tsx",
     "components/minimal/sections/overview/analytics/analytics-website-visits.tsx": "src/sections/overview/analytics/analytics-website-visits.tsx",
     "components/minimal/_shared/config.ts": "src/global-config.ts",
@@ -63,8 +60,6 @@
     "components/minimal/filters-result/filters-result.tsx": "src/components/filters-result/filters-result.tsx",
     "components/minimal/filters-result/index.ts": "src/components/filters-result/index.ts",
     "components/minimal/iconify/index.ts": "src/components/iconify/index.ts",
-    "components/minimal/kanban/kanban.tsx": "src/sections/kanban/column/styles.tsx",
-    "components/minimal/kanban/index.ts": "src/sections/kanban/index.ts",
     "components/minimal/label/index.ts": "src/components/label/index.ts",
     "components/minimal/link-button.tsx": "src/routes/components/router-link.tsx",
     "components/minimal/loading-screen/loading-screen.tsx": "src/components/loading-screen/loading-screen.tsx",
@@ -524,16 +519,6 @@
         "./register-icons"
       ]
     },
-    "components/minimal/kanban/kanban.tsx": {
-      "sha256": "fe650cf2d12c0eeca9f64020a0be67c8dbf6966d0476478521d91d303d322af5",
-      "imports": [
-        "@mui/material/styles",
-        "framer-motion",
-        "minimal-shared/utils",
-        "@mui/material/styles",
-        "../classes"
-      ]
-    },
     "components/minimal/label/index.ts": {
       "sha256": "33f35d44302650361eeb4ef6dcb93601c4723fb23e716892b20dcee28902ad9f",
       "imports": [
@@ -647,70 +632,6 @@
         "@mui/material/Pagination",
         "src/routes/paths",
         "./job-item"
-      ]
-    },
-    "components/minimal/sections/kanban/column/styles.tsx": {
-      "sha256": "fe650cf2d12c0eeca9f64020a0be67c8dbf6966d0476478521d91d303d322af5",
-      "imports": [
-        "@mui/material/styles",
-        "framer-motion",
-        "minimal-shared/utils",
-        "@mui/material/styles",
-        "../classes"
-      ]
-    },
-    "components/minimal/sections/kanban/details/kanban-details.tsx": {
-      "sha256": "36028c6d7f71f2215433c253d1dbcf8e9af137b20ee0d77a59ca84bfff1f4559",
-      "imports": [
-        "src/types/kanban",
-        "dayjs",
-        "react",
-        "minimal-shared/utils",
-        "minimal-shared/hooks",
-        "@mui/material/Box",
-        "@mui/material/Tab",
-        "@mui/material/Chip",
-        "@mui/material/Tabs",
-        "@mui/material/Drawer",
-        "@mui/material/Button",
-        "@mui/material/Avatar",
-        "@mui/material/Tooltip",
-        "@mui/material/styles",
-        "@mui/material/Checkbox",
-        "@mui/material/TextField",
-        "@mui/material/FormGroup",
-        "@mui/material/Typography",
-        "@mui/material/IconButton",
-        "@mui/material/LinearProgress",
-        "@mui/material/FormControlLabel",
-        "src/components/iconify",
-        "src/components/scrollbar",
-        "src/components/custom-date-range-picker",
-        "./kanban-details-toolbar",
-        "../components/kanban-input-name",
-        "./kanban-details-priority",
-        "./kanban-details-attachments",
-        "./kanban-details-comment-list",
-        "./kanban-details-comment-input",
-        "../components/kanban-contacts-dialog"
-      ]
-    },
-    "components/minimal/sections/kanban/item/styles.tsx": {
-      "sha256": "2448305868e455c296714cbfb20a8912152319c373a1021ad310f651342b0bdb",
-      "imports": [
-        "@mui/material/Box",
-        "@mui/material/Typography",
-        "src/types/kanban",
-        "src/components/iconify",
-        "framer-motion",
-        "@mui/material/Box",
-        "@mui/material/Avatar",
-        "@mui/material/styles",
-        "@mui/material/Typography",
-        "@mui/material/AvatarGroup",
-        "src/components/iconify",
-        "src/components/image",
-        "../classes"
       ]
     },
     "components/minimal/sections/mail/mail-nav-item.tsx": {

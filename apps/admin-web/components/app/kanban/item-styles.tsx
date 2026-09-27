@@ -1,8 +1,8 @@
 'use client';
 
-// Copied from the licensed MUI Minimal template (sections/kanban/item/styles.tsx).
+// Mesha kanban adapter (components/app, NOT a template file) built on the MUI Minimal template (sections/kanban/item/styles.tsx).
 // Changes: ItemRoot / DropIndicator / ItemPreview / ItemImage are not copied (the item shell is
-// components/minimal/kanban `KanbanItemRoot`, and pages own drag and drop); the IKanbanTask prop
+// components/app/kanban `KanbanItemRoot`, and pages own drag and drop); the IKanbanTask prop
 // types are replaced by plain props (a count instead of an array, assignees as name + initial);
 // ItemStatus renders nothing without a status; ItemInfo takes optional leading/trailing nodes so a
 // page can put its own counts beside the template comment / attachment readings.
@@ -15,8 +15,8 @@ import { styled } from '@mui/material/styles';
 import Typography from '@mui/material/Typography';
 import AvatarGroup, { avatarGroupClasses } from '@mui/material/AvatarGroup';
 
-import { Iconify } from '../../../iconify';
-import type { IconifyName, IconifyProps } from '../../../iconify';
+import { Iconify } from '@/components/minimal/iconify';
+import type { IconifyName, IconifyProps } from '@/components/minimal/iconify';
 
 // ----------------------------------------------------------------------
 
@@ -142,8 +142,8 @@ export function ItemInfo({ sx, assignee = [], comments = 0, attachments = 0, chi
             sx={{
               flexShrink: 0,
               [`& .${avatarGroupClasses.avatar}`]: {
-                width: 24,
-                height: 24,
+                width: 'var(--sp-3)',
+                height: 'var(--sp-3)',
                 typography: 'caption',
               },
             }}
