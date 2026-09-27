@@ -1,10 +1,9 @@
 'use client';
 
-// Copied from the licensed MUI Minimal template (next-ts src/sections/order/order-details-customer.tsx).
-// Mesha changes (data plumbing only, anatomy untouched): the header, the avatar initial, the name
-// and the secondary lines are the page's (supplier / vendor / operator instead of the mock
-// customer); the "Add to blacklist" button becomes an optional `action` node.
-
+// Template-derived (docs/design/template-derived.json): Minimal v7.7.0 next-ts
+// src/sections/order/order-details-customer.tsx. Anatomy guarded; SLOTS replace the demo customer:
+// `title`, `headerAction` (the template's pen IconButton), `name` / `avatarUrl`, `lines` (its email +
+// IP-address lines), `action` (its "Add to blacklist" button).
 import type { ReactNode } from 'react';
 
 import Box from '@mui/material/Box';
@@ -27,20 +26,26 @@ type Props = {
 export function OrderDetailsCustomer({ title, headerAction, name, avatarUrl, lines = [], action }: Props) {
   return (
     <>
-      <CardHeader title={title} action={headerAction} />
+      <CardHeader
+        title={title}
+        action={headerAction}
+      />
       <Box sx={{ p: 3, display: 'flex' }}>
-        <Avatar alt={name} src={avatarUrl} sx={{ width: 48, height: 48, mr: 2 }}>
+        <Avatar
+          alt={name}
+          src={avatarUrl}
+          sx={{ width: 48, height: 48, mr: 2 }}
+        >
           {name.slice(0, 1).toUpperCase()}
         </Avatar>
 
-        <Stack spacing={0.5} sx={{ typography: 'body2', alignItems: 'flex-start', minWidth: 0 }}>
+        <Stack spacing={0.5} sx={{ typography: 'body2', alignItems: 'flex-start' }}>
           <Typography variant="subtitle2">{name}</Typography>
           {lines.map((line, index) => (
-            <Box key={index} sx={{ color: 'text.secondary', overflowWrap: 'anywhere' }}>
-              {line}
-            </Box>
+            <Box key={index} sx={{ color: 'text.secondary' }}>{line}</Box>
           ))}
-          {action ? <Box sx={{ mt: 1 }}>{action}</Box> : null}
+
+          {action}
         </Stack>
       </Box>
     </>

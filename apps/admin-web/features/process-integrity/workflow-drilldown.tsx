@@ -6,10 +6,10 @@ import Divider from "@mui/material/Divider";
 import LinearProgress from "@mui/material/LinearProgress";
 import { Iconify } from "@/components/minimal/iconify";
 import { LinkButton } from "@/components/app/link-button";
-import { OrderDetailsToolbar } from "@/components/minimal/sections/order/order-details-toolbar";
-import { OrderDetailsHistory, type OrderHistoryItem, type OrderHistoryTone } from "@/components/minimal/sections/order/order-details-history";
-import { OrderDetailsCustomer } from "@/components/minimal/sections/order/order-details-customer";
-import { OrderDetailsDelivery } from "@/components/minimal/sections/order/order-details-delivery";
+import { OrderDetailsToolbar } from "@/components/app/sections/order/order-details-toolbar";
+import { OrderDetailsHistory, type OrderHistoryItem, type OrderHistoryTone } from "@/components/app/sections/order/order-details-history";
+import { OrderDetailsCustomer } from "@/components/app/sections/order/order-details-customer";
+import { OrderDetailsDelivery } from "@/components/app/sections/order/order-details-delivery";
 import type { LabelColor } from "@/components/minimal/label";
 import { operationalLocationLabel } from "@/lib/operational-location";
 import { getVaccinationWorkflowDrilldown, type WorkflowNode } from "@/lib/api/server";
@@ -161,6 +161,8 @@ export async function VaccinationWorkflowDrilldownPage({
         subtitle={[copy(pageContract, "crumb"), drive, row.park_name, shedLine, stageLabel(row.animal_stage)].join(" · ")}
         backHref={backHref}
         backLabel={backLabel}
+        // The status chips + Action Center wrap on a phone instead of running off the left edge.
+        slotProps={{ actions: { flexWrap: "wrap", justifyContent: { xs: "flex-start", md: "flex-end" } } }}
         actions={
           <>
             <Tag tone={optionTone(pageContract, "severity_chips", row.severity) as Tone}>{optionLabel(pageContract, "severity_chips", row.severity)}</Tag>

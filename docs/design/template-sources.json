@@ -11,11 +11,6 @@
   ],
   "template_root": "~/mesha/mesha-ui/vendor/minimal/Minimal_TypeScript_v7.7.0/next-ts",
   "sources": {
-    "components/minimal/sections/order/order-details-toolbar.tsx": "src/sections/order/order-details-toolbar.tsx",
-    "components/minimal/sections/order/order-details-history.tsx": "src/sections/order/order-details-history.tsx",
-    "components/minimal/sections/order/order-details-delivery.tsx": "src/sections/order/order-details-delivery.tsx",
-    "components/minimal/sections/order/order-details-customer.tsx": "src/sections/order/order-details-customer.tsx",
-    "components/minimal/sections/order/order-details-items.tsx": "src/sections/order/order-details-items.tsx",
     "components/minimal/sections/mail/mail-nav-item.tsx": "src/sections/mail/mail-nav-item.tsx",
     "components/minimal/sections/job/job-item.tsx": "src/sections/job/job-item.tsx",
     "components/minimal/sections/job/job-list.tsx": "src/sections/job/job-list.tsx",
@@ -579,87 +574,6 @@
         "@mui/material/Box",
         "@mui/material/ListItemButton",
         "src/components/iconify"
-      ]
-    },
-    "components/minimal/sections/order/order-details-customer.tsx": {
-      "sha256": "98d1fec1d4d0dc13555487eac1029422ef919bac41419ccb5fa3ce15659c282a",
-      "imports": [
-        "src/types/order",
-        "@mui/material/Box",
-        "@mui/material/Stack",
-        "@mui/material/Button",
-        "@mui/material/Avatar",
-        "@mui/material/IconButton",
-        "@mui/material/CardHeader",
-        "@mui/material/Typography",
-        "src/components/iconify"
-      ]
-    },
-    "components/minimal/sections/order/order-details-delivery.tsx": {
-      "sha256": "6c0f21e7410dcef44fc261325d0c49d304bac417824b8348a1f8fd21c13fe82e",
-      "imports": [
-        "src/types/order",
-        "@mui/material/Box",
-        "@mui/material/Link",
-        "@mui/material/Stack",
-        "@mui/material/IconButton",
-        "@mui/material/CardHeader",
-        "src/components/iconify"
-      ]
-    },
-    "components/minimal/sections/order/order-details-history.tsx": {
-      "sha256": "3d653eeae07c92ead0bf9f1a4348bd4d07730d6d5da1de6852609508d48c3993",
-      "imports": [
-        "src/types/order",
-        "@mui/material/Box",
-        "@mui/material/Card",
-        "@mui/material/Paper",
-        "@mui/lab/Timeline",
-        "@mui/material/Button",
-        "@mui/lab/TimelineDot",
-        "@mui/material/CardHeader",
-        "@mui/material/Typography",
-        "@mui/lab/TimelineContent",
-        "@mui/lab/TimelineSeparator",
-        "@mui/lab/TimelineConnector",
-        "@mui/lab/TimelineItem",
-        "src/utils/format-time",
-        "src/components/iconify"
-      ]
-    },
-    "components/minimal/sections/order/order-details-items.tsx": {
-      "sha256": "e667e8789201f9b3ea58ede771e959ad09c9954c66c138662776e331c8a6d06e",
-      "imports": [
-        "@mui/material/Card",
-        "src/types/order",
-        "@mui/material/Box",
-        "@mui/material/Card",
-        "@mui/material/Avatar",
-        "@mui/material/CardHeader",
-        "@mui/material/IconButton",
-        "@mui/material/ListItemText",
-        "src/utils/format-number",
-        "src/components/iconify",
-        "src/components/scrollbar"
-      ]
-    },
-    "components/minimal/sections/order/order-details-toolbar.tsx": {
-      "sha256": "7e20b3526cbe0ff02e016aa2605fc6ac8bec8a4d44d66e17cd856d5ed271ebea",
-      "imports": [
-        "src/types/common",
-        "minimal-shared/hooks",
-        "@mui/material/Box",
-        "@mui/material/Stack",
-        "@mui/material/Button",
-        "@mui/material/MenuList",
-        "@mui/material/MenuItem",
-        "@mui/material/IconButton",
-        "@mui/material/Typography",
-        "src/routes/components",
-        "src/utils/format-time",
-        "src/components/label",
-        "src/components/iconify",
-        "src/components/custom-popover"
       ]
     },
     "components/minimal/sections/overview/analytics/analytics-conversion-rates.tsx": {

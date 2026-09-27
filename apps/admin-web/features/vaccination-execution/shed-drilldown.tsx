@@ -17,7 +17,7 @@ import { Label } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { TableHeadCustom } from "@/components/app/table";
-import { OrderDetailsDelivery } from "@/components/minimal/sections/order/order-details-delivery";
+import { OrderDetailsDelivery } from "@/components/app/sections/order/order-details-delivery";
 import { getVaccinationExecutionShedDrilldown } from "@/lib/api/server";
 import type { VaccinationExecutionRow } from "@/lib/api/vaccination-execution";
 import { Tag, type Tone } from "@/components/ui-primitives";
@@ -225,7 +225,6 @@ export async function ShedExecutionDetailPage({
           <Card>
             <OrderDetailsDelivery
               title={copy(pageContract, "label.pen", "Pen")}
-              labelWidth={112}
               rows={[
                 { key: "park", label: copy(pageContract, "label.park", "Park"), value: shed.parkName },
                 { key: "pen", label: copy(pageContract, "label.pen", "Pen"), value: shedDisplayLabel },

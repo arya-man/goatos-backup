@@ -18,8 +18,8 @@ import { Label, type LabelColor } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
 import { OrderTableToolbar } from "@/components/app/sections/order/order-table-toolbar";
 import { orderToolbarSearchSx } from "@/components/app/order-toolbar-filter";
-import { OrderDetailsHistory, type OrderHistoryItem } from "@/components/minimal/sections/order/order-details-history";
-import { OrderDetailsDelivery } from "@/components/minimal/sections/order/order-details-delivery";
+import { OrderDetailsHistory, type OrderHistoryItem } from "@/components/app/sections/order/order-details-history";
+import { OrderDetailsDelivery } from "@/components/app/sections/order/order-details-delivery";
 import { EmptyState } from "@/components/app/empty-state";
 import { dateTime } from "@/lib/format";
 

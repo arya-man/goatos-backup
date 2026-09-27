@@ -28,7 +28,7 @@ import { Label } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { TableHeadCustom } from "@/components/app/table";
-import { OrderDetailsHistory } from "@/components/minimal/sections/order/order-details-history";
+import { OrderDetailsHistory } from "@/components/app/sections/order/order-details-history";
 import { PassportTabs } from "./passport-tabs";
 import { firstAuthRequiredError, getGoatPassport, getGoatTimeline } from "@/lib/api/server";
 import { hrefWithoutAction, one, type RouteSearchParams } from "@/lib/search-params";

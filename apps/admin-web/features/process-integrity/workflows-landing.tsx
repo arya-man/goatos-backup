@@ -20,7 +20,7 @@ import { TemplateTabs } from "@/components/app/template-tabs";
 import { TableHeadCustom } from "@/components/app/table/table-head-custom";
 import { OrderTableToolbar } from "@/components/app/sections/order/order-table-toolbar";
 import { orderToolbarSearchSx } from "@/components/app/order-toolbar-filter";
-import { OrderDetailsHistory, type OrderHistoryItem, type OrderHistoryTone } from "@/components/minimal/sections/order/order-details-history";
+import { OrderDetailsHistory, type OrderHistoryItem, type OrderHistoryTone } from "@/components/app/sections/order/order-details-history";
 import Link from "@/components/no-prefetch-link";
 import { redirect } from "next/navigation";
 import { PageHeader, type PageCrumb } from "@/components/app/page-header";

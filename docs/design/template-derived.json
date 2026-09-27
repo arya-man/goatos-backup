@@ -609,6 +609,297 @@
       "allowProps": [
         "..."
       ]
+    },
+    "components/app/sections/order/order-details-customer.tsx": {
+      "source": "src/sections/order/order-details-customer.tsx",
+      "replaced": "IOrderCustomer -> title/name/avatarUrl; SLOTS headerAction (pen IconButton), lines (email + IP address lines), action (Add to blacklist button)",
+      "templateStrip": [
+        [
+          "action=\\{\\s*<IconButton>[\\s\\S]*?<\\/IconButton>\\s*\\}",
+          "action={headerAction}"
+        ],
+        "\\s*<Box sx=\\{\\{ color: 'text\\.secondary' \\}\\}>\\{customer\\?\\.email\\}<\\/Box>\\n",
+        "\\s*<div>\\s*IP address:[\\s\\S]*?<\\/div>\\n",
+        "\\s*<Button[\\s\\S]*?<\\/Button>\\n"
+      ],
+      "strip": [
+        "\\{lines\\.map\\([\\s\\S]*?<\\/Box>\\s*\\)\\)\\}",
+        "\\{action\\}"
+      ],
+      "tags": [
+        "CardHeader",
+        "Box",
+        "Avatar",
+        "Stack",
+        "Typography"
+      ],
+      "sx": [
+        "p",
+        "display",
+        "width",
+        "height",
+        "mr",
+        "typography",
+        "alignItems"
+      ],
+      "sxValues": [
+        "{ p: 3, display: 'flex' }",
+        "{ width: 48, height: 48, mr: 2 }",
+        "{ typography: 'body2', alignItems: 'flex-start' }"
+      ],
+      "props": [
+        "variant=subtitle2"
+      ],
+      "propNames": [
+        "CardHeader(action,title)",
+        "Box(sx)",
+        "Avatar(alt,src,sx)",
+        "Stack(spacing,sx)",
+        "Typography(variant)"
+      ]
+    },
+    "components/app/sections/order/order-details-delivery.tsx": {
+      "source": "src/sections/order/order-details-delivery.tsx",
+      "replaced": "IOrderDelivery -> title + rows (one template label/value line per row; the template's three fixed lines); SLOT action (pen IconButton)",
+      "templateStrip": [
+        [
+          "action=\\{\\s*<IconButton>[\\s\\S]*?<\\/IconButton>\\s*\\}",
+          "action={action}"
+        ],
+        "\\s*<Box sx=\\{\\{ display: 'flex', alignItems: 'center' \\}\\}>\\s*<Box component=\"span\"[^>]*>\\s*Speedy[\\s\\S]*?\\{delivery\\?\\.speedy\\}\\s*<\\/Box>\\n",
+        "\\s*<Box sx=\\{\\{ display: 'flex', alignItems: 'center' \\}\\}>\\s*<Box component=\"span\"[^>]*>\\s*Tracking No\\.[\\s\\S]*?<\\/Link>\\s*<\\/Box>\\n"
+      ],
+      "strip": [
+        [
+          "\\{rows\\.map\\(\\(row\\) => \\(\\s*",
+          ""
+        ],
+        [
+          "\\s*\\)\\)\\}\\s*(?=<\\/Stack>)",
+          ""
+        ]
+      ],
+      "tags": [
+        "CardHeader",
+        "Stack",
+        "Box",
+        "Box"
+      ],
+      "sx": [
+        "p",
+        "typography",
+        "display",
+        "alignItems",
+        "color",
+        "width",
+        "flexShrink"
+      ],
+      "sxValues": [
+        "{ p: 3, typography: 'body2' }",
+        "{ display: 'flex', alignItems: 'center' }",
+        "{ color: 'text.secondary', width: 120, flexShrink: 0 }"
+      ],
+      "props": [
+        "component=span"
+      ],
+      "propNames": [
+        "CardHeader(action,title)",
+        "Stack(spacing,sx)",
+        "Box(sx)",
+        "Box(component,sx)"
+      ]
+    },
+    "components/app/sections/order/order-details-history.tsx": {
+      "source": "src/sections/order/order-details-history.tsx",
+      "replaced": "IOrderHistory -> title/timeline/summary props (time caption preformatted instead of fDateTime; optional body line + tone dot colour); Show more -> optional more link; declared: header action, Card sx/props passthrough",
+      "allowProps": [
+        "action",
+        "component",
+        "href"
+      ],
+      "strip": [
+        [
+          "<Card sx=\\{sx\\} \\{\\.\\.\\.other\\}>",
+          "<Card>"
+        ],
+        "\\{item\\.body\\}"
+      ],
+      "tags": [
+        "Paper",
+        "Box",
+        "Box",
+        "Timeline",
+        "TimelineItem",
+        "TimelineSeparator",
+        "TimelineDot",
+        "TimelineConnector",
+        "TimelineContent",
+        "Typography",
+        "Box",
+        "Card",
+        "CardHeader",
+        "Box",
+        "Box",
+        "Button",
+        "Iconify"
+      ],
+      "sx": [
+        "p",
+        "gap",
+        "minWidth",
+        "flexShrink",
+        "borderRadius",
+        "display",
+        "typography",
+        "borderStyle",
+        "flexDirection",
+        "gap",
+        "display",
+        "flexDirection",
+        "color",
+        "p",
+        "p",
+        "flex",
+        "color",
+        "typography",
+        "mt",
+        "p",
+        "gap",
+        "display",
+        "alignItems",
+        "md",
+        "flexDirection",
+        "xs",
+        "md",
+        "flexGrow"
+      ],
+      "sxValues": [
+        "{ p: 2.5, gap: 2, minWidth: 260, flexShrink: 0, borderRadius: 2, display: 'flex', typography: 'body2', borderStyle: 'dashed', flexDirection: 'column'}",
+        "{ gap: 0.5, display: 'flex', flexDirection: 'column' }",
+        "{ color: 'text.secondary' }",
+        "{ p: 0, [`& .${timelineItemClasses.root}:before`]: { p: 0, flex: 0 }}",
+        "{ color: 'text.disabled', typography: 'caption', mt: 0.5 }",
+        "{ p: 3, gap: 3, display: 'flex', alignItems: { md: 'flex-start' }, flexDirection: { xs: 'column-reverse', md: 'row' }}",
+        "{ flexGrow: 1 }"
+      ],
+      "props": [
+        "variant=outlined",
+        "component=span",
+        "variant=subtitle2",
+        "component=span",
+        "size=small",
+        "color=inherit"
+      ],
+      "propNames": [
+        "Paper(sx,variant)",
+        "Box(sx)",
+        "Box(sx)",
+        "Timeline(sx)",
+        "TimelineItem()",
+        "TimelineSeparator()",
+        "TimelineDot(color)",
+        "TimelineConnector()",
+        "TimelineContent()",
+        "Typography(variant)",
+        "Box(sx)",
+        "Card()",
+        "CardHeader(title)",
+        "Box(sx)",
+        "Box(sx)",
+        "Button(color,endIcon,size)",
+        "Iconify(icon,width)"
+      ]
+    },
+    "components/app/sections/order/order-details-toolbar.tsx": {
+      "source": "src/sections/order/order-details-toolbar.tsx",
+      "replaced": "demo order -> title (page h1) / status + statusColor / subtitle (instead of fDateTime); status menu kept via statusOptions/onChangeStatus; SLOT actions (Print / Edit buttons); back IconButton only with backHref + aria-label; declared override: slotProps.actions merged after the action-row sx",
+      "allowProps": [
+        "aria-label",
+        "component"
+      ],
+      "templateStrip": [
+        "\\s*<Button\\s+color=\"inherit\"\\s+variant=\"outlined\"\\s+startIcon=[\\s\\S]*?Print\\s*<\\/Button>\\n",
+        "\\s*<Button color=\"inherit\" variant=\"contained\"[\\s\\S]*?Edit\\s*<\\/Button>\\n"
+      ],
+      "strip": [
+        "\\{actions\\}",
+        [
+          "mergeSx\\((\\{\\s*gap: 1\\.5,\\s*flexGrow: 1,\\s*display: 'flex',\\s*alignItems: 'center',\\s*justifyContent: 'flex-end',\\s*\\}), slotProps\\?\\.actions\\)",
+          "$1"
+        ]
+      ],
+      "tags": [
+        "CustomPopover",
+        "MenuList",
+        "MenuItem",
+        "Box",
+        "Box",
+        "IconButton",
+        "Iconify",
+        "Stack",
+        "Box",
+        "Typography",
+        "Label",
+        "Typography",
+        "Box",
+        "Button",
+        "Iconify"
+      ],
+      "sx": [
+        "gap",
+        "display",
+        "mb",
+        "xs",
+        "md",
+        "flexDirection",
+        "xs",
+        "md",
+        "gap",
+        "display",
+        "alignItems",
+        "gap",
+        "display",
+        "alignItems",
+        "color",
+        "gap",
+        "flexGrow",
+        "display",
+        "alignItems",
+        "justifyContent",
+        "textTransform"
+      ],
+      "sxValues": [
+        "{ gap: 3, display: 'flex', mb: { xs: 3, md: 5 }, flexDirection: { xs: 'column', md: 'row' }}",
+        "{ gap: 1, display: 'flex', alignItems: 'flex-start' }",
+        "{ gap: 1, display: 'flex', alignItems: 'center' }",
+        "{ color: 'text.disabled' }",
+        "{ gap: 1.5, flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'flex-end'}",
+        "{ textTransform: 'capitalize' }"
+      ],
+      "props": [
+        "variant=h4",
+        "variant=soft",
+        "variant=body2",
+        "color=inherit",
+        "variant=outlined"
+      ],
+      "propNames": [
+        "CustomPopover(anchorEl,onClose,open,slotProps)",
+        "MenuList()",
+        "MenuItem(onClick,selected)",
+        "Box(sx)",
+        "Box(sx)",
+        "IconButton(href)",
+        "Iconify(icon)",
+        "Stack(spacing)",
+        "Box(sx)",
+        "Typography(variant)",
+        "Label(color,variant)",
+        "Typography(sx,variant)",
+        "Box(sx)",
+        "Button(color,endIcon,onClick,sx,variant)",
+        "Iconify(icon)"
+      ]
     }
   }
 }
