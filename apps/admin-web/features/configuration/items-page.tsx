@@ -24,7 +24,8 @@ import { Label, type LabelColor } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { TableHeadCustom, TablePaginationLinks, type TableHeadCellProps } from "@/components/app/table";
-import { OrderTableToolbar } from "@/components/minimal/sections/order/order-table-toolbar";
+import { OrderTableToolbar } from "@/components/app/sections/order/order-table-toolbar";
+import { orderToolbarFilterSx, orderToolbarSearchSx } from "@/components/app/order-toolbar-filter";
 import { MailNavItem } from "@/components/minimal/sections/mail/mail-nav-item";
 
 import Link from "@/components/no-prefetch-link";
@@ -640,13 +641,12 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
                     for (const option of opts) hrefFor[option.id] = href(sp, { [FILTER_PREFIX + column.key]: option.id, ...(column.key === "park_id" ? { [FILTER_PREFIX + "pen_id"]: undefined } : {}) });
                     const label = column.key === "department" ? c("filter.department.all") : column.label;
                     return (
-                      <Box key={column.key} className="order-toolbar-filter">
+                      <Box key={column.key} sx={orderToolbarFilterSx}>
                         <RegisterFilter label={label} allLabel={copy(pageContract, "filter.all", "All")} current={params.filters[column.key] ?? ""} options={opts.map((option) => ({ value: option.id, label: option.label }))} hrefFor={hrefFor} />
                       </Box>
                     );
                   })}
-                search={
-                  <Form action={ITEMS_PATH} prefetch={false} role="search">
+                search={<Box sx={orderToolbarSearchSx}><Form action={ITEMS_PATH} prefetch={false} role="search">
                     <input type="hidden" name={PARAM_REGISTER} value={params.register} />
                     {params.status !== "active" ? <input type="hidden" name={PARAM_STATUS} value={params.status} /> : null}
                     {Object.entries(params.filters).map(([key, value]) => (
@@ -669,8 +669,7 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
                         },
                       }}
                     />
-                  </Form>
-                }
+                  </Form></Box>}
               />
 
               <RegisterFiltersResult total={page?.total ?? rows.length} chips={filterChips} resetHref={href(sp, resetPatch)} />

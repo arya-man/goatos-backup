@@ -26,7 +26,8 @@ import { EmptyContent } from "@/components/minimal/empty-content";
 import { SearchTextField } from "@/components/app/list/search-text-field";
 import { TableHeadCustom } from "@/components/app/table/table-head-custom";
 import { TablePaginationLinks } from "@/components/app/table/table-pagination-links";
-import { OrderTableToolbar } from "@/components/minimal/sections/order/order-table-toolbar";
+import { OrderTableToolbar } from "@/components/app/sections/order/order-table-toolbar";
+import { orderToolbarSearchSx } from "@/components/app/order-toolbar-filter";
 import { LinkSelect } from "@/components/app/link-select";
 import { listOrEmpty } from "@/lib/list-or-empty";
 import Link from "@/components/no-prefetch-link";
@@ -242,12 +243,10 @@ export async function OperationsAuditPage({
               ]}
             />
           }
-          search={
-            <Form action={PATHNAME} prefetch={false} title={copy(pageContract, "filter.search_label")}>
+          search={<Box sx={orderToolbarSearchSx}><Form action={PATHNAME} prefetch={false} title={copy(pageContract, "filter.search_label")}>
               {preservedHiddenInputs(sp, ["q", "cursor", "page", "cursor_stack", "audit_id"])}
               <SearchTextField name="q" defaultValue={filters.q ?? ""} placeholder={copy(pageContract, "filter.search_placeholder")} ariaLabel={copy(pageContract, "filter.search_label")} />
-            </Form>
-          }
+            </Form></Box>}
           trailing={
             <LinkButton
               href={hrefWithUpdates(sp, { anomalies_only: filters.anomaliesOnly ? null : "true", ...resetPage })}

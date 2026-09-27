@@ -18,7 +18,8 @@ import { LinkButton } from "@/components/app/link-button";
 import { EmptyContent } from "@/components/minimal/empty-content";
 import { TemplateTabs } from "@/components/app/template-tabs";
 import { TableHeadCustom } from "@/components/app/table/table-head-custom";
-import { OrderTableToolbar } from "@/components/minimal/sections/order/order-table-toolbar";
+import { OrderTableToolbar } from "@/components/app/sections/order/order-table-toolbar";
+import { orderToolbarSearchSx } from "@/components/app/order-toolbar-filter";
 import { OrderDetailsHistory, type OrderHistoryItem, type OrderHistoryTone } from "@/components/minimal/sections/order/order-details-history";
 import Link from "@/components/no-prefetch-link";
 import { redirect } from "next/navigation";
@@ -235,7 +236,7 @@ export async function VaccinationWorkflowsPage({
               items={[{ value: "all", label: copy(pageContract, "label.all_domains"), count: totalWorkflows, href: scopeHref(PATH, scope) }]}
             />
             <OrderTableToolbar
-              search={<Box sx={{ display: "flex" }}><VisibleTableSearch pageContract={pageContract} label={copy(pageContract, "filter.search_label")} /></Box>}
+              search={<Box sx={orderToolbarSearchSx}><Box sx={{ display: "flex" }}><VisibleTableSearch pageContract={pageContract} label={copy(pageContract, "filter.search_label")} /></Box></Box>}
               trailing={
                 <VaccinationFilterButton
                   pageContract={pageContract}

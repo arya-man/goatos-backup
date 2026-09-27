@@ -1,4 +1,5 @@
 import Box from "@mui/material/Box";
+import { orderToolbarFilterSx } from "@/components/app/order-toolbar-filter";
 import { DividedStack } from "@/components/app/divided-stack";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { StatStripSkeleton, TableSkeleton } from "@/components/app/skeletons";
@@ -252,7 +253,7 @@ export async function FeedPurchasesPage({
           exportLabel={copy(pageContract, "action.export", "Export")}
           moreLabel={copy(pageContract, "action.more", "More")}
           filters={
-            <Box className="order-toolbar-filter" sx={{ "& .MuiTextField-root": { width: 1 } }}>
+            <Box sx={[orderToolbarFilterSx, { "& .MuiTextField-root": { width: 1 } }]}>
               <LinkSelect
                 label={copy(pageContract, "filter.farm")}
                 value={farm}

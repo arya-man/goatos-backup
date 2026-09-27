@@ -1,10 +1,13 @@
 'use client';
 
 import type { CardProps } from '@mui/material/Card';
+import type { SxProps, Theme } from '@mui/material/styles';
 
 import Box from '@mui/material/Box';
 import Card from '@mui/material/Card';
 import Button from '@mui/material/Button';
+
+import { mergeSx } from '@/components/app/merge-sx';
 
 // Template-derived (docs/design/template-derived.json): next-ts
 // src/sections/overview/e-commerce/ecommerce-current-balance.tsx. Demo wiring as props (anatomy
@@ -18,12 +21,14 @@ type Props = Omit<CardProps, 'title'> & {
   title: React.ReactNode;
   total: React.ReactNode;
   rows: { label: React.ReactNode; value: React.ReactNode }[];
+  /** Declared override (template-derived.json): merged after the template's row sx (gap / wrap). */
+  slotProps?: { row?: SxProps<Theme> };
   actions?: [{ label: React.ReactNode; onClick?: () => void }, { label: React.ReactNode; onClick?: () => void }];
 };
 
-export function EcommerceCurrentBalance({ sx, title, total, rows, actions, ...other }: Props) {
+export function EcommerceCurrentBalance({ sx, title, total, rows, actions, slotProps, ...other }: Props) {
   const renderRow = (label: React.ReactNode, value: React.ReactNode, key?: number) => (
-    <Box key={key} sx={{ display: 'flex', typography: 'body2', justifyContent: 'space-between' }}>
+    <Box key={key} sx={mergeSx({ display: 'flex', typography: 'body2', justifyContent: 'space-between' }, slotProps?.row)}>
       <Box component="span" sx={{ color: 'text.secondary' }}>
         {label}
       </Box>

@@ -1,5 +1,7 @@
 "use client";
 
+import Box from "@mui/material/Box";
+
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 
@@ -11,7 +13,8 @@ import MenuList from "@mui/material/MenuList";
 import { CustomPopover } from "@/components/minimal/custom-popover";
 import { Iconify } from "@/components/minimal/iconify";
 import { chipProps, FiltersBlock, FiltersResult } from "@/components/minimal/filters-result";
-import { OrderTableToolbar, type OrderToolbarMenuAction } from "@/components/minimal/sections/order/order-table-toolbar";
+import { OrderTableToolbar, type OrderToolbarMenuAction } from "@/components/app/sections/order/order-table-toolbar";
+import { orderToolbarSearchSx } from "@/components/app/order-toolbar-filter";
 import { TAP_MIN } from "@/components/app/tap";
 import { useBackCloses } from "@/components/use-back-closes";
 
@@ -208,7 +211,7 @@ export function ProcurementListToolbar({
   const columns = useTableColumnsMenu({ tableId, exportName, columnsLabel, exportLabel });
   return (
     <>
-      <OrderTableToolbar filters={filters} search={search} trailing={trailing} menuActions={columns.menuActions} menuLabel={moreLabel} />
+      <OrderTableToolbar filters={filters} search={<Box sx={orderToolbarSearchSx}>{search}</Box>} trailing={trailing} menuActions={columns.menuActions} menuLabel={moreLabel} />
       {columns.popover}
     </>
   );

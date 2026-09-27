@@ -297,6 +297,9 @@ function SoldSections({
               name: [breedBeyondProduct(band.product_type, band.breed), seriesLabel(band.product_type)].filter(Boolean).join(" · "),
               display: inr(Math.round(band.avg_price_per_kg)),
             }))}
+            // Phone webview: no inner scroller at xs (the list is short), names wrap.
+            slotProps={{ scrollbar: { minHeight: { xs: "auto", sm: 384 } }, list: { minWidth: { xs: 0, sm: 360 } } }}
+            wrapNames
             sx={{ height: 1 }}
           />
         )}

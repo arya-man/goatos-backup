@@ -21,7 +21,8 @@ import { Iconify } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { TemplateTabs } from "@/components/app/template-tabs";
 import { TableHeadCustom, TablePaginationLinks } from "@/components/app/table";
-import { OrderTableToolbar } from "@/components/minimal/sections/order/order-table-toolbar";
+import { OrderTableToolbar } from "@/components/app/sections/order/order-table-toolbar";
+import { orderToolbarFilterSx, orderToolbarSearchSx } from "@/components/app/order-toolbar-filter";
 import { MailNavItem } from "@/components/minimal/sections/mail/mail-nav-item";
 
 /**
@@ -104,14 +105,13 @@ export function RegisterPreview({
             />
             <OrderTableToolbar
               filters={filters.map((filter) => (
-                <Box key={filter.label} className="order-toolbar-filter">
+                <Box key={filter.label} sx={orderToolbarFilterSx}>
                   <TextField select fullWidth label={filter.label} value={filter.value} slotProps={{ inputLabel: { shrink: true } }}>
                     <MenuItem value={filter.value}>{filter.value}</MenuItem>
                   </TextField>
                 </Box>
               ))}
-              search={
-                <form role="search" onSubmit={(event) => event.preventDefault()}>
+              search={<Box sx={orderToolbarSearchSx}><form role="search" onSubmit={(event) => event.preventDefault()}>
                   <TextField
                     fullWidth
                     name="q"
@@ -127,8 +127,7 @@ export function RegisterPreview({
                       },
                     }}
                   />
-                </form>
-              }
+                </form></Box>}
             />
             {rows.length === 0 ? (
               <EmptyState title={c("empty.rows")} />

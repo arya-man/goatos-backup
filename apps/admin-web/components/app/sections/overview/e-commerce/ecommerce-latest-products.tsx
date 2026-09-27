@@ -6,6 +6,7 @@
 // avatar shows the item's initial when there is no cover photo; colours optional.
 import type { BoxProps } from '@mui/material/Box';
 import type { CardProps } from '@mui/material/Card';
+import type { SxProps, Theme } from '@mui/material/styles';
 
 import Box from '@mui/material/Box';
 import Link from '@mui/material/Link';
@@ -13,6 +14,7 @@ import Card from '@mui/material/Card';
 import Avatar from '@mui/material/Avatar';
 import CardHeader from '@mui/material/CardHeader';
 
+import { mergeSx } from '@/components/app/merge-sx';
 import { Scrollbar } from '@/components/minimal/scrollbar';
 import { ColorPreview } from '@/components/minimal/color-utils';
 
@@ -31,25 +33,30 @@ type Props = Omit<CardProps, 'title'> & {
     priceSale?: React.ReactNode;
     colors?: string[];
   }[];
+  /** Declared overrides (template-derived.json): phone webview fit of the scroller and list. */
+  slotProps?: { scrollbar?: SxProps<Theme>; list?: SxProps<Theme> };
+  /** Declared override: names wrap instead of the template's one-line noWrap. */
+  wrapNames?: boolean;
 };
 
-export function EcommerceLatestProducts({ title, subheader, list, sx, ...other }: Props) {
+export function EcommerceLatestProducts({ title, subheader, list, slotProps, wrapNames, sx, ...other }: Props) {
   return (
     <Card sx={sx} {...other}>
       <CardHeader title={title} subheader={subheader} />
 
-      <Scrollbar sx={{ minHeight: 384 }}>
+      <Scrollbar sx={mergeSx({ minHeight: 384 }, slotProps?.scrollbar)}>
         <Box
-          sx={{
+          role="list"
+          sx={mergeSx({
             p: 3,
             gap: 3,
             minWidth: 360,
             display: 'flex',
             flexDirection: 'column',
-          }}
+          }, slotProps?.list)}
         >
           {list.map((item) => (
-            <Item key={item.id} item={item} />
+            <Item key={item.id} item={item} wrapNames={wrapNames} role="listitem" />
           ))}
         </Box>
       </Scrollbar>
@@ -61,9 +68,10 @@ export function EcommerceLatestProducts({ title, subheader, list, sx, ...other }
 
 type ItemProps = BoxProps & {
   item: Props['list'][number];
+  wrapNames?: boolean;
 };
 
-function Item({ item, sx, ...other }: ItemProps) {
+function Item({ item, wrapNames, sx, ...other }: ItemProps) {
   return (
     <Box
       sx={[{ gap: 2, display: 'flex', alignItems: 'center' }, ...(Array.isArray(sx) ? sx : [sx])]}
@@ -87,7 +95,7 @@ function Item({ item, sx, ...other }: ItemProps) {
           flexDirection: 'column',
         }}
       >
-        <Link noWrap sx={{ color: 'text.primary', typography: 'subtitle2' }}>
+        <Link noWrap={!wrapNames} sx={{ color: 'text.primary', typography: 'subtitle2' }}>
           {item.name}
         </Link>
 

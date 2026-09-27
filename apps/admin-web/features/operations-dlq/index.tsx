@@ -19,7 +19,8 @@ import { SearchTextField } from "@/components/app/list/search-text-field";
 import { TableHeadCustom } from "@/components/app/table/table-head-custom";
 import { TablePaginationLinks } from "@/components/app/table/table-pagination-links";
 import type { InvoiceAnalyticColor } from "./dlq-analytics";
-import { OrderTableToolbar } from "@/components/minimal/sections/order/order-table-toolbar";
+import { OrderTableToolbar } from "@/components/app/sections/order/order-table-toolbar";
+import { orderToolbarSearchSx } from "@/components/app/order-toolbar-filter";
 import { fPercent } from "@/components/minimal/_shared/format-number";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
@@ -166,12 +167,10 @@ export async function OperationsDLQPage({
               </Button>
             </Form>
           }
-          search={
-            <Form action={PATHNAME} prefetch={false} title={copy(pageContract, "filter.search_label")}>
+          search={<Box sx={orderToolbarSearchSx}><Form action={PATHNAME} prefetch={false} title={copy(pageContract, "filter.search_label")}>
               {hiddenInputs(sp, ["q", "dlq_id", "action_status", "action_key", "action_code", "updated"])}
               <SearchTextField name="q" defaultValue={rawQ} placeholder={copy(pageContract, "filter.search_placeholder")} ariaLabel={copy(pageContract, "filter.search_label")} />
-            </Form>
-          }
+            </Form></Box>}
         />
 
         <LinkFiltersResult totalResults={rows.length} chips={chips} resetHref={PATHNAME} />

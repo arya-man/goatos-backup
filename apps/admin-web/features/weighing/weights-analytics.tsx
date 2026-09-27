@@ -912,6 +912,8 @@ function GeneralTab({
               value: park.gain == null ? copy(pageContract, "kpi.gain.none") : gainText(park.gain),
             })),
           ]}
+          // Long pen names wrap beside the figure instead of running into it.
+          slotProps={{ row: { gap: 2, "& > span:first-of-type": { minWidth: 0, overflowWrap: "anywhere" }, "& > span:last-of-type": { flexShrink: 0, textAlign: "right" } } }}
           sx={{ height: 1 }}
         />
       </Grid>

@@ -5,7 +5,11 @@
 // template's: this check compares the file's JSX element sequence and its sx keys with the
 // template's, recorded in the manifest (the template is not in CI; refresh with
 // `node scripts/refresh-template-derived.mjs`). Any markup or style drift fails, except the data /
-// prop slots an entry lists in `strip` (regexes removed before comparing; each named in `replaced`).
+// prop slots an entry lists in `strip` (regexes removed before comparing; each named in `replaced`);
+// A strip entry may be [regex, replacement] for a declared override that WRAPS a template value
+// (e.g. `mergeSx({ minHeight: 384 }, slotProps?.scrollbar)` -> `{ minHeight: 384 }`).
+// `templateStrip` names the template's demo controls those slots replace (removed from the template
+// side when the manifest anatomy is recorded).
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -140,7 +144,7 @@ export function templateDerivedFindings(root, manifestFile) {
     // `strip`: the manifest may list data/prop slots the derived file adds (regex sources, applied
     // before the comparison), e.g. an optional caption line under a row. Each is named in `replaced`.
     let text = readFileSync(abs, "utf8");
-    for (const src of entry.strip ?? []) text = text.replace(new RegExp(src, "g"), "");
+    for (const src of entry.strip ?? []) text = Array.isArray(src) ? text.replace(new RegExp(src[0], "g"), src[1]) : text.replace(new RegExp(src, "g"), "");
     const got = anatomy(text);
     const t = firstDiff(entry.tags, got.tags);
     if (t) hits.push({ file: rel, line: 1, snippet: `JSX differs from template ${entry.source} at element #${t.index}: template <${t.want}>, file <${t.got}>` });

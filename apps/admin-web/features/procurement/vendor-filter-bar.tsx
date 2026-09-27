@@ -1,5 +1,7 @@
 "use client";
 
+import Box from "@mui/material/Box";
+
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useTransition } from "react";
 
@@ -11,7 +13,8 @@ import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { Iconify } from "@/components/minimal/iconify";
 import { worklistFilterIsStaged } from "@/lib/worklist-filter-draft";
 import type { ProcurementVendorCatalog } from "@/lib/api/server";
-import { OrderTableToolbar } from "@/components/minimal/sections/order/order-table-toolbar";
+import { OrderTableToolbar } from "@/components/app/sections/order/order-table-toolbar";
+import { orderToolbarFilterSx, orderToolbarSearchSx } from "@/components/app/order-toolbar-filter";
 import { useTableColumnsMenu } from "./table-toolbar";
 
 export type VendorFilterKey = "record_type" | "status" | "state" | "city" | "breed";
@@ -151,7 +154,7 @@ export function VendorFilterBar({
     <TextField
       key={filter.key}
       select
-      className="order-toolbar-filter"
+      sx={orderToolbarFilterSx}
       label={copy(pageContract, filter.copyKey)}
       value={(catalog?.[filter.catalogKey] ?? []).some((entry) => entry.value === effectiveSelection[filter.key]) ? effectiveSelection[filter.key] : ""}
       disabled={!catalog}
@@ -171,7 +174,7 @@ export function VendorFilterBar({
     <>
       <OrderTableToolbar
         filters={selects}
-        search={searchField}
+        search={<Box sx={orderToolbarSearchSx}>{searchField}</Box>}
         menuActions={columns.menuActions}
         menuLabel={copy(pageContract, "action.more", "More")}
         trailing={

@@ -16,7 +16,6 @@
     "components/minimal/sections/order/order-details-delivery.tsx": "src/sections/order/order-details-delivery.tsx",
     "components/minimal/sections/order/order-details-customer.tsx": "src/sections/order/order-details-customer.tsx",
     "components/minimal/sections/order/order-details-items.tsx": "src/sections/order/order-details-items.tsx",
-    "components/minimal/sections/order/order-table-toolbar.tsx": "src/sections/order/order-table-toolbar.tsx",
     "components/minimal/sections/mail/mail-nav-item.tsx": "src/sections/mail/mail-nav-item.tsx",
     "components/minimal/sections/job/job-item.tsx": "src/sections/job/job-item.tsx",
     "components/minimal/sections/job/job-list.tsx": "src/sections/job/job-list.tsx",
@@ -660,26 +659,6 @@
         "src/routes/components",
         "src/utils/format-time",
         "src/components/label",
-        "src/components/iconify",
-        "src/components/custom-popover"
-      ]
-    },
-    "components/minimal/sections/order/order-table-toolbar.tsx": {
-      "sha256": "c3be33a4f3b743bf26e587455e507ba78d6aac007f80d5aff7cd223a3ec68f2a",
-      "imports": [
-        "minimal-shared/hooks",
-        "src/types/order",
-        "src/types/common",
-        "react",
-        "minimal-shared/hooks",
-        "@mui/material/Box",
-        "@mui/material/MenuList",
-        "@mui/material/MenuItem",
-        "@mui/material/TextField",
-        "@mui/material/IconButton",
-        "@mui/material/InputAdornment",
-        "@mui/x-date-pickers/DatePicker",
-        "@mui/material/FormHelperText",
         "src/components/iconify",
         "src/components/custom-popover"
       ]

@@ -13,7 +13,8 @@ import { KpiWidget } from "@/components/app/kpi-widget";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { Iconify } from "@/components/minimal/iconify";
 import { TableHeadCustom } from "@/components/app/table";
-import { OrderTableToolbar } from "@/components/minimal/sections/order/order-table-toolbar";
+import { OrderTableToolbar } from "@/components/app/sections/order/order-table-toolbar";
+import { orderToolbarFilterSx, orderToolbarSearchSx } from "@/components/app/order-toolbar-filter";
 import { JobItem } from "@/components/minimal/sections/job/job-item";
 import { JobList } from "@/components/minimal/sections/job/job-list";
 import { SegmentTabs } from "@/components/app/list/segment-tabs";
@@ -413,11 +414,11 @@ export async function AnimalPurchasesPage({
           {decision !== DEFAULT_DECISION ? <input type="hidden" name="decision" value={decision} /> : null}
           <OrderTableToolbar
             filters={
+              <Box sx={orderToolbarFilterSx}>
               <FormSelect
                 label={copy(pageContract, "filter.load")}
                 name="load_id"
                 defaultValue={loadId ?? ""}
-                className="order-toolbar-filter"
                 fullWidth
                 options={listOptions(
                   loads,
@@ -426,9 +427,9 @@ export async function AnimalPurchasesPage({
                   copy(pageContract, "filter.load.all"),
                 )}
               />
+              </Box>
             }
-            search={
-              <Box sx={{ display: "flex" }}>
+            search={<Box sx={orderToolbarSearchSx}><Box sx={{ display: "flex" }}>
               <AnimalPurchaseRecordedRange
                 from={recordedFrom}
                 to={recordedTo}
@@ -438,8 +439,7 @@ export async function AnimalPurchasesPage({
                 previousMonthLabel={copy(pageContract, "date.prev_month", "Previous month")}
                 nextMonthLabel={copy(pageContract, "date.next_month", "Next month")}
               />
-              </Box>
-            }
+              </Box></Box>}
             trailing={
               <Box sx={{ display: "flex", gap: 1, flexShrink: 0, pr: { md: 1.5 } }}>
                 <Button type="submit" variant="contained" color="primary">

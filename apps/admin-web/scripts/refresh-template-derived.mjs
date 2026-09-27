@@ -17,7 +17,11 @@ const manifest = JSON.parse(readFileSync(manifestFile, "utf8"));
 for (const [rel, entry] of Object.entries(manifest.files ?? {})) {
   const src = join(templateRoot, entry.source);
   if (!existsSync(src)) { console.error(`missing template source ${entry.source} for ${rel}`); process.exitCode = 1; continue; }
-  const a = anatomy(readFileSync(src, "utf8"));
+  // `templateStrip`: the template's DEMO controls a slot replaces (e.g. its two DatePickers and search
+  // TextField in the toolbar), removed from the template before its anatomy is recorded.
+  let text = readFileSync(src, "utf8");
+  for (const re of entry.templateStrip ?? []) text = Array.isArray(re) ? text.replace(new RegExp(re[0], "g"), re[1]) : text.replace(new RegExp(re, "g"), "");
+  const a = anatomy(text);
   entry.tags = a.tags;
   entry.sx = a.sx;
   entry.sxValues = a.sxValues;

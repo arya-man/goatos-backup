@@ -30,7 +30,8 @@ import { TableSkeleton } from "@/components/app/skeletons";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { Iconify } from "@/components/minimal/iconify";
 import { TableHeadCustom } from "@/components/app/table";
-import { OrderTableToolbar } from "@/components/minimal/sections/order/order-table-toolbar";
+import { OrderTableToolbar } from "@/components/app/sections/order/order-table-toolbar";
+import { orderToolbarSearchSx } from "@/components/app/order-toolbar-filter";
 import { LinkFiltersResult, type LinkFilterChip } from "@/components/app/link-filters-result";
 import { phoneLoadCardsSx } from "./procurement-sx";
 
@@ -292,11 +293,9 @@ export async function SourceEntryBoardPage({
         />
 
         <OrderTableToolbar
-          search={
-            <Box sx={{ display: "flex" }}>
+          search={<Box sx={orderToolbarSearchSx}><Box sx={{ display: "flex" }}>
               <VisibleTableSearch pageContract={pageContract} label={copy(pageContract, "filter.search_label")} />
-            </Box>
-          }
+            </Box></Box>}
           trailing={
             <VaccinationFilterButton
               pageContract={pageContract}

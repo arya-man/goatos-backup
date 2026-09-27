@@ -16,7 +16,8 @@ import InputAdornment from "@mui/material/InputAdornment";
 
 import { Label, type LabelColor } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
-import { OrderTableToolbar } from "@/components/minimal/sections/order/order-table-toolbar";
+import { OrderTableToolbar } from "@/components/app/sections/order/order-table-toolbar";
+import { orderToolbarSearchSx } from "@/components/app/order-toolbar-filter";
 import { OrderDetailsHistory, type OrderHistoryItem } from "@/components/minimal/sections/order/order-details-history";
 import { OrderDetailsDelivery } from "@/components/minimal/sections/order/order-details-delivery";
 import { EmptyState } from "@/components/app/empty-state";
@@ -147,8 +148,7 @@ export function CeoAiAdminTraceViewer({ initialRequestId = "" }: { initialReques
           }}
         >
           <OrderTableToolbar
-            search={
-              <TextField
+            search={<Box sx={orderToolbarSearchSx}><TextField
                 fullWidth
                 label="Reference"
                 value={requestId}
@@ -166,8 +166,7 @@ export function CeoAiAdminTraceViewer({ initialRequestId = "" }: { initialReques
                     ),
                   },
                 }}
-              />
-            }
+              /></Box>}
             trailing={
               <Button variant="contained" type="submit" color="primary" size="large" loading={view.kind === "loading"} startIcon={<Iconify icon="eva:search-fill" />} sx={{ flexShrink: 0 }}>
                 {view.kind === "loading" ? "Looking up…" : "Look up history"}

@@ -173,7 +173,7 @@
     },
     "components/app/sections/overview/e-commerce/ecommerce-current-balance.tsx": {
       "source": "src/sections/overview/e-commerce/ecommerce-current-balance.tsx",
-      "replaced": "fCurrency figure -> total; fixed Order total/Earning/Refunded rows -> rows; demo Request/Transfer buttons -> optional actions pair",
+      "replaced": "fCurrency figure -> total; fixed Order total/Earning/Refunded rows -> rows; demo Request/Transfer buttons -> optional actions pair; declared override (REVIEW-24): slotProps.row merged after the template row sx",
       "tags": [
         "Box",
         "Box",
@@ -220,11 +220,17 @@
         "fullWidth",
         "variant=contained",
         "color=primary"
+      ],
+      "strip": [
+        [
+          "mergeSx\\((\\{[\\s\\S]*?\\}), slotProps\\?\\.\\w+\\)",
+          "$1"
+        ]
       ]
     },
     "components/app/sections/overview/e-commerce/ecommerce-latest-products.tsx": {
       "source": "src/sections/overview/e-commerce/ecommerce-latest-products.tsx",
-      "replaced": "fCurrency(price/priceSale) -> page-formatted display / priceSale nodes; avatar initial when no cover; colours optional",
+      "replaced": "fCurrency(price/priceSale) -> page-formatted display / priceSale nodes; avatar initial when no cover; colours optional; declared overrides (REVIEW-24): slotProps.scrollbar / slotProps.list merged after the template sx, wrapNames toggles the name's noWrap, list/listitem roles",
       "tags": [
         "Card",
         "CardHeader",
@@ -283,9 +289,24 @@
       ],
       "props": [
         "variant=rounded",
-        "noWrap",
         "component=span",
         "component=span"
+      ],
+      "strip": [
+        [
+          "mergeSx\\((\\{[\\s\\S]*?\\}), slotProps\\?\\.\\w+\\)",
+          "$1"
+        ],
+        [
+          " noWrap=\\{!wrapNames\\}",
+          ""
+        ]
+      ],
+      "templateStrip": [
+        [
+          " noWrap sx=\\{\\{ color: 'text.primary'",
+          " sx={{ color: 'text.primary'"
+        ]
       ]
     },
     "components/app/sections/overview/banking/banking-expenses-categories.tsx": {
@@ -352,6 +373,53 @@
       "props": [
         "type=polarArea"
       ]
+    },
+    "components/app/sections/order/order-table-toolbar.tsx": {
+      "source": "src/sections/order/order-table-toolbar.tsx",
+      "replaced": "SLOTS: filters (template Start/End DatePickers), search (template search TextField), trailing, menuActions (template Print/Import/Export items)",
+      "templateStrip": [
+        "\\s*<DatePicker[\\s\\S]*?\\/>\\n",
+        "\\s*<TextField[\\s\\S]*?\\/>\\n",
+        "\\s*<MenuItem[\\s\\S]*?<\\/MenuItem>\\n"
+      ],
+      "strip": [
+        "\\{filters\\}",
+        "\\{search \\?\\? <Box sx=\\{\\{ flexGrow: 1 \\}\\} \\/>\\}",
+        "\\{trailing\\}",
+        "\\{menuActions\\.map\\([\\s\\S]*?<\\/MenuItem>\\s*\\)\\)\\}"
+      ],
+      "tags": [
+        "CustomPopover",
+        "MenuList",
+        "Box",
+        "Box",
+        "IconButton",
+        "Iconify"
+      ],
+      "sx": [
+        "p",
+        "gap",
+        "display",
+        "pr",
+        "xs",
+        "md",
+        "flexDirection",
+        "xs",
+        "md",
+        "alignItems",
+        "xs",
+        "md",
+        "gap",
+        "width",
+        "flexGrow",
+        "display",
+        "alignItems"
+      ],
+      "sxValues": [
+        "{ p: 2.5, gap: 2, display: 'flex', pr: { xs: 2.5, md: 1 }, flexDirection: { xs: 'column', md: 'row' }, alignItems: { xs: 'flex-end', md: 'center' }}",
+        "{ gap: 2, width: 1, flexGrow: 1, display: 'flex', alignItems: 'center'}"
+      ],
+      "props": []
     }
   }
 }
