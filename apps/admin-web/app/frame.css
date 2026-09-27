@@ -384,15 +384,6 @@ details.top-date-picker:not([open])>.top-date-popover,details.move-date-picker:n
    of in a tinted band, labels are sentence-case captions, and the vaccine table runs edge to edge in
    the card body rather than as a second rounded box inside it. */
 
-/* Pen execution drilldown work-state grid: Minimal stat tiles (soft neutral fill, 12px radius,
-   label top / value bottom so a wrapping label never pushes its number out of line) instead of
-   heavy line-coloured gutters. */
-.metagrid.shed-workstate{background:transparent;border:0;border-radius:0;overflow:visible;gap:12px!important}
-.metagrid.shed-workstate>div{display:flex;flex-direction:column;justify-content:space-between;gap:8px;min-height:88px;padding:14px 16px;border-radius:12px;background:rgb(var(--g500-rgb)/.06);transition:background-color .2s cubic-bezier(.4,0,.2,1)}
-.metagrid.shed-workstate>div div{background:transparent!important;padding:0!important;border:0}
-.metagrid.shed-workstate>div:hover{background:rgb(var(--g500-rgb)/.12)}
-@media(max-width:640px){.metagrid.shed-workstate{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px!important}.metagrid.shed-workstate>div{min-height:76px;padding:12px}}
-
 /* Tasks board cards as Minimal cards: 16px radius, the spec two-layer card shadow at rest and the
    hover shadow on hover, Minimal 250ms easing. The status-coloured column header block is approved
    and untouched. */
