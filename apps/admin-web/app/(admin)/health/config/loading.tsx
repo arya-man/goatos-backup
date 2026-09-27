@@ -5,7 +5,7 @@ import { CATALOG_PAGE_SIZE } from "@/features/health/health-config-layout";
 export default function Loading() {
   return (
     <PageSkeleton>
-      <PageHeaderSkeleton actions={1} />
+      <PageHeaderSkeleton crumbLink={false} actions={1} />
       <TabsSkeleton count={3} />
       {/* Contract table "protocol-catalog" + the trailing actions column. */}
       <TableSkeleton columns={9} rows={CATALOG_PAGE_SIZE} toolbar={<FilterCardSkeleton inCard fields={["search", 180, 180]} />} />

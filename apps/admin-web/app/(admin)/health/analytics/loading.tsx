@@ -9,7 +9,7 @@ import { ChartCardSkeleton, ControlRowSkeleton, FieldSkeleton, KpiRowSkeleton, P
 export default function Loading() {
   return (
     <PageSkeleton root="" gap={3}>
-      <PageHeaderSkeleton titleWidth={180} actionWidths={[132]} />
+      <PageHeaderSkeleton crumbLink={false} titleWidth={180} actionWidths={[132]} />
       <ControlRowSkeleton caption={172}>
         <FieldSkeleton width={{ xs: "100%", md: 296 }} height={{ xs: 44, md: 56 }} />
         <TabsSkeleton count={5} variant="pill" />

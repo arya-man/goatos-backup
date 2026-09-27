@@ -4,7 +4,7 @@ import { FilterCardSkeleton, KpiRowSkeleton, OptionalSkeleton, PageHeaderSkeleto
 export default function Loading() {
   return (
     <PageSkeleton className="feed-packing-page">
-      <PageHeaderSkeleton />
+      <PageHeaderSkeleton crumbLink={false} />
       <FilterCardSkeleton fields={[200, 200]} />
       <OptionalSkeleton>
         <KpiRowSkeleton count={2} />

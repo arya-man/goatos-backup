@@ -8,7 +8,7 @@ import { FilterCardSkeleton, PageHeaderSkeleton, PageSkeleton, TableSkeleton } f
 export default function Loading() {
   return (
     <PageSkeleton>
-      <PageHeaderSkeleton />
+      <PageHeaderSkeleton crumbLink={false} />
       {/* Contract table "ration-grid": 6 columns + the edit column. */}
       <TableSkeleton columns={7} rows={10} toolbar={<FilterCardSkeleton inCard fields={[180, 180, 180, 180, 180]} />} />
       {/* Contract table "experiment-config": 7 columns + the edit column. */}

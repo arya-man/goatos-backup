@@ -4,7 +4,7 @@ import { DetailCardSkeleton, PageHeaderSkeleton, PageSkeleton, StackSkeleton } f
 export default function Loading() {
   return (
     <PageSkeleton>
-      <PageHeaderSkeleton />
+      <PageHeaderSkeleton crumbLink={false} />
       <StackSkeleton>
         <DetailCardSkeleton rows={1} />
       </StackSkeleton>

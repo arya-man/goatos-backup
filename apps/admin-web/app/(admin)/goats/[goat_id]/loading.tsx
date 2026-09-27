@@ -7,7 +7,7 @@ import { BlockSkeleton, GridSkeleton, PageHeaderSkeleton, PageSkeleton, StackSke
 export default function Loading() {
   return (
     <PageSkeleton>
-      <PageHeaderSkeleton />
+      <PageHeaderSkeleton crumbLink={false} />
       <TabsSkeleton count={4} sx={{ mb: { xs: 3, md: 5 } }} />
       <GridSkeleton
         items={[

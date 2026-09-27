@@ -4,7 +4,7 @@ import { DetailCardSkeleton, GridSkeleton, ListCardSkeleton, PageHeaderSkeleton,
 export default function Loading() {
   return (
     <PageSkeleton>
-      <PageHeaderSkeleton actionWidths={[120, 132]} />
+      <PageHeaderSkeleton crumbLink={false} actionWidths={[120, 132]} />
       <StatStripSkeleton count={3} />
       <GridSkeleton
         items={[
