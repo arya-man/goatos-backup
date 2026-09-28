@@ -40,11 +40,13 @@ test("/vaccination twin reads command-board-layout.ts, as the Command Board does
   assert.match(twin, /from "\.\/command-board-layout"/);
   assert.doesNotMatch(twin, LITERAL_SIZE);
   assert.match(twin, /count=\{CB_KPI_KEYS\.length\} size=\{CB_KPI_SIZE\}/);
-  assert.match(twin, /fields=\{\[CB_VACCINE_FIELD_MIN, CB_DRIVE_FIELD_MIN\]\}/);
+  // TR2-P2-6: the status multi-select joined the filter row.
+  assert.match(twin, /fields=\{\[CB_VACCINE_FIELD_MIN, CB_DRIVE_FIELD_MIN, CB_STATUS_FIELD_MIN\]\}/);
   const view = read("preventive-care-vaccination/command-board-view.tsx");
   assert.match(view, /size=\{CB_KPI_SIZE\}/);
   assert.match(view, /sm: CB_VACCINE_FIELD_MIN/);
   assert.match(view, /sm: CB_DRIVE_FIELD_MIN/);
+  assert.match(view, /sm: CB_STATUS_FIELD_MIN/);
   // The deck renders exactly the layout's KPI keys, in order.
   const layout = read("preventive-care-vaccination/command-board-layout.ts");
   const keys = [...layout.match(/CB_KPI_KEYS = \[([\s\S]*?)\]/)[1].matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
