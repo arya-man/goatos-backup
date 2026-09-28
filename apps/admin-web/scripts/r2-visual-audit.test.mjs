@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { readFileSync } from "node:fs";
-import { compareBlocks, isVisuallyHidden, discoverRoutes, gateFailures, groupPatterns, iou, isP0, parsePageMap, routePattern, templateFor } from "./r2-visual-audit.mjs";
+import { compareBlocks, isVisuallyHidden, discoverRoutes, gateFailures, groupPatterns, iou, isP0, parsePageMap, routePattern, scrollJumped, skeletonRoutesFor, templateFor } from "./r2-visual-audit.mjs";
 
 const appRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -69,8 +69,35 @@ test("patterns group identical failures across routes and rank by route count; g
 });
 
 test("P0 classification covers the gate's pattern families", () => {
-  for (const p of ["interact|Tab|full-reload", "interact|Filter link|skeleton-flash", "off-palette|color|x", "drawer|no-backdrop|drawer", "drawer|overflow|clipped", "skeleton|mismatch|tabs", "skeleton|missing|kpi-row", "tap|button", "sideways-scroll|390", "route|error", "interact|Tab|tab-not-selected", "interact|Filter select|stale-panel"]) assert.ok(isP0(p), p);
+  for (const p of ["interact|Tab|full-reload", "interact|Filter link|skeleton-flash", "off-palette|color|x", "drawer|no-backdrop|drawer", "drawer|overflow|clipped", "skeleton|mismatch|tabs", "skeleton|missing|kpi-row", "tap|button", "sideways-scroll|390", "route|error", "interact|Tab|tab-not-selected", "interact|Filter select|stale-panel", "interact|Tab|scroll-jump"]) assert.ok(isP0(p), p);
   for (const p of ["interact|Tab|layout-jump", "contrast|x", "drawer|width|narrower", "skeleton|not-shown", "drawer|overflow|table-scroll"]) assert.ok(!isP0(p), p);
+});
+
+// guard: tab-scroll-kept (TR3-P1-3). A /vaccination park tab / shed status tab click must leave the
+// page where the reader was: the interact check records scrollY at the click (after any pre-scroll)
+// and after settling; a >150px move is a P0 unless the page only got shorter and clamped to its bottom.
+test("guard: tab-scroll-kept - scrollJumped flags a jump, not a clamp to a shorter page", () => {
+  assert.equal(scrollJumped(null), false, "no click recorded");
+  assert.equal(scrollJumped({ clickScroll: 3420, nowScroll: 3420, maxScroll: 6900 }), false, "kept");
+  assert.equal(scrollJumped({ clickScroll: 3420, nowScroll: 3500, maxScroll: 6900 }), false, "small settle");
+  assert.equal(scrollJumped({ clickScroll: 3441, nowScroll: 0, maxScroll: 6900 }), true, "jumped to the top");
+  assert.equal(scrollJumped({ clickScroll: 0, nowScroll: 3441, maxScroll: 6900 }), true, "jumped down to an anchor");
+  assert.equal(scrollJumped({ clickScroll: 5134, nowScroll: 4927, maxScroll: 4927 }), false, "fewer rows: clamped to the new bottom");
+  assert.equal(scrollJumped({ clickScroll: 5134, nowScroll: 2000, maxScroll: 4927 }), true, "scrolled above the clamp = a jump");
+  const src = readFileSync(join(appRoot, "scripts", "r2-visual-audit.mjs"), "utf8");
+  assert.match(src, /w\.clickScroll = scrollY;/, "the watch records the scroll at the click");
+  assert.match(src, /scrollJumped\(w\.scroll\)\) fails\.push\(\["scroll-jump"/, "the interact check fails on a jump");
+});
+
+// guard: skeleton-on-touched (TR3 FINAL). TR-3's P0s were layout fixes that changed a page and not its
+// loading twin. The fast / pre-push lane runs the skeleton twin check (1440 + 390 dark) on every
+// route the push touched.
+test("guard: skeleton-on-touched - the fast lane runs the skeleton check on touched routes", () => {
+  assert.deepEqual([...skeletonRoutesFor([{ route: "/vaccination", distance: 1 }, { route: "/procurement/source-entry", distance: 2 }])], ["/vaccination", "/procurement/source-entry"]);
+  const src = readFileSync(join(appRoot, "scripts", "r2-visual-audit.mjs"), "utf8");
+  assert.match(src, /if \(fast && !args\.checks\) skeletonTouched = skeletonRoutesFor\(t\.routes\);/);
+  assert.match(src, /if \(checks\.has\("skeleton"\) \|\| skeletonTouched\?\.has\(route\.route\)\) for \(const p of skeletonProfiles\)/);
+  assert.match(src, /: fast \? \["1440-dark", "390-dark"\]/, "fast skeleton runs at 1440 and 390 dark");
 });
 
 test("compareBlocks: an optional skeleton block the page skipped is not an extra", () => {
