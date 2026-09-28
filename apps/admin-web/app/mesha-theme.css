@@ -946,9 +946,21 @@
      lists every feed in one cell, which pushed Planned/Verified off the drawer's right edge. */
   .vr-feedverify .fv-table .fv-feeds{display:inline-block;white-space:normal;min-width:140px;max-width:215px;line-height:1.35}
   .vr-feedverify .fv-table td.fv-pen{white-space:normal;min-width:110px}
+  .vr-feedverify .fv-phone{display:none}
+  .vr-feedverify .fv-phone .tag{margin-top:4px}
+  /* Phone: park, session and status fold into the pen cell (fv-phone) and their columns drop
+     (fv-desk), so the feed and its planned / verified / difference fit 390px without panning. */
   @media (max-width:600px){
-    .vr-feedverify .fv-table .fv-feeds{min-width:110px;max-width:140px}
-    .vr-feedverify .fv-table td.fv-pen{min-width:90px}
+    .vr-feedverify .fv-desk{display:none}
+    .vr-feedverify .fv-phone{display:block}
+    .vr-feedverify .fv-table{min-width:0}
+    .vr-feedverify .fv-table td,.screen .vr-feedverify .fv-table th{padding:8px 5px}
+    .screen .vr-feedverify .fv-table th{white-space:normal;font-size:11px;vertical-align:bottom}
+    .vr-feedverify .fv-table .num{font-size:12px}
+    .vr-feedverify .fv-table .fv-feeds{min-width:0;max-width:96px}
+    .vr-feedverify .fv-table td.fv-pen{min-width:0;max-width:86px}
+    /* A status tag must wrap inside the pen cell, never paint over the feed column. */
+    .vr-feedverify .fv-phone .tag{white-space:normal;display:inline-block;max-width:100%;font-size:10.5px;line-height:1.25}
   }
 
   /* ===== verification-review video review anatomy (ported from mock/verifier-web-mock.html

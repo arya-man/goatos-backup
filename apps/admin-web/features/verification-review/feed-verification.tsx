@@ -137,14 +137,14 @@ export async function FeedVerification({
             <table className="tbl vl-tbl fv-table">
               <thead>
                 <tr>
-                  <th>{t("col.park")}</th>
+                  <th className="fv-desk">{t("col.park")}</th>
                   <th>{t("col.pen")}</th>
-                  <th>{t("col.session")}</th>
+                  <th className="fv-desk">{t("col.session")}</th>
                   <th>{t("col.feed")}</th>
                   <th className="num">{t("col.planned")}</th>
                   <th className="num">{t("col.verified")}</th>
                   <th className="num">{t("col.difference")}</th>
-                  <th>{t("col.status")}</th>
+                  <th className="fv-desk">{t("col.status")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -162,7 +162,7 @@ export async function FeedVerification({
 
 function BagRows({ bag, t }: { bag: FeedPackingVerificationLogBag; t: (key: string) => string }) {
   const statusCell = (
-    <td rowSpan={rowSpanOf(bag)} className="fv-status">
+    <td rowSpan={rowSpanOf(bag)} className="fv-status fv-desk">
       <Tag tone={STATUS_TONE[bag.status] ?? "mut"}>{t(`status.${bag.status}`)}</Tag>
       {bag.status === "verified" && (bag.verified_by_name || bag.verified_at) ? (
         <div className="small muted">
@@ -173,16 +173,24 @@ function BagRows({ bag, t }: { bag: FeedPackingVerificationLogBag; t: (key: stri
   );
   const placeCells = (
     <>
-      <td rowSpan={rowSpanOf(bag)} className="fv-park">{bag.park_label}</td>
+      <td rowSpan={rowSpanOf(bag)} className="fv-park fv-desk">{bag.park_label}</td>
       <td rowSpan={rowSpanOf(bag)} className="fv-pen">
         <b>{bag.operational_location_display}</b>
+        {/* Phone only: park, session and status fold in here so the feed and its three numbers fit
+            a 390px screen without panning. The desktop columns carry the same facts. */}
+        <div className="small muted fv-phone">
+          {bag.park_label} · {sessionName(bag)}
+        </div>
+        <div className="fv-phone">
+          <Tag tone={STATUS_TONE[bag.status] ?? "mut"}>{t(`status.${bag.status}`)}</Tag>
+        </div>
         {bag.workflow === "experiment" ? (
           <div>
             <Tag tone="pur">{t("experiment")}</Tag>
           </div>
         ) : null}
       </td>
-      <td rowSpan={rowSpanOf(bag)}>{sessionName(bag)}</td>
+      <td rowSpan={rowSpanOf(bag)} className="fv-desk">{sessionName(bag)}</td>
     </>
   );
 
