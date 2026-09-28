@@ -2,9 +2,9 @@
 
 // telemetry:exempt read-only KPI card; its one control re-counts a figure and writes nothing
 
-import { useState, useTransition } from "react";
+import { createContext, useContext, useState, useTransition, type ReactNode } from "react";
 
-import Stack from "@mui/material/Stack";
+import Box from "@mui/material/Box";
 
 import { replaceLocalOverlayUrl } from "@/components/local-overlay-link";
 import { KpiWidget } from "@/components/app/kpi-widget";
@@ -27,21 +27,7 @@ function fillKg(template: string, kg: number) {
   return template.replace("{kg}", num(kg, 1));
 }
 
-/**
- * The Over 35 kg card with its error margin (flicker fix, 2026-09-25): Apply re-counts THIS card
- * in place through a server action and moves nothing else on the page. The URL follows through
- * replaceLocalOverlayUrl so a reload keeps the margin; nothing navigates.
- */
-export function Over35Kpi({
-  parkId,
-  enabled,
-  disabledReason,
-  initialCount,
-  initialToleranceG,
-  lineKg,
-  maxG,
-  labels,
-}: {
+type Over35Props = {
   parkId: string;
   enabled: boolean;
   disabledReason: string;
@@ -50,12 +36,37 @@ export function Over35Kpi({
   lineKg: number;
   maxG: number;
   labels: Over35Labels;
-}) {
+};
+
+type Over35State = Over35Props & {
+  count: number | null;
+  toleranceG: number;
+  failed: boolean;
+  pending: boolean;
+  apply: (nextG: number) => void;
+};
+
+const Over35Context = createContext<Over35State | null>(null);
+
+function useOver35(): Over35State {
+  const state = useContext(Over35Context);
+  if (!state) throw new Error("Over35Kpi / Over35MarginForm render inside Over35Scope");
+  return state;
+}
+
+/**
+ * The Over 35 kg figure and its error margin share one state (flicker fix, 2026-09-25): Apply
+ * re-counts THE CARD in place through a server action and moves nothing else on the page. The URL
+ * follows through replaceLocalOverlayUrl so a reload keeps the margin; nothing navigates. The
+ * margin is a form of its own (TR2-P1-3: a slider + Apply inside the KPI deck is not template),
+ * so the scope wraps the section and the tile and the form sit where the template puts each.
+ */
+export function Over35Scope({ children, ...props }: Over35Props & { children: ReactNode }) {
+  const { parkId, initialCount, initialToleranceG } = props;
   const [count, setCount] = useState(initialCount);
   const [toleranceG, setToleranceG] = useState(initialToleranceG);
   const [failed, setFailed] = useState(false);
   const [pending, startTransition] = useTransition();
-  const thresholdKg = Math.max(0, lineKg - toleranceG / 1000);
 
   const apply = (nextG: number) => {
     startTransition(async () => {
@@ -75,10 +86,16 @@ export function Over35Kpi({
   };
 
   return (
-    // Template CourseWidgetSummary (KpiWidget) like the valuation cards beside it. The error margin
-    // tunes THIS card's figure and nothing else on the page, so it sits right under the card
-    // (maintainer request 2026-09-14); the template card itself has no footer slot.
-    <Stack spacing={1.5} aria-busy={pending || undefined}>
+    <Over35Context.Provider value={{ ...props, count, toleranceG, failed, pending, apply }}>{children}</Over35Context.Provider>
+  );
+}
+
+/** The Over 35 kg tile: template CourseWidgetSummary (KpiWidget) like the valuation cards beside it. */
+export function Over35Kpi() {
+  const { enabled, disabledReason, failed, count, labels, lineKg, toleranceG, pending } = useOver35();
+  const thresholdKg = Math.max(0, lineKg - toleranceG / 1000);
+  return (
+    <Box aria-busy={pending || undefined} sx={{ height: 1 }}>
       <KpiWidget
         color="success"
         icon="completed"
@@ -94,17 +111,26 @@ export function Over35Kpi({
                 : `${labels.sub} · ${num(thresholdKg, 1)}+`
         }
       />
-      {enabled ? (
-        <SalesReadyToleranceControl
-          lineKg={lineKg}
-          valueG={toleranceG}
-          maxG={maxG}
-          label={labels.tolerance}
-          applyLabel={labels.apply}
-          onApply={apply}
-          pending={pending}
-        />
-      ) : null}
-    </Stack>
+    </Box>
+  );
+}
+
+/**
+ * The error margin as a template toolbar form (label, slider, value, Apply) on the section's own
+ * row, not inside the KPI deck. Renders nothing when the card is gated off.
+ */
+export function Over35MarginForm() {
+  const { enabled, lineKg, toleranceG, maxG, labels, apply, pending } = useOver35();
+  if (!enabled) return null;
+  return (
+    <SalesReadyToleranceControl
+      lineKg={lineKg}
+      valueG={toleranceG}
+      maxG={maxG}
+      label={labels.tolerance}
+      applyLabel={labels.apply}
+      onApply={apply}
+      pending={pending}
+    />
   );
 }

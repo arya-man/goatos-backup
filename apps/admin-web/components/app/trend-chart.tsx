@@ -1,10 +1,9 @@
 "use client";
 
 import { useMemo, type ReactNode } from "react";
-import { useTheme } from "@mui/material/styles";
 import { Chart, useChart, type ChartOptions } from "@/components/minimal/chart";
 import { EmptyState } from "@/components/app/empty-state";
-import { chartColor, chartRamp } from "@/components/app/chart-colors";
+import { chartColor, chartRamp, useChartTheme } from "@/components/app/chart-colors";
 
 export type ChartSeries = {
   /** data key */
@@ -66,7 +65,7 @@ export type TrendChartProps = {
  * template.
  */
 export function TrendChart({ data, xKey, series, height = 320, kind = "area", stacked, valueFormat, xFormat, showLegend = series.length > 1, yWidth = 44, integerY, emptyLabel = "No data in this period", yDomain, missingLabel = "—", detailKey, hideZeroInTip = false }: TrendChartProps) {
-  const theme = useTheme();
+  const theme = useChartTheme();
   const isCat = kind === "bar";
   const labelOf = (v: unknown) => String(xFormat ? xFormat(v as string | number) : v ?? "");
   const categories = data.map((r) => labelOf(r[xKey]));

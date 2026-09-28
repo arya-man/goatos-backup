@@ -14,7 +14,7 @@ import type { ProcurementLoad, ProcurementLoadDetail, ProcurementLoadStatus } fr
 import { boundedInt, hrefPreviousCursor, hrefWithCursor, one, type RouteSearchParams } from "@/lib/search-params";
 import { fmtDate, shortId } from "@/lib/format";
 import { Tag, type Tone } from "@/components/ui-primitives";
-import { actionFeedbackCopy, copy, optionGroup, optionLabel, optionTitle, optionTone, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { actionFeedbackCopy, copy, optionGroup, optionLabel, optionTitle, optionTone, table, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { warmupMeta } from "./work-state";
 import { NewLoadForm } from "./load-forms";
 import { ProcurementPager } from "./pager";
@@ -28,7 +28,6 @@ import Box from "@mui/material/Box";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { SourceLoadRowsSkeleton } from "./source-entry-skeletons";
 import { Scrollbar } from "@/components/minimal/scrollbar";
-import { Iconify } from "@/components/minimal/iconify";
 import { TableHeadCustom } from "@/components/app/table";
 import { OrderTableToolbar } from "@/components/app/sections/order/order-table-toolbar";
 import { orderToolbarSearchSx } from "@/components/app/order-toolbar-filter";
@@ -173,7 +172,12 @@ export async function SourceEntryBoardPage({
   const statusFilter = (sourceLoadStatusOrder.find((s) => s === one(sp, "status")) ?? "all") as ProcurementLoadStatus | "all";
   const cursor = one(sp, "cursor");
   const page = boundedInt(one(sp, "page"), 1, 1, 1_000_000);
-  const PAGE_SIZE = 200;
+  // Rows per page (TR2 P1-6): the contract's page sizes, chosen in the URL (`limit`), default the
+  // largest so the board keeps showing as many loads as before on its first page. The read stays
+  // cursor-paged; a size change drops the cursor chain so the footer range is exact.
+  const pageSizes = sourceLoadPageSizes(pageContract);
+  const requestedLimit = Number(one(sp, "limit"));
+  const PAGE_SIZE = pageSizes.includes(requestedLimit) ? requestedLimit : pageSizes[pageSizes.length - 1];
   const actionStatus = one(sp, "action_status");
   const actionKey = one(sp, "action_key");
   const selectedLoadId = one(sp, "source_load");
@@ -278,7 +282,10 @@ export async function SourceEntryBoardPage({
           server navigation; the kit TabPanel is NOT wrapped around the card (it branches on
           useReducedMotion(), which differs server/client and breaks hydration). */}
       <Card data-filter-scope="">
+        {/* Nine work states do not fit the card: scroll arrows say so (template scrollable Tabs,
+            allowScrollButtonsMobile) instead of cutting the last state off. guard: source-entry-table-template */}
         <UrlTabs
+          scrollButtons="auto"
           ariaLabel={copy(pageContract, "filter.all_states")}
           value={statusFilter}
           items={[
@@ -315,7 +322,7 @@ export async function SourceEntryBoardPage({
         <UrlSuspense searchParams={sp} watch={LOADS_WATCH} fallback={<SourceLoadRowsSkeleton columns={Math.max(loadLabels.length, 1)} />}>
         <Box sx={LOAD_CARDS_SX} role="group" aria-label={copy(pageContract, "section.loads.aria")}>
           <Scrollbar>
-            <Table className="source-loads-table" sx={{ minWidth: 960 }}>
+            <Table className="source-loads-table" sx={SOURCE_LOADS_TABLE_SX}>
               <TableHeadCustom headCells={loadLabels.map((label, index) => ({ id: `c${index}`, label, sortable: false }))} />
               <TableBody>
                 {loads.length === 0 ? (
@@ -395,7 +402,6 @@ export async function SourceEntryBoardPage({
                         <TableCell>
                           <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
                             <Tag tone={contractTone(pageContract, "source_load_status", load.status)}>{optionLabel(pageContract, "source_load_status", load.status)}</Tag>
-                            <Iconify icon="eva:arrow-ios-forward-fill" width={16} sx={{ ml: 0.75, color: "text.disabled", flexShrink: 0 }} />
                           </LocalOverlayLink>
                         </TableCell>
                       </TableRow>
@@ -406,7 +412,18 @@ export async function SourceEntryBoardPage({
             </Table>
           </Scrollbar>
         </Box>
-        <ProcurementPager prevHref={prevHref} nextHref={nextHref} page={page} count={loads.length} noun={loadLabels[0].toLowerCase()} forceVisible />
+        <ProcurementPager
+          prevHref={prevHref}
+          nextHref={nextHref}
+          page={page}
+          count={loads.length}
+          noun={loadLabels[0].toLowerCase()}
+          forceVisible
+          dense
+          rowsPerPage={PAGE_SIZE}
+          rowsPerPageHrefs={pageSizes.map((size) => ({ value: size, href: hrefWithQuery(pathname, sp, { limit: String(size), cursor: null, cursor_stack: null, page: null, source_load: null }) }))}
+          labelRowsPerPage={copy(pageContract, "pager.rows_per_page")}
+        />
         </UrlSuspense>
       </Card>
       <SourceEntryLocalDrawer
@@ -421,4 +438,27 @@ export async function SourceEntryBoardPage({
 }
 
 /** The params the loads read takes. */
-const LOADS_WATCH = ["status", "cursor", "cursor_stack", "page"] as const;
+const LOADS_WATCH = ["status", "cursor", "cursor_stack", "page", "limit"] as const;
+
+/** The contract's rows-per-page choices for the loads table (template 5/10/25/50). */
+function sourceLoadPageSizes(pageContract: AdminUiPageContract): number[] {
+  const options = pageContract.tables.some((item) => item.id === "source-loads") ? table(pageContract, "source-loads").page_size_options : [];
+  return options.length > 0 ? [...options].sort((a, b) => a - b) : [50];
+}
+
+/**
+ * The loads table fits the card at 1440 (TR2 P1-6: nine nowrap columns drew it 1480px wide in a
+ * 1060px card). Headings and free text wrap at word breaks; status Tags stay whole. Narrower
+ * widths still scroll inside the template Scrollbar above the 960px floor, as the template order list.
+ */
+const SOURCE_LOADS_TABLE_SX = {
+  minWidth: 960,
+  "& thead th, & tbody td, & tbody td .celllink": { whiteSpace: "normal", overflowWrap: "normal", wordBreak: "normal" },
+  // Cell readings (a date, "Holding not set", a Label) stay on one line; headings, the load's
+  // party name and its holding farm / supplier wrap at word breaks. No row chevron: the template
+  // order list has none (the whole row is the drawer link, with the hover row).
+  "& tbody td .celllink, & tbody td .MuiListItemText-root": { whiteSpace: "nowrap" },
+  "& tbody td:first-of-type .MuiListItemText-primary": { whiteSpace: "normal" },
+  "& tbody td:nth-of-type(2) .celllink": { whiteSpace: "normal", display: "block", minWidth: 88 },
+  "& .minimal__label__root, & .MuiChip-root": { whiteSpace: "nowrap" },
+} as const;

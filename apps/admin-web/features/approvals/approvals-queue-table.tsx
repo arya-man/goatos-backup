@@ -20,7 +20,8 @@ import { Scrollbar } from "@/components/minimal/scrollbar";
 import { TableHeadCustom } from "@/components/app/table";
 import { EmptyContent } from "@/components/minimal/empty-content";
 import type { AdminWebApprovalItem } from "@/lib/api/server";
-import { fmtDateTime } from "@/lib/format";
+import ListItemText from "@mui/material/ListItemText";
+import { fmtDate, fmtDateTime } from "@/lib/format";
 import type { RouteSearchParams } from "@/lib/search-params";
 import { approvalStatusLabel } from "./approval-display";
 import { APPROVALS_COPY as COPY } from "./copy";
@@ -41,7 +42,10 @@ const ROW_SX = {
   py: { xs: 2, sm: 0 },
   borderBottom: { xs: "1px dashed", sm: "none" },
   borderColor: { xs: "divider" },
-  "& > td": { display: { xs: "block", sm: "table-cell" }, border: { xs: 0 }, p: { xs: 0 }, minWidth: 0, overflowWrap: "anywhere" },
+  // Phone cells drop their padding (the row carries it); from sm the template TableCell padding
+  // (16px) and dashed row border return. A bare `{ xs: 0 }` applied at EVERY width and collapsed
+  // the desktop rows to 30px (TR-2 P1-5, guard: approvals-row-anatomy).
+  "& > td": { display: { xs: "block", sm: "table-cell" }, border: { xs: 0, sm: undefined }, p: { xs: 0, sm: 2 }, minWidth: 0, overflowWrap: "anywhere" },
 } as const;
 
 const STATUS_COLOR: Record<string, LabelColor> = { pending: "warning", approved: "success", rejected: "error", cancelled: "default" };
@@ -130,8 +134,14 @@ function ApprovalRow({
       <TableCell data-label={COPY.table.columns[2]} sx={{ gridArea: "by", color: "text.secondary", "&:empty": { display: { xs: "none", sm: "table-cell" } } }}>
         {item.raised_by_name ?? ""}
       </TableCell>
-      <TableCell data-label={COPY.table.columns[3]} sx={{ gridArea: "raised", color: "text.secondary", whiteSpace: { sm: "nowrap" } }}>
-        {fmtDateTime(item.raised_at)}
+      {/* Template OrderTableRow date cell: the day, then the time as a caption line under it. */}
+      <TableCell data-label={COPY.table.columns[3]} sx={{ gridArea: "raised", whiteSpace: { sm: "nowrap" } }}>
+        <ListItemText
+          primary={fmtDate(item.raised_at)}
+          secondary={raisedTime(item.raised_at)}
+          slotProps={{ primary: { noWrap: true, sx: { typography: "body2" } }, secondary: { sx: { mt: 0.5, typography: "caption" } } }}
+          sx={{ m: 0 }}
+        />
       </TableCell>
       <TableCell data-label={COPY.table.columns[4]} sx={{ gridArea: "status", justifySelf: "end" }}>
         <Label variant="soft" color={STATUS_COLOR[item.status] ?? "default"}>
@@ -155,6 +165,13 @@ function ApprovalRow({
       </TableCell>
     </TableRow>
   );
+}
+
+/** The HH:MM part of the house date-time format (fmtDateTime: "DD/MM/YYYY HH:MM"). */
+function raisedTime(iso: string | undefined): string {
+  const full = fmtDateTime(iso);
+  const space = full.lastIndexOf(" ");
+  return space > 0 ? full.slice(space + 1) : "";
 }
 
 export function titleCaseType(v: string): string {

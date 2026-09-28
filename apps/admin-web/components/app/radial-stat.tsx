@@ -3,8 +3,7 @@
 import type { ReactNode } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
-import { useTheme } from "@mui/material/styles";
-import { chartColor } from "@/components/app/chart-colors";
+import { chartColor, useChartTheme } from "@/components/app/chart-colors";
 import { Chart, useChart } from "@/components/minimal/chart";
 import { cx, type KitTone } from "@/lib/tone";
 
@@ -23,7 +22,7 @@ export type RadialStatProps = {
 const PALETTE_KEY = { primary: "primary", info: "info", success: "success", warning: "warning", error: "error", violet: "secondary", neutral: null } as const;
 
 export function RadialStat({ value, size = 112, tone = "primary", color, centerLabel, caption, digits = 0, className }: RadialStatProps) {
-  const theme = useTheme();
+  const theme = useChartTheme();
   const pct = Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0));
   const key = PALETTE_KEY[tone];
   // Palette values, not CSS variables: Apex does colour maths on the gradient stops (EcommerceSaleByGender).

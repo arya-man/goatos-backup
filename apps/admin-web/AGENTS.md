@@ -335,6 +335,16 @@ Spec: `docs/design/mui-minimal-spec.md`. Tokens: `app/minimal-tokens.css`. Gate:
   card / hd / bd / banner / gwcard / insight / rowitem / pager / btn classes. Header live control is a soft Button (success / warning / neutral) with the "Updated … IST · stream …" line in its Tooltip, Export an outlined Button; no LIVE pill or header meta line. Eight KPI tiles = two rows of four (KpiGrid `n % 4 === 0` -> md 3; guard `herd-signals-live-header`, TR1-#30). The live and tag-mapping tables scroll inside the template Scrollbar; no `.tblwrap` overflow / max-height box (guard `herd-signals-table-scroll`, TR1-#20).
 - **Course widget icons are masks (guard: `mask-icon-not-img`, npm test).** COURSE_WIDGET_ICONS svgs
   render through SvgColor with a tone gradient, never `<Box component="img">` (they paint black).
+- **/people renders only enabled module tabs (guard: `no-disabled-contract-tabs`, npm test).** A tab the
+  contract or view_clock gate disables is not rendered (no inert "soon" tabs); one tab left drops the
+  strip. Toolbar selects apply on change; the submit button shows only in the phone filters drawer.
+- **/approvals keeps template row + pager anatomy (guard: `approvals-row-anatomy`, npm test).** Cells
+  keep 16px padding from sm (`p: { xs: 0, sm: 2 }`, never a bare `{ xs: 0 }`), the raised cell is the
+  OrderTableRow two-line date, and TablePaginationLinks (Dense + rows per page <= 20) always renders.
+- **/procurement/source-entry table fits its card (guard: `source-entry-table-template`, npm test).** No
+  legacy mesha-theme.css width/nowrap rule on `.source-loads-table`; the table sits in the template
+  Scrollbar (minWidth 960), headings and names wrap at word breaks with Labels whole, the work-state
+  UrlTabs pass `scrollButtons="auto"`, and ProcurementPager carries Dense + contract rows-per-page (`limit`).
 - **The shell is gated on every push (guard: r2 visual gate `shell|*`, scripts/r2-audit-checks/shell.mjs).**
   Sidebar root items + subheaders start at nav.left + 16px with padding-left 12px (template
   NavSectionVertical: content on the logo column), the active item is a translucent primary tint,

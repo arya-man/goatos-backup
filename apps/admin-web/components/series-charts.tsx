@@ -15,8 +15,7 @@ import { useMemo, useState } from "react";
 import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
 import Divider from "@mui/material/Divider";
-import { useTheme } from "@mui/material/styles";
-import { chartColor } from "@/components/app/chart-colors";
+import { chartColor, useChartTheme } from "@/components/app/chart-colors";
 import { EmptyState } from "@/components/app/empty-state";
 import { Chart, ChartLegends, ChartSelect, useChart, type ChartOptions } from "@/components/minimal/chart";
 import { chartClasses } from "@/components/minimal/chart/classes";
@@ -97,7 +96,7 @@ export const SHARED_TIP_MAX_SERIES = 6;
 
 /** Columns on the template's AppAreaInstalled options (stacked when there is more than one series). */
 export function StackedColumnsChart({ categories, titles, series, extras, max, yTicks, hideZeroInTip, chartLabel, height = 320 }: StackedColumnsChartProps) {
-  const theme = useTheme();
+  const theme = useChartTheme();
   const colors = series.map((s) => chartColor(theme, s.color));
   const options = useMemo<ChartOptions>(
     () => ({
@@ -168,7 +167,7 @@ export function ColumnsChartCard({
   hideZeroInTip: boolean;
   chartLabel: string;
 }) {
-  const theme = useTheme();
+  const theme = useChartTheme();
   const [selected, setSelected] = useState(views[views.length - 1]?.label ?? "");
   const view = views.find((v) => v.label === selected) ?? views[views.length - 1];
   return (
@@ -225,7 +224,7 @@ export type SeriesLinesChartProps = {
  * rides a second y axis (`opposite: true`), dashed.
  */
 export function SeriesLinesChart({ categories, series, max, yTicks, secondary, hideZeroInTip, chartLabel }: SeriesLinesChartProps) {
-  const theme = useTheme();
+  const theme = useChartTheme();
   const all = useMemo(() => (secondary ? [...series, secondary] : series), [series, secondary]);
   const colors = all.map((s) => chartColor(theme, s.color));
   const options = useMemo<ChartOptions>(() => {
@@ -287,7 +286,7 @@ export type SeriesPieChartProps = {
  * dashed Divider). Hover reads from the centre label, as the template does.
  */
 export function SeriesPieChart({ slices, totalLabel, centerCaption, chartLabel }: SeriesPieChartProps) {
-  const theme = useTheme();
+  const theme = useChartTheme();
   const colors = slices.map((s) => chartColor(theme, s.color));
   const valueFor = (value: number | string) => slices.find((s) => near(s.value, Number(value), 1e-3))?.valueLabel ?? String(value);
   const chartOptions = useChart({
@@ -326,7 +325,7 @@ export function SeriesPieChart({ slices, totalLabel, centerCaption, chartLabel }
 
 /** The template's ChartLegends as the shared cartesian legend: dot, label, optional figure. */
 export function SeriesLegendView({ entries }: { entries: { label: string; colorVar: string; value?: string; hatched?: boolean }[] }) {
-  const theme = useTheme();
+  const theme = useChartTheme();
   const withValues = entries.some((e) => e.value);
   const colors = entries.map((e) => chartColor(theme, e.colorVar));
   // A hatched series (a striped bar) gets a striped dot, so its key reads like its bars.

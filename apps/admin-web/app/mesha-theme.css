@@ -586,10 +586,6 @@
      the moment the table held five rows), the .twrap wrapper owns the horizontal scroll. */
   .main table.animal-purchase-loads-table th,.main table.animal-purchase-loads-table td,.main table.animal-purchase-loads-table td .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}
   .main table.animal-purchase-loads-table td .celllink{max-width:none;min-width:max-content}
-  .main table.source-loads-table{min-width:1180px}
-  .main table.source-loads-table th,.main table.source-loads-table td,.main table.source-loads-table td .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}
-  .main table.source-loads-table td .celllink{max-width:none;min-width:max-content}
-  .main table.source-loads-table th:nth-child(9),.main table.source-loads-table td:nth-child(9){min-width:172px}
   .main table.procurement-load-goats-table{min-width:1280px}
   .main table.procurement-load-goats-table th,.main table.procurement-load-goats-table td{white-space:nowrap;overflow-wrap:normal;word-break:normal}
   .main table.procurement-load-goats-table th:nth-child(1),.main table.procurement-load-goats-table td:nth-child(1){min-width:240px}
@@ -1002,9 +998,6 @@
   .main table.shed-animal-roster-table th:nth-child(9),.main table.shed-animal-roster-table td:nth-child(9),
   .main table.shed-animal-roster-table th:nth-child(10),.main table.shed-animal-roster-table td:nth-child(10){min-width:160px}
   .main table.shed-animal-roster-table th:nth-child(11),.main table.shed-animal-roster-table td:nth-child(11){min-width:150px}
-  .main table.source-loads-table{min-width:1480px}
-  .main table.source-loads-table th:nth-child(3),.main table.source-loads-table td:nth-child(3){min-width:120px}
-  .main table.source-loads-table th:nth-child(5),.main table.source-loads-table td:nth-child(5){min-width:170px}
   .screen th:not(.MuiTableCell-root){text-align:left;font-size:11px;letter-spacing:.4px;text-transform:uppercase;color:var(--muted);font-weight:700;padding:9px 12px;border-bottom:1px solid var(--line)}
   .screen td:not(.MuiTableCell-root){padding:11px 12px;border-bottom:1px solid var(--line2);vertical-align:middle}
   .cliptext{display:block;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -1562,12 +1555,6 @@
 
 /* Lives INSIDE the Over 35 kg card as its footer: full width, parted from the figure by a rule,
    no panel box of its own, so it reads as that card's control rather than a page-wide one. */
-.sales-ready-tolerance{display:grid;grid-template-columns:auto minmax(120px,1fr) auto;align-items:center;gap:8px;margin-top:6px;padding-top:6px;border-top:1px solid var(--line);width:100%;max-width:100%;min-width:0}
-.sales-ready-tolerance-head{display:flex;align-items:baseline;gap:8px;color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.35px;text-transform:uppercase;white-space:nowrap}
-.sales-ready-tolerance-head strong{color:var(--ink);font-size:12px;letter-spacing:0;text-transform:none;white-space:nowrap}
-.sales-ready-tolerance-row{display:grid;grid-template-columns:minmax(60px,1fr) auto;align-items:center;gap:8px;min-width:0}
-.sales-ready-tolerance input[type="range"]{width:100%;min-width:0;accent-color:var(--brand)}
-.sales-ready-tolerance output{min-width:48px;color:var(--ink);font-size:12px;font-weight:700;text-align:right}
 .tag { border-radius: 999px; padding: 2px 9px; font-size: 11px; font-weight: 600; white-space: nowrap; display: inline-block }
 .t-ok { background: var(--okx); color: var(--ok) }
 .t-info { background: var(--infox); color: var(--info) }
@@ -2251,10 +2238,6 @@ select:disabled { opacity: .45 }
    inside the card. */
 .hbarlist{padding:2px 14px}
 
-@media(max-width:760px){
-  .sales-ready-tolerance{grid-template-columns:1fr}
-  .sales-ready-tolerance-head{justify-content:space-between}
-}
 @media(max-width:640px){
   .main table.market-latest-table{min-width:0;width:100%;border-collapse:separate;border-spacing:0 10px}
   .main table.market-latest-table thead{display:none}

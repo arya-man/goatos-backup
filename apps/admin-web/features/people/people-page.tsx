@@ -35,9 +35,10 @@ const VaccinationOperatorsScreen = async ({
 /**
  * The /people shell: page header + the backend-owned `people_view_tabs` module
  * strip, hosting the ALL-PEOPLE directory (default) and the Vaccination
- * operators screen. Disabled tabs render inert with their backend-declared
- * reason — the strip's membership, labels, and availability all come from the
- * page contract, never from this file.
+ * operators screen. The strip's membership, labels, and availability all come
+ * from the page contract, never from this file. A tab the contract (or the
+ * view_clock gate) disables is NOT rendered: an inert "soon" tab is a dead
+ * control (TR-2 P1-4, guard: no-disabled-contract-tabs).
  */
 export async function PeoplePage({
   searchParams,
@@ -50,13 +51,9 @@ export async function PeoplePage({
   // view_clock control, per role-scoped-UI rules: the strip's membership comes
   // from the option group, the per-principal gate from the compiled control.
   const clockAllowed = controlEnabled(pageContract, "view_clock", true);
-  const tabs = optionGroup(pageContract, "people_view_tabs").map((tab) =>
-    tab.key === "clock" && !clockAllowed
-      ? { ...tab, enabled: false, disabled_reason: copy(pageContract, "clock.tab.locked") }
-      : tab,
-  );
+  const tabs = optionGroup(pageContract, "people_view_tabs").filter((tab) => tab.enabled && (tab.key !== "clock" || clockAllowed));
   const requested = one(searchParams, "tab") ?? "all";
-  const active = tabs.find((tab) => tab.key === requested && tab.enabled)?.key ?? "all";
+  const active = tabs.find((tab) => tab.key === requested)?.key ?? "all";
 
   const park = one(searchParams, "park");
   const initialParkId = park && park !== "all" ? park : undefined;
@@ -72,16 +69,17 @@ export async function PeoplePage({
         />
       </div>
 
-      <TemplateTabs
-        ariaLabel={pageContract.title}
-        value={active}
-        items={tabs.map((tab) => ({
-          value: tab.key,
-          label: tab.label,
-          disabled: !tab.enabled,
-          href: tab.enabled ? (tab.key === "all" ? "/people" : `/people?tab=${tab.key}`) : undefined,
-        }))}
-      />
+      {tabs.length > 1 ? (
+        <TemplateTabs
+          ariaLabel={pageContract.title}
+          value={active}
+          items={tabs.map((tab) => ({
+            value: tab.key,
+            label: tab.label,
+            href: tab.key === "all" ? "/people" : `/people?tab=${tab.key}`,
+          }))}
+        />
+      ) : null}
 
       {/* The four People desks are whole screens, and switching used to swap them instantly with a
           height jump. TabPanel cross-fades the old screen out and rises the new one in against a

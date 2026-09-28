@@ -18,9 +18,8 @@
 
 import { useMemo } from "react";
 
-import { useTheme } from "@mui/material/styles";
 
-import { chartColor } from "@/components/app/chart-colors";
+import { chartColor, useChartTheme } from "@/components/app/chart-colors";
 import { Chart, ChartLegends, useChart, type ChartOptions } from "@/components/minimal/chart";
 
 const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -59,7 +58,7 @@ export function HorizontalBars({
   /** Rotating categorical palette instead of one brand tone. */
   multiTone?: boolean;
 }) {
-  const theme = useTheme();
+  const theme = useChartTheme();
   // One tone by default: a ranked bar list is ONE measure, so a colour per row encodes nothing.
   const colors = rows.map((r, i) =>
     r.value < 0 ? chartColor(theme, "error") : multiTone ? chartColor(theme, ["primary.dark", "warning", "info", "secondary", "grey.500"][i % 5]) : chartColor(theme, "primary.dark"),
@@ -128,7 +127,7 @@ export function StackedHorizontalBars({
   series: StackedBarSeries[];
   chartLabel: string;
 }) {
-  const theme = useTheme();
+  const theme = useChartTheme();
   const colors = series.map((s) => chartColor(theme, s.color));
   const options = useMemo<ChartOptions>(
     () => ({
@@ -190,7 +189,7 @@ export function ColumnBars({
   series: ColumnBarSeries[];
   chartLabel: string;
 }) {
-  const theme = useTheme();
+  const theme = useChartTheme();
   const colors = series.map((s) => chartColor(theme, s.color));
   const options = useMemo<ChartOptions>(
     () => ({

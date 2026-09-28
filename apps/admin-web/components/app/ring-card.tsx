@@ -3,7 +3,7 @@
 import type { CardProps } from "@mui/material/Card";
 
 import { varAlpha } from "minimal-shared/utils";
-import { useTheme } from "@mui/material/styles";
+import { chartColor, useChartTheme } from "@/components/app/chart-colors";
 
 import { fNumber } from "@/components/minimal/_shared/format-number";
 import { EcommerceSaleByGender } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sale-by-gender";
@@ -32,11 +32,12 @@ export type RingCardProps = Omit<CardProps, "title"> & {
 };
 
 export function RingCard({ title, subheader, total, totalLabel, series, ...other }: RingCardProps) {
-  const theme = useTheme();
+  // Through the chart theme: the legend dots follow the active scheme from the first paint (N4).
+  const theme = useChartTheme();
   const colors = [
-    [theme.palette.primary.light, theme.palette.primary.main],
-    [theme.palette.info.light, theme.palette.info.main],
-    [theme.palette.secondary.light, theme.palette.secondary.main],
+    [chartColor(theme, "primary.light"), chartColor(theme, "primary")],
+    [chartColor(theme, "info.light"), chartColor(theme, "info")],
+    [chartColor(theme, "secondary.light"), chartColor(theme, "secondary")],
   ];
   return (
     <EcommerceSaleByGender

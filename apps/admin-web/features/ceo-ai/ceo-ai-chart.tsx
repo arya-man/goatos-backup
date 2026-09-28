@@ -1,8 +1,7 @@
 "use client";
 
 import type { ReactElement } from "react";
-import { useTheme } from "@mui/material/styles";
-import { chartColor } from "@/components/app/chart-colors";
+import { chartColor, useChartTheme } from "@/components/app/chart-colors";
 import { Chart, ChartLegends, useChart } from "@/components/minimal/chart";
 import {
   CHART_PALETTE,
@@ -42,7 +41,7 @@ export function CeoAiChart({ chart }: { chart: CeoAiChartData | undefined }): Re
       ? layout.legend.map((item) => ({ name: item.name, data: (chart?.series.find((s) => String(s.name) === item.name)?.data ?? []).map((v) => (typeof v === "number" && Number.isFinite(v) ? v : null)) }))
       : [{ name: chart?.series[0]?.name ?? "", data: (chart?.series[0]?.data ?? []).map((v) => (typeof v === "number" && Number.isFinite(v) ? v : null)) }]
     : [];
-  const theme = useTheme();
+  const theme = useChartTheme();
   const colors = (layout?.legend.length ? layout.legend.map((item) => item.color) : [CHART_PALETTE[0]]).map((c) => chartColor(theme, c));
   const wrapped = labels.map((label) => wrap(label));
   const lineCount = wrapped.reduce((sum, lines) => sum + Math.max(1, lines.length), 0);

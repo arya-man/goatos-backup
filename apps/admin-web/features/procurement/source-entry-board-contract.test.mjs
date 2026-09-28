@@ -39,9 +39,18 @@ assert.match(
 );
 
 assert.match(source, /<Table className="source-loads-table"[ >]/, "source-entry loads table must keep its scoped class");
-assert.match(css, /\.main table\.source-loads-table\{min-width:1180px\}/, "source-entry table must own enough width for mobile scroll");
-assert.match(css, /\.main table\.source-loads-table th,\s*\.main table\.source-loads-table td,\s*\.main table\.source-loads-table td \.celllink\{white-space:nowrap/, "source-entry table links must not clip/wrap status labels");
-assert.match(css, /\.main table\.source-loads-table th:nth-child\(9\),\.main table\.source-loads-table td:nth-child\(9\)\{min-width:172px\}/, "source-entry status column must fit Accepted intake");
+// guard: source-entry-table-template (TR2 P1-6). The loads table fits its card at 1440 (it drew
+// 1480px in a 1060px card from legacy mesha-theme.css min-widths): no legacy width rule, headings
+// and text wrap at word breaks with status Labels whole, the table sits in the template Scrollbar
+// (960px floor, scrolls inside the card below that), the nine work-state tabs are the template
+// scrollable Tabs WITH scroll arrows, and the footer is the template pager (rows-per-page, Dense).
+assert.doesNotMatch(css, /table\.source-loads-table/, "no legacy mesha-theme.css width/nowrap rule on the source-entry table");
+assert.match(source, /<Scrollbar>\s*<Table className="source-loads-table" sx=\{SOURCE_LOADS_TABLE_SX\}>/, "loads table inside the template Scrollbar");
+assert.match(source, /const SOURCE_LOADS_TABLE_SX = \{\s*minWidth: 960,\s*"& thead th, & tbody td, & tbody td \.celllink": \{ whiteSpace: "normal", overflowWrap: "normal", wordBreak: "normal" \}/, "table text wraps at word breaks above the 960px floor");
+assert.match(source, /"& \.minimal__label__root, & \.MuiChip-root": \{ whiteSpace: "nowrap" \}/, "status Labels never split");
+assert.match(source, /<UrlTabs\s+scrollButtons="auto"/, "work-state tabs are scrollable with arrows (no clipped last tab)");
+assert.match(source, /<ProcurementPager[\s\S]*?dense[\s\S]*?rowsPerPage=\{PAGE_SIZE\}[\s\S]*?rowsPerPageHrefs=/, "template pager: Dense + rows-per-page");
+assert.match(source, /rowsPerPageHrefs=\{pageSizes\.map\(\(size\) => \(\{ value: size, href: hrefWithQuery\(pathname, sp, \{ limit: String\(size\), cursor: null, cursor_stack: null, page: null/, "a page-size change restarts the cursor chain");
 // Same two class names, handed to the kit PagedRows that now renders this table: `.twrap` owns
 // the horizontal scroll and `.procurement-load-goats-table` carries the per-column min-widths
 // asserted below. PagedRows supplies the tabIndex/role/aria-label itself.

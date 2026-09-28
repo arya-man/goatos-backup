@@ -1,4 +1,8 @@
 import type { Theme } from "@mui/material/styles";
+import { useSyncExternalStore } from "react";
+import { useColorScheme, useTheme } from "@mui/material/styles";
+
+const noSubscribe = () => () => {};
 
 /**
  * Chart colours, ALWAYS from the MUI theme palette (the template's charts read
@@ -54,6 +58,31 @@ const TOKEN_CHANNEL: Record<string, ChartColorKey> = {
   line: "grey.400",
 };
 
+/** Marks a theme whose colour scheme is not resolved yet (server render + hydration pass). */
+type ChartTheme = Theme & { chartSchemeUnresolved?: true };
+
+/**
+ * The theme every chart reads its colours through (N4, TR-2). On the server and during hydration
+ * MUI has no colour scheme yet, so `theme.palette` is the LIGHT scheme: a legend dot painted from it
+ * shows light-only greens (#54A02C) in dark mode until the client re-renders -- and forever on a
+ * page that hydrates late. Until `useColorScheme()` reports a scheme, the returned theme makes
+ * `chartColor` answer with the scheme-following CSS variable (`var(--palette-primary-main)`), which
+ * the browser paints right from the first frame (legends, dots, bars drawn with CSS). ApexCharts
+ * never renders in that pass (it loads client-side after mount), and the consumer re-renders with
+ * resolved hexes as soon as it has hydrated and the scheme is known, so Apex draws with hexes.
+ * guard: chart-theme-scheme (check-design-system + r2-visual-audit `ssr-scheme`).
+ */
+export function useChartTheme(): Theme {
+  const theme = useTheme();
+  const { colorScheme } = useColorScheme();
+  // Per component, not per page: a streamed Suspense boundary hydrates AFTER the shell resolved the
+  // scheme, so it must still render its server snapshot (variables) in its own hydration pass, or
+  // React reports an attribute mismatch it never patches. useSyncExternalStore gives exactly that:
+  // the server snapshot while hydrating, then an immediate re-render with the client one.
+  const hydrated = useSyncExternalStore(noSubscribe, () => true, () => false);
+  return hydrated && colorScheme ? theme : ({ ...theme, chartSchemeUnresolved: true } as ChartTheme);
+}
+
 /** Resolve a channel (or a legacy `var(--token)`) to the active scheme's colour. */
 export function chartColor(theme: Theme, token: string): string {
   // Already a resolved theme value (a caller that read theme.palette itself).
@@ -63,6 +92,10 @@ export function chartColor(theme: Theme, token: string): string {
   const legacy = vars ? null : /^var\(--([\w-]+)\)$/.exec(token.trim());
   const key = (vars ? `${vars[1]}.${vars[2]}` : legacy ? TOKEN_CHANNEL[legacy[1]] : token) ?? "primary";
   const [name, shade] = key.split(".") as [string, string | undefined];
+  if ((theme as ChartTheme).chartSchemeUnresolved) {
+    const channel = name === "grey" ? "grey" : name in theme.palette ? name : "primary";
+    return `var(--palette-${channel}-${shade ?? (channel === "grey" ? "500" : "main")})`;
+  }
   if (name === "grey") return theme.palette.grey[(shade ?? "500") as unknown as 500];
   const channel = theme.palette[(name in theme.palette ? name : "primary") as Key];
   return channel[(shade ?? "main") as Shade] ?? channel.main;

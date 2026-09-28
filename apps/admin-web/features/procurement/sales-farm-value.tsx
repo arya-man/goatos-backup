@@ -18,7 +18,7 @@ import type { SalesOverview } from "@/lib/api/procurement";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { countKey, inr, num } from "./sales-format";
 import { SalesFarmToggle, SalesPageHeader, readSalesParkScope } from "./sales-chrome";
-import { Over35Kpi } from "./over35-kpi";
+import { Over35Kpi, Over35MarginForm, Over35Scope } from "./over35-kpi";
 import { OVER35_MAX_TOLERANCE_G, OVER35_WINDOW_DAYS } from "./over35-window";
 import { salesErrorText } from "./sales-error";
 import Alert from "@mui/material/Alert";
@@ -99,6 +99,26 @@ function FarmValueSections({
   const kgSuffix = copy(pageContract, "value.kg_suffix");
   const notValuedLabel = farmValuationNotValuedLabel(overview, pageContract);
   return (
+    <Over35Scope
+      // Re-mounted when the page's own park or margin changes underneath it.
+      key={`${over35.parkId}|${over35.toleranceG}`}
+      parkId={over35.parkId}
+      enabled={over35.enabled}
+      disabledReason={over35.disabledReason}
+      initialCount={over35.count}
+      initialToleranceG={over35.toleranceG}
+      lineKg={over35.lineKg}
+      maxG={OVER35_MAX_TOLERANCE_G}
+      labels={{
+        title: copy(pageContract, "kpi.over35"),
+        sub: copy(pageContract, "kpi.over35.sub"),
+        none: copy(pageContract, "kpi.over35.none"),
+        noneValue: none,
+        tolerance: copy(pageContract, "kpi.over35.tolerance"),
+        apply: copy(pageContract, "kpi.over35.apply"),
+        failed: copy(pageContract, "error.load"),
+      }}
+    >
     <Grid container spacing={3}>
       {/* FARM VALUE — what is standing on the farm right now (maintainer decision 2026-09-10).
           Its own block, followed by the category breakdown that divides the same total. It used
@@ -120,29 +140,18 @@ function FarmValueSections({
                 2026-09-10): animals STANDING ON THE FARM that have reached sale weight. Gated by
                 the page contract: a role that may not read weights sees the backend's reason,
                 never a zero. */}
-            <Over35Kpi
-              // Re-mounted when the page's own park or margin changes underneath it.
-              key={`${over35.parkId}|${over35.toleranceG}`}
-              parkId={over35.parkId}
-              enabled={over35.enabled}
-              disabledReason={over35.disabledReason}
-              initialCount={over35.count}
-              initialToleranceG={over35.toleranceG}
-              lineKg={over35.lineKg}
-              maxG={OVER35_MAX_TOLERANCE_G}
-              labels={{
-                title: copy(pageContract, "kpi.over35"),
-                sub: copy(pageContract, "kpi.over35.sub"),
-                none: copy(pageContract, "kpi.over35.none"),
-                noneValue: none,
-                tolerance: copy(pageContract, "kpi.over35.tolerance"),
-                apply: copy(pageContract, "kpi.over35.apply"),
-                failed: copy(pageContract, "error.load"),
-              }}
-            />
+            <Over35Kpi />
           </Grid>
         </Grid>
       </Grid>
+
+      {/* The Over 35 kg error margin: a template toolbar form on its own row under the KPI deck it
+          tunes (TR2-P1-3), not a slider inside the tile. */}
+      {over35.enabled ? (
+        <Grid size={12}>
+          <Over35MarginForm />
+        </Grid>
+      ) : null}
 
       {/* By category: the template Banking expenses-categories card (share of value per bucket)
           beside the Ecommerce sales-overview rows that carry each bucket's value, share and meta
@@ -171,9 +180,12 @@ function FarmValueSections({
                 title={copy(pageContract, "section.farm_value.title")}
                 chart={{
                   series: valued.map((bucket) => ({ label: bucket.display, value: bucket.value_rupees, display: inr(bucket.value_rupees) })),
-                  // The rings carry no raw rupee ticks (400000...): the legend names every figure.
-                  options: { yaxis: { labels: { show: false } } },
+                  // The rings carry no raw rupee ticks (400000... drew over the slices, TR2-P1-3): the
+                  // legend names every figure. polarArea ticks are the y axis itself.
+                  options: { yaxis: { show: false, labels: { show: false } } },
                 }}
+                // Slice + legend colour = the By-category bar colour for the same bucket.
+                colorKeys={BUCKET_BAR}
                 footer={[
                   { label: copy(pageContract, "value.valued_animals"), value: num(overview.farm_valuation.valued_animals) },
                   { label: copy(pageContract, "kpi.farm_value"), value: inr(total) },
@@ -213,6 +225,7 @@ function FarmValueSections({
         );
       })()}
     </Grid>
+    </Over35Scope>
   );
 }
 

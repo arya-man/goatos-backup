@@ -4,6 +4,7 @@ import Box from '@mui/material/Box';
 import Card from '@mui/material/Card';
 import CardHeader from '@mui/material/CardHeader';
 
+import { chartColor, useChartTheme } from '@/components/app/chart-colors';
 import { BankingBalanceStatistics, formatSeriesValue } from '@/components/app/sections/overview/banking/banking-balance-statistics';
 
 
@@ -38,6 +39,10 @@ type Props = React.ComponentProps<typeof BankingBalanceStatistics> & { empty?: R
 /** The template balance-statistics card, or (no categories in the first series) the same Card +
  * CardHeader with the page's empty state, so the template file never grows an empty branch. */
 export function BalanceStatisticsCard({ empty, ...props }: Props) {
+  // The template's default trio, through the chart theme so the legend follows the scheme from the
+  // first paint (N4).
+  const theme = useChartTheme();
+  const colors = props.chart.colors ?? (["primary.dark", "warning", "info"] as const).map((key) => chartColor(theme, key));
   if ((props.chart.series[0]?.categories.length ?? 0) === 0) {
     return (
       <Card sx={props.sx}>
@@ -47,5 +52,5 @@ export function BalanceStatisticsCard({ empty, ...props }: Props) {
       </Card>
     );
   }
-  return <BankingBalanceStatistics {...props} chart={{ ...props.chart, options: withSharedTooltip(props.chart) }} />;
+  return <BankingBalanceStatistics {...props} chart={{ ...props.chart, colors, options: withSharedTooltip(props.chart) }} />;
 }

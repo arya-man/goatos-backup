@@ -1,6 +1,7 @@
 "use client";
 
 import type { ComponentProps } from "react";
+import { chartColor, useChartTheme } from "@/components/app/chart-colors";
 import { EcommerceYearlySales } from "@/components/app/sections/overview/e-commerce/ecommerce-yearly-sales";
 import { inr, inrAxisTick, num, numAxisTick } from "./sales-format";
 
@@ -28,13 +29,15 @@ const PHONE_AXIS: ComponentProps<typeof EcommerceYearlySales>["chart"]["options"
  * scale -- which is the rule the three stacked column charts used to keep.
  */
 export function SalesSoldMonthly({ title, series, ariaLabel }: { title: string; series: Series[]; ariaLabel: string }) {
+  // The template's primary / warning pair through the chart theme (legend follows the scheme, N4).
+  const theme = useChartTheme();
   return (
     <EcommerceYearlySales
       component="section"
       aria-label={ariaLabel}
       title={title}
       formatters={FORMATTERS}
-      chart={{ series: series, options: PHONE_AXIS }}
+      chart={{ series: series, colors: [chartColor(theme, "primary"), chartColor(theme, "warning")], options: PHONE_AXIS }}
       sx={{ height: 1 }}
     />
   );

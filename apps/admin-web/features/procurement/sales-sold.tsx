@@ -167,10 +167,12 @@ function SoldSections({
 
   return (
     <Grid container spacing={3}>
-      {/* Headline figures: template CourseWidgetSummary (KpiWidget), two by two beside sold-by-weight. */}
-      <Grid size={SALES_GRID.main}>
-        <Grid container spacing={3} component="section" aria-label={copy(pageContract, "section.sold.aria")} sx={{ height: 1 }}>
-          <Grid size={SALES_GRID.half}>
+      {/* Headline figures: template CourseWidgetSummary (KpiWidget) in their own row, as the
+          template Ecommerce overview's widget row (TR2-P1-2: beside sold-by-weight they took that
+          card's height). guard: kpi-row-no-stretch */}
+      <Grid size={12}>
+        <Grid container spacing={3} component="section" aria-label={copy(pageContract, "section.sold.aria")}>
+          <Grid size={showFeed ? SALES_GRID.kpi5 : SALES_GRID.kpi}>
             <KpiWidget
               title={copy(pageContract, "kpi.revenue")}
               total={summary.revenue}
@@ -180,7 +182,7 @@ function SoldSections({
               sx={{ height: 1 }}
             />
           </Grid>
-          <Grid size={SALES_GRID.half}>
+          <Grid size={showFeed ? SALES_GRID.kpi5 : SALES_GRID.kpi}>
             <KpiWidget
               title={copy(pageContract, "kpi.animals")}
               total={summary.animals}
@@ -189,7 +191,7 @@ function SoldSections({
               sx={{ height: 1 }}
             />
           </Grid>
-          <Grid size={SALES_GRID.half}>
+          <Grid size={showFeed ? SALES_GRID.kpi5 : SALES_GRID.kpi}>
             {/* Zero means no weighed live sale exists — printing ₹0 per kg would claim we give
                 animals away (null renders an empty figure). */}
             <KpiWidget
@@ -200,7 +202,7 @@ function SoldSections({
               sx={{ height: 1 }}
             />
           </Grid>
-          <Grid size={SALES_GRID.half}>
+          <Grid size={showFeed ? SALES_GRID.kpi5 : SALES_GRID.kpi}>
             <KpiWidget
               title={copy(pageContract, "kpi.manure")}
               total={summary.manure_kg}
@@ -213,7 +215,7 @@ function SoldSections({
               could not be read back into what was sold. Shown only when some was sold (main
               d35d4db8d). */}
           {showFeed ? (
-            <Grid size={12}>
+            <Grid size={SALES_GRID.kpi5}>
               <KpiWidget
                 title={copy(pageContract, "kpi.feed")}
                 total={summary.feed_kg}
@@ -281,37 +283,11 @@ function SoldSections({
         />
       </Grid>
 
-      {/* Realized price per kg by breed, ordered as served (highest first) -- template Latest
-          products list. */}
-      <Grid size={SALES_GRID.side}>
-        {overview.price_bands.length === 0 ? (
-          <Card component="section" aria-label={copy(pageContract, "section.price_bands.aria")} sx={{ height: 1 }}>
-            <CardHeader title={copy(pageContract, "section.price_bands.title")} />
-            <EmptyState title={copy(pageContract, "chart.price_bands.empty")} />
-          </Card>
-        ) : (
-          <EcommerceLatestProducts
-            component="section"
-            aria-label={copy(pageContract, "section.price_bands.aria")}
-            title={copy(pageContract, "section.price_bands.title")}
-            list={overview.price_bands.slice(0, 12).map((band) => ({
-              id: `${band.product_type}|${band.breed}`,
-              name: [breedBeyondProduct(band.product_type, band.breed), seriesLabel(band.product_type)].filter(Boolean).join(" · "),
-              display: inr(Math.round(band.avg_price_per_kg)),
-            }))}
-            // Phone webview: no inner scroller at xs (the list is short), names wrap.
-            slotProps={{ scrollbar: { minHeight: { xs: "auto", sm: 384 } }, list: { minWidth: { xs: 0, sm: 360 } } }}
-            wrapNames
-            sx={{ height: 1 }}
-          />
-        )}
-      </Grid>
-
       {/* The market benchmark table was removed from this board (maintainer request
           2026-09-03); the quotes are still entered and kept on /sales/config. */}
 
-      {/* Buyers -- template Best salesman table, the share of revenue as its rank chip. */}
-      <Grid size={12}>
+      {/* Buyers -- template Best salesman table (md 8, beside Latest products as in the template), the share of revenue as its rank chip. */}
+      <Grid size={SALES_GRID.main}>
         <RankedTableCard
           component="section"
           aria-label={copy(pageContract, "section.buyers.title")}
@@ -364,6 +340,32 @@ function SoldSections({
           ) : null}
         </RankedTableCard>
       </Grid>
+      {/* Realized price per kg by breed, ordered as served (highest first) -- template Latest
+          products list. */}
+      <Grid size={SALES_GRID.side}>
+        {overview.price_bands.length === 0 ? (
+          <Card component="section" aria-label={copy(pageContract, "section.price_bands.aria")} sx={{ height: 1 }}>
+            <CardHeader title={copy(pageContract, "section.price_bands.title")} />
+            <EmptyState title={copy(pageContract, "chart.price_bands.empty")} />
+          </Card>
+        ) : (
+          <EcommerceLatestProducts
+            component="section"
+            aria-label={copy(pageContract, "section.price_bands.aria")}
+            title={copy(pageContract, "section.price_bands.title")}
+            list={overview.price_bands.slice(0, 12).map((band) => ({
+              id: `${band.product_type}|${band.breed}`,
+              name: [breedBeyondProduct(band.product_type, band.breed), seriesLabel(band.product_type)].filter(Boolean).join(" · "),
+              display: inr(Math.round(band.avg_price_per_kg)),
+            }))}
+            // Phone webview: no inner scroller at xs (the list is short), names wrap.
+            slotProps={{ scrollbar: { minHeight: { xs: "auto", sm: 384 } }, list: { minWidth: { xs: 0, sm: 360 } } }}
+            wrapNames
+            sx={{ height: 1 }}
+          />
+        )}
+      </Grid>
+
     </Grid>
   );
 }

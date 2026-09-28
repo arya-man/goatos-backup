@@ -19,7 +19,8 @@ import { getCensusLocations } from "@/lib/api/herd-locations";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { todayIso } from "@/lib/format";
 import { one, type RouteSearchParams } from "@/lib/search-params";
-import { STATUS_TABS, TYPE_TABS, APPROVALS_COPY as COPY } from "./copy";
+import { DenseToggleAuto } from "@/components/app/dense-toggle-auto";
+import { DEFAULT_PAGE_SIZE, PAGE_SIZES, STATUS_TABS, TYPE_TABS, APPROVALS_COPY as COPY } from "./copy";
 import { ApprovalsDrawer } from "./approvals-drawer";
 import { ApprovalsDateFilter } from "./approvals-date-filter";
 import { ApprovalsQueueTable, approvalsHref } from "./approvals-queue-table";
@@ -41,6 +42,8 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
   const rawFarm = one(sp, "farm")?.trim() ?? "";
   const farmFilter = UUID_RE.test(rawFarm) ? rawFarm : "";
   const cursor = one(sp, "ap_cursor");
+  // Rows per page rides on the URL (template TablePaginationCustom); anything off the list is the default.
+  const pageSize = PAGE_SIZES.find((size) => String(size) === one(sp, "ap_limit")) ?? DEFAULT_PAGE_SIZE;
   // The calendar filter reaches the server only as a well-formed, ordered pair of YYYY-MM-DD days;
   // a hand-edited URL degrades to "any date" rather than a 400 page.
   const dateRange = approvalDateRange(one(sp, "raised_from"), one(sp, "raised_to"));
@@ -48,7 +51,7 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
   const [queue, locations] = await Promise.all([
     listAdminWebApprovals({
       status,
-      page_size: 20,
+      page_size: pageSize,
       cursor,
       request_type: typeFilter === "all" ? undefined : typeFilter,
       park_id: farmFilter || undefined,
@@ -122,7 +125,7 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
           searchParams={sp}
           subjects={subjects}
           renderBody={(body) => (
-            <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<TableSkeleton bare header={false} columns={6} rows={10} />}>
+            <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<TableSkeleton bare header={false} columns={COPY.table.columns.length} rows={10} />}>
               {body}
             </UrlSuspense>
           )}
@@ -197,21 +200,26 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
             </Box>
           }
           footer={
-            cursor || nextCursor ? (
-              // Template TablePaginationCustom footer; the queue pages by cursor, so there is no total
-              // (count -1) and "first" returns to the newest page.
-              <TablePaginationLinks
-                page={cursor ? 1 : 0}
-                rowsPerPage={20}
-                count={-1}
-                rangeLabel={`${COPY.kpi.rowsInView}: ${items.length}`}
-                prevHref={cursor ? hrefWith(sp, { ap_cursor: null, ...clearRow }) : null}
-                nextHref={nextCursor ? hrefWith(sp, { ap_cursor: nextCursor, ...clearRow }) : null}
-                prevLabel={COPY.pager.first}
-                nextLabel={COPY.pager.next}
-                replace
-              />
-            ) : null
+            // Template TablePaginationCustom footer (Dense switch, rows per page, range, arrows),
+            // always under the table (TR-2 P1-5). The queue pages by cursor, so there is no total
+            // (count -1) and "previous" returns to the newest page.
+            <TablePaginationLinks
+              page={cursor ? 1 : 0}
+              rowsPerPage={pageSize}
+              count={-1}
+              rowsPerPageHrefs={PAGE_SIZES.map((size) => ({
+                value: size,
+                href: hrefWith(sp, { ap_limit: size === DEFAULT_PAGE_SIZE ? null : String(size), ap_cursor: null, ...clearRow }),
+              }))}
+              labelRowsPerPage={COPY.pager.rowsPerPage}
+              rangeLabel={`${COPY.kpi.rowsInView}: ${items.length}`}
+              prevHref={cursor ? hrefWith(sp, { ap_cursor: null, ...clearRow }) : null}
+              nextHref={nextCursor ? hrefWith(sp, { ap_cursor: nextCursor, ...clearRow }) : null}
+              prevLabel={COPY.pager.first}
+              nextLabel={COPY.pager.next}
+              left={<DenseToggleAuto label={COPY.pager.dense} />}
+              replace
+            />
           }
         />
       </Stack>
