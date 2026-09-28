@@ -203,8 +203,8 @@ stayed open and overdue forever.
 
 - New step condition **`sale_has_animals`** (`tasks/domain.StepWhenSaleHasAnimals`, compiled from
   `CompileOptions.SaleHasAnimals`, the `kid_pen_unresolved` shape). It is refused outside a sale
-  track, and a sale track must keep at least one step without it, so a sale with no animals still
-  opens with its money steps.
+  track. (It used to also require a sale track to keep one step without it; retired 2026-09-28,
+  below.)
 - The seeded document puts `"when": "sale_has_animals"` on **tag_animals, loading_video and
   dispatch_note** (the gate pass). The tag step stays a REQUIRED engine step: a conditional tag
   step is still present, so the document publishes (`engine_step_removed` still fires if it is
@@ -228,6 +228,27 @@ the workflow opens. When a line edit is built, it must emit an event the tasks m
 skip the three steps (animals lost) or append them (animals gained) -- the engine has no
 append-steps-from-SOP call yet (only the birth capture re-shoot appends), so that half is its own
 piece of work.
+
+## Steps per kind of sale (maintainer decision 2026-09-28)
+
+The maintainer's Sales SOP is two steps: **tag the animals sold** (the tagging screen already takes
+each animal's weight) when the sale has animals, and **enter the weight sold** when it does not --
+manure and feed. "Always" plus "Only when the sale has animals" could not say that.
+
+- Three more sale conditions, same shape, same sale-track-only rule:
+  **`sale_has_no_animals`** (the complement of `sale_has_animals`), **`sale_has_feed`** and
+  **`sale_has_other`** (manure, or any product the farm adds with kind `other`). They key on the
+  PRODUCT KIND (`sales/domain.Kinds`, closed), never a product name, so a product the farm adds on
+  Configuration -> Items and settings is covered without code. Offered on `/sales/sops` as "Only
+  when the sale has no animals / has feed / has manure or other items".
+- `sales.deal.recorded` carries **`line_kinds`** (distinct kinds on the lines written in the
+  recording transaction, `DealWrite.LineKinds`). An event without the key keeps no per-kind step.
+- **The "one step must run for every sale" publish rule is retired.** A sale no step applies to --
+  a manure sale on an SOP that only tags animals -- compiles to `tasks/domain.ErrNothingOwed`, and
+  the opener opens **no workflow** and succeeds (a retry would decide the same). A track with no
+  steps at all is still refused at publish.
+- Pinned by `sale_kind_conditions_test.go`, `TestSalesSOPContract` (a tag-only SOP publishes) and
+  `TestSaleRecordedCarriesItsLineKindsAndASaleOwingNothingOpensNothing` (mutation-tested).
 
 ## A failed sale (maintainer decisions 2026-09-25)
 

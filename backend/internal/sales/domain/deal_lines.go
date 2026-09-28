@@ -3,6 +3,7 @@ package domain
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 )
 
@@ -468,6 +469,25 @@ func ValidateFeedItems(lines []DealLineWrite, items []string) error {
 // animal_count of 1 -- and it counts exactly what the tagging confirm will accept: the confirm
 // refuses a deal whose floored animal_count (the sum of its animal lines' counts, RollupLines) is
 // not above zero, so a line recorded with only a male/female split and no head count owes no tag.
+// LineKinds is the distinct product KINDS this sale's lines carry (animal / feed / other), sorted.
+// The Sales SOP's per-kind step conditions (maintainer decision 2026-09-28) read it: a manure
+// sale opens its `sale_has_other` steps, a feed sale its `sale_has_feed` ones. Read from the lines
+// written in this transaction, like HasLiveAnimals.
+func (w DealWrite) LineKinds() []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, l := range w.Lines {
+		k := l.Kind()
+		if k == "" || seen[k] {
+			continue
+		}
+		seen[k] = true
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
 func (w DealWrite) HasLiveAnimals() bool {
 	total := 0.0
 	for _, l := range w.Lines {

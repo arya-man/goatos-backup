@@ -144,6 +144,7 @@ func (r *Repository) OpenWorkflow(ctx context.Context, cmd ports.OpenWorkflowCom
 		EventAt:            anchor,
 		NeedsShedPlacement: needsShedPlacement,
 		SaleHasAnimals:     cmd.SaleHasAnimals == nil || *cmd.SaleHasAnimals,
+		SaleKinds:          cmd.SaleKinds,
 	})
 	if err != nil {
 		return false, err

@@ -10839,6 +10839,12 @@ func sopOptionGroups() []domain.OptionGroup {
 			Options: []domain.Option{
 				option("", "Always", "", ""),
 				option("sale_has_animals", "Only when the sale has animals", "Left out of a sale of manure, feed or other items, or one recorded with no head count.", ""),
+				// Per-kind conditions (maintainer decision 2026-09-28): the work a sale of manure or
+				// feed owes -- its weight -- without the animal steps. A sale no step applies to opens
+				// no task at all. Keys are tasks/domain.StepWhen*.
+				option("sale_has_no_animals", "Only when the sale has no animals", "Kept for a sale of manure, feed or other items, or one recorded with no head count.", ""),
+				option("sale_has_feed", "Only when the sale has feed", "Kept when any line of the sale sells a feed item.", ""),
+				option("sale_has_other", "Only when the sale has manure or other items", "Kept when any line sells manure or another non-animal, non-feed item.", ""),
 			},
 		},
 		{
