@@ -192,6 +192,8 @@ export async function VaccinationCalendarPage({
   const defaultOwnerTab = presentation.owner_tabs.find((tab) => tab.key === "all") ?? presentation.owner_tabs[0];
   const activeOwnerTab = presentation.owner_tabs.find(ownerTabOn);
   const defaultWorkstreamTab = presentation.workstream_tabs[0];
+  const enabledOwnerTabs = presentation.owner_tabs.filter((tab) => tab.enabled);
+  const enabledWorkstreamTabs = presentation.workstream_tabs.filter((tab) => tab.enabled);
   const activeWorkstreamTab = presentation.workstream_tabs.find((tab) => tab.active);
   const ownerFiltered = Boolean(activeOwnerTab && defaultOwnerTab && activeOwnerTab.key !== defaultOwnerTab.key);
   const workstreamFiltered = Boolean(activeWorkstreamTab && defaultWorkstreamTab && activeWorkstreamTab.key !== defaultWorkstreamTab.key);
@@ -220,29 +222,30 @@ export async function VaccinationCalendarPage({
           { key: "history", label: historyTabLabel, href: historyHref, active: historyMode },
         ],
       },
-      ...(presentation.owner_tabs.length
+      // Only the tabs the contract ENABLES are offered (a disabled one is a dead control; guard:
+      // no-disabled-contract-tabs, widened from /people to every feature). A group with fewer than
+      // two live options is not a choice, so it is dropped.
+      ...(enabledOwnerTabs.length > 1
         ? [{
             id: "owner",
             label: copy(pageContract, "filter.owner.aria"),
-            options: presentation.owner_tabs.map((tab) => ({
+            options: enabledOwnerTabs.map((tab) => ({
               key: tab.key,
               label: tab.label,
-              href: tab.enabled ? hrefForOwnerTab(tab) : undefined,
+              href: hrefForOwnerTab(tab),
               active: ownerTabOn(tab),
-              disabled: !tab.enabled,
             })),
           }]
         : []),
-      ...(presentation.workstream_tabs.length
+      ...(enabledWorkstreamTabs.length > 1
         ? [{
             id: "workstream",
             label: copy(pageContract, "filter.workstream.aria"),
-            options: presentation.workstream_tabs.map((tab) => ({
+            options: enabledWorkstreamTabs.map((tab) => ({
               key: tab.key,
               label: tab.label,
-              href: tab.enabled ? hrefForWorkstreamTab(tab) : undefined,
+              href: hrefForWorkstreamTab(tab),
               active: tab.active,
-              disabled: !tab.enabled,
             })),
           }]
         : []),

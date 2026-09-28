@@ -60,3 +60,9 @@ assert.match(
   "load detail animal table must use the standard mobile scroll owner",
 );
 assert.match(css, /\.main table\.procurement-load-goats-table\{min-width:1280px\}/, "load detail animal table must stay horizontally scrollable on mobile");
+
+// TR-2 P1-6 follow-up: the New load supplier picker is built from the loads on the current page, so
+// the board must default to the contract's LARGEST page size (the backend keeps 200 in
+// source-loads page_size_options, TestSourceEntryLoadsPageSizesKeep200).
+assert.match(source, /const PAGE_SIZE = pageSizes\.includes\(requestedLimit\) \? requestedLimit : pageSizes\[pageSizes\.length - 1\];/);
+assert.match(source, /const suppliers = Array\.from\(\s*new Map\(loads\./);

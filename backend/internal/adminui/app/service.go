@@ -606,7 +606,10 @@ func pages() []domain.PageContract {
 				table("shed-drive-rows", "Drive rows", "/vaccination/execution/sheds/{shed_id}", []string{"animal_stage", "drive", "due_date", "work_state", "proof_status", "next_action"}, "drive_row"),
 			}),
 		page("source-entry", "/procurement/source-entry", "/procurement/source-entry", "Source Entry Board", "Supplier warmup and accepted-intake bridge into Preventive Care (PC) vaccination.", "module-surface",
-			[]domain.TableContract{table("source-loads", "Supplier warmup — Holding Farm", "/procurement/source-entry/loads", []string{"load", "holding_farm_supplier", "purpose", "animals", "warmup", "tagging", "vaccination_hf", "health_selection", "status"}, "source_load")}),
+			// Page sizes end at 200, the board's historical page (the renderer defaults to the largest):
+			// the New load supplier picker is built from the loads on the current page, so a smaller
+			// default would drop suppliers seen only past the first 50 loads.
+			[]domain.TableContract{tableP("source-loads", "Supplier warmup — Holding Farm", "/procurement/source-entry/loads", []string{"load", "holding_farm_supplier", "purpose", "animals", "warmup", "tagging", "vaccination_hf", "health_selection", "status"}, "source_load", []int{25, 50, 100, 200})}),
 		// The procurement VENDOR REGISTER. One table, whole-filter total, keyset paging.
 		//
 		// Columns are the ones a person scanning the register actually needs: who they are, what
