@@ -13,6 +13,7 @@ import Card from "@mui/material/Card";
 import Divider from "@mui/material/Divider";
 import CardHeader from "@mui/material/CardHeader";
 import Grid from "@mui/material/Grid";
+import Paper from "@mui/material/Paper";
 import Skeleton from "@mui/material/Skeleton";
 import Stack from "@mui/material/Stack";
 import Tab from "@mui/material/Tab";
@@ -98,7 +99,13 @@ export function PageHeaderSkeleton({
   mb,
   tabs,
   toolbar,
+  back = false,
 }: {
+  /**
+   * The heading is a back link (PageHeader `backHref`: template BackLink, arrow + title). It is an
+   * `a.minimal__breadcrumbs__back`, so PhoneTapStyles gives it the same 44px box below md as the page's.
+   */
+  back?: boolean;
   /** The page shows a crumb trail (PageHeader hides one that only repeats the title). */
   crumbs?: boolean;
   /** The parent crumb is a link (it has an href; a 44px tap target below md). */
@@ -128,7 +135,16 @@ export function PageHeaderSkeleton({
   return (
     <Box component="header" aria-hidden="true" data-skel="header" sx={{ display: "flex", flexDirection: "column", gap: "var(--sp-3)", ...(mb != null ? { mb } : {}) }}>
       <CustomBreadcrumbs
-        heading={(<Skeleton variant="text" width={titleWidth} sx={{ maxWidth: 1 }} />) as unknown as string}
+        heading={
+          (back ? (
+            <Box component="a" aria-hidden="true" tabIndex={-1} className="minimal__breadcrumbs__back" data-skel="back-title" sx={{ display: "inline-flex", alignItems: "center", verticalAlign: "middle", maxWidth: 1 }}>
+              <Skeleton variant="circular" width={18} height={18} sx={{ flexShrink: 0, ml: { xs: 0, md: "-18px" } }} />
+              <Skeleton variant="text" width={titleWidth} sx={{ maxWidth: 1 }} />
+            </Box>
+          ) : (
+            <Skeleton variant="text" width={titleWidth} sx={{ maxWidth: 1 }} />
+          )) as unknown as string
+        }
         slots={
           crumbs
             ? {
@@ -478,6 +494,30 @@ export function CardHeaderSkeleton({ subheader = false, action = false, sx }: { 
       action={action === true ? <Skeleton variant="rounded" width={96} height={36} /> : action || undefined}
       sx={[actionSx, ...(Array.isArray(sx) ? sx : [sx])]}
     />
+  );
+}
+
+/**
+ * Loading twin of a stat-grid card (template invoice-analytic cells in an outlined dashed Paper, the pen
+ * detail's Work state card): CardHeader, then `cells` cells of `p 2.5` (body2 caption + h4 figure) in
+ * `columns` columns per breakpoint, with the same dashed cell dividers.
+ */
+export function StatGridCardSkeleton({ cells, columns }: { cells: number; columns: Record<string, number> }) {
+  const gridTemplateColumns = Object.fromEntries(Object.entries(columns).map(([bp, n]) => [bp, `repeat(${n}, minmax(0, 1fr))`]));
+  return (
+    <Card aria-hidden="true" data-skel="stat-grid">
+      <CardHeaderSkeleton />
+      <Paper variant="outlined" sx={{ m: 3, borderStyle: "dashed", overflow: "hidden" }}>
+        <Box sx={{ mr: "-1px", mb: "-1px", display: "grid", gridTemplateColumns, "& > *": { borderRight: 1, borderBottom: 1, borderColor: "divider", borderStyle: "dashed" } }}>
+          {Array.from({ length: cells }, (_, i) => (
+            <Box key={i} sx={{ p: 2.5, minWidth: 0 }}>
+              <SkeletonLine variant="body2" width={wobble(i)} sx={{ mb: 0.5 }} />
+              <SkeletonLine variant="h4" width={32} />
+            </Box>
+          ))}
+        </Box>
+      </Paper>
+    </Card>
   );
 }
 

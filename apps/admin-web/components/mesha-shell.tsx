@@ -423,12 +423,6 @@ export function MeshaShell({
   const ROUTE_PATTERNS_WITH_LOCAL_OR_NO_PARK_SCOPE = [
     /^\/workflows\/[^/]+$/, // no-park: one fixed workflow row
   ];
-  const lockTopBarParkSelector = routeOwnsOrIgnoresTopBarPark(
-    pathname,
-    PAGES_WITH_LOCAL_OR_NO_PARK_SCOPE,
-    ROUTE_FAMILIES_WITH_LOCAL_OR_NO_PARK_SCOPE,
-    ROUTE_PATTERNS_WITH_LOCAL_OR_NO_PARK_SCOPE,
-  );
   // Top-bar menus are the template's header popovers (the template-derived WorkspacesPopover in
   // layouts/app/components, and account-popover): CustomPopover owns the portal, outside-click and Escape dismissal and focus
   // return, and opening one is a modal layer, so the other can never stay open underneath it.
@@ -436,6 +430,15 @@ export function MeshaShell({
   const [routePending, setRoutePending] = useState(false);
   // Target of a path-changing navigation in flight: its route skeleton replaces the page at once.
   const [pendingHref, setPendingHref] = useState<string | null>(null);
+  // guard: park-rule-follows-pending-route (TR-2 P1-1). While the TARGET route's skeleton is painted,
+  // the header already follows the target's park rule: /vaccination -> a pen showed the switcher in
+  // the skeleton frame and dropped it when the page committed (a header that changes under the reader).
+  const lockTopBarParkSelector = routeOwnsOrIgnoresTopBarPark(
+    pendingHref ? pendingHref.split(/[?#]/)[0] : pathname,
+    PAGES_WITH_LOCAL_OR_NO_PARK_SCOPE,
+    ROUTE_FAMILIES_WITH_LOCAL_OR_NO_PARK_SCOPE,
+    ROUTE_PATTERNS_WITH_LOCAL_OR_NO_PARK_SCOPE,
+  );
   const [navTrail, setNavTrail] = useState<TrailItem[]>([]);
   const trailRef = useRef<TrailItem[]>([]);
   const pendingAnchorRef = useRef<HTMLAnchorElement | null>(null);

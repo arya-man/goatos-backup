@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 const read = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
 
 test("calendar loading is the heading and the calendar card", () => {
-  const loading = read("../../app/(admin)/calendar/loading.tsx");
+  const loading = read("../../app/(admin)/calendar/(index)/loading.tsx");
   assert.match(loading, /<PageHeaderSkeleton crumbs=\{false\}/);
   assert.match(loading, /<BlockSkeleton height=\{CALENDAR_CARD_HEIGHT\} \/>/);
   assert.doesNotMatch(loading, /ChipRowSkeleton|TabsSkeleton|actionWidths/);

@@ -28,6 +28,7 @@ import { scopeHref, type Scope } from "@/lib/scope";
 import { stageLabel } from "@/lib/stage-labels";
 import { PageHeader } from "@/components/app/page-header";
 import { EmptyContent } from "@/components/minimal/empty-content";
+import { SHED_WORK_STATE_COLUMNS, SHED_WORK_STATE_KEYS } from "./shed-detail-layout";
 
 // Order-details layout twin from sections/order/view/order-details-view.tsx: toolbar with back
 // arrow + title + chips inside PageHeader (template CustomBreadcrumbs), Grid xs=12 md=8 body
@@ -39,7 +40,7 @@ import { EmptyContent } from "@/components/minimal/empty-content";
 function Stat({ label, value, tone, pageContract }: { label: string; value: number; tone: Tone; pageContract: AdminUiPageContract }) {
   return (
     <Box sx={{ p: 2.5, minWidth: 0 }}>
-      <Typography variant="body2" sx={{ color: "text.secondary", mb: 0.5 }} noWrap title={label}>
+      <Typography variant="body2" sx={{ color: "text.secondary", mb: 0.5, overflowWrap: "anywhere" }}>
         {label}
       </Typography>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
@@ -114,21 +115,18 @@ export async function ShedExecutionDetailPage({
   const driveRowLabels = tableLabels(pageContract, "shed-drive-rows");
   const stageList = shed.animalStages.map(stageLabel).join(" · ") || copy(pageContract, "label.placeholder");
 
-  const headerActions = (
-    <Tag tone="mut">{s.total} {copy(pageContract, "label.drive_rows")}</Tag>
-  );
-
-  const stats: { key: string; value: number; tone: Tone }[] = [
-    { key: "due", value: s.due, tone: "warn" },
-    { key: "overdue", value: s.overdue, tone: "dng" },
-    { key: "proof_pending", value: s.proofPending, tone: "warn" },
-    { key: "verification_pending", value: s.verificationPending, tone: "pur" },
-    { key: "rejected", value: s.rejected, tone: "dng" },
-    { key: "deferred", value: s.deferred, tone: "mut" },
-    { key: "missed", value: s.missed, tone: "warn" },
-    { key: "blocked", value: s.blocked, tone: "dng" },
-    { key: "completed", value: s.completed, tone: "ok" },
-  ];
+  const statValues: Record<(typeof SHED_WORK_STATE_KEYS)[number], { value: number; tone: Tone }> = {
+    due: { value: s.due, tone: "warn" },
+    overdue: { value: s.overdue, tone: "dng" },
+    proof_pending: { value: s.proofPending, tone: "warn" },
+    verification_pending: { value: s.verificationPending, tone: "pur" },
+    rejected: { value: s.rejected, tone: "dng" },
+    deferred: { value: s.deferred, tone: "mut" },
+    missed: { value: s.missed, tone: "warn" },
+    blocked: { value: s.blocked, tone: "dng" },
+    completed: { value: s.completed, tone: "ok" },
+  };
+  const stats = SHED_WORK_STATE_KEYS.map((key) => ({ key, ...statValues[key] }));
   const owners = [
     { key: "operator", icon: "solar:user-rounded-bold" as const, label: copy(pageContract, "label.operator_ground"), value: owner?.operatorName ?? <Tag tone="dng">{copy(pageContract, "label.unassigned")}</Tag> },
     { key: "head", icon: "solar:users-group-rounded-bold" as const, label: copy(pageContract, "label.park_head"), value: owner?.parkHeadName ?? copy(pageContract, "label.placeholder") },
@@ -140,8 +138,7 @@ export async function ShedExecutionDetailPage({
       <PageHeader
         title={`${shed.parkName} · ${shedDisplayLabel}`}
         backHref={backHref}
-        crumbs={[{ label: copy(pageContract, "crumb"), href: backHref }, { label: shed.parkName }, { label: `${copy(pageContract, "label.animal_stages")}: ${stageList}` }]}
-        actions={headerActions}
+        crumbs={[{ label: copy(pageContract, "crumb"), href: backHref }, { label: shed.parkName }]}
       />
 
       {/* Template order details: md 8 body column (work state, blockers, drive rows) beside the md 4
@@ -150,14 +147,14 @@ export async function ShedExecutionDetailPage({
         <Grid size={{ xs: 12, md: 8 }}>
           <Stack spacing={3}>
             <Card aria-label={copy(pageContract, "section.work_state.title")}>
-              <CardHeader title={copy(pageContract, "section.work_state.title")} action={<Label variant="soft">{s.total} {copy(pageContract, "label.drive_rows")}</Label>} />
+              <CardHeader title={copy(pageContract, "section.work_state.title")} />
               <Paper variant="outlined" sx={{ m: 3, borderStyle: "dashed", overflow: "hidden" }}>
                 <Box
                   sx={{
                     mr: "-1px",
                     mb: "-1px",
                     display: "grid",
-                    gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", sm: "repeat(3, minmax(0, 1fr))" },
+                    gridTemplateColumns: { xs: `repeat(${SHED_WORK_STATE_COLUMNS.xs}, minmax(0, 1fr))`, sm: `repeat(${SHED_WORK_STATE_COLUMNS.sm}, minmax(0, 1fr))` },
                     "& > *": { borderRight: 1, borderBottom: 1, borderColor: "divider", borderStyle: "dashed" },
                   }}
                 >
