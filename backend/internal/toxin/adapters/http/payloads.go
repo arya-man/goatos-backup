@@ -3,6 +3,8 @@ package http
 import (
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+
 	"github.com/vgoats/goatos/backend/internal/toxin/domain"
 	"github.com/vgoats/goatos/backend/internal/toxin/ports"
 )
@@ -140,7 +142,8 @@ func toTaskPayload(row ports.TaskRow, now time.Time, canExecute bool) taskPayloa
 	if t.Vendor != "" {
 		context += " · " + t.Vendor
 	}
-	context += " · " + t.FarmLabel + " · " + t.PurchaseDate
+	// The purchase date is shown to a reader, so it is DD/MM/YYYY; the ISO field stays on the wire.
+	context += " · " + t.FarmLabel + " · " + biztime.FarmDateFromBusinessDate(t.PurchaseDate)
 	return taskPayload{
 		TaskID:         t.TaskID,
 		FeedPurchaseID: t.FeedPurchaseID,

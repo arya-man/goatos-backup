@@ -474,7 +474,7 @@ func (s *Service) GetInsights(ctx context.Context, actor domain.Actor) (domain.I
 			Caveat: "Baseline is per-animal; a naturally active animal's spike threshold is higher than a naturally quiet animal's.",
 		},
 		{
-			Key: "shed_signal_coverage", Label: "Pen Signal Coverage", Value: fmt.Sprintf("%d/%d", d.ShedsWithCoverage, d.ShedsTotal), Unit: "sheds",
+			Key: "shed_signal_coverage", Label: "Pen Signal Coverage", Value: fmt.Sprintf("%d/%d", d.ShedsWithCoverage, d.ShedsTotal), Unit: "pens",
 			SignalType: "correlated", Formula: "live mapped tags / smart-tag mapped animals per pen",
 			Caveat: "A pen with no gateway deployed yet is excluded from the denominator, not counted as zero coverage.",
 		},
@@ -499,19 +499,19 @@ func (s *Service) GetInsights(ctx context.Context, actor domain.Actor) (domain.I
 			Caveat: "Correlation only. An open health case does not mean the movement change is caused by it, or vice versa.",
 		},
 		{
-			Key: "feed_activity", Label: "Feed × Activity", Value: fmt.Sprintf("%d", d.FeedActivityShedsCount), Unit: "sheds",
+			Key: "feed_activity", Label: "Feed × Activity", Value: fmt.Sprintf("%d", d.FeedActivityShedsCount), Unit: "pens",
 			SignalType: "correlated", Formula: "pen activity 2h before vs 2h after feeding",
 			Caveat: "Pen-grain only: this cannot attribute a single tag's motion to feeding.",
 		},
 		{
 			Key: "weight_activity", Label: "Weight × Activity", Value: fmt.Sprintf("%d", d.WeightActivityTagsCount), Unit: "tags",
 			SignalType: "correlated", Formula: "low ADG or weight drop together with low activity",
-			Caveat: "Correlation only, by raw scanned string -- weighing is free-flow and never resolves a scan to goat identity (AGENTS.md), and this card does not either.",
+			Caveat: "Correlation only, matched on the tag as scanned. Weighing never looks up which animal a tag belongs to, and this card does not either.",
 		},
 		{
 			Key: "unmapped_smart_tags", Label: "Unmapped Smart Tags", Value: fmt.Sprintf("%d", d.UnmappedSmartTagsCount), Unit: "tags",
 			SignalType: "derived", Formula: "BLE tags seen with no active smart-tag-capable identifier",
-			Caveat: "A tag that has never been assigned to an active goat_identifiers row, or whose identifier is not smart_tag_capable.",
+			Caveat: "A tag the gateways hear that is not yet assigned to an animal in the herd register, or whose assigned tag is not marked as a smart tag.",
 		},
 	}
 

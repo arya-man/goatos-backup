@@ -104,3 +104,11 @@ func TestFilterChipsAreBackendComposedAndCountWholeTenant(t *testing.T) {
 		t.Fatalf("counts = %d/%d/%d, want 12/3/9 over the whole tenant", chips[0].Count, chips[1].Count, chips[2].Count)
 	}
 }
+
+// The context line is read by a person (verify queue, phone card), so its date is DD/MM/YYYY.
+func TestTaskContextShowsTheFarmDate(t *testing.T) {
+	got := toTaskPayload(openRound(), time.Now(), true).ContextLine
+	if want := "Concentrate · Siddi Srilekha · CPT · 26/08/2026"; got != want {
+		t.Fatalf("context = %q, want %q", got, want)
+	}
+}
