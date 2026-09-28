@@ -6,7 +6,7 @@ name: nightly-full-ci
 # everything that was moved off the landing critical path runs here instead:
 #
 #   * every Android module's unit tests + lint (not only the changed ones)
-#   * the FULL Paparazzi screenshot run (--rerun-tasks), not the diff-mapped one
+#   * the FULL Paparazzi screenshot run (every *ScreenshotTest, task-level --rerun), not the diff-mapped one
 #   * the Android configuration-cache guard + its self-test, the benchmark compile
 #   * backend govulncheck (landing runs it only on a go.mod/go.sum diff)
 #   * the ~24-min gradle-worktree-lock mutation self-test

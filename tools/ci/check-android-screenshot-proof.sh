@@ -84,6 +84,28 @@ matches "$fast_on" 'CI-TRACE android screenshots( \(targeted\))? ::.*:app:verify
 matches "$fast_off" 'CI-TRACE android screenshots( \(targeted\))? ::' \
   && fail "in the FAST lane with GOATOS_RUN_ANDROID_SCREENSHOTS unset the screenshot proof ran anyway; the opt-in default is broken"
 
+# Speed contract (15-min landing, 2026-09-28): the proof reruns ONLY the
+# Paparazzi task (`--rerun`), never the whole graph (`--rerun-tasks` recompiled
+# every module), and never on one worker. PR #451's full proof took 2333 s with
+# `--rerun-tasks --max-workers=1`. Staleness is still covered: `--rerun` forces
+# the screenshot task itself to execute, so it can never pass UP-TO-DATE.
+if [ "${inv:-0}" -ge 1 ]; then
+  printf '%s\n' "$inv_lines" | grep -q -- '--rerun-tasks' \
+    && fail "a screenshot step uses --rerun-tasks (recompiles every module); use task-level --rerun"
+  printf '%s\n' "$inv_lines" | grep -q -- '--max-workers=1[^0-9]' \
+    && fail "a screenshot step pins --max-workers=1; use \$(android_gradle_workers)"
+  no_rerun="$(printf '%s\n' "$inv_lines" | grep -Ev ':app:verifyPaparazziDevDebug --rerun( |$)' || true)"
+  [ -z "$no_rerun" ] \
+    || fail "every screenshot step must pass --rerun right after :app:verifyPaparazziDevDebug (else it can pass UP-TO-DATE without running)"
+fi
+gradle_app="apps/goatos-android/app/build.gradle.kts"
+if [ -f "$gradle_app" ]; then
+  grep -Fq 'filter.includeTestsMatching("sg.mesha.goatos.ui.*ScreenshotTest")' "$gradle_app" \
+    || fail "$gradle_app no longer limits Paparazzi runs to *ScreenshotTest classes (the full 216-class run, one JVM each, took 39 min)"
+  grep -Fq 'maxParallelForks' "$gradle_app" \
+    || fail "$gradle_app no longer runs Paparazzi forks in parallel (maxParallelForks)"
+fi
+
 # The receipt hole must not return.
 code | grep -Fq 'GOATOS_SKIP_ANDROID_SCREENSHOTS' \
   && fail "GOATOS_SKIP_ANDROID_SCREENSHOTS is a receipt hole; it was removed deliberately"

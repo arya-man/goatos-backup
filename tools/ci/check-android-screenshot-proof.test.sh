@@ -59,6 +59,15 @@ expect 1 "dropping :app:verifyPaparazziDevDebug must fail" "$f"
 f="$(mk hole sed 's/GOATOS_RUN_ANDROID_SCREENSHOTS/GOATOS_SKIP_ANDROID_SCREENSHOTS/')"
 expect 1 "reintroducing GOATOS_SKIP_ANDROID_SCREENSHOTS must fail" "$f"
 
+# 15-min speed contract: whole-graph rerun, single worker, or a missing
+# task-level --rerun must each fail.
+f="$(mk rerun_tasks sed 's/:app:verifyPaparazziDevDebug --rerun /:app:verifyPaparazziDevDebug --rerun --rerun-tasks /')"
+expect 1 "--rerun-tasks on a screenshot step must fail" "$f"
+f="$(mk one_worker sed 's/--max-workers=\$(android_gradle_workers)/--max-workers=1 /')"
+expect 1 "--max-workers=1 on a screenshot step must fail" "$f"
+f="$(mk no_rerun sed 's/:app:verifyPaparazziDevDebug --rerun /:app:verifyPaparazziDevDebug /')"
+expect 1 "a screenshot step without task-level --rerun must fail" "$f"
+
 # (e) THE BANNER HOLE. Keep every string, keep the `step "android screenshots"`
 #     line, but make the enabling case arm unmatchable. The old presence-grep
 #     ('GOATOS_RUN_ANDROID_SCREENSHOTS' appears in the SKIP banner echo) passed
