@@ -7,7 +7,7 @@
       "derived_from": [
         {
           "path": "apps/admin-web/features/weighing/weights-analytics.tsx",
-          "sha256": "d0a743e48107bbc77f61c548ce5409df98b92c3af2589fdf5249c124adeb2ce7"
+          "sha256": "774afcc34d37ab032fb6e7667261cfeadba436fe7179a9c5ab0bd63ad2914b0c"
         },
         {
           "path": "backend/internal/weighing/adapters/postgres/weight_demographics.go",
