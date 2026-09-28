@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { Download, X } from "lucide-react";
 import Button from "@mui/material/Button";
 import { RowMenu } from "@/components/app/row-menu";
-import { LEAVE_SELECT_WIDTH } from "./leave-layout";
+import { LEAVE_DATE_PAIR_WIDTH, LEAVE_SELECT_WIDTH } from "./leave-layout";
 import { FilterBar } from "@/components/app/filter-bar";
 import { DenseToggle } from "@/components/app/dense-toggle";
 import TextField from "@mui/material/TextField";
@@ -162,6 +162,9 @@ function LeaveToolbar({ value, parkOptions, designationOptions, basePath, curren
           </MenuItem>
         ))}
       </TextField>
+      {/* The date pair is capped at two 160px fields so park + designation + dates + search + ⋮ sit
+          in ONE toolbar row at 1440 like the template order list (TR2-P2-4; guard: leave-toolbar-one-row). */}
+      <Box sx={{ width: { xs: 1, sm: LEAVE_DATE_PAIR_WIDTH }, flexShrink: 0, minWidth: 0 }}>
       <DateRangeField
         label={copyFor("filter.dates")}
         from={value.from}
@@ -170,6 +173,7 @@ function LeaveToolbar({ value, parkOptions, designationOptions, basePath, curren
         toLabel={copyFor("filter.dates_to")}
         onChange={(next) => patch({ from: next.from || null, to: next.to || null })}
       />
+      </Box>
     </FilterBar>
   );
 }

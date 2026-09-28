@@ -217,9 +217,11 @@ function WorkCard({ pageContract, row, href }: { pageContract: AdminUiPageContra
       >
         <ItemContent>
           <ItemStatus status={cardStatus(row)} />
-          <ItemName name={row.title} title={row.title} sx={{ pr: 2.5 }} />
+          {/* Title and caption WRAP (TR2-P2-13; guard: work-board-card-wraps): long Mesha task
+              names cut to "Milk preparation · Coi…" had no way to be read on a phone. */}
+          <ItemName name={row.title} title={row.title} noWrap={false} sx={{ pr: 2.5, overflowWrap: "anywhere" }} />
           {context || row.clock_label ? (
-            <Typography component="span" variant="caption" noWrap title={[context, row.park_name, row.clock_label].filter(Boolean).join(" · ")} sx={{ display: "block", mt: 0.5, color: "text.secondary" }}>
+            <Typography component="span" variant="caption" title={[context, row.park_name, row.clock_label].filter(Boolean).join(" · ")} sx={{ display: "block", mt: 0.5, color: "text.secondary", overflowWrap: "anywhere" }}>
               {context}
               {context && row.clock_label ? " · " : null}
               {row.clock_label ? <Box component="span" sx={{ color: clockTone, fontVariantNumeric: "tabular-nums" }}>{row.clock_label}</Box> : null}

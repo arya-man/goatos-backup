@@ -13,7 +13,8 @@ export default function Loading() {
       <PageHeaderSkeleton titleWidth={80} crumbLink={false} />
       <StackSkeleton>
         <KpiRowSkeleton count={4} size={LEAVE_TILE_SIZE} />
-        <FormCardSkeleton wrap controls={[232, 56]} action={64} />
+        {/* No Save placeholder: the page shows Save only once a tick changes (TR2-P2-4). */}
+        <FormCardSkeleton wrap controls={[232, 56]} />
         <TableSkeleton columns={5} rows={DEFAULT_PAGE_SIZE} headerSx={LEAVE_QUEUE_HEADER_SX} toolbar={toolbar} pager={false} />
         <TableSkeleton columns={6} rows={DEFAULT_PAGE_SIZE} headerSx={LEAVE_LIST_HEADER_SX} tabs={<TabsSkeleton count={STATUS_FILTERS.length} counts />} toolbar={toolbar} pager={false} />
       </StackSkeleton>

@@ -81,17 +81,21 @@ export function LeaveConfigPanel({
           control={<Checkbox name="hr_required" checked={hr} onChange={(e) => setHr(e.target.checked)} sx={{ p: { xs: 1.5, sm: 1 } }} />}
           label={t("config.hr")}
         />
-        <Button
-          variant="contained"
-          color="primary"
-          size="small"
-          loading={pending}
-          disabled={!canEdit || !dirty || (!parkHead && !hr)}
-          onClick={onSave}
-          title={disabledReason || undefined}
-        >
-          {t("config.save")}
-        </Button>
+        {/* Save appears once there is something to save (TR2-P2-4; guard: leave-save-when-dirty): a
+            permanently grey disabled Save read as a dead control. A reader who cannot edit sees the
+            backend reason line below instead. */}
+        {canEdit && (dirty || pending) ? (
+          <Button
+            variant="contained"
+            color="primary"
+            size="small"
+            loading={pending}
+            disabled={!parkHead && !hr}
+            onClick={onSave}
+          >
+            {t("config.save")}
+          </Button>
+        ) : null}
       </Box>
       {!canEdit && disabledReason ? (
         <div className="small muted" style={{ marginTop: 10 }}>

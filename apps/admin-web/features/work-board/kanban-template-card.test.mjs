@@ -39,3 +39,11 @@ test("guard: tasks-new-task-reason -- a disabled New task says why", () => {
   const service = read("../../../../backend/internal/adminui/app/service.go");
   assert.match(service, /"new\.no_assignees":/, "backend owns the reason copy");
 });
+
+// TR2-P2-13: long titles / captions were cut with an ellipsis ("Milk preparation · Coi…").
+test("guard: work-board-card-wraps -- the work-board card title and caption wrap, never ellipsis", () => {
+  const board = read("./work-board-board.tsx");
+  const card = board.slice(board.indexOf("function WorkCard("), board.indexOf("// Board presentation"));
+  assert.match(card, /<ItemName name=\{row\.title\} title=\{row\.title\} noWrap=\{false\}/);
+  assert.doesNotMatch(card, /variant="caption" noWrap/);
+});

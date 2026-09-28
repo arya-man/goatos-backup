@@ -1061,7 +1061,9 @@ export async function WeighingWeightsPage({
           </LocalViewPane>
           <LocalViewPane param={GAIN_VIEW_PARAM} value="table" current={gainThresholdView}>
             <Card aria-label={copy(pageContract, "section.gain_thresholds.aria")} sx={{ height: 1 }}>
-              <CardHeader title={copy(pageContract, "section.gain_thresholds.title")} subheader={gainCaption} action={gainViewSwitch} sx={{ mb: 3 }} />
+              {/* The view switch sits at the card foot in BOTH panes (as under the chart), so it does
+                  not change slot when the view flips (TR2-P2-12; guard: local-view-anchored). */}
+              <CardHeader title={copy(pageContract, "section.gain_thresholds.title")} subheader={gainCaption} sx={{ mb: 3 }} />
               {gainThresholdRows.length === 0 ? (
                 <EmptyState title={gainEmptyLabel} />
               ) : (
@@ -1095,6 +1097,7 @@ export async function WeighingWeightsPage({
                   </Table>
                 </TableContainer>
               )}
+              <Box sx={{ p: 3 }}>{gainViewSwitch}</Box>
             </Card>
           </LocalViewPane>
         </Grid>

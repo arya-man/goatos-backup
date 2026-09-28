@@ -7,8 +7,10 @@ export const STATUS_FILTERS = ["", "pending", "approved", "rejected", "withdrawn
 export const LEAVE_TILE_SIZE = { xs: 12, sm: 6, md: 3 };
 /** The leave toolbar's select width from sm up (park, designation); the toolbar and its skeleton read it. */
 export const LEAVE_SELECT_WIDTH = 160;
-/** The leave toolbar's fields, in order: park and designation selects, the date pair (246 each at 1440), then search. */
-export const LEAVE_TOOLBAR_FIELDS: (number | "search")[] = [LEAVE_SELECT_WIDTH, LEAVE_SELECT_WIDTH, 246, 246, "search"];
+/** The leave toolbar's date pair box from sm up: two 160px DatePickers + the 16px gap, so search fits the same row. */
+export const LEAVE_DATE_PAIR_WIDTH = 336;
+/** The leave toolbar's fields, in order: park and designation selects, the date pair (160 each), then search. */
+export const LEAVE_TOOLBAR_FIELDS: (number | "search")[] = [LEAVE_SELECT_WIDTH, LEAVE_SELECT_WIDTH, 160, 160, "search"];
 /** The queue card's CardHeader padding (the page and its skeleton share it). */
 export const LEAVE_QUEUE_HEADER_SX = { pt: 2.5, px: 3, pb: 1.5, mb: 2, alignItems: "center" } as const;
 /** The list card's CardHeader padding. */

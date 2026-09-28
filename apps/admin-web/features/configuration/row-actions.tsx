@@ -6,6 +6,7 @@ import { usePopover } from "minimal-shared/hooks";
 import IconButton from "@mui/material/IconButton";
 import MenuItem from "@mui/material/MenuItem";
 import MenuList from "@mui/material/MenuList";
+import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 
 import { CustomPopover } from "@/components/minimal/custom-popover";
@@ -131,9 +132,13 @@ export function RowActions({
   return (
     <div className="cfg-rowacts">
       {canEdit ? (
-        <LocalOverlayLink href={editHref} scroll={false} className="btn sm ghost">
-          {labels.edit}
-        </LocalOverlayLink>
+        // Template user-table-row: a pencil IconButton with a Tooltip, then the ⋮ (TR2-P2-8; guard:
+        // config-row-edit-icon). Same edit href, same local overlay.
+        <Tooltip title={labels.edit}>
+          <IconButton component={LocalOverlayLink} href={editHref} scroll={false} aria-label={labels.edit} sx={phoneTapSx}>
+            <Iconify icon="solar:pen-bold" />
+          </IconButton>
+        </Tooltip>
       ) : null}
       {offerStatus || offerDelete ? (
         <IconButton

@@ -52,6 +52,9 @@ export function LocalViewToggle({
 }) {
   const [selected, setSelected] = useLocalView(param, current);
   return (
+    // The wrapper tags every copy of this toggle (each pane may carry its own) so a switch can
+    // re-anchor the page on the copy that becomes visible (TR2-P2-12, guard: local-view-anchored).
+    <div data-local-view-toggle={param} style={{ display: "flex", minWidth: 0 }}>
     <SegmentTabs
       className="metricseg"
       ariaLabel={ariaLabel}
@@ -61,6 +64,11 @@ export function LocalViewToggle({
         label: option.label,
         onClick: () => {
           if (option.value === selected) return;
+          // Remember where the clicked toggle sits on screen. The pane swap can move the visible
+          // copy (another card height, another slot), which read as the page jumping 725px on
+          // /weighing/weights; after the swap, scroll so the visible copy is back under the pointer.
+          const before = [...document.querySelectorAll<HTMLElement>(`[data-local-view-toggle="${param}"]`)].find((el) => el.offsetParent !== null);
+          const beforeTop = before?.getBoundingClientRect().top;
           const url = new URL(window.location.href);
           if (option.value === defaultValue) url.searchParams.delete(param);
           else url.searchParams.set(param, option.value);
@@ -69,9 +77,16 @@ export function LocalViewToggle({
           window.dispatchEvent(
             new CustomEvent<ChangeDetail>(CHANGE_EVENT, { detail: { param, value: option.value } }),
           );
+          if (beforeTop !== undefined) {
+            requestAnimationFrame(() => {
+              const after = [...document.querySelectorAll<HTMLElement>(`[data-local-view-toggle="${param}"]`)].find((el) => el.offsetParent !== null);
+              if (after) window.scrollBy({ top: after.getBoundingClientRect().top - beforeTop, behavior: "instant" as ScrollBehavior });
+            });
+          }
         },
       }))}
     />
+    </div>
   );
 }
 
