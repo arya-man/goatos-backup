@@ -720,6 +720,22 @@ Mechanics:
   `total_below_plan` beside packing's `above_plan` / `below_plan`), pinned equal to the producer's
   sentences by `TestVerificationVarianceCopyMatchesTheProducersSentences`.
 
+**Two phone defects the device run found, both in the SHARED confirm step (packing had them too).**
+Neither was visible to the unit tests, which fake the outbox; both reproduced on the Realme phone on
+2026-09-28 against a real API:
+
+1. **The confirmed approve could never be sent.** The outbox holds a lane (the item id) behind an
+   older FAILED row, terminal ones included. The server's one-time refusal is terminal (a 422
+   conflict), so the approve she re-sent after ticking "I checked the video again" sat QUEUED behind
+   it forever and the screen spun on "Submitting...". `OutboxDao.eligibleForDrain` now lets a
+   `VERIFICATION_VERDICT` REPLACE a terminally refused verdict in its lane, the same exemption a
+   corrected birth report and a sale receipt already have; a verdict still in backoff keeps holding.
+   Pinned by `OutboxSameMillisecondOrderTest` (red before the change, green after).
+2. **The confirm dialog hid the answer.** After the refusal the "Approve this proof?" dialog stayed
+   open with its button back to "Confirm approve", covering the tick on the card, so the natural
+   second tap re-sent the SAME unconfirmed approve. The dialog now closes once the approve it started
+   has resolved, landed or refused (`VerifyDetailScreen`).
+
 NOT done here, deliberately: the reading is recorded and audited but no leadership read shows
 entered-vs-planned distribution yet (packing's execution view is the model when it is asked for).
 

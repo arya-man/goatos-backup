@@ -494,6 +494,22 @@ fun VerifyDetailScreen(
     // Holds the item AND the number she typed, because the confirm dialog is rendered outside the
     // card and cannot read the card's fields when it resolves.
     var pendingApprove by remember { mutableStateOf<VerifyPendingApprove?>(null) }
+    // The dialog closes once the approve IT started has resolved -- landed or refused. Before this
+    // only Cancel closed it, so the server's one-time "check the video again" refusal (the feed
+    // confirm step, 422 measurement_confirmation_required) left the dialog sitting over the card
+    // with its button reset to "Confirm approve": the warning and the "I checked the video again"
+    // tick were hidden underneath, and a second tap sent the same unconfirmed approve again (phone
+    // E2E 2026-09-28). The card is where the refusal is answered, so the card is what she sees.
+    var approveSubmitStarted by remember { mutableStateOf(false) }
+    LaunchedEffect(state.isSubmitting) {
+        when {
+            state.isSubmitting && pendingApprove != null -> approveSubmitStarted = true
+            !state.isSubmitting && approveSubmitStarted -> {
+                approveSubmitStarted = false
+                pendingApprove = null
+            }
+        }
+    }
     var activeProofSubject by rememberSaveable { mutableStateOf<String?>(null) }
     RefreshOnResume { onEvent(VerifyDetailEvent.Refresh) }
 

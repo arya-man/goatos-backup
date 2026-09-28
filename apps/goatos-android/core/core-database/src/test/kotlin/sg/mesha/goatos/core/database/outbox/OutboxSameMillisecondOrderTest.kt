@@ -550,4 +550,44 @@ class OutboxSameMillisecondOrderTest {
         assertEquals(emptyList<String>(), eligible)
         database.close()
     }
+
+    /**
+     * Phone E2E 2026-09-28: the verifier's "warned, not told" confirm step never landed. Her first
+     * approve is refused ONCE (422 measurement_confirmation_required -- terminal, conflict), she
+     * ticks "I checked the video again" and approves again under a fresh key in the SAME lane (the
+     * item id). Held behind the refused row, that confirmed approve sat QUEUED forever and the
+     * screen spun on "Submitting...". The new verdict REPLACES the refused one, exactly like a
+     * corrected birth report.
+     */
+    @Test
+    fun `a refused verdict does not hold the verifier's confirmed approve on the same item`() = runBlocking {
+        val database = db()
+        val dao = database.outboxDao()
+        dao.insert(
+            row(
+                "refused-approve", "VERIFICATION_VERDICT", "item-1", createdAt = 5L,
+                status = "FAILED", nextAttemptAt = Long.MAX_VALUE, attempts = 1, conflict = true,
+            ),
+        )
+        dao.insert(row("confirmed-approve", "VERIFICATION_VERDICT", "item-1", createdAt = 6L))
+
+        val eligible = dao.eligibleForDrain(now = 1_000L, limit = 50).map { it.id }
+
+        assertEquals(listOf("confirmed-approve"), eligible)
+        database.close()
+    }
+
+    /** TERMINAL only: a verdict still waiting out its backoff may yet land, so the next one waits. */
+    @Test
+    fun `a verdict still waiting out its backoff keeps holding the next verdict on that item`() = runBlocking {
+        val database = db()
+        val dao = database.outboxDao()
+        dao.insert(row("flaky-approve", "VERIFICATION_VERDICT", "item-1", createdAt = 5L, status = "FAILED", nextAttemptAt = 5_000L, attempts = 2))
+        dao.insert(row("next-approve", "VERIFICATION_VERDICT", "item-1", createdAt = 6L))
+
+        val eligible = dao.eligibleForDrain(now = 1_000L, limit = 50).map { it.id }
+
+        assertEquals(emptyList<String>(), eligible)
+        database.close()
+    }
 }
