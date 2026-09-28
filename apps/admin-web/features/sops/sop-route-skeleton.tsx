@@ -31,10 +31,10 @@ export function SopLibrarySkeleton({ titleWidth = 180, actionWidths = SOP_HEADER
       {/* FilterBar bare + fold: Status / Trigger selects from md, search, Filters button below md, ⋮ -- all on
           ONE row at 390 (the fold search basis, shared with FilterBar; guard: filter-bar-fold-one-row). */}
       <FilterCardSkeleton bare fold fields={[160, 160, "search"]} actionWidths={[36]} searchBasis={{ ...FILTER_SEARCH_FOLD_BASIS }} />
-      {/* One row of the 1/2/3 grid at every width (1 card on a phone, TR3-P0-3): most module libraries
-          hold one to three SOPs, so a full page of twelve placeholder cards was three rows taller than
-          the page it stands in for, and three stacked phone cards were two more than a 1-SOP library. */}
-      <CardGridSkeleton count={SOP_SKELETON_CARDS} oneRow />
+      {/* One row of the 1/2/3 grid: most module libraries hold one to three SOPs, so a full page of
+          twelve placeholder cards was three rows taller than the page it stands in for. Only the first
+          card is certain (TR3-P0-3: a 1-SOP library at 390 read cards 2-3 as extra), the rest are optional. */}
+      <CardGridSkeleton count={SOP_SKELETON_CARDS} optionalFrom={1} />
     </PageSkeleton>
   );
 }

@@ -4,6 +4,9 @@
 // guard: action-center-loading-mirrors-page
 import { ChipRowSkeleton, KanbanSkeleton, KpiRowSkeleton, PagerSkeleton, StackSkeleton, TableSkeleton, ToolbarSkeleton } from "@/components/app/skeletons";
 
+/** The board toolbar card's controls, as the page renders them (labels measured at 390 / 1440). */
+export const AC_TOOLBAR = { chipWidths: [93, 67, 63, 62, 44], buttonWidths: [44, 100, 84], searchWidth: { xs: "100%", md: 294 } } as const;
+
 export const BOARD_LANES_SKELETON = (
   <StackSkeleton spacing={2}>
     <KanbanSkeleton lanes={[3, 3, 2, 2, 1]} />
@@ -16,7 +19,9 @@ export const VIEW_SKELETON = {
   "": (
     <StackSkeleton spacing={3}>
       <KpiRowSkeleton count={3} icon />
-      <ToolbarSkeleton left={<ChipRowSkeleton count={4} />} fields={["search", 120, 120]} />
+      {/* The board toolbar CARD (TR3-P0-5): the five severity chips (44px tap pills below sm), the
+          visible-cards search (44 on a phone, the 56px field from md), the paging ⓘ, My tasks, Filters. */}
+      <ToolbarSkeleton card left={<ChipRowSkeleton count={AC_TOOLBAR.chipWidths.length} widths={[...AC_TOOLBAR.chipWidths]} height={{ xs: 44, sm: 32 }} />} fields={["search", ...AC_TOOLBAR.buttonWidths]} searchHeight={{ xs: 44, md: 56 }} searchWidth={{ ...AC_TOOLBAR.searchWidth }} />
       {BOARD_LANES_SKELETON}
     </StackSkeleton>
   ),

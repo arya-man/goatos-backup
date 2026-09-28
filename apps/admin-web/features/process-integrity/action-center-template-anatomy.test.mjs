@@ -89,6 +89,16 @@ test("action-center-loading-mirrors-page: loading.tsx renders the page's own boa
   assert.doesNotMatch(skeletons, /layout="grid"/, "lanes are the kanban layout the board renders");
 });
 
+// TR3-P0-5: the board toolbar is a CARD on the page (severity chips, search, ⓘ, My tasks, Filters); its
+// twin is the same card with the page's five chips at the 44px phone tap height, not a bare chip row.
+test("action-center-loading-mirrors-page: the board toolbar twin is the page's toolbar card", () => {
+  assert.match(page, /<Card>\s*<Box id="acToggles"/);
+  assert.match(skeletons, /<ToolbarSkeleton card left=\{<ChipRowSkeleton count=\{AC_TOOLBAR\.chipWidths\.length\}[^>]*height=\{\{ xs: 44, sm: 32 \}\}/);
+  assert.match(skeletons, /chipWidths: \[93, 67, 63, 62, 44\]/);
+  const chips = page.match(/SEVERITY_ORDER\.map\(\(s2\)/g) ?? [];
+  assert.equal(chips.length, 1, "All severity + the SEVERITY_ORDER chips");
+});
+
 test("adherence-tabs-scroll-buttons: UrlTabs keeps the opt-in template scroll arrows", () => {
   assert.match(urlTabs, /scrollButtons=\{scrollButtons\}/);
   assert.match(urlTabs, /allowScrollButtonsMobile=\{scrollButtons === "auto"\}/);

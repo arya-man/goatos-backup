@@ -93,7 +93,7 @@ test("SOP library is the template job list and its skeleton mirrors it", () => {
   // TR3-P1-1: search + Filters + ⋮ on one phone row (the fold search basis shared with FilterBar).
   assert.match(skel, /<FilterCardSkeleton bare fold fields=\{\[160, 160, "search"\]\} actionWidths=\{\[36\]\} searchBasis=\{\{ \.\.\.FILTER_SEARCH_FOLD_BASIS \}\} \/>/);
   // TR3-P0-3: one grid row of placeholder cards at every width; the header layout is shared with the page.
-  assert.match(skel, /<CardGridSkeleton count=\{SOP_SKELETON_CARDS\} oneRow \/>/);
+  assert.match(skel, /<CardGridSkeleton count=\{SOP_SKELETON_CARDS\} optionalFrom=\{1\} \/>/);
   assert.match(skel, /<PageHeaderSkeleton layout=\{SOP_HEADER_LAYOUT\}/);
   assert.match(src, /<PageHeader\s+layout=\{SOP_HEADER_LAYOUT\}/);
   assert.match(src, /<Box sx=\{\{ display: "flex", flexDirection: "column", gap: 3 \}\}>/);
