@@ -663,12 +663,12 @@ export function CardGridSkeleton({
   columns = { xs: 1, sm: 2, md: 3 },
   facts = 4,
   label = true,
-  oneRow = false,
+  optionalFrom,
 }: {
   count: number;
-  /** Draw exactly ONE row of the grid at every breakpoint (1 card at xs, 2 at sm, 3 at md): a page whose
-   *  card count is data (the SOP libraries hold 1-4) twins its first row, not a phone column of `count`. */
-  oneRow?: boolean;
+  /** Cards from this index on stand for cards the page draws only when it has that many (the SOP
+   *  libraries hold 1-4): they carry data-skel-optional, so a 1-card library is not "extra" (TR3-P0-3). */
+  optionalFrom?: number;
   columns?: { xs?: number; sm?: number; md?: number; lg?: number; xl?: number };
   facts?: number;
   label?: boolean;
@@ -677,7 +677,7 @@ export function CardGridSkeleton({
   return (
     <Box aria-hidden="true" data-skel="cards" sx={{ gap: "var(--sp-3)", display: "grid", gridTemplateColumns: template }}>
       {Array.from({ length: count }, (_, i) => (
-        <Card key={i} sx={oneRow ? { display: Object.fromEntries(Object.entries(columns).map(([bp, n]) => [bp, i < n ? "block" : "none"])) } : undefined}>
+        <Card key={i} {...(optionalFrom != null && i >= optionalFrom ? { "data-skel-optional": "" } : {})}>
           <Box sx={{ p: 3, pb: 2 }}>
             <Skeleton variant="rounded" width={48} height={48} sx={{ mb: 2 }} />
             <SkeletonLine variant="subtitle1" width={wobble(i, 50, 30)} />
@@ -824,19 +824,20 @@ export function BlockSkeleton({ height, card = true }: { height: number | string
  * A page toolbar row that is not a card: a tab strip / chip row on the left, filter fields on the
  * right, wrapping under each other on a phone (the approvals / adherence / feed-tabbar rows).
  */
-export function ToolbarSkeleton({ left, fields = [], small = true, sx }: { left?: ReactNode; fields?: FilterField[]; small?: boolean; sx?: SxProps<Theme> }) {
-  return (
-    <Box aria-hidden="true" data-skel="toolbar" sx={[{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 2, minWidth: 0 }, ...(Array.isArray(sx) ? sx : [sx])]}>
+export function ToolbarSkeleton({ left, fields = [], small = true, searchHeight, card = false, sx }: { left?: ReactNode; fields?: FilterField[]; small?: boolean; /** The search field's own height per breakpoint (a 44px phone field that is the 56px template field from md). */ searchHeight?: Record<string, number>; /** The toolbar is its own Card (`p 2.5`): the Action Center board toolbar card. */ card?: boolean; sx?: SxProps<Theme> }) {
+  const row = (
+    <Box aria-hidden="true" data-skel="toolbar" sx={[{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 2, minWidth: 0 }, card ? { p: 2.5 } : {}, ...(Array.isArray(sx) ? sx : [sx])]}>
       {left ? <Box sx={{ minWidth: 0, maxWidth: 1 }}>{left}</Box> : null}
       {fields.length ? (
         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, alignItems: "center", minWidth: 0 }}>
           {fields.map((f, i) =>
-            f === "search" ? <FieldSkeleton key={i} grow small={small} /> : f === "chip" ? <ChipSkeleton key={i} /> : <FieldSkeleton key={i} width={f} small={small} />,
+            f === "search" ? <FieldSkeleton key={i} grow small={small} height={searchHeight} /> : f === "chip" ? <ChipSkeleton key={i} /> : <FieldSkeleton key={i} width={f} small={small} />,
           )}
         </Box>
       ) : null}
     </Box>
   );
+  return card ? <Card aria-hidden="true" data-skel="toolbar-card">{row}</Card> : row;
 }
 
 /**
