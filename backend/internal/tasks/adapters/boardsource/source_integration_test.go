@@ -97,12 +97,15 @@ INSERT INTO workflow_instances (workflow_id, tenant_id, template_key, module, su
 VALUES ($1::uuid, $2::uuid, $3, $4, $1::uuid, $5::date::timestamptz, $5::date, $6::uuid, $7, $8, $9, NULLIF(lower(replace($10, ' ', '_')), ''), NULLIF($10, ''), $11, $12, $13, $13)`,
 			f.id, wbTenant, f.template, f.module, f.eventDate, f.park, f.state, f.total, f.done, f.nextTitle, f.nextDue, f.awaiting, f.updatedAt)
 	}
-	// wfRework: step 1 done, step 2 sent back, step 3 owed since yesterday.
+	// wfRework: step 1 done, step 2 sent back, step 3 owed since yesterday. Step 4 is SKIPPED (a
+	// branch not taken, or a step a later SOP version dropped) and past due: it is not owed, so it
+	// must never reach the board -- read as owed it rendered "Needs attention" on work nobody owes.
 	wbExec(t, ctx, pool, `
 INSERT INTO workflow_actions (tenant_id, workflow_id, action_key, seq, action_type, title, status, due_at, completed_at, completed_by, rework_reason, requires_video)
 VALUES ($1::uuid, $2::uuid, 'slip', 1, 'action', 'Weighbridge slip', 'completed', $3, $3, $4::uuid, NULL, true),
        ($1::uuid, $2::uuid, 'reached', 2, 'action', 'Load reached the farm', 'rework', $3, NULL, NULL, 'slip photo is blurry', true),
-       ($1::uuid, $2::uuid, 'paid', 3, 'action', 'Payment settled', 'pending', $5, NULL, NULL, NULL, false)`,
+       ($1::uuid, $2::uuid, 'paid', 3, 'action', 'Payment settled', 'pending', $5, NULL, NULL, NULL, false),
+       ($1::uuid, $2::uuid, 'store_photo', 4, 'action', 'Feed in the store', 'skipped', $5, NULL, NULL, NULL, true)`,
 		wbTenant, wfRework, ist("2026-09-23", "10:00"), wbUser, past)
 }
 
