@@ -84,9 +84,13 @@ export async function PeopleBoard({
   const hasAnyFilter = Boolean(search || parkId || departmentId || status);
   const none = copy(pageContract, "value.none");
 
+  // The designation ticked on People / HRMS ("Feed Manager"), composed by the backend. The HR
+  // grade is only the fallback for somebody with no designation; role_hint is never shown --
+  // it stays "operator" for installed phones (000394) and is not anybody's designation.
   const designation = (person: WorkforcePerson): string => {
+    if (person.designation_label) return person.designation_label;
     if (person.designation_grade) return person.designation_grade.replace(/_/g, " ");
-    return person.role_hint.replace(/_/g, " ");
+    return none;
   };
 
   return (

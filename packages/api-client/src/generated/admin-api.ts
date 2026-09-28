@@ -2742,6 +2742,8 @@ export interface components {
             status: string;
             role_hint: string;
             designation_grade: string | null;
+            /** @description The person's designation in farm words ("Feed Manager"), from the designation ticked on People / HRMS; null when no active designation is set. This, not role_hint, is the designation a reader sees. */
+            designation_label: string | null;
             /** @description The person's business title ("CEO", "Preventive Care Director"), edited on People / HRMS; null when none is set. */
             title: string | null;
             /** Format: uuid */

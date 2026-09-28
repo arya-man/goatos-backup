@@ -270,7 +270,7 @@ export function PersonAddDrawer({
                 {cell(field("email"), person.email)}
                 {cell(field("park"), person.park_label)}
                 {cell(field("department"), person.department_label)}
-                {cell(field("designation"), person.designation_grade ?? person.role_hint)}
+                {cell(field("designation"), person.designation_label ?? person.designation_grade?.replace(/_/g, " "))}
                 {cell(copy(pageContract, "column.title"), person.title)}
                 <div>
                   <div className="k">{copy(pageContract, "column.status")}</div>

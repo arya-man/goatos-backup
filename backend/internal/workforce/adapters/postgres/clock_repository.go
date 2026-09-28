@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/workforce/domain"
 	"github.com/vgoats/goatos/backend/internal/workforce/ports"
 )
 
@@ -289,10 +290,16 @@ LEFT JOIN locations l
   ON l.tenant_id = wm.tenant_id AND l.location_id = wm.primary_location_id
 LEFT JOIN departments d
   ON d.tenant_id = wm.tenant_id AND d.department_id = wm.department_id
+LEFT JOIN person_access pa
+  ON pa.tenant_id = wm.tenant_id AND pa.workforce_member_id = wm.workforce_member_id
+-- The person's designation in farm words ("Feed Manager"): 1:1 on the catalog PK. Only an
+-- ACTIVE catalog row names anybody, so a retired designation (operator, 000394) never does.
+LEFT JOIN designation_catalog dc
+  ON dc.designation_code = pa.designation_code AND dc.status = 'active'
 WHERE wm.tenant_id = $1::uuid
   AND wm.status = 'active'
   AND ($3 = '' OR wm.primary_location_id = $3::uuid)
-  AND ($4 = '' OR wm.primary_role_hint = $4)
+  AND ($4 = '' OR pa.designation_code = $4 OR wm.primary_role_hint = $4)
   AND (
     $5 = ''
     OR lower(wm.display_name) LIKE '%' || lower($5) || '%' -- scale-guard:ignore: staff-directory-sized search, same shape as the baselined ListPeople search
@@ -309,6 +316,31 @@ const clockFlaggedExpr = `
 (e.clock_entry_id IS NOT NULL AND (
    e.offline_punch OR e.location_missing OR e.status = 'auto_closed'
    OR (e.status = 'open' AND e.business_date < $6::date)))`
+
+// ListClockDesignations reads the active designation catalog for the clock
+// screens' designation filter. A handful of rows, one indexed read.
+func (r *Repository) ListClockDesignations(ctx context.Context) ([]domain.PeopleCatalogOption, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+SELECT designation_code, label FROM designation_catalog
+WHERE status = 'active'
+ORDER BY sort_order, label`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.PeopleCatalogOption{}
+	for rows.Next() {
+		var o domain.PeopleCatalogOption
+		if err := rows.Scan(&o.Code, &o.Label); err != nil {
+			return nil, err
+		}
+		o.ID = o.Code
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
 
 func (r *Repository) ListClockPresence(ctx context.Context, params ports.ClockPresenceParams) (ports.ClockPresencePage, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
@@ -352,6 +384,7 @@ SELECT
   wm.display_name,
   wm.primary_role_hint,
   COALESCE(wm.hr_designation_grade, ''),
+  COALESCE(dc.label, ''),
   COALESCE(wm.primary_location_id::text, ''),
   COALESCE(l.name, ''),
   COALESCE(d.label, ''),
@@ -396,7 +429,7 @@ LIMIT $10`,
 			appVer    string
 		)
 		if err := rows.Scan(&row.WorkforceMemberID, &row.PersonName, &row.RoleHint,
-			&row.DesignationGrade, &row.ParkID, &row.ParkLabel, &row.DepartmentLabel,
+			&row.DesignationGrade, &row.DesignationLabel, &row.ParkID, &row.ParkLabel, &row.DepartmentLabel,
 			&entryID, &entryDate, &status, &inAt, &outAt, &worked, &offline, &locMiss,
 			&address, &deviceMdl, &appVer); err != nil {
 			return ports.ClockPresencePage{}, err
@@ -444,15 +477,21 @@ func (r *Repository) ClockPersonDayDetail(ctx context.Context, tenantID, workfor
 	out := ports.ClockPersonDay{}
 	err := r.pool.QueryRow(ctx, `
 SELECT wm.workforce_member_id::text, wm.display_name, wm.primary_role_hint,
-       COALESCE(wm.hr_designation_grade, ''), COALESCE(wm.primary_location_id::text, ''),
+       COALESCE(wm.hr_designation_grade, ''), COALESCE(dc.label, ''), COALESCE(wm.primary_location_id::text, ''),
        COALESCE(l.name, ''), COALESCE(d.label, '')
 FROM workforce_members wm
 LEFT JOIN locations l ON l.tenant_id = wm.tenant_id AND l.location_id = wm.primary_location_id
 LEFT JOIN departments d ON d.tenant_id = wm.tenant_id AND d.department_id = wm.department_id
+LEFT JOIN person_access pa
+  ON pa.tenant_id = wm.tenant_id AND pa.workforce_member_id = wm.workforce_member_id
+-- The person's designation in farm words ("Feed Manager"): 1:1 on the catalog PK. Only an
+-- ACTIVE catalog row names anybody, so a retired designation (operator, 000394) never does.
+LEFT JOIN designation_catalog dc
+  ON dc.designation_code = pa.designation_code AND dc.status = 'active'
 WHERE wm.tenant_id = $1::uuid AND wm.workforce_member_id = $2::uuid`,
 		tenantID, workforceMemberID,
 	).Scan(&out.Person.WorkforceMemberID, &out.Person.PersonName, &out.Person.RoleHint,
-		&out.Person.DesignationGrade, &out.Person.ParkID, &out.Person.ParkLabel, &out.Person.DepartmentLabel)
+		&out.Person.DesignationGrade, &out.Person.DesignationLabel, &out.Person.ParkID, &out.Person.ParkLabel, &out.Person.DepartmentLabel)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ports.ClockPersonDay{}, ports.ErrNotFound
 	}

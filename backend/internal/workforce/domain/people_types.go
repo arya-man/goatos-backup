@@ -19,6 +19,11 @@ type PersonSummary struct {
 	// DesignationGrade is the HR grade (cxo/director/manager/assistant_manager)
 	// or empty when ungraded.
 	DesignationGrade *string `json:"designation_grade"`
+	// DesignationLabel is the person's designation in farm words ("Feed Manager"), from the
+	// designation ticked on People / HRMS. It is what the directory shows as the person's
+	// designation; RoleHint is kept for installed phones and is never the display. Nil when no
+	// active designation is set.
+	DesignationLabel *string `json:"designation_label"`
 	// Title is the person's business title ("CEO", "Preventive Care Director"), edited on
 	// People / HRMS and shown where a person is picked by what they are (the Tasks assignee
 	// picker). Nil when none is set; pickers then fall back to the designation label.

@@ -77,6 +77,7 @@ SELECT
   wm.status,
   wm.primary_role_hint,
   wm.hr_designation_grade,
+  dc.label,
   wt.title,
   wm.primary_location_id::text,
   l.name,
@@ -101,6 +102,12 @@ LEFT JOIN workforce_clock_entries ce
 -- Business title (000293): 1:1 on the (tenant, member) PK, absent for most people.
 LEFT JOIN workforce_member_titles wt
   ON wt.tenant_id = wm.tenant_id AND wt.workforce_member_id = wm.workforce_member_id
+LEFT JOIN person_access pa
+  ON pa.tenant_id = wm.tenant_id AND pa.workforce_member_id = wm.workforce_member_id
+-- The person's designation in farm words ("Feed Manager"): 1:1 on the catalog PK. Only an
+-- ACTIVE catalog row names anybody, so a retired designation (operator, 000394) never does.
+LEFT JOIN designation_catalog dc
+  ON dc.designation_code = pa.designation_code AND dc.status = 'active'
 LEFT JOIN locations l
   ON l.tenant_id = wm.tenant_id AND l.location_id = wm.primary_location_id
 LEFT JOIN departments d
@@ -141,6 +148,7 @@ func scanPeople(rows pgx.Rows) ([]domain.PersonSummary, error) {
 			&p.Status,
 			&p.RoleHint,
 			&p.DesignationGrade,
+			&p.DesignationLabel,
 			&p.Title,
 			&p.ParkID,
 			&p.ParkLabel,

@@ -73,7 +73,7 @@ const (
 	// carrying two profiles cannot fan a request into two rows).
 	leaveRequestSelectSQL = `
 SELECT r.leave_request_id::text, r.workforce_member_id::text,
-       COALESCE(m.display_name, ''), COALESCE(m.primary_role_hint, ''), COALESCE(m.hr_designation_grade, ''),
+       COALESCE(m.display_name, ''), COALESCE(m.primary_role_hint, ''), COALESCE(m.hr_designation_grade, ''), COALESCE(dc.label, ''),
        COALESCE(r.park_id::text, ''), COALESCE(l.name, ''),
        r.starts_on::text, r.ends_on::text, r.reason, r.status,
        r.park_head_required, r.hr_required,
@@ -85,6 +85,12 @@ SELECT r.leave_request_id::text, r.workforce_member_id::text,
 FROM workforce_leave_requests r
 JOIN workforce_members m
   ON m.tenant_id = r.tenant_id AND m.workforce_member_id = r.workforce_member_id
+LEFT JOIN person_access pa
+  ON pa.tenant_id = m.tenant_id AND pa.workforce_member_id = m.workforce_member_id
+-- The person's designation in farm words ("Feed Manager"): 1:1 on the catalog PK. Only an
+-- ACTIVE catalog row names anybody, so a retired designation (operator, 000394) never does.
+LEFT JOIN designation_catalog dc
+  ON dc.designation_code = pa.designation_code AND dc.status = 'active'
 LEFT JOIN locations l
   ON l.tenant_id = r.tenant_id AND l.location_id = r.park_id
 LEFT JOIN LATERAL (
@@ -556,7 +562,7 @@ func scanLeaveRequestRows(rows pgx.Rows) ([]ports.LeaveRequestRow, error) {
 		var row ports.LeaveRequestRow
 		if err := rows.Scan(
 			&row.LeaveRequestID, &row.WorkforceMemberID,
-			&row.PersonName, &row.RoleHint, &row.DesignationGrade,
+			&row.PersonName, &row.RoleHint, &row.DesignationGrade, &row.DesignationLabel,
 			&row.ParkID, &row.ParkLabel,
 			&row.StartsOn, &row.EndsOn, &row.Reason, &row.Status,
 			&row.ParkHeadRequired, &row.HRRequired,
