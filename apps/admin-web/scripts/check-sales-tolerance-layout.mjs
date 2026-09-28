@@ -30,10 +30,10 @@ try {
     await page.goto(`${base}/sales/farm-value`, { waitUntil: 'networkidle' });
     const checkErrors = async () => assert.doesNotMatch(await page.locator('body').innerText(), /backend_down|Admin-web contract unavailable|The board could not be loaded|Weights could not be loaded/);
     await checkErrors();
-    const footer = page.locator('.sales-ready-tolerance');
+    const footer = page.locator('[data-over35-margin]');
     await footer.waitFor();
     const bounds = await footer.evaluate(el => {
-      const card = (el.closest('.kit-kpi, .MuiCard-root, .kpi, .card') ?? el.parentElement).getBoundingClientRect();
+      const card = el.getBoundingClientRect();
       return [...el.querySelectorAll('label,strong,input,output,button')].map(child => {
         const box = child.getBoundingClientRect();
         return { tag: child.tagName, inside: box.left >= card.left && box.right <= card.right && box.top >= card.top && box.bottom <= card.bottom };
@@ -48,7 +48,7 @@ try {
     assert.equal(await button.isEnabled(), true);
     await button.click();
     await page.waitForURL(/sale_ready_tolerance_g=50/);
-    await page.waitForFunction(() => document.querySelector('.sales-ready-tolerance button')?.disabled === true);
+    await page.waitForFunction(() => document.querySelector('[data-over35-margin] button')?.disabled === true);
     assert.equal(new URL(page.url()).pathname, '/sales/farm-value');
     assert.equal(await page.locator('#sale-ready-tolerance').inputValue(), '50');
     await checkErrors();

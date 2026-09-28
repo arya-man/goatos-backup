@@ -1,10 +1,9 @@
-import type { ElementType } from "react";
+import type { CSSProperties, ElementType } from "react";
 import type { SxProps, Theme } from "@mui/material/styles";
 import type { PaletteColorKey } from "@/theme/core";
 
 import Box from "@mui/material/Box";
 import MuiLink from "@mui/material/Link";
-import Typography from "@mui/material/Typography";
 
 import Link from "@/components/no-prefetch-link";
 export { completeMonthPercent, lastStepPercent, sevenDayPercent } from "@/lib/kpi-trend";
@@ -74,23 +73,33 @@ function defaultIcon(color: PaletteColorKey | undefined): KpiIcon {
   return "progress";
 }
 
-// The visible sub-line. The template card keeps its markup; the adapter (1) reserves the sub-line's
-// exact wrapped height inside the card with an invisible `::after` carrying the same text
-// (`data-kpi-caption`, spread onto the template Card via its CardProps), and (2) paints the real text
-// over that space, inset by the card's own padding so both wrap identically. The text wraps in full:
-// never truncated (a cut sub-line is hover-only again). An empty figure keeps its line height.
-type Insets = { left: number; right: number; bottom: number };
-const INSETS: Record<"course" | "ecommerce" | "app" | "booking", Insets> = {
-  course: { left: 24, right: 20, bottom: 24 }, // Card py 3, pl 3, pr 2.5
-  ecommerce: { left: 24, right: 24, bottom: 24 }, // Card p 3
-  app: { left: 24, right: 24, bottom: 24 }, // Card p 3
-  booking: { left: 24, right: 16, bottom: 16 }, // Card p 2, pl 3
-};
+// The visible sub-line (TR2-P1-2). The template card keeps its markup; the adapter prints the text
+// IN FLOW as the card's own `::after`: a full-width row right after the template content (the card
+// wraps, lines packed to the top), so a stretched tile never pins its sub-line to the bottom and a
+// tile hugs its content like the template's (guard: kpi-subline-in-flow). The text rides in a CSS
+// custom property (`--kpi-caption`, spread onto the template Card via its CardProps `style`);
+// generated content is in the accessibility tree and wraps in full (never truncated). An empty
+// figure keeps its line height.
 const EMPTY_FIGURE = { "& .MuiBox-root:empty": { minHeight: "1.5em" } };
-const RESERVE_SUBLINE = {
+const SUBLINE_IN_FLOW = {
   flexWrap: "wrap",
-  "&::after": { content: "attr(data-kpi-caption)", display: "block", flexBasis: "100%", visibility: "hidden", typography: "body2", mt: 1, whiteSpace: "normal", overflowWrap: "anywhere" },
+  alignContent: "flex-start",
+  "&::after": {
+    content: "var(--kpi-caption)",
+    display: "block",
+    flexBasis: "100%",
+    typography: "body2",
+    color: "text.secondary",
+    mt: 1,
+    whiteSpace: "normal",
+    overflowWrap: "anywhere",
+  },
 };
+
+/** The caption as a CSS string literal for `content:` (quotes, backslashes and line breaks escaped). */
+export function cssString(text: string): string {
+  return `"${text.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\r?\n/g, " ")}"`;
+}
 
 export function KpiWidget({ title, total: rawTotal, caption: rawCaption, color = "primary", icon, trend, href, linkComponent, sx, "data-testid": testId }: KpiWidgetProps) {
   // A lakh or more is compacted for the template figure (never under the corner icon / sparkline);
@@ -98,35 +107,21 @@ export function KpiWidget({ title, total: rawTotal, caption: rawCaption, color =
   const { total, caption } = compactFigure(rawTotal, rawCaption);
   const figure = total ?? Number.NaN;
   const t: KpiTrend | null = trend ?? null;
-  const cardSx = [{ height: 1 }, EMPTY_FIGURE, ...(caption ? [RESERVE_SUBLINE] : []), ...(Array.isArray(sx) ? sx : [sx])] as SxProps<Theme>;
-  const reserve = caption ? { "data-kpi-caption": caption } : {};
+  const cardSx = [{ height: 1 }, EMPTY_FIGURE, ...(caption ? [SUBLINE_IN_FLOW] : []), ...(Array.isArray(sx) ? sx : [sx])] as SxProps<Theme>;
+  const reserve = caption ? { "data-kpi-caption": caption, style: { "--kpi-caption": cssString(caption) } as CSSProperties } : {};
   let card;
-  let insets: Insets;
   if (t && t.period === "week" && (t.series?.length ?? 0) > 1) {
-    insets = INSETS.ecommerce;
     card = <EcommerceWidgetSummary title={title} total={figure} percent={t.percent} chart={{ series: t.series ?? [], categories: t.categories ?? [] }} sx={cardSx} {...reserve} />;
   } else if (t && t.period === "7d" && (t.series?.length ?? 0) > 1) {
-    insets = INSETS.app;
     card = <AppWidgetSummary title={title} total={figure} percent={t.percent} chart={{ series: t.series ?? [], categories: t.categories ?? [] }} sx={cardSx} {...reserve} />;
   } else if (t && t.period === "month") {
-    insets = INSETS.booking;
     card = <BookingWidgetSummary title={title} total={figure} percent={t.percent} icon={<Iconify icon="solar:chart-square-outline" width={48} sx={{ color: `${color}.main`, opacity: 0.48 }} />} sx={cardSx} {...reserve} />;
   } else {
-    insets = INSETS.course;
     card = <CourseWidgetSummary title={title} total={figure} color={color} icon={ICONS[icon ?? defaultIcon(color)]} sx={cardSx} {...reserve} />;
   }
   const body = (
     <Box data-testid={testId} data-kpi-widget="" sx={{ position: "relative", height: 1 }}>
       {card}
-      {caption ? (
-        <Typography
-          variant="body2"
-          data-kpi-subline=""
-          sx={{ position: "absolute", left: insets.left, right: insets.right, bottom: insets.bottom, color: "text.secondary", whiteSpace: "normal", overflowWrap: "anywhere" }}
-        >
-          {caption}
-        </Typography>
-      ) : null}
     </Box>
   );
   if (!href) return body;

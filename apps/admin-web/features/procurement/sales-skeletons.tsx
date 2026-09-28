@@ -51,7 +51,7 @@ export function SalesLoadsBodySkeleton() {
   );
 }
 
-/** /sales/farm-value `FarmValueSections`: one Grid — the three valuation cards (Over 35 kg with its margin control), the categories chart beside the breakdown rows. */
+/** /sales/farm-value `FarmValueSections`: one Grid — the three valuation cards, the Over 35 kg margin toolbar, the categories chart beside the breakdown rows. */
 export function SalesFarmValueBodySkeleton() {
   return (
     <GridSkeleton
@@ -63,24 +63,13 @@ export function SalesFarmValueBodySkeleton() {
               items={[
                 { size: SALES_GRID.valueKpi, node: <KpiCardSkeleton hint /> },
                 { size: SALES_GRID.valueKpi, node: <KpiCardSkeleton hint /> },
-                {
-                  size: SALES_GRID.valueKpi,
-                  node: (
-                    <StackSkeleton spacing={1.5}>
-                      <KpiCardSkeleton hint hintLines={2} />
-                      {/* SalesReadyToleranceControl: mt 1.5, the label row, then the slider + Apply row
-                          (it wraps to two 44px rows on a phone). */}
-                      <Box>
-                        <SkeletonLine variant="body2" width="100%" sx={{ mt: 1.5, mb: 1 }} />
-                        <FieldSkeleton grow height={{ xs: 77, md: 38 }} />
-                      </Box>
-                    </StackSkeleton>
-                  ),
-                },
+                { size: SALES_GRID.valueKpi, node: <KpiCardSkeleton hint hintLines={2} /> },
               ]}
             />
           ),
         },
+        // Over35MarginForm: the error-margin toolbar card (one row from sm, stacked on a phone).
+        { size: 12, node: <FieldSkeleton grow height={SALES_CHART_TWIN.marginForm} /> },
         { size: SALES_GRID.valueChart, node: <ChartCardSkeleton height={SALES_CHART_TWIN.valueCategories} legend /> },
         // EcommerceSalesOverview progress rows (label, bar, caption: two detail rows each), stretched beside the chart from md.
         { size: SALES_GRID.valueRows, node: <DetailCardSkeleton rows={14} height={{ md: "100%" }} /> },
@@ -106,17 +95,17 @@ function Kpi2x2Skeleton({ lines = [] }: { lines?: KpiShape["hintLines"][] }) {
   return <GridSkeleton fill items={Array.from({ length: 4 }, (_, i) => ({ size: SALES_GRID.half, node: <KpiCardSkeleton hint hintLines={lines[i] ?? 1} /> }))} />;
 }
 
-/** /sales/sold `SoldOverviewPanel`: KPIs 2x2 beside sold-by-weight, the monthly chart beside price by breed, the buyers board. */
+/** /sales/sold `SoldOverviewPanel` (template Ecommerce overview order): the KPI row, sold-by-weight beside the monthly chart, the buyers board beside price by breed. */
 export function SalesSoldOverviewSkeleton() {
   return (
     <GridSkeleton
       items={[
-        { size: SALES_GRID.main, node: <Kpi2x2Skeleton lines={[1, 1, 1, { xs: 2, sm: 1 }]} /> },
+        { size: 12, node: <GridSkeleton items={Array.from({ length: 4 }, (_, i) => ({ size: SALES_GRID.kpi, node: <KpiCardSkeleton hint hintLines={i === 3 ? { xs: 2, sm: 1, lg: 2 } : 1} /> }))} /> },
         { size: SALES_GRID.side, node: <DetailCardSkeleton rows={13} /> },
         { size: SALES_GRID.main, node: <ChartCardSkeleton height={SALES_CHART_TWIN.soldMonthly} action legend /> },
-        { size: SALES_GRID.side, node: <ListCardSkeleton rows={7} /> },
         // RankedTableCard: its avatar rows are ~1.4 text rows each.
-        { size: 12, node: <TableSkeleton columns={7} rows={Math.round(SOLD_BUYERS_PAGE_SIZE * 1.4)} headerAction /> },
+        { size: SALES_GRID.main, node: <TableSkeleton columns={7} rows={Math.round(SOLD_BUYERS_PAGE_SIZE * 1.4)} headerAction /> },
+        { size: SALES_GRID.side, node: <ListCardSkeleton rows={7} /> },
       ]}
     />
   );

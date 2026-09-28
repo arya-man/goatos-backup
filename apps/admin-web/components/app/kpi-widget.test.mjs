@@ -26,11 +26,15 @@ function walk(dir, out = []) {
 test("adapter: numeric figure only, visible sub-line", () => {
   assert.match(adapter, /total: number \| null \| undefined;/, "figure is typed number | null");
   assert.doesNotMatch(adapter, /total\??: [^;\n]*string/, "no string figure");
-  assert.match(adapter, /<Typography[\s\S]{0,200}data-kpi-subline[\s\S]{0,300}\{caption\}/, "caption renders as visible Typography");
+  // guard: kpi-subline-in-flow (TR2-P1-2): the sub-line prints in flow under the figure/title block
+  // (the template content box's ::after, text carried by --kpi-caption), never pinned to the card
+  // bottom by an absolutely positioned overlay, so a tile hugs its content like the template's.
+  assert.match(adapter, /"&::after": \{\s*content: "var\(--kpi-caption\)"/, "caption renders in flow under the title");
+  assert.match(adapter, /"--kpi-caption": cssString\(caption\)/, "caption text rides on the card");
+  assert.doesNotMatch(adapter, /position: "absolute"[^\n]*bottom/, "sub-line is not pinned to the card bottom");
   assert.doesNotMatch(adapter, /<Tooltip\b/, "caption is not hover-only");
   // REVIEW-11: a cut sub-line is hover-only again. It wraps in full: no noWrap / ellipsis / clamp.
   assert.doesNotMatch(adapter, /\bnoWrap\b|textOverflow|WebkitLineClamp|lineClamp/, "sub-line never truncates");
-  assert.match(adapter, /content: "attr\(data-kpi-caption\)"/, "card reserves the wrapped sub-line height");
   // Each trend period maps to the template widget whose fixed period text is true.
   assert.match(adapter, /period === "week"[\s\S]{0,200}<EcommerceWidgetSummary/);
   assert.match(adapter, /period === "7d"[\s\S]{0,200}<AppWidgetSummary/);
@@ -101,4 +105,21 @@ test("kpi-map-truth: Ecommerce-overview map rows name the widgets their tiles re
   const map = readFileSync(join(appDir, "../../docs/design/page-template-map.md"), "utf8");
   const readSource = (rel) => { try { return read(rel); } catch { return null; } };
   assert.deepEqual(kpiMapFindings(map, readSource), []);
+});
+
+test("kpi-subline-in-flow: cssString escapes quotes, backslashes and line breaks", async () => {
+  const src = adapter.match(/export function cssString[\s\S]*?\n}/)[0].replace(/\(text: string\): string/, "(text)");
+  const cssString = new Function(`${src.replace("export ", "")}; return cssString;`)();
+  assert.equal(cssString('a "b" \\ c\nd'), '"a \\"b\\" \\\\ c d"');
+});
+
+// guard: kpi-row-no-stretch (TR2-P1-2): a KPI grid on the Sales pages never takes the row height of
+// a taller sibling card (no `height: 1` on the KPI container) and Farm value's KPI deck holds no
+// form control (the Over 35 kg error margin lives in its own toolbar form).
+test("kpi-row-no-stretch: sales KPI containers hug their tiles", () => {
+  const sold = read("features/procurement/sales-sold.tsx");
+  assert.doesNotMatch(sold, /aria-label=\{copy\(pageContract, "section\.sold\.aria"\)\} sx=\{\{ height: 1 \}\}/, "sold KPI container stretches to the side card");
+  const over35 = read("features/procurement/over35-kpi.tsx");
+  const kpi = over35.match(/export function Over35Kpi[\s\S]*?\n}\n/)[0];
+  assert.doesNotMatch(kpi, /SalesReadyToleranceControl|Slider|Button/, "Over 35 KPI tile embeds a form control");
 });

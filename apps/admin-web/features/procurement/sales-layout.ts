@@ -14,6 +14,9 @@ export const SALES_GRID = {
   main: { xs: 12, lg: 8 },
   /** ... and the rail beside it (sold by weight, price by breed, the repeat ring, the load summary). */
   side: { xs: 12, lg: 4 },
+  /** Sold: the headline KPI row (four tiles, or five with feed sold), hugging their content. */
+  kpi: { xs: 12, sm: 6, lg: 3 },
+  kpi5: { xs: 12, sm: 6, md: 4, xl: 12 / 5 },
   /** One card of a 2x2 KPI block. */
   half: { xs: 12, sm: 6 },
   /** Farm value: the three valuation cards. */
@@ -44,6 +47,8 @@ export const SALES_CHART_TWIN = {
   soldMonthly: { xs: 329, lg: 380 },
   /** Farm value categories (template Banking expenses-categories). */
   valueCategories: { xs: 410, md: 460 },
+  /** Farm value: the Over 35 kg error-margin toolbar card. */
+  marginForm: { xs: 164, sm: 82 },
   /** Buyer analytics repeat ring (template Sale-by-gender). */
   buyerRing: 403,
 } as const;

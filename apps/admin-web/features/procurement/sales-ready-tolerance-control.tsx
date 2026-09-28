@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import Slider from "@mui/material/Slider";
-import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
+import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
 
@@ -39,64 +41,49 @@ export function SalesReadyToleranceControl({ lineKg, valueG, maxG, label, applyL
   const [draftG, setDraftG] = useState(valueG);
 
   return (
-    // Footer slot of the Over-35 KPI widget: head across, slider row left, Apply right — it wraps
-    // inside the card rather than running past its edge. `&&` outranks the legacy class rules.
-    <Box
-      className="sales-ready-tolerance"
-      aria-label={label}
-      aria-busy={pending || undefined}
-      sx={{
-        "&&": {
-          width: "100%",
-          mt: 1.5,
-          position: "relative",
-          zIndex: 1,
-          display: "grid",
-          gridTemplateColumns: "minmax(0,1fr) auto",
-          columnGap: 1.5,
-          rowGap: 1,
-          alignItems: "center",
-        },
-        "&& > .MuiButton-root": { gridColumn: 2, justifySelf: "end" },
-      }}
-    >
-      <Box
-        className="sales-ready-tolerance-head"
-        sx={{ "&&": { gridColumn: "1 / -1", display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 1 } }}
-      >
-        <label htmlFor="sale-ready-tolerance">{label}</label>
-        <strong>{thresholdLabel(lineKg, draftG)}</strong>
-      </Box>
-      <Box
-        className="sales-ready-tolerance-row"
-        sx={{ "&&": { gridColumn: 1, minWidth: 0, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 1 } }}
-      >
-        <Slider
-          id="sale-ready-tolerance"
-          name="sale_ready_tolerance_g"
-          size="small"
-          min={0}
-          max={maxG}
-          step={50}
-          value={draftG}
-          onChange={(_e, v) => setDraftG(Array.isArray(v) ? v[0] : v)}
-          aria-label={label}
-          sx={{ flex: "1 1 120px", minWidth: 0 }}
-        />
-        <output htmlFor="sale-ready-tolerance">{draftG} g</output>
-      </Box>
-      <Button
-        variant="soft"
-        color="primary"
-        size="small"
-        type="button"
-        disabled={draftG === valueG || pending}
-        aria-disabled={draftG === valueG || pending}
-        onClick={() => onApply(draftG)}
-        startIcon={pending ? <CircularProgress size={14} color="inherit" aria-hidden="true" /> : undefined}
-      >
-        {applyLabel}
-      </Button>
-    </Box>
+    // Template list-toolbar anatomy (TR2-P1-3): its own Card on the section row, label + threshold,
+    // the slider and its value, then Apply -- one row from sm, stacked on a phone (44px taps).
+    // Never inside the KPI deck. guard: kpi-row-no-stretch
+    <Card data-over35-margin="" aria-label={label} aria-busy={pending || undefined}>
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={{ xs: 1, sm: 2.5 }} sx={{ p: 2.5, alignItems: { xs: "stretch", sm: "center" } }}>
+        <Stack direction="row" spacing={1} sx={{ flexShrink: 0, alignItems: "baseline", justifyContent: "space-between" }}>
+          <Typography component="label" htmlFor="sale-ready-tolerance" variant="subtitle2">
+            {label}
+          </Typography>
+          <Typography component="strong" variant="subtitle2" sx={{ color: "text.secondary" }}>
+            {thresholdLabel(lineKg, draftG)}
+          </Typography>
+        </Stack>
+        <Stack direction="row" spacing={2} sx={{ flex: "1 1 auto", minWidth: 0, alignItems: "center" }}>
+          <Slider
+            id="sale-ready-tolerance"
+            name="sale_ready_tolerance_g"
+            size="small"
+            min={0}
+            max={maxG}
+            step={50}
+            value={draftG}
+            onChange={(_e, v) => setDraftG(Array.isArray(v) ? v[0] : v)}
+            aria-label={label}
+            sx={{ flex: "1 1 auto", minWidth: 0 }}
+          />
+          <Typography component="output" htmlFor="sale-ready-tolerance" variant="body2" sx={{ minWidth: 48, textAlign: "right" }}>
+            {draftG} g
+          </Typography>
+        </Stack>
+        <Button
+          variant="contained"
+          color="inherit"
+          type="button"
+          disabled={draftG === valueG || pending}
+          aria-disabled={draftG === valueG || pending}
+          onClick={() => onApply(draftG)}
+          startIcon={pending ? <CircularProgress size={14} color="inherit" aria-hidden="true" /> : undefined}
+          sx={{ flexShrink: 0 }}
+        >
+          {applyLabel}
+        </Button>
+      </Stack>
+    </Card>
   );
 }
