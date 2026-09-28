@@ -35,6 +35,7 @@ JOIN workforce_members wm
 WHERE wp.status = 'active'
   AND wm.status <> 'active';
 
+-- seed-migration-guard:ignore owner=manohark issue=PR452 reason=data-repair-of-seats-held-by-already-inactive-people;seeds-never-create-an-inactive-person-holding-a-seat expiry=2027-03-31
 UPDATE workforce_positions wp
 SET status = 'ended',
     valid_to = GREATEST(LEAST(COALESCE(wp.valid_to, now()), now()), wp.valid_from + interval '1 millisecond'),
@@ -50,6 +51,7 @@ SET lock_timeout = '5s';
 
 -- Restores only seats this migration ended and that nobody has since reused (the active-seat
 -- unique index would otherwise refuse the second holder).
+-- seed-migration-guard:ignore owner=manohark issue=PR452 reason=data-repair-of-seats-held-by-already-inactive-people;seeds-never-create-an-inactive-person-holding-a-seat expiry=2027-03-31
 UPDATE workforce_positions wp
 SET status = 'active',
     valid_to = e.old_valid_to,
