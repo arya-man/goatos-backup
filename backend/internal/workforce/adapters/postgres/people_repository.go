@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/vgoats/goatos/backend/internal/parkscope"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/workforce/domain"
 	"github.com/vgoats/goatos/backend/internal/workforce/ports"
 
@@ -200,7 +201,7 @@ func (r *Repository) ListPeople(ctx context.Context, params ports.ListPeoplePara
 	}
 
 	// scale-guard:ignore: non-sargable-like — the staff directory search runs over workforce_members, a staff-sized table (hundreds of rows per tenant, never herd-scale); same shape as the baselined ListOperators search.
-	rows, err := r.pool.Query(ctx, peopleSelectSQL(`
+	bound, err := sqlbind.Bind(peopleSelectSQL(`
 WHERE wm.tenant_id = $1::uuid
   AND ($2 = '' OR wm.primary_location_id = $2::uuid)
   AND ($3 = '' OR wm.department_id = $3::uuid)
@@ -215,6 +216,10 @@ ORDER BY lower(wm.display_name), wm.workforce_member_id
 LIMIT $8`),
 		params.TenantID, params.ParkID, params.DepartmentID, params.Status,
 		params.Search, cursorName, cursorID, limit+1)
+	if err != nil {
+		return nil, "", err
+	}
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, "", err
 	}
@@ -464,9 +469,13 @@ func personCreateFingerprint(tenantID, normalizedEmail, firstName, lastName, rol
 // txPerson reads one person INSIDE the write transaction so the idempotency
 // snapshot records exactly the state this transaction produced.
 func txPerson(ctx context.Context, tx pgx.Tx, tenantID, personID string) (domain.PersonSummary, error) {
-	rows, err := tx.Query(ctx, peopleSelectSQL(`
+	bound, err := sqlbind.Bind(peopleSelectSQL(`
 WHERE wm.tenant_id = $1::uuid AND wm.workforce_member_id = $2::uuid
 LIMIT 1`), tenantID, personID)
+	if err != nil {
+		return domain.PersonSummary{}, err
+	}
+	rows, err := tx.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return domain.PersonSummary{}, err
 	}
@@ -481,9 +490,13 @@ LIMIT 1`), tenantID, personID)
 }
 
 func (r *Repository) personByID(ctx context.Context, tenantID, personID string) (domain.PersonSummary, error) {
-	rows, err := r.pool.Query(ctx, peopleSelectSQL(`
+	bound, err := sqlbind.Bind(peopleSelectSQL(`
 WHERE wm.tenant_id = $1::uuid AND wm.workforce_member_id = $2::uuid
 LIMIT 1`), tenantID, personID)
+	if err != nil {
+		return domain.PersonSummary{}, err
+	}
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return domain.PersonSummary{}, err
 	}

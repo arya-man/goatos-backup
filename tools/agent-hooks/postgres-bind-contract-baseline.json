@@ -42,8 +42,6 @@
   "internal/weighingsop/adapters/postgres/rules_source.go|unverified-dynamic-bind": 1,
   "internal/workforce/adapters/http/leave_handler.go|unverified-dynamic-bind": 1,
   "internal/workforce/adapters/postgres/idempotency.go|unverified-dynamic-bind": 2,
-  "internal/workforce/adapters/postgres/leave_repository.go|unverified-dynamic-bind": 1,
-  "internal/workforce/adapters/postgres/people_repository.go|unverified-dynamic-bind": 3,
   "internal/workforce/adapters/postgres/repository.go|unverified-dynamic-bind": 11,
   "internal/workforce/adapters/postgres/roster_repository.go|unverified-dynamic-bind": 8
 }

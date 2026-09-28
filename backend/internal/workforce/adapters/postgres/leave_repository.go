@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/workforce/domain"
 	"github.com/vgoats/goatos/backend/internal/workforce/ports"
 )
@@ -473,7 +474,11 @@ func (r *Repository) DecideLeaveRequest(ctx context.Context, cmd ports.DecideLea
 			return ports.LeaveRequestWrite{}, mapWriteErr(err)
 		}
 	}
-	tag, err := tx.Exec(ctx, updateSQL, cmd.TenantID, cmd.LeaveRequestID, cmd.Decision, cmd.ActorUserID, strings.TrimSpace(cmd.Note), status, absenceID)
+	bound, err := sqlbind.Bind(updateSQL, cmd.TenantID, cmd.LeaveRequestID, cmd.Decision, cmd.ActorUserID, strings.TrimSpace(cmd.Note), status, absenceID)
+	if err != nil {
+		return ports.LeaveRequestWrite{}, err
+	}
+	tag, err := tx.Exec(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return ports.LeaveRequestWrite{}, mapWriteErr(err)
 	}

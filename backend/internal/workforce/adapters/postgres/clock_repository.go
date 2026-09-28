@@ -317,15 +317,19 @@ const clockFlaggedExpr = `
    e.offline_punch OR e.location_missing OR e.status = 'auto_closed'
    OR (e.status = 'open' AND e.business_date < $6::date)))`
 
+// sqlClockDesignations is the clock designation filter vocabulary: the active
+// designation catalog (a couple of dozen rows, global, not tenant-scoped).
+const sqlClockDesignations = `
+SELECT designation_code, label FROM designation_catalog
+WHERE status = 'active'
+ORDER BY sort_order, label`
+
 // ListClockDesignations reads the active designation catalog for the clock
 // screens' designation filter. A handful of rows, one indexed read.
 func (r *Repository) ListClockDesignations(ctx context.Context) ([]domain.PeopleCatalogOption, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, `
-SELECT designation_code, label FROM designation_catalog
-WHERE status = 'active'
-ORDER BY sort_order, label`)
+	rows, err := r.pool.Query(ctx, sqlClockDesignations)
 	if err != nil {
 		return nil, err
 	}
