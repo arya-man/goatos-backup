@@ -183,6 +183,13 @@ SET status = 'pending_verification',
     sop_proofs = $6::jsonb,
     sop_answers = $7::jsonb,
     rework_reason = NULL,
+    -- A new video is a new submission: any total-feed reading taken off the rejected one
+    -- (2026-09-28) must not let the fresh verification item approve without a reading of its own.
+    verified_feed_kg = NULL,
+    verified_planned_feed_kg = NULL,
+    verified_feed_variance_acknowledged = false,
+    verified_feed_recorded_by = NULL,
+    verified_feed_recorded_at = NULL,
     updated_at = now(),
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid AND completion_id = $2::uuid AND status = 'rework'

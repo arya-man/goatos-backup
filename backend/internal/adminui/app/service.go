@@ -3064,9 +3064,17 @@ func pageSpecificCopy(id string) map[string]string {
 			// keyed by the backend field-error codes feeddirection/domain.PackingEntryAbovePlan /
 			// PackingEntryBelowPlan and must read the same as that package's
 			// PackingEntryVarianceMessage, which is what the phone renders.
-			"feedback.measurement_confirmation_required": "One or more packed weights are more than 500 g away from the plan. Check the video again, and approve only if you are sure of your readings.",
+			//
+			// THE BANNER IS SHARED, THE BOX LINE IS NOT (2026-09-28): feed DISTRIBUTION now rides the
+			// same confirm step with its own 5% band, and this banner is keyed by the one refusal
+			// code both categories share, so it names no tolerance. The exact band lives in the line
+			// under the flagged box, keyed by each producer's own direction code; the distribution
+			// pair must read the same as feeddirection/domain.DistributionEntryVarianceMessage.
+			"feedback.measurement_confirmation_required": "A weight you entered is far from the plan. Check the video again, and approve only if you are sure of your reading.",
 			"verdict.variance.above_plan":                "More than 500 g above the plan. Check the video again.",
 			"verdict.variance.below_plan":                "More than 500 g below the plan. Check the video again.",
+			"verdict.variance.total_above_plan":          "More than 5% above the plan. Check the video again.",
+			"verdict.variance.total_below_plan":          "More than 5% below the plan. Check the video again.",
 			"verdict.variance_confirm_label":             "I checked the video again and I am sure of these weights",
 			"verdict.disabled_variance_unconfirmed":      "Tick the confirmation above to accept with these weights, or correct them.",
 			"action.disabled_no_authority":               "Acting on the source task is limited to the park head, director, or CEO.",
