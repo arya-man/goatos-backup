@@ -17,6 +17,12 @@ import type { AdminWebApprovalRequestType, AdminWebApprovalStatus } from "@/lib/
 /** Status choices and request-type tabs, in order (the page and its loading.tsx both read these). */
 export const STATUS_TABS: AdminWebApprovalStatus[] = ["pending", "approved", "rejected"];
 export const TYPE_TABS: Array<"all" | AdminWebApprovalRequestType> = ["all", "birth", "death", "shifting"];
+/**
+ * Rows-per-page choices (template TablePaginationCustom). The server caps one page at 20
+ * (domain.MaxApprovalPageSize, the mobile page-size rule), so no choice goes past it.
+ */
+export const PAGE_SIZES = [5, 10, 20] as const;
+export const DEFAULT_PAGE_SIZE = 20;
 
 export const APPROVALS_COPY = {
   crumb: "Approvals",
@@ -66,6 +72,8 @@ export const APPROVALS_COPY = {
   pager: {
     next: "Older requests",
     first: "Back to newest",
+    rowsPerPage: "Rows per page:",
+    dense: "Dense",
   },
   kpi: {
     rowsInView: "Rows in view",
