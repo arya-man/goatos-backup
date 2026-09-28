@@ -20,14 +20,14 @@
 
 SET lock_timeout = '5s';
 
-CREATE TABLE public.workforce_positions_000455_ended (
+CREATE TABLE public.workforce_positions_000456_ended (
   tenant_id   uuid NOT NULL,
   position_id uuid NOT NULL,
   old_valid_to timestamptz,
   PRIMARY KEY (tenant_id, position_id)
 );
 
-INSERT INTO public.workforce_positions_000455_ended (tenant_id, position_id, old_valid_to)
+INSERT INTO public.workforce_positions_000456_ended (tenant_id, position_id, old_valid_to)
 SELECT wp.tenant_id, wp.position_id, wp.valid_to
 FROM workforce_positions wp
 JOIN workforce_members wm
@@ -41,7 +41,7 @@ SET status = 'ended',
     valid_to = GREATEST(LEAST(COALESCE(wp.valid_to, now()), now()), wp.valid_from + interval '1 millisecond'),
     updated_at = now(),
     row_version = wp.row_version + 1
-FROM public.workforce_positions_000455_ended e
+FROM public.workforce_positions_000456_ended e
 WHERE e.tenant_id = wp.tenant_id
   AND e.position_id = wp.position_id
   AND wp.status = 'active';
@@ -57,7 +57,7 @@ SET status = 'active',
     valid_to = e.old_valid_to,
     updated_at = now(),
     row_version = wp.row_version + 1
-FROM public.workforce_positions_000455_ended e
+FROM public.workforce_positions_000456_ended e
 WHERE e.tenant_id = wp.tenant_id
   AND e.position_id = wp.position_id
   AND wp.status = 'ended'
@@ -67,4 +67,4 @@ WHERE e.tenant_id = wp.tenant_id
       AND o.position_code = wp.position_code AND o.status = 'active'
   );
 
-DROP TABLE public.workforce_positions_000455_ended;
+DROP TABLE public.workforce_positions_000456_ended;
