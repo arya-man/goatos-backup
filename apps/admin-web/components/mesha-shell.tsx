@@ -842,22 +842,27 @@ export function MeshaShell({
     return first ? (first.enabled ? navHref(first) : first.href) : "#";
   };
   const navData: NavSectionProps["data"] = [];
-  if (primary.length) {
+  // Only ENABLED nav entries render (a greyed disabled link is a dead control; REVIEW-57, guard:
+  // no-disabled-contract-tabs now scans components/ too). A group with no enabled leaf is dropped.
+  const enabledPrimary = primary.filter((n) => n.enabled);
+  const enabledGroups = groups
+    .map((g) => ({ ...g, leaves: g.leaves.filter((l) => l.enabled) }))
+    .filter((g) => g.leaves.length > 0);
+  if (enabledPrimary.length) {
     navData.push({
       subheader: contract.copy["nav.eyebrow.primary"] ?? "Overview",
-      items: primary.map((n) => ({
+      items: enabledPrimary.map((n) => ({
         title: n.label,
-        path: n.enabled ? navHref(n) : n.href,
+        path: navHref(n),
         icon: navIcon(n.icon),
-        active: n.enabled ? navActive(n) : false,
-        disabled: !n.enabled,
+        active: navActive(n),
       })),
     });
   }
-  if (groups.length) {
+  if (enabledGroups.length) {
     navData.push({
       subheader: contract.copy["nav.eyebrow.groups"] ?? "Modules",
-      items: groups.map((g) => ({
+      items: enabledGroups.map((g) => ({
         title: g.label,
         // Group path = first enabled leaf: the mini rail icon links there (layouts/app/dashboard/nav-vertical.tsx).
         path: groupFirstHref(g),
@@ -865,9 +870,8 @@ export function MeshaShell({
         active: g.leaves.some((l) => l.enabled && navActive(l)) || g.id === fallbackGroupId,
         children: g.leaves.map((l) => ({
           title: l.label,
-          path: l.enabled ? navHref(l) : l.href,
-          active: l.enabled ? navActive(l) : false,
-          disabled: !l.enabled,
+          path: navHref(l),
+          active: navActive(l),
         })),
       })),
     });
