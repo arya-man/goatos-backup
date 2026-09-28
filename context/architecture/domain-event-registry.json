@@ -1342,10 +1342,11 @@
     },
     {
       "eventType": "vaccination.roster.changed",
-      "producer": "vaccination-execution operator assignment config write (default-operator change) and operator shift set/clear (PUT/DELETE /vaccination/operator-shifts), durable outbox enqueue in the write transaction",
+      "producer": "vaccination-execution operator assignment config write (default-operator change) and operator shift set/clear (PUT/DELETE /vaccination/operator-shifts), durable outbox enqueue in the write transaction; workforce person deactivation (People / HRMS inactive ends the person's seats and enqueues one event per park where one was a vaccination operator seat, same transaction)",
       "producerFiles": [
         "backend/internal/vaccinationexecution/adapters/postgres/repository.go",
-        "backend/internal/vaccinationexecution/adapters/postgres/operator_shift_repository.go"
+        "backend/internal/vaccinationexecution/adapters/postgres/operator_shift_repository.go",
+        "backend/internal/workforce/adapters/postgres/repository.go"
       ],
       "consumers": [
         {
@@ -1358,7 +1359,8 @@
         "backend/internal/obligation/app/operator_config_replan_test.go",
         "backend/internal/obligation/adapters/postgres/operator_config_replan_integration_test.go",
         "backend/internal/vaccinationexecution/adapters/postgres/operator_config_cascade_outbox_test.go",
-        "backend/internal/vaccinationexecution/adapters/postgres/operator_shift_integration_test.go"
+        "backend/internal/vaccinationexecution/adapters/postgres/operator_shift_integration_test.go",
+        "backend/internal/workforce/adapters/postgres/people_repository_integration_test.go"
       ],
       "surfaces": [
         "backend",
