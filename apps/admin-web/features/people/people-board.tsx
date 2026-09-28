@@ -203,6 +203,7 @@ export async function PeopleBoard({
             <PeopleFormSelect
               form="people-filter-form"
               name="park_id"
+              autoSubmit
               minWidth={200}
               label={copy(pageContract, "filter.park")}
               defaultValue={parkId}
@@ -214,6 +215,7 @@ export async function PeopleBoard({
             <PeopleFormSelect
               form="people-filter-form"
               name="department_id"
+              autoSubmit
               minWidth={200}
               label={copy(pageContract, "filter.department")}
               defaultValue={departmentId}
@@ -222,7 +224,9 @@ export async function PeopleBoard({
                 ...catalog.departments.map((department) => ({ value: department.id, label: department.label })),
               ]}
             />
-            <Button type="submit" form="people-filter-form" variant="outlined" color="inherit" size="large" sx={{ minHeight: 56, flexShrink: 0, order: { md: 3 } }}>
+            {/* The selects apply on change (template toolbar: no Apply button). The button only shows
+                in the phone filters drawer, where it closes the sheet on a deliberate tap. */}
+            <Button type="submit" form="people-filter-form" variant="outlined" color="inherit" size="large" sx={{ minHeight: 56, flexShrink: 0, display: { xs: "inline-flex", sm: "none" } }}>
               {copy(pageContract, "filter.apply", "Apply")}
             </Button>
           </PeopleFilterFold>
