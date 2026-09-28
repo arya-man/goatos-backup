@@ -69,6 +69,8 @@ export const PROFILES = [
 ];
 const ALL_CHECKS = ["scan", "interact", "drawers", "skeleton", "sbs"];
 const CONTENT_ROOT = ".minimal__layout__main__content, main";
+/** Page-level wrappers the skeleton block walk always descends through (copied into r2PageLib; the test pins the copy). */
+export const PAGE_WRAPPER_SELECTOR = "main, .minimal__layout__main__content, .msh-wrap, .screen, [data-skel-root]";
 const OUR_THEME_KEYS = ["mesha.shell.theme", "goatos-theme"];
 const TEMPLATE_THEME_KEY = "theme-mode";
 // Template drawer widths (Minimal v7.7.0 next-ts): kanban-details { xs: 1, sm: 480 },
@@ -432,6 +434,7 @@ function r2PageLib() {
   /** A painted SVG shape (not a group / svg wrapper): the elements a chart colour lands on. */
   function isChartMark(el) { return /^(path|rect|circle|ellipse|polygon|polyline)$/i.test(el.tagName); }
   const ROOT = ".minimal__layout__main__content, main";
+  const PAGE_WRAPPER_SELECTOR = "main, .minimal__layout__main__content, .msh-wrap, .screen, [data-skel-root]";
   const SKEL = ".MuiSkeleton-root, [data-skeleton], [class*='skeleton'], [class*='Skeleton']";
   let lastMutation = performance.now();
   const startObserver = () => {
@@ -697,7 +700,11 @@ function r2PageLib() {
     const r0w = r0.getBoundingClientRect().width;
     const surface = (el, cs) => {
       const eb = el.getBoundingClientRect();
-      // page-level wrappers (content column, .screen, Container) are never blocks themselves
+      // page-level wrappers (content column, .screen, Container) are never blocks themselves -- by
+      // selector too, not only by size: a short loaded page (the /approvals queue with one row, 508px)
+      // left its content Container under the 60%-height cut, so the whole page read as ONE block
+      // against the skeleton's header + card (TR3-P0-4; guard: skeleton-page-wrapper-selector).
+      if (el.matches(PAGE_WRAPPER_SELECTOR)) return false;
       if (eb.width >= r0w * 0.9 && eb.height >= vh * 0.6 && !el.matches(".MuiSkeleton-root, table, .MuiCard-root")) return false;
       if (el.matches(".MuiSkeleton-root, table, svg, canvas, img, video, h1, h2, h3, h4, h5, h6, p, button, a, input, [role=tablist], .MuiCard-root, .MuiPaper-root")) return true;
       const bg = parseColor(cs.backgroundColor);

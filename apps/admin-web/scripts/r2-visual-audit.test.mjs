@@ -226,3 +226,11 @@ test("overlay probe ignores anchored popovers, keeps dialogs and drawers", () =>
   assert.match(probe, /\.MuiDrawer-paper, \.MuiDialog-paper, \[role=dialog\]/);
   assert.match(probe, /!p\.closest\("\.MuiPopover-root"\)/);
 });
+
+test("guard: skeleton-page-wrapper-selector - the block walk descends through page wrappers whatever their height (TR3-P0-4)", async () => {
+  const src = readFileSync(new URL("./r2-visual-audit.mjs", import.meta.url), "utf8");
+  const { PAGE_WRAPPER_SELECTOR } = await import("./r2-visual-audit.mjs");
+  assert.ok(src.includes(`const PAGE_WRAPPER_SELECTOR = ${JSON.stringify(PAGE_WRAPPER_SELECTOR)};`), "r2PageLib keeps the same wrapper selector");
+  assert.match(src, /if \(el\.matches\(PAGE_WRAPPER_SELECTOR\)\) return false;/);
+  for (const sel of [".minimal__layout__main__content", ".screen", "[data-skel-root]"]) assert.ok(PAGE_WRAPPER_SELECTOR.includes(sel));
+});
