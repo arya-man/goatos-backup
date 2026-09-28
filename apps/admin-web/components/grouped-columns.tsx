@@ -9,8 +9,7 @@
 // the tooltip), no hover-state override, the template tooltip, palette colours. NO copy of its own:
 // every visible string arrives resolved from the backend page contract by the caller.
 import { useMemo } from "react";
-import { useTheme } from "@mui/material/styles";
-import { chartColor } from "./app/chart-colors";
+import { chartColor, useChartTheme } from "./app/chart-colors";
 import { EmptyState } from "./app/empty-state";
 import { Chart, useChart, type ChartOptions } from "./minimal/chart";
 import { niceCeiling } from "./chart-scale";
@@ -90,7 +89,7 @@ export function GroupedColumns({
   /** The series are rupees: the axis ticks carry the ₹ prefix. */
   money?: boolean;
 }) {
-  const theme = useTheme();
+  const theme = useChartTheme();
   const hasAnyValue = data.some((d) => d.values.some((v) => v !== null && v !== 0));
   // A series with `stackOn` draws on top of that EARLIER series in the same column (Apex grouped
   // stacking: both share one `group`); the scale is computed over the column sums.

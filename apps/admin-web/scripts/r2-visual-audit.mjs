@@ -58,6 +58,8 @@ export function lightOnlyPaletteHexes(configText) {
   return [...light].filter((h) => !dark.has(h));
 }
 let LIGHT_ONLY_HEXES = [];
+/** Chart marks the server-paint scheme probe reads (ssr-scheme; Apex draws only after hydration). */
+export const CHART_SCHEME_SCOPE_SERVER = ".minimal__chart__legends__item__dot, .minimal__chart__legends__item__icon";
 try { LIGHT_ONLY_HEXES = lightOnlyPaletteHexes(readFileSync(join(appRoot, "theme", "theme-config.ts"), "utf8")); } catch {}
 
 export const PROFILES = [
@@ -535,6 +537,7 @@ function r2PageLib() {
    * Computed-style scan. opts: { scope, theme, tap, max }.
    * Returns deduped findings; offenders get data-r2-q so CDP can name the CSS rule.
    */
+  const CHART_SCHEME_SCOPE = ".apexcharts-canvas, .minimal__chart__legends__item__dot, .minimal__chart__legends__item__icon";
   function scan(opts) {
     const scopeEl = opts.scope ? document.querySelector(opts.scope) : document.body;
     if (!scopeEl) return { findings: [], scanned: 0 };
@@ -589,7 +592,9 @@ function r2PageLib() {
         const b = parseColor(cs.backgroundColor);
         if (b && b[3] > 0.5 && b[0] === 0 && b[1] === 0 && b[2] === 0) add("chart-black", el, `background ${hex(b)} on a chart legend marker`, { prop: "background-color", value: hex(b) });
       }
-      if (opts.theme === "dark" && opts.lightOnly && opts.lightOnly.length && el.closest(".apexcharts-canvas")) {
+      // N4 (TR-2): the template ChartLegends dot / icon is a chart mark too (legend colours come from
+      // the same palette read as the series), so a light-only hex there is the same defect.
+      if (opts.theme === "dark" && opts.lightOnly && opts.lightOnly.length && el.closest(CHART_SCHEME_SCOPE)) {
         for (const [prop, val] of [["fill", cs.fill], ["stroke", cs.stroke], ["background-color", cs.backgroundColor]]) {
           const c = parseColor(val);
           if (c && c[3] > 0.2 && opts.lightOnly.includes(hex(c).slice(0, 7).toLowerCase())) add("chart-light-scheme", el, `${prop} ${hex(c)} is a light-scheme palette colour on a dark chart`, { prop, value: hex(c).slice(0, 7).toLowerCase() });
@@ -1169,6 +1174,37 @@ async function main() {
         await nameRules(page, out.findings);
         for (const f of out.findings) recordScan(f, route.route, profile.label, "page");
         if (out.sideways) add({ check: "scan", pattern: `sideways-scroll|${profile.mobile ? "390" : "1440"}`, label: `Page scrolls sideways at ${profile.width}`, route: route.route, profile: profile.label, detail: `document ${out.sideways.scrollWidth}px wide in a ${out.sideways.viewport}px viewport` });
+      }
+      // ssr-scheme (N4, TR-2): the SERVER paint in dark, before React hydrates. Chart colours read in
+      // JS are the light scheme until the client knows the mode, so a legend painted from them shows
+      // light-only greens in dark on every slow load (TR-2 caught it only at 390, by timing). Load the
+      // page with the Next.js client chunks blocked (inline scripts still set data-theme) and scan
+      // the chart marks for light-only hexes: deterministic, not a race.
+      if (checks.has("scan") && profile.theme === "dark" && LIGHT_ONLY_HEXES.length) {
+        const sctx = await newContext(profile, false);
+        try {
+          await sctx.route(/\/_next\/static\/chunks\//, (r) => r.abort());
+          const sp = await sctx.newPage();
+          await sp.goto(url, { waitUntil: "load", timeout: 45000 }).catch(() => {});
+          const hits = await sp.evaluate(([scope, light]) => {
+            const out = [];
+            const hex = (v) => { const m = /rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?/.exec(v || ""); return m && (m[4] === undefined || +m[4] > 0.2) ? "#" + [m[1], m[2], m[3]].map((n) => Math.round(+n).toString(16).padStart(2, "0")).join("") : null; };
+            for (const el of document.querySelectorAll(scope)) {
+              const cs = getComputedStyle(el);
+              for (const [prop, val] of [["background-color", cs.backgroundColor], ["color", cs.color], ["fill", cs.fill]]) {
+                const h = hex(val);
+                if (h && light.includes(h)) out.push({ prop, value: h, sig: el.className && typeof el.className === "string" ? el.className.split(" ")[0] : el.tagName.toLowerCase() });
+              }
+            }
+            return out;
+          }, [CHART_SCHEME_SCOPE_SERVER, LIGHT_ONLY_HEXES]).catch(() => []);
+          const seenHex = new Set();
+          for (const h of hits) {
+            if (seenHex.has(h.value)) continue;
+            seenHex.add(h.value);
+            add({ check: "scan", route: route.route, profile: profile.label, pattern: `chart-light-scheme|${h.value}`, label: `Light-scheme colour ${h.value} on a dark chart before hydration (${h.sig})`, detail: `${h.prop} ${h.value} in the server paint (client chunks blocked)` });
+          }
+        } finally { await sctx.close(); }
       }
       for (const plug of plugins) {
         if (plug.profiles && !plug.profiles.includes(profile.label)) continue;

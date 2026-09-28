@@ -1,8 +1,8 @@
 "use client";
 
 import type { HerdSignalTimelineBucket } from "@/lib/api/herd-signals";
-import { alpha, useTheme } from "@mui/material/styles";
-import { chartColor } from "@/components/app/chart-colors";
+import { alpha } from "@mui/material/styles";
+import { chartColor, useChartTheme } from "@/components/app/chart-colors";
 import { Chart, useChart } from "@/components/minimal/chart";
 import { niceCeiling } from "@/components/chart-scale";
 import { fmtClockIst, fmtDelta, fmtRssi } from "./format";
@@ -37,7 +37,7 @@ export function HistoryChart({
   // correlation-not-cause copy in herd-signals-history-fullscreen.tsx, which this renders under.
   markers?: ChartMarker[];
 }) {
-  const theme = useTheme();
+  const theme = useChartTheme();
   const p = theme.palette;
   const rawMaxDelta = Math.max(1, ...buckets.map((bucket) => bucket.motion_delta ?? 0), baseline ?? 0);
   // Keep zero/gap-heavy tags from collapsing into a useless 1.0 / 0.7 / 0.3 / 0 axis. The mock's
