@@ -6,8 +6,10 @@ export const LT_HEADER_MB = { xs: 3, md: 5 } as const;
 export const LT_BLOCK_MB = 3;
 /** The filter selects, in order (buildFilters). */
 export const LT_FILTER_IDS = ["lt_park", "lt_vaccine", "lt_operator", "lt_shed", "lt_status"] as const;
-/** The filter card's grid track floor from sm (`repeat(auto-fill, minmax(200px, 1fr))`). */
-export const LT_FILTER_MIN = 200;
+/** The filter card's grid track floor from sm (`repeat(auto-fill, minmax(150px, 1fr))`): the five selects + the live refresh interval fit one row at 1440. */
+export const LT_FILTER_MIN = 150;
+/** The live refresh interval select after the filters (a live day; the usual case the twin draws). */
+export const LT_LIVE_INTERVAL_FIELD = 1;
 /** The KPI deck's KpiGrid card floor. */
 export const LT_KPI_MIN = 200;
 /** Tables column (operators / pens / combo) beside the live rail. */

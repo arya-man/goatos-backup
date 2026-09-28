@@ -160,17 +160,16 @@ export async function VaccinationWorkflowDrilldownPage({
         title={title}
         status={optionLabel(pageContract, "work_state_filter_chips", row.work_state)}
         statusColor={TONE_LABEL[workTone] ?? "default"}
-        subtitle={[copy(pageContract, "crumb"), drive, row.park_name, shedLine, stageLabel(row.animal_stage)].join(" · ")}
+        subtitle={[drive, row.park_name, shedLine, stageLabel(row.animal_stage)].join(" · ")}
         backHref={backHref}
         backLabel={backLabel}
-        // The status chips + Action Center wrap on a phone instead of running off the left edge.
+        // Template order toolbar: one status Label beside the title (work state), the severity Label and
+        // ONE primary action on the right. The SOP / proof / verification states are the chain's own
+        // node Labels below (TR-2 P2-14: four Labels stacked above the button repeated them).
         slotProps={{ actions: { flexWrap: "wrap", justifyContent: { xs: "flex-start", md: "flex-end" } } }}
         actions={
           <>
             <Tag tone={optionTone(pageContract, "severity_chips", row.severity) as Tone}>{optionLabel(pageContract, "severity_chips", row.severity)}</Tag>
-            <Tag tone={optionTone(pageContract, "sop_state_chips", row.sop_task_state) as Tone}>{optionLabel(pageContract, "sop_state_chips", row.sop_task_state)}</Tag>
-            <Tag tone={optionTone(pageContract, "proof_state_chips", row.proof_state) as Tone}>{optionLabel(pageContract, "proof_state_chips", row.proof_state)}</Tag>
-            <Tag tone={optionTone(pageContract, "verification_state_chips", row.verification_state) as Tone}>{optionLabel(pageContract, "verification_state_chips", row.verification_state)}</Tag>
             <LinkButton href={scopeHref("/action-center", scope, {}, { ac_row: row.row_id })} variant="contained" startIcon={<Iconify icon="solar:list-bold" />}>
               {copy(pageContract, "action.action_center")}
             </LinkButton>

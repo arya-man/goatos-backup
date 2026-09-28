@@ -53,7 +53,7 @@ test("/vaccination twin reads command-board-layout.ts, as the Command Board does
 });
 
 test("/vaccination/plan loading reads plan-layout.ts, as PlanConsole does", () => {
-  const loading = app("vaccination/plan/loading.tsx");
+  const loading = app("vaccination/plan/(index)/loading.tsx");
   assert.match(loading, /from "@\/features\/vaccination-plan\/plan-layout"/);
   assert.match(loading, /count=\{PLAN_FACT_KEYS\.length\} size=\{PLAN_FACT_SIZE\}/);
   assert.match(loading, /columns=\{LIVE_HEAD_CELLS\.length\}/);
@@ -145,7 +145,7 @@ test("SK3 twins type no numbers", () => {
     "counts/counts-skeletons.tsx",
     "vaccination-live-tracker/live-tracker-skeleton.tsx",
   ].map((f) => [f, read(f)]);
-  const loadings = ["vaccination", "vaccination/plan", "herd-signals", "weighing/weights", "weighing/analytics", "counts/analytics", "counts/breakdown", "counts/herd", "counts/mortality", "counts/milk-preparation", "vaccination/live-tracker"].map((r) => [`app/(admin)/${r}/loading.tsx`, app(`${r}/loading.tsx`)]);
+  const loadings = ["vaccination/(index)", "vaccination/plan/(index)", "herd-signals", "weighing/weights", "weighing/analytics", "counts/analytics", "counts/breakdown", "counts/herd", "counts/mortality", "counts/milk-preparation", "vaccination/live-tracker"].map((r) => [`app/(admin)/${r}/loading.tsx`, app(`${r}/loading.tsx`)]);
   const hits = [...twins, ...loadings].flatMap(([f, src]) => numericLiterals(src).map((h) => `${f}:${h}`));
   assert.deepEqual(hits, []);
 });

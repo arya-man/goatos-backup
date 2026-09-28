@@ -10,7 +10,7 @@ const read = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
 // and hides (keeps mounted) the page being left.
 test("the shell paints the target route skeleton on a path-changing click", () => {
   const shell = read("./mesha-shell.tsx");
-  assert.match(shell, /setPendingHref\(dest && dest\.pathname !== window\.location\.pathname \?/);
+  assert.match(shell, /const pathChange = !!dest && dest\.pathname !== window\.location\.pathname;\s*setPendingHref\(pathChange \?/);
   assert.match(shell, /<PendingRouteSkeleton href=\{pendingHref\} \/>/);
   assert.match(shell, /data-route-skeleton=\{pendingHref \? "" : undefined\}/);
   assert.match(shell, /"& \.msh-wrap\[data-route-skeleton\] > :not\(\[data-route-skeleton-el\]\)/);
@@ -65,4 +65,11 @@ test("no stylesheet forces flex-wrap on busy skeleton divs", () => {
   const frame = read("../app/frame.css");
   assert.doesNotMatch(frame, /\.screen\[aria-busy="true"\]\s+div\s*\{[^}]*flex-wrap/);
   assert.doesNotMatch(read("./app/skeletons/blocks.tsx"), /"&&&": \{ flexWrap/);
+});
+
+// guard: pending-route-scroll-top (TR-2 P1-11): a path-changing click lands at the top of the new page.
+test("a path-changing navigation (not history back) scrolls to the top with the target skeleton", () => {
+  const shell = read("./mesha-shell.tsx");
+  assert.match(shell, /const pathChange = !!dest && dest\.pathname !== window\.location\.pathname;/);
+  assert.match(shell, /if \(pathChange && source !== "back"\) window\.scrollTo\(0, 0\);/);
 });

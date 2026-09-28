@@ -4,12 +4,12 @@
 export const WF_DETAIL_GRID = { chain: { xs: 12, md: 8 }, side: { xs: 12, md: 4 } } as const;
 
 // Loading-twin estimates of what the page does not set itself (copy-driven), measured at 1440 and 390.
-/** OrderDetailsToolbar: title width, subtitle lines, the four state Labels + the Action Center button. */
+/** OrderDetailsToolbar: title width, subtitle lines, the severity Label + the Action Center button. */
 export const WF_TOOLBAR = {
   titleWidth: 364,
   titleLines: { xs: 2, md: 1 },
-  subtitleLines: 2,
-  actions: [{ width: 49, label: true }, { width: 107, label: true }, { width: 94, label: true }, { width: 107, label: true }, { width: 140 }],
+  subtitleLines: { xs: 2, md: 1 },
+  actions: [{ width: 49, label: true }, { width: 140 }],
 } as const;
 /** The blocker Alert (only when the row is blocked). */
 export const WF_BLOCKER_HEIGHT = { xs: 72, md: 50 } as const;

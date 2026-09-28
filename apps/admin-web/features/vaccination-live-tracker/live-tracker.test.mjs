@@ -442,3 +442,15 @@ test("live-tracker-app-overview: welcome row, clean header, no empty-state banne
   const welcome = readFileSync(new URL("../../components/app/sections/overview/app/app-welcome.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(welcome, /assetsDir|url\(/, "no template demo imagery");
 });
+
+// guard: live-tracker-app-welcome-action (TR-2 P1-10). Template App overview: the welcome card carries
+// ONE contained action (LIVE / PAUSED); the updated time is welcome text; the refresh interval is a
+// filter-card select on the poller's store, never a segmented ToggleButtonGroup in the hero.
+test("live tracker hero is App-overview anatomy: one contained action, interval in the filter card", () => {
+  const board = readFileSync(new URL("./live-tracker-board.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(poller, /ToggleButtonGroup|variant="soft"/);
+  assert.match(poller, /variant="contained"/);
+  assert.match(poller, /export function LiveIntervalField/);
+  assert.match(board, /extra=\{data\.generated_at && data\.is_live_day \? <LiveIntervalField/);
+  assert.match(board, /live\.updated_prefix/);
+});
