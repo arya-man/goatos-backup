@@ -917,6 +917,40 @@
   .vr-videolog .vl-frow .vl-fbtns{display:flex;gap:8px;flex:0 0 auto}
   .vr-videolog .vl-frow .btn{flex:0 0 auto}
 
+  /* ===== Feed Verification (maintainer decision 2026-09-28): one feed day's packed bags, planned
+     feed beside the verified weight. Reuses the Video Log's table and head rules (.vr-videolog,
+     .vl-tbl); only what differs is here. Same width as the Analytics drawer: eight columns. ===== */
+  aside.drawer.vr-feedverify-drawer{width:min(940px,96vw)}
+  /* Picker, "Packed on", CSV: wraps on a phone rather than pushing the drawer sideways. */
+  .vr-feedverify .vl-head{flex-wrap:wrap}
+  .vr-feedverify .fv-packed{flex:none}
+  .vr-feedverify .fv-packed b{color:var(--ink);font-variant-numeric:tabular-nums}
+  .vr-feedverify .fv-parks{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+  .vr-feedverify .fv-parks a{background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:3px 11px;font-size:12px;font-weight:650;color:var(--muted);text-decoration:none}
+  .vr-feedverify .fv-parks a.on{border-color:var(--brand);color:var(--brand-d);background:var(--brand-soft)}
+  .vr-feedverify .fv-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-bottom:14px}
+  .vr-feedverify .fv-kpi{border:1px solid var(--line2);border-radius:10px;padding:8px 10px;min-width:0}
+  .vr-feedverify .fv-kpi-v{font-size:16px;font-weight:750;color:var(--ink);font-variant-numeric:tabular-nums}
+  /* The table owns its horizontal scroll; the page body never scrolls sideways (phone-390 rule). */
+  .vr-feedverify .fv-tablewrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .vr-feedverify .fv-table{min-width:640px}
+  .vr-feedverify .fv-table .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .screen .vr-feedverify .fv-table th.num{text-align:right}
+  .vr-feedverify .fv-table tr.fv-bag-first td{border-top:1px solid var(--line)}
+  .vr-feedverify .fv-table tr.fv-bag-total td{font-weight:700;background:color-mix(in srgb,var(--panel) 55%,transparent)}
+  .vr-feedverify .fv-table .fv-over{color:var(--amber);font-weight:650}
+  .vr-feedverify .fv-table .fv-under{color:var(--danger);font-weight:650}
+  .vr-feedverify .fv-table .fv-hidden-plan{font-style:italic}
+  .vr-feedverify .fv-table .fv-status .tag{white-space:nowrap}
+  /* Feed names WRAP inside a bounded column. Table cells here inherit nowrap, and an undecided bag
+     lists every feed in one cell, which pushed Planned/Verified off the drawer's right edge. */
+  .vr-feedverify .fv-table .fv-feeds{display:inline-block;white-space:normal;min-width:140px;max-width:215px;line-height:1.35}
+  .vr-feedverify .fv-table td.fv-pen{white-space:normal;min-width:110px}
+  @media (max-width:600px){
+    .vr-feedverify .fv-table .fv-feeds{min-width:110px;max-width:140px}
+    .vr-feedverify .fv-table td.fv-pen{min-width:90px}
+  }
+
   /* ===== verification-review video review anatomy (ported from mock/verifier-web-mock.html
      .thumb/.player/.proofstrip/.facts) — layout/CSS only, no visible copy. ===== */
   .vr-thumb{width:86px;height:52px;border-radius:10px;background:linear-gradient(135deg,#1b2b1e,#233a4d 60%,#12211a);display:grid;place-items:center;color:#E9F1EA;flex:none;position:relative;border:1px solid var(--line)}

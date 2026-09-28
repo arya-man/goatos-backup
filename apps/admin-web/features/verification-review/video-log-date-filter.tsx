@@ -27,9 +27,20 @@ export function VideoLogDateFilter({
   basePath,
   day,
   today,
+  dateKey = VIDEO_LOG_DATE_KEY,
+  panelKey = VIDEO_LOG_PANEL_SELECTION_KEY,
+  panelId = VIDEO_LOG_PANEL_ID,
 }: {
   labels: DateRangePickerLabels;
   basePath: string;
+  /**
+   * URL keys the picker writes. Default to the Video Log's; the Feed Verification panel passes its
+   * own so the two drawers keep separate days. Plain strings from the server page -- never import
+   * them here from a "use client" module (see video-log-params.ts).
+   */
+  dateKey?: string;
+  panelKey?: string;
+  panelId?: string;
   /** The day currently rendered, "YYYY-MM-DD", resolved by the backend. */
   day: string;
   /** Today's business day (Asia/Kolkata), resolved on the server. */
@@ -51,15 +62,15 @@ export function VideoLogDateFilter({
     setOptimistic({ day: nextFrom, overrides: day });
 
     const next = new URLSearchParams(searchParams?.toString() ?? "");
-    if (nextFrom === today) next.delete(VIDEO_LOG_DATE_KEY);
-    else next.set(VIDEO_LOG_DATE_KEY, nextFrom);
+    if (nextFrom === today) next.delete(dateKey);
+    else next.set(dateKey, nextFrom);
     // KEEP THE PANEL OPEN across the day change.
     //
     // The trigger opens this panel with a URL HASH (#vi_video_log=open), which is client-local
     // state. Rebuilding the query string here drops that hash, so every date pick closed the drawer
     // the user was working in. Promoting the panel selection into the QUERY makes it survive the
     // navigation and keeps the deep link honest — the server reads the same key for initialOpen.
-    next.set(VIDEO_LOG_PANEL_SELECTION_KEY, VIDEO_LOG_PANEL_ID);
+    next.set(panelKey, panelId);
     // The selected SHED is deliberately kept: "same pen, previous day" is the natural next question
     // once a shed's day is open. A shed with no arrivals that day renders its own empty line, which
     // is the honest answer rather than a silent bounce back to the shed list.

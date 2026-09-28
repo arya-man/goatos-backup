@@ -251,3 +251,25 @@ func (s *Service) FeedFollowUp(ctx context.Context, in DirectedAnalyticsInput) (
 		ParkIDs: parkIDs, DateFrom: in.DateFrom, DateTo: in.DateTo,
 	})
 }
+
+// PackingVerificationLog serves the FEED VERIFICATION panel on /verify: one feed day's packed bags
+// with plan beside the verifier's reading, the plan only for bags whose verdict stands. The feed day
+// is the day the animals eat; the bags were packed the day before.
+func (s *Service) PackingVerificationLog(ctx context.Context, in PackingVerificationLogInput) (domain.PackingVerificationLog, error) {
+	if s.analytics == nil {
+		return domain.PackingVerificationLog{}, fmt.Errorf("feeddirection: analytics reader is not wired")
+	}
+	parkIDs, err := analyticsParkFilter(in.ParkID, in.AuthorizedParkIDs)
+	if err != nil {
+		return domain.PackingVerificationLog{}, err
+	}
+	return s.analytics.PackingVerificationLog(ctx, in.TenantID, parkIDs, in.FeedDay)
+}
+
+// PackingVerificationLogInput is one feed day in the caller's park scope.
+type PackingVerificationLogInput struct {
+	TenantID          string
+	ParkID            string
+	AuthorizedParkIDs []string
+	FeedDay           time.Time
+}

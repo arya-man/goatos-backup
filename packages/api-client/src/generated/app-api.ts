@@ -2328,6 +2328,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/feed-analytics/packing-verification": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One feed day's packed bags, planned feed beside the verified packed weight.
+         * @description The FEED VERIFICATION panel on /verify (maintainer decision 2026-09-28). For ONE feed day (the day the animals eat), every bag -- one per park, pen, session and workflow -- with each feed item's planned quantity from the feed direction sheet beside the weight the verifier entered when she approved the packing video. The bags were packed the day before; `packing_day` carries that date so no client does day arithmetic.
+         *
+         *     THE PLAN IS SHOWN ONLY FOR A DECIDED BAG. The verifier weighs a bag blind; once her verdict on it stands (`status` = `verified`) its plan is returned. On every other bag (`awaiting_verification`, `rework`, `not_packed`) `planned_kg`, `difference_kg` and `planned_total_kg` are EMPTY -- withheld by the server, so no client can reveal the answer to a bag she has not judged. The plan of a verified bag is the figure her reading was checked against when she approved it, falling back to the sheet's sum.
+         *
+         *     Empty strings mean absent, never zero: a blocked sheet cell has no plan, and a bag nobody has verified has no reading. Not paginated -- one day is bounded by the parks' pens x sessions x items -- and `totals` range over exactly the bags returned (the four status counts are disjoint and sum to `bags`; the kg totals cover verified bags only). `operational_location_display` is backend-composed ("Castro 1", "Godel 1 - Part 3"); render it verbatim.
+         */
+        get: operations["getFeedPackingVerificationLog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/feed-direction/preview": {
         parameters: {
             query?: never;
@@ -12028,6 +12052,54 @@ export interface components {
             /** Format: date */
             date_to: string;
             rows: components["schemas"]["FeedAnalyticsShedFeedRow"][];
+        };
+        FeedPackingVerificationLogItem: {
+            feed_item_key: string;
+            feed_item_label: string;
+            /** @description Decimal kg; empty unless the bag is verified, or when the sheet blocked the cell. */
+            planned_kg: string;
+            /** @description The verifier's reading in kg; empty until she records it. */
+            entered_kg: string;
+            /** @description entered minus planned; empty unless both are present. */
+            difference_kg: string;
+            /** @description The reading was far from plan and the verifier confirmed it after re-checking. */
+            variance_acknowledged: boolean;
+        };
+        FeedPackingVerificationLogBag: {
+            park_id: string;
+            park_label: string;
+            shed_id: string;
+            shed_label: string;
+            partition_label: string;
+            operational_location_display: string;
+            session_no: number;
+            session_label: string;
+            /** @enum {string} */
+            workflow: "normal" | "experiment";
+            /** @enum {string} */
+            status: "verified" | "awaiting_verification" | "rework" | "not_packed";
+            /** Format: date-time */
+            verified_at: string | null;
+            verified_by_name: string;
+            planned_total_kg: string;
+            entered_total_kg: string;
+            items: components["schemas"]["FeedPackingVerificationLogItem"][];
+        };
+        FeedPackingVerificationLogResponse: {
+            /** Format: date */
+            feed_day: string;
+            /** Format: date */
+            packing_day: string;
+            totals: {
+                bags: number;
+                verified: number;
+                awaiting_verification: number;
+                rework: number;
+                not_packed: number;
+                planned_kg: string;
+                entered_kg: string;
+            };
+            bags: components["schemas"]["FeedPackingVerificationLogBag"][];
         };
         /** @description Pens that gained or lost animals in the window, and whether the feed sheet moved with them. Head counts and kg are the FROZEN sheet's own; causes are the herd register's. */
         FeedAnalyticsFollowUpResponse: {
@@ -26127,6 +26199,45 @@ export interface operations {
                 content?: never;
             };
             /** @description Caller lacks feed direction read for the requested scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getFeedPackingVerificationLog: {
+        parameters: {
+            query?: {
+                /** @description The feed day (Asia/Kolkata business date). Defaults to today. */
+                feed_day?: string;
+                /** @description Narrow to one park. Absent means every park the caller is authorized for. */
+                park_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every bag of the feed day, park then pen then session. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedPackingVerificationLogResponse"];
+                };
+            };
+            /** @description Malformed date or park id. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Caller is neither the verifier nor the CXO, or the park is outside their scope. */
             403: {
                 headers: {
                     [name: string]: unknown;

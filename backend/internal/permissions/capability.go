@@ -498,6 +498,8 @@ var moduleCapabilities = []ModuleCapability{
 			LevelDo: {
 				VerificationReview, VerificationVerdict,
 				VerificationEvidenceTimeline, VerificationFilterByCaptureDate,
+				// Plan beside her own reading, for bags she has already decided (2026-09-28).
+				VerificationFeedPackingLog,
 				// The older per-vaccination verify and the shared task sign-off travel with the
 				// verdict: they are the same act on a different record.
 				VaccinationVerify, TaskVerify,
@@ -511,6 +513,9 @@ var moduleCapabilities = []ModuleCapability{
 			LevelConfigure: {
 				VerificationReview, VerificationAct, VerificationOversee,
 				VerificationFilterByCaptureDate, VerificationEvidenceTimeline,
+				// VerificationFeedPackingLog is deliberately NOT here: the PC Director maps to this
+				// level, and the maintainer named the CXO and the verifier only (2026-09-28). The CXO
+				// gets it through verification_policy below.
 			},
 		},
 	},
@@ -781,7 +786,11 @@ var moduleCapabilities = []ModuleCapability{
 		Blurb:    "How much of each kind of proof video gets watched.",
 		Surfaces: []string{SurfaceWeb},
 		Levels: map[string][]string{
-			LevelConfigure: {VerificationSampling},
+			// VerificationFeedPackingLog rides here for the CXO (maintainer decision 2026-09-28): plan
+			// beside the verifier's reading on /verify. Same reason as sampling -- a CEO-only authority
+			// the PC Director must not inherit through the verification module's top level. The
+			// verifier gets it on that module's Do level.
+			LevelConfigure: {VerificationSampling, VerificationFeedPackingLog},
 		},
 	},
 	{

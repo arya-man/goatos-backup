@@ -527,6 +527,12 @@ func (transportFilterService) FeedFollowUp(
 	return domain.FeedFollowUp{}, nil
 }
 
+func (transportFilterService) PackingVerificationLog(
+	context.Context, app.PackingVerificationLogInput,
+) (domain.PackingVerificationLog, error) {
+	return domain.PackingVerificationLog{}, nil
+}
+
 // TestPostCompleteDistributionCardShapedRequestSkipsTheLegacyPreCheck pins the FEED SOP rule
 // (2026-09-16): a request that carries the card's `proofs` map is judged against the sheet's
 // PINNED card by the service, so the handler's legacy "every seeded proof present" pre-check must

@@ -1155,6 +1155,10 @@ var protectedRoutes = []Route{
 	// carry. The read is additionally park-clamped for a caller whose grant is park-scoped, exactly
 	// like the queue read.
 	{OperationID: "getVerificationVideoLog", Method: "GET", Pattern: "/verification/video-log", Permissions: []string{VerificationEvidenceTimeline}},
+	// The FEED VERIFICATION panel on /verify (maintainer decision 2026-09-28): one feed day's packed
+	// bags, plan beside the verifier's reading for decided bags only. Served by the feed module that
+	// owns both tables; see permissions.VerificationFeedPackingLog.
+	{OperationID: "getFeedPackingVerificationLog", Method: "GET", Pattern: "/feed-analytics/packing-verification", Permissions: []string{VerificationFeedPackingLog}},
 	// RANDOMIZATION (maintainer decision 2026-08-26): per category, what percentage of that
 	// category's proof videos the verifier must watch, and how the day is going against that share.
 	// Read and write are gated on the SAME capability, verification.sampling, which is CEO-only --

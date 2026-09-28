@@ -736,10 +736,12 @@ GROUP BY 1`
 // every table plus the caller's authorized park set on both sides.
 //
 // EVERY MEASURED BAG, difference reported as it stands (maintainer decision 2026-08-24, superseding
-// the beyond-tolerance flag that followed the original outliers-only rule). This comparison must
-// NEVER reach a verifier surface: she enters blind, and the page serving this payload is
-// leadership-gated. The one thing her screen may learn from the plan is a DIRECTION -- the 500 g
-// confirm guard in the packing measurement applier (2026-09-09) -- never a figure or a gap.
+// the beyond-tolerance flag that followed the original outliers-only rule). THIS read stays
+// leadership-gated: it spans a window and is not the verifier's. Before her verdict, the one thing
+// her screen may learn from the plan is a DIRECTION -- the 500 g confirm guard in the packing
+// measurement applier (2026-09-09) -- never a figure or a gap. AFTER her verdict on a bag she may
+// see its plan beside her reading, through packingVerificationLogSQL only (maintainer decision
+// 2026-09-28), which withholds the plan of every bag still undecided.
 //
 // scale-guard:ignore: 5k-50k-envelope -- bounded windowed comparison over the
 // same indexed date columns as the status counts above.

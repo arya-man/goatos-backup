@@ -2079,6 +2079,24 @@ func compileVerificationReviewControls(controls []domain.Control, input Bootstra
 		DisabledReason: timelineReason,
 		Action:         "GET /verification/video-log",
 	})
+	// feed_verification gates the FEED VERIFICATION panel on /verify (maintainer decision
+	// 2026-09-28): one feed day's packed bags, the plan beside the verifier's reading, the plan only
+	// once her verdict on the bag stands. Its own capability, permissions.VerificationFeedPackingLog,
+	// held by the verifier and ceo_internal and by no director -- NOT video_log's
+	// VerificationEvidenceTimeline, which the four directors also hold.
+	mayReadPackingLog := ungated || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.VerificationFeedPackingLog})
+	packingLogReason := ""
+	if !mayReadPackingLog {
+		packingLogReason = controlCopy(copy, "feed_verification.disabled_no_access", "Feed verification is limited to the verifier and the CXO.")
+	}
+	out = upsertControl(out, domain.Control{
+		ID:             "feed_verification",
+		Label:          controlCopy(copy, "feed_verification.open", "Feed Verification"),
+		Kind:           "visibility",
+		Enabled:        mayReadPackingLog,
+		DisabledReason: packingLogReason,
+		Action:         "GET /feed-analytics/packing-verification",
+	})
 	// The TOXIN review tab (maintainer decision 2026-08-25). Both controls follow
 	// permissions.ToxinVerdict, which only ceo_internal holds -- toxin review is deliberately NOT
 	// the generic Verification module and NOT verification.verdict, so the tenant verifier must

@@ -38,6 +38,15 @@ import {
   VIDEO_LOG_SHED_TOKEN,
 } from "./video-log-params";
 import { VideoLog } from "./video-log";
+import { FeedVerification, FEED_VERIFICATION_PARK_TOKEN } from "./feed-verification";
+import { FeedVerificationPanel } from "./feed-verification-panel";
+// Server-safe module on purpose: see video-log-params.ts.
+import {
+  FEED_VERIFICATION_DATE_KEY,
+  FEED_VERIFICATION_PANEL_ID,
+  FEED_VERIFICATION_PANEL_SELECTION_KEY,
+  FEED_VERIFICATION_PARK_KEY,
+} from "./feed-verification-params";
 import { VerificationReviewDrawer } from "./verification-review-drawer";
 import { VerificationQueueTelemetry } from "./verification-queue-telemetry";
 import { ToxinReviewScreen, toxinTabLabel } from "./toxin-review-section";
@@ -212,6 +221,10 @@ export async function VerificationReviewPage({
   // not. Keeping it a distinct control is what lets her have this panel without the oversight
   // chrome. See compileVerificationReviewControls's video_log doc comment.
   const videoLogEnabled = controlEnabled(pageContract, "video_log", false);
+  // Gates the FEED VERIFICATION panel (maintainer decision 2026-09-28): one feed day's packed bags,
+  // planned feed beside the verified weight. Its own capability, permissions.VerificationFeedPackingLog
+  // -- the verifier and the CXO, no director -- so it is NOT the video_log control.
+  const feedVerificationEnabled = controlEnabled(pageContract, "feed_verification", false);
   // Gates the CEO-only RANDOMIZATION section: per module, the share of proof the verifier must
   // review (maintainer decision 2026-08-26). Its own control, on permissions.VerificationSampling
   // -- NARROWER than the oversight capability above, which the PC Director also holds. See
@@ -373,6 +386,58 @@ export async function VerificationReviewPage({
               }
             />
           </VideoLogPanel>
+        ) : null}
+        {/* FEED VERIFICATION, beside the Video Log (maintainer decision 2026-09-28): for one feed
+            day, per park, pen and session, the plan next to the weight the verifier entered for the
+            bag packed the day before. The plan is only ever present on bags whose verdict stands --
+            the server withholds it on every other bag. */}
+        {feedVerificationEnabled ? (
+          <FeedVerificationPanel
+            pageContract={pageContract}
+            selectionKey={FEED_VERIFICATION_PANEL_SELECTION_KEY}
+            panelId={FEED_VERIFICATION_PANEL_ID}
+            // MUST drop the panel key and its own filters, or closing writes a URL that still says
+            // open and the drawer reopens from it (see the Video Log's closeHref).
+            closeHref={hrefWith(sp, {
+              [FEED_VERIFICATION_PANEL_SELECTION_KEY]: null,
+              [FEED_VERIFICATION_DATE_KEY]: null,
+              [FEED_VERIFICATION_PARK_KEY]: null,
+            })}
+            initialOpen={one(sp, FEED_VERIFICATION_PANEL_SELECTION_KEY) === FEED_VERIFICATION_PANEL_ID}
+          >
+            <FeedVerification
+              pageContract={pageContract}
+              feedDay={one(sp, FEED_VERIFICATION_DATE_KEY) || undefined}
+              parkId={scope.parkId || undefined}
+              parkFilter={one(sp, FEED_VERIFICATION_PARK_KEY) || undefined}
+              // Both hrefs re-assert the panel key in the QUERY so the drawer survives the navigation.
+              parkHrefTemplate={hrefWith(sp, {
+                [FEED_VERIFICATION_PARK_KEY]: FEED_VERIFICATION_PARK_TOKEN,
+                [FEED_VERIFICATION_PANEL_SELECTION_KEY]: FEED_VERIFICATION_PANEL_ID,
+              })}
+              allParksHref={hrefWith(sp, {
+                [FEED_VERIFICATION_PARK_KEY]: null,
+                [FEED_VERIFICATION_PANEL_SELECTION_KEY]: FEED_VERIFICATION_PANEL_ID,
+              })}
+              basePath={PATHNAME}
+              today={today}
+              dateKey={FEED_VERIFICATION_DATE_KEY}
+              panelKey={FEED_VERIFICATION_PANEL_SELECTION_KEY}
+              panelId={FEED_VERIFICATION_PANEL_ID}
+              dateLabels={{
+                field: copy(pageContract, "feed_verification.day"),
+                today: copy(pageContract, "filter.date.today"),
+                single: copy(pageContract, "filter.date.single"),
+                range: copy(pageContract, "filter.date.range"),
+                aria: copy(pageContract, "filter.date.aria"),
+                previousMonth: copy(pageContract, "filter.date.previous_month"),
+                nextMonth: copy(pageContract, "filter.date.next_month"),
+                rangeStartHint: copy(pageContract, "filter.date.range_start_hint"),
+                rangeEndHint: copy(pageContract, "filter.date.range_end_hint"),
+                rangeSeparator: copy(pageContract, "filter.date.range_separator"),
+              }}
+            />
+          </FeedVerificationPanel>
         ) : null}
         {/* RANDOMIZATION: how much of each module's proof the verifier is required to watch
             (maintainer decision 2026-08-26). A THIRD panel, not a tab inside Analytics, because it

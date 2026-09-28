@@ -1102,3 +1102,110 @@ func (h *Handler) GetFeedFollowUp(w http.ResponseWriter, r *http.Request) {
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, dto)
 }
+
+// ---------------------------------------------------------------------------
+// FEED VERIFICATION panel on /verify (maintainer decision 2026-09-28).
+// ---------------------------------------------------------------------------
+
+type packingLogItemDTO struct {
+	FeedItemKey          string `json:"feed_item_key"`
+	FeedItemLabel        string `json:"feed_item_label"`
+	PlannedKg            string `json:"planned_kg"`
+	EnteredKg            string `json:"entered_kg"`
+	DifferenceKg         string `json:"difference_kg"`
+	VarianceAcknowledged bool   `json:"variance_acknowledged"`
+}
+
+type packingLogBagDTO struct {
+	ParkID                     string              `json:"park_id"`
+	ParkLabel                  string              `json:"park_label"`
+	ShedID                     string              `json:"shed_id"`
+	ShedLabel                  string              `json:"shed_label"`
+	PartitionLabel             string              `json:"partition_label"`
+	OperationalLocationDisplay string              `json:"operational_location_display"`
+	SessionNo                  int                 `json:"session_no"`
+	SessionLabel               string              `json:"session_label"`
+	Workflow                   string              `json:"workflow"`
+	Status                     string              `json:"status"`
+	VerifiedAt                 *string             `json:"verified_at"`
+	VerifiedByName             string              `json:"verified_by_name"`
+	PlannedTotalKg             string              `json:"planned_total_kg"`
+	EnteredTotalKg             string              `json:"entered_total_kg"`
+	Items                      []packingLogItemDTO `json:"items"`
+}
+
+type packingLogTotalsDTO struct {
+	Bags                 int    `json:"bags"`
+	Verified             int    `json:"verified"`
+	AwaitingVerification int    `json:"awaiting_verification"`
+	Rework               int    `json:"rework"`
+	NotPacked            int    `json:"not_packed"`
+	PlannedKg            string `json:"planned_kg"`
+	EnteredKg            string `json:"entered_kg"`
+}
+
+type packingVerificationLogDTO struct {
+	FeedDay    string              `json:"feed_day"`
+	PackingDay string              `json:"packing_day"`
+	Totals     packingLogTotalsDTO `json:"totals"`
+	Bags       []packingLogBagDTO  `json:"bags"`
+}
+
+// GetPackingVerificationLog serves GET /feed-analytics/packing-verification: for ONE feed day
+// (default today, IST), every packed bag per park, pen and session, with each feed item's plan
+// beside the verifier's entered weight -- the plan only on bags whose verdict is cast. Gated on
+// permissions.VerificationFeedPackingLog at the route table; park scope resolves on the same
+// capability so the verifier's tenant-wide reach is honoured.
+func (h *Handler) GetPackingVerificationLog(w http.ResponseWriter, r *http.Request) {
+	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
+	if tenantID == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized, "missing tenant context", nil)
+		return
+	}
+	query := r.URL.Query()
+	today := biztime.BusinessDayStart(time.Now().In(biztime.DefaultLocation()))
+	feedDay, err := optionalBusinessDate(query, "feed_day", today)
+	if err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	parkScope := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(
+		r.Context(), tenantID, strings.TrimSpace(query.Get("park_id")), permissions.VerificationFeedPackingLog,
+	)
+	if !parkScope.Allowed {
+		httpresponse.WriteError(w, r, h.log, parkScope.Status, parkScope.Message, nil)
+		return
+	}
+	result, err := h.service.PackingVerificationLog(r.Context(), app.PackingVerificationLogInput{
+		TenantID: tenantID, ParkID: parkScope.ParkID, AuthorizedParkIDs: parkScope.ParkIDs, FeedDay: feedDay,
+	})
+	if err != nil {
+		h.writeServiceError(w, r, "feed packing verification log", err)
+		return
+	}
+	dto := packingVerificationLogDTO{
+		FeedDay:    result.FeedDay,
+		PackingDay: result.PackingDay,
+		Totals:     packingLogTotalsDTO(result.Totals),
+		Bags:       make([]packingLogBagDTO, 0, len(result.Bags)),
+	}
+	for _, b := range result.Bags {
+		items := make([]packingLogItemDTO, 0, len(b.Items))
+		for _, it := range b.Items {
+			items = append(items, packingLogItemDTO(it))
+		}
+		var verifiedAt *string
+		if b.VerifiedAt != "" {
+			v := b.VerifiedAt
+			verifiedAt = &v
+		}
+		dto.Bags = append(dto.Bags, packingLogBagDTO{
+			ParkID: b.ParkID, ParkLabel: b.ParkLabel, ShedID: b.ShedID, ShedLabel: b.ShedLabel,
+			PartitionLabel: b.PartitionLabel, OperationalLocationDisplay: b.OperationalLocationDisplay,
+			SessionNo: b.SessionNo, SessionLabel: b.SessionLabel, Workflow: b.Workflow, Status: b.Status,
+			VerifiedAt: verifiedAt, VerifiedByName: b.VerifiedByName,
+			PlannedTotalKg: b.PlannedTotalKg, EnteredTotalKg: b.EnteredTotalKg, Items: items,
+		})
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, dto)
+}

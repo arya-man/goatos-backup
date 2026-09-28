@@ -3214,6 +3214,51 @@ func pageSpecificCopy(id string) map[string]string {
 			// Shown on each summary row so the per-video drill-down is discoverable: the shed name
 			// alone read as a plain label and the maintainer could not find the video times.
 			"video_log.view_videos": "View videos",
+
+			// FEED VERIFICATION copy (permissions.VerificationFeedPackingLog, maintainer decision
+			// 2026-09-28): one feed day's packed bags, the plan beside the verifier's reading. Read by
+			// the verifier and the CXO; farm-plain, "pen" never "shed". The day picked is the day the
+			// animals EAT, and the hint says the bags were packed the day before, so nobody reads
+			// yesterday's packing as today's.
+			"feed_verification.open":                         "Feed Verification",
+			"feed_verification.close":                        "Close feed verification",
+			"feed_verification.title":                        "Feed Verification",
+			"feed_verification.hint":                         "Planned feed beside the verified packed weight, pen by pen",
+			"feed_verification.disabled_no_access":           "Feed verification is limited to the verifier and the CXO.",
+			"feed_verification.unavailable":                  "Feed verification is unavailable right now.",
+			"feed_verification.day":                          "Feed day",
+			"feed_verification.packed_on":                    "Packed on",
+			"feed_verification.empty_day":                    "No feed was directed or packed for this day.",
+			"feed_verification.filter.park":                  "Park",
+			"feed_verification.filter.all_parks":             "All parks",
+			"feed_verification.col.park":                     "Park",
+			"feed_verification.col.pen":                      "Pen",
+			"feed_verification.col.session":                  "Session",
+			"feed_verification.col.feed":                     "Feed",
+			"feed_verification.col.planned":                  "Planned (kg)",
+			"feed_verification.col.verified":                 "Verified (kg)",
+			"feed_verification.col.difference":               "Difference (kg)",
+			"feed_verification.col.status":                   "Status",
+			"feed_verification.col.verified_by":              "Verified by",
+			"feed_verification.col.verified_at":              "Verified at",
+			"feed_verification.col.feed_day":                 "Feed day",
+			"feed_verification.col.packing_day":              "Packed on",
+			"feed_verification.bag_total":                    "Bag total",
+			"feed_verification.status.verified":              "Verified",
+			"feed_verification.status.awaiting_verification": "Awaiting verification",
+			"feed_verification.status.rework":                "Sent back",
+			"feed_verification.status.not_packed":            "Not packed",
+			// Why an undecided bag shows no plan: the verifier still weighs it blind.
+			"feed_verification.plan_after_verdict": "Shown once verified",
+			"feed_verification.rechecked":          "Re-checked",
+			"feed_verification.not_on_sheet":       "No feed listed",
+			"feed_verification.kpi.bags":           "Bags",
+			"feed_verification.kpi.verified":       "Verified",
+			"feed_verification.kpi.pending":        "Awaiting verification",
+			"feed_verification.kpi.planned":        "Planned (verified bags)",
+			"feed_verification.kpi.entered":        "Verified weight",
+			"feed_verification.experiment":         "Experiment",
+			"feed_verification.download":           "Download CSV",
 		}
 	case "calendar":
 		return map[string]string{

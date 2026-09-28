@@ -5302,6 +5302,31 @@ export async function getVerificationVideoLog(params: {
   );
 }
 
+export type FeedPackingVerificationLogResponse =
+  AppApiComponents["schemas"]["FeedPackingVerificationLogResponse"];
+export type FeedPackingVerificationLogBag =
+  AppApiComponents["schemas"]["FeedPackingVerificationLogBag"];
+
+// The FEED VERIFICATION panel (GET /feed-analytics/packing-verification): one feed day's packed
+// bags, per park, pen and session, the plan beside the verifier's reading -- the plan only on bags
+// whose verdict is cast. Gated on permissions.VerificationFeedPackingLog (verifier + CXO), the same
+// capability as the /verify page contract's feed_verification control; call only when that control
+// is enabled so a caller without it never renders a bare error card.
+export async function getFeedPackingVerificationLog(params: {
+  feedDay?: string;
+  parkId?: string;
+}): Promise<ApiResult<FeedPackingVerificationLogResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedPackingVerificationLogResponse>("/feed-analytics/packing-verification", {
+      cache: "no-store",
+      query: compactQuery({ feed_day: params.feedDay, park_id: params.parkId }),
+    }),
+  );
+}
+
 export type VerificationSamplingResponse =
   AppApiComponents["schemas"]["VerificationSamplingResponse"];
 export type VerificationSamplingCategory =

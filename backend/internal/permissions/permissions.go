@@ -938,6 +938,23 @@ const (
 	// never instead of it.
 	VerificationEvidenceTimeline = "verification.evidence_timeline"
 
+	// VerificationFeedPackingLog gates the FEED VERIFICATION panel on /verify (maintainer decision
+	// 2026-09-28): for ONE feed day, per park, pen and session, the quantity the feed direction sheet
+	// planned for each feed item beside the weight the verifier entered for the bag packed the day
+	// before, with a CSV download.
+	//
+	// It RELAXES THE BLIND-ENTRY RULE FOR DECIDED BAGS ONLY, and that narrowing is load-bearing. The
+	// verifier still types a bag's weight without seeing its plan (2026-08-21) and is still only told
+	// a direction when she is far off (2026-09-09); what changed is that once her verdict on a bag is
+	// CAST, she and the CXO may read that bag's plan next to her reading. A bag still awaiting her
+	// verdict, or sent back for rework, carries NO plan figure on this read -- the query withholds it,
+	// not the renderer -- so the panel can never hand her the answer to a bag she has not judged.
+	//
+	// Held by RoleVerifier and RoleCEOInternal ONLY. It is deliberately not folded into
+	// VerificationEvidenceTimeline, which the four directors also hold: the maintainer named the CXO
+	// and the verifier, and a director reading plan-vs-entered already has it on Feed analytics.
+	VerificationFeedPackingLog = "verification.feed_packing_log"
+
 	// VerificationSampling gates the RANDOMIZATION section on /verify: per verification category,
 	// the PERCENTAGE of that category's proof videos the verifier actually has to watch, and the
 	// day's progress against that share (maintainer decision 2026-08-26).
@@ -992,6 +1009,9 @@ var rolePermissions = map[string]map[string]struct{}{
 		// see that constant and VerificationEvidenceTimeline for why the two are separate. This
 		// adds no verdict authority and no queue-reshaping filter.
 		VerificationEvidenceTimeline: {},
+		// The FEED VERIFICATION panel (maintainer decision 2026-09-28): plan beside her own reading,
+		// for bags whose verdict is already cast. See VerificationFeedPackingLog.
+		VerificationFeedPackingLog: {},
 		// The capture-date range on her own queue (maintainer decision 2026-08-17). Deliberately
 		// granted even though VerificationOversee is not -- see that constant for why the two are
 		// separate. It reshapes nothing across modules and adds no authority.
@@ -1542,6 +1562,9 @@ var rolePermissions = map[string]map[string]struct{}{
 		// visibility invariant. See VerificationEvidenceTimeline: a separate capability from the
 		// oversight chrome above, and the verifier holds it too.
 		VerificationEvidenceTimeline: {},
+		// The FEED VERIFICATION panel on /verify (maintainer decision 2026-09-28): the CXO and the
+		// verifier, no director. See VerificationFeedPackingLog.
+		VerificationFeedPackingLog: {},
 		// The RANDOMIZATION section on /verify (maintainer decision 2026-08-26): how much of each
 		// module's proof video the verifier is required to watch. Held by ceo_internal and by NO
 		// other role -- not even RolePCDirector, who holds VerificationOversee. See

@@ -6430,6 +6430,61 @@ paths:
           description: Malformed date or park id.
         "403":
           description: Caller lacks feed direction read for the requested scope.
+  /feed-analytics/packing-verification:
+    get:
+      tags:
+        - Feed Direction
+      operationId: getFeedPackingVerificationLog
+      summary: One feed day's packed bags, planned feed beside the verified packed weight.
+      description: >-
+        The FEED VERIFICATION panel on /verify (maintainer decision 2026-09-28). For ONE feed day
+        (the day the animals eat), every bag -- one per park, pen, session and workflow -- with each
+        feed item's planned quantity from the feed direction sheet beside the weight the verifier
+        entered when she approved the packing video. The bags were packed the day before;
+        `packing_day` carries that date so no client does day arithmetic.
+
+
+        THE PLAN IS SHOWN ONLY FOR A DECIDED BAG. The verifier weighs a bag blind; once her verdict
+        on it stands (`status` = `verified`) its plan is returned. On every other bag
+        (`awaiting_verification`, `rework`, `not_packed`) `planned_kg`, `difference_kg` and
+        `planned_total_kg` are EMPTY -- withheld by the server, so no client can reveal the answer to
+        a bag she has not judged. The plan of a verified bag is the figure her reading was checked
+        against when she approved it, falling back to the sheet's sum.
+
+
+        Empty strings mean absent, never zero: a blocked sheet cell has no plan, and a bag nobody
+        has verified has no reading. Not paginated -- one day is bounded by the parks' pens x
+        sessions x items -- and `totals` range over exactly the bags returned (the four status
+        counts are disjoint and sum to `bags`; the kg totals cover verified bags only).
+        `operational_location_display` is backend-composed ("Castro 1", "Godel 1 - Part 3");
+        render it verbatim.
+      parameters:
+        - name: feed_day
+          in: query
+          required: false
+          description: The feed day (Asia/Kolkata business date). Defaults to today.
+          schema:
+            type: string
+            format: date
+        - name: park_id
+          in: query
+          required: false
+          description: >-
+            Narrow to one park. Absent means every park the caller is authorized for.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Every bag of the feed day, park then pen then session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedPackingVerificationLogResponse"
+        "400":
+          description: Malformed date or park id.
+        "403":
+          description: Caller is neither the verifier nor the CXO, or the park is outside their scope.
   /feed-direction/preview:
     get:
       tags:
@@ -26725,6 +26780,113 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/FeedAnalyticsShedFeedRow"
+    FeedPackingVerificationLogItem:
+      type: object
+      required: [feed_item_key, feed_item_label, planned_kg, entered_kg, difference_kg, variance_acknowledged]
+      properties:
+        feed_item_key:
+          type: string
+        feed_item_label:
+          type: string
+        planned_kg:
+          type: string
+          description: Decimal kg; empty unless the bag is verified, or when the sheet blocked the cell.
+        entered_kg:
+          type: string
+          description: The verifier's reading in kg; empty until she records it.
+        difference_kg:
+          type: string
+          description: entered minus planned; empty unless both are present.
+        variance_acknowledged:
+          type: boolean
+          description: The reading was far from plan and the verifier confirmed it after re-checking.
+    FeedPackingVerificationLogBag:
+      type: object
+      required:
+        - park_id
+        - park_label
+        - shed_id
+        - shed_label
+        - partition_label
+        - operational_location_display
+        - session_no
+        - session_label
+        - workflow
+        - status
+        - verified_at
+        - verified_by_name
+        - planned_total_kg
+        - entered_total_kg
+        - items
+      properties:
+        park_id:
+          type: string
+        park_label:
+          type: string
+        shed_id:
+          type: string
+        shed_label:
+          type: string
+        partition_label:
+          type: string
+        operational_location_display:
+          type: string
+        session_no:
+          type: integer
+        session_label:
+          type: string
+        workflow:
+          type: string
+          enum: [normal, experiment]
+        status:
+          type: string
+          enum: [verified, awaiting_verification, rework, not_packed]
+        verified_at:
+          type: string
+          format: date-time
+          nullable: true
+        verified_by_name:
+          type: string
+        planned_total_kg:
+          type: string
+        entered_total_kg:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedPackingVerificationLogItem"
+    FeedPackingVerificationLogResponse:
+      type: object
+      required: [feed_day, packing_day, totals, bags]
+      properties:
+        feed_day:
+          type: string
+          format: date
+        packing_day:
+          type: string
+          format: date
+        totals:
+          type: object
+          required: [bags, verified, awaiting_verification, rework, not_packed, planned_kg, entered_kg]
+          properties:
+            bags:
+              type: integer
+            verified:
+              type: integer
+            awaiting_verification:
+              type: integer
+            rework:
+              type: integer
+            not_packed:
+              type: integer
+            planned_kg:
+              type: string
+            entered_kg:
+              type: string
+        bags:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedPackingVerificationLogBag"
     FeedAnalyticsFollowUpResponse:
       type: object
       description: >-

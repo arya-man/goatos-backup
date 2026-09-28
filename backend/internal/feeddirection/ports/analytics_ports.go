@@ -2,6 +2,7 @@ package ports
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -38,6 +39,11 @@ type DirectedAnalyticsReader interface {
 	// pen's total. Same membership and predicates as DirectedAnalytics, so the
 	// per-item sums across pens agree with the per-item chart series.
 	ShedFeedAnalytics(ctx context.Context, tenantID string, q domain.DirectedAnalyticsQuery) (domain.ShedFeedAnalytics, error)
+	// PackingVerificationLog returns ONE feed day's packed bags -- per park, pen and session -- with
+	// each feed item's plan beside the verifier's entered weight. The plan is withheld on every bag
+	// whose verdict is not cast (domain.PackingLogPlanVisible). Not paginated: bounded by pens x
+	// sessions x items.
+	PackingVerificationLog(ctx context.Context, tenantID string, parkIDs []uuid.UUID, feedDay time.Time) (domain.PackingVerificationLog, error)
 	// FeedFollowUp answers, per pen, whether the sheet's head count moved after
 	// animals were purchased, sold or died in the window. Two bounded reads --
 	// the frozen sheet and the herd register's own exits/intakes -- judged by

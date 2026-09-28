@@ -597,6 +597,38 @@ reject-drops-entries, entries-refused-on-single-value-items),
 adversarial proofs), plus the packing enqueue tests asserting the item carries entry boxes and
 NEVER the planned quantities.
 
+## AFTER THE VERDICT, SHE MAY SEE THE PLAN — 2026-09-28, RELAXING blind entry for DECIDED bags only
+
+Maintainer decision 2026-09-28. The verifier's `/verify` page carries a **Feed Verification** button
+beside the Video Log. It opens a drawer for one **feed day** (the day the animals eat; the bags were
+packed the day before) listing every bag per park, pen and session with, for each feed item, the
+**planned** quantity beside the **weight she entered** when she approved the packing video, and a
+CSV download. Read by the **verifier and the CXO** — `permissions.VerificationFeedPackingLog`, held by
+`verifier` and `ceo_internal` and by no director (the PC Director maps to the verification module's
+Configure level, so the CXO's grant rides `verification_policy` instead, the `VerificationSampling`
+shape). Served by `GET /feed-analytics/packing-verification` in the feed module, which owns both tables.
+
+The maintainer was asked directly whether the verifier should see the plan beside her reading, with
+the blind-entry conflict stated (above: *"This comparison must NEVER reach a verifier surface"*), and
+chose "CXO and verifier". What was kept, and why it is load-bearing:
+
+- **Blind entry survives for every bag she has not decided.** The plan is emitted ONLY when the bag's
+  completion is `completed` (her approve stands). A bag `pending_verification`, `rework`, or not
+  packed returns no plan, no reading and no difference — withheld in the SQL
+  (`packingVerificationLogSQL`) and a second time in the repository loop
+  (`domain.PackingLogPlanVisible`), never by a renderer — so the panel cannot hand her the answer to a
+  bag she is still to judge. Such a bag renders its feeds and "Shown once verified".
+- **The known cost, accepted:** pen plans change little day to day, so yesterday's decided plan hints
+  at today's. The maintainer took that trade; the 500 g direction-only warning below is unchanged.
+- **The plan shown is the one she was checked against** (`feed_packing_verified_quantities.planned_kg`,
+  the packed-against snapshot at approve time), falling back to the sheet's sum — so after a 14:00
+  correction the panel agrees with the verdict it reports, not with a sheet rewritten since.
+- Leadership's Feed analytics variance table is unchanged and stays leadership-gated.
+
+Pinned by `TestPackingVerificationLogOneToManyParkScopeStatusBucketsNoPageBoundary` (every bag state,
+on real Postgres), `TestPackingLogPlanIsVisibleOnlyForAVerifiedBag` and
+`TestFeedPackingLogIsVerifierAndCXOOnly`.
+
 ## THE VERIFIER IS WARNED, NOT TOLD — 2026-09-09, EXTENDING blind entry (not retiring it)
 
 Maintainer decision 2026-09-09. A packed weight the verifier types that sits **more than 500 g away

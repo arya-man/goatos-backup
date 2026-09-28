@@ -65,7 +65,7 @@
       "derived_from": [
         {
           "path": "backend/internal/feeddirection/adapters/postgres/analytics.go",
-          "sha256": "59bcb830a74449f595bfe8b1ae4a8d5b76036fdbea227c071477859806a7376a"
+          "sha256": "8ec454ea69a14631a0263852719db2ae5b77616d846a2707843854914f19b126"
         },
         {
           "path": "backend/internal/feeddirection/domain/stock_family_merge.go",
