@@ -168,10 +168,10 @@ esac
 case "$land_lock_dir" in /*) ;; *) land_lock_dir="$repo/$land_lock_dir" ;; esac
 # shellcheck source=tools/ci/land-lock.sh
 source "$script_dir/land-lock.sh"
-# ── 20-min wall-time budget (docs/progress/ci-deploy-speedup.md) ────────────
+# ── 15-min wall-time budget (docs/progress/ci-15min-landing-20260928.md) ─────
 # Instrumentation only: prints per-job + total wall time on every exit and warns
 # loudly over budget. It NEVER changes the exit status or fails a landing.
-budget_limit="${GOATOS_LAND_BUDGET_SECONDS:-1200}"
+budget_limit="${GOATOS_LAND_BUDGET_SECONDS:-900}"
 if [ "$test_mode" = "1" ]; then budget_log="${GOATOS_LAND_BUDGET_LOG:-/dev/null}"
 else budget_log="${GOATOS_LAND_BUDGET_LOG:-$HOME/.goatos/land-main-budget.log}"; fi
 budget_timings="$(git rev-parse --git-path goatos-ci-local-timings.tsv 2>/dev/null || echo /dev/null)"
@@ -189,7 +189,7 @@ budget_report() {
   [ -n "$jobs" ] && echo "land-main:      per-job wall (last ci-local run): ${jobs}"
   if [ "$total" -gt "$budget_limit" ]; then
     echo "land-main: ################################################################" >&2
-    echo "land-main: ##  WARNING: land-main took ${total}s, OVER the ${budget_limit}s (20-min) budget" >&2
+    echo "land-main: ##  WARNING: land-main took ${total}s, OVER the ${budget_limit}s (15-min) budget" >&2
     echo "land-main: ##  top 5 steps:" >&2
     printf '%s\n' "$top" | awk -F'\t' 'NF {printf "land-main: ##    %6ss  [%s] %s\n", $1, $2, $3}' >&2
     echo "land-main: ##  logged to ${budget_log}" >&2

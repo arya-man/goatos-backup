@@ -37,3 +37,18 @@ PR #451's landing took 5156 s. `android screenshots` alone took 2333 s.
 - The Codex app-server leaked about 150 `node_repl` processes.
 - Spotlight indexes the worktrees' build folders.
 - The compile lane builds the stgRelease variant, and Paparazzi builds devDebug, so libraries compile twice.
+
+## Follow-up (same day): Android gets the CPU first; budget is 15 min
+
+- `run_job` in `run-local-ci.sh` renices every non-Android job to nice +10, and its children inherit it. Android, the critical path, gets the cores first. Width, launch order and verdicts are unchanged. Turn it off with `GOATOS_CI_NICE_OTHERS=0`.
+- Proven by `check-run-local-ci-parallel.test.sh` layer 4, which runs the shipped `run_job`:
+  - children of the common job: nice 10
+  - android and the parent: nice 0
+  - with the opt-out: nice 0
+
+  Replacing the renice with a no-op turns the test red, and only that check fails.
+- `land-main` budget warning lowered from 1200 s to 900 s. It still only warns.
+- Not done here, because each needs an `app/build.gradle.kts` edit, which runs every Android module at landing:
+  - devDebug instead of stgRelease for the `:app` landing lane (removes the double library compile)
+  - excluding `*ScreenshotTest` from plain `testDevDebugUnitTest`
+- Not done: Kotlin daemon instead of in-process compile. The gain is small on a warm build cache, and the flag has a named stability cause (`f2fb96a1b`).
