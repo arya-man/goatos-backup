@@ -881,6 +881,7 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "error.row_unavailable": "This workflow record could not be opened.",
   },
   "source-entry": {
+    "pager.rows_per_page": "Rows per page",
     "date.prev_month": "Previous month",
     "date.next_month": "Next month",
     "date.invalid": "Pick a valid date.",

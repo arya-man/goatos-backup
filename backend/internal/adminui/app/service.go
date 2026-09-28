@@ -5555,6 +5555,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"date.invalid":                      "Pick a valid date.",
 			"field.hour":                        "Hour",
 			"field.minute":                      "Minute",
+			"pager.rows_per_page":               "Rows per page",
 			"crumb":                             "Procurement",
 			"section.loads.title":               "Supplier warmup — Holding Farm",
 			"section.loads.aria":                "Source-entry loads",

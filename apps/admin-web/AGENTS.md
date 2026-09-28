@@ -335,6 +335,27 @@ Spec: `docs/design/mui-minimal-spec.md`. Tokens: `app/minimal-tokens.css`. Gate:
   card / hd / bd / banner / gwcard / insight / rowitem / pager / btn classes. Header live control is a soft Button (success / warning / neutral) with the "Updated … IST · stream …" line in its Tooltip, Export an outlined Button; no LIVE pill or header meta line. Eight KPI tiles = two rows of four (KpiGrid `n % 4 === 0` -> md 3; guard `herd-signals-live-header`, TR1-#30). The live and tag-mapping tables scroll inside the template Scrollbar; no `.tblwrap` overflow / max-height box (guard `herd-signals-table-scroll`, TR1-#20).
 - **Course widget icons are masks (guard: `mask-icon-not-img`, npm test).** COURSE_WIDGET_ICONS svgs
   render through SvgColor with a tone gradient, never `<Box component="img">` (they paint black).
+- **/people renders only enabled module tabs (guard: `no-disabled-contract-tabs`, npm test).** A tab the
+  contract or view_clock gate disables is not rendered (no inert "soon" tabs); one tab left drops the
+  strip. Toolbar selects apply on change; the submit button shows only in the phone filters drawer.
+- **/approvals keeps template row + pager anatomy (guard: `approvals-row-anatomy`, npm test).** Cells
+  keep 16px padding from sm (`p: { xs: 0, sm: 2 }`, never a bare `{ xs: 0 }`), the raised cell is the
+  OrderTableRow two-line date, and TablePaginationLinks (Dense + rows per page <= 20) always renders.
+- **/procurement/source-entry table fits its card (guard: `source-entry-table-template`, npm test).** No
+  legacy mesha-theme.css width/nowrap rule on `.source-loads-table`; the table sits in the template
+  Scrollbar (minWidth 960), headings and names wrap at word breaks with Labels whole, the work-state
+  UrlTabs pass `scrollButtons="auto"`, and ProcurementPager carries Dense + contract rows-per-page (`limit`).
+- **Chart colours follow the active scheme from the first paint (guard: `chart-theme-scheme`, npm test +
+  r2 audit `chart-light-scheme` incl. the pre-hydration probe).** Every caller of chartColor / chartRamp /
+  seriesColor gets its theme from `useChartTheme()`, never a bare `useTheme()`: until the component has
+  hydrated and MUI knows the scheme, chartColor returns `var(--palette-…)`, so legends never show the
+  light-only greens (#54A02C/#44831F/#20470E) in dark. Template sections that default to theme.palette get
+  `chart.colors` from their adapter (RingCard, BalanceStatisticsCard, SalesSoldMonthly, CategoriesCard).
+- **KPI tiles hug their content (guard: `kpi-subline-in-flow` + `kpi-row-no-stretch`, npm test).** The
+  KpiWidget sub-line is the card's in-flow `::after` (text in `--kpi-caption`), never an absolute overlay
+  pinned to the card bottom; a KPI row never shares a Grid row (or `height: 1` container) with a taller
+  card, and no form control (slider, Apply) sits inside the KPI deck: Farm value's Over 35 kg margin is its
+  own toolbar Card (Over35Scope shares the state).
 - **The shell is gated on every push (guard: r2 visual gate `shell|*`, scripts/r2-audit-checks/shell.mjs).**
   Sidebar root items + subheaders start at nav.left + 16px with padding-left 12px (template
   NavSectionVertical: content on the logo column), the active item is a translucent primary tint,
