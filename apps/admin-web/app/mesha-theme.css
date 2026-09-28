@@ -982,6 +982,13 @@
   .vr-media-open:disabled{cursor:wait;opacity:.78}
   .vr-media-open-mark{width:54px;height:54px;border-radius:999px;background:rgba(156,213,88,.18);border:1px solid rgba(156,213,88,.48);display:grid;place-items:center}
   .vr-media-open-mark .ic{width:26px;height:26px}
+  /* Toxin review: each step's proof sits IN PLACE under the step (2026-09-28). A fixed stage, never
+     the clip's intrinsic size -- phone proofs are portrait and would run the drawer off the screen. */
+  .toxin-proof{position:relative;width:min(340px,100%);aspect-ratio:4/3;margin-top:8px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#000}
+  .toxin-proof video,.toxin-proof img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;display:block}
+  .toxin-proof-link{position:absolute;inset:0;display:block;cursor:zoom-in}
+  .toxin-proof-play{position:absolute;inset:0;border:0;background:linear-gradient(135deg,#0b120e,#14221a 54%,#101b16);color:#E9F1EA;display:grid;place-items:center;align-content:center;gap:10px;font:inherit;font-size:14px;font-weight:700;cursor:pointer}
+  .toxin-proof-play:hover{background:linear-gradient(135deg,#0d1711,#1a2d22 54%,#13211a)}
   .vr-fsbtn{position:absolute;right:10px;bottom:10px;width:30px;height:30px;border-radius:7px;display:grid;place-items:center;cursor:pointer;color:#E9F1EA;background:rgba(0,0,0,.5);border:0;z-index:2}
   .vr-fsbtn:hover{background:rgba(0,0,0,.72)}
   .vr-fsbtn .ic{width:15px;height:15px}

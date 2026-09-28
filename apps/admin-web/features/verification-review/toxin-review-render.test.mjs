@@ -98,15 +98,32 @@ test("the verdict is idempotent, version-fenced, and reject requires a reason", 
   assert.match(listSource, /disabled=\{!reason\.trim\(\)\}/);
 });
 
-// The strip-photo remains reviewable, but the toxin drawer must not render it through <img src>
-// during detail hydration. That old shape starts a proof-media download just because a drawer is
-// visible. The safe shape is an explicit open link to the backend proof route.
-test("the strip photo is an explicit open link, not an auto-fetching image", () => {
-  const anchor = listSource.indexOf("toxin.drawer.strip_photo");
-  assert.ok(anchor > 0, "strip photo section must still render");
-  const stripSection = listSource.slice(Math.max(0, anchor - 400), anchor + 700);
-  assert.match(stripSection, /<a className="lk"/);
-  assert.match(stripSection, /drawer\.media\.open/);
-  assert.doesNotMatch(stripSection, /<img\b/);
-  assert.doesNotMatch(stripSection, /vr-image-proof/);
+// Proofs are ON SCREEN when the drawer opens (maintainer request 2026-09-28, under
+// docs/decisions/proof-photo-shown-on-open.md): the strip photo renders as an image straight away,
+// and a video is a player tile whose <video> mounts only after the reviewer presses play -- no
+// video bytes move on render. Both read the backend proof ROUTE, never a signed URL.
+const tileSource = readFileSync(new URL("./toxin-proof-tile.tsx", import.meta.url), "utf8");
+
+test("each step's proof renders in place, not as an open-in-new-tab link", () => {
+  assert.match(listSource, /<ToxinProofTile/);
+  assert.match(listSource, /step\.kind === "photo_reading" \? "photo" : "video"/);
+  assert.doesNotMatch(listSource, /drawer\.media\.open/, "no step may fall back to an Open proof link");
+});
+
+test("the photo shows on open; the video mounts only after play", () => {
+  assert.match(tileSource, /<img src=\{src\}/);
+  const videoAt = tileSource.indexOf("<video src=");
+  assert.ok(videoAt > 0);
+  // The <video> sits in the `playing` branch; before play there is only the button.
+  assert.match(tileSource.slice(0, videoAt), /\{playing \? \(/);
+  assert.match(tileSource, /setPlaying\(true\)/);
+});
+
+test("the strip photo is not shown twice when it is the read-the-strip step's own proof", () => {
+  assert.match(listSource, /!task\.steps\.some\(\(step\) => step\.proof_ref === task\.strip_photo_ref\)/);
+});
+
+test("the drawer still resolves proof ROUTES, never signed URLs, while loading", () => {
+  assert.match(actionsSource, /getProofDownloadRoute\(ref\)/);
+  assert.doesNotMatch(actionsSource, /getProofDownloadUrl\(/);
 });
