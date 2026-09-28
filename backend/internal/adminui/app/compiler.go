@@ -1009,7 +1009,9 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 		case "config", "vaccination-plan":
 			out[i].OptionGroups = compileConfigOptionGroups(out[i].OptionGroups, families)
 			out[i].Controls = compileConfigControls(out[i].Controls, input, out[i].Copy)
-		case "herd-register":
+		case "herd-register", "goat-passport":
+			// The Goat Passport page's Summary renders the same three statuses as words, so it
+			// takes the same three vocabularies.
 			// Source-backed reproductive vocabulary for the Herd Register reproductive edit drawer.
 			// Same status_definitions family the Config rule editor uses, minus the "any" sentinel.
 			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "herd_reproductive", optionsFromReferences(families.ReproductiveStates, ""))

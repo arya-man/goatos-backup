@@ -7,7 +7,7 @@ import { dateTime, dash, joinParts, shortId } from "@/lib/format";
 import { Tag } from "@/components/ui-primitives";
 import { firstAuthRequiredError, getGoatPassport, getGoatTimeline } from "@/lib/api/server";
 import { hrefWithoutAction, one, type RouteSearchParams } from "@/lib/search-params";
-import { actionFeedbackCopy, copy, optionGroup, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { actionFeedbackCopy, copy, optionGroup, optionalOption, readableOptionKey, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { addIdentifierAction, retireIdentifierAction } from "./actions";
 
 // Business-friendly labels for the two physical tag identifier types in the identifiers detail table.
@@ -95,6 +95,12 @@ function FormField({
   );
 }
 
+/** A status in words: the tenant's own label from status_definitions, never the stored key (`non_pregnant`). */
+function statusLabel(pageContract: AdminUiPageContract, groupId: string, value: string | null | undefined): string {
+  if (!value) return dash(value);
+  return optionalOption(pageContract, groupId, value)?.label ?? readableOptionKey(value);
+}
+
 export async function GoatPassportPage({
   goatId,
   searchParams = {},
@@ -170,9 +176,9 @@ export async function GoatPassportPage({
               <MiniMetric label={copy(pageContract, "label.tag_1")} value={<span className="mono">{dash(goat.summary.animal_identifier_1)}</span>} />
               <MiniMetric label={copy(pageContract, "label.tag_2")} value={<span className="mono">{dash(goat.summary.animal_identifier_2)}</span>} />
               <MiniMetric label={copy(pageContract, "label.breed_sex")} value={joinParts([goat.summary.breed, goat.summary.sex])} />
-              <MiniMetric label={copy(pageContract, "label.lifecycle")} value={goat.summary.lifecycle_status} />
-              <MiniMetric label={copy(pageContract, "label.health")} value={dash(goat.summary.health_status)} />
-              <MiniMetric label={copy(pageContract, "label.reproductive")} value={dash(goat.summary.reproductive_status)} />
+              <MiniMetric label={copy(pageContract, "label.lifecycle")} value={statusLabel(pageContract, "herd_lifecycle", goat.summary.lifecycle_status)} />
+              <MiniMetric label={copy(pageContract, "label.health")} value={statusLabel(pageContract, "herd_health", goat.summary.health_status)} />
+              <MiniMetric label={copy(pageContract, "label.reproductive")} value={statusLabel(pageContract, "herd_reproductive", goat.summary.reproductive_status)} />
               <MiniMetric label={copy(pageContract, "label.growth_cohort")} value={dash(goat.summary.growth_cohort_tag)} />
               <MiniMetric label={copy(pageContract, "label.management")} value={dash(goat.summary.management_stage)} />
             </div>
