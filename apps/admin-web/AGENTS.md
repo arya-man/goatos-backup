@@ -146,6 +146,8 @@ Spec: `docs/design/mui-minimal-spec.md`. Tokens: `app/minimal-tokens.css`. Gate:
   already inside `TemplateTabs` (components/app/template-tabs.tsx), `UrlTabs`, `SegmentTabs` (components/app/list), `SegmentedLinks`); programmatic filters / selects /
   date pickers / sort headers use `useUrlNavigate` (every `router.push/replace` under the shell also
   announces itself through `UrlNavRouter`). `loading.tsx` is for the first entry only.
+- **A tab / filter click keeps the scroll position (TR3-P1-3; guard `tab-scroll-kept`: r2 audit P0 `interact|*|scroll-jump`, test `scripts/r2-visual-audit.test.mjs`).** Same-route tabs / filters navigate with `scroll: false` (UrlTabs, LinkSelect, router.push) or are client state (the /vaccination cohort park tabs), and the panel's skeleton twin holds the loaded height, so the page does not move: scrollY after settling stays within 150px of scrollY at the click (after any pre-scroll), except when a shorter result only clamps the page to its new bottom. Reproduce with a wheel scroll + mouse click, not a locator click (Playwright's scrollIntoView pre-scroll is not a jump).
+- **The pre-push lane runs the skeleton twin check on touched routes (TR3 FINAL; guard `skeleton-on-touched`, same test).** `admin-web-visual-gate.sh --pre-push` / `--fast` runs `skeleton` at 1440 dark AND 390 dark on every route the push touches, on top of scan + interactions: a layout change to a page ships its loading twin in the same push, or the gate fails.
 - **A tab / filter click never hangs: panels are URL-keyed (guard: `url-keyed-panel` in design:guard,
   P0 with self-test; runtime: `interact|*|tab-not-selected` / `interact|*|stale-panel` in
   `scripts/r2-visual-audit.mjs`).** Ravi 2026-09-27: "the tab transition HANGS. Just switch the tab
@@ -343,8 +345,11 @@ Spec: `docs/design/mui-minimal-spec.md`. Tokens: `app/minimal-tokens.css`. Gate:
   OrderTableRow two-line date, and TablePaginationLinks (Dense + rows per page <= 20) always renders.
 - **/procurement/source-entry table fits its card (guard: `source-entry-table-template`, npm test).** No
   legacy mesha-theme.css width/nowrap rule on `.source-loads-table`; the table sits in the template
-  Scrollbar (minWidth 960), headings and names wrap at word breaks with Labels whole, the work-state
-  UrlTabs pass `scrollButtons="auto"`, and ProcurementPager carries Dense + contract rows-per-page (`limit`).
+  Scrollbar (minWidth 960) and scrolls inside the card when wider; names wrap at word breaks with Labels
+  whole, and ProcurementPager carries Dense + contract rows-per-page (`limit`). TR3-P1-2 (guard
+  `source-entry-tabs-fit`, same test): head cells keep the template TableHeadCustom nowrap (one line, no
+  `thead` whiteSpace override), the stage strip is All + `SOURCE_LOAD_TAB_STATES` (<= 4, no scroll arrows),
+  and a status LinkSelect in the toolbar lists EVERY stage; the skeleton twin draws the same tab count and select.
 - **Chart colours follow the active scheme from the first paint (guard: `chart-theme-scheme`, npm test +
   r2 audit `chart-light-scheme` incl. the pre-hydration probe).** Every caller of chartColor / chartRamp /
   seriesColor gets its theme from `useChartTheme()`, never a bare `useTheme()`: until the component has

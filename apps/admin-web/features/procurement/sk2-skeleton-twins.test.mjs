@@ -35,6 +35,7 @@ test("layout lists mirror the backend page contract", () => {
   assert.deepEqual(constList(feed, "FEED_DELIVERY_STATUS_KEYS"), contractOptions("feed_purchase_delivery_statuses"));
   assert.deepEqual(constList(source, "SOURCE_LOAD_COLUMNS"), contractColumns("source-loads"));
   assert.deepEqual(constList(source, "SOURCE_LOAD_STATUS_KEYS"), contractOptions("source_load_status"));
+  for (const key of constList(source, "SOURCE_LOAD_TAB_STATES")) assert.ok(contractOptions("source_load_status").includes(key), `tab state ${key} is a contract stage`);
   const animals = read("./animal-purchases-layout.ts");
   assert.deepEqual(constList(animals, "ANIMAL_LOAD_COLUMNS"), contractColumns("animal-purchase-loads"));
   assert.deepEqual(constList(animals, "ANIMAL_DECISION_KEYS"), contractOptions("animal_purchase_decisions"));

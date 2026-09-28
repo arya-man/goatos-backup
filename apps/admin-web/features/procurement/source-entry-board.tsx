@@ -30,9 +30,11 @@ import { SourceLoadRowsSkeleton } from "./source-entry-skeletons";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { TableHeadCustom } from "@/components/app/table";
 import { OrderTableToolbar } from "@/components/app/sections/order/order-table-toolbar";
-import { orderToolbarSearchSx } from "@/components/app/order-toolbar-filter";
+import { orderToolbarFilterSx, orderToolbarSearchSx } from "@/components/app/order-toolbar-filter";
 import { LinkFiltersResult, type LinkFilterChip } from "@/components/app/link-filters-result";
 import { phoneLoadCardsSx } from "./procurement-sx";
+import { LinkSelect } from "@/components/app/link-select";
+import { SOURCE_LOAD_TAB_STATES } from "./source-entry-layout";
 
 const LOAD_CARDS_SX = phoneLoadCardsSx("source-loads-table", [{ nth: 1, column: "1", row: 1 }, { nth: 9, column: "2", row: 1, alignEnd: true }, { nth: 2, column: "1 / -1", row: 2, secondary: true }]);
 
@@ -282,24 +284,38 @@ export async function SourceEntryBoardPage({
           server navigation; the kit TabPanel is NOT wrapped around the card (it branches on
           useReducedMotion(), which differs server/client and breaks hydration). */}
       <Card data-filter-scope="">
-        {/* Nine work states do not fit the card: scroll arrows say so (template scrollable Tabs,
-            allowScrollButtonsMobile) instead of cutting the last state off. guard: source-entry-table-template */}
+        {/* Template order list: All + 4 in-flight stages as tabs (the template's 5, so the strip fits
+            the card with no scroll arrows); EVERY stage stays reachable through the status select in
+            the toolbar. Both drive the same `status` param. guard: source-entry-tabs-fit */}
         <UrlTabs
-          scrollButtons="auto"
           ariaLabel={copy(pageContract, "filter.all_states")}
           value={statusFilter}
           items={[
             { value: "all", label: copy(pageContract, "filter.all_states"), href: statusHref("all"), count: statusFilter === "all" ? loads.length : undefined },
-            ...sourceLoadStatuses.map((status) => ({
-              value: status.key,
-              label: status.label,
-              href: statusHref(status.key as ProcurementLoadStatus),
-              count: statusFilter === status.key ? loads.length : undefined,
-            })),
+            ...sourceLoadStatuses
+              .filter((status) => (SOURCE_LOAD_TAB_STATES as readonly string[]).includes(status.key))
+              .map((status) => ({
+                value: status.key,
+                label: status.label,
+                href: statusHref(status.key as ProcurementLoadStatus),
+                count: statusFilter === status.key ? loads.length : undefined,
+              })),
           ]}
         />
 
         <OrderTableToolbar
+          filters={
+            <Box sx={SOURCE_STATUS_SELECT_SX}>
+              <LinkSelect
+                label={loadLabels[loadLabels.length - 1]}
+                value={statusFilter}
+                options={[
+                  { value: "all", label: copy(pageContract, "filter.all_states"), href: statusHref("all") },
+                  ...sourceLoadStatuses.map((status) => ({ value: status.key, label: status.label, href: statusHref(status.key as ProcurementLoadStatus) })),
+                ]}
+              />
+            </Box>
+          }
           search={<Box sx={orderToolbarSearchSx}><Box sx={{ display: "flex" }}>
               <VisibleTableSearch pageContract={pageContract} label={copy(pageContract, "filter.search_label")} />
             </Box></Box>}
@@ -446,19 +462,20 @@ function sourceLoadPageSizes(pageContract: AdminUiPageContract): number[] {
   return options.length > 0 ? [...options].sort((a, b) => a - b) : [50];
 }
 
+/** The status select: the template toolbar's leading field (full width on a phone). */
+const SOURCE_STATUS_SELECT_SX = { ...orderToolbarFilterSx, display: "flex", "& > .MuiTextField-root": { flex: 1, minWidth: 0 } } as const;
+
 /**
- * The loads table fits the card at 1440 (TR2 P1-6: nine nowrap columns drew it 1480px wide in a
- * 1060px card). Headings and free text wrap at word breaks; status Tags stay whole. Narrower
- * widths still scroll inside the template Scrollbar above the 960px floor, as the template order list.
+ * The loads table (TR3-P1-2): headings stay on ONE line (the template TableHeadCustom nowrap; no
+ * override here) and the table scrolls inside the card's template Scrollbar when it is wider than the
+ * card, as the template order list does. Cell readings stay on one line; the load's party name and
+ * its holding farm / supplier wrap at word breaks. Status Tags stay whole. No row chevron: the
+ * template order list has none (the whole row is the drawer link, with the hover row).
  */
 const SOURCE_LOADS_TABLE_SX = {
   minWidth: 960,
-  "& thead th, & tbody td, & tbody td .celllink": { whiteSpace: "normal", overflowWrap: "normal", wordBreak: "normal" },
-  // Cell readings (a date, "Holding not set", a Label) stay on one line; headings, the load's
-  // party name and its holding farm / supplier wrap at word breaks. No row chevron: the template
-  // order list has none (the whole row is the drawer link, with the hover row).
   "& tbody td .celllink, & tbody td .MuiListItemText-root": { whiteSpace: "nowrap" },
-  "& tbody td:first-of-type .MuiListItemText-primary": { whiteSpace: "normal" },
+  "& tbody td:first-of-type .MuiListItemText-primary": { whiteSpace: "normal", minWidth: 120 },
   "& tbody td:nth-of-type(2) .celllink": { whiteSpace: "normal", display: "block", minWidth: 88 },
   "& .minimal__label__root, & .MuiChip-root": { whiteSpace: "nowrap" },
 } as const;

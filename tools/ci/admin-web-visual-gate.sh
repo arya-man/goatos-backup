@@ -19,7 +19,8 @@
 # Modes:
 #   (default)          full run: every app/(admin) route, all checks (land-check / ci-local)
 #   --fast             pre-push lane (~2-3 min): 5 shell routes + the routes the change touched
-#                      (import graph of the changed files vs the upstream base), scan + interactions
+#                      (import graph of the changed files vs the upstream base), scan + interactions,
+#                      and the skeleton twin check (1440 + 390 dark) on every touched route
 #   --pre-push         --fast, with the touched files taken from the pre-push payload on stdin; skipped
 #                      when the pushed commits do not touch admin-web UI
 #   any further args   passed to r2-visual-audit.mjs (e.g. --routes /verify,/approvals  --only sales)

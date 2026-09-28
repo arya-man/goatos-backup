@@ -223,12 +223,30 @@ function greedyBlocks(skel, loaded, threshold) {
   };
 }
 
+/**
+ * tab-scroll-kept (TR3-P1-3): a same-route tab / filter click keeps the reader where they were.
+ * `scroll` = page scrollY at the click, after settling, and the max scroll after settling. A move of
+ * more than SCROLL_JUMP_PX is a jump, unless the page only got shorter and the browser clamped to
+ * its new bottom (a filter with fewer rows near the page end; the control is still on screen).
+ */
+export const SCROLL_JUMP_PX = 150;
+export function scrollJumped(scroll) {
+  if (!scroll) return false;
+  const { clickScroll, nowScroll, maxScroll } = scroll;
+  if (Math.abs(nowScroll - clickScroll) <= SCROLL_JUMP_PX) return false;
+  const clamped = nowScroll < clickScroll && nowScroll >= maxScroll - 2;
+  return !clamped;
+}
+
 // P0 = blocks the visual gate (make admin-web-visual-gate / npm run visual:gate).
 export const P0_PATTERNS = [
   /^interact\|[^|]+\|(skeleton-flash|full-reload)$/, // full-page skeleton flash / document reload on a tab / filter change
   // url-keyed-panel (Ravi 2026-09-27 "the tab transition HANGS"): 150ms after a same-route tab /
   // filter click the pressed tab is selected and the panel is its skeleton (or the answer landed).
   /^interact\|[^|]+\|(tab-not-selected|stale-panel)$/,
+  // tab-scroll-kept (TR3-P1-3): a tab / filter click must not move the page scroll (clamping to a
+  // shorter page's bottom excepted; scroll:false + a panel skeleton twin of the same height).
+  /^interact\|[^|]+\|scroll-jump$/,
   /^dark-bright-bg\|/,
   /^off-palette\|/,
   /^chart-black\|/, // a chart series / legend mark whose colour never resolved (paints black)
@@ -325,6 +343,11 @@ export function routesForFiles(changed, routes, appRoot, { read = (f) => readFil
   }
   touched.sort((a, b) => a.distance - b.distance || a.route.localeCompare(b.route));
   return { shell, routes: touched };
+}
+
+/** skeleton-on-touched: the routes the fast lane runs the skeleton twin check on = every touched route. */
+export function skeletonRoutesFor(touched) {
+  return new Set(touched.map((t) => t.route));
 }
 
 /** Fast-run route set: the shell routes + the touched routes (closest first), capped. */
@@ -743,6 +766,10 @@ function r2PageLib() {
     const panelSkel = "[data-url-panel-pending], [data-panel-skeleton], [data-skel], .MuiSkeleton-root";
     w.onClick = () => {
       const t0 = performance.now();
+      // tab-scroll-kept: where the page and the pressed control sat at the moment of the (last) click,
+      // AFTER any pre-scroll that brought the control into view.
+      w.clickScroll = scrollY;
+      w.clickTop = target && target.isConnected ? target.getBoundingClientRect().top : null;
       setTimeout(() => {
         const r = root();
         const landed = location.href !== w.url0;
@@ -778,7 +805,7 @@ function r2PageLib() {
     clearInterval(w.timer); try { w.po?.disconnect(); } catch {}
     document.removeEventListener("click", w.onClick, true);
     const shift = (el, r) => { if (!el || !el.isConnected || !r) return 0; const n = docRect(el); return Math.max(Math.abs(n.top - r.top), Math.abs(n.left - r.left)); };
-    return { maxSkel: Math.round(w.maxSkel * 100) / 100, headerGone: w.headerGone || (w.header ? !w.header.isConnected : false), tabsGone: w.tabsGone || (w.tabs ? !w.tabs.isConnected : false), cls: Math.round(w.cls * 1000) / 1000, headerShift: Math.round(shift(w.header, w.headerRect)), tabsShift: Math.round(shift(w.tabs, w.tabsRect)), skelWhileHeaderGone: w.skelWhileHeaderGone, urlChanged: location.href !== w.url0, url: location.href, samples: w.samples, early: w.early.length ? w.early[w.early.length - 1] : null };
+    return { maxSkel: Math.round(w.maxSkel * 100) / 100, headerGone: w.headerGone || (w.header ? !w.header.isConnected : false), tabsGone: w.tabsGone || (w.tabs ? !w.tabs.isConnected : false), cls: Math.round(w.cls * 1000) / 1000, headerShift: Math.round(shift(w.header, w.headerRect)), tabsShift: Math.round(shift(w.tabs, w.tabsRect)), skelWhileHeaderGone: w.skelWhileHeaderGone, urlChanged: location.href !== w.url0, url: location.href, samples: w.samples, early: w.early.length ? w.early[w.early.length - 1] : null, scroll: w.clickScroll == null ? null : { clickScroll: Math.round(w.clickScroll), nowScroll: Math.round(scrollY), maxScroll: Math.round(document.documentElement.scrollHeight - innerHeight) } };
   }
 
   /** Tab + filter candidates in the content column (marked with data-r2-i). */
@@ -894,11 +921,16 @@ async function main() {
   const pageMapPath = String(args["page-map"] ?? join(homedir(), "mesha/mui-page-map.md"));
   const concurrency = Number(args.concurrency ?? 5);
   // --fast: the pre-push lane (~2-3 min): shell routes + touched routes, scan (3 profiles, shell
-  // checks included) + tab/filter interactions; drawers / skeleton / side-by-sides stay in the full run.
+  // checks included) + tab/filter interactions + the skeleton twin check on the TOUCHED routes
+  // (skeleton-on-touched); drawers / side-by-sides stay in the full run.
   const fast = !!args.fast;
   // --skeleton-profiles 1440-dark,390-dark: the skeleton twin check per profile (default 1440 dark).
   const skeletonNav = String(args["skeleton-nav"] ?? "push");
-  const skeletonProfiles = args["skeleton-profiles"] ? String(args["skeleton-profiles"]).split(",").map((l) => PROFILES.find((p) => p.label === l.trim())).filter(Boolean) : [PROFILES[0]];
+  // skeleton-on-touched (TR3 FINAL): the fast / pre-push lane also runs the skeleton twin check on
+  // every TOUCHED route, at 1440 dark AND 390 dark (TR-3's P0s were layout fixes that changed a
+  // page without its loading twin).
+  const skeletonProfiles = args["skeleton-profiles"] ? String(args["skeleton-profiles"]).split(",").map((l) => PROFILES.find((p) => p.label === l.trim())).filter(Boolean)
+    : fast ? ["1440-dark", "390-dark"].map((l) => PROFILES.find((p) => p.label === l)).filter(Boolean) : [PROFILES[0]];
   const checks = new Set(args.checks ? String(args.checks).split(",") : fast ? ["scan", "interact"] : ALL_CHECKS);
   const only = args.only ? String(args.only).split(",").map((s) => s.trim()).filter(Boolean) : null;
   const exactRoutes = args.routes ? String(args.routes).split(",").map((s) => s.trim()).filter(Boolean) : null;
@@ -924,10 +956,12 @@ async function main() {
   const allRoutes = routes;
   // strictRoutes: the routes where ANY new failure fails the gate (shell routes + touched routes)
   let strictRoutes = null;
+  let skeletonTouched = null;
   if (touchedFiles || fast) {
     const t = touchedFiles ? routesForFiles(touchedFiles, allRoutes, appRoot) : { shell: false, routes: [] };
     const set = fastRouteSet(t.routes, { cap: Number(args.cap ?? 8) });
     strictRoutes = new Set([...SHELL_ROUTES, ...t.routes.map((r) => r.route)]);
+    if (fast && !args.checks) skeletonTouched = skeletonRoutesFor(t.routes);
     console.log(`r2-visual-audit: ${touchedFiles ? touchedFiles.length : 0} touched files -> shell ${t.shell ? "TOUCHED" : "untouched"}, ${t.routes.length} touched routes${set.skipped.length ? ` (${set.skipped.length} beyond the fast cap, left to the full run: ${set.skipped.slice(0, 12).join(" ")}${set.skipped.length > 12 ? " …" : ""})` : ""}`);
     if (fast && !exactRoutes && !only) routes = allRoutes.filter((r) => set.routes.includes(r.route));
   }
@@ -1311,6 +1345,7 @@ async function main() {
         if (w.tabsGone && !reloaded) fails.push(["tabs-remount", "tabs remounted"]);
         if (!w.headerGone && (w.headerShift > 4 || w.tabsShift > 4)) fails.push(["layout-jump", `header/tabs moved ${Math.max(w.headerShift, w.tabsShift)}px`]);
         if (w.cls > 0.1) fails.push(["layout-shift", `layout shift ${w.cls}`]);
+        if (!reloaded && !routeChange && scrollJumped(w.scroll)) fails.push(["scroll-jump", `the page scrolled ${Math.abs(w.scroll.nowScroll - w.scroll.clickScroll)}px after the click (scroll ${w.scroll.clickScroll} -> ${w.scroll.nowScroll})`]);
         // url-keyed-panel: a same-route navigation must move the tab and show the panel skeleton
         // (or the answer) within 150ms — never the old panel frozen under a new tab.
         if (!reloaded && w.urlChanged && !routeChange && w.early) {
@@ -1480,7 +1515,7 @@ async function main() {
     const js = [];
     if (checks.has("interact")) js.push({ name: "interact", route: route.route, run: () => interactJob(route, path) });
     if (checks.has("drawers")) js.push({ name: "drawers", route: route.route, run: () => drawerJob(route, path) });
-    if (checks.has("skeleton")) for (const p of skeletonProfiles) js.push({ name: `skeleton ${p.label}`, route: route.route, run: () => skeletonJob(route, path, p) });
+    if (checks.has("skeleton") || skeletonTouched?.has(route.route)) for (const p of skeletonProfiles) js.push({ name: `skeleton ${p.label}`, route: route.route, run: () => skeletonJob(route, path, p) });
     if (checks.has("scan") || checks.has("sbs")) for (const p of PROFILES) js.push({ name: `scan ${p.label}`, route: route.route, run: () => scanJob(route, path, p) });
     return js;
   };
