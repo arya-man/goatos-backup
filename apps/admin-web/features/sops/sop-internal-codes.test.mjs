@@ -78,11 +78,11 @@ test("SOP library is the template job list and its skeleton mirrors it", () => {
   assert.match(src, /<FilterBar\s+bare\b/);
   assert.doesNotMatch(src, /<Button[^>]*startIcon=\{<(Columns3|Download)\b/, "Columns / Export belong in the ⋮ menu");
   // Cards are the template-derived JobItem / JobList through their slots (as /procurement/animal-purchases),
-  // never a hand-built grid of MuiCards; the letter avatar fills the logo slot.
+  // never a hand-built grid of MuiCards; an icon tile fills the logo slot (TR2-P2-10, sop-card-logo-tile).
   assert.match(src, /import \{ JobItem, type JobItemFact \} from "@\/components\/app\/sections\/job\/job-item";/);
   assert.match(src, /import \{ JobList \} from "@\/components\/app\/sections\/job\/job-list";/);
   assert.match(src, /<JobList pagination=\{/);
-  assert.match(src, /<JobItem\b[\s\S]{0,400}avatar=\{\(view\.domainLabel \|\| view\.name\)\.charAt\(0\)\.toUpperCase\(\)\}/);
+  assert.match(src, /<JobItem\b[\s\S]{0,400}avatar=\{<Iconify /);
   assert.doesNotMatch(src, /from "@mui\/material\/(Card|Pagination)"|gridTemplateColumns: \{ xs: "repeat\(1, 1fr\)"/);
   // No legacy wrapper classes or inline styles on the page (the banner is a template Alert with its action slot).
   assert.doesNotMatch(src, /kit-enter|sop-kit|sop-published-banner|<Alert[^>]*style=\{/);

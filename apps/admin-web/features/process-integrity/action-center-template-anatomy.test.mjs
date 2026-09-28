@@ -94,3 +94,11 @@ test("adherence-tabs-scroll-buttons: UrlTabs keeps the opt-in template scroll ar
   assert.match(urlTabs, /allowScrollButtonsMobile=\{scrollButtons === "auto"\}/);
   assert.match(urlTabs, /"& \.MuiTabs-scrollButtons": \{ width: "var\(--tap-min\)"/);
 });
+
+// TR2-P2-7: the My tasks / Filters dialog had a stray lone "i" and a Clear all + Clear local
+// outlined pair. One Clear all (URL facets + local text) and Done.
+test("guard: action-center-dialog-actions - one Clear all, no lone info glyph", () => {
+  assert.doesNotMatch(filters, /InfoHint|filter\.clear_local/);
+  assert.equal((filters.match(/filter\.clear_all/g) ?? []).length, 1);
+  assert.match(filters, /clearLocalFilters\(\);\s*setOpen\(false\);/);
+});

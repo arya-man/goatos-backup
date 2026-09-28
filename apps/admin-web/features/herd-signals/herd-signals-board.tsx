@@ -327,7 +327,9 @@ function LiveMonitorTab({
           skeleton at once; the filter bar stays on screen. */}
       <UrlSuspense searchParams={searchParams} watch={[ALL_PARAMS]} fallback={<HerdSignalsLivePanelSkeleton />}>
       <HerdSignalsKpis summary={summary} params={params} liveKey={liveKey} />
-      {/* Template table card: CardHeader (title + count Label, the aggregate note as subheader). */}
+      {/* Template table card: CardHeader (title + count Label). No developer note as subheader
+          (TR2-P2-9; guard: herd-signals-no-dev-note): the whole-filter aggregate rule is code
+          behaviour, not something the reader acts on. */}
       <Card sx={{ mt: 3 }}>
         <CardHeader
           title={
@@ -336,7 +338,6 @@ function LiveMonitorTab({
               <Label variant="soft">{summary.tags_seen} tags</Label>
             </Box>
           }
-          subheader="Counts are whole-filter aggregates computed by the backend from the same tenant-scoped query as the table — never summed from the rows on the fetched page."
           sx={{ mb: 2 }}
         />
         <HerdSignalsTable items={items} nextCursor={next_cursor} params={params} nowMs={nowMs} tagsSeen={summary.tags_seen} liveKey={liveKey} />

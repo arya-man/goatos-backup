@@ -469,15 +469,16 @@ function SopItem({ view, facets, pageContract, justPublished, onView, onEdit }: 
 
   if (facets.gates) facts.push({ key: "gates", label: gates, icon: <Iconify width={16} icon="solar:shield-check-bold" sx={{ flexShrink: 0 }} /> });
 
-  // Template JobItem through its slots: the logo slot takes the letter fallback (an SOP has no logo,
-  // TR1-#33), the title opens the detail, the version is the "posted" line, the status Label is the
+  // Template JobItem through its slots: the logo slot is an SOP icon tile, not a letter avatar (an
+  // SOP has no logo; TR1-#33, TR2-P2-10; guard: sop-card-logo-tile), the facts WRAP (no "Verify b…"), the title opens the detail, the version is the "posted" line, the status Label is the
   // meta line, the facet captions are the fact grid and View / Edit the card's ⋮ menu.
   return (
     <JobItem
       className={justPublished ? "sop-just-published" : undefined}
       data-sop-card={view.sopId}
       sx={[{ position: "relative" }, justPublished ? (theme) => ({ boxShadow: `0 0 0 2px ${theme.vars.palette.success.main}` }) : null]}
-      avatar={(view.domainLabel || view.name).charAt(0).toUpperCase()}
+      avatar={<Iconify width={28} icon="solar:bill-list-bold-duotone" sx={{ color: "primary.main" }} aria-hidden />}
+      wrapFacts
       title={
         <Link component="button" type="button" color="inherit" underline="hover" onClick={onView} sx={{ textAlign: "left", typography: "subtitle1", minWidth: { xs: 44, md: 0 } }}>
           {view.name}

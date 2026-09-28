@@ -10,7 +10,6 @@ import IconButton from "@mui/material/IconButton";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import Link from "@/components/no-prefetch-link";
-import { InfoHint } from "@/components/app/info-hint";
 import { FilterChip } from "@/components/app/list/filter-chip";
 import { Iconify } from "@/components/minimal/iconify";
 import { useState } from "react";
@@ -105,14 +104,23 @@ export function ActionCenterFiltersButton({
               applyLocalFilters(query, event.target.value);
             }}
           />
-          <Box sx={{ display: "flex", justifyContent: "flex-end" }}><InfoHint text={copy(pageContract, "filter.scope_note")} /></Box>
         </DialogContent>
         <DialogActions sx={{ gap: 1.5, "& > :not(style) ~ :not(style)": { ml: 0 } }}>
-          <Button component={Link} href={clearHref} replace scroll={false} variant="outlined" color="inherit" onClick={() => setOpen(false)}>
+          {/* ONE Clear all (URL facets + the local search / owner text) and Done, no lone "i" and no
+              Clear all / Clear local outlined pair (TR2-P2-7; guard: action-center-dialog-actions). */}
+          <Button
+            component={Link}
+            href={clearHref}
+            replace
+            scroll={false}
+            variant="outlined"
+            color="inherit"
+            onClick={() => {
+              clearLocalFilters();
+              setOpen(false);
+            }}
+          >
             {copy(pageContract, "filter.clear_all")}
-          </Button>
-          <Button variant="outlined" color="inherit" onClick={clearLocalFilters}>
-            {copy(pageContract, "filter.clear_local")}
           </Button>
           <Box sx={{ flexGrow: 1 }} />
           <Button

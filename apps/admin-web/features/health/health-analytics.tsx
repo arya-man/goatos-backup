@@ -49,6 +49,7 @@ import {
 import { HealthAnalyticsTelemetry } from "./health-analytics-telemetry";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { PanelSkeleton } from "@/components/app/panel-skeleton";
+import { HEALTH_KPI_ROW2_MD, HealthKpiSkeleton } from "./health-analytics-layout";
 import { LinkButton } from "@/components/app/link-button";
 
 /**
@@ -454,14 +455,14 @@ export async function HealthAnalyticsPage({
             },
           ]}
         />
-        <Typography variant="caption" sx={{ color: "text.secondary" }}>{ha(pageContract, "filter.scope_readonly")}</Typography>
+        {/* No "Park scope is set in the top bar." caption (TR2-P2-15): the header park switcher says it. */}
       </Stack>
 
       {nothingRecorded ? (
         <EmptyState icon={<HeartPulse className="ic" />} title={ha(pageContract, "empty.title")} />
       ) : null}
 
-      <UrlSuspense searchParams={sp} watch={WINDOW_WATCH} fallback={<PanelSkeleton kpis={5} />}>
+      <UrlSuspense searchParams={sp} watch={WINDOW_WATCH} fallback={<HealthKpiSkeleton />}>
       <Box component="section" aria-label={ha(pageContract, "section.kpi.aria")}>
         <Grid container spacing={3}>
         <Kpi
@@ -489,6 +490,7 @@ export async function HealthAnalyticsPage({
         />
         <Kpi
           accent="var(--danger)"
+          md={HEALTH_KPI_ROW2_MD}
           label={ha(pageContract, "kpi.deaths.label")}
           value={totals.deaths}
           monthly={deathRowsByMonth.map((m) => m.attributed + m.unattributed)}
@@ -497,6 +499,7 @@ export async function HealthAnalyticsPage({
         />
         <Kpi
           accent="var(--amber)"
+          md={HEALTH_KPI_ROW2_MD}
           label={ha(pageContract, "kpi.unattributed.label")}
           value={round1(totals.deaths === 0 ? 0 : (totals.deaths_unattributed / totals.deaths) * 100)}
           unit="%"

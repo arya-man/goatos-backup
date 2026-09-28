@@ -14,8 +14,8 @@ export function HerdSignalsFilterSkeleton() {
 
 /**
  * The Live panel under the filters: the KPI filter cards (KPI_DEFS) (KpiWidget with a detail caption, two
- * lines at four across) and the "Live tag signals" table card (title + count Label, the aggregate
- * note subheader, 21 columns). The card carries `mt: 3` on top of the page gap, hence spacing 6.
+ * lines at four across) and the "Live tag signals" table card (title + count Label,
+ * no subheader, 21 columns). The card carries `mt: 3` on top of the page gap, hence spacing 6.
  */
 export function HerdSignalsLivePanelSkeleton() {
   return (
@@ -24,7 +24,7 @@ export function HerdSignalsLivePanelSkeleton() {
         count={KPI_DEFS.length}
         shapes={KPI_DEFS.map((def) => ({ hint: true, hintLines: HERD_SIGNALS_KPI_WRAPPED_KEYS.includes(def.key) ? HERD_SIGNALS_KPI_WRAPPED_LINES : HERD_SIGNALS_KPI_CAPTION_LINES }))}
       />
-      <TableSkeleton columns={HERD_SIGNALS_LIVE_COLUMNS} rows={LIMIT_DEFAULT} subheader />
+      <TableSkeleton columns={HERD_SIGNALS_LIVE_COLUMNS} rows={LIMIT_DEFAULT} />
     </StackSkeleton>
   );
 }
