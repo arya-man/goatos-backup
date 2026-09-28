@@ -1107,53 +1107,46 @@ func (h *Handler) GetFeedFollowUp(w http.ResponseWriter, r *http.Request) {
 // FEED VERIFICATION panel on /verify (maintainer decision 2026-09-28).
 // ---------------------------------------------------------------------------
 
-type packingLogItemDTO struct {
-	FeedItemKey          string `json:"feed_item_key"`
-	FeedItemLabel        string `json:"feed_item_label"`
-	PlannedKg            string `json:"planned_kg"`
-	EnteredKg            string `json:"entered_kg"`
-	DifferenceKg         string `json:"difference_kg"`
-	VarianceAcknowledged bool   `json:"variance_acknowledged"`
+type feedCheckRowDTO struct {
+	ParkID                     string `json:"park_id"`
+	ParkLabel                  string `json:"park_label"`
+	ShedID                     string `json:"shed_id"`
+	ShedLabel                  string `json:"shed_label"`
+	PartitionLabel             string `json:"partition_label"`
+	OperationalLocationDisplay string `json:"operational_location_display"`
+	SessionNo                  int    `json:"session_no"`
+	SessionLabel               string `json:"session_label"`
+	Workflow                   string `json:"workflow"`
+	PackingStatus              string `json:"packing_status"`
+	FeedingStatus              string `json:"feeding_status"`
+	PlannedKg                  string `json:"planned_kg"`
+	PackedKg                   string `json:"packed_kg"`
+	FedKg                      string `json:"fed_kg"`
+	DifferenceKg               string `json:"difference_kg"`
 }
 
-type packingLogBagDTO struct {
-	ParkID                     string              `json:"park_id"`
-	ParkLabel                  string              `json:"park_label"`
-	ShedID                     string              `json:"shed_id"`
-	ShedLabel                  string              `json:"shed_label"`
-	PartitionLabel             string              `json:"partition_label"`
-	OperationalLocationDisplay string              `json:"operational_location_display"`
-	SessionNo                  int                 `json:"session_no"`
-	SessionLabel               string              `json:"session_label"`
-	Workflow                   string              `json:"workflow"`
-	Status                     string              `json:"status"`
-	VerifiedAt                 *string             `json:"verified_at"`
-	VerifiedByName             string              `json:"verified_by_name"`
-	PlannedTotalKg             string              `json:"planned_total_kg"`
-	EnteredTotalKg             string              `json:"entered_total_kg"`
-	Items                      []packingLogItemDTO `json:"items"`
-}
-
-type packingLogTotalsDTO struct {
-	Bags                 int    `json:"bags"`
-	Verified             int    `json:"verified"`
-	AwaitingVerification int    `json:"awaiting_verification"`
-	Rework               int    `json:"rework"`
-	NotPacked            int    `json:"not_packed"`
-	PlannedKg            string `json:"planned_kg"`
-	EnteredKg            string `json:"entered_kg"`
+type feedCheckTotalsDTO struct {
+	Rows            int    `json:"rows"`
+	Compared        int    `json:"compared"`
+	AwaitingPacking int    `json:"awaiting_packing"`
+	AwaitingFeeding int    `json:"awaiting_feeding"`
+	PlannedKg       string `json:"planned_kg"`
+	PackedKg        string `json:"packed_kg"`
+	FedKg           string `json:"fed_kg"`
+	DifferenceKg    string `json:"difference_kg"`
 }
 
 type packingVerificationLogDTO struct {
-	FeedDay    string              `json:"feed_day"`
-	PackingDay string              `json:"packing_day"`
-	Totals     packingLogTotalsDTO `json:"totals"`
-	Bags       []packingLogBagDTO  `json:"bags"`
+	FeedDay    string             `json:"feed_day"`
+	PackingDay string             `json:"packing_day"`
+	Totals     feedCheckTotalsDTO `json:"totals"`
+	Rows       []feedCheckRowDTO  `json:"rows"`
 }
 
 // GetPackingVerificationLog serves GET /feed-analytics/packing-verification: for ONE feed day
-// (default today, IST), every packed bag per park, pen and session, with each feed item's plan
-// beside the verifier's entered weight -- the plan only on bags whose verdict is cast. Gated on
+// (default today, IST), one row per park, pen and session with the planned total, the total the
+// verifier entered on yesterday's packing, the total she entered on today's feeding, and fed minus
+// packed -- figures only once the feeding verdict stands. Gated on
 // permissions.VerificationFeedPackingLog at the route table; park scope resolves on the same
 // capability so the verifier's tenant-wide reach is honoured.
 func (h *Handler) GetPackingVerificationLog(w http.ResponseWriter, r *http.Request) {
@@ -1186,26 +1179,11 @@ func (h *Handler) GetPackingVerificationLog(w http.ResponseWriter, r *http.Reque
 	dto := packingVerificationLogDTO{
 		FeedDay:    result.FeedDay,
 		PackingDay: result.PackingDay,
-		Totals:     packingLogTotalsDTO(result.Totals),
-		Bags:       make([]packingLogBagDTO, 0, len(result.Bags)),
+		Totals:     feedCheckTotalsDTO(result.Totals),
+		Rows:       make([]feedCheckRowDTO, 0, len(result.Rows)),
 	}
-	for _, b := range result.Bags {
-		items := make([]packingLogItemDTO, 0, len(b.Items))
-		for _, it := range b.Items {
-			items = append(items, packingLogItemDTO(it))
-		}
-		var verifiedAt *string
-		if b.VerifiedAt != "" {
-			v := b.VerifiedAt
-			verifiedAt = &v
-		}
-		dto.Bags = append(dto.Bags, packingLogBagDTO{
-			ParkID: b.ParkID, ParkLabel: b.ParkLabel, ShedID: b.ShedID, ShedLabel: b.ShedLabel,
-			PartitionLabel: b.PartitionLabel, OperationalLocationDisplay: b.OperationalLocationDisplay,
-			SessionNo: b.SessionNo, SessionLabel: b.SessionLabel, Workflow: b.Workflow, Status: b.Status,
-			VerifiedAt: verifiedAt, VerifiedByName: b.VerifiedByName,
-			PlannedTotalKg: b.PlannedTotalKg, EnteredTotalKg: b.EnteredTotalKg, Items: items,
-		})
+	for _, row := range result.Rows {
+		dto.Rows = append(dto.Rows, feedCheckRowDTO(row))
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, dto)
 }

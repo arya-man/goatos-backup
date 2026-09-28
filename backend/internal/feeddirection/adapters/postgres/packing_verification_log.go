@@ -12,52 +12,32 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
-// packingVerificationLogSQL is the FEED VERIFICATION panel on /verify (maintainer decision
-// 2026-09-28): one feed day, one row per (bag, feed item), where a bag is one park, pen, session and
-// workflow of that day.
+// packingVerificationLogSQL is the FEED VERIFICATION panel on /verify (maintainer decisions
+// 2026-09-28): for ONE feed day, one row per park, pen and session with three totals -- the feed
+// direction sheet's PLANNED total, the PACKED total the verifier entered when she approved
+// yesterday's packing video (sum of her per-feed readings), and the FED total she entered when she
+// approved today's feeding video (one combined weight) -- and fed minus packed.
 //
-// Grain: (park_id, shed_id, partition_key, session_no, workflow, feed_item_key) for ONE feed day on
-// every side.
+// Grain: (park_id, shed_id, partition_key, session_no, workflow) for ONE feed day on every side --
+// the natural key both feed_packing_completions and feed_distribution_completions are unique on.
 //
-// projection-review: membership=item keys from the live sheets (feed_direction_issue_rows of
-// issued/amended/locked issues for $3) UNION reading keys from feed_packing_verified_quantities of
-// that day's COMPLETED feed_packing_completions UNION an item-less key for a completion with neither
-// (a bag packed against a sheet re-issued since, which must still list); group_key=the six columns
-// above; join_cardinality=keys LEFT JOIN expected_items 1:0..1 (GROUP BY on exactly the key),
-// keys LEFT JOIN readings 1:0..1 (verified quantities are unique per (completion, feed_item_key) and
-// completions are unique per bag by feed_packing_completions_natural_uq), keys LEFT JOIN done 1:0..1
-// (same natural key), keys LEFT JOIN bag_meta 1:0..1 (GROUP BY on the bag key), locations and
-// workforce_members 1:0..1 by primary key; pagination=none, one feed day bounded by the parks' pens x
-// sessions x items -- physical infrastructure, never herd size -- the per-bag and whole-day kg totals
-// are window SUMs over exactly the returned rows, so no total can describe a different set than the
-// table; scope=tenant_id on every table plus the caller's authorized park set.
+// projection-review: membership=pen-session keys from the live sheets (feed_direction_issue_rows of issued/amended/locked issues for $3) UNION that day's feed_packing_completions UNION that day's feed_distribution_completions, so a pen-session packed or fed against a sheet re-issued since still lists; group_key=(park_id, shed_id, partition_key, session_no, workflow) on every side; join_cardinality=keys LEFT JOIN plan 1:0..1 (GROUP BY on exactly the key, the N ration/item cells SUMMED first), keys LEFT JOIN packed 1:0..1 and keys LEFT JOIN fed 1:0..1 (each unique on that key plus target_date by its natural_uq), readings SUMMED per completion through a LATERAL keyed on its PK prefix, locations 1:0..1 by primary key; pagination=none, one feed day bounded by the parks' pens x sessions -- physical infrastructure, never herd size -- and the day totals are window sums over exactly the compared rows returned; scope=tenant_id on every table plus the caller's authorized park set
 //
-//	producer `expected_items` unique columns after GROUP BY: (park_id, shed_id, partition_key,
-//	  session_no, workflow, feed_item_key) -- the ration-grain rows (one per breed/tag grain) are
-//	  SUMMED before any join, the same summation the packer's worklist does.
-//	producer `readings` unique columns: (completion_id, feed_item_key) = the table's PK, and
-//	  completion_id is 1:1 with the bag key for one target_date.
-//	consumer match columns: the six above on every item-level join, the first five on bag joins.
+// THE BLIND-ENTRY BOUNDARY LIVES HERE, NOT IN A RENDERER. Planned and fed are emitted only when the
+// pen-session's FEEDING completion is 'completed'; packed additionally needs its PACKING completion
+// 'completed' (domain.FeedCheckFiguresVisible / domain.PackedVisible). Before the feeding verdict the
+// packed total is the feeding verifier's answer, so no client, export or future caller of this read
+// may receive it.
 //
-// THE BLIND-ENTRY BOUNDARY LIVES HERE, NOT IN A RENDERER. `planned_kg` is emitted only when the
-// bag's completion is 'completed' (domain.PackingLogPlanVisible) -- an undecided or reworked bag
-// returns NULL for every plan figure, so no client, export or future caller of this read can hand
-// the verifier the answer to a bag she has not judged. Readings exist only for completed bags anyway
-// (the approve carries the numbers), so the entered side needs no filter beyond the join.
+// The day totals range over the COMPARED rows only (packed and fed both visible), so planned, packed
+// and fed are always summed over the same pen-sessions and their difference means something.
 //
-// The planned figure for a decided bag is the one her reading was CHECKED AGAINST at approve time
-// (feed_packing_verified_quantities.planned_kg, 2026-09-09), falling back to the sheet's sum. After an
-// afternoon correction the live sheet can differ from what she judged; showing her own check keeps
-// this panel agreeing with the verdict it reports.
-//
-// scale-guard:ignore: 5k-50k-envelope -- ONE feed day, bounded by pens x sessions x items, over the
-// indexed (tenant, feed_day) / (tenant, target_date) columns; binds are cast, columns stay bare.
+// scale-guard:ignore: 5k-50k-envelope -- ONE feed day, bounded by pens x sessions, over the indexed
+// (tenant, feed_day) / (tenant, target_date) columns; binds are cast, columns stay bare.
 const packingVerificationLogSQL = `
-WITH expected_items AS (
-    SELECT i.park_id, r.shed_id, r.partition_key, r.session_no, r.workflow, r.feed_item_key,
-           MAX(r.feed_item_label)                AS feed_item_label,
+WITH plan AS (
+    SELECT i.park_id, r.shed_id, r.partition_key, r.session_no, r.workflow,
            SUM(r.quantity_kg)                    AS planned_kg,
-           MIN(r.item_seq)                       AS item_seq,
            MAX(COALESCE(r.partition_label, ''))  AS partition_label,
            MAX(r.session_label)                  AS session_label,
            MAX(r.park_label)                     AS park_label,
@@ -71,112 +51,80 @@ WITH expected_items AS (
       AND i.feed_day = $3::date
       AND i.state IN ('issued', 'amended', 'locked')
       AND i.workflow IN ('normal', 'experiment')
-    GROUP BY i.park_id, r.shed_id, r.partition_key, r.session_no, r.workflow, r.feed_item_key
-    -- A feed the sheet authors at exactly 0 kg for this pen is not in the bag: listing it would name
-    -- a feed nobody packed on an undecided bag and a "0 / -" row on a decided one. A BLOCKED cell
-    -- (NULL sum -- no plan could be computed) is kept, because that is a real gap. A zero item the
-    -- verifier nevertheless weighed comes back through the readings leg of keys.
-    HAVING SUM(r.quantity_kg) IS DISTINCT FROM 0
+    GROUP BY i.park_id, r.shed_id, r.partition_key, r.session_no, r.workflow
 ),
-bag_meta AS (
-    SELECT park_id, shed_id, partition_key, session_no, workflow,
-           MAX(partition_label) AS partition_label,
-           MAX(session_label)   AS session_label,
-           MAX(park_label)      AS park_label,
-           MAX(shed_label)      AS shed_label
-    FROM expected_items
-    GROUP BY park_id, shed_id, partition_key, session_no, workflow
-),
-done AS (
-    SELECT c.completion_id, c.park_id, c.shed_id, c.partition_key, c.session_no, c.workflow,
+packed AS (
+    SELECT c.park_id, c.shed_id, c.partition_key, c.session_no, c.workflow, c.status,
            COALESCE(c.partition_label, '') AS partition_label,
-           c.status, c.verified_at, c.verified_by
+           rd.packed_kg
     FROM feed_packing_completions c
+    LEFT JOIN LATERAL (
+        SELECT SUM(q.entered_kg) AS packed_kg
+        FROM feed_packing_verified_quantities q
+        WHERE q.tenant_id = $1 AND q.completion_id = c.completion_id
+    ) rd ON true
     WHERE c.tenant_id = $1
       AND ($2::uuid[] IS NULL OR c.park_id = ANY ($2::uuid[]))
       AND c.target_date = $3::date
 ),
-readings AS (
-    SELECT d.park_id, d.shed_id, d.partition_key, d.session_no, d.workflow,
-           q.feed_item_key, q.feed_item_label, q.entered_kg, q.planned_kg, q.variance_acknowledged
-    FROM done d
-    JOIN feed_packing_verified_quantities q
-      ON q.tenant_id = $1
-     AND q.completion_id = d.completion_id
-    WHERE d.status = 'completed'
+fed AS (
+    SELECT d.park_id, d.shed_id, d.partition_key, d.session_no, d.workflow, d.status,
+           COALESCE(d.partition_label, '') AS partition_label,
+           d.verified_feed_kg
+    FROM feed_distribution_completions d
+    WHERE d.tenant_id = $1
+      AND ($2::uuid[] IS NULL OR d.park_id = ANY ($2::uuid[]))
+      AND d.target_date = $3::date
 ),
 keys AS (
-    SELECT park_id, shed_id, partition_key, session_no, workflow, feed_item_key FROM expected_items
+    SELECT park_id, shed_id, partition_key, session_no, workflow FROM plan
     UNION
-    SELECT park_id, shed_id, partition_key, session_no, workflow, feed_item_key FROM readings
+    SELECT park_id, shed_id, partition_key, session_no, workflow FROM packed
     UNION
-    SELECT d.park_id, d.shed_id, d.partition_key, d.session_no, d.workflow, ''
-    FROM done d
-    WHERE NOT EXISTS (
-            SELECT 1 FROM bag_meta b
-            WHERE b.park_id = d.park_id AND b.shed_id = d.shed_id AND b.partition_key = d.partition_key
-              AND b.session_no = d.session_no AND b.workflow = d.workflow)
-      AND NOT EXISTS (
-            SELECT 1 FROM readings rd
-            WHERE rd.park_id = d.park_id AND rd.shed_id = d.shed_id AND rd.partition_key = d.partition_key
-              AND rd.session_no = d.session_no AND rd.workflow = d.workflow)
+    SELECT park_id, shed_id, partition_key, session_no, workflow FROM fed
 ),
 joined AS (
-    SELECT k.park_id, k.shed_id, k.partition_key, k.session_no, k.workflow, k.feed_item_key,
+    SELECT k.park_id, k.shed_id, k.partition_key, k.session_no, k.workflow,
            -- The farm's CODE (CBE, CPT): the one spelling every table on the page uses, and the park
            -- ORDER (CBE before CPT; the full names sort Channapatna first).
-           COALESCE(NULLIF(lp.location_code, ''), lp.name, bm.park_label, '') AS park_label,
-           COALESCE(ls.name, bm.shed_label, '')                              AS shed_label,
-           COALESCE(NULLIF(bm.partition_label, ''), d.partition_label, '')   AS partition_label,
-           COALESCE(bm.session_label, '')                                    AS session_label,
-           COALESCE(d.status, '')                                            AS raw_status,
-           d.verified_at,
-           COALESCE(wv.display_name, '')                                     AS verified_by_name,
-           COALESCE(e.feed_item_label, rd.feed_item_label, '')               AS feed_item_label,
-           e.item_seq,
-           -- Blind-entry boundary: see the doc comment. NULL unless the bag's verdict stands.
-           CASE WHEN d.status = 'completed' AND k.feed_item_key <> ''
-                THEN COALESCE(rd.planned_kg, e.planned_kg) END               AS planned_kg,
-           rd.entered_kg,
-           COALESCE(rd.variance_acknowledged, false)                         AS variance_acknowledged
+           COALESCE(NULLIF(lp.location_code, ''), lp.name, pl.park_label, '')                AS park_label,
+           COALESCE(ls.name, pl.shed_label, '')                                              AS shed_label,
+           COALESCE(NULLIF(pl.partition_label, ''), NULLIF(p.partition_label, ''), f.partition_label, '') AS partition_label,
+           COALESCE(pl.session_label, '')                                                    AS session_label,
+           COALESCE(p.status, '')                                                            AS packing_status,
+           COALESCE(f.status, '')                                                            AS feeding_status,
+           -- Blind-entry boundary: see the doc comment.
+           CASE WHEN f.status = 'completed' THEN pl.planned_kg END                           AS planned_kg,
+           CASE WHEN f.status = 'completed' AND p.status = 'completed' THEN p.packed_kg END  AS packed_kg,
+           CASE WHEN f.status = 'completed' THEN f.verified_feed_kg END                      AS fed_kg
     FROM keys k
-    LEFT JOIN expected_items e
-      ON e.park_id = k.park_id AND e.shed_id = k.shed_id AND e.partition_key = k.partition_key
-     AND e.session_no = k.session_no AND e.workflow = k.workflow AND e.feed_item_key = k.feed_item_key
-    LEFT JOIN readings rd
-      ON rd.park_id = k.park_id AND rd.shed_id = k.shed_id AND rd.partition_key = k.partition_key
-     AND rd.session_no = k.session_no AND rd.workflow = k.workflow AND rd.feed_item_key = k.feed_item_key
-    LEFT JOIN done d
-      ON d.park_id = k.park_id AND d.shed_id = k.shed_id AND d.partition_key = k.partition_key
-     AND d.session_no = k.session_no AND d.workflow = k.workflow
-    LEFT JOIN bag_meta bm
-      ON bm.park_id = k.park_id AND bm.shed_id = k.shed_id AND bm.partition_key = k.partition_key
-     AND bm.session_no = k.session_no AND bm.workflow = k.workflow
+    LEFT JOIN plan pl
+      ON pl.park_id = k.park_id AND pl.shed_id = k.shed_id AND pl.partition_key = k.partition_key
+     AND pl.session_no = k.session_no AND pl.workflow = k.workflow
+    LEFT JOIN packed p
+      ON p.park_id = k.park_id AND p.shed_id = k.shed_id AND p.partition_key = k.partition_key
+     AND p.session_no = k.session_no AND p.workflow = k.workflow
+    LEFT JOIN fed f
+      ON f.park_id = k.park_id AND f.shed_id = k.shed_id AND f.partition_key = k.partition_key
+     AND f.session_no = k.session_no AND f.workflow = k.workflow
     LEFT JOIN locations lp ON lp.tenant_id = $1 AND lp.location_id = k.park_id
     LEFT JOIN locations ls ON ls.tenant_id = $1 AND ls.location_id = k.shed_id
-    LEFT JOIN workforce_members wv ON wv.tenant_id = $1 AND wv.user_id = d.verified_by
 )
-SELECT park_id::text, park_label, shed_id::text, shed_label, partition_label, partition_key,
-       session_no, session_label, workflow, raw_status, verified_at, verified_by_name,
-       feed_item_key, feed_item_label,
+SELECT park_id::text, park_label, shed_id::text, shed_label, partition_label,
+       session_no, session_label, workflow, packing_status, feeding_status,
        COALESCE(planned_kg::text, ''),
-       COALESCE(entered_kg::text, ''),
-       CASE WHEN planned_kg IS NOT NULL AND entered_kg IS NOT NULL
-            THEN (entered_kg - planned_kg)::text ELSE '' END,
-       variance_acknowledged,
-       COALESCE((SUM(planned_kg) OVER (PARTITION BY park_id, shed_id, partition_key, session_no, workflow))::text, ''),
-       COALESCE((SUM(entered_kg) OVER (PARTITION BY park_id, shed_id, partition_key, session_no, workflow))::text, ''),
-       COALESCE((SUM(planned_kg) OVER ())::text, ''),
-       COALESCE((SUM(entered_kg) OVER ())::text, '')
+       COALESCE(packed_kg::text, ''),
+       COALESCE(fed_kg::text, ''),
+       CASE WHEN packed_kg IS NOT NULL AND fed_kg IS NOT NULL THEN (fed_kg - packed_kg)::text ELSE '' END,
+       COALESCE((SUM(planned_kg) FILTER (WHERE packed_kg IS NOT NULL AND fed_kg IS NOT NULL) OVER ())::text, ''),
+       COALESCE((SUM(packed_kg) FILTER (WHERE packed_kg IS NOT NULL AND fed_kg IS NOT NULL) OVER ())::text, ''),
+       COALESCE((SUM(fed_kg) FILTER (WHERE packed_kg IS NOT NULL AND fed_kg IS NOT NULL) OVER ())::text, ''),
+       COALESCE((SUM(fed_kg - packed_kg) FILTER (WHERE packed_kg IS NOT NULL AND fed_kg IS NOT NULL) OVER ())::text, '')
 FROM joined
--- Labels first for reading order, then the identity columns, so one bag's rows are always
--- contiguous even where two pens share a label -- the grouping loop below relies on it.
-ORDER BY park_label, park_id, shed_label, shed_id, partition_label, partition_key, session_no, workflow,
-         item_seq NULLS LAST, feed_item_label, feed_item_key`
+ORDER BY park_label, park_id, shed_label, shed_id, partition_label, partition_key, session_no, workflow`
 
-// PackingVerificationLog serves the FEED VERIFICATION panel: one feed day's packed bags, each feed
-// item's plan beside the verifier's reading (plan only once her verdict stands). See
-// packingVerificationLogSQL.
+// PackingVerificationLog serves the FEED VERIFICATION panel: one feed day's pen-sessions with
+// planned, packed (yesterday) and fed (today) totals. See packingVerificationLogSQL.
 func (r *Repository) PackingVerificationLog(ctx context.Context, tenantID string, parkIDs []uuid.UUID, feedDay time.Time) (domain.PackingVerificationLog, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -189,80 +137,49 @@ func (r *Repository) PackingVerificationLog(ctx context.Context, tenantID string
 	out := domain.PackingVerificationLog{
 		FeedDay:    day,
 		PackingDay: feedDay.AddDate(0, 0, -1).Format("2006-01-02"),
-		Bags:       []domain.PackingLogBag{},
+		Rows:       []domain.FeedCheckRow{},
 	}
 
 	bound := sqlbind.MustBind(packingVerificationLogSQL, tenantID, parkArg, day)
 	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
-		return domain.PackingVerificationLog{}, fmt.Errorf("feed packing verification log: %w", err)
+		return domain.PackingVerificationLog{}, fmt.Errorf("feed verification log: %w", err)
 	}
 	defer rows.Close()
 
-	type bagKey struct {
-		park, shed, partition string
-		session               int
-		workflow              string
-	}
-	var current *bagKey
+	var dayPlanned, dayPacked, dayFed, dayDiff string
 	for rows.Next() {
 		var (
-			parkID, parkLabel, shedID, shedLabel, partitionLabel, partitionKey string
-			sessionNo                                                          int
-			sessionLabel, workflow, rawStatus                                  string
-			verifiedAt                                                         *time.Time
-			verifiedByName, itemKey, itemLabel                                 string
-			planned, entered, difference                                       string
-			varianceAck                                                        bool
-			bagPlanned, bagEntered, dayPlanned, dayEntered                     string
+			row                    domain.FeedCheckRow
+			rawPacking, rawFeeding string
 		)
 		if err := rows.Scan(
-			&parkID, &parkLabel, &shedID, &shedLabel, &partitionLabel, &partitionKey,
-			&sessionNo, &sessionLabel, &workflow, &rawStatus, &verifiedAt, &verifiedByName,
-			&itemKey, &itemLabel, &planned, &entered, &difference, &varianceAck,
-			&bagPlanned, &bagEntered, &dayPlanned, &dayEntered,
+			&row.ParkID, &row.ParkLabel, &row.ShedID, &row.ShedLabel, &row.PartitionLabel,
+			&row.SessionNo, &row.SessionLabel, &row.Workflow, &rawPacking, &rawFeeding,
+			&row.PlannedKg, &row.PackedKg, &row.FedKg, &row.DifferenceKg,
+			&dayPlanned, &dayPacked, &dayFed, &dayDiff,
 		); err != nil {
-			return domain.PackingVerificationLog{}, fmt.Errorf("feed packing verification log scan: %w", err)
+			return domain.PackingVerificationLog{}, fmt.Errorf("feed verification log scan: %w", err)
 		}
-		out.Totals.PlannedKg, out.Totals.EnteredKg = dayPlanned, dayEntered
-
-		key := bagKey{parkID, shedID, partitionKey, sessionNo, workflow}
-		if current == nil || *current != key {
-			status := domain.PackingLogStatus(rawStatus)
-			bag := domain.PackingLogBag{
-				ParkID: parkID, ParkLabel: parkLabel,
-				ShedID: shedID, ShedLabel: shedLabel, PartitionLabel: partitionLabel,
-				// Canonical composition, never hand-rolled (operational-location rule).
-				OperationalLocationDisplay: oploc.OperationalLocation{ShedName: shedLabel, PartitionLabel: partitionLabel}.Display(),
-				SessionNo:                  sessionNo, SessionLabel: sessionLabel, Workflow: workflow,
-				Status: status, VerifiedByName: verifiedByName,
-				PlannedTotalKg: bagPlanned, EnteredTotalKg: bagEntered,
-				Items: []domain.PackingLogItem{},
-			}
-			if verifiedAt != nil {
-				bag.VerifiedAt = verifiedAt.UTC().Format(time.RFC3339)
-			}
-			out.Bags = append(out.Bags, bag)
-			k := key
-			current = &k
+		row.PackingStatus = domain.FeedCheckStatus(rawPacking)
+		row.FeedingStatus = domain.FeedCheckStatus(rawFeeding)
+		// The SQL already withholds these; this is the second lock on the same door.
+		if !domain.FeedCheckFiguresVisible(row.FeedingStatus) {
+			row.PlannedKg, row.FedKg = "", ""
 		}
-		if itemKey == "" {
-			continue // a packed bag the current sheet no longer lists: the bag, with no items
+		if !domain.PackedVisible(row.PackingStatus, row.FeedingStatus) {
+			row.PackedKg = ""
 		}
-		bag := &out.Bags[len(out.Bags)-1]
-		if !domain.PackingLogPlanVisible(bag.Status) {
-			// The SQL already withholds these; this is the second lock on the same door.
-			planned, difference = "", ""
+		if row.PackedKg == "" || row.FedKg == "" {
+			row.DifferenceKg = ""
 		}
-		bag.Items = append(bag.Items, domain.PackingLogItem{
-			FeedItemKey: itemKey, FeedItemLabel: itemLabel,
-			PlannedKg: planned, EnteredKg: entered, DifferenceKg: difference,
-			VarianceAcknowledged: varianceAck,
-		})
+		// Canonical composition, never hand-rolled (operational-location rule).
+		row.OperationalLocationDisplay = oploc.OperationalLocation{ShedName: row.ShedLabel, PartitionLabel: row.PartitionLabel}.Display()
+		out.Rows = append(out.Rows, row)
 	}
 	if err := rows.Err(); err != nil {
-		return domain.PackingVerificationLog{}, fmt.Errorf("feed packing verification log rows: %w", err)
+		return domain.PackingVerificationLog{}, fmt.Errorf("feed verification log rows: %w", err)
 	}
-	out.Totals = domain.CountPackingLogBags(out.Bags, out.Totals.PlannedKg, out.Totals.EnteredKg)
+	out.Totals = domain.CountFeedCheckRows(out.Rows, dayPlanned, dayPacked, dayFed, dayDiff)
 	return out, nil
 }

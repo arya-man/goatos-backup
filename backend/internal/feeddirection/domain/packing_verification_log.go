@@ -1,64 +1,65 @@
 package domain
 
-// FEED VERIFICATION LOG (maintainer decision 2026-09-28): for ONE feed day, every packed bag -- one
-// per park, pen and session -- with each feed item's planned quantity from the feed direction sheet
-// beside the weight the verifier entered when she approved the packing video.
+// FEED VERIFICATION LOG (maintainer decisions 2026-09-28): for ONE feed day, one row per park, pen
+// and session with three TOTALS side by side --
 //
-// The bag was packed the DAY BEFORE the feed day (a packer works day P on the sheet the animals eat
-// on day P+1), so choosing today shows yesterday's packing. Both days are carried on the result so
-// no surface does IST date arithmetic on a browser clock.
+//	planned  the feed direction sheet's total for that pen-session;
+//	packed   the total the verifier entered when she approved YESTERDAY's packing video (the sum of
+//	         her per-feed readings on that bag);
+//	fed      the total the verifier entered when she approved TODAY's feeding video (one combined
+//	         weight; the feed is mixed by the trough);
 //
-// THE PLAN IS SHOWN ONLY FOR A DECIDED BAG. The verifier enters a bag's weight blind (2026-08-21);
-// this read relaxes that only once her verdict on the bag is cast. A bag awaiting her verdict, sent
-// back for rework, or not packed yet carries no planned figure here -- withheld by the query, so no
-// renderer can leak it. See permissions.VerificationFeedPackingLog.
+// and the question the maintainer asked: did yesterday's packed total reach the animals today --
+// fed minus packed.
+//
+// Feed day D is the day the animals eat: the bag was packed on D-1 (feed_packing_completions for
+// target_date D) and fed on D (feed_distribution_completions for target_date D). Both days travel on
+// the result so no surface does IST date arithmetic.
+//
+// THE NUMBERS APPEAR ONLY ONCE THE FEEDING VERDICT STANDS. Both verifiers enter blind. A row whose
+// feeding is not yet approved carries no planned, packed or fed figure -- the packed total would
+// hand the feeding verifier her answer before she weighs the feed. Packed additionally needs the
+// packing verdict to stand. Withheld by the query and again in the repository, never by a renderer.
+// See permissions.VerificationFeedPackingLog.
 
-// Packing verification bag statuses. Machine keys; the page contract owns the words.
+// Per-stage statuses. Machine keys; the page contract owns the words.
 const (
-	PackingLogStatusVerified             = "verified"
-	PackingLogStatusAwaitingVerification = "awaiting_verification"
-	PackingLogStatusRework               = "rework"
-	PackingLogStatusNotPacked            = "not_packed"
+	FeedCheckVerified             = "verified"
+	FeedCheckAwaitingVerification = "awaiting_verification"
+	FeedCheckRework               = "rework"
+	FeedCheckNotDone              = "not_done"
 )
 
-// PackingLogStatus maps a feed_packing_completions.status (or its absence) to the log's bucket.
-// Exactly one bucket per bag; the four are disjoint.
-func PackingLogStatus(rawCompletionStatus string) string {
+// FeedCheckStatus maps a completion status (or its absence) to its stage bucket. The same four
+// buckets serve packing and feeding; they are disjoint.
+func FeedCheckStatus(rawCompletionStatus string) string {
 	switch rawCompletionStatus {
 	case "completed":
-		return PackingLogStatusVerified
+		return FeedCheckVerified
 	case "pending_verification":
-		return PackingLogStatusAwaitingVerification
+		return FeedCheckAwaitingVerification
 	case "rework":
-		return PackingLogStatusRework
+		return FeedCheckRework
 	default:
-		return PackingLogStatusNotPacked
+		return FeedCheckNotDone
 	}
 }
 
-// PackingLogPlanVisible is THE blind-entry boundary for this read: the plan is visible for a bag
-// only once its verdict stands. Kept as one named function so the SQL filter it mirrors and the
-// test that pins it name the same rule.
-func PackingLogPlanVisible(status string) bool {
-	return status == PackingLogStatusVerified
+// FeedCheckFiguresVisible is THE blind-entry boundary: a row's figures are visible only once its
+// FEEDING verdict stands (the last check in the chain). Packed additionally needs its own verdict;
+// see PackedVisible.
+func FeedCheckFiguresVisible(feedingStatus string) bool {
+	return feedingStatus == FeedCheckVerified
 }
 
-// PackingLogItem is one feed item of one bag. PlannedKg, EnteredKg and DifferenceKg are decimal
-// strings ("" = absent): planned is absent on an undecided bag and on a cell the sheet blocked;
-// entered is absent until the verifier records it; difference needs both.
-type PackingLogItem struct {
-	FeedItemKey   string
-	FeedItemLabel string
-	PlannedKg     string
-	EnteredKg     string
-	DifferenceKg  string
-	// VarianceAcknowledged is true when the verifier's reading was far from plan and she confirmed
-	// it after re-checking the video (2026-09-09).
-	VarianceAcknowledged bool
+// PackedVisible: the packed total shows only when both verdicts stand.
+func PackedVisible(packingStatus, feedingStatus string) bool {
+	return FeedCheckFiguresVisible(feedingStatus) && packingStatus == FeedCheckVerified
 }
 
-// PackingLogBag is one bag: one park, pen and session (and workflow) of the feed day.
-type PackingLogBag struct {
+// FeedCheckRow is one park, pen and session (and workflow) of the feed day. Kg figures are decimal
+// strings; "" means absent, never zero.
+type FeedCheckRow struct {
 	ParkID                     string
 	ParkLabel                  string
 	ShedID                     string
@@ -68,51 +69,51 @@ type PackingLogBag struct {
 	SessionNo                  int
 	SessionLabel               string
 	Workflow                   string
-	Status                     string
-	VerifiedAt                 string // RFC3339, "" until verified
-	VerifiedByName             string
-	PlannedTotalKg             string
-	EnteredTotalKg             string
-	Items                      []PackingLogItem
+	PackingStatus              string
+	FeedingStatus              string
+	PlannedKg                  string
+	PackedKg                   string
+	FedKg                      string
+	// DifferenceKg is fed minus packed: positive means more reached the trough than was packed.
+	DifferenceKg string
 }
 
-// PackingLogTotals counts the day's bags by status (disjoint; they sum to Bags) and totals the
-// planned and entered kilograms over VERIFIED bags only -- the only bags carrying either figure.
-type PackingLogTotals struct {
-	Bags                 int
-	Verified             int
-	AwaitingVerification int
-	Rework               int
-	NotPacked            int
-	PlannedKg            string
-	EnteredKg            string
+// FeedCheckTotals: Rows is every pen-session of the day; Compared counts rows with BOTH packed and
+// fed visible (the rows the kg totals range over, so planned/packed/fed are always summed over the
+// same set and their difference is meaningful).
+type FeedCheckTotals struct {
+	Rows            int
+	Compared        int
+	AwaitingPacking int
+	AwaitingFeeding int
+	PlannedKg       string
+	PackedKg        string
+	FedKg           string
+	DifferenceKg    string
 }
 
-// PackingVerificationLog is the whole feed day in the caller's park scope. Not paginated: one day
-// is bounded by the parks' pens x sessions x items -- physical infrastructure, never herd size --
-// so the totals are computed over exactly the rows returned.
+// PackingVerificationLog is the whole feed day in the caller's park scope. Not paginated: one day is
+// bounded by the parks' pens x sessions -- physical infrastructure, never herd size.
 type PackingVerificationLog struct {
 	FeedDay    string
 	PackingDay string
-	Bags       []PackingLogBag
-	Totals     PackingLogTotals
+	Rows       []FeedCheckRow
+	Totals     FeedCheckTotals
 }
 
-// CountPackingLogBags builds the day's totals from the bags actually returned, so the counts can
-// never describe a different set than the table. The kg totals come from the query (window sums
-// over the same rows) and are passed through.
-func CountPackingLogBags(bags []PackingLogBag, plannedKg, enteredKg string) PackingLogTotals {
-	t := PackingLogTotals{Bags: len(bags), PlannedKg: plannedKg, EnteredKg: enteredKg}
-	for _, b := range bags {
-		switch b.Status {
-		case PackingLogStatusVerified:
-			t.Verified++
-		case PackingLogStatusAwaitingVerification:
-			t.AwaitingVerification++
-		case PackingLogStatusRework:
-			t.Rework++
-		default:
-			t.NotPacked++
+// CountFeedCheckRows builds the status counts from exactly the rows returned. The kg totals come
+// from the query (sums over the compared rows) and are passed through.
+func CountFeedCheckRows(rows []FeedCheckRow, planned, packed, fed, diff string) FeedCheckTotals {
+	t := FeedCheckTotals{Rows: len(rows), PlannedKg: planned, PackedKg: packed, FedKg: fed, DifferenceKg: diff}
+	for _, r := range rows {
+		if r.PackedKg != "" && r.FedKg != "" {
+			t.Compared++
+		}
+		if r.PackingStatus == FeedCheckAwaitingVerification {
+			t.AwaitingPacking++
+		}
+		if r.FeedingStatus == FeedCheckAwaitingVerification {
+			t.AwaitingFeeding++
 		}
 	}
 	return t

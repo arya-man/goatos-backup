@@ -5304,12 +5304,12 @@ export async function getVerificationVideoLog(params: {
 
 export type FeedPackingVerificationLogResponse =
   AppApiComponents["schemas"]["FeedPackingVerificationLogResponse"];
-export type FeedPackingVerificationLogBag =
-  AppApiComponents["schemas"]["FeedPackingVerificationLogBag"];
+export type FeedPackingVerificationLogRow =
+  AppApiComponents["schemas"]["FeedPackingVerificationLogRow"];
 
-// The FEED VERIFICATION panel (GET /feed-analytics/packing-verification): one feed day's packed
-// bags, per park, pen and session, the plan beside the verifier's reading -- the plan only on bags
-// whose verdict is cast. Gated on permissions.VerificationFeedPackingLog (verifier + CXO), the same
+// The FEED VERIFICATION panel (GET /feed-analytics/packing-verification): one feed day, per park,
+// pen and session, the planned total, the total the verifier entered on yesterday's packing and on
+// today's feeding -- figures only once the feeding verdict stands. Gated on permissions.VerificationFeedPackingLog (verifier + CXO), the same
 // capability as the /verify page contract's feed_verification control; call only when that control
 // is enabled so a caller without it never renders a bare error card.
 export async function getFeedPackingVerificationLog(params: {

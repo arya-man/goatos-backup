@@ -2,8 +2,8 @@ import Link from "@/components/no-prefetch-link";
 import { Tag, type Tone } from "@/components/ui-primitives";
 import type { DateRangePickerLabels } from "@/components/date-range-picker";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { getFeedPackingVerificationLog, type FeedPackingVerificationLogBag } from "@/lib/api/server";
-import { fmtDate, fmtDateTime } from "@/lib/format";
+import { getFeedPackingVerificationLog, type FeedPackingVerificationLogRow } from "@/lib/api/server";
+import { fmtDate } from "@/lib/format";
 import { FeedVerificationCsvButton } from "./feed-verification-csv-button";
 import { VideoLogDateFilter } from "./video-log-date-filter";
 
@@ -14,23 +14,24 @@ const STATUS_TONE: Record<string, Tone> = {
   verified: "ok",
   awaiting_verification: "warn",
   rework: "dng",
-  not_packed: "mut",
+  not_done: "mut",
 };
 
 /**
- * FEED VERIFICATION's contents (maintainer decision 2026-09-28): for ONE feed day -- the day the
- * animals eat -- every bag packed the day before, per park, pen and session, with each feed item's
- * planned quantity beside the weight the verifier entered.
+ * FEED VERIFICATION's contents (maintainer decisions 2026-09-28): for ONE feed day -- the day the
+ * animals eat -- one row per park, pen and session with the planned total, the total the verifier
+ * entered on YESTERDAY's packing, the total she entered on TODAY's feeding, and fed minus packed:
+ * did what was packed reach the animals.
  *
  * Gating: the caller MUST check `controlEnabled(pageContract, "feed_verification", false)` first;
  * the same capability (permissions.VerificationFeedPackingLog) gates the endpoint read here.
  *
- * THE PLAN OF AN UNDECIDED BAG NEVER REACHES THIS PAGE. The server withholds it (the verifier still
- * weighs those bags blind), so a bag awaiting verification or sent back renders one row naming its
- * feeds with "Shown once verified" -- there is no figure here to hide or to leak.
+ * A ROW'S FIGURES NEVER REACH THIS PAGE BEFORE ITS FEEDING VERDICT. The server withholds them (the
+ * feeding verifier weighs blind, and the packed total would be her answer), so such a row renders
+ * "Shown once feeding is verified" -- there is no figure here to hide or to leak.
  *
  * Everything visible is backend-owned: the pen name is `operational_location_display`, the session
- * and feed names come from the frozen sheet, and every word comes from the page contract.
+ * name comes from the frozen sheet, and every word comes from the page contract.
  */
 export async function FeedVerification({
   pageContract,
@@ -69,14 +70,13 @@ export async function FeedVerification({
   if (!result.ok) {
     return <div className="small muted">{t("unavailable")}</div>;
   }
-  const { feed_day: day, packing_day: packingDay, bags: allBags } = result.data;
+  const { feed_day: day, packing_day: packingDay, rows: allRows } = result.data;
 
-  // Park options come from the day itself, so a park with nothing directed or packed is never
-  // offered. Filtering in memory keeps the option list whole (a server-side filter would collapse
-  // it to whatever is already picked) and the panel on ONE request.
-  const parks = dedupeParks(allBags);
-  const bags = parkFilter ? allBags.filter((bag) => bag.park_id === parkFilter) : allBags;
-  const totals = parkFilter ? tally(bags) : result.data.totals;
+  // Park options come from the day itself; filtering in memory keeps the option list whole and the
+  // panel on ONE request.
+  const parks = dedupeParks(allRows);
+  const rows = parkFilter ? allRows.filter((row) => row.park_id === parkFilter) : allRows;
+  const totals = parkFilter ? tally(rows) : result.data.totals;
 
   return (
     <div className="vr-videolog vr-feedverify">
@@ -97,13 +97,13 @@ export async function FeedVerification({
         <FeedVerificationCsvButton
           label={t("download")}
           filename={`feed-verification-${day}.csv`}
-          rows={csvRows(pageContract, day, packingDay, bags)}
+          rows={csvRows(pageContract, day, packingDay, rows)}
         />
       </div>
 
       {parks.length > 1 ? (
         <div className="fv-parks" role="group" aria-label={t("filter.park")}>
-          <Link href={allParksHref} replace scroll={false} className={`chip${parkFilter ? "" : " on"}`}>
+          <Link href={allParksHref} replace scroll={false} className={parkFilter ? "" : "on"}>
             {t("filter.all_parks")}
           </Link>
           {parks.map((park) => (
@@ -112,7 +112,7 @@ export async function FeedVerification({
               href={parkHrefTemplate.replace(FEED_VERIFICATION_PARK_TOKEN, encodeURIComponent(park.id))}
               replace
               scroll={false}
-              className={`chip${parkFilter === park.id ? " on" : ""}`}
+              className={parkFilter === park.id ? "on" : ""}
             >
               {park.label}
             </Link>
@@ -120,16 +120,17 @@ export async function FeedVerification({
         </div>
       ) : null}
 
-      {bags.length === 0 ? (
+      {rows.length === 0 ? (
         <div className="small muted vl-empty">{t("empty_day")}</div>
       ) : (
         <>
           <div className="fv-kpis">
-            <Kpi label={t("kpi.bags")} value={String(totals.bags)} />
-            <Kpi label={t("kpi.verified")} value={String(totals.verified)} />
-            <Kpi label={t("kpi.pending")} value={String(totals.awaiting_verification + totals.rework)} />
-            <Kpi label={t("kpi.planned")} value={kgOrDash(totals.planned_kg)} />
-            <Kpi label={t("kpi.entered")} value={kgOrDash(totals.entered_kg)} />
+            <Kpi label={t("kpi.rows")} value={String(totals.rows)} />
+            <Kpi label={t("kpi.compared")} value={String(totals.compared)} />
+            <Kpi label={t("kpi.awaiting_feeding")} value={String(totals.awaiting_feeding)} />
+            <Kpi label={t("kpi.packed")} value={kgOrDash(totals.packed_kg)} />
+            <Kpi label={t("kpi.fed")} value={kgOrDash(totals.fed_kg)} />
+            <Kpi label={t("kpi.difference")} value={signedKg(totals.difference_kg)} tone={diffClass(totals.difference_kg)} />
           </div>
 
           {/* A wide table scrolls inside its own wrapper, never the page (phone-390 rule). */}
@@ -140,16 +141,17 @@ export async function FeedVerification({
                   <th className="fv-desk">{t("col.park")}</th>
                   <th>{t("col.pen")}</th>
                   <th className="fv-desk">{t("col.session")}</th>
-                  <th>{t("col.feed")}</th>
                   <th className="num">{t("col.planned")}</th>
-                  <th className="num">{t("col.verified")}</th>
+                  <th className="num">{t("col.packed")}</th>
+                  <th className="num">{t("col.fed")}</th>
                   <th className="num">{t("col.difference")}</th>
-                  <th className="fv-desk">{t("col.status")}</th>
+                  <th className="fv-desk">{t("col.packing")}</th>
+                  <th className="fv-desk">{t("col.feeding")}</th>
                 </tr>
               </thead>
               <tbody>
-                {bags.map((bag) => (
-                  <BagRows key={bagKey(bag)} bag={bag} t={t} />
+                {rows.map((row) => (
+                  <Row key={rowKey(row)} row={row} t={t} />
                 ))}
               </tbody>
             </table>
@@ -160,125 +162,64 @@ export async function FeedVerification({
   );
 }
 
-function BagRows({ bag, t }: { bag: FeedPackingVerificationLogBag; t: (key: string) => string }) {
-  const statusCell = (
-    <td rowSpan={rowSpanOf(bag)} className="fv-status fv-desk">
-      <Tag tone={STATUS_TONE[bag.status] ?? "mut"}>{t(`status.${bag.status}`)}</Tag>
-      {bag.status === "verified" && (bag.verified_by_name || bag.verified_at) ? (
-        <div className="small muted">
-          {[bag.verified_by_name, bag.verified_at ? fmtDateTime(bag.verified_at) : ""].filter(Boolean).join(" · ")}
-        </div>
-      ) : null}
-    </td>
-  );
-  const placeCells = (
-    <>
-      <td rowSpan={rowSpanOf(bag)} className="fv-park fv-desk">{bag.park_label}</td>
-      <td rowSpan={rowSpanOf(bag)} className="fv-pen">
-        <b>{bag.operational_location_display}</b>
-        {/* Phone only: park, session and status fold in here so the feed and its three numbers fit
-            a 390px screen without panning. The desktop columns carry the same facts. */}
-        <div className="small muted fv-phone">
-          {bag.park_label} · {sessionName(bag)}
-        </div>
-        <div className="fv-phone">
-          <Tag tone={STATUS_TONE[bag.status] ?? "mut"}>{t(`status.${bag.status}`)}</Tag>
-        </div>
-        {bag.workflow === "experiment" ? (
+function Row({ row, t }: { row: FeedPackingVerificationLogRow; t: (key: string) => string }) {
+  const packing = <Tag tone={STATUS_TONE[row.packing_status] ?? "mut"}>{t(`status.${row.packing_status}`)}</Tag>;
+  const feeding = <Tag tone={STATUS_TONE[row.feeding_status] ?? "mut"}>{t(`status.${row.feeding_status}`)}</Tag>;
+  const figuresShown = row.feeding_status === "verified";
+  return (
+    <tr>
+      <td className="fv-park fv-desk">{row.park_label}</td>
+      <td className="fv-pen">
+        <b>{row.operational_location_display}</b>
+        {row.workflow === "experiment" ? (
           <div>
             <Tag tone="pur">{t("experiment")}</Tag>
           </div>
         ) : null}
+        {/* Phone only: park, session and both statuses fold in here so the three totals fit a
+            390px screen without panning. The desktop columns carry the same facts. */}
+        <div className="small muted fv-phone">
+          {row.park_label} · {sessionName(row)}
+        </div>
+        <div className="fv-phone fv-phone-tags">
+          <span className="small muted">{t("col.packing")}</span> {packing}
+          <span className="small muted">{t("col.feeding")}</span> {feeding}
+        </div>
       </td>
-      <td rowSpan={rowSpanOf(bag)} className="fv-desk">{sessionName(bag)}</td>
-    </>
-  );
-
-  // An undecided bag: which feeds are in it, and no quantity at all -- the server sent none.
-  if (bag.status !== "verified") {
-    const feeds = bag.items.map((item) => item.feed_item_label).filter(Boolean).join(", ");
-    return (
-      <tr className="fv-bag-first">
-        {placeCells}
-        <td>
-          <div className="fv-feeds">{feeds || <span className="muted">{t("not_on_sheet")}</span>}</div>
+      <td className="fv-desk">{sessionName(row)}</td>
+      {figuresShown ? (
+        <>
+          <td className="num">{kgOrDash(row.planned_kg)}</td>
+          <td className="num">{kgOrDash(row.packed_kg)}</td>
+          <td className="num">{kgOrDash(row.fed_kg)}</td>
+          <td className={`num ${diffClass(row.difference_kg)}`}>{signedKg(row.difference_kg)}</td>
+        </>
+      ) : (
+        <td colSpan={4} className="small muted fv-hidden-plan">
+          {row.feeding_status === "not_done" && row.packing_status === "not_done" ? "—" : t("after_feeding_verdict")}
         </td>
-        <td colSpan={3} className="small muted fv-hidden-plan">
-          {bag.status === "not_packed" ? "—" : t("plan_after_verdict")}
-        </td>
-        {statusCell}
-      </tr>
-    );
-  }
-
-  const items = bag.items.length > 0 ? bag.items : [];
-  if (items.length === 0) {
-    return (
-      <tr className="fv-bag-first">
-        {placeCells}
-        <td className="muted">{t("not_on_sheet")}</td>
-        <td className="num">—</td>
-        <td className="num">—</td>
-        <td className="num">—</td>
-        {statusCell}
-      </tr>
-    );
-  }
-  return (
-    <>
-      {items.map((item, index) => (
-        <tr key={item.feed_item_key} className={index === 0 ? "fv-bag-first" : undefined}>
-          {index === 0 ? placeCells : null}
-          <td>
-            <span className="fv-feeds">{item.feed_item_label}</span>
-            {item.variance_acknowledged ? (
-              <>
-                {" "}
-                <Tag tone="info">{t("rechecked")}</Tag>
-              </>
-            ) : null}
-          </td>
-          <td className="num">{kgOrDash(item.planned_kg)}</td>
-          <td className="num">{kgOrDash(item.entered_kg)}</td>
-          <td className={`num ${diffClass(item.difference_kg)}`}>{signedKg(item.difference_kg)}</td>
-          {index === 0 ? statusCell : null}
-        </tr>
-      ))}
-      {items.length > 1 ? (
-        <tr className="fv-bag-total">
-          <td className="small muted">{t("bag_total")}</td>
-          <td className="num">{kgOrDash(bag.planned_total_kg)}</td>
-          <td className="num">{kgOrDash(bag.entered_total_kg)}</td>
-          <td className={`num ${diffClass(diffOf(bag.entered_total_kg, bag.planned_total_kg))}`}>
-            {signedKg(diffOf(bag.entered_total_kg, bag.planned_total_kg))}
-          </td>
-        </tr>
-      ) : null}
-    </>
+      )}
+      <td className="fv-status fv-desk">{packing}</td>
+      <td className="fv-status fv-desk">{feeding}</td>
+    </tr>
   );
 }
 
-function Kpi({ label, value }: { label: string; value: string }) {
+function Kpi({ label, value, tone }: { label: string; value: string; tone?: string }) {
   return (
     <div className="fv-kpi">
       <div className="small muted">{label}</div>
-      <div className="fv-kpi-v">{value}</div>
+      <div className={`fv-kpi-v ${tone ?? ""}`}>{value}</div>
     </div>
   );
 }
 
-/** Rows a bag occupies: one per item (+ a total row) when verified, else one. */
-function rowSpanOf(bag: FeedPackingVerificationLogBag): number {
-  if (bag.status !== "verified" || bag.items.length === 0) return 1;
-  return bag.items.length + (bag.items.length > 1 ? 1 : 0);
+function rowKey(row: FeedPackingVerificationLogRow): string {
+  return `${row.park_id}|${row.shed_id}|${row.partition_label}|${row.session_no}|${row.workflow}`;
 }
 
-function bagKey(bag: FeedPackingVerificationLogBag): string {
-  return `${bag.park_id}|${bag.shed_id}|${bag.partition_label}|${bag.session_no}|${bag.workflow}`;
-}
-
-function sessionName(bag: FeedPackingVerificationLogBag): string {
-  return bag.session_label || `${bag.session_no}`;
+function sessionName(row: FeedPackingVerificationLogRow): string {
+  return row.session_label || `${row.session_no}`;
 }
 
 function kgOrDash(value: string): string {
@@ -298,75 +239,72 @@ function signedKg(value: string): string {
 
 function diffClass(value: string): string {
   const n = Number(value);
-  if (!value || !Number.isFinite(n) || n === 0) return "";
+  if (!value || !Number.isFinite(n)) return "";
+  if (n === 0) return "fv-same";
   return n > 0 ? "fv-over" : "fv-under";
 }
 
-/** Bag-level difference from the two server totals, which already range over the same items. */
-function diffOf(entered: string, planned: string): string {
-  if (!entered || !planned) return "";
-  const d = Number(entered) - Number(planned);
-  return Number.isFinite(d) ? d.toFixed(3) : "";
-}
-
-function dedupeParks(bags: FeedPackingVerificationLogBag[]): Array<{ id: string; label: string }> {
+function dedupeParks(rows: FeedPackingVerificationLogRow[]): Array<{ id: string; label: string }> {
   const seen = new Map<string, string>();
-  for (const bag of bags) if (!seen.has(bag.park_id)) seen.set(bag.park_id, bag.park_label);
+  for (const row of rows) if (!seen.has(row.park_id)) seen.set(row.park_id, row.park_label);
   // The server already orders parks by code (CBE before CPT); insertion order preserves it.
   return [...seen].map(([id, label]) => ({ id, label }));
 }
 
-/** Totals for an in-panel park filter, over exactly the bags shown. */
-function tally(bags: FeedPackingVerificationLogBag[]) {
-  const sum = (pick: (bag: FeedPackingVerificationLogBag) => string) => {
-    const parts = bags.map(pick).filter(Boolean);
-    return parts.length ? parts.reduce((acc, v) => acc + Number(v), 0).toFixed(3) : "";
-  };
+/** Totals for an in-panel park filter, over exactly the rows shown -- compared rows only for kg. */
+function tally(rows: FeedPackingVerificationLogRow[]) {
+  const compared = rows.filter((r) => r.packed_kg && r.fed_kg);
+  const sum = (pick: (r: FeedPackingVerificationLogRow) => string) =>
+    compared.length ? compared.reduce((acc, r) => acc + Number(pick(r)), 0).toFixed(3) : "";
   return {
-    bags: bags.length,
-    verified: bags.filter((b) => b.status === "verified").length,
-    awaiting_verification: bags.filter((b) => b.status === "awaiting_verification").length,
-    rework: bags.filter((b) => b.status === "rework").length,
-    not_packed: bags.filter((b) => b.status === "not_packed").length,
-    planned_kg: sum((b) => b.planned_total_kg),
-    entered_kg: sum((b) => b.entered_total_kg),
+    rows: rows.length,
+    compared: compared.length,
+    awaiting_packing: rows.filter((r) => r.packing_status === "awaiting_verification").length,
+    awaiting_feeding: rows.filter((r) => r.feeding_status === "awaiting_verification").length,
+    planned_kg: sum((r) => r.planned_kg),
+    packed_kg: sum((r) => r.packed_kg),
+    fed_kg: sum((r) => r.fed_kg),
+    difference_kg: sum((r) => r.difference_kg),
   };
 }
 
-/** One CSV row per feed item (one per bag when undecided), in the screen's own words. */
+/** One CSV row per pen-session, in the screen's own words. */
 function csvRows(
   pageContract: AdminUiPageContract,
   day: string,
   packingDay: string,
-  bags: FeedPackingVerificationLogBag[],
+  rows: FeedPackingVerificationLogRow[],
 ): string[][] {
   const t = (key: string) => copy(pageContract, `feed_verification.${key}`);
-  const header = [
-    t("col.feed_day"),
-    t("col.packing_day"),
-    t("col.park"),
-    t("col.pen"),
-    t("col.session"),
-    t("col.feed"),
-    t("col.planned"),
-    t("col.verified"),
-    t("col.difference"),
-    t("col.status"),
-    t("col.verified_by"),
-    t("col.verified_at"),
+  const out: string[][] = [
+    [
+      t("col.feed_day"),
+      t("col.packing_day"),
+      t("col.park"),
+      t("col.pen"),
+      t("col.session"),
+      t("col.planned"),
+      t("col.packed"),
+      t("col.fed"),
+      t("col.difference"),
+      t("col.packing"),
+      t("col.feeding"),
+    ],
   ];
-  const rows: string[][] = [header];
-  for (const bag of bags) {
-    const base = [fmtDate(day), fmtDate(packingDay), bag.park_label, bag.operational_location_display, sessionName(bag)];
-    const tail = [t(`status.${bag.status}`), bag.verified_by_name, bag.verified_at ? fmtDateTime(bag.verified_at) : ""];
-    if (bag.status !== "verified" || bag.items.length === 0) {
-      const feeds = bag.items.map((item) => item.feed_item_label).join(", ");
-      rows.push([...base, feeds, "", "", "", ...tail]);
-      continue;
-    }
-    for (const item of bag.items) {
-      rows.push([...base, item.feed_item_label, item.planned_kg, item.entered_kg, item.difference_kg, ...tail]);
-    }
+  for (const row of rows) {
+    out.push([
+      fmtDate(day),
+      fmtDate(packingDay),
+      row.park_label,
+      row.operational_location_display,
+      sessionName(row),
+      row.planned_kg,
+      row.packed_kg,
+      row.fed_kg,
+      row.difference_kg,
+      t(`status.${row.packing_status}`),
+      t(`status.${row.feeding_status}`),
+    ]);
   }
-  return rows;
+  return out;
 }

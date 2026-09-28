@@ -6435,29 +6435,27 @@ paths:
       tags:
         - Feed Direction
       operationId: getFeedPackingVerificationLog
-      summary: One feed day's packed bags, planned feed beside the verified packed weight.
+      summary: One feed day per pen and session -- planned, packed yesterday, fed today.
       description: >-
-        The FEED VERIFICATION panel on /verify (maintainer decision 2026-09-28). For ONE feed day
-        (the day the animals eat), every bag -- one per park, pen, session and workflow -- with each
-        feed item's planned quantity from the feed direction sheet beside the weight the verifier
-        entered when she approved the packing video. The bags were packed the day before;
-        `packing_day` carries that date so no client does day arithmetic.
+        The FEED VERIFICATION panel on /verify (maintainer decisions 2026-09-28). For ONE feed day
+        (the day the animals eat), one row per park, pen, session and workflow with three TOTALS:
+        `planned_kg` (the feed direction sheet), `packed_kg` (what the verifier entered when she
+        approved YESTERDAY's packing video, her per-feed readings summed) and `fed_kg` (the one
+        combined weight she entered when she approved TODAY's feeding video), plus `difference_kg`
+        = fed minus packed -- did what was packed reach the animals. `packing_day` carries the day
+        before so no client does day arithmetic.
 
 
-        THE PLAN IS SHOWN ONLY FOR A DECIDED BAG. The verifier weighs a bag blind; once her verdict
-        on it stands (`status` = `verified`) its plan is returned. On every other bag
-        (`awaiting_verification`, `rework`, `not_packed`) `planned_kg`, `difference_kg` and
-        `planned_total_kg` are EMPTY -- withheld by the server, so no client can reveal the answer to
-        a bag she has not judged. The plan of a verified bag is the figure her reading was checked
-        against when she approved it, falling back to the sheet's sum.
+        THE FIGURES APPEAR ONLY ONCE THE FEEDING VERDICT STANDS. Both verifiers weigh blind; before
+        the feeding verdict the packed total would hand the feeding verifier her answer. Until then
+        every kg field is EMPTY -- withheld by the server. `packed_kg` additionally needs the packing
+        verdict.
 
 
-        Empty strings mean absent, never zero: a blocked sheet cell has no plan, and a bag nobody
-        has verified has no reading. Not paginated -- one day is bounded by the parks' pens x
-        sessions x items -- and `totals` range over exactly the bags returned (the four status
-        counts are disjoint and sum to `bags`; the kg totals cover verified bags only).
-        `operational_location_display` is backend-composed ("Castro 1", "Godel 1 - Part 3");
-        render it verbatim.
+        Empty strings mean absent, never zero. Not paginated -- one day is bounded by the parks' pens x
+        sessions. The kg `totals` range over the `compared` rows only (packed and fed both present), so
+        the three totals are summed over the same pen-sessions. `operational_location_display` is
+        backend-composed; render it verbatim.
       parameters:
         - name: feed_day
           in: query
@@ -6476,7 +6474,7 @@ paths:
             format: uuid
       responses:
         "200":
-          description: Every bag of the feed day, park then pen then session.
+          description: Every pen-session of the feed day, park then pen then session.
           content:
             application/json:
               schema:
@@ -26780,27 +26778,7 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/FeedAnalyticsShedFeedRow"
-    FeedPackingVerificationLogItem:
-      type: object
-      required: [feed_item_key, feed_item_label, planned_kg, entered_kg, difference_kg, variance_acknowledged]
-      properties:
-        feed_item_key:
-          type: string
-        feed_item_label:
-          type: string
-        planned_kg:
-          type: string
-          description: Decimal kg; empty unless the bag is verified, or when the sheet blocked the cell.
-        entered_kg:
-          type: string
-          description: The verifier's reading in kg; empty until she records it.
-        difference_kg:
-          type: string
-          description: entered minus planned; empty unless both are present.
-        variance_acknowledged:
-          type: boolean
-          description: The reading was far from plan and the verifier confirmed it after re-checking.
-    FeedPackingVerificationLogBag:
+    FeedPackingVerificationLogRow:
       type: object
       required:
         - park_id
@@ -26812,12 +26790,12 @@ components:
         - session_no
         - session_label
         - workflow
-        - status
-        - verified_at
-        - verified_by_name
-        - planned_total_kg
-        - entered_total_kg
-        - items
+        - packing_status
+        - feeding_status
+        - planned_kg
+        - packed_kg
+        - fed_kg
+        - difference_kg
       properties:
         park_id:
           type: string
@@ -26838,26 +26816,29 @@ components:
         workflow:
           type: string
           enum: [normal, experiment]
-        status:
+        packing_status:
           type: string
-          enum: [verified, awaiting_verification, rework, not_packed]
-        verified_at:
+          enum: [verified, awaiting_verification, rework, not_done]
+          description: Yesterday's packing of this pen-session.
+        feeding_status:
           type: string
-          format: date-time
-          nullable: true
-        verified_by_name:
+          enum: [verified, awaiting_verification, rework, not_done]
+          description: Today's feeding of this pen-session.
+        planned_kg:
           type: string
-        planned_total_kg:
+          description: The feed direction sheet's total for the pen-session; empty until the feeding verdict stands.
+        packed_kg:
           type: string
-        entered_total_kg:
+          description: Total the verifier entered on yesterday's packing; empty until BOTH verdicts stand.
+        fed_kg:
           type: string
-        items:
-          type: array
-          items:
-            $ref: "#/components/schemas/FeedPackingVerificationLogItem"
+          description: Total the verifier entered on today's feeding; empty until the feeding verdict stands.
+        difference_kg:
+          type: string
+          description: fed_kg minus packed_kg; empty unless both are present.
     FeedPackingVerificationLogResponse:
       type: object
-      required: [feed_day, packing_day, totals, bags]
+      required: [feed_day, packing_day, totals, rows]
       properties:
         feed_day:
           type: string
@@ -26867,26 +26848,29 @@ components:
           format: date
         totals:
           type: object
-          required: [bags, verified, awaiting_verification, rework, not_packed, planned_kg, entered_kg]
+          required: [rows, compared, awaiting_packing, awaiting_feeding, planned_kg, packed_kg, fed_kg, difference_kg]
           properties:
-            bags:
+            rows:
               type: integer
-            verified:
+            compared:
               type: integer
-            awaiting_verification:
+              description: Rows with both packed and fed present; the kg totals range over exactly these.
+            awaiting_packing:
               type: integer
-            rework:
-              type: integer
-            not_packed:
+            awaiting_feeding:
               type: integer
             planned_kg:
               type: string
-            entered_kg:
+            packed_kg:
               type: string
-        bags:
+            fed_kg:
+              type: string
+            difference_kg:
+              type: string
+        rows:
           type: array
           items:
-            $ref: "#/components/schemas/FeedPackingVerificationLogBag"
+            $ref: "#/components/schemas/FeedPackingVerificationLogRow"
     FeedAnalyticsFollowUpResponse:
       type: object
       description: >-

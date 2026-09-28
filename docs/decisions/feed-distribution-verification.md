@@ -597,37 +597,42 @@ reject-drops-entries, entries-refused-on-single-value-items),
 adversarial proofs), plus the packing enqueue tests asserting the item carries entry boxes and
 NEVER the planned quantities.
 
-## AFTER THE VERDICT, SHE MAY SEE THE PLAN — 2026-09-28, RELAXING blind entry for DECIDED bags only
+## PACKED YESTERDAY AGAINST FED TODAY — 2026-09-28, RELAXING blind entry AFTER the feeding verdict
 
-Maintainer decision 2026-09-28. The verifier's `/verify` page carries a **Feed Verification** button
-beside the Video Log. It opens a drawer for one **feed day** (the day the animals eat; the bags were
-packed the day before) listing every bag per park, pen and session with, for each feed item, the
-**planned** quantity beside the **weight she entered** when she approved the packing video, and a
-CSV download. Read by the **verifier and the CXO** — `permissions.VerificationFeedPackingLog`, held by
-`verifier` and `ceo_internal` and by no director (the PC Director maps to the verification module's
-Configure level, so the CXO's grant rides `verification_policy` instead, the `VerificationSampling`
-shape). Served by `GET /feed-analytics/packing-verification` in the feed module, which owns both tables.
+Maintainer decisions 2026-09-28. The verifier's `/verify` page carries a **Feed Verification** button
+beside the Video Log. It opens a drawer for one **feed day** (the day the animals eat) with ONE ROW PER
+PARK, PEN AND SESSION and three TOTALS side by side:
 
-The maintainer was asked directly whether the verifier should see the plan beside her reading, with
-the blind-entry conflict stated (above: *"This comparison must NEVER reach a verifier surface"*), and
-chose "CXO and verifier". What was kept, and why it is load-bearing:
+- **Planned** — the feed direction sheet's total for that pen-session;
+- **Packed yesterday** — what the verifier entered when she approved the packing video (her
+  per-feed readings summed);
+- **Fed today** — the one combined weight she entered when she approved the feeding video (the
+  distribution total-feed reading, migration `000455`);
 
-- **Blind entry survives for every bag she has not decided.** The plan is emitted ONLY when the bag's
-  completion is `completed` (her approve stands). A bag `pending_verification`, `rework`, or not
-  packed returns no plan, no reading and no difference — withheld in the SQL
-  (`packingVerificationLogSQL`) and a second time in the repository loop
-  (`domain.PackingLogPlanVisible`), never by a renderer — so the panel cannot hand her the answer to a
-  bag she is still to judge. Such a bag renders its feeds and "Shown once verified".
-- **The known cost, accepted:** pen plans change little day to day, so yesterday's decided plan hints
-  at today's. The maintainer took that trade; the 500 g direction-only warning below is unchanged.
-- **The plan shown is the one she was checked against** (`feed_packing_verified_quantities.planned_kg`,
-  the packed-against snapshot at approve time), falling back to the sheet's sum — so after a 14:00
-  correction the panel agrees with the verdict it reports, not with a sheet rewritten since.
+plus **Fed − packed**: did what was packed reach the animals. A CSV of the same rows downloads from
+the drawer. Packing and feeding join 1:1 on the pair's shared natural key (park, shed, partition,
+session, target date, workflow). Read by the **verifier and the CXO** only —
+`permissions.VerificationFeedPackingLog` on `verifier` and `ceo_internal`; the CXO's grant rides
+`verification_policy` so the PC Director (who maps to the verification module's Configure level) does
+not inherit it. Served by `GET /feed-analytics/packing-verification` in the feed module.
+
+The maintainer was asked directly whether the verifier should see the plan beside her readings, with
+this doc's blind-entry rule quoted, and chose "CXO and verifier". What was kept, and why:
+
+- **Nothing shows before the FEEDING verdict.** Planned and fed appear only once the pen-session's
+  feeding completion is `completed`; packed additionally needs the packing completion `completed`.
+  Before the feeding verdict the packed total IS the feeding verifier's answer, so it is withheld in
+  the SQL (`packingVerificationLogSQL`) and again in the repository (`domain.FeedCheckFiguresVisible`,
+  `domain.PackedVisible`) — never by a renderer. Such a row reads "Shown once feeding is verified".
+- **The known cost, accepted:** plans change little day to day, so yesterday's decided totals hint at
+  today's. The direction-only warnings on both entries are unchanged.
+- **Totals range over compared rows only** (packed and fed both present), so planned, packed and fed
+  are summed over the same pen-sessions.
 - Leadership's Feed analytics variance table is unchanged and stays leadership-gated.
 
-Pinned by `TestPackingVerificationLogOneToManyParkScopeStatusBucketsNoPageBoundary` (every bag state,
-on real Postgres), `TestPackingLogPlanIsVisibleOnlyForAVerifiedBag` and
-`TestFeedPackingLogIsVerifierAndCXOOnly`.
+Pinned by `TestPackingVerificationLogOneToManyParkScopeStatusBucketsNoPageBoundary` (every stage of the
+chain on real Postgres, mutation-tested), `TestFeedCheckFiguresWaitForTheFeedingVerdict`,
+`TestPackingVerificationLogQueryPlanUsesIndexesAtScale` and `TestFeedPackingLogIsVerifierAndCXOOnly`.
 
 ## THE VERIFIER IS WARNED, NOT TOLD — 2026-09-09, EXTENDING blind entry (not retiring it)
 
