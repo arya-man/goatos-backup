@@ -16,8 +16,9 @@ import (
 // 2026-09-28): one feed day, one row per (bag, feed item), where a bag is one park, pen, session and
 // workflow of that day.
 //
-// projection-review: grain=(park_id, shed_id, partition_key, session_no, workflow, feed_item_key)
-// for ONE feed day on every side.
+// Grain: (park_id, shed_id, partition_key, session_no, workflow, feed_item_key) for ONE feed day on
+// every side.
+//
 // projection-review: membership=item keys from the live sheets (feed_direction_issue_rows of
 // issued/amended/locked issues for $3) UNION reading keys from feed_packing_verified_quantities of
 // that day's COMPLETED feed_packing_completions UNION an item-less key for a completion with neither
@@ -27,7 +28,7 @@ import (
 // completions are unique per bag by feed_packing_completions_natural_uq), keys LEFT JOIN done 1:0..1
 // (same natural key), keys LEFT JOIN bag_meta 1:0..1 (GROUP BY on the bag key), locations and
 // workforce_members 1:0..1 by primary key; pagination=none, one feed day bounded by the parks' pens x
-// sessions x items -- physical infrastructure, never herd size; the per-bag and whole-day kg totals
+// sessions x items -- physical infrastructure, never herd size -- the per-bag and whole-day kg totals
 // are window SUMs over exactly the returned rows, so no total can describe a different set than the
 // table; scope=tenant_id on every table plus the caller's authorized park set.
 //
