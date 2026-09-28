@@ -31,6 +31,24 @@ var _ ports.DistributionFeedReadingStore = (*Repository)(nil)
 // feedDistributionFeedRecordedAction is the audit action for the verifier's total-feed reading.
 const feedDistributionFeedRecordedAction = "feed.distribution.total_feed_recorded"
 
+// distributionRecordVerifiedFeedSQL writes the verifier's reading onto ONE completion (a PK update).
+const distributionRecordVerifiedFeedSQL = `
+UPDATE feed_distribution_completions
+SET verified_feed_kg = $3::numeric,
+    verified_planned_feed_kg = nullif($4, '')::numeric,
+    verified_feed_variance_acknowledged = $5,
+    verified_feed_recorded_by = nullif($6::text, '')::uuid,
+    verified_feed_recorded_at = now(),
+    updated_at = now()
+WHERE tenant_id = $1::uuid AND completion_id = $2::uuid
+RETURNING shed_id::text, park_id::text`
+
+// distributionVerifiedFeedRecordedSQL answers whether ONE completion carries a reading (a PK lookup).
+const distributionVerifiedFeedRecordedSQL = `
+SELECT verified_feed_kg IS NOT NULL
+FROM feed_distribution_completions
+WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`
+
 // distributionCompletionPlanRowSQL reads one completion's natural-key grain (a PK lookup).
 const distributionCompletionPlanRowSQL = `
 SELECT target_date, park_id::text, shed_id::text, partition_key, session_no, workflow
@@ -173,16 +191,7 @@ func (r *Repository) RecordDistributionVerifiedFeed(ctx context.Context, p ports
 	}()
 
 	var shedID, parkID string
-	err = tx.QueryRow(ctx, `
-UPDATE feed_distribution_completions
-SET verified_feed_kg = $3::numeric,
-    verified_planned_feed_kg = nullif($4, '')::numeric,
-    verified_feed_variance_acknowledged = $5,
-    verified_feed_recorded_by = nullif($6::text, '')::uuid,
-    verified_feed_recorded_at = now(),
-    updated_at = now()
-WHERE tenant_id = $1::uuid AND completion_id = $2::uuid
-RETURNING shed_id::text, park_id::text`,
+	err = tx.QueryRow(ctx, distributionRecordVerifiedFeedSQL,
 		p.TenantID, p.CompletionID, p.EnteredKg, plannedText, p.VarianceAcknowledged, strings.TrimSpace(p.RecordedBy)).
 		Scan(&shedID, &parkID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -233,10 +242,7 @@ func (r *Repository) DistributionVerifiedFeedRecorded(ctx context.Context, tenan
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	var recorded bool
-	err := r.pool.QueryRow(ctx, `
-SELECT verified_feed_kg IS NOT NULL
-FROM feed_distribution_completions
-WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`, tenantID, completionID).Scan(&recorded)
+	err := r.pool.QueryRow(ctx, distributionVerifiedFeedRecordedSQL, tenantID, completionID).Scan(&recorded)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, ports.ErrDistributionCompletionNotFound
 	}
