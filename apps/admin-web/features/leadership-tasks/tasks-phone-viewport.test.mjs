@@ -102,3 +102,17 @@ for (const [name, source] of [
   assert.match(filters, /flexWrap: \{ xs: "wrap", sm: "nowrap" \}[\s\S]{0,1200}<TextField\s+fullWidth\s+type="search"/, "search row wraps at xs with a full-width field");
   assert.doesNotMatch(filters, /maxWidth: \{ xs: "50%"/, "the Dates button no longer takes half the phone row");
 }
+
+// ---- guard: tasks-phone-filters-fold (TR2-P2-5). At 390 the scope, two people filters and sort were
+// four stacked full-width selects above search + Dates, pushing the board below the fold. Below md
+// they fold behind one Filters button into the template drawer; the skeleton folds the same way.
+import { test as foldTest } from "node:test";
+import { readFileSync as readFold } from "node:fs";
+foldTest("guard: tasks-phone-filters-fold - phone filters fold into a drawer", () => {
+  const src = readFold(new URL("./leadership-tasks-filters.tsx", import.meta.url), "utf8");
+  const assert = { match: (s, re, m) => { if (!re.test(s)) throw new Error(m ?? String(re)); } };
+  assert.match(src, /<Box sx=\{\{ display: \{ xs: "none", md: "contents" \} \}\}>\{filterControls\}<\/Box>/);
+  assert.match(src, /<MinimalDrawer open=\{phoneFiltersOpen\}[\s\S]{0,300}\{filterControls\}/);
+  assert.match(src, /sx=\{\{ display: \{ xs: "inline-flex", md: "none" \}, flexShrink: 0 \}\}/);
+  assert.match(readFold(new URL("../../app/(admin)/tasks/loading.tsx", import.meta.url), "utf8"), /<FilterCardSkeleton inCard fold fields=\{TASK_TOOLBAR_FIELDS\}/);
+});

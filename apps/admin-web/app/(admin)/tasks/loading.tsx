@@ -4,14 +4,14 @@ import { TASK_BOARD_SKELETON_LANES, TASK_HEADER_ACTION_HEIGHTS, TASK_HEADER_ACTI
 
 /**
  * /tasks: header (view toggle + New task; plain crumbs), ONE filter card (status tabs with counts,
- * the toolbar: scope, assignee, raised by, sort, then search + Dates), then the template kanban board
+ * the toolbar: scope, assignee, raised by, sort (folded behind a Filters button below md), then search + Dates), then the template kanban board
  * on the page's four-lane width (86vw lanes on a phone).
  */
 export default function Loading() {
   return (
     <PageSkeleton className="lt-page">
       <PageHeaderSkeleton crumbLink={false} titleWidth={80} actionWidths={TASK_HEADER_ACTION_WIDTHS} actionHeights={TASK_HEADER_ACTION_HEIGHTS} />
-      <ControlsCardSkeleton tabs={<TabsSkeleton count={TASK_STATUS_TAB_COUNT} counts />} toolbar={<FilterCardSkeleton inCard fields={TASK_TOOLBAR_FIELDS} actionWidths={[TASK_DATES_BUTTON_WIDTH]} />} />
+      <ControlsCardSkeleton tabs={<TabsSkeleton count={TASK_STATUS_TAB_COUNT} counts />} toolbar={<FilterCardSkeleton inCard fold fields={TASK_TOOLBAR_FIELDS} actionWidths={[TASK_DATES_BUTTON_WIDTH]} />} />
       <KanbanSkeleton lanes={TASK_BOARD_SKELETON_LANES} laneWidth={FOUR_LANE_COLUMN_WIDTH} />
     </PageSkeleton>
   );

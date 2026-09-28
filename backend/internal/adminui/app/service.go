@@ -8107,14 +8107,14 @@ func pageSpecificCopy(id string) map[string]string {
 			// re-renders once rather than once per item ticked.
 			"filter.apply":            "Apply",
 			"filter.grams_label":      "Grams / head / day",
-			"filter.grams_value_aria": "Grams per head per day to compare against",
+			"filter.grams_value_aria": "Grams to compare",
 			"filter.grams_note":       "Filters on the authored rate itself. \"More than 0\" hides the deliberate zeros; \"exactly 0\" shows only them. Neither reveals an unconfigured combination, which has no row to filter.",
 			// The experiment section's own filters. Its quantity is labelled apart from the grid's on
 			// purpose: the grid holds a per-head RATE in grams and this holds an ABSOLUTE pen total in
 			// kg. One shared label is how the two come to be read as the same number.
 			"filter.experiment_arm_label":    "Experiment arm",
 			"filter.kg_label":                "Grams per animal",
-			"filter.kg_value_aria":           "Grams per animal to compare against",
+			"filter.kg_value_aria":           "Grams to compare",
 			"filter.experiment_bar_aria":     "Filter experiment pens",
 			"filter.experiment_note":         "These filters narrow the experiment pens only. A pen is listed when at least one of its feed items matches, and only its matching items are shown beneath it.",
 			"filter.applies_to_label":        "Applies to",

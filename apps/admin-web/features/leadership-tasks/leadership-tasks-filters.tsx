@@ -9,6 +9,8 @@ import { usePopover } from "minimal-shared/hooks";
 import { varAlpha } from "minimal-shared/utils";
 
 import Box from "@mui/material/Box";
+import Badge from "@mui/material/Badge";
+import { MinimalDrawer } from "@/components/app/drawer";
 import Tab from "@mui/material/Tab";
 import Tabs from "@mui/material/Tabs";
 import Chip from "@mui/material/Chip";
@@ -165,6 +167,7 @@ export function LeadershipTasksFilters({
     setText(q);
   }
   // Both ends of each span are staged locally and committed together — never one end at a time.
+  const [phoneFiltersOpen, setPhoneFiltersOpen] = useState(false);
   const [dates, setDates] = useState({ deadlineFrom, deadlineTo, raisedFrom, raisedTo });
   const [syncedDates, setSyncedDates] = useState({ deadlineFrom, deadlineTo, raisedFrom, raisedTo });
   const applied = `${deadlineFrom}|${deadlineTo}|${raisedFrom}|${raisedTo}`;
@@ -389,6 +392,57 @@ export function LeadershipTasksFilters({
   // counts, the toolbar (sections/user/user-table-toolbar.tsx: outlined multi-select filters, the
   // keyword field with a search adornment), then the applied-filter chips with one Clear
   // (sections/user/user-table-filters-result.tsx anatomy). Every control applies on change.
+  const filterControls = (
+    <>
+        {scope && scope.options.length ? <LinkSelect label={scope.label} value={scope.value} options={scope.options} minWidth={TASK_SCOPE_WIDTH} /> : null}
+        {/* THE TWO PERSON FILTERS. A scope that already pins the person renders none (Gate-1 #7):
+            the scope tab already says whose tasks these are. */}
+        {assigneePinned ? null : (
+          <TaskPeopleDropdown
+            slot="assignee"
+            label={assigneeLabel}
+            allLabel={allOption}
+            options={assigneeOptions.map((option) => ({ id: option.value, name: option.label, title: option.title }))}
+            selected={splitIDs(fieldValue(TASK_PARAM.assignee, assignee))}
+            onChange={(next) => {
+              go(paramsWith({ [TASK_PARAM.assignee]: next.join(",") }));
+            }}
+          />
+        )}
+        {raiserPinned ? null : (
+          <TaskPeopleDropdown
+            slot="raiser"
+            label={raiserLabel}
+            allLabel={allOption}
+            options={raiserOptions.map((option) => ({ id: option.value, name: option.label, title: option.title }))}
+            selected={splitIDs(fieldValue(TASK_PARAM.raiser, raiser))}
+            onChange={(next) => {
+              go(paramsWith({ [TASK_PARAM.raiser]: next.join(",") }));
+            }}
+          />
+        )}
+
+        {/* Sort: an outlined select like the person filters. An unknown `t_sort` (stale link)
+            shows the default the server applies, never a blank. */}
+        <TextField
+          select
+          label={copy(pageContract, "filter.sort")}
+          value={shownSort}
+          onChange={({ target: { value } }) => go(paramsWith({ [TASK_PARAM.sort]: value }))}
+          sx={{ flexShrink: 0, width: { xs: 1, md: TASK_SORT_WIDTH } }}
+          slotProps={{ select: { MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+        >
+          {TASK_SORTS.map((option) => (
+            <MenuItem key={option} value={option}>
+              {copy(pageContract, `sort.${option}`)}
+            </MenuItem>
+          ))}
+        </TextField>
+    </>
+  );
+  const filtersLabel = copy(pageContract, "filter.filters", "Filters");
+  const foldedCount = splitIDs(fieldValue(TASK_PARAM.assignee, assignee)).length + splitIDs(fieldValue(TASK_PARAM.raiser, raiser)).length;
+
   return (
     <Box
       role="group"
@@ -453,50 +507,10 @@ export function LeadershipTasksFilters({
           alignItems: { xs: "stretch", md: "center" },
         }}
       >
-        {scope && scope.options.length ? <LinkSelect label={scope.label} value={scope.value} options={scope.options} minWidth={TASK_SCOPE_WIDTH} /> : null}
-        {/* THE TWO PERSON FILTERS. A scope that already pins the person renders none (Gate-1 #7):
-            the scope tab already says whose tasks these are. */}
-        {assigneePinned ? null : (
-          <TaskPeopleDropdown
-            slot="assignee"
-            label={assigneeLabel}
-            allLabel={allOption}
-            options={assigneeOptions.map((option) => ({ id: option.value, name: option.label, title: option.title }))}
-            selected={splitIDs(fieldValue(TASK_PARAM.assignee, assignee))}
-            onChange={(next) => {
-              go(paramsWith({ [TASK_PARAM.assignee]: next.join(",") }));
-            }}
-          />
-        )}
-        {raiserPinned ? null : (
-          <TaskPeopleDropdown
-            slot="raiser"
-            label={raiserLabel}
-            allLabel={allOption}
-            options={raiserOptions.map((option) => ({ id: option.value, name: option.label, title: option.title }))}
-            selected={splitIDs(fieldValue(TASK_PARAM.raiser, raiser))}
-            onChange={(next) => {
-              go(paramsWith({ [TASK_PARAM.raiser]: next.join(",") }));
-            }}
-          />
-        )}
-
-        {/* Sort: an outlined select like the person filters. An unknown `t_sort` (stale link)
-            shows the default the server applies, never a blank. */}
-        <TextField
-          select
-          label={copy(pageContract, "filter.sort")}
-          value={shownSort}
-          onChange={({ target: { value } }) => go(paramsWith({ [TASK_PARAM.sort]: value }))}
-          sx={{ flexShrink: 0, width: { xs: 1, md: TASK_SORT_WIDTH } }}
-          slotProps={{ select: { MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
-        >
-          {TASK_SORTS.map((option) => (
-            <MenuItem key={option} value={option}>
-              {copy(pageContract, `sort.${option}`)}
-            </MenuItem>
-          ))}
-        </TextField>
+        {/* Scope / people / sort: inline from md; below md they fold behind ONE "Filters" button into
+            the template filters drawer, so four stacked full-width selects no longer push the board
+            below the fold at 390 (TR2-P2-5; guard: tasks-phone-filters-fold). */}
+        <Box sx={{ display: { xs: "none", md: "contents" } }}>{filterControls}</Box>
 
         {/* Phone: the search takes the full row and "Dates" wraps under it, so the field is never
             squeezed to a truncated placeholder beside the button. guard: tasks-phone-search-row */}
@@ -534,6 +548,21 @@ export function LeadershipTasksFilters({
             }}
           />
 
+          <Button
+            variant="outlined"
+            color="inherit"
+            aria-expanded={phoneFiltersOpen}
+            onClick={() => setPhoneFiltersOpen(true)}
+            startIcon={
+              <Badge color="error" variant="dot" invisible={foldedCount === 0}>
+                <Iconify icon="ic:round-filter-list" />
+              </Badge>
+            }
+            sx={{ display: { xs: "inline-flex", md: "none" }, flexShrink: 0 }}
+          >
+            {filtersLabel}
+            {foldedCount ? ` (${foldedCount})` : null}
+          </Button>
           {/* THE DATE SPANS, behind ONE disclosure that states what is applied ("Dates · any") without
               being opened. The four fields are the console's calendar (`ThemedDatePicker`). */}
           <Button
@@ -552,6 +581,10 @@ export function LeadershipTasksFilters({
           </Button>
         </Box>
       </Box>
+
+      <MinimalDrawer open={phoneFiltersOpen} onClose={() => setPhoneFiltersOpen(false)} title={filtersLabel} aria-label={filtersLabel}>
+        <Box sx={{ p: 2.5, display: "flex", flexDirection: "column", gap: 2.5 }}>{filterControls}</Box>
+      </MinimalDrawer>
 
       <CustomPopover
         open={datesPopover.open}

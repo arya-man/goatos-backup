@@ -149,7 +149,7 @@ export function RationRateValue({
     <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.75, whiteSpace: "nowrap" }}>
       <Box
         component="span"
-        sx={{ fontVariantNumeric: "tabular-nums", typography: authoredZero ? "body2" : "subtitle2", color: authoredZero ? "text.secondary" : "primary.main" }}
+        sx={{ fontVariantNumeric: "tabular-nums", typography: authoredZero ? "body2" : "subtitle2", color: authoredZero ? "text.secondary" : "text.primary" }}
       >
         {fmtGrams(value)}
       </Box>

@@ -1170,7 +1170,7 @@ export async function FeedConfigPage({
                               <Box component="span" sx={{ display: "inline-flex", alignItems: "baseline", gap: 0.75 }}>
                                 <Box
                                   component="span"
-                                  sx={{ fontVariantNumeric: "tabular-nums", typography: authoredZero ? "body2" : "subtitle2", color: authoredZero ? "text.secondary" : "primary.main" }}
+                                  sx={{ fontVariantNumeric: "tabular-nums", typography: authoredZero ? "body2" : "subtitle2", color: authoredZero ? "text.secondary" : "text.primary" }}
                                 >
                                   {perAnimal ? fmtGrams(quantity) : quantity}
                                 </Box>
