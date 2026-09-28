@@ -15,6 +15,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/feeddirection/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
 // Feed DISTRIBUTION verification gate write path (maintainer decision, 2026-07-26). This file owns the
@@ -357,11 +358,14 @@ func (r *Repository) ApplyVerifiedDistribution(ctx context.Context, p ports.Appl
 		sessionNo  int32
 		targetDate time.Time
 	)
-	err = tx.QueryRow(ctx, `
+	// The fence fragments are composed, so the final SQL and its binds are validated as one
+	// contract ($1..$4 against four args) before the query runs.
+	applyLock := sqlbind.MustBind(`
 SELECT status, park_id::text, shed_id::text, workflow, session_no, target_date, `+verdictEvidenceHeldSQL(3)+`, `+verdictItemCurrentSQL(4, "feed_distribution_completions", "feed_distribution_completion")+`
 FROM feed_distribution_completions
 WHERE tenant_id = $1::uuid AND completion_id = $2::uuid
-FOR UPDATE`, p.TenantID, p.CompletionID, strings.TrimSpace(p.EvidenceID), strings.TrimSpace(p.ItemID)).Scan(&status, &parkID, &shedID, &workflow, &sessionNo, &targetDate, &holdsEvidence, &itemCurrent)
+FOR UPDATE`, p.TenantID, p.CompletionID, strings.TrimSpace(p.EvidenceID), strings.TrimSpace(p.ItemID))
+	err = tx.QueryRow(ctx, applyLock.SQL(), applyLock.Args()...).Scan(&status, &parkID, &shedID, &workflow, &sessionNo, &targetDate, &holdsEvidence, &itemCurrent)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// No such row for this tenant: a stale/foreign verdict. Ignore.
 		if commitErr := r.commitAndInvalidateReadCache(ctx, tx); commitErr != nil {
