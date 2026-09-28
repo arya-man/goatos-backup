@@ -68,7 +68,7 @@ test("the twins retype no layout number", () => {
   assert.match(animalPage, /fallback=\{<AnimalCardsSkeleton \/>\}/);
   assert.match(animalPage, /size=\{ANIMAL_KPI_SIZE\}/);
   assert.match(read("../../app/(admin)/procurement/animal-purchases/loading.tsx"), /<AnimalPurchasesSkeleton \/>/);
-  assert.match(read("../../app/(admin)/procurement/source-entry/loading.tsx"), /<SourceEntrySkeleton \/>/);
+  assert.match(read("../../app/(admin)/procurement/source-entry/(index)/loading.tsx"), /<SourceEntrySkeleton \/>/);
 });
 
 // REVIEW-49 O77 / REVIEW-50 O82.

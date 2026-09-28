@@ -27,7 +27,8 @@ import { LiveTrackerComboCard } from "./live-tracker-combo";
 import { LiveTrackerRail } from "./live-tracker-rail";
 import { LiveTrackerPassportDrawer } from "./live-tracker-passport-drawer";
 import { LiveTrackerFilters, type LiveFilterSpec } from "./live-tracker-filters";
-import { LivePoller } from "./live-poller";
+import { LiveIntervalField, LivePoller } from "./live-poller";
+import { fmtClockSeconds } from "./format";
 import { fmtDriveDay } from "./format";
 
 // The id rendered by features/preventive-care-vaccination/full-vaccine-schedule.tsx. Spelled once,
@@ -164,6 +165,11 @@ export async function LiveTrackerBoard({
                   {params.hasNarrowing ? copy(pageContract, "state.empty_filtered_body") : copy(pageContract, "state.empty_body")}
                 </Box>
               ) : null}
+              {data.generated_at && data.is_live_day ? (
+                <Box component="span" sx={{ display: "block", mt: isEmpty ? 1 : 0 }}>
+                  {copy(pageContract, "live.updated_prefix")} <b>{fmtClockSeconds(data.generated_at)}</b> {copy(pageContract, "live.updated_suffix")}
+                </Box>
+              ) : null}
             </>
           }
           action={
@@ -186,6 +192,7 @@ export async function LiveTrackerBoard({
         clearAllHref={clearAllHref}
         optionsTruncated={data.filter_options.truncated}
         pageContract={pageContract}
+        extra={data.generated_at && data.is_live_day ? <LiveIntervalField pageContract={pageContract} /> : undefined}
       />
 
       {/* The drive-day board (guard: url-keyed-panel): a filter / park change swaps it to its skeleton

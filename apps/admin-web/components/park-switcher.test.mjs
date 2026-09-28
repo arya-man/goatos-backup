@@ -42,3 +42,11 @@ test("O38: unknown ?park reads the selected-park copy and selects no option", ()
     for (const line of entries) assert.match(line, /\/\/ (own-filter|no-park)\b/, `${name}: "${line.trim()}" must say own-filter or no-park`);
   }
 }
+
+// guard: park-rule-follows-pending-route (TR-2 P1-1). The shell paints the TARGET route's skeleton in the
+// click frame, so the header's park rule must read the pending target too: /vaccination -> a pen showed
+// the switcher in the skeleton and dropped it when the page committed.
+test("the top-bar park rule follows the pending route while its skeleton is painted", () => {
+  assert.match(shell, /const lockTopBarParkSelector = routeOwnsOrIgnoresTopBarPark\(\s*pendingHref \? pendingHref\.split\(\/\[\?#\]\/\)\[0\] : pathname,/);
+  assert.ok(shell.indexOf("const [pendingHref, setPendingHref]") < shell.indexOf("const lockTopBarParkSelector"), "pendingHref is declared before the rule reads it");
+});

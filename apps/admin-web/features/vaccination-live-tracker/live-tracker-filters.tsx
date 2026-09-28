@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { LT_BLOCK_MB, LT_FILTER_MIN } from "./live-tracker-layout";
-import { useTransition } from "react";
+import { useTransition, type ReactNode } from "react";
 import { X } from "lucide-react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -34,7 +34,10 @@ export function LiveTrackerFilters({
   clearAllHref,
   optionsTruncated,
   pageContract,
+  extra,
 }: {
+  /** A trailing field on the same grid (the live refresh interval on a live day). */
+  extra?: ReactNode;
   filters: LiveFilterSpec[];
   clearAllHref: string | null;
   optionsTruncated: boolean;
@@ -85,6 +88,7 @@ export function LiveTrackerFilters({
             ))}
           </TextField>
         ))}
+        {extra}
       </Box>
 
       {active.length > 0 || clearAllHref || optionsTruncated ? (

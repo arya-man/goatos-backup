@@ -3,13 +3,13 @@
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
-import ToggleButton from "@mui/material/ToggleButton";
-import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
+import TextField from "@mui/material/TextField";
+import MenuItem from "@mui/material/MenuItem";
 import { TAP_MIN } from "@/components/app/tap";
 import { useCallback, useEffect, useRef, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { fmtClock, fmtClockSeconds } from "./format";
+import { fmtClock } from "./format";
 
 const STORAGE_KEY = "mesha.live-tracker.interval";
 const LIVE_STORAGE_KEY = "mesha.live-tracker.live";
@@ -111,7 +111,6 @@ export function LivePoller({
     pendingRef.current = isPending;
   }, [isPending]);
 
-  const intervals = optionGroup(pageContract, "live_refresh_interval");
 
   const refresh = useCallback(() => {
     // Backpressure: a refresh already in flight is never stacked behind another. On a slow read at a
@@ -156,13 +155,14 @@ export function LivePoller({
     refresh();
   }
 
+  // TR-2 P1-10 (template App overview): the poller is the AppWelcome's ONE contained action (the
+  // template's "Go now" slot): LIVE (pulsing dot) / PAUSED. The updated time is the welcome text and
+  // the refresh interval is a select in the filter card (LiveIntervalField), not a segmented control.
   return (
-    <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 1.5 }}>
-      {/* Template soft Button: LIVE (error tint, pulsing dot) / PAUSED (neutral). */}
+    <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: { xs: "center", md: "flex-start" }, gap: 1.5 }}>
       <Button
-        size="small"
-        variant="soft"
-        color={live ? "error" : "inherit"}
+        variant="contained"
+        color={live ? "primary" : "inherit"}
         onClick={toggleLive}
         title={copy(pageContract, "live.toggle_title")}
         aria-pressed={live}
@@ -180,34 +180,10 @@ export function LivePoller({
             }}
           />
         }
-        sx={{ minHeight: TAP_MIN, fontWeight: "fontWeightBold", letterSpacing: 0.5 }}
+        sx={{ minHeight: { xs: TAP_MIN, md: 36 } }}
       >
         {live ? copy(pageContract, "live.badge_live") : copy(pageContract, "live.badge_paused")}
       </Button>
-      <Typography variant="caption" sx={{ color: "text.secondary" }}>
-        {copy(pageContract, "live.updated_prefix")}{" "}
-        <Box component="b" sx={{ color: "text.primary" }}>
-          {fmtClockSeconds(generatedAt)}
-        </Box>{" "}
-        {copy(pageContract, "live.updated_suffix")}
-      </Typography>
-      {/* Template ToggleButtonGroup (exclusive): one tap sets the interval; full width on a phone. */}
-      <ToggleButtonGroup
-        exclusive
-        size="small"
-        value={intervalSeconds}
-        onChange={(_event, seconds: number | null) => {
-          if (seconds !== null) writeInterval(seconds);
-        }}
-        aria-label={copy(pageContract, "live.interval_label")}
-        sx={{ width: { xs: 1, sm: "auto" }, "& .MuiToggleButton-root": { flex: { xs: 1, sm: "none" }, minWidth: TAP_MIN, minHeight: TAP_MIN } }}
-      >
-        {intervals.map((option) => (
-          <ToggleButton key={option.key} value={Number(option.key)} title={option.title || undefined}>
-            {option.label}
-          </ToggleButton>
-        ))}
-      </ToggleButtonGroup>
       {/* "Data shown as of" is the timestamp of the data actually on screen. A paused board does not
           refresh, so generatedAt cannot move underneath it — deriving this instead of holding it in
           state is what lets PAUSED survive the Suspense remount that every filter change triggers. */}
@@ -217,5 +193,27 @@ export function LivePoller({
         </Typography>
       ) : null}
     </Box>
+  );
+}
+
+/** The refresh interval as a filter-card select (template toolbar TextField), on the poller's own store. */
+export function LiveIntervalField({ pageContract }: { pageContract: AdminUiPageContract }) {
+  const intervalSeconds = useSyncExternalStore(subscribeInterval, readInterval, serverInterval);
+  const intervals = optionGroup(pageContract, "live_refresh_interval");
+  return (
+    <TextField
+      select
+      fullWidth
+      label={copy(pageContract, "live.interval_label")}
+      value={String(intervalSeconds)}
+      onChange={({ target: { value } }) => writeInterval(Number(value))}
+      slotProps={{ inputLabel: { shrink: true } }}
+    >
+      {intervals.map((option) => (
+        <MenuItem key={option.key} value={option.key} title={option.title || undefined}>
+          {option.label}
+        </MenuItem>
+      ))}
+    </TextField>
   );
 }

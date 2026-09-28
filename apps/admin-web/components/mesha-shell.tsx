@@ -423,12 +423,6 @@ export function MeshaShell({
   const ROUTE_PATTERNS_WITH_LOCAL_OR_NO_PARK_SCOPE = [
     /^\/workflows\/[^/]+$/, // no-park: one fixed workflow row
   ];
-  const lockTopBarParkSelector = routeOwnsOrIgnoresTopBarPark(
-    pathname,
-    PAGES_WITH_LOCAL_OR_NO_PARK_SCOPE,
-    ROUTE_FAMILIES_WITH_LOCAL_OR_NO_PARK_SCOPE,
-    ROUTE_PATTERNS_WITH_LOCAL_OR_NO_PARK_SCOPE,
-  );
   // Top-bar menus are the template's header popovers (the template-derived WorkspacesPopover in
   // layouts/app/components, and account-popover): CustomPopover owns the portal, outside-click and Escape dismissal and focus
   // return, and opening one is a modal layer, so the other can never stay open underneath it.
@@ -436,6 +430,15 @@ export function MeshaShell({
   const [routePending, setRoutePending] = useState(false);
   // Target of a path-changing navigation in flight: its route skeleton replaces the page at once.
   const [pendingHref, setPendingHref] = useState<string | null>(null);
+  // guard: park-rule-follows-pending-route (TR-2 P1-1). While the TARGET route's skeleton is painted,
+  // the header already follows the target's park rule: /vaccination -> a pen showed the switcher in
+  // the skeleton frame and dropped it when the page committed (a header that changes under the reader).
+  const lockTopBarParkSelector = routeOwnsOrIgnoresTopBarPark(
+    pendingHref ? pendingHref.split(/[?#]/)[0] : pathname,
+    PAGES_WITH_LOCAL_OR_NO_PARK_SCOPE,
+    ROUTE_FAMILIES_WITH_LOCAL_OR_NO_PARK_SCOPE,
+    ROUTE_PATTERNS_WITH_LOCAL_OR_NO_PARK_SCOPE,
+  );
   const [navTrail, setNavTrail] = useState<TrailItem[]>([]);
   const trailRef = useRef<TrailItem[]>([]);
   const pendingAnchorRef = useRef<HTMLAnchorElement | null>(null);
@@ -540,7 +543,13 @@ export function MeshaShell({
     // route is not prefetched, so the router would keep the old page until the server answers).
     try {
       const dest = toHref ? new URL(toHref, window.location.href) : null;
-      setPendingHref(dest && dest.pathname !== window.location.pathname ? `${dest.pathname}${dest.search}` : null);
+      const pathChange = !!dest && dest.pathname !== window.location.pathname;
+      setPendingHref(pathChange ? `${dest.pathname}${dest.search}` : null);
+      // guard: pending-route-scroll-top (TR-2 P1-11). The target's skeleton replaces the page in this
+      // frame, so the reader is at the top of the NEW page: the router's own scroll-to-top saw the
+      // layout-transparent skeleton wrapper "in view" and kept the old offset (a pen opened from the
+      // /vaccination board at 390 landed at y=792, header off screen). History back keeps its restore.
+      if (pathChange && source !== "back") window.scrollTo(0, 0);
     } catch {
       setPendingHref(null);
     }

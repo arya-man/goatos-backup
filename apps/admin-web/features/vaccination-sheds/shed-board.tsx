@@ -313,7 +313,6 @@ export async function VaccinationShedBoard({
                         <Link
                           href={href}
                           className="shed-summary-row-link"
-                          scroll={false}
                           prefetch={false}
                           aria-label={`${copy(pageContract, "action.open_shed_board")} ${row.operationalLocationDisplay || row.shedName}`}
                         />

@@ -4,6 +4,7 @@ import {
   LT_BLOCK_MB,
   LT_FILTER_IDS,
   LT_FILTER_MIN,
+  LT_LIVE_INTERVAL_FIELD,
   LT_HEADER,
   LT_HEADER_MB,
   LT_KPI_KEYS,
@@ -71,7 +72,7 @@ export function LiveTrackerPageSkeleton() {
         <BlockSkeleton height={LT_WELCOME_HEIGHT} />
       </Box>
       <Box sx={{ mb: LT_BLOCK_MB }}>
-        <FilterCardSkeleton fields={LT_FILTER_IDS.map(() => LT_FILTER_MIN)} />
+        <FilterCardSkeleton fields={[...LT_FILTER_IDS, ...Array.from({ length: LT_LIVE_INTERVAL_FIELD }, () => "interval")].map(() => LT_FILTER_MIN)} />
       </Box>
       <LiveTrackerBodySkeleton />
     </PageSkeleton>

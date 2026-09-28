@@ -255,8 +255,8 @@ export async function GoatPassportPage({
       <Box sx={{ rowGap: 3, columnGap: 2, display: "grid", gridTemplateColumns: { xs: "repeat(1, 1fr)", sm: "repeat(2, 1fr)" } }}>
         {readOnly("display", copy(pageContract, "label.display_id"), goat.display_id)}
         {readOnly("breed", copy(pageContract, "label.breed_sex"), secondaryLine)}
-        {readOnly("tag1", copy(pageContract, "label.tag_1"), goat.summary.animal_identifier_1, { mono: true })}
-        {readOnly("tag2", copy(pageContract, "label.tag_2"), goat.summary.animal_identifier_2, { mono: true })}
+        {readOnly("tag1", copy(pageContract, "label.tag_1"), goat.summary.animal_identifier_1)}
+        {readOnly("tag2", copy(pageContract, "label.tag_2"), goat.summary.animal_identifier_2)}
         {readOnly("location", copy(pageContract, "label.location"), goat.summary.location_path.operational_location_display, { full: true })}
         {readOnly("lifecycle", copy(pageContract, "label.lifecycle"), lifecycle ? humanizeEnum(lifecycle) : null)}
         {readOnly("health", copy(pageContract, "label.health"), health ? humanizeEnum(health) : null)}
@@ -323,7 +323,7 @@ export async function GoatPassportPage({
               {goat.identifiers.map((identifier) => (
                 <TableRow hover key={identifier.identifier_id}>
                   <TableCell sx={{ whiteSpace: "nowrap" }}>{identifierTypeLabel(identifier.identifier_type, pageContract)}</TableCell>
-                  <TableCell sx={{ ...mono, whiteSpace: "nowrap" }}>{identifier.identifier_value}</TableCell>
+                  <TableCell sx={{ whiteSpace: "nowrap" }}>{identifier.identifier_value}</TableCell>
                   <TableCell>{humanizeEnum(identifier.scope_key)}</TableCell>
                   <TableCell>
                     <Tag tone={identifier.status === "active" ? "ok" : "mut"}>{humanizeEnum(identifier.status)}</Tag>
