@@ -134,6 +134,10 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
   // A park-scoped actor never sees these and never clicks anything (parkChoices stays null).
   const [parkChoices, setParkChoices] = useState<ParkScopeOption[] | null>(null);
   const [parkChoiceMessage, setParkChoiceMessage] = useState('');
+  // The same backend-owned park list, KEPT after a park is chosen: the loaded screen offers it as a
+  // Park switch so a multi-park actor can move between parks without leaving the page. Null for a
+  // park-scoped actor, who has nothing to switch to.
+  const [parkOptions, setParkOptions] = useState<ParkScopeOption[] | null>(null);
   // The park the actor picked. There is deliberately NO local default: a pre-selected park would be
   // this screen inventing scope, which is the defect BUG-019 is about.
   const [chosenParkId, setChosenParkId] = useState<string | null>(null);
@@ -208,6 +212,7 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
         if (!alive) return;
         if (result.state === 'needs_park_selection') {
           setParkChoices(result.parks);
+          setParkOptions(result.parks);
           setParkChoiceMessage(result.message);
           setParkId(null);
           setError(null);
@@ -853,6 +858,25 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
           <h1>Vaccination operators</h1>
           <div className="sub">{scopedParkLabel ? `${scopedParkLabel}. ` : ''}Roster, weekly availability, and drive-operator assignment on one screen. Operator caps drive vaccination scheduling; week-off and leave remove an operator from that day.</div>
         </div>
+        {parkOptions && parkOptions.length > 1 && parkId ? (
+          <div className="fld" style={{ marginLeft: 'auto', minWidth: 180 }}>
+            <label htmlFor="vaccination-operators-park">Park</label>
+            <select
+              id="vaccination-operators-park"
+              value={parkId}
+              aria-label="Park scope"
+              onChange={(e) => {
+                if (e.target.value && e.target.value !== parkId) setChosenParkId(e.target.value);
+              }}
+            >
+              {parkOptions.map((park) => (
+                <option key={park.parkId} value={park.parkId}>
+                  {park.code ? `${park.code} · ${park.name}` : park.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
       </div>
 
       {/* KPI Row */}
