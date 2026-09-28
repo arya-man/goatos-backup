@@ -1360,6 +1360,10 @@
     .main table.feed-stock-table{min-width:1480px}
     .main table.feed-stock-table th,.main table.feed-stock-table td{white-space:nowrap;overflow-wrap:normal}
     .main table.feed-stock-table .tag{white-space:nowrap}
+    /* "Consumption from" carries either a date or a sentence ("Not started — previous stock in
+       use"). The fixed-layout column is sized for the date, so the sentence must wrap inside its
+       own cell rather than paint over Last load. */
+    .main table.feed-stock-table td:nth-child(3){white-space:normal;overflow-wrap:normal;word-break:normal}
   }
   /* Sortable column header. The mock has no sortable table, so this is a deliberate, minimal
      addition rather than a ported element: the header keeps its exact resting typography and the
@@ -1757,6 +1761,9 @@
   /* The last row's underline would otherwise read as a rule floating above the card's own edge. */
   .main .mortality-recent-card table.health-analytics-table tbody tr:last-child td{border-bottom:0}
   .main .mortality-recent-card .pager2{padding:10px 16px 0;border-top:1px solid var(--line2);margin-top:0}
+  /* An animal's tag is one token (`TEMP-CBE-CASTRO01-003`): a phone must never break it at its
+     hyphens across two lines. The table pans inside its own scroll box instead. */
+  .main .mortality-recent-card td .mono,.main .mortality-recent-card td .mono+.muted{white-space:nowrap}
   @media(max-width:600px){
     .main .mortality-recent-card>h2,
     .main .mortality-recent-card>p{padding-left:13px;padding-right:13px}
@@ -4795,6 +4802,11 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
   .sales-block .kpi .val,.sales-kpi-row .kpi .val{font-size:clamp(22px,8vw,30px);white-space:normal;overflow-wrap:anywhere;word-break:normal;line-height:1.05}
   .sales-block .kpi .dl,.sales-kpi-row .kpi .dl{white-space:normal;overflow-wrap:anywhere}
   .sales-block-hd .tag{max-width:100%;white-space:normal}
+  /* By-category card: its summary chip ("1,500 valued · 58 Warmup not valued · 1,558 live
+     animals") is wider than a phone, and a nowrap chip pushed the whole card sideways. */
+  .main .sales-card .hd .tag{max-width:100%;min-width:0;white-space:normal;overflow-wrap:anywhere}
+  .main .sales-card .kpi{min-width:0;max-width:100%}
+  .main .sales-card .kpi .val,.main .sales-card .kpi .dl{white-space:normal;overflow-wrap:anywhere}
 }
 .main table.sales-market-table{min-width:1720px}
 .main table.sales-market-table th,.main table.sales-market-table td{white-space:nowrap;overflow-wrap:normal;word-break:normal}
