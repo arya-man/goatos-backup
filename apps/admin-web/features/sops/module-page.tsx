@@ -8,7 +8,7 @@ import { getSop, isAuthRequiredError, listSops, requireAdminWebPageContract } fr
 import type { AdminWebPageContract } from "@/lib/api/server";
 import type { RouteSearchParams } from "@/lib/search-params";
 import type { SopScopeDomain } from "./sop-derive";
-import { SOP_EDITOR_PARAMS, isSopEditorUrl } from "./sop-library-layout";
+import { SOP_EDITOR_PARAMS, SOP_HEADER_ACTIONS, isSopEditorUrl } from "./sop-library-layout";
 
 /** The shared library-vs-editor predicate over the route's search params. */
 function isSopEditorRoute(sp: RouteSearchParams): boolean {
@@ -53,6 +53,8 @@ export async function renderSopModulePage(
 ) {
   const sp = await searchParams;
   const editing = isSopEditorRoute(sp);
+  // A route with an extra header action (weighing's Assumptions) keeps it in its library skeleton.
+  const librarySkeleton = <SopLibrarySkeleton actionWidths={extraNodeFactory ? SOP_HEADER_ACTIONS.withAssumptions : undefined} />;
   // Library ⇄ editor is a URL state (guard: url-keyed-panel): opening an editor, or landing back on
   // the library after Publish, swaps to the target's skeleton in the same frame as the click and
   // streams the reads in, instead of holding the old screen until the server answers.
@@ -60,8 +62,8 @@ export async function renderSopModulePage(
     <UrlSuspense
       searchParams={sp}
       watch={SOP_MODE_WATCH}
-      fallback={editing ? <SopEditorSkeleton /> : <SopLibrarySkeleton />}
-      fallbackBy={{ param: SOP_EDITOR_PARAMS.join("|"), shapes: { "1": <SopEditorSkeleton />, "": <SopLibrarySkeleton /> } }}
+      fallback={editing ? <SopEditorSkeleton /> : librarySkeleton}
+      fallbackBy={{ param: SOP_EDITOR_PARAMS.join("|"), shapes: { "1": <SopEditorSkeleton />, "": librarySkeleton } }}
     >
       <SopModuleBody contractKey={contractKey} slice={slice} basePath={basePath} sp={sp} extraNodeFactory={extraNodeFactory} />
     </UrlSuspense>

@@ -29,7 +29,9 @@ import Breadcrumbs from "@mui/material/Breadcrumbs";
 import { CustomBreadcrumbs } from "@/components/minimal/custom-breadcrumbs";
 import { BreadcrumbsSeparator } from "@/components/minimal/custom-breadcrumbs/styles";
 import { KpiGrid } from "@/components/app/kpi-grid";
+import { pageHeaderActionsSx, pageHeaderLayoutSx, type PageHeaderLayout } from "@/components/app/page-header";
 import { orderToolbarFilterSx, orderToolbarSearchSx } from "@/components/app/order-toolbar-filter";
+import { FILTER_SEARCH_BASIS } from "@/components/app/filter-field-widths";
 
 type Typo = "h3" | "h4" | "h5" | "h6" | "subtitle1" | "subtitle2" | "body1" | "body2" | "caption";
 
@@ -100,7 +102,10 @@ export function PageHeaderSkeleton({
   tabs,
   toolbar,
   back = false,
+  layout,
 }: {
+  /** The SAME PageHeaderLayout constant the page passes to PageHeader (guard: page-header-layout-twin). */
+  layout?: PageHeaderLayout;
   /**
    * The heading is a back link (PageHeader `backHref`: template BackLink, arrow + title). It is an
    * `a.minimal__breadcrumbs__back`, so PhoneTapStyles gives it the same 44px box below md as the page's.
@@ -166,13 +171,14 @@ export function PageHeaderSkeleton({
         }
         action={
           widths.length ? (
-            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5, alignItems: "center" }}>
+            <Box sx={pageHeaderActionsSx(layout)}>
               {widths.map((w, i) => (
                 <Skeleton key={i} variant="rounded" sx={{ width: w, height: actionHeights?.[i] ?? tapHeight(36) }} />
               ))}
             </Box>
           ) : undefined
         }
+        sx={pageHeaderLayoutSx(layout)}
       />
       {tabs ? <div>{tabs}</div> : null}
       {toolbar ? <div>{toolbar}</div> : null}
@@ -211,8 +217,8 @@ export function TabsSkeleton({ count, variant = "underline", counts = false, wid
 }
 
 /** One outlined field (select / date / search) at the template TextField height. */
-export function FieldSkeleton({ width = 200, grow = false, small = false, height }: { width?: number | string | Record<string, number | string>; grow?: boolean; small?: boolean; height?: number | Record<string, number> }) {
-  return <Skeleton variant="rounded" sx={{ height: height ?? (small ? tapHeight(40) : FIELD_H), width: grow ? "auto" : width, flexGrow: grow ? 1 : 0, flexShrink: 1, flexBasis: grow ? 240 : "auto", maxWidth: 1, minWidth: 0 }} />;
+export function FieldSkeleton({ width = 200, grow = false, small = false, height, basis }: { width?: number | string | Record<string, number | string>; grow?: boolean; small?: boolean; height?: number | Record<string, number>; /** A grow field's flex basis when it is not the FilterBar search default. */ basis?: number | Record<string, number> }) {
+  return <Skeleton variant="rounded" sx={{ height: height ?? (small ? tapHeight(40) : FIELD_H), width: grow ? "auto" : width, flexGrow: grow ? 1 : 0, flexShrink: 1, flexBasis: grow ? (basis ?? FILTER_SEARCH_BASIS) : "auto", maxWidth: 1, minWidth: 0 }} />;
 }
 
 export type FilterField = number | "search" | "chip";
@@ -234,7 +240,10 @@ export function FilterCardSkeleton({
   bare = false,
   summary = false,
   searchSmall = false,
+  searchBasis,
 }: {
+  /** The search's flex basis when the bar sets its own (FilterBar fold: FILTER_SEARCH_FOLD_BASIS). */
+  searchBasis?: number | Record<string, number>;
   fields: FilterField[] | number;
   actions?: number;
   /** Per-action widths (a text button ~96, the ⋮ icon button 36); default 88 each. A breakpoint map for a control group that fills a phone row. */
@@ -276,7 +285,7 @@ export function FilterCardSkeleton({
       ) : fixed.length ? (
         <Box sx={{ display: { xs: "none", md: "flex" }, flexWrap: "wrap", gap: 2, alignItems: "center" }}>{fixed.map((f, i) => (f === "chip" ? <ChipSkeleton key={i} /> : <FieldSkeleton key={i} width={f} small={small} />))}</Box>
       ) : null}
-      {!foldSearch && list.includes("search") ? <FieldSkeleton grow small={small} /> : null}
+      {!foldSearch && list.includes("search") ? <FieldSkeleton grow small={small} basis={searchBasis} /> : null}
       <Skeleton variant="rounded" width={96} sx={{ height: tapHeight(36), display: { xs: "block", md: "none" } }} />
       {acts.length ? (
         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, alignItems: "center", ml: "auto" }}>
@@ -654,8 +663,12 @@ export function CardGridSkeleton({
   columns = { xs: 1, sm: 2, md: 3 },
   facts = 4,
   label = true,
+  oneRow = false,
 }: {
   count: number;
+  /** Draw exactly ONE row of the grid at every breakpoint (1 card at xs, 2 at sm, 3 at md): a page whose
+   *  card count is data (the SOP libraries hold 1-4) twins its first row, not a phone column of `count`. */
+  oneRow?: boolean;
   columns?: { xs?: number; sm?: number; md?: number; lg?: number; xl?: number };
   facts?: number;
   label?: boolean;
@@ -664,7 +677,7 @@ export function CardGridSkeleton({
   return (
     <Box aria-hidden="true" data-skel="cards" sx={{ gap: "var(--sp-3)", display: "grid", gridTemplateColumns: template }}>
       {Array.from({ length: count }, (_, i) => (
-        <Card key={i}>
+        <Card key={i} sx={oneRow ? { display: Object.fromEntries(Object.entries(columns).map(([bp, n]) => [bp, i < n ? "block" : "none"])) } : undefined}>
           <Box sx={{ p: 3, pb: 2 }}>
             <Skeleton variant="rounded" width={48} height={48} sx={{ mb: 2 }} />
             <SkeletonLine variant="subtitle1" width={wobble(i, 50, 30)} />
@@ -1023,6 +1036,35 @@ export function OrderToolbarSkeleton({
         {menu ? <Skeleton variant="circular" sx={{ width: tapHeight(36), height: tapHeight(36), flexShrink: 0 }} /> : null}
       </Box>
     </Box>
+  );
+}
+
+/**
+ * Loading twin of a Card that is a CardHeader (h6 title, a body2 subheader paragraph of
+ * `subheaderLines` lines per breakpoint) over a toolbar row (`toolbar`, e.g. OrderToolbarSkeleton):
+ * the /ceo-ai-admin lookup card.
+ */
+export function ToolbarCardSkeleton({ subheaderLines, toolbar }: { subheaderLines: { xs: number; md: number }; toolbar: ReactNode }) {
+  const max = Math.max(subheaderLines.xs, subheaderLines.md);
+  return (
+    <Card aria-hidden="true" data-skel="toolbar-card">
+      <CardHeader
+        title={<Skeleton variant="text" width="56%" />}
+        subheader={
+          <>
+            {Array.from({ length: max }, (_, i) => (
+              <SkeletonLine
+                key={i}
+                variant="body2"
+                width={i === max - 1 ? "70%" : wobble(i, 90, 8)}
+                sx={{ display: { xs: i < subheaderLines.xs ? "block" : "none", md: i < subheaderLines.md ? "block" : "none" } }}
+              />
+            ))}
+          </>
+        }
+      />
+      {toolbar}
+    </Card>
   );
 }
 

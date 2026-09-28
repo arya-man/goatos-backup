@@ -60,7 +60,7 @@ import useMediaQuery from "@mui/material/useMediaQuery";
 import type { Theme } from "@mui/material/styles";
 import Chip from "@mui/material/Chip";
 import Paper from "@mui/material/Paper";
-import { CARDS_PER_PAGE } from "./sop-library-layout";
+import { CARDS_PER_PAGE, SOP_HEADER_LAYOUT } from "./sop-library-layout";
 
 // The New SOP builder is a dedicated full-page surface at <module SOP page>?compose=1 — the same
 // route as the module page (never a nested /new page). Legacy `?new=1` deep-links resolve to it too.
@@ -240,6 +240,7 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
     // column stacks header, toolbar and cards with the template gap itself.
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
       <PageHeader
+        layout={SOP_HEADER_LAYOUT}
         title={pageContract.title}
         crumbs={[{ label: copy(pageContract, "crumb", moduleSegment(basePath)) || moduleSegment(basePath) }, { label: pageContract.title }]}
         actions={

@@ -1,3 +1,4 @@
+import type { PageHeaderLayout } from "@/components/app/page-header";
 // Layout constants shared by the Counts pages (herd-analytics, counts-breakdown, herd-register,
 // mortality) and their loading twins (counts-skeletons.tsx), so a skeleton cannot drift from its page.
 import { DATE_RANGE_PICKER_MIN, FILTER_SELECT_MIN } from "@/components/app/filter-field-widths";
@@ -33,4 +34,6 @@ export const BD_TABLE = { columns: 8, rows: 10 } as const;
 export const HERD_TABLE = { columns: 9, rows: 10, statusTabs: 5, searchFields: ["search", 120] as ("search" | number)[] } as const;
 export const MORTALITY_RATE_TABLE = { cards: 4, columns: 5, rows: 5 } as const;
 /** Header widths: analytics title (Export beside it on a phone), Export, the herd register's header (Register animal + the ⋮ IconButton, 44px on a phone). */
-export const COUNTS_HEADER = { analyticsTitleWidth: 150, exportWidth: 89, herdActionWidths: [154, { xs: 44, md: 36 }] } as const;
+/** /counts/herd header: Register animal + ⋮ stay on the title row at 390 (TR3-P0-1; guard: page-header-layout-twin). */
+export const HERD_HEADER_LAYOUT: PageHeaderLayout = { actionsInline: true };
+export const COUNTS_HEADER = { analyticsTitleWidth: 150, exportWidth: 89, herdActionWidths: [154, { xs: 44, md: 36 }], herdCrumbWidths: [50, 36] } as const;

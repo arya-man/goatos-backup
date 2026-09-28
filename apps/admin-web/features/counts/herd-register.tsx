@@ -1,6 +1,6 @@
 import Table from "@mui/material/Table";
 import { UrlSuspense } from "@/components/app/url-suspense";
-import { HERD_KPI_SIZE } from "./counts-layout";
+import { HERD_HEADER_LAYOUT, HERD_KPI_SIZE } from "./counts-layout";
 import { HerdKpiSkeleton } from "./counts-skeletons";
 import { TableSkeleton } from "@/components/app/skeletons";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
@@ -281,6 +281,7 @@ export async function HerdRegisterPage({
     <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
       <div>
         <PageHeader
+          layout={HERD_HEADER_LAYOUT}
           title={pageContract.title}
           crumbs={[{ label: copy(pageContract, "crumb") }, { label: copy(pageContract, "section.herd.title") }]}
           actions={

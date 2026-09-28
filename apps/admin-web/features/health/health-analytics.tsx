@@ -49,7 +49,7 @@ import {
 import { HealthAnalyticsTelemetry } from "./health-analytics-telemetry";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { PanelSkeleton } from "@/components/app/panel-skeleton";
-import { HEALTH_KPI_ROW2_MD, HealthKpiSkeleton } from "./health-analytics-layout";
+import { HealthKpiSkeleton, healthKpiSize } from "./health-analytics-layout";
 import { LinkButton } from "@/components/app/link-button";
 
 /**
@@ -227,6 +227,7 @@ function Kpi({
   sub,
   monthly,
   windowTo,
+  tile,
   md = 4,
 }: {
   accent: string;
@@ -239,13 +240,16 @@ function Kpi({
   monthly?: number[];
   /** The served window's last day: its month is left out of the change while it is running. */
   windowTo?: string;
+  /** Position in HEALTH_KPI_MD: the page and HealthKpiSkeleton size each tile from the same list. */
+  tile?: number;
+  /** A tab panel's own KPI row sizes its tiles itself. */
   md?: number;
 }) {
   const tone = ACCENT_TONE[accent];
   const percent = monthly ? completeMonthPercent(monthly, windowTo) : null;
   const lead = value == null ? "—" : unit;
   return (
-    <Grid size={{ xs: 12, sm: 6, md }}>
+    <Grid size={tile == null ? { xs: 12, sm: 6, md } : healthKpiSize(tile)}>
       <KpiWidget
         title={label}
         total={value}
@@ -466,12 +470,14 @@ export async function HealthAnalyticsPage({
       <Box component="section" aria-label={ha(pageContract, "section.kpi.aria")}>
         <Grid container spacing={3}>
         <Kpi
+          tile={0}
           accent="var(--info)"
           label={ha(pageContract, "kpi.open.label")}
           value={totals.open_cases}
           sub={ha(pageContract, "kpi.open.sub")}
         />
         <Kpi
+          tile={1}
           accent="var(--brand)"
           label={ha(pageContract, "kpi.new.label")}
           value={totals.new_cases}
@@ -480,6 +486,7 @@ export async function HealthAnalyticsPage({
           sub={ha(pageContract, "kpi.new.sub")}
         />
         <Kpi
+          tile={2}
           accent="var(--teal)"
           label={ha(pageContract, "kpi.recovery.label")}
           // Of the cases CLOSED in the window: a still-open course has no outcome yet, and
@@ -489,8 +496,8 @@ export async function HealthAnalyticsPage({
           sub={ha(pageContract, "kpi.recovery.sub")}
         />
         <Kpi
+          tile={3}
           accent="var(--danger)"
-          md={HEALTH_KPI_ROW2_MD}
           label={ha(pageContract, "kpi.deaths.label")}
           value={totals.deaths}
           monthly={deathRowsByMonth.map((m) => m.attributed + m.unattributed)}
@@ -498,8 +505,8 @@ export async function HealthAnalyticsPage({
           sub={ha(pageContract, "kpi.deaths.sub")}
         />
         <Kpi
+          tile={4}
           accent="var(--amber)"
-          md={HEALTH_KPI_ROW2_MD}
           label={ha(pageContract, "kpi.unattributed.label")}
           value={round1(totals.deaths === 0 ? 0 : (totals.deaths_unattributed / totals.deaths) * 100)}
           unit="%"

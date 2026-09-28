@@ -1,5 +1,6 @@
 "use client";
 
+import { FILTER_SEARCH_BASIS, FILTER_SEARCH_FOLD_BASIS } from "@/components/app/filter-field-widths";
 import { useState, type ReactNode } from "react";
 import Badge from "@mui/material/Badge";
 import Box from "@mui/material/Box";
@@ -73,7 +74,7 @@ export function FilterBar({ children, actions, search, summary, fold, className,
             defaultValue={search.defaultValue}
             placeholder={search.placeholder}
             onChange={search.onChange ? (event) => search.onChange?.(event.target.value) : undefined}
-            sx={{ flex: "1 1 240px", minWidth: 0 }}
+            sx={{ flexGrow: 1, flexShrink: 1, flexBasis: foldable ? FILTER_SEARCH_FOLD_BASIS : FILTER_SEARCH_BASIS, minWidth: 0 }}
             slotProps={{
               htmlInput: { "aria-label": search.ariaLabel ?? search.placeholder },
               input: {

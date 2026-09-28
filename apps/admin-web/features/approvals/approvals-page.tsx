@@ -20,7 +20,7 @@ import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { todayIso } from "@/lib/format";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { DenseToggleAuto } from "@/components/app/dense-toggle-auto";
-import { DEFAULT_PAGE_SIZE, PAGE_SIZES, STATUS_TABS, TYPE_TABS, APPROVALS_COPY as COPY } from "./copy";
+import { APPROVALS_SKELETON_ROWS, DEFAULT_PAGE_SIZE, PAGE_SIZES, STATUS_TABS, TYPE_TABS, APPROVALS_COPY as COPY } from "./copy";
 import { ApprovalsDrawer } from "./approvals-drawer";
 import { ApprovalsDateFilter } from "./approvals-date-filter";
 import { ApprovalsQueueTable, approvalsHref } from "./approvals-queue-table";
@@ -125,7 +125,7 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
           searchParams={sp}
           subjects={subjects}
           renderBody={(body) => (
-            <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<TableSkeleton bare header={false} columns={COPY.table.columns.length} rows={10} />}>
+            <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<TableSkeleton bare header={false} columns={COPY.table.columns.length} rows={APPROVALS_SKELETON_ROWS} />}>
               {body}
             </UrlSuspense>
           )}

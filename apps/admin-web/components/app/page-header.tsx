@@ -11,6 +11,45 @@ import { iconifyClasses } from "@/components/minimal/iconify";
 
 export type PageCrumb = { label: string; href?: string };
 
+/**
+ * How the header lays out its actions, shared by `PageHeader` and its loading twin
+ * `PageHeaderSkeleton` (TR3-P0-1). A route declares ONE constant of this type in its layout file and
+ * passes it to both, so the skeleton cannot drift from the page (guard: page-header-layout-twin).
+ */
+export type PageHeaderLayout = {
+  /**
+   * The actions stay on the title row at every width (the title and crumbs shrink/wrap beside them)
+   * instead of wrapping under the title block on a phone. For one primary action (plus an overflow ⋮).
+   */
+  actionsInline?: boolean;
+  /**
+   * Below md the actions always take their own right-aligned row under the title block, whatever the
+   * title / crumb widths or the number of actions (a permission-gated extra action, a long module
+   * crumb). For a header whose actions and crumbs vary per route (the shared SOP library).
+   */
+  actionsBelow?: boolean;
+};
+
+/** The CustomBreadcrumbs container/content sx for a layout; the same object feeds page and skeleton. */
+export function pageHeaderLayoutSx(layout: PageHeaderLayout | undefined) {
+  if (layout?.actionsBelow) {
+    return {
+      "& > div:first-of-type": { flexDirection: { xs: "column", md: "row" }, alignItems: { xs: "flex-end", md: "flex-start" } },
+      "& > div:first-of-type > div:first-of-type": { alignSelf: { xs: "stretch", md: "auto" } },
+    } as const;
+  }
+  if (!layout?.actionsInline) return undefined;
+  return {
+    "& > div:first-of-type": { flexWrap: "nowrap" },
+    "& > div:first-of-type > div:first-of-type": { minWidth: 0 },
+  } as const;
+}
+
+/** The actions Box sx for a layout (inline actions never shrink or wrap among themselves). */
+export function pageHeaderActionsSx(layout: PageHeaderLayout | undefined) {
+  return { display: "flex", flexWrap: layout?.actionsInline ? "nowrap" : "wrap", flexShrink: layout?.actionsInline ? 0 : undefined, gap: 1.5, alignItems: "center" } as const;
+}
+
 export type PageHeaderProps = {
   title: string;
   /** Full path, "Module • Page". The last crumb is the current page and renders disabled. */
@@ -28,6 +67,8 @@ export type PageHeaderProps = {
   toolbar?: ReactNode;
   className?: string;
   id?: string;
+  /** Shared with the route's PageHeaderSkeleton (a named constant, never a literal). */
+  layout?: PageHeaderLayout;
 };
 
 /**
@@ -35,7 +76,7 @@ export type PageHeaderProps = {
  * right), one per page. There is deliberately no description slot — a page explains itself with its
  * labels, fields, tables and buttons.
  */
-export function PageHeader({ title, crumbs: crumbsIn, actions, backHref, tabs, toolbar, className, id }: PageHeaderProps) {
+export function PageHeader({ title, crumbs: crumbsIn, actions, backHref, tabs, toolbar, className, id, layout }: PageHeaderProps) {
   const trail = useNavTrail();
   // A trail that only repeats the page title ("Approvals • Approvals") tells the reader nothing.
   const crumbs = crumbsIn && crumbsIn.length > 0 && !crumbsIn.every((crumb) => crumb.label.trim() === title.trim()) ? crumbsIn : [];
@@ -76,7 +117,8 @@ export function PageHeader({ title, crumbs: crumbsIn, actions, backHref, tabs, t
           )) as unknown as string
         }
         links={crumbs.map((crumb) => ({ name: crumb.label, href: crumb.href }))}
-        action={actions ? <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5, alignItems: "center" }}>{actions}</Box> : undefined}
+        action={actions ? <Box sx={pageHeaderActionsSx(layout)}>{actions}</Box> : undefined}
+        sx={pageHeaderLayoutSx(layout)}
         slotProps={{
           heading: { as: "h1", className: "kit-page-title" } as never,
         }}

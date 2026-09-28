@@ -23,6 +23,10 @@ export const TYPE_TABS: Array<"all" | AdminWebApprovalRequestType> = ["all", "bi
  */
 export const PAGE_SIZES = [5, 10, 20] as const;
 export const DEFAULT_PAGE_SIZE = 20;
+/** Placeholder rows in the queue skeleton (route loading + the panel fallback): the pending queue is
+ *  a handful of rows, so a short page keeps the Dense / rows-per-page footer in the first screen as
+ *  the loaded card has it (TR3-P0-4). */
+export const APPROVALS_SKELETON_ROWS = 5;
 
 export const APPROVALS_COPY = {
   crumb: "Approvals",

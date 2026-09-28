@@ -44,7 +44,7 @@ import { visuallyHidden } from "@mui/utils";
 import { Label } from "@/components/minimal/label";
 import { EmptyContent } from "@/components/minimal/empty-content";
 import { LinkButton } from "@/components/app/link-button";
-import { CATALOG_PAGE_SIZE } from "./health-config-layout";
+import { CATALOG_PAGE_SIZE, HEALTH_CONFIG_HEADER_LAYOUT } from "./health-config-layout";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { PanelSkeleton } from "@/components/app/panel-skeleton";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
@@ -368,6 +368,7 @@ export async function HealthConfigPage({
   return (
     <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
       <PageHeader
+        layout={HEALTH_CONFIG_HEADER_LAYOUT}
         title={pageContract.title}
         crumbs={[{ label: copy(pageContract, "crumb") }, { label: copy(pageContract, "section.catalog.title") }]}
         actions={<AddDiseaseForm pageContract={pageContract} action={createDisease} enabled={mayWrite} disabledReason={writeDisabledReason} />}
