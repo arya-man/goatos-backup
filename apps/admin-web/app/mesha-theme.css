@@ -634,10 +634,6 @@
      widths are its own, so the nth-child rules above (the 6-col combination layout) are reset. */
   .main table.counts-pens-table{min-width:860px;table-layout:fixed}
   .main table.counts-pens-table th:nth-child(n),.main table.counts-pens-table td:nth-child(n){min-width:0}
-  .main table.counts-pens-table th,
-  .main table.counts-pens-table td{padding-left:12px;padding-right:12px;vertical-align:middle}
-  .main table.counts-pens-table th:last-child,
-  .main table.counts-pens-table td:last-child{padding-right:20px}
   .main table.counts-pens-table th:nth-child(1),.main table.counts-pens-table td:nth-child(1){width:8%}
   .main table.counts-pens-table th:nth-child(2),.main table.counts-pens-table td:nth-child(2){width:18%}
   .main table.counts-pens-table th:nth-child(3),.main table.counts-pens-table td:nth-child(3){width:14%}
@@ -646,7 +642,6 @@
   .main table.counts-pens-table th:nth-child(6),.main table.counts-pens-table td:nth-child(6){width:13%}
   .main table.counts-pens-table th:nth-child(7),.main table.counts-pens-table td:nth-child(7){width:13%}
   .main table.counts-pens-table th:nth-child(8),.main table.counts-pens-table td:nth-child(8){width:9%;text-align:right}
-  .main table.counts-pens-table th{font-size:11px;letter-spacing:.045em}
   .main table.counts-pens-table th{white-space:nowrap;overflow-wrap:normal;word-break:normal}
   .main table.counts-pens-table .counts-pens-empty{position:sticky;left:0;width:min(calc(100vw - 80px),820px);max-width:min(calc(100vw - 80px),820px);white-space:normal;overflow-wrap:anywhere}
   .main table.counts-pens-table td{white-space:normal;overflow-wrap:anywhere}
@@ -660,7 +655,6 @@
      stays with the row while the table scrolls horizontally. */
   .tagedit{position:relative;display:inline-block}
   .tagedit-value{background:none;border:0;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer;text-align:left;border-radius:6px;min-width:40px;min-height:40px;display:inline-flex;align-items:center}
-  .tagedit-value:hover .tag{border-color:var(--brand)}
   .tagedit-value:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
   /* Tag first, its descriptive name under it: the tag is what lands in the cell, the name is only
      there to help someone who does not yet know the vocabulary. */

@@ -61,8 +61,9 @@ test("adherence-ledger-readable: ledger fits 1440, scrolls below it, and wraps i
 //     search and owner filters hid nothing).
 //   action-center-loading-mirrors-page: the route loading.tsx paints the page's own board skeleton
 //     (quick tiles, toolbar, kanban lanes, pager), never the retired grid lanes (TR1-#1 jump).
-//   adherence-tabs-scroll-buttons: the 12-state adherence strip shows template scroll arrows
-//     (phones included) instead of cutting its last tabs at the card edge.
+//   adherence-tabs-scroll-buttons: UrlTabs keeps its opt-in template scroll arrows (phones
+//     included). The adherence strip itself no longer needs them: TR2-P1-7 cut it to All + 4
+//     states with the rest in a select (guard adherence-tabs-fit, protocol-adherence-tabs.test.mjs).
 const filters = read("./action-center-filters.tsx");
 const skeletons = read("./action-center-skeletons.tsx");
 const loading = read("../../app/(admin)/action-center/loading.tsx");
@@ -88,8 +89,7 @@ test("action-center-loading-mirrors-page: loading.tsx renders the page's own boa
   assert.doesNotMatch(skeletons, /layout="grid"/, "lanes are the kanban layout the board renders");
 });
 
-test("adherence-tabs-scroll-buttons: the adherence strip carries template scroll arrows", () => {
-  assert.match(adherence, /<UrlTabs\s+ariaLabel=\{copy\(pageContract, "label\.all_states"\)\}\s+scrollButtons="auto"/);
+test("adherence-tabs-scroll-buttons: UrlTabs keeps the opt-in template scroll arrows", () => {
   assert.match(urlTabs, /scrollButtons=\{scrollButtons\}/);
   assert.match(urlTabs, /allowScrollButtonsMobile=\{scrollButtons === "auto"\}/);
   assert.match(urlTabs, /"& \.MuiTabs-scrollButtons": \{ width: "var\(--tap-min\)"/);

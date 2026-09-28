@@ -32,5 +32,5 @@ export const MORTALITY_PLOT = { monthly: 364 } as const;
 export const BD_TABLE = { columns: 8, rows: 10 } as const;
 export const HERD_TABLE = { columns: 9, rows: 10, statusTabs: 5, searchFields: ["search", 120] as ("search" | number)[] } as const;
 export const MORTALITY_RATE_TABLE = { cards: 4, columns: 5, rows: 5 } as const;
-/** Header widths: analytics title (Export beside it on a phone), Export, the herd register's two actions. */
-export const COUNTS_HEADER = { analyticsTitleWidth: 150, exportWidth: 89, herdActionWidths: [154, 154] } as const;
+/** Header widths: analytics title (Export beside it on a phone), Export, the herd register's header (Register animal + the ⋮ IconButton, 44px on a phone). */
+export const COUNTS_HEADER = { analyticsTitleWidth: 150, exportWidth: 89, herdActionWidths: [154, { xs: 44, md: 36 }] } as const;

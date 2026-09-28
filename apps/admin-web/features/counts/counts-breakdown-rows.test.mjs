@@ -1,6 +1,7 @@
 // Guard: counts-breakdown-template-rows (TR1-#18). The /counts/breakdown pen rows are the template
-// collapsible row (order-table-row): an expand IconButton with the rotating arrow, soft Label
-// composition capped with a "+N" Label, and the opened combinations as TableRows on the neutral
+// collapsible row (order-table-row): an expand IconButton with the rotating arrow, text-line
+// composition (primary + one secondary line capped with "+N"; TR2-P1-9 removed the Label cloud,
+// guard breakdown-cells-no-chips), and the opened combinations as TableRows on the neutral
 // ground with dashed dividers. No green expanded-row fill, no chip clouds, no legacy classes.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -12,7 +13,7 @@ const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), 
 test("counts-breakdown-template-rows: template collapsible rows", () => {
   assert.match(table, /<IconButton[\s\S]{0,400}aria-expanded=\{isOpen\}/);
   assert.match(table, /eva:arrow-ios-downward-fill/);
-  assert.match(table, /<Label key=\{point\.key \|\| "__blank"\} variant="soft"/);
+  assert.doesNotMatch(table, /<Label\b/);
   assert.match(table, /COMPOSITION_SHOWN = 3/);
   assert.match(table, /<TableRow[\s\S]{0,300}bgcolor: "background\.neutral"/);
   for (const legacy of ["dimchip", "xtoggle", "xdetail", "xsplit", "agesplit", "xcount", "cb-xbar", "<tr", "<td"]) {

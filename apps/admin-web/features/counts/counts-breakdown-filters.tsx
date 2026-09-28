@@ -14,10 +14,11 @@ import TextField from "@mui/material/TextField";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { breakdownFilterQuery } from "./counts-breakdown-query";
 
-// Server-side filtering for the Counts Breakdown census, STAGED behind an Apply button
-// (maintainer instruction, 2026-09-03): changing a control edits local staged state only, and
-// nothing navigates until Apply. Stage, Breed and Shed are MULTI-SELECT (checkbox dropdowns,
-// repeated URL params, OR within a dimension); Farm and Gender stay single-select. Apply rewrites
+// Server-side filtering for the Counts Breakdown census, applied the template UserTableToolbar way:
+// no Apply button (TR2-P1-9; guard: breakdown-filters-no-apply). A single select (Farm, Gender)
+// applies on pick. Stage, Breed and Shed are MULTI-SELECT (checkbox dropdowns, repeated URL params,
+// OR within a dimension): ticks stay STAGED while the menu is open (the 2026-09-03 instruction that
+// one tick must not reload the census) and apply once when the menu closes. Each apply rewrites
 // every filter param at once, preserving every other param (date scope, page size). Farm writes the
 // SHARED `park` parameter (with its scope_mode), because the top-bar park chip is hidden on this
 // page and this control is the park control; a page-private key would strand the choice here. And
@@ -79,7 +80,7 @@ function groupRuns(options: BreakdownFilterOption[]): { group: string | undefine
 
 /**
  * One multi-select filter: a button summarizing the staged selection, opening a checkbox
- * dropdown. Selection edits reach the parent's staged state only — Apply does the navigating.
+ * dropdown. Selection edits reach the parent's staged state; closing the menu navigates.
  */
 function MultiSelectFilter({
   field,
@@ -87,12 +88,15 @@ function MultiSelectFilter({
   allLabel,
   selectedSuffix,
   onToggle,
+  onClose,
 }: {
   field: BreakdownFilterField;
   selected: string[];
   allLabel: string;
   selectedSuffix: string;
   onToggle: (value: string) => void;
+  /** The menu closed: apply the staged ticks. */
+  onClose: () => void;
 }) {
   const selectedSet = new Set(selected);
   // 0 selected reads "All" (the same sentinel the single selects use); 1 selected shows the
@@ -106,7 +110,7 @@ function MultiSelectFilter({
         : `${selected.length} ${selectedSuffix}`;
 
   // Template UserTableToolbar role filter: FormControl + multi Select whose MenuItems carry a
-  // Checkbox; group runs render as ListSubheader. A pick only stages; the bar's Apply navigates.
+  // Checkbox; group runs render as ListSubheader. A tick only stages; closing the menu applies.
   const items: React.ReactNode[] = [];
   groupRuns(field.options).forEach((run, runIndex) => {
     if (run.group !== undefined) items.push(<ListSubheader key={`g:${runIndex}`}>{run.group}</ListSubheader>);
@@ -130,6 +134,7 @@ function MultiSelectFilter({
         label={field.label}
         value={selected}
         renderValue={() => summary}
+        onClose={onClose}
         onChange={(event) => {
           const next = typeof event.target.value === "string" ? event.target.value.split(",") : event.target.value;
           const toggled = next.find((value) => !selectedSet.has(value)) ?? selected.find((value) => !next.includes(value));
@@ -184,9 +189,20 @@ export function CountsBreakdownFilters({
     });
   }
 
-  function applyFilters() {
+  /** Apply the staged selection (a multi-select menu closed); no-op when nothing changed. */
+  function applyStaged() {
+    if (!stagedValues) return;
     const values: Record<string, string[]> = {};
     for (const field of fields) values[field.param] = fieldValues(field);
+    const same = fields.every((field) => values[field.param].join("\u0000") === field.values.join("\u0000"));
+    if (!same) navigateWith(values);
+  }
+
+  /** A single select applies on pick (template toolbar), keeping any other staged ticks. */
+  function applyNow(param: string, next: string[]) {
+    const values: Record<string, string[]> = {};
+    for (const field of fields) values[field.param] = field.param === param ? next : fieldValues(field);
+    setStaged({ from: current, values });
     navigateWith(values);
   }
 
@@ -210,17 +226,6 @@ export function CountsBreakdownFilters({
               {copy(pageContract, "filter.clear_all")}
             </Button>
           ) : null}
-          <Button
-            color="primary"
-            type="button"
-            variant="contained"
-            size="small"
-            onClick={applyFilters}
-            disabled={isPending}
-            title={isPending ? copy(pageContract, "state.loading") : undefined}
-          >
-            {copy(pageContract, "filter.apply")}
-          </Button>
         </>
       }
     >
@@ -242,6 +247,7 @@ export function CountsBreakdownFilters({
                     : [...currentValues, value],
                 );
               }}
+              onClose={applyStaged}
             />
         ) : (
           <TextField
@@ -251,7 +257,7 @@ export function CountsBreakdownFilters({
             value={field.options.some((option) => option.value === fieldValues(field)[0]) ? fieldValues(field)[0] : ""}
             disabled={Boolean(field.disabledReason)}
             title={field.disabledReason || (isPending ? copy(pageContract, "state.loading") : undefined)}
-            onChange={({ target: { value } }) => stage(field.param, value ? [value] : [])}
+            onChange={({ target: { value } }) => applyNow(field.param, value ? [value] : [])}
             sx={{ minWidth: { xs: 0, sm: 160 }, flexShrink: 0, maxWidth: 1 }}
             slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
           >

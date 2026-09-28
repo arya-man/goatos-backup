@@ -13,7 +13,6 @@ import { randomUUID } from "node:crypto";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
 
-import Button from "@mui/material/Button";
 import Card from "@mui/material/Card";
 import Avatar from "@mui/material/Avatar";
 import { UrlTabs } from "@/components/app/url-tabs";
@@ -22,7 +21,7 @@ import { PageHeader } from "@/components/app/page-header";
 import Grid from "@mui/material/Grid";
 import Stack from "@mui/material/Stack";
 import { EmptyContent } from "@/components/minimal/empty-content";
-import { Label } from "@/components/minimal/label";
+import { Label, type LabelColor } from "@/components/minimal/label";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { UrlSortHead } from "@/components/app/table";
 import { KpiWidget, kpiColor } from "@/components/app/kpi-widget";
@@ -62,6 +61,13 @@ function statusLabel(pageContract: AdminUiPageContract, groupId: string, value: 
   return optionalOption(pageContract, groupId, value)?.label ?? readableOptionKey(value);
 }
 
+/** A status cell: a soft Label for a real status; an unset one is the plain muted dash every other
+ *  empty cell uses, not a grey Label box (TR2-P2-1; guard: herd-status-dash-plain). */
+function StatusCell({ value, color, label }: { value: string | null | undefined; color: LabelColor; label: string }) {
+  if (!value) return <Box component="span" sx={{ color: "text.disabled" }}>{label}</Box>;
+  return <Label variant="soft" color={color}>{label}</Label>;
+}
+
 // Counts -> Herd Register. The vaccination cascade's real business entry point: register/import a goat,
 // emit goat.created, generate vaccination obligations. This screen is the OPERATIONAL Counts module surface.
 // KPI summary cards paginate through all /goats/search rows in scope (100 per page) for exact totals.
@@ -70,7 +76,7 @@ function statusLabel(pageContract: AdminUiPageContract, groupId: string, value: 
 // Generated-client status: goat READ and WRITE operation IDs are present and wired. The herd table +
 // filters read /goats/search; Register goat and Import sheet open real drawers that post createAdminGoat /
 // bulk preview+commit (see herd-actions.ts / herd-actions-ui.tsx). No hand-rolled DTOs, no fake rows.
-// New report has no API and stays disabled.
+// New report has no API, so it is not rendered (no dead controls; TR2-P1-8: the header is one primary + ⋮).
 
 const DEFAULT_PAGE_SIZE = 10;
 
@@ -292,9 +298,6 @@ export async function HerdRegisterPage({
               returnTo={returnTo}
               pageContract={pageContract}
             />
-            <Button color="primary" variant="outlined" disabled title={copy(pageContract, "reason.report_pending")}>
-              {copy(pageContract, "action.new_report")}
-            </Button>
             </>
           }
         />
@@ -441,17 +444,17 @@ export async function HerdRegisterPage({
                       </TableCell>
                       <TableCell>
                         <LocalOverlayLink href={href} className="celllink" scroll={false}>
-                          <Label variant="soft" color={TONE_COLOR[statusTone(g.lifecycle_status, "lifecycle")]}>{statusLabel(pageContract, "herd_lifecycle", g.lifecycle_status)}</Label>
+                          <StatusCell value={g.lifecycle_status} color={TONE_COLOR[statusTone(g.lifecycle_status, "lifecycle")]} label={statusLabel(pageContract, "herd_lifecycle", g.lifecycle_status)} />
                         </LocalOverlayLink>
                       </TableCell>
                       <TableCell>
                         <LocalOverlayLink href={href} className="celllink" scroll={false}>
-                          <Label variant="soft" color={TONE_COLOR[statusTone(g.health_status, "health")]}>{statusLabel(pageContract, "herd_health", g.health_status)}</Label>
+                          <StatusCell value={g.health_status} color={TONE_COLOR[statusTone(g.health_status, "health")]} label={statusLabel(pageContract, "herd_health", g.health_status)} />
                         </LocalOverlayLink>
                       </TableCell>
                       <TableCell>
                         <LocalOverlayLink href={href} className="celllink" scroll={false}>
-                          <Label variant="soft" color={TONE_COLOR[statusTone(g.reproductive_status, "breeding")]}>{statusLabel(pageContract, "herd_reproductive", g.reproductive_status)}</Label>
+                          <StatusCell value={g.reproductive_status} color={TONE_COLOR[statusTone(g.reproductive_status, "breeding")]} label={statusLabel(pageContract, "herd_reproductive", g.reproductive_status)} />
                         </LocalOverlayLink>
                       </TableCell>
                     </TableRow>

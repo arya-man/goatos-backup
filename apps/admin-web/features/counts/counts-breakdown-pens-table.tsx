@@ -8,7 +8,6 @@ import TableCell from "@mui/material/TableCell";
 import TableRow from "@mui/material/TableRow";
 import Typography from "@mui/material/Typography";
 import { Iconify } from "@/components/minimal/iconify";
-import { Label, type LabelColor } from "@/components/minimal/label";
 
 import { DataTable, columnsFromContract } from "@/components/data-table";
 import { copy, type AdminUiPageContract, type AdminUiTableContract } from "@/lib/admin-ui-contract";
@@ -46,7 +45,7 @@ import Button from "@mui/material/Button";
  */
 type GrainRow = CountsBreakdownPenRow["rows"][number];
 
-/** How many composition Labels a pen line shows before the "+N" Label. */
+/** How many composition buckets a pen line names before the "+N". */
 const COMPOSITION_SHOWN = 3;
 
 /** "7 kids · 46 adults": the figure in subtitle2, its noun as a secondary caption. */
@@ -145,33 +144,30 @@ export function CountsBreakdownPensTable({
     [noShedLabel],
   );
 
-  // One composition cell. A single bucket reads as plain text (its count IS the pen's count);
-  // several read as soft Labels (template), each carrying its own count, largest first as the
-  // backend orders them. At most COMPOSITION_SHOWN; the rest is one "+N" Label whose title lists
-  // them, and every bucket is also its own row when the pen opens.
+  // One composition cell, template list-cell anatomy (TR2-P1-9: no chip clouds; guard:
+  // breakdown-cells-no-chips): the largest bucket as the primary line, the next ones as ONE
+  // secondary caption line, largest first as the backend orders them. Past COMPOSITION_SHOWN the
+  // caption ends "+N" and its title lists every bucket; every bucket is also its own row when the
+  // pen opens, so nothing is unreadable.
   function composition(
     points: CountsBreakdownPoint[],
     emptyLabel: string,
-    tone?: (key: string) => LabelColor,
     vocabulary: ReadonlyMap<string, string> = genderLabels,
   ) {
     if (points.length === 0) return <Box component="span" sx={{ color: "text.secondary" }}>{emptyLabel}</Box>;
+    const text = (point: CountsBreakdownPoint) => `${pointLabel(point, emptyLabel, vocabulary)} ${point.count}`;
     if (points.length === 1) return <span>{pointLabel(points[0], emptyLabel, vocabulary)}</span>;
-    const shown = points.slice(0, COMPOSITION_SHOWN);
-    const rest = points.slice(COMPOSITION_SHOWN);
+    const [first, ...others] = points;
+    const shown = others.slice(0, COMPOSITION_SHOWN - 1);
+    const rest = others.slice(COMPOSITION_SHOWN - 1);
     return (
-      <Box component="span" sx={{ display: "inline-flex", flexWrap: "wrap", gap: 0.5 }}>
-        {shown.map((point) => (
-          <Label key={point.key || "__blank"} variant="soft" color={tone ? tone(point.key) : "default"}>
-            {pointLabel(point, emptyLabel, vocabulary)}&nbsp;{point.count}
-          </Label>
-        ))}
-        {rest.length ? (
-          <Label variant="soft" color="default" title={rest.map((point) => `${pointLabel(point, emptyLabel, vocabulary)} ${point.count}`).join(" · ")}>
-            +{rest.length}
-          </Label>
-        ) : null}
-      </Box>
+      <Stack component="span" sx={{ minWidth: 0 }} title={points.map(text).join(" · ")}>
+        <Box component="span" sx={{ typography: "body2" }}>{text(first)}</Box>
+        <Box component="span" sx={{ typography: "body2", color: "text.disabled" }}>
+          {shown.map(text).join(" · ")}
+          {rest.length ? ` · +${rest.length}` : ""}
+        </Box>
+      </Stack>
     );
   }
 
@@ -254,7 +250,7 @@ export function CountsBreakdownPensTable({
                 />
               </span>
             ) : (
-              composition(pen.stages, noStageLabel, undefined, stageLabels)
+              composition(pen.stages, noStageLabel, stageLabels)
             ),
           sortValue: (pen) => dominantKey(pen.stages) || pen.authored_stage || noStageLabel,
         },
@@ -263,7 +259,7 @@ export function CountsBreakdownPensTable({
           sortValue: (pen) => dominantKey(pen.breeds) || noBreedLabel,
         },
         gender: {
-          cell: (pen) => composition(pen.sexes, noSexLabel ?? noBreedLabel, (key) => (key === "female" ? "warning" : key === "male" ? "info" : "default")),
+          cell: (pen) => composition(pen.sexes, noSexLabel ?? noBreedLabel),
           sortValue: (pen) => dominantKey(pen.sexes),
         },
         // Female · Male for EVERY row, in the same shape as Kids · Adults beside it.

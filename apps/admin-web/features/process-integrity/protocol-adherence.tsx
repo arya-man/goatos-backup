@@ -1,5 +1,5 @@
 import Table from "@mui/material/Table";
-import { ADHERENCE_LEDGER_HEADER_SX, ADHERENCE_SEVERITY_WIDTH, ADHERENCE_TILE_SIZE } from "./protocol-adherence-layout";
+import { ADHERENCE_LEDGER_HEADER_SX, ADHERENCE_SEVERITY_WIDTH, ADHERENCE_STATE_WIDTH, ADHERENCE_TAB_STATES, ADHERENCE_TILE_SIZE } from "./protocol-adherence-layout";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import { KpiRowSkeleton, TableSkeleton } from "@/components/app/skeletons";
@@ -319,7 +319,6 @@ export async function ProtocolAdherencePage({
       <PageHeader
         title={pageContract.title}
         crumbs={crumbItems}
-        actions={<AdherenceInfo pageContract={pageContract} />}
       />
 
       <Stack spacing={3}>
@@ -354,18 +353,22 @@ export async function ProtocolAdherencePage({
                     {Math.round(summary.adherence_percent)}% adherence
                   </Label>
                 ) : null}
+                {/* The formula explains the adherence Label it sits beside (not a lone header glyph, TR2-P1-7). */}
+                <AdherenceInfo pageContract={pageContract} />
               </Box>
             }
-            action={<InfoHint text={copy(pageContract, "section.ledger.note")} />}
+            subheader={copy(pageContract, "section.ledger.note")}
             sx={ADHERENCE_LEDGER_HEADER_SX}
           />
+          {/* Template order list: All + the exception states as tabs (5, fits the card like the
+              template's 5); EVERY work state stays reachable through the Work state select in the
+              toolbar. Both drive the same `state` param. guard: adherence-tabs-fit */}
           <UrlTabs
             ariaLabel={copy(pageContract, "label.all_states")}
-            scrollButtons="auto"
             value={workStateFilter}
             items={[
               { value: "all", label: copy(pageContract, "label.all_states"), count: summary?.expected_count, href: hrefWith({ state: "all", adh_page: "1" }) },
-              ...WORK_STATE_ORDER.map((state) => ({ value: state, label: optionLabel(pageContract, "work_state_filter_chips", state), href: hrefWith({ state, adh_page: "1" }) })),
+              ...ADHERENCE_TAB_STATES.map((state) => ({ value: state, label: optionLabel(pageContract, "work_state_filter_chips", state), href: hrefWith({ state, adh_page: "1" }) })),
             ]}
           />
           <Box
@@ -384,6 +387,15 @@ export async function ProtocolAdherencePage({
               options={[
                 { value: "all", label: copy(pageContract, "label.all_severity"), href: hrefWith({ severity: "all", adh_page: "1" }) },
                 ...SEVERITY_ORDER.map((s2) => ({ value: s2, label: optionLabel(pageContract, "severity_chips", s2), href: hrefWith({ severity: s2, adh_page: "1" }) })),
+              ]}
+            />
+            <LinkSelect
+              label={copy(pageContract, "label.all_states")}
+              value={workStateFilter}
+              minWidth={ADHERENCE_STATE_WIDTH}
+              options={[
+                { value: "all", label: copy(pageContract, "label.all_states"), href: hrefWith({ state: "all", adh_page: "1" }) },
+                ...WORK_STATE_ORDER.map((state) => ({ value: state, label: optionLabel(pageContract, "work_state_filter_chips", state), href: hrefWith({ state, adh_page: "1" }) })),
               ]}
             />
             <VaccinationFilterButton

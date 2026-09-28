@@ -11,6 +11,7 @@
 // The interaction (double-click, type to narrow, confirm, apply) lives in InlineCellEditor, shared
 // with the Breed and Gender cells. What stays here is what makes THIS cell different: the pen
 // scope, the stage vocabulary, and the kid/adult consequence.
+import Box from "@mui/material/Box";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 import { InlineCellEditor, type InlineChoice, type InlinePreview } from "./inline-cell-editor";
@@ -71,7 +72,8 @@ export function ShedTagEditor({
       choices={choices}
       enabled={enabled}
       disabledReason={disabledReason}
-      renderCurrent={(value) => <span className="tag">{currentTagLabel || value}</span>}
+      // Plain body2 cell text like every other breakdown cell (TR2-P1-9: no legacy 12px `.tag` chip).
+      renderCurrent={(value) => <Box component="span" sx={{ typography: "body2" }}>{currentTagLabel || value}</Box>}
       onPreview={async (value) => {
         // configure_empty, exactly as the write below sends it: an empty pen is a legitimate thing to
         // configure here, and a preview that refused it made the write unreachable.
