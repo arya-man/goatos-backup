@@ -37,7 +37,8 @@ test("vaccination-template-anatomy: every matrix is a template table card with L
   assert.match(view, /<Tab[\s\S]*?icon=\{\s*<Label/);
   // Status filters are soft template chips, never bordered outline pills.
   assert.doesNotMatch(view, /variant=\{statuses\.has\(key\) \? "soft" : "outlined"\}/);
-  assert.match(view, /variant="soft"\s+color=\{statuses\.has\(key\) \? STATUS_COLOR\[key\] : "default"\}/);
+  // TR2-P2-6: the status filter is a multi Select (guard vaccination-status-select), not chips.
+  assert.match(view, /checked=\{statuses\.has\(key\)\}/);
   // The skeleton mirrors the cards: legend rows, one table card per matrix, farm tabs.
   assert.match(skeleton, /<OptionalSkeleton>\s*<TableSkeleton columns=\{CB_MATRIX\.penVaccineColumns\}/);
   assert.match(skeleton, /tabs=\{<TabsSkeleton count=\{CB_MATRIX\.cohortFarmTabs\} counts \/>\}/);

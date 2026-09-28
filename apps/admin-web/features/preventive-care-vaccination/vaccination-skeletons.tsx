@@ -5,14 +5,12 @@ import {
   CB_KPI_KEYS,
   CB_KPI_SIZE,
   CB_MATRIX,
-  CB_STATUS_CHIP_HEIGHT,
-  CB_STATUS_CHIP_WIDTHS,
+  CB_STATUS_FIELD_MIN,
   CB_VACCINE_FIELD_MIN,
   FULL_SCHEDULE,
   INVENTORY,
   MATRIX_ROWS_PER_PAGE,
   SHED_BOARD_TOOLBAR,
-  STATUS_KEYS,
 } from "./command-board-layout";
 import { SHED_BOARD_PAGE_SIZE } from "@/features/vaccination-sheds/shed-board-layout";
 import { ChipRowSkeleton, ChipSkeleton, ControlsCardSkeleton, FilterCardSkeleton, KpiRowSkeleton, OptionalSkeleton, StackSkeleton, StatStripSkeleton, TableSkeleton, TabsSkeleton } from "@/components/app/skeletons";
@@ -30,16 +28,13 @@ export function VaccinationCommandBoardSkeleton() {
   return (
     <StackSkeleton spacing={3}>
       {/* "Command Board" CardHeader (mb 2.5) over the filter Stack (px 3, pb 3, spacing 2): the vaccine
-          + operator-day selects (column below sm), then the soft status chips (44px tap floor below sm). */}
+          + operator-day + status selects in one row (a column below sm). */}
       <ControlsCardSkeleton
         header
         toolbar={
           <>
-            <Box sx={{ px: 3, pb: 2 }}>
-              <FilterCardSkeleton bare fields={[CB_VACCINE_FIELD_MIN, CB_DRIVE_FIELD_MIN]} />
-            </Box>
             <Box sx={{ px: 3, pb: 3 }}>
-              <ChipRowSkeleton count={STATUS_KEYS.length} widths={CB_STATUS_CHIP_WIDTHS} height={CB_STATUS_CHIP_HEIGHT} />
+              <FilterCardSkeleton bare fields={[CB_VACCINE_FIELD_MIN, CB_DRIVE_FIELD_MIN, CB_STATUS_FIELD_MIN]} />
             </Box>
           </>
         }

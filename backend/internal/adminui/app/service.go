@@ -3851,6 +3851,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"command_board.filter.all_common_drives":           "All common drives",
 			"command_board.filter.completed_history":           "Completed history",
 			"command_board.filter.no_drives":                   "No drives planned in this park scope yet",
+			"command_board.filter.status":                      "Status",
+			"command_board.filter.all_statuses":                "All statuses",
 			"command_board.future_drives.title":                "Scheduled Ahead — Future Vaccination Drives",
 			"command_board.future_drives.count_suffix":         "drives",
 			"command_board.future_drives.lines_suffix":         "treatment lines",

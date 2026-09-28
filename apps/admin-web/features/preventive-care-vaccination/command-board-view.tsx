@@ -1,6 +1,6 @@
 "use client";
 import Table from "@mui/material/Table";
-import { CB_DRIVE_FIELD_MIN, CB_KPI_SIZE, CB_VACCINE_FIELD_MIN, STATUS_KEYS } from "./command-board-layout";
+import { CB_DRIVE_FIELD_MIN, CB_KPI_SIZE, CB_STATUS_FIELD_MIN, CB_VACCINE_FIELD_MIN, STATUS_KEYS } from "./command-board-layout";
 import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
@@ -38,6 +38,7 @@ import Grid from "@mui/material/Grid";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
+import Checkbox from "@mui/material/Checkbox";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { AppApiComponents } from "@goatos/api-client";
 import type { AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -749,12 +750,6 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     );
   }, [view.shedVaccineColumns, view.shedVaccineMatrix]);
 
-  const toggleStatus = (key: StatusKey) => setStatuses((prev) => {
-    const next = new Set(prev);
-    if (next.has(key)) next.delete(key); else next.add(key);
-    return next;
-  });
-
   const activateStatusKpi = (key: StatusKey) => {
     setSelectedCell(null);
     setClosedDrawerOpen(false);
@@ -847,6 +842,42 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
             </MenuItem>
           ))}
         </TextField>
+        {/* Status filter: the template UserTableToolbar multi Select (checkbox items, the state dot
+            in the colour the matrix cells use), in the filter row beside Vaccine / Operator day,
+            not a wrapping cloud of dot pills (TR1-#21, TR2-P2-6; guard: vaccination-status-select). */}
+        <TextField
+          select
+          label={copy(pageContract, "command_board.filter.status", "Status")}
+          value={STATUS_KEYS.filter((key) => statuses.has(key))}
+          onChange={(event) => {
+            const raw = event.target.value as unknown;
+            const picked = (typeof raw === "string" ? raw.split(",") : (raw as string[])) as StatusKey[];
+            setStatuses(new Set(picked.filter((key) => (STATUS_KEYS as readonly string[]).includes(key))));
+          }}
+          sx={{ minWidth: { xs: 0, sm: CB_STATUS_FIELD_MIN }, flexShrink: 0, maxWidth: 1 }}
+          slotProps={{
+            inputLabel: { shrink: true },
+            select: {
+              multiple: true,
+              displayEmpty: true,
+              renderValue: (selected) => {
+                const keys = selected as StatusKey[];
+                return keys.length === 0
+                  ? copy(pageContract, "command_board.filter.all_statuses", "All statuses")
+                  : keys.map((key) => copy(pageContract, `command_board.shed_matrix.state.${key}`)).join(", ");
+              },
+              MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } },
+            },
+          }}
+        >
+          {STATUS_KEYS.map((key) => (
+            <MenuItem key={key} value={key}>
+              <Checkbox disableRipple size="small" checked={statuses.has(key)} slotProps={{ input: { "aria-label": copy(pageContract, `command_board.shed_matrix.state.${key}`) } }} />
+              <Box component="span" aria-hidden sx={{ width: "var(--sp-1)", height: "var(--sp-1)", borderRadius: "var(--r-round)", bgcolor: `${STATUS_COLOR[key]}.main`, flexShrink: 0, mr: 1 }} />
+              {copy(pageContract, `command_board.shed_matrix.state.${key}`)}
+            </MenuItem>
+          ))}
+        </TextField>
         {/* The catalogue is bounded, so a drive past the bound is otherwise indistinguishable from a
             drive that was never planned. Say the picker is partial rather than let it read as the
             whole programme. */}
@@ -855,24 +886,6 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
             {copy(pageContract, "command_board.filter.drives_truncated")}
           </Typography>
         )}
-      </Stack>
-      {/* Status filter: template soft Chips (TR1-#21: never bordered outline pills). A pressed
-          status is its state colour, an unpressed one the neutral soft chip; the dot names the
-          colour the matrix cells use. */}
-      <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
-        {STATUS_KEYS.map((key) => (
-          <Chip
-            key={key}
-            clickable
-            variant="soft"
-            color={statuses.has(key) ? STATUS_COLOR[key] : "default"}
-            aria-pressed={statuses.has(key)}
-            onClick={() => toggleStatus(key)}
-            icon={<Box component="span" sx={{ width: "var(--sp-1)", height: "var(--sp-1)", borderRadius: "var(--r-round)", bgcolor: `${STATUS_COLOR[key]}.main`, flexShrink: 0 }} />}
-            label={copy(pageContract, `command_board.shed_matrix.state.${key}`)}
-            sx={{ minHeight: { xs: "var(--tap-min)", sm: "var(--sp-4)" }, "& .MuiChip-icon": { ml: 1.25 } }}
-          />
-        ))}
       </Stack>
     </Stack>
   );

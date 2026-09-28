@@ -1,6 +1,6 @@
 // Layout constants shared by the /vaccination Command Board (command-board-view.tsx, command-board-cards.tsx)
 // and its loading twin (vaccination-skeletons.tsx), so the skeleton cannot drift from the page.
-/** Status filter chips on the Command Board card, in order (soft Chips; 44px tap floor below sm). */
+/** Status filter options on the Command Board card, in order (the status multi-select). */
 export const STATUS_KEYS = ["verified", "awaiting", "rework", "overdue", "scheduled"] as const;
 /** The KPI deck, in order (KpiWidget course cards with the backend explanation caption). */
 export const CB_KPI_KEYS = [
@@ -19,6 +19,8 @@ export const CB_KPI_SIZE = { xs: 12, sm: 6, md: 3 } as const;
 export const CB_VACCINE_FIELD_MIN = 190;
 /** The operator-day select's width floor from sm. */
 export const CB_DRIVE_FIELD_MIN = 320;
+/** The status multi-select's width floor from sm (TR2-P2-6: a select in the filter row, not chips). */
+export const CB_STATUS_FIELD_MIN = 200;
 /** Rows per page in every matrix card's pager. */
 export const MATRIX_ROWS_PER_PAGE = 10;
 /** The Command Board header action: Full Schedule. */
@@ -26,9 +28,6 @@ export const VACCINATION_HEADER_ACTION_WIDTHS = [140];
 
 // Loading-twin estimates of rendered sizes the page does not set itself (copy- and data-driven),
 // measured on the served page at 1440 and 390. Matrix column counts follow the day's vaccines.
-/** The status chips' widths (copy) and height (44px tap floor below sm). */
-export const CB_STATUS_CHIP_WIDTHS = [92, 150, 124, 120, 100];
-export const CB_STATUS_CHIP_HEIGHT = { xs: 44, sm: 32 } as const;
 /** KPI caption lines (one on a phone; at md 3 across the backend explanations take two lines on the first row, three on the second). */
 export const CB_KPI_CAPTION_LINES = [2, 2, 2, 2, 3, 3, 3, 3].map((md) => ({ xs: 1, md }));
 /** The matrix cards: columns (vaccines / pens on the day), legend Labels, the header InfoTip size, legend Label height. */
