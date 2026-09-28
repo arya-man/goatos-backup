@@ -23,7 +23,7 @@ export const LT_KPI_KEYS = ["scheduled", "proofs", "scans", "remaining", "combo"
 /** Header: the two crumbs' widths ("Preventive Care (PC) · operations" wraps to a second line on a phone) and the two buttons. */
 export const LT_HEADER = { crumbWidths: [230, 130] as [number, number], actionWidths: [150, 151] } as const;
 /** The AppWelcome drive-day row's height (title, parks Label, empty-day text, poller). */
-export const LT_WELCOME_HEIGHT = { xs: 374, md: 324 } as const;
+export const LT_WELCOME_HEIGHT = { xs: 374, md: 336 } as const;
 /** The tables column: operators, pens, combo (columns, rows shown). */
 export const LT_TABLES = {
   operators: { columns: 10, rows: 5 },
