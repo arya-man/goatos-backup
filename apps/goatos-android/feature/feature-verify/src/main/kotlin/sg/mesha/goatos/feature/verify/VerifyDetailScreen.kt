@@ -721,6 +721,35 @@ private fun VerifyEntryCard(
         else -> null
     }
 
+    // Shown ONLY when the backend attached a correctable measurement to this item. Deliberately NOT
+    // hidden once a verdict exists: she may correct before deciding or after, until the bucket closes.
+    val measurementCard: @Composable () -> Unit = {
+        correction?.let { spec ->
+            MeasurementCard(
+                correction = spec,
+                valueText = valueText,
+                onValueChange = { valueText = it },
+                countText = countText,
+                onCountChange = { countText = it },
+                reasonText = reasonText,
+                onReasonChange = { reasonText = it },
+                entryTexts = entryTexts,
+                countIsUsable = countIsUsable,
+                showRequiredHint = measurementMissing,
+                enabled = !entry.isSubmitting,
+                showVarianceConfirm = entry.varianceConfirmRequired,
+                varianceAcknowledged = varianceAcknowledged,
+                onVarianceAcknowledgedChange = { varianceAcknowledged = it },
+            )
+        }
+    }
+    // WHERE the entry box sits follows the act: she reads the number off the PHOTO (feed
+    // distribution's feed-weight photo), so the box goes directly UNDER the first photo proof,
+    // never after the clips that follow it (the water video). An item with no photo (weighing,
+    // packing -- the reading comes off the video) keeps it after every clip, above the verdict row.
+    // Keyed on the backend mime, never on a label or a proof's position in the list.
+    val measurementAnchorIndex = if (correction == null) -1 else entry.media.indexOfFirst { it.kind == VerifyMediaKind.PHOTO }
+
     Column(modifier = Modifier.fillMaxWidth()) {
         entry.subjectLabel?.takeIf { it.isNotBlank() }?.let { subject ->
             Text(
@@ -738,7 +767,7 @@ private fun VerifyEntryCard(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
         }
-        entry.media.forEach { media ->
+        entry.media.forEachIndexed { mediaIndex, media ->
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -790,6 +819,7 @@ private fun VerifyEntryCard(
                     )
                 }
             }
+            if (mediaIndex == measurementAnchorIndex) measurementCard()
         }
         Box(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp)) {
             StatusPill(tone = entry.statusTone)
@@ -797,28 +827,7 @@ private fun VerifyEntryCard(
         entry.verdictReason?.takeIf { it.isNotBlank() }?.let { reason ->
             VerdictNoteCard(reason = reason, tone = entry.statusTone)
         }
-        // Shown ONLY when the backend attached a correctable measurement to this item -- weighing
-        // today. It sits ABOVE the verdict row because the order matches the act: she watches the
-        // video, fixes the number if it is wrong, then decides. Deliberately NOT hidden once a
-        // verdict exists: she may correct before deciding or after, until the bucket closes.
-        correction?.let { spec ->
-            MeasurementCard(
-                correction = spec,
-                valueText = valueText,
-                onValueChange = { valueText = it },
-                countText = countText,
-                onCountChange = { countText = it },
-                reasonText = reasonText,
-                onReasonChange = { reasonText = it },
-                entryTexts = entryTexts,
-                countIsUsable = countIsUsable,
-                showRequiredHint = measurementMissing,
-                enabled = !entry.isSubmitting,
-                showVarianceConfirm = entry.varianceConfirmRequired,
-                varianceAcknowledged = varianceAcknowledged,
-                onVarianceAcknowledgedChange = { varianceAcknowledged = it },
-            )
-        }
+        if (measurementAnchorIndex < 0) measurementCard()
         if (!isCloseMode) {
             DecisionRow(
                 // A malformed count would be refused by the write path, so it holds Approve here
