@@ -21,6 +21,8 @@ Land PR #455: Android verifier places the total-feed entry under the feed-weight
 ## Known Failures
 
 - Broad admin-web test attempt in this isolated worktree failed because local dependencies were missing (`typescript`, `@grafana/faro-core`). This was not treated as a landing receipt.
+- First `make land-main` attempt failed before any merge/push at candidate `7c46eaaba831`. The named failing step was `admin-web unit tests`; root cause was a missing Playwright Chromium/headless-shell install under `~/Library/Caches/ms-playwright`. Backend and Android jobs were terminated by fail-fast and are not certified by that run.
+- Remediation: ran `npm --prefix apps/admin-web exec playwright install chromium`, which installed Chromium, FFmpeg and Chromium headless shell build `1228`.
 
 ## Current State
 
