@@ -30,14 +30,23 @@ maintainer that prepares the message.
 
 1. Determine the target report date in Asia/Kolkata, normally the previous
    calendar day.
-2. Read every SENT message in the established Gmail thread.
-3. If any sent title already covers the target date, alone or in a date range,
+2. Atomically acquire `/Users/raviteja/mesha/.eod-mail-lock/<YYYY-MM-DD>` with
+   `mkdir`, using the IST report date. If it already exists, do not draft or
+   send; report `Already sent` or `Another sender is preparing this date;
+   skipped` after reading the exact thread.
+3. Read the established Gmail thread directly by thread id and inspect every
+   message carrying the SENT label. Gmail search is not authoritative because
+   a new message may not yet be indexed.
+4. If any sent title already covers the target date, alone or in a date range,
    stop and report `Already sent: <title> at <IST time>; skipped`.
-4. Record the latest sent message timestamp as epoch seconds. The evidence
+5. Record the latest sent message timestamp as epoch seconds. The evidence
    window starts there and ends at the current run time.
-5. Save the latest sent body split into its sections for semantic comparison.
-6. Repeat the duplicate check immediately before sending.
-7. If no product evidence exists after the baseline, do not send a filler
+6. Save the latest sent body split into its sections for semantic comparison.
+7. Repeat the direct thread/SENT duplicate check immediately before sending.
+8. Hold the lock through post-send verification. Retain it after success and
+   write the sent message id into it. Recover it only after 60 minutes when no
+   sender is active and no sent message covers the date.
+9. If no product evidence exists after the baseline, do not send a filler
    message. Report `Nothing new since <IST time>; skipped`.
 
 ## Mandatory evidence sweep
@@ -71,6 +80,22 @@ For every repository:
     files and recently modified product artifacts.
 12. Include explicit work notes and screenshots supplied since the baseline,
     while treating uncommitted or running work as in progress.
+
+### No false-empty sections
+
+If a section has a current-window product commit, changed product file, active
+pull request, validation result, or explicit maintainer note, it must not say
+`None`, `No changes`, or `No new milestone` unless every item has a specific,
+evidence-backed omission reason in the coverage table. Explicit notes such as
+an in-progress vaccination configuration refinement must appear as an
+`In progress:` bullet.
+
+Deduplicate the exact outcome, not the broad module. A new workflow, UI
+behavior, release or staging state, validation result, blocker, architecture
+decision, or operational scope is a new CEO-relevant delta even when the prior
+mail mentioned the same feature family. When two drafts exist, reconcile both
+against the complete evidence inventory and preserve every distinct supported
+outcome; never select the shorter draft merely because it is shorter.
 
 ### Required product coverage
 
@@ -174,6 +199,9 @@ together. Reject the draft unless all gates pass:
 10. Merged versus in-progress state was verified with `origin/main`
     reachability.
 11. The final message passes the presentation gate below.
+12. No section claims `None`, `No changes`, or `No new milestone` while its
+    coverage row contains current-window product activity or an explicit
+    maintainer note without a specific justified omission.
 
 Keep an internal judge receipt listing removed repeats, relabeled in-progress
 items, classification decisions, and presentation checks. Do not include that
