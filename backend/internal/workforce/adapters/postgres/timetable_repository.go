@@ -260,10 +260,11 @@ func (r *Repository) SetParkShiftTiming(ctx context.Context, tenantID, actorUser
 	}
 	defer rollback(ctx, tx)
 
-	if err := requireRow(ctx, tx, ports.ErrUnknownPark, sqlTimetableParkLock, tenantID, parkID); err != nil {
+	var one int
+	if err := missingAs(tx.QueryRow(ctx, sqlTimetableParkLock, tenantID, parkID).Scan(&one), ports.ErrUnknownPark); err != nil {
 		return ports.ShiftTimingRow{}, err
 	}
-	if err := requireRow(ctx, tx, ports.ErrUnknownShift, sqlTimetableShiftExists, shiftCode); err != nil {
+	if err := missingAs(tx.QueryRow(ctx, sqlTimetableShiftExists, shiftCode).Scan(&one), ports.ErrUnknownShift); err != nil {
 		return ports.ShiftTimingRow{}, err
 	}
 
@@ -339,11 +340,12 @@ func (r *Repository) SetMemberShift(ctx context.Context, tenantID, actorUserID, 
 	}
 	defer rollback(ctx, tx)
 
-	if err := requireRow(ctx, tx, ports.ErrPersonNotFound, sqlTimetableMemberLock, tenantID, personID); err != nil {
+	var one int
+	if err := missingAs(tx.QueryRow(ctx, sqlTimetableMemberLock, tenantID, personID).Scan(&one), ports.ErrPersonNotFound); err != nil {
 		return ports.TimetablePersonRow{}, err
 	}
 	if shiftCode != "" {
-		if err := requireRow(ctx, tx, ports.ErrUnknownShift, sqlTimetableShiftExists, shiftCode); err != nil {
+		if err := missingAs(tx.QueryRow(ctx, sqlTimetableShiftExists, shiftCode).Scan(&one), ports.ErrUnknownShift); err != nil {
 			return ports.TimetablePersonRow{}, err
 		}
 	}
@@ -413,10 +415,8 @@ func timetablePersonIn(ctx context.Context, tx pgx.Tx, tenantID, personID string
 	return items[0], nil
 }
 
-// requireRow runs an existence probe and returns missing when it finds nothing.
-func requireRow(ctx context.Context, tx pgx.Tx, missing error, sql string, args ...any) error {
-	var one int
-	err := tx.QueryRow(ctx, sql, args...).Scan(&one)
+// missingAs turns an existence probe's "no row" into the port error that names what is missing.
+func missingAs(err, missing error) error {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return missing
 	}
