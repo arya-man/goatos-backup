@@ -214,7 +214,7 @@ function RuleRow({ rule: initial, pageContract }: { rule: AlertRuleConfig; pageC
           · {t("configure.default")} {rule.default_threshold}
         </Secondary>
         <Box sx={{ flex: 1 }} />
-        <Button variant="contained" size="small" disabled={pending || !dirty} onClick={onSave} data-testid="alerts-rule-save" sx={phoneTapSx}>
+        <Button variant="contained" color="primary" size="small" disabled={pending || !dirty} onClick={onSave} data-testid="alerts-rule-save" sx={phoneTapSx}>
           {t("configure.save")}
         </Button>
       </Box>
@@ -412,7 +412,7 @@ function EventRuleRow({
         <Button variant="outlined" color="inherit" size="small" disabled={pending} onClick={remove} data-testid="alerts-event-remove" sx={phoneTapSx}>
           {t("configure.events.remove")}
         </Button>
-        <Button variant="contained" size="small" disabled={pending || !dirty} onClick={save} data-testid="alerts-event-save" sx={phoneTapSx}>
+        <Button variant="contained" color="primary" size="small" disabled={pending || !dirty} onClick={save} data-testid="alerts-event-save" sx={phoneTapSx}>
           {t("configure.save")}
         </Button>
       </Box>
@@ -521,7 +521,7 @@ function NewEventRule({ pageContract, kinds, onCreated }: { pageContract: AdminU
           </TextField>
         </div>
         <Box sx={{ flex: 1 }} />
-        <Button variant="contained" size="small" disabled={pending || !label.trim() || !kind} onClick={add} data-testid="alerts-event-new-add" sx={phoneTapSx}>
+        <Button variant="contained" color="primary" size="small" disabled={pending || !label.trim() || !kind} onClick={add} data-testid="alerts-event-new-add" sx={phoneTapSx}>
           {t("configure.events.add_button")}
         </Button>
       </Box>
