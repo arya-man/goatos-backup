@@ -132,7 +132,7 @@
   .parkpick a[aria-disabled="true"]{opacity:.45;cursor:not-allowed;pointer-events:none}
   .parkpick button:disabled{opacity:.55;cursor:not-allowed}
   .parkpick button:disabled.on{opacity:.75}
-  .pm-hint{font-size:11px;color:var(--faint);padding:8px 10px 3px;border-top:1px solid var(--line2);margin-top:5px}
+  
   /* in-screen park filter */
   .pscope{display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:6px 10px;font-weight:600;font-size:12.5px;color:var(--ink);cursor:pointer;white-space:nowrap;flex:none}
   .pscope:hover{border-color:var(--brand)}
@@ -1234,7 +1234,6 @@ select:disabled { opacity: .45 }
 #toast.err { border-color: var(--danger); border-left-color: var(--danger) }
 /* Command Board */
 
-
 /* Weights page bar-list boxes (the kit BarList root and its empty state carry these classes).
    Fixed height + internal scroll, so a chart with forty rows takes the same page space as one
    with four. */
@@ -1348,14 +1347,6 @@ select:disabled { opacity: .45 }
    card grew to ~4700px tall. Inside `.tablewrap` (overflow-x:auto) the table is allowed to be
    wider than the phone, so give it a real floor and let the wrapper scroll, and never let a name
    wrap per character. */
-@media(max-width:760px){
-  /* 660 was not a real floor. The five FIXED columns alone are 496px (park 78 + sex 104 +
-     count 70 + basis 112 + value 132), which left 164px for the pen name AND the breed
-     together -- breed settled at 50px and ellipsised "Anantapur Sheep" away. Wrapping cannot
-     fix it: breed / sex / count pair up BY LINE INDEX, so a cell that wraps shifts every count
-     against the wrong breed. The floor now fits both names (the longest breed measures 114px) and the wrapper scrolls. */
-  
-}
 
 /* Feed by weight band (ADG Analytics, Weight-wise tab). The title's ⓘ reuses the Pen-wise
    legend's hint trigger (.wgl-hint / .wgl-i + template Tooltip, scoped there to .wgrouped), re-scoped
@@ -1477,11 +1468,6 @@ select:disabled { opacity: .45 }
    (mock: `.kpi .tick{opacity:0}` / `.kpi .tick.on{opacity:1}`). A permanently visible tick
    asserts liveness that is not being observed — including on a PAUSED board. */
 
-.lt-page .lt-grid{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:14px;align-items:start}
-.lt-page .lt-grid.lt-grid-solo{grid-template-columns:minmax(0,1fr)}
-@media(max-width:1080px){.lt-page .lt-grid{grid-template-columns:1fr}}
-
-.lt-page .lt-tablewrap{padding:0}
 /* A SIDEWAYS SCROLL THAT SAYS SO (Gate-1 #1). At 1440 the list now has the whole card and its six
    columns fit, but below ~1180px (and at phone width) the table is still wider than its box, and
    the box gave no sign of it: no scrollbar, no cut edge, four columns just gone. The scroll box
@@ -1490,25 +1476,8 @@ select:disabled { opacity: .45 }
    shadows that appear only on the side with more table (the `background-attachment:local`
    scroll-shadow idiom -- the covering layers scroll with the content and the shadow layers stay
    put, so each shadow is revealed only while there is content past that edge). */
-.lt-page .lt-tablewrap .tablewrap{
-  background:
-    linear-gradient(to right,var(--panel) 40%,transparent) left/48px 100% no-repeat local,
-    linear-gradient(to left,var(--panel) 40%,transparent) right/48px 100% no-repeat local,
-    linear-gradient(to right,color-mix(in srgb,var(--ink) 22%,transparent),transparent) left/18px 100% no-repeat scroll,
-    linear-gradient(to left,color-mix(in srgb,var(--ink) 22%,transparent),transparent) right/18px 100% no-repeat scroll;
-  scrollbar-width:thin;
-  scrollbar-color:color-mix(in srgb,var(--muted) 55%,transparent) color-mix(in srgb,var(--line) 60%,transparent);
-}
-.lt-page .lt-tablewrap .tablewrap::-webkit-scrollbar{height:8px}
-.lt-page .lt-tablewrap .tablewrap::-webkit-scrollbar-track{background:color-mix(in srgb,var(--line) 60%,transparent);border-radius:8px}
-.lt-page .lt-tablewrap .tablewrap::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--muted) 55%,transparent);border-radius:8px}
-.lt-page .lt-tablewrap tbody tr:has(.lt-tasklink){position:relative;cursor:pointer}
-.lt-page .lt-tablewrap tbody tr:has(.lt-tasklink):hover td{background:color-mix(in srgb,var(--brand) 5%,transparent)}
+
 .lt-page tr.is-selected td{background:color-mix(in srgb,var(--brand) 8%,transparent)}
-.lt-page .lt-tasklink{display:grid;gap:3px;max-width:320px;color:inherit;text-decoration:none}
-.lt-page .lt-tasklink::after{content:"";position:absolute;inset:0;z-index:1}
-.lt-page .lt-tasklink:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:6px}
-.lt-page .lt-tasklink:hover b{text-decoration:underline}
 
 /* The generic `.metricseg` carries `margin-left:auto`; on this bar the SCOPE tabs are the
    page's primary navigation and sit at the left, the Board / List pair at the right. */
@@ -1539,7 +1508,7 @@ select:disabled { opacity: .45 }
 .lt-page .lt-fsel select option{background:var(--panel);color:var(--ink)}
 /* Wraps when it has to: a long note (the live tracker's "Park, vaccine, operator ... both") ran past
    the card's right edge at 1440 as one unbroken line. */
-.lt-page .lt-fnote{color:var(--faint);font-size:11px;margin-left:auto;white-space:normal;min-width:0;flex:0 1 auto;text-align:right}
+
 /* ---- Tasks desk toolbar (/tasks). Same `.lt-fbar` / `.lt-fsel` / `.lt-chips` / `.lt-fnote`
    anatomy as the live-tracker bar above, plus ONE extra behaviour: on a phone the whole control
    set becomes a bottom SHEET instead of a squeezed bar. /tasks is opened inside the WhatsApp
@@ -1599,22 +1568,7 @@ select:disabled { opacity: .45 }
    stacks, ONE dates disclosure, sort. The stack avatars are 24px here (the size the board's own
    menu rows use; its toolbar stack is 30px, its cards 22px) so two stacks of nine people fit
    beside a five-chip segment at 1440px; every other rule is the board's own, scoped by the `wb` class on the slot. */
-@media (min-width:761px){
-  
-  /* Widths at 1440 with the 28px stacks (Gate-1 #6): search 120 + segment 414 + two stacks of
-     116 + sort 181 + dates 133 + five 8px gaps = 1120 in a 1132px bar. The search floor and the
-     segment's padding each gave up a little so the bar stays ONE row with no filter applied. */
-  /* The two stacks are told apart by a small CAPTION over the avatars, drawn from the slot's own
-     `data-key` (the contract's "Assignee" / "Raised by") in the `.ltd-statuslab` treatment. It
-     sits inside the control's 40px (9px caption + 24px stack) so it costs the row no width.
-     The stack's own height rule above is released so the caption and the avatars share it. */
-  /* LEGIBLE INITIALS (Gate-1 #6). At 24px with a 10px overlap each circle showed 14px of itself
-     and the next circle's 2px border cut every letter in half ("D M D M A R" read as "D N C N A
-     R"). The Work Board's stack is the reference: 30px circles, 12px bold, 8px overlap, so 22px
-     of every circle stays visible. The same geometry here, one size down so two stacks still
-     sit beside a five-chip segment at 1440: 28px circles, 11px bold, 6px overlap -- 22px
-     visible per circle, the board's own figure. */
-}
+
 /* The ONE dates disclosure: both spans inside, each its own labelled group, ONE Apply and ONE
    Clear for the four fields. Each field is the console's themed calendar (`.move-date-*`): a
    caption above it that never wraps (one line, ellipsis), the button beneath reading the picked
@@ -1656,76 +1610,8 @@ select:disabled { opacity: .45 }
 .lt-page .lt-factive .achip>button:hover{opacity:1}
 .lt-page .lt-factive .achip>button:focus-visible{outline:2px solid var(--brand);outline-offset:1px}
 /* The sheet's own header and opener exist only at phone width. */
-@media(max-width:760px){
-  /* The backdrop blur reset (`none`) is load-bearing: the desktop bar's blur(8px) backdrop makes it
-     the CONTAINING BLOCK for every `position:fixed` descendant, so the sheet below was "fixed" to
-     the 76px bar rather than to the viewport -- anchored at the bar's bottom edge and growing UP
-     off the top of the screen (measured at 390: sheet top -22px before the person list opened,
-     -236px after). The bar is `position:static` here and the blur was decorating nothing. */
-  /* On a phone the SCOPE TABS alone stay pinned (the filter bar below them is one row that
-     opens a sheet, and pinning both would hold ~190px of a 390px screen). The wrapper becomes
-     `display:contents` so the scope bar is a child of the page and can stick the whole way
-     down, not just within the wrapper's own ~200px box. */
-  
-  
-  /* `vh` first as the fallback for engines without `dvh`, then `dvh`: the WhatsApp in-app browser
-     retracts its chrome, so a `vh` box is measured against a viewport that is not the one the
-     reader has and the bottom of the sheet becomes unreachable. */
-  .lt-page .lt-fscrim{z-index:150}
-  /* TAP TARGETS, at the SAME breakpoint as the sheet (see the breakpoint note above).
-     The status chips are this page's primary filter affordance and are `<a class="achip">`
-     elements, which the app's generic phone touch block (`.main button,.btn,.btn.sm`) never
-     matched — they were ~23px boxes. Scoped to `.lt-fsheet-host`, so `.achip` on every other
-     page keeps its own size, and only inside this query, so the desktop bar is unchanged. */
-  
-  
-  
-  /* ---- The new anatomy inside the SHEET. A popover cannot hang off a fixed sheet without being
-     clipped by it, so each date disclosure opens IN PLACE here; the segment and the active chips
-     go full width. Tap targets stay >=40px, which is this page's floor. */
-  /* Inside the SHEET the segment is a TWO-column grid of equal cells, not `auto-fit`: five chips
-     at 390 gave 3 + 2 cells of 114px with "In progress 119" jammed on the right border and one
-     stray divider. Two columns of 1fr, the last odd chip (Overdue) spanning the row, and the
-     dividers drawn by position: a left border on the right-hand cell, a top border on every row
-     after the first. `gap:0` here beats the `.lt-fgroup.open .lt-chips{gap:7px}` rule above,
-     which is for the ACTIVE-filter pills and not for a bordered segment. */
-  
-  /* In the sheet the key sits at the left edge and the value at the right, so the glue dot
-     between them would float alone in the middle of the row. */
-  /* The Work Board's picker inside the SHEET: full-width stack row, the list opening IN PLACE
-     (a popover cannot hang off a fixed sheet without being clipped), 44px rows. */
-  /* The dates disclosure in the sheet: one field per row, 44px buttons, the calendar in flow. */
-  /* THE REST OF THIS PAGE'S CONTROLS, at the SAME 760px breakpoint. The page was unified on 760px
-     but the app-wide touch floor still lives at `@media(max-width:560px)`, so from 561 to 760px --
-     which includes a 375x667 phone held in landscape -- these went back to their compact desktop
-     size. Measured against this stylesheet at 561/600/667/700/760: Previous/Next and the row-count
-     buttons were 29.4px tall and the modal's close button 36px. The scope tabs already clear 40px
-     here (the generic `.metricseg a` rule in the 760px block above), and they are restated anyway
-     so this page's floor does not depend on a rule it does not own.
-     A second `.lt-page` breakpoint at 560/600px is forbidden by tasks-phone-viewport.test.mjs, and
-     rightly: 760px is this page's one phone boundary. */
-  
-  .lt-page .pager2 a,.lt-page .pager2 button,
-  .lt-page .pager2 .btn,.lt-page .pager2 .btn.sm,
-  .lt-page .pager a,.lt-page .pager button,
-  .lt-page .pager .btn,.lt-page .pager .btn.sm{min-width:40px;min-height:40px}
-  /* The pager is a two-column GRID at phone width: the note on its own row, the Rows sizes on
-     the next, and Previous / Next side by side on the last -- `flex-wrap` was dropping "Next"
-     alone under "Previous". Both movers are 44px, the preferred thumb height. */
-  .lt-page .pager2>span:first-child,.lt-page .pager2>label{grid-column:1 / -1;flex-wrap:wrap}
-  .lt-page .pager2>.btn,.lt-page .pager2>.btn.sm,.lt-page .pager2>span.btn.sm{min-height:44px;justify-content:center;width:100%}
-  /* The row link is the whole tap target of a list row (`::after` covers the row): 44px tall, not
-     the 39px its two text lines came to. `align-content:center` keeps the text centred in it. */
-  .lt-page .lt-tasklink{min-height:44px;align-content:center}
-  /* The modal's close button is the only way out of the sheet on a phone: 40px on BOTH axes. */
-  .lt-modal .lt-modal-hd .btn{min-width:40px;min-height:40px}
-}
 
 /* ---- Edit modal: the attachment list is a FULL replacement, so each stored file is a tick. */
-.lt-modal .lt-keeplist{display:grid;gap:6px;margin-top:6px}
-.lt-modal .lt-keep{display:flex;align-items:center;gap:8px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;font-size:12.5px;cursor:pointer}
-.lt-modal .lt-keep .ic{width:14px;height:14px;flex:none;color:var(--muted)}
-.lt-modal .lt-keep span{min-width:0;overflow-wrap:anywhere}
 
 /* Tables. Both dense boards pin every cell to a single line so a long shed or
    operator name cannot silently re-wrap the row into two. */
@@ -1734,10 +1620,6 @@ select:disabled { opacity: .45 }
 .lt-page tbody td:not(.MuiTableCell-root){padding:9px 12px;border-bottom:1px solid var(--line2);font-size:12.5px;vertical-align:middle}
 .lt-page tbody td .tag{vertical-align:middle}
 .lt-page th.num,.lt-page td.num{font-variant-numeric:tabular-nums;text-align:right}
-
-.lt-page .lt-opname{display:grid;grid-template-columns:26px minmax(0,1fr);align-items:center;gap:9px;font-weight:650;line-height:1.2}
-.lt-page .lt-avx{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:10.5px;flex:none;background:var(--brand-soft);color:var(--brand-d);border:1px solid var(--line)}
-.lt-page .lt-code{display:block;margin-top:4px;margin-left:0;font-size:10.5px;line-height:1.1}
 
 /* `t-live` is this page's own tone: a pulsing dot inside the pill, which is how
    the mock distinguishes "happening right now" from a static ok/warn state. */
@@ -1748,16 +1630,12 @@ select:disabled { opacity: .45 }
    inline `40dvh` left an engine without `dvh` support with NO cap at all and the list grew
    unbounded. Here both land -- `vh` first, then `dvh` -- which is this sheet's stated rule (see the
    note at the filter sheet below). */
-.mention-pop{position:absolute;left:0;right:0;top:100%;z-index:60;margin-top:4px;max-height:40vh;max-height:40dvh;overflow-y:auto;overscroll-behavior:contain}
+
 /* The deadline countdown (maintainer decision 2026-09-14): ONE number of days left, green while
    more than two days remain, red from two days out and once overdue. Tone classes come from
    the backend's deadline_tone (ok -> green, near/over -> red). */
-.lt-page table.lt-task-table td.lt-days-col{min-width:0;white-space:nowrap}
-.lt-page .lt-clock-inline{display:none;margin-top:6px}
+
 /* 760px, the same breakpoint as the filter sheet and the tap targets above. */
-@media(max-width:760px){.lt-page .lt-days-col{display:none}.lt-page .lt-clock-inline{display:block}}
-.lt-page .lt-status-actions{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
-.lt-page .lt-comment-form{display:grid;gap:10px;margin:0 0 14px}
 
 /* Live activity feed */
 
@@ -1780,7 +1658,6 @@ select:disabled { opacity: .45 }
    inside the card. */
 .hbarlist{padding:2px 14px}
 
-
 /* Sales cards: headings, captions and chip rows share the charts' 14px inset, and the bar
    charts breathe vertically (the breed chart sat flush under its header). */
 .main .sales-card .mt{padding-left:14px}
@@ -1794,7 +1671,7 @@ select:disabled { opacity: .45 }
   .lt-page .lt-fbar{position:static;display:grid;grid-template-columns:1fr;gap:8px;padding:10px}
   .lt-page .lt-fsel{width:100%;justify-content:space-between}
   .lt-page .lt-fsel select{width:100%;max-width:100%;min-width:0;text-overflow:ellipsis}
-  .lt-page .lt-fnote{margin-left:0;white-space:normal}
+  
   
   
   
@@ -1808,7 +1685,6 @@ select:disabled { opacity: .45 }
      the Pen dropdown hangs below the bar, so without this the card paints over it and eats taps. */
   .lt-page .lt-fbar.cc-fbar{position:relative;z-index:20}
 }
-
 
 /* ── People / access editor ──────────────────────────────────────────────────
    The access editor is a template MUI Dialog (person-access-launcher.tsx); these
@@ -1838,79 +1714,17 @@ select:disabled { opacity: .45 }
 /* Separation-of-duty caution. Warns, never blocks: this authority is the
    maintainer's to grant, and the warning exists so granting it is a decision. */
 
-
-/* Tasks new/edit modals: the MUI Dialog paper carries .lt-modal (box, scroll, header from the template). */
-.lt-modal .lt-modal-bd{display:grid;gap:12px}
-.lt-modal .fld{margin-bottom:0}
-.lt-modal .lt-counter{display:block;margin-top:4px;color:var(--muted);font-size:11px}
-.lt-modal .lt-pickers{display:grid;gap:8px;margin-top:6px}
-.lt-modal .lt-picker{position:relative;display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;padding:10px 12px}
-.lt-modal .lt-picker .lt-picker-label{font-size:13px;font-weight:700;text-transform:none;letter-spacing:0;color:inherit;margin:0}
-.lt-modal .lt-picker .cbq{margin-left:2px}
-.lt-modal .lt-picker input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
-.lt-modal .lt-send{justify-content:center;margin-top:4px}
-/* Attachments: one row from laptop width up (the three pickers were stacked phone-style at
-   2000px); the phone stack below 760px is the base rule above. */
-@media (min-width:760px){
-  .lt-modal .lt-pickers{grid-template-columns:repeat(3,minmax(0,1fr))}
-}
-/* The "For" field hosts the Work Board's assignee picker in its form mode
-   (`components/assignee-picker.tsx`, `.avs.avs-single`). The Work Board scopes the picker's own
-   rules under `.wb`; this is the same anatomy restated for the modal: a full-width 44px trigger,
-   the list opening IN FLOW -- static, like inside the phone filter sheet -- so the modal body's
-   scroller cannot clip it, 44px rows reading "Name — Title", and brand tokens only. */
 .prt-warn{color:var(--warn,#c98a16)}
-/* Shared with the routine drawer's "Who does it" (.prt): the same single-person picker, one anatomy. */
-:is(.lt-modal,.prt) .avs-single{position:relative;display:grid;grid-template-columns:1fr;width:100%}
-:is(.lt-modal,.prt) .avs-trigger{display:flex;align-items:center;gap:9px;width:100%;min-height:44px;padding:8px 11px;background:var(--panel);border:1px solid var(--line);border-radius:9px;font:inherit;font-size:13.5px;color:var(--ink);text-align:left;cursor:pointer}
-:is(.lt-modal,.prt) .avs-trigger:hover,:is(.lt-modal,.prt) .avs-trigger.on{border-color:color-mix(in srgb,var(--brand) 45%,var(--line))}
-:is(.lt-modal,.prt) .avs-trigger:focus-visible{outline:2px solid var(--brand);outline-offset:1px}
-:is(.lt-modal,.prt) .avs-trigger.set{border-color:color-mix(in srgb,var(--brand) 55%,var(--line));background:var(--brand-soft)}
-:is(.lt-modal,.prt) .avs-trigger[aria-invalid="true"]{border-color:var(--danger)}
-:is(.lt-modal,.prt) .avs-trigger .avs-value{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-:is(.lt-modal,.prt) .avs-trigger .ic{width:14px;height:14px;flex:none;color:var(--muted)}
-.lt-modal .lt-fnote{display:block;margin-top:6px;color:var(--danger);font-size:12px;font-weight:650}
-/* Deadline: the console's own calendar for the day beside two time selects, farm clock. The
-   calendar popover opens IN FLOW inside the modal (never over the attachment buttons or Send,
-   never clipped by the body's scroller); the phone stacks the three. */
-.lt-modal .lt-deadline-row{display:grid;grid-template-columns:minmax(0,1fr) 84px 84px;gap:8px;align-items:start;margin-top:4px}
-.lt-modal .lt-deadline-date{min-width:0}
-.lt-modal .lt-deadline-date .move-date-button{height:44px;border-radius:9px}
-.lt-modal .lt-deadline-date .move-date-popover{position:static;width:100%;margin-top:8px;box-shadow:none;border-color:var(--line2)}
-.lt-modal .lt-deadline-time{display:grid;gap:4px;margin:0;min-width:0}
-.lt-modal .lt-deadline-time select{width:100%;min-width:0;min-height:44px;padding:8px 9px;border:1px solid var(--line);border-radius:9px;background:var(--panel);color:var(--ink);font:inherit}
-@media (max-width:600px){
-  .lt-modal .lt-deadline-row{grid-template-columns:1fr 1fr}
-  .lt-modal .lt-deadline-date{grid-column:1 / -1}
-}
-@media(max-width:640px){
-  .lt-modal .lt-modal-hd .iconbtn,.lt-modal .lt-modal-hd .btn{width:48px;height:48px;min-width:48px;min-height:48px;border-radius:14px}
-  .lt-modal .lt-modal-bd{gap:10px}
-  .lt-modal .fld{gap:4px}
-  .lt-modal label.fld>span:first-child,.lt-modal .fld>.lt-fld-label{font-size:12px;line-height:16px;top:-8px}
-  .lt-modal label.fld>input{min-height:44px;padding:9px 12px;font-size:14px}
-  .lt-modal label.fld>textarea{min-height:104px;padding:12px;font-size:14px}
-  .lt-modal .lt-counter{margin-top:2px;font-size:11px}
-  .lt-modal .avs-trigger{min-height:44px;padding:8px 10px;font-size:13px}
-  .lt-modal .lt-deadline-row{gap:8px;margin-top:2px}
-  .lt-modal .lt-deadline-date .move-date-button,.lt-modal .lt-deadline-time select{min-height:44px;height:44px;font-size:13px}
-  .lt-modal .lt-pickers{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
-  .lt-modal .lt-picker{min-height:44px;padding:8px 10px;border-radius:10px}
-  .lt-modal .lt-picker .lt-picker-label{font-size:13px}
-  .lt-modal .lt-picker:last-child{grid-column:1 / -1}
-  .lt-modal .lt-send{min-height:48px;border-radius:14px;margin-top:2px}
-}
+/* The routine drawer's "Who does it" (.prt): the single-person picker as a form field. */
+.prt .avs-single{position:relative;display:grid;grid-template-columns:1fr;width:100%}
+.prt .avs-trigger{display:flex;align-items:center;gap:9px;width:100%;min-height:44px;padding:8px 11px;background:var(--panel);border:1px solid var(--line);border-radius:9px;font:inherit;font-size:13.5px;color:var(--ink);text-align:left;cursor:pointer}
+.prt .avs-trigger:hover,.prt .avs-trigger.on{border-color:color-mix(in srgb,var(--brand) 45%,var(--line))}
+.prt .avs-trigger:focus-visible{outline:2px solid var(--brand);outline-offset:1px}
+.prt .avs-trigger.set{border-color:color-mix(in srgb,var(--brand) 55%,var(--line));background:var(--brand-soft)}
+.prt .avs-trigger[aria-invalid="true"]{border-color:var(--danger)}
+.prt .avs-trigger .avs-value{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.prt .avs-trigger .ic{width:14px;height:14px;flex:none;color:var(--muted)}
 
-/* Tasks list: the two people columns keep a floor width and wrap, so a long name such as
-   "Chandrakant (PC Director)" never paints over the next cell (found 2026-09-11). */
-/* Targeted by class, not position: a leading checkbox column shifted nth-child onto Days/checkbox. */
-.lt-page table.lt-task-table td.lt-people-col{white-space:normal;min-width:170px;overflow-wrap:anywhere}
-.lt-page table.lt-task-table td.lt-task-col{min-width:220px}
-.lt-page .lt-opname>span:last-child{min-width:0;white-space:normal;overflow-wrap:anywhere}
-.lt-modal .lt-assignee-hint{display:block;margin-top:6px;color:var(--muted);font-size:12px}
-.lt-modal .lt-assignee-hint b{color:var(--text)}
-.lt-modal .lt-deadline-hint{display:flex;align-items:center;gap:6px}
-.lt-modal .lt-deadline-hint .ic{width:14px;height:14px;flex:none}
 /* Work Board — ported from the approved board mock (Goat OS Work Board artifact), scoped under .wb.
    Board grid, column, card, toolbar pieces and the Jira-shaped issue view; only the class names the
    mock uses, with the same values. */
@@ -2049,148 +1863,6 @@ input[type="checkbox"]:not(.lt-people-row input):not(.PrivateSwitchBase-input):d
    color-scheme, not from our CSS, so without this every calendar opened white on the dark console. */
 input[type=date],input[type=datetime-local],input[type=time],input[type=month],input[type=week]{color-scheme:dark}
 :root.light input[type=date],:root.light input[type=datetime-local],:root.light input[type=time],:root.light input[type=month],:root.light input[type=week]{color-scheme:light}
-
-/* ============================================================================================
-   TASK DETAIL PANEL (.ltd-*) — the leadership Tasks desk's issue view, shaped like a modern Jira
-   issue view (maintainer decision 2026-09-18; the old "Selected task" rail was an empty card).
-
-   WHAT JIRA CONTRIBUTES: the two-column issue view, the spacing rhythm, the quiet section headers
-   and the boxed Details panel of label/value rows. NOTHING ELSE — no colour is borrowed. Every
-   value below is a theme token (--brand/--ok/--warn/--danger/--info/--purple plus
-   --panel/--panel-2/--ink/--muted/--line) composed with color-mix(), so the panel follows the
-   console into light mode with the rest of the screen. There is not one literal colour here.
-
-   APPEND-ONLY BLOCK. It touches no `.lt-*` or `.ltb-*` rule; the single selector that mentions
-   one (`.lt-grid:has(.ltd-panel)`, and `.lt-status-actions` inside my own status row) is a NEW
-   rule that only widens the rail this panel lives in, and only on desktop.
-   ============================================================================================ */
-
-/* The rail this panel sits in is 360px wide — enough for a list sidebar, not for an issue view.
-   Given a viewport that can afford it, the panel takes the share of the grid a Jira issue view
-   needs for its two columns. Guarded above the existing 1080px breakpoint so the phone/tablet
-   behaviour of `.lt-grid` is left exactly as it is.
-   Since the drawer (`.ltd-drawer`, further down) a SELECTED task is rendered outside this grid, so
-   this only ever matches the table's no-selection placeholder now. */
-@media(min-width:1180px){
-  .lt-page .lt-grid:has(.ltd-panel){grid-template-columns:minmax(340px,1fr) minmax(0,54%)}
-}
-
-.ltd-panel{container-type:inline-size;min-width:0;border:1px solid var(--line);border-radius:14px;background:var(--panel);overflow:hidden}
-/* The mention popup inside the composer has to escape the panel's box. */
-.ltd-panel:has([data-mention-popup]){overflow:visible}
-
-/* ------------------------------------------------------------------ header: breadcrumb + key */
-.ltd-top-actions{display:flex;align-items:center;gap:8px;margin-left:auto}
-/* Tap targets: the smoke rule is 40px, and this page opens in the WhatsApp in-app webview. */
-.ltd-top-actions .btn{min-height:40px;padding-inline:13px}
-
-/* ---------------------------------------------------------- the big title + the status control */
-/* Jira's status button: a filled, slightly raised pill with a caret. It is a STATEMENT of the
-   current status; the transitions beside it are the buttons that change it. */
-.ltd-status{display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:0 13px;border-radius:9px;font-size:12.5px;font-weight:780;letter-spacing:.1px;border:1px solid var(--line);background:var(--panel-2);color:var(--ink)}
-.ltd-status-caret{width:0;height:0;border-left:4.5px solid transparent;border-right:4.5px solid transparent;border-top:5px solid currentColor;opacity:.75}
-.ltd-status-info{background:color-mix(in srgb,var(--info) 17%,var(--panel));border-color:color-mix(in srgb,var(--info) 46%,var(--line));color:color-mix(in srgb,var(--info) 72%,var(--ink))}
-.ltd-status-ok{background:color-mix(in srgb,var(--ok) 17%,var(--panel));border-color:color-mix(in srgb,var(--ok) 46%,var(--line));color:color-mix(in srgb,var(--ok) 72%,var(--ink))}
-.ltd-status-warn{background:color-mix(in srgb,var(--warn) 17%,var(--panel));border-color:color-mix(in srgb,var(--warn) 46%,var(--line));color:color-mix(in srgb,var(--warn) 74%,var(--ink))}
-.ltd-status-mut{background:color-mix(in srgb,var(--muted) 14%,var(--panel));border-color:var(--line);color:var(--muted)}
-/* The drawer's ONE status control (task-status-menu.tsx): the status pill is the trigger of a
-   template menu popover. Only the pill as a button lives here. */
-.ltd-statusmenu{position:relative;display:inline-flex;flex-wrap:wrap;max-width:100%}
-.ltd-statusmenu .ltd-status{cursor:pointer;font:inherit;font-size:12.5px;font-weight:780}
-.ltd-statusmenu .ltd-status:hover,.ltd-statusmenu .ltd-status.on{filter:brightness(1.12)}
-.ltd-statusmenu .ltd-status:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
-.ltd-statusmenu .ltd-status[aria-busy="true"]{cursor:progress;opacity:.85}
-.ltd-statusmenu .ltd-status-saving{width:11px;height:11px;flex:none;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:ltd-status-spin .7s linear infinite}
-@keyframes ltd-status-spin{to{transform:rotate(360deg)}}
-@media (prefers-reduced-motion:reduce){.ltd-statusmenu .ltd-status-saving{animation:none;border-right-color:currentColor;opacity:.5}}
-
-/* --------------------------------------------------------------------------- the two columns */
-/* Two columns as soon as the panel itself is wide enough. A CONTAINER query, not a viewport one:
-   the panel is a grid child whose width does not follow the viewport, so a media query would put
-   two columns into a 360px rail. */
-
-/* --------------------------------------------------------------------- Description / Activity */
-.ltd-quiet{margin:0;font-size:12.5px;line-height:1.55;color:var(--muted);overflow-wrap:anywhere}
-
-/* ------------------------------------------------------------------------------- attachments */
-
-/* ---------------------------------------------------------------------------------- activity */
-.ltd-activity{list-style:none;margin:0 0 16px;padding:0;display:flex;flex-direction:column;gap:14px}
-.ltd-act{display:flex;gap:10px;min-width:0}
-.ltd-act-tx{min-width:0;flex:1;display:flex;flex-direction:column;gap:3px}
-.ltd-act-tx b{font-size:12.5px;font-weight:720;color:var(--ink)}
-.ltd-act-tx p{margin:0;font-size:13px;line-height:1.55;color:var(--ink);white-space:pre-wrap;overflow-wrap:anywhere}
-/* activity FEED tabs + history rows (task-activity-feed.tsx) — Builder H, 2026-09-18 */
-.ltd-feed{min-width:0}
-.ltd-feed-tabs{display:flex;gap:4px;margin:0 0 12px;padding:3px;border:1px solid var(--line);border-radius:10px;background:var(--panel-2);width:max-content;max-width:100%}
-.ltd-feed-tab{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:0 11px;border:0;border-radius:8px;background:transparent;color:var(--muted);font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}
-.ltd-feed-tab:hover{color:var(--ink);background:color-mix(in srgb,var(--muted) 12%,transparent)}
-.ltd-feed-tab.on{color:var(--ink);background:var(--panel);box-shadow:0 1px 2px color-mix(in srgb,var(--ink) 10%,transparent);border:1px solid var(--line)}
-.ltd-feed-count{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:999px;font-size:10.5px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--muted);background:color-mix(in srgb,var(--muted) 16%,transparent)}
-.ltd-feed-tab.on .ltd-feed-count{color:var(--brand);background:color-mix(in srgb,var(--brand) 14%,transparent)}
-.ltd-act-line{display:flex;flex-wrap:wrap;align-items:center;gap:6px 7px;font-size:12.5px;line-height:1.4;color:var(--ink)}
-.ltd-act-line b{font-weight:720}
-.ltd-act-verb{color:var(--muted)}
-.ltd-act-change{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0}
-.ltd-act-arrow{color:var(--muted);font-weight:700}
-.ltd-act-val{font-weight:650;color:var(--ink);overflow-wrap:anywhere}
-.ltd-actchip{display:inline-flex;align-items:center;min-height:22px;padding:0 8px;border-radius:6px;font-size:11.5px;font-weight:780;letter-spacing:.1px;border:1px solid var(--line);background:var(--panel-2);color:var(--ink);white-space:nowrap}
-.ltd-act-when{display:block;font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
-.ltd-composer{display:flex;gap:10px;min-width:0;padding:2px 0 14px;margin-bottom:12px;border-bottom:1px solid var(--line)}
-.ltd-older{display:flex;flex-direction:column;gap:6px;padding-top:10px}
-.ltd-composer .lt-comment-form{flex:1;min-width:0;margin:0}
-.ltd-composer .lt-comment-form .btn{min-height:40px;justify-self:start}
-
-/* ------------------------------------------------------------------------------------ avatars */
-.ltd-av{display:inline-flex;align-items:center;justify-content:center;flex:none;width:28px;height:28px;border-radius:50%;font-size:11px;font-weight:800;letter-spacing:.3px;border:1px solid var(--line);background:color-mix(in srgb,var(--muted) 18%,var(--panel));color:var(--ink)}
-.ltd-av-sm{width:26px;height:26px;font-size:10.5px}
-.ltd-av-me{color:var(--brand);background:color-mix(in srgb,var(--brand) 14%,var(--panel));border-color:color-mix(in srgb,var(--brand) 40%,var(--line))}
-.ltd-av-me .ic{width:13px;height:13px}
-
-/* ------------------------------------------------------------------ the boxed Details panel */
-/* IN-PLACE comment composer (task-activity-composer.tsx) — Builder J, 2026-09-18. A mention a
-   note NAMED draws as a brand-toned chip; a comment still travelling to the server is dimmed and
-   says "just now"; a refused send reads its sentence under the field, with the text kept. */
-.ltd-mention{display:inline;padding:1px 5px;border-radius:5px;font-weight:720;color:var(--brand);background:color-mix(in srgb,var(--brand) 13%,transparent);white-space:nowrap}
-.ltd-act[data-ltd-pending="true"]{opacity:.62}
-.ltd-act[data-ltd-pending="true"] .ltd-act-when{font-style:italic}
-.ltd-composer-error{margin:0;font-size:12.5px;line-height:1.45;color:var(--danger)}
-.ltd-composer .btn[aria-busy="true"]{opacity:.7;cursor:progress}
-/* Phones see Details directly under the title and status, not at the bottom of the activity
-   feed: the deadline is the urgency signal on this screen and it must not be scrolled to. */
-@container (min-width:540px){.ltd-details{order:0;position:sticky;top:12px}}
-/* The deadline chip is `deadline-clock.tsx` in its compact form; only its box is nudged to sit
-   flush in a Details row. Its colour and wording stay the backend's. */
-
-/* ------------------------------------------------------------------------ the no-selection state */
-.ltd-panel-empty{background:linear-gradient(180deg,color-mix(in srgb,var(--panel-2) 55%,transparent),transparent),var(--panel)}
-
-/* ---------------------------------------------------------------------------- phone width */
-/* The activity feed is NOT given its own scrollbox at phone width: a nested scroll region inside
-   the page scroll is a trap in the WhatsApp in-app webview, and this feed is a handful of notes.
-   Where a height cap IS needed (a pathologically long feed) `vh` comes FIRST and `dvh` only as a
-   progressive upgrade — WhatsApp's chrome retracts, and a bare `dvh` cap clips mid-scroll. */
-@media(max-width:760px){
-  .ltd-panel{border-radius:12px}
-  .ltd-activity{max-height:none}
-  /* A long file name or a long person name wraps instead of pushing the page sideways. */
-}
-@media(max-width:400px){
-  .ltd-top-actions{margin-left:0;width:100%}
-  .ltd-top-actions .btn{flex:1;justify-content:center}
-}
-
-/* ------------------------------------------------------------- the detail as a DRAWER (.ltd-drawer)
-   A selected task no longer takes a grid column beside the board: `.lt-grid:has(.ltd-panel)`
-   above gave it 54% of the row, which left the four fixed-width board columns 537px at 1700 wide
-   and sliced Done and Cancelled clean off the moment a card was clicked. The panel now renders
-   inside the template MUI Drawer paper (`task-detail-drawer.tsx`),
-   OVER the board, which keeps its full width underneath. The 54% rule still governs the table's
-   no-selection placeholder, the only `.ltd-panel` that is still laid out in the grid.
-
-   The paper width, backdrop, pinned header (task key + close) and scroll body come from the template
-   drawer (MinimalDrawer 480); only the panel's own grid-card chrome is reset here. */
-.ltd-drawer .ltd-panel{flex:none;border:0;border-radius:0;background:transparent;overflow:visible}
 
 /* Configuration -> Items and settings (2026-09-18): the prototype's two-column register page --
    a rail of registers with counts on the left, the selected register's table on the right. Phone
