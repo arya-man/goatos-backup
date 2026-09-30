@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { legacyCss } from "../../scripts/lib/legacy-css.mjs";
 
 // Comments stripped first: this file's own explanation names the retired selector, and a naive
 // scan would match the prose instead of the rule.
-const frame = readFileSync(new URL("../../app/frame.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+const frame = legacyCss("frame").replace(/\/\*[\s\S]*?\*\//g, "");
 const panel = readFileSync(new URL("./notification-panel.tsx", import.meta.url), "utf8");
 
 // The notification body is a two-line clamp with the full text on `title` until the row is

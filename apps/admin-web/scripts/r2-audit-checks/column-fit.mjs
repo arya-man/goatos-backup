@@ -1,5 +1,5 @@
 // r2-visual-audit plugin: page blocks fit the content column (TR1-#5, guard: url-panel-min-width).
-// The page root (`.wrap > .screen`) is a one-column grid whose children get `min-width: 0`. A
+// The page root (`[data-page-column] > PageRoot`) is a one-column grid whose children get `min-width: 0`. A
 // `display: contents` wrapper (the UrlSuspense / UrlPanel box) hands ITS children to that grid
 // without the rule, so one wide child (a 960px table, a chart) sizes the single track to its
 // min-content and every block — header, KPI row, toolbar — renders wider than the column and is
@@ -9,7 +9,7 @@
 /** In-page probe (serialisable). Returns [{ detail }]. */
 export function probeColumnFit() {
   const out = [];
-  const root = document.querySelector(".wrap > *, [data-page-root]");
+  const root = document.querySelector("[data-page-column] > *, [data-page-root]");
   if (!root) return out;
   const width = root.getBoundingClientRect().width;
   if (width <= 0) return out;

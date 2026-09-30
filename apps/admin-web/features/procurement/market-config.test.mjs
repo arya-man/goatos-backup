@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { legacyCss } from "../../scripts/lib/legacy-css.mjs";
 
 const section = readFileSync(new URL("./market-config-section.tsx", import.meta.url), "utf8");
 const form = readFileSync(new URL("./market-config-form.tsx", import.meta.url), "utf8");
 const actions = readFileSync(new URL("./market-actions.ts", import.meta.url), "utf8");
 const valuation = readFileSync(new URL("./valuation-section.tsx", import.meta.url), "utf8");
-const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
+const css = legacyCss("mesha-theme");
 
 // Maintainer report 2026-09-15: "when I add any city or make any change the whole page is
 // loading and I am going to top". The market forms used to redirect back to the page with
@@ -66,7 +67,7 @@ test("sales config classes are not styled by the legacy stylesheets", () => {
   }
   // Shared hooks owned elsewhere (page root, cell links, table-scoped nowrap) are allowed.
   for (const shared of ["celllink", "sales-deals-table", "screen", "on"]) classes.delete(shared);
-  const sheets = ["../../app/mesha-theme.css", "../../app/frame.css", "../../app/minimal-theme.css"].map((p) => readFileSync(new URL(p, import.meta.url), "utf8"));
+  const sheets = ["mesha-theme", "frame", "minimal-theme"].map((n) => legacyCss(n));
   const hits = [];
   for (const cls of classes) {
     const re = new RegExp(`\\.${cls.replace(/[-]/g, "\\-")}(?![\\w-])`);

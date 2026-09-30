@@ -96,7 +96,7 @@ export const UnderTable: Story = {
       const slice = penRows.slice((page - 1) * rows, page * rows);
       return (
         <Card sx={{ p: 2 }}>
-          <div className="tablewrap" style={{ overflowX: "auto" }}>
+          <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 640 }}>
               <thead>
                 <tr style={{ textAlign: "left", color: "var(--fg-muted)" }}>

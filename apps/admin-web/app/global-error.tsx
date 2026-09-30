@@ -4,9 +4,6 @@
 // provider itself — nothing from app/layout.tsx renders around it.
 import "./globals.css";
 import "./minimal-tokens.css";
-import "./mesha-theme.css";
-import "./minimal-theme.css";
-import "./frame.css";
 import "@/theme/fonts.css";
 
 import { Iconify } from "@/components/minimal/iconify";

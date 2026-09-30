@@ -70,7 +70,7 @@ export const PROFILES = [
 const ALL_CHECKS = ["scan", "interact", "drawers", "skeleton", "sbs"];
 const CONTENT_ROOT = ".minimal__layout__main__content, main";
 /** Page-level wrappers the skeleton block walk always descends through (copied into r2PageLib; the test pins the copy). */
-export const PAGE_WRAPPER_SELECTOR = "main, .minimal__layout__main__content, .msh-wrap, .screen, [data-page-root], [data-skel-root]";
+export const PAGE_WRAPPER_SELECTOR = "main, .minimal__layout__main__content, [data-page-column], .screen, [data-page-root], [data-skel-root]";
 const OUR_THEME_KEYS = ["mesha.shell.theme", "goatos-theme"];
 const TEMPLATE_THEME_KEY = "theme-mode";
 // Template drawer widths (Minimal v7.7.0 next-ts): kanban-details { xs: 1, sm: 480 },
@@ -474,7 +474,7 @@ function r2PageLib() {
   /** A painted SVG shape (not a group / svg wrapper): the elements a chart colour lands on. */
   function isChartMark(el) { return /^(path|rect|circle|ellipse|polygon|polyline)$/i.test(el.tagName); }
   const ROOT = ".minimal__layout__main__content, main";
-  const PAGE_WRAPPER_SELECTOR = "main, .minimal__layout__main__content, .msh-wrap, .screen, [data-page-root], [data-skel-root]";
+  const PAGE_WRAPPER_SELECTOR = "main, .minimal__layout__main__content, [data-page-column], .screen, [data-page-root], [data-skel-root]";
   const SKEL = ".MuiSkeleton-root, [data-skeleton], [class*='skeleton'], [class*='Skeleton']";
   let lastMutation = performance.now();
   const startObserver = () => {

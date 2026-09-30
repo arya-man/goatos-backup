@@ -17,7 +17,7 @@
 // each retired variant is named, or a half-revert reads as done.
 
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const repo = resolve(import.meta.dirname, "../..");
@@ -104,7 +104,9 @@ function cssFindings(source) {
 function findings() {
   const out = [];
   out.push(...backendNavFindings(readFileSync(resolve(repo, "backend/internal/adminui/app/service.go"), "utf8")));
-  out.push(...cssFindings(readFileSync(resolve(repo, "apps/admin-web/app/mesha-theme.css"), "utf8")));
+  // FIXJ6: mesha-theme.css is deleted (the template nav renders group labels as the template does).
+  const legacyTheme = resolve(repo, "apps/admin-web/app/mesha-theme.css");
+  if (existsSync(legacyTheme)) out.push(...cssFindings(readFileSync(legacyTheme, "utf8")));
   const androidFiles = execFileSync("git", ["ls-files", "apps/goatos-android/**/src/main/res/values/strings.xml"], { cwd: repo, encoding: "utf8" })
     .trim()
     .split("\n")

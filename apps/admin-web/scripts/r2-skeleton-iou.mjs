@@ -56,7 +56,7 @@ export function loadingRoutes() {
 
 /** In-page: the page root's visible top-level blocks, viewport coordinates. */
 function readBlocks() {
-  const wrap = document.querySelector(".msh-wrap") || document.querySelector(".wrap");
+  const wrap = document.querySelector("[data-page-column]");
   if (!wrap) return { busy: false, blocks: [] };
   const visible = (el) => {
     const r = el.getBoundingClientRect();
@@ -168,7 +168,7 @@ export async function auditSkeletonIoU(page, url, { threshold = 0.8, hold, timeo
     await sleep(40);
   }
   if (release) await release();
-  await page.waitForFunction(() => !document.querySelector('.msh-wrap [aria-busy="true"] .MuiSkeleton-root, .wrap [aria-busy="true"] .MuiSkeleton-root'), null, { timeout: timeoutMs }).catch(() => {});
+  await page.waitForFunction(() => !document.querySelector('[data-page-column] [aria-busy="true"] .MuiSkeleton-root'), null, { timeout: timeoutMs }).catch(() => {});
   await page.waitForLoadState("networkidle", { timeout: timeoutMs }).catch(() => {});
   await sleep(1200);
   const loaded = await page.evaluate(readBlocks);

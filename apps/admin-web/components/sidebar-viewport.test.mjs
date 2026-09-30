@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { legacyCss } from "../scripts/lib/legacy-css.mjs";
 
 // The shell is the MUI Minimal DashboardLayout (layouts/dashboard). These checks read the components
 // that actually render the phone menu; the old `.side` / `.navscrim` CSS is not rendered any more.
@@ -32,10 +33,16 @@ const account = shell.indexOf("<AccountButton");
 assert.ok(bell > 0 && bell < toggle && toggle < account, "header order: notifications, theme toggle, account");
 assert.match(shell, /<WorkspacesPopover\b/, "park scope uses the template-derived WorkspacesPopover (trigger + list)");
 
-// The page scrolls the body (template MainSection); `.main` must not become a scroll container again.
-const glue = readFileSync(new URL("../layouts/mesha-layout.css", import.meta.url), "utf8");
-assert.match(glue, /\.msh-content\.main\{[^}]*overflow:visible[^}]*\}/, "page content must not be its own scroll container");
-assert.match(shell, /<DashboardContent[^>]*className="main msh-content"/, "page content keeps the `.main` class contract");
+// The page scrolls the body (template MainSection); the content must not become a scroll container
+// again. FIXJ6: no `.main` / `.wrap` class contract any more (mesha-layout.css + frame.css deleted):
+// the template DashboardContent with CONTENT_SX (min-width 0, sideways clip below 861px, never
+// overflow auto) holds the sx page column.
+assert.equal(legacyCss("mesha-layout"), "", "layouts/mesha-layout.css is deleted");
+assert.match(shell, /<DashboardContent maxWidth=\{false\} sx=\{CONTENT_SX\}>/, "page content is the template DashboardContent");
+const contentSx = shell.slice(shell.indexOf("const CONTENT_SX"), shell.indexOf("});", shell.indexOf("const CONTENT_SX")));
+assert.doesNotMatch(contentSx, /overflow(?:Y)?: "(?:auto|scroll)"/, "page content must not be its own scroll container");
+assert.match(contentSx, /overflowX: "clip"/);
+assert.doesNotMatch(shell, /className="(?:main|wrap)\b/, "no legacy .main / .wrap class on the shell frame");
 
 // Invariant bd0c2c286: a mini-rail group icon navigates to the group's first leaf (its leaves are hidden).
 const navVertical = readFileSync(new URL("../layouts/app/dashboard/nav-vertical.tsx", import.meta.url), "utf8");

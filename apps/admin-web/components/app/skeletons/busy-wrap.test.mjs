@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { legacyCss } from "../../../scripts/lib/legacy-css.mjs";
 
 // guard: skeleton-busy-nowrap (SK2, root cause SK1). frame.css used to force `flex-wrap: wrap; min-width: 0`
 // on every div of a busy `.screen` skeleton; the loaded rows never wrap, so blocks fought it with `&&&`
@@ -15,7 +16,7 @@ const body = (name) => {
 };
 
 test("no busy wrap rule, no outranking workarounds", () => {
-  const frame = readFileSync(new URL("../../../app/frame.css", import.meta.url), "utf8");
+  const frame = legacyCss("frame");
   assert.doesNotMatch(frame, /\.screen\[aria-busy="true"\]\s+div\s*\{[^}]*flex-wrap/);
   for (const name of ["StackSkeleton", "TabsSkeleton", "OrderToolbarSkeleton", "StatStripSkeleton"]) {
     assert.doesNotMatch(body(name), /"&&&?[^"]*": \{[^}]*flexWrap: "nowrap"/, `${name}: stale busy-wrap workaround`);

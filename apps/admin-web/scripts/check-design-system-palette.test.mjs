@@ -6,7 +6,8 @@ import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { BRAND_LOCK, RETIRED_MESHA_NEUTRALS, TEMPLATE_GREYS, TEMPLATE_SURFACES, THEME_LOCK, TOKEN_FILE, hasRetiredNeutralLiteral, isDriftRemoval, retiredNeutralFindings, primaryStateFindings, themeLockFindings } from "./lib/design-palette.mjs";
+import { BRAND_LOCK, RETIRED_MESHA_NEUTRALS, TEMPLATE_GREYS, TEMPLATE_SURFACES, THEME_LOCK, TOKEN_FILE, hasRetiredNeutralLiteral, isDriftRemoval, retiredNeutralFindings, primaryStateFindings, themeLockFindings, paletteCssText } from "./lib/design-palette.mjs";
+import { legacyCss } from "./lib/legacy-css.mjs";
 
 const app = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -44,14 +45,14 @@ test("theme-config and the token file carry exactly the template grey scale and 
   assert.deepEqual(retiredNeutralFindings(TOKEN_FILE, tokens), []);
 });
 
-test("no theme stylesheet writes a retired neutral", () => {
-  for (const rel of ["app/mesha-theme.css", "app/minimal-theme.css", "app/frame.css", TOKEN_FILE]) {
+test("no palette source writes a retired neutral", () => {
+  for (const rel of ["theme/mesha-tokens.ts", TOKEN_FILE]) {
     assert.deepEqual(retiredNeutralFindings(rel, readFileSync(join(app, rel), "utf8")), [], rel);
   }
 });
 
 test("brand lock covers the Mesha brand + template surfaces in both themes, and all are present", () => {
-  const theme = readFileSync(join(app, "app/mesha-theme.css"), "utf8");
+  const theme = paletteCssText(app);
   for (const v of BRAND_LOCK) assert.ok(theme.toUpperCase().includes(v), v);
   for (const v of ["#141A21", "#1C252E", "#28323D", "#F4F6F8"]) assert.ok(BRAND_LOCK.includes(v), v);
   for (const v of RETIRED_MESHA_NEUTRALS) assert.ok(!BRAND_LOCK.includes(v), v);
@@ -75,7 +76,7 @@ test("the locked token values: Mesha brand, template neutrals", () => {
 });
 
 test("changing any locked value (either theme) fails the lock", () => {
-  const theme = readFileSync(join(app, "app/mesha-theme.css"), "utf8");
+  const theme = paletteCssText(app);
   for (const [mode, tokens] of Object.entries(THEME_LOCK)) {
     for (const name of Object.keys(tokens)) {
       const lightAt = theme.search(/\n\s*:root\.light\s*\{/);
@@ -114,7 +115,7 @@ test("removing a legacy avatar fill or a retired neutral is not drift; removing 
 });
 
 test("the old neutral leftovers and rgb() workaround are gone", () => {
-  const theme = readFileSync(join(app, "app/mesha-theme.css"), "utf8");
+  const theme = paletteCssText(app);
   assert.doesNotMatch(theme, /--mesha-(?:canvas|ink|line|d-)/);
   assert.doesNotMatch(theme, /rgb\(244 246 248\)/);
 });

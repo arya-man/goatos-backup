@@ -10,6 +10,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { legacyCss } from "../../scripts/lib/legacy-css.mjs";
 
 const { toxinReviewRows } = await import("./toxin-rows.ts");
 
@@ -153,7 +154,7 @@ test("video log drawer seeds its park filter from the page park", () => {
 // template MUI + sx: no className on it, no .toxin-proof rule in the legacy theme, and the play
 // press stays a real button filling the fixed 4:3 stage (>= 44px tap, no dead control).
 test("the toxin proof tile is MUI + sx, never legacy CSS", () => {
-  const theme = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
+  const theme = legacyCss("mesha-theme");
   assert.doesNotMatch(tileSource, /className=/, "the tile uses sx, not legacy classes");
   assert.doesNotMatch(theme, /\.toxin-proof/, "no .toxin-proof rule may live in mesha-theme.css");
   assert.match(tileSource, /aspectRatio: "4 \/ 3"/, "a fixed stage, never the clip's intrinsic size");

@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import plugin, { probePageRhythm } from "./page-rhythm.mjs";
+import { legacyCss } from "../lib/legacy-css.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
@@ -45,7 +46,7 @@ test("workflow chain node state is humanized", () => {
 // guard: no-blur-scrim — a blurred full-surface layer (backdrop-filter on a scrim / loading veil)
 // flickers in the Android WebView (OCI U1-U8, FJ1-P1-4). Legacy CSS blur declarations only shrink.
 test("legacy CSS backdrop blur declarations only shrink", () => {
-  const css = ["app/mesha-theme.css", "app/frame.css", "app/minimal-theme.css"].map((f) => readFileSync(join(root, f), "utf8")).join("\n");
+  const css = legacyCss("mesha-theme", "frame", "minimal-theme");
   const blurs = (css.match(/\{[^{}]*backdrop-filter:\s*[^;{}]*blur\(/g) || []).length;
   assert.ok(blurs <= 2, `backdrop blur declarations in legacy CSS: ${blurs} (max 2, shrink only)`);
   assert.doesNotMatch(css, /\.vr-results-loading\{backdrop-filter/);

@@ -4,6 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { legacyCss } from "../../scripts/lib/legacy-css.mjs";
 
 const LEGACY = /className=["'`][^"'`]*\b(card|hd|bd|banner|gwcard|gwh|gwstats|insight|ih|iv|if|srcl|rowlist|rowitem|rt|rs|pager|pgbtn|btn|grid2|empty|eicon|eact|sp)\b/;
 
@@ -31,7 +32,7 @@ test("herd-signals-live-header: live toggle + export are template Buttons, KPI r
   assert.doesNotMatch(bridge, /<button\b|<a\b|className="(livebadge|refreshmeta|herd-signals-livebar|btn)/);
   assert.match(bridge, /<Button\s+variant="soft"[\s\S]*?onClick=\{toggleLive\}/);
   assert.match(bridge, /<Tooltip title=\{`\$\{live \? "Pause live stream" : "Resume live stream"\} · \$\{updatedLine\}`\}/);
-  const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
+  const css = legacyCss("mesha-theme");
   assert.doesNotMatch(css, /\.livebadge|\.refreshmeta|\.herd-signals-livebar|hs-lp/);
   const grid = readFileSync(new URL("../../components/app/kpi-grid.tsx", import.meta.url), "utf8");
   assert.match(grid, /if \(n % 4 === 0\) return \{ xs: 12, sm: 6, md: 3 \};/);
@@ -45,7 +46,7 @@ test("herd-signals-table-scroll: wide tables sit in the template Scrollbar", () 
     const src = readFileSync(new URL(`./${name}`, import.meta.url), "utf8");
     assert.match(src, /\{\/\*[^*]*\*\/\}\s*<Scrollbar>\s*<Table/, `${name}: Table inside Scrollbar`);
   }
-  const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8") + readFileSync(new URL("../../app/frame.css", import.meta.url), "utf8");
+  const css = legacyCss("mesha-theme") + legacyCss("frame");
   assert.doesNotMatch(css, /\.herd-signals-page \.tblwrap\{[^}]*(overflow|max-height)/);
 });
 

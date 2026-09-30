@@ -15,15 +15,15 @@ test("column-fit plugin is a P0 r2 audit check (guard: url-panel-min-width)", ()
   assert.equal(typeof plugin.run, "function");
 });
 
-// The /sales/loads shape: the page grid, a header, then a display:contents panel holding a wide table.
+// The /sales/loads shape (FIXJ6: the shell page column + PageRoot, no .wrap/.screen): the page grid, a header, then a display:contents panel holding a wide table.
 const page = (panelSx) => `<style>
-  .wrap{width:600px}
-  .wrap>.screen{display:grid;gap:24px;min-width:0}
-  .wrap>.screen>*{min-width:0}
+  [data-page-column]{width:600px}
+  [data-page-root]{display:grid;gap:24px;min-width:0}
+  [data-page-root]>*{min-width:0}
   .panel{display:contents}
   ${panelSx}
 </style>
-<div class="wrap"><div class="screen">
+<div data-page-column=""><div data-page-root="">
   <header style="display:flex"><h1>Load wise</h1></header>
   <div class="panel"><section style="display:flex;flex-direction:column">
     <div style="overflow-x:auto"><table style="min-width:960px"><tr><td>x</td></tr></table></div>

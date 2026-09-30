@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { legacyCss } from "../scripts/lib/legacy-css.mjs";
 
 const read = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
 
@@ -13,7 +14,10 @@ test("the shell paints the target route skeleton on a path-changing click", () =
   assert.match(shell, /const pathChange = !!dest && dest\.pathname !== window\.location\.pathname;\s*setPendingHref\(pathChange \?/);
   assert.match(shell, /<PendingRouteSkeleton href=\{pendingHref\} \/>/);
   assert.match(shell, /data-route-skeleton=\{pendingHref \? "" : undefined\}/);
-  assert.match(shell, /"& \.msh-wrap\[data-route-skeleton\] > :not\(\[data-route-skeleton-el\]\)/);
+  // FIXJ6: the page column is the sx Box `[data-page-column]` (no `.wrap.msh-wrap`); it hides the page
+  // being left while the target's skeleton shows.
+  assert.match(shell, /"&\[data-route-skeleton\] > :not\(\[data-route-skeleton-el\]\):not\(\[data-shell-alert\]\)": \{ display: "none !important" \}/);
+  assert.match(shell, /<Box data-page-column="" data-route-skeleton=\{pendingHref \? "" : undefined\} sx=\{PAGE_COLUMN_SX\}>/);
   // cleared with the route-busy state (commit, timeout, supersede)
   assert.match(shell, /setRoutePending\(false\);\s*setPendingHref\(null\);/);
 });
@@ -42,19 +46,18 @@ test("every SOP library route (work instructions included) has its skeleton in t
   assert.match(reg, /export function PendingRouteSkeleton/);
 });
 
-// guard: pending-skeleton-root-gap (SK1). The pending skeleton sits in a `display: contents` wrapper,
-// so its page root is not a `.wrap > .screen` child and lost frame.css's 24px page grid: the header
-// and the first card touched, then jumped 24px when the route's loading.tsx took over.
-test("the pending skeleton wrapper restates the page root grid", () => {
+// guard: pending-skeleton-root-gap (SK1 -> FIXJ6). The pending skeleton sits in a `display: contents`
+// wrapper. SK1 restated frame.css's `.wrap > .screen` page grid on it; since FIXJ6 every page root and
+// every skeleton twin is PageRoot / `PageSkeleton root="page-root"`, which carries the 24px grid in its
+// own sx, so the wrapper stays layout-transparent and adds nothing (frame.css is deleted).
+test("the pending skeleton wrapper is layout-transparent over the PageRoot twin", () => {
   const shell = read("./mesha-shell.tsx");
   assert.match(shell, /<Box data-route-skeleton-el="" sx=\{PENDING_ROOT_SX\}>/);
-  const sx = shell.slice(shell.indexOf("const PENDING_ROOT_SX"), shell.indexOf("} as const;", shell.indexOf("const PENDING_ROOT_SX")));
-  assert.match(sx, /display: "contents"/);
-  assert.match(sx, /"&& > :is\(\.screen[^"]*\)": \{ display: "grid", gridTemplateColumns: "minmax\(0, 1fr\)", gap: "var\(--sp-3\)"/);
+  assert.match(shell, /const PENDING_ROOT_SX = \{ display: "contents" \} as const;/);
   // one mechanism: PageSkeleton does not add a second frame gap of its own (REVIEW-45 O74)
   assert.doesNotMatch(read("./app/skeletons/blocks.tsx"), /FRAME_GAP_ROOTS/);
-  const frame = read("../app/frame.css");
-  assert.match(frame, /\.wrap>\.screen[^{]*\{display:grid;gap:24px/, "frame.css page grid changed: update PENDING_ROOT_SX with it");
+  assert.match(read("./app/skeletons/blocks.tsx"), /root = "page-root"/);
+  assert.equal(legacyCss("frame"), "", "frame.css is deleted");
 });
 
 // guard: skeleton-no-forced-wrap (SK1). frame.css forced `flex-wrap: wrap` on every div of a busy
@@ -62,7 +65,7 @@ test("the pending skeleton wrapper restates the page root grid", () => {
 // strips) wrapped into extra rows (strip 256px vs 108px at 390) and every block fought it with `&&&`.
 // The rule is deleted; skeleton rows wrap exactly where the page's rows wrap.
 test("no stylesheet forces flex-wrap on busy skeleton divs", () => {
-  const frame = read("../app/frame.css");
+  const frame = legacyCss("frame");
   assert.doesNotMatch(frame, /\.screen\[aria-busy="true"\]\s+div\s*\{[^}]*flex-wrap/);
   assert.doesNotMatch(read("./app/skeletons/blocks.tsx"), /"&&&": \{ flexWrap/);
 });

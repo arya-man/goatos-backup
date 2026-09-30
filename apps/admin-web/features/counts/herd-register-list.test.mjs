@@ -5,9 +5,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { legacyCss } from "../../scripts/lib/legacy-css.mjs";
 
 const page = readFileSync(new URL("./herd-register.tsx", import.meta.url), "utf8");
-const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
+const css = legacyCss("mesha-theme");
 
 test("herd-register-list-anatomy: tabs, URL sort, lead cell, table in card", () => {
   assert.match(page, /<UrlTabs\b[\s\S]*?count: tab\.count/, "status tabs carry Label counts");

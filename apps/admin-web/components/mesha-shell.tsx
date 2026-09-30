@@ -45,7 +45,6 @@ import type { NavSectionProps } from "@/layouts/template/nav-section";
 import { DashboardContent, DashboardLayout } from "@/layouts/dashboard";
 import { AccountButton } from "@/layouts/components/account-button";
 import { WorkspacesPopover } from "@/layouts/app/components/workspaces-popover";
-import "@/layouts/mesha-layout.css";
 import { ThemeToggle } from "@/components/app/theme-toggle";
 import Alert from "@mui/material/Alert";
 import { Avatar } from "@/components/app/avatar";
@@ -275,14 +274,57 @@ function normalizeTrail(items: TrailItem[]): TrailItem[] {
 // Park-scope switcher (template WorkspacesPopover): the "all parks" option id and the park mark image
 // that fills the template's workspace-logo slot.
 const ALL_PARKS_ID = "all";
-// The pending route skeleton's wrapper: layout-transparent, and it gives the page root inside it the
-// SAME grid frame.css gives a `.wrap > .screen` root (display grid, the 3-unit gap), which the extra
-// element would otherwise cut off (`&&` outranks `.screen.on { display: block }`).
-const PENDING_ROOT_SX = {
-  display: "contents",
-  "&& > :is(.screen, .kit-page, .kit-enter, .pagegrid, .herd-signals-page, .lt-page)": { display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: "var(--sp-3)", minWidth: 0, alignContent: "start" },
-  "&& > :is(.screen, .kit-page, .kit-enter, .pagegrid, .herd-signals-page, .lt-page) > *": { mt: 0, mb: 0, minWidth: 0 },
+// The pending route skeleton's wrapper: layout-transparent, so the skeleton's PageRoot twin (its own
+// sx grid, 24px gap) lays out exactly as it does under loading.tsx. guard: pending-skeleton-root-gap
+const PENDING_ROOT_SX = { display: "contents" } as const;
+// The page column inside the template DashboardContent (FIXJ6: replaces the legacy `.main` /
+// `.wrap` frame of frame.css + mesha-layout.css). The template content owns the gutters; below 861px
+// the column clips sideways overflow without becoming a scroll container (sticky heads keep working).
+// While the target route's skeleton shows, the page being left stays mounted (a navigation that fails
+// or times out puts it back as it was) but is not painted.
+const PAGE_COLUMN_SX = {
+  width: 1,
+  minWidth: 0,
+  "&[data-route-skeleton] > :not([data-route-skeleton-el]):not([data-shell-alert])": { display: "none !important" },
 } as const;
+const CONTENT_SX = (theme: Theme) => ({
+  minWidth: 0,
+  [theme.breakpoints.down(861)]: { overflowX: "clip" },
+});
+// Route progress bar under the template header (64px phone / 72px desktop): a 2px strip whose sheen
+// slides while a navigation is pending (FIXJ6: was the legacy `.routebar` rules).
+const ROUTE_BAR_SX = (theme: Theme) => ({
+  position: "fixed",
+  top: "calc(var(--layout-header-mobile-height, var(--header-h)) - var(--sp-half) / 2)",
+  [theme.breakpoints.up("lg")]: { top: "calc(var(--layout-header-desktop-height, var(--header-h-lg)) - var(--sp-half) / 2)" },
+  left: 0,
+  right: 0,
+  height: 2,
+  zIndex: theme.zIndex.appBar + 1,
+  opacity: 0,
+  pointerEvents: "none",
+  overflow: "hidden",
+  transition: "opacity .12s",
+  "&[data-on]": { opacity: 1 },
+  "& > span": {
+    display: "block",
+    width: "42%",
+    height: 1,
+    borderRadius: "var(--r-pill)",
+    background: "linear-gradient(90deg, var(--brand), var(--info), var(--brand))",
+    boxShadow: "0 0 var(--sp-1h) var(--ring)",
+    transform: "translateX(-105%)",
+  },
+  "&[data-on] > span": {
+    animation: "routebar-slide 1.05s ease-in-out infinite",
+    "@media (prefers-reduced-motion: reduce)": { animation: "none", transform: "none", width: 1 },
+  },
+  "@keyframes routebar-slide": {
+    "0%": { transform: "translateX(-105%)" },
+    "55%": { transform: "translateX(78vw)" },
+    "100%": { transform: "translateX(105vw)" },
+  },
+});
 const PARK_MARK = "/assets/icons/workspaces/park-mark.svg";
 
 const menuRowSx = (theme: Theme) => ({ gap: 1.5, [theme.breakpoints.down("sm")]: { minHeight: TAP_MIN } });
@@ -1017,47 +1059,36 @@ export function MeshaShell({
         headerRight={headerRight}
         sx={routePending ? { "--msh-route-pending": 1 } : undefined}
       >
-        <div className={`routebar ${routePending ? "on" : ""}`} aria-hidden="true">
+        <Box data-route-bar="" data-on={routePending ? "" : undefined} aria-hidden="true" sx={ROUTE_BAR_SX}>
           <span />
-        </div>
-        {/* `main` = the page-content class contract the page CSS is scoped to; see layouts/mesha-layout.css. */}
+        </Box>
         {/* Ask Mesha docks in the header at every width (TR1-#13), so the content needs no extra
             bottom room for a floating bubble: the template content padding. guard: ask-mesha-docked */}
-        <DashboardContent
-          maxWidth={false}
-          className="main msh-content"
-          // While the target route's skeleton shows, the page being left stays mounted (a navigation
-          // that fails or times out puts it back as it was) but is not painted.
-          sx={{ "& .msh-wrap[data-route-skeleton] > :not([data-route-skeleton-el]):not(.msh-alert):not(.msh-degraded)": { display: "none !important" } }}
-        >
+        <DashboardContent maxWidth={false} sx={CONTENT_SX}>
           <ScrollEdges />
-          {/* `.wrap` keeps the page frame rules (frame.css) the page bodies are built on; the template
-              DashboardContent owns the gutters, so the wrap's own padding is zeroed in layouts/mesha-layout.css. */}
-          <div className="wrap msh-wrap" data-route-skeleton={pendingHref ? "" : undefined}>
+          <Box data-page-column="" data-route-skeleton={pendingHref ? "" : undefined} sx={PAGE_COLUMN_SX}>
             {alertDisplayRules.map((rule) =>
               degradedRuleIds.has(rule.id) ? (
-                <Alert key={rule.id} severity="info" role="status" className="msh-degraded">
+                <Alert key={rule.id} severity="info" role="status" data-shell-alert="">
                   {rule.summary}
                 </Alert>
               ) : (
-                <Alert key={rule.id} severity="warning" role="alert" className="msh-alert">
+                <Alert key={rule.id} severity="warning" role="alert" data-shell-alert="">
                   {rule.summary}
                 </Alert>
               ),
             )}
             <ShellParksContext.Provider value={parks}>
               {pendingHref ? (
-                // guard: pending-skeleton-root-gap. The wrapper is layout-transparent, so the skeleton's
-                // page root is no longer a `.wrap > .screen` child and loses frame.css's page grid
-                // (the pending skeleton stacked its blocks with no gap, then jumped when loading.tsx
-                // took over). Restate that grid for the root it wraps.
+                // guard: pending-skeleton-root-gap. The wrapper is layout-transparent; the skeleton's
+                // PageRoot twin carries its own grid.
                 <Box data-route-skeleton-el="" sx={PENDING_ROOT_SX}>
                   <PendingRouteSkeleton href={pendingHref} />
                 </Box>
               ) : null}
               <UrlNavRouter>{children}</UrlNavRouter>
             </ShellParksContext.Provider>
-          </div>
+          </Box>
         </DashboardContent>
       </DashboardLayout>
       <CEOAIChat displayName={actor.display_name} subtitle={actor.subtitle} copy={ceoAIChatCopy} />

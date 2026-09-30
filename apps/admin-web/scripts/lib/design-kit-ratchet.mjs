@@ -14,7 +14,7 @@ import { SHRINK_RATCHET_CHECKS } from "./shrink-ratchets.mjs";
 
 export const TOKENS_FILE = "app/minimal-tokens.css";
 // Colour/theme token files own literal values; they are checked by the P0 palette rules.
-const TOKEN_OWNERS = new Set([TOKENS_FILE, "app/mesha-theme.css", "app/globals.css"]);
+const TOKEN_OWNERS = new Set([TOKENS_FILE, "theme/mesha-tokens.ts", "app/globals.css"]);
 // Kit and shared primitives are the only places allowed to render the raw element they wrap.
 const PRIMITIVE_OWNERS = [
   /^components\/kit\//,

@@ -5,7 +5,10 @@ import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 
+import type { SxProps, Theme } from "@mui/material/styles";
 import { useState, type ReactNode } from "react";
+
+const TABLE_SCROLL_SX = { maxWidth: 1, minWidth: 0, overflowX: "auto", overscrollBehaviorX: "contain" } as const;
 
 import { TableFooter } from "@/components/app/table-footer";
 import { Scrollbar } from "@/components/minimal/scrollbar";
@@ -21,8 +24,7 @@ export function PagedRows({
   rows,
   head,
   headCells,
-  wrapClassName = "tablewrap",
-  tableClassName,
+  tableSx,
   ariaLabel,
   rowsPerPageOptions = [10, 25, 50],
   initialRowsPerPage = 10,
@@ -35,8 +37,8 @@ export function PagedRows({
   head?: ReactNode;
   /** Template TableHeadCustom cells (the template list header: one line, sort-ready, head padding). */
   headCells?: TableHeadCellProps[];
-  wrapClassName?: string;
-  tableClassName?: string;
+  /** Extra sx for the Table (per-column floors, nowrap cells). */
+  tableSx?: SxProps<Theme>;
   ariaLabel: string;
   rowsPerPageOptions?: number[];
   initialRowsPerPage?: number;
@@ -54,14 +56,15 @@ export function PagedRows({
   const current = Math.min(page, pages);
   const slice = rows.slice((current - 1) * rowsPerPage, current * rowsPerPage);
   const table = (
-    <Table className={tableClassName} aria-label={ariaLabel} sx={tableMinWidth ? { minWidth: tableMinWidth } : undefined}>
+    <Table aria-label={ariaLabel} sx={[tableMinWidth ? { minWidth: tableMinWidth } : {}, ...(Array.isArray(tableSx) ? tableSx : tableSx ? [tableSx] : [])]}>
       {headCells ? <TableHeadCustom headCells={headCells.map((cell) => ({ sortable: false, ...cell }))} /> : <TableHead>{head}</TableHead>}
       <TableBody>{total === 0 ? empty : slice}</TableBody>
     </Table>
   );
   return (
     <>
-      <Box className={wrapClassName || undefined} tabIndex={0} role="group" aria-label={ariaLabel}>
+      {/* The table's own sideways scroller (FIXJ6: was the legacy `.tablewrap` class). */}
+      <Box tabIndex={0} role="group" aria-label={ariaLabel} sx={scrollbar ? undefined : TABLE_SCROLL_SX}>
         {scrollbar ? <Scrollbar>{table}</Scrollbar> : table}
       </Box>
       {total > 0 ? (

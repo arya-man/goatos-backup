@@ -6,9 +6,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { legacyCss } from "../../scripts/lib/legacy-css.mjs";
 
 const table = readFileSync(new URL("./counts-breakdown-pens-table.tsx", import.meta.url), "utf8");
-const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
+const css = legacyCss("mesha-theme");
 
 test("counts-breakdown-template-rows: template collapsible rows", () => {
   assert.match(table, /<IconButton[\s\S]{0,400}aria-expanded=\{isOpen\}/);

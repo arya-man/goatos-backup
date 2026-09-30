@@ -32,7 +32,7 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { muiPaletteLockFindings, templateNeutralFindings } from "./lib/mui-palette-lock.mjs";
 import { CHART_TEMPLATE_CHECKS, CHART_TEMPLATE_SELFTEST, chartTemplateFindings } from "./lib/chart-template-guards.mjs";
-import { BRAND_LOCK, TOKEN_FILE, isDriftRemoval, removedTokenHexes, retiredNeutralFindings, primaryStateFindings, themeLockFindings } from "./lib/design-palette.mjs";
+import { BRAND_LOCK, PALETTE_FILE, TOKEN_FILE, isDriftRemoval, paletteCssText, removedTokenHexes, retiredNeutralFindings, primaryStateFindings, themeLockFindings } from "./lib/design-palette.mjs";
 import {
   RATCHET_CHECKS,
   cssDeclFindings,
@@ -65,7 +65,8 @@ const args = parseArgs(process.argv.slice(2));
 const SCAN_DIRS = ["app", "components", "features", "lib"];
 const CODE_EXT = new Set([".tsx", ".ts"]);
 const STYLE_EXT = new Set([".css"]);
-const THEME_FILES = new Set(["app/mesha-theme.css", "app/minimal-theme.css"]);
+// FIXJ6: the palette tokens live in theme/mesha-tokens.ts (app/mesha-theme.css + minimal-theme.css are deleted).
+const THEME_FILES = new Set(["theme/mesha-tokens.ts"]);
 // The kit's own styled wrapper around <select> is the ONE allowed native select.
 const NATIVE_SELECT_ALLOWED = new Set();
 // Licensed MUI Minimal template code copied in verbatim (Phase 2 of the MUI migration). Its sizes,
@@ -113,7 +114,7 @@ const LIGHT_SURFACE = /(?:bgcolor|backgroundColor|background)\s*:\s*["'`](?:comm
 const LIGHT_SURFACE_ALLOWED = new Set();
 // Legacy stylesheets only shrink; a rule there that selects a MUI class and sets a colour fights the
 // theme in one of the two modes. MUI colours come from the theme palette (theme/core).
-const LEGACY_CSS = new Set(["app/frame.css", "app/minimal-theme.css", "app/mesha-theme.css", "app/menu-surface.css", "app/globals.css"]);
+const LEGACY_CSS = new Set(["app/menu-surface.css", "app/globals.css"]);
 const COLOUR_DECL = /(?:^|[;{\s])(?:color|background(?:-color|-image)?|border(?:-(?:top|right|bottom|left))?(?:-color)?|fill|stroke|outline(?:-color)?)\s*:/;
 // A legacy rule that paints a bare th/td/tr also paints every MUI TableCell/TableRow (element +
 // class specificity beats the theme's single class), so MUI tables stop matching the template in
@@ -182,7 +183,7 @@ const TECH_ALLOWED_PHRASES_IN_BOUNDARY = /something went wrong|internal error/i;
 const CHECKS = {
   "foreign-palette": { tier: "p0", why: "another product's colour; Mesha palette is locked" },
   "theme-token-drift": { tier: "p0", why: "a colour value in the theme files was removed vs origin/main" },
-  "brand-lock": { tier: "p0", why: "a locked Mesha brand/neutral token (dark or light) changed or is missing in app/mesha-theme.css" },
+  "brand-lock": { tier: "p0", why: "a locked Mesha brand/neutral token (dark or light) changed or is missing in theme/mesha-tokens.ts" },
   "non-brand-selected": { tier: "p0", why: "a primary/selected/active state must fill with var(--brand)/var(--primary) and use var(--on-brand) text" },
   "retired-neutral-literal": { tier: "p0", why: "the old Mesha green-tinted neutrals are retired (Ravi 2026-09-27): neutrals are the template greys; use the theme (background/text/divider/grey) or var(--grey-N) / rgb(var(--g500-rgb)/a)" },
   "template-neutrals": { tier: "p0", why: "theme/theme-config.ts grey + surfaces/ink and app/minimal-tokens.css --grey-N must be exactly the MUI Minimal template's values" },
@@ -801,19 +802,21 @@ function runGuard(root, { themeDiff }) {
     if (existsSync(join(root, "components", "kit"))) findings.push(finding("legacy-kit-import", "components/kit", 1, "components/kit/ exists; the hand-built kit is retired"));
   }
 
-  // Brand lock: the palette values from docs/design/README.md must exist verbatim in mesha-theme.css.
-  const meshaTheme = join(root, "app", "mesha-theme.css");
-  if (existsSync(meshaTheme)) {
-    const themeText = readFileSync(meshaTheme, "utf8").toUpperCase();
-    for (const locked of BRAND_LOCK) {
-      if (!themeText.includes(locked)) findings.push(finding("brand-lock", "app/mesha-theme.css", 1, `locked colour ${locked} is missing`));
+  // Brand lock: the palette values from docs/design/README.md must exist verbatim in the palette file
+  // (theme/mesha-tokens.ts since FIXJ6; it is required).
+  {
+    const paletteText = paletteCssText(root);
+    if (!paletteText) findings.push(finding("brand-lock", PALETTE_FILE, 1, `${PALETTE_FILE} is missing: the locked Mesha palette has no source`));
+    else {
+      const upper = paletteText.toUpperCase();
+      for (const locked of BRAND_LOCK) if (!upper.includes(locked)) findings.push(finding("brand-lock", PALETTE_FILE, 1, `locked colour ${locked} is missing`));
+      for (const msg of themeLockFindings(paletteText)) findings.push(finding("brand-lock", PALETTE_FILE, 1, msg));
     }
-    for (const msg of themeLockFindings(readFileSync(meshaTheme, "utf8"))) findings.push(finding("brand-lock", "app/mesha-theme.css", 1, msg));
   }
 
   // MUI Minimal theme (theme/, layouts/ — template-derived, Minimal v7.7.0 next-ts). Those files are
   // allowed template code and are NOT in SCAN_DIRS, but their palette is still the locked Mesha one:
-  // brand/surface hexes must match app/mesha-theme.css and no Minimal default brand hex may survive.
+  // brand/surface hexes must match theme/mesha-tokens.ts and no Minimal default brand hex may survive.
   for (const msg of muiPaletteLockFindings(root)) findings.push(finding("brand-lock", "theme/theme-config.ts", 1, msg));
   for (const msg of templateNeutralFindings(root)) findings.push(finding("template-neutrals", "theme/theme-config.ts", 1, msg));
 
@@ -1172,7 +1175,7 @@ async function selfTest() {
     '<div style={{ background: "rgba(0,0,0,.6)" }} />',
     '<LinearProgress variant="determinate" value={v} sx={{ height: 8, minWidth: 80 }} />',
   ].join("\n"));
-  put("app/frame.css", ".wrap .MuiCard-root{background:var(--paper)}\n.fld label:where(:not(.MuiFormLabel-root)){color:var(--muted)}\n.MuiInputBase-input{border:0;background-color:transparent}\n.main th{color:var(--fg-muted)}\n.main td:not(.MuiTableCell-root){border-bottom:1px dashed var(--line)}\n");
+  put("app/globals.css", ".wrap .MuiCard-root{background:var(--paper)}\n.fld label:where(:not(.MuiFormLabel-root)){color:var(--muted)}\n.MuiInputBase-input{border:0;background-color:transparent}\n.main th{color:var(--fg-muted)}\n.main td:not(.MuiTableCell-root){border-bottom:1px dashed var(--line)}\n");
   put("components/bad.css", ".x { color: #abcdef; }\n.g{background:#0E1512}\n.y{padding:12px;border-radius:10px;box-shadow:0 4px 8px black;font-size:13px}\n@media (max-width:600px){\n.btn{min-height:32px}\n}\n.metricseg a.on{background:var(--paper)}\n");
   // A template drawer width on the template drawer is allowed (no fixed-px-width, no drawer finding).
   put("features/dim-bad.tsx", 'export const X = ({ isPending }) => <Box sx={{ opacity: isPending ? 0.6 : 1 }} />;\n');

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import ts from 'typescript';
 import {chromium} from '@playwright/test';
+import { legacyCss } from "./lib/legacy-css.mjs";
 const source = readFileSync(new URL('./smoke-visual-live.mjs', import.meta.url), 'utf8');
 const ast = ts.createSourceFile('smoke.js', source, ts.ScriptTarget.Latest, true);
 const helpers = [];
@@ -30,19 +31,13 @@ test('Chrome stacked-avatar guard accepts only bounded individually reachable si
   } finally {await browser.close();}
 });
 
-test('actual Work Board milk tag CSS keeps white label above AA contrast', async () => {
-  const css = readFileSync(new URL('../app/mesha-theme.css', import.meta.url), 'utf8');
-  const browser = await chromium.launch({channel: 'chrome'});
-  const luminance = (color) => color.match(/\d+/g).slice(0, 3).map(Number).map((v) => v / 255).map((v) => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4).reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i], 0);
-  try {
-    const page = await browser.newPage();
-    await page.setContent(`<style>${css}</style><div class="wb"><span class="etag e-milk">MILK</span></div>`);
-    const colors = await page.locator('.e-milk').evaluate((e) => {const s=getComputedStyle(e);return {fg:s.color,bg:s.backgroundColor};});
-    const ratio = (fg, bg) => (Math.max(luminance(fg), luminance(bg)) + 0.05) / (Math.min(luminance(fg), luminance(bg)) + 0.05);
-    assert.ok(ratio(colors.fg, 'rgb(62, 142, 147)') < 4.5, 'fixture must reproduce old failure');
-    assert.ok(ratio(colors.fg, colors.bg) >= 4.5, JSON.stringify(colors));
-    console.log(`milk label contrast before=${ratio(colors.fg, 'rgb(62, 142, 147)').toFixed(2)} after=${ratio(colors.fg, colors.bg).toFixed(2)}`);
-  } finally {await browser.close();}
+// FIXJ6: the legacy `.wb .etag.e-milk` rule died with mesha-theme.css; the work board renders the
+// template kanban item (no `.etag` label), so there is no legacy milk tag left to contrast-check.
+test('the work board renders no legacy .etag milk tag', () => {
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  for (const f of ['../features/work-board/work-board-board.tsx', '../features/work-board/work-board-parts.tsx', '../features/work-board/work-board-modal.tsx']) {
+    assert.doesNotMatch(read(f), /\betag\b|e-milk/, `${f} renders the retired .etag markup`);
+  }
 });
 
 // REVIEW-18 O23: /work-board no longer renders the legacy `.wb .avs > button.av` stack (its halo CSS

@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { legacyCss } from "../../scripts/lib/legacy-css.mjs";
 
 // guard: ask-mesha-docked (TR1-#12, TR1-#13). Ask Mesha lives in the header at every width as a template
 // header IconButton. At 390 the old floating 56px bubble covered page content (the /feed/config edit
@@ -9,7 +10,7 @@ import { readFileSync } from "node:fs";
 const read = (p) => readFileSync(new URL(p, import.meta.url), "utf8");
 const panel = read("./ceo-ai-panel.tsx");
 const shell = read("../../components/mesha-shell.tsx");
-const frame = read("../../app/frame.css");
+const frame = legacyCss("frame");
 
 test("the launcher docks into the header slot at every width", () => {
   assert.match(panel, /\{dockSlot\s*\?\s*createPortal\(/, "dock whenever the shell offers a slot");

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { legacyCss } from "../scripts/lib/legacy-css.mjs";
 
 // Ravi 2026-09-27 (/sales/sold "Month by month" in dark, and the same on many pages): hovering a
 // bar painted a big grey column, the tooltip was clipped and showed raw a11y text, every bar
@@ -44,7 +45,7 @@ test("no chart prints a figure on its bars, and none scrolls its plot inside the
     assert.doesNotMatch(src, /overflowX: "auto"|overflow-x|gcols-scroll|chart-slots|BarsWindow/, `${file} scrolls its plot (clips the tooltip)`);
     assert.doesNotMatch(src, /hideOverlappingLabels: false|overwriteCategories|rotate: -?\d/, `${file} overrides the template axis labels`);
   }
-  const css = read("../app/mesha-theme.css");
+  const css = legacyCss("mesha-theme");
   assert.doesNotMatch(css, /apexcharts-tooltip/, "no custom tooltip CSS outside the template chart styles");
 });
 

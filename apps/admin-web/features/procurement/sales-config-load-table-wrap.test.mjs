@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { legacyCss } from "../../scripts/lib/legacy-css.mjs";
 
 // Sales Config's Load wise table makes every cell a drawer link (template Box link, the legacy
 // .celllink defaulted to overflow-wrap:anywhere). At 390px that shredded "136 · 16/09/2026" and "CBE" one character per
 // line (responsive guard C-cell-mid-word-wrap, 2026-09-25). The table owns horizontal scroll, so
 // its cells must not wrap (AGENTS.md admin-web failure mode 4b).
 const tsx = readFileSync(new URL("./sales-config.tsx", import.meta.url), "utf8");
-const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
+const css = legacyCss("mesha-theme");
 
 // MUI redesign: the table is the template MUI Table and the no-wrap rule rides its own sx.
 test("the Load wise entry table carries its no-wrap rule", () => {

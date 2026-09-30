@@ -34,7 +34,7 @@ function RowMenuTable() {
   const [last, setLast] = React.useState("—");
   return (
     <Stack title={`last action: ${last}`}>
-      <div className="tablewrap">
+      <div>
         <table className="tbl" style={{ width: "100%" }}>
           <thead><tr><th>Pen</th><th>Kids</th><th>ADG</th><th /></tr></thead>
           <tbody>

@@ -8,7 +8,7 @@ const action = readFileSync(new URL("./animal-purchase-actions.ts", import.meta.
 const sop = readFileSync(new URL("./animal-purchase-sop.tsx", import.meta.url), "utf8");
 const serverRead = readFileSync(new URL("../../lib/api/procurement-server.ts", import.meta.url), "utf8");
 const lightbox = readFileSync(new URL("./animal-purchase-lightbox.tsx", import.meta.url), "utf8");
-const styles = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
+const styles = legacyCss("mesha-theme");
 
 test("every animal's captures are tap-gated on the card and a click opens one big, never a mint-on-preview gate", () => {
   // Maintainer decision 2026-09-14: every capture has a card tile and opens big on click. The
@@ -170,6 +170,7 @@ test("selecting a load shows what the buying desk entered for it, not only its e
 import { test as tr1Test } from "node:test";
 import { readFileSync as tr1Read } from "node:fs";
 import tr1Assert from "node:assert/strict";
+import { legacyCss } from "../../scripts/lib/legacy-css.mjs";
 tr1Test("animal purchases Loads KPI caption is not the title again", () => {
   const src = tr1Read(new URL("./animal-purchases.tsx", import.meta.url), "utf8");
   tr1Assert.doesNotMatch(src, /caption=\{[^}]*loadsTable\.title/);

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { legacyCss } from "../../scripts/lib/legacy-css.mjs";
 
 // TR-2 template anatomy guards for /counts/herd and /counts/breakdown (P1-8, P1-9).
 const read = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
@@ -8,7 +9,7 @@ const herdRegister = read("./herd-register.tsx");
 const filters = read("./counts-breakdown-filters.tsx");
 const pensTable = read("./counts-breakdown-pens-table.tsx");
 const tagEditor = read("./shed-tag-editor.tsx");
-const meshaTheme = read("../../app/mesha-theme.css");
+const meshaTheme = legacyCss("mesha-theme");
 
 test("guard: herd-header-one-primary - /counts/herd header is Register animal + the ⋮ menu, no extra/dead button", () => {
   const header = herdRegister.slice(herdRegister.indexOf("<PageHeader"), herdRegister.indexOf("/>", herdRegister.indexOf("</>", herdRegister.indexOf("<PageHeader"))));

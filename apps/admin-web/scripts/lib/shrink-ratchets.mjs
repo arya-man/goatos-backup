@@ -37,7 +37,8 @@ export const SHRINK_RATCHET_CHECKS = {
   "legacy-css-rules": "a style rule in a legacy stylesheet or CSS module; style through template components + theme sx. Rule count per stylesheet is shrink-only, a new stylesheet has 0",
 };
 
-const LEGACY_APP_CSS = ["app/frame.css", "app/minimal-theme.css", "app/mesha-theme.css", "app/globals.css"];
+// FIXJ6: frame.css / minimal-theme.css / mesha-theme.css are deleted (guard legacy-css-ceiling keeps them absent).
+const LEGACY_APP_CSS = ["app/globals.css"];
 const CARD_TOKENS = new Set(["card", "hd", "bd", "wchart", "wtable", "kpi", "chartcard"]);
 const NATIVE = /<(select|input|button|textarea|table)(?=[\s>/]|$)/g;
 const STYLE_PROP = /\bstyle=\{/g;

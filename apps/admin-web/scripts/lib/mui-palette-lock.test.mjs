@@ -35,7 +35,7 @@ test("the lock fails on Minimal colours anywhere under app/ and components/, dat
   try {
     for (const d of ["theme", "app", "components/kit", "theme/core/mixins"]) mkdirSync(join(root, d), { recursive: true });
     cpSync(join(appRoot, "theme", "theme-config.ts"), join(root, "theme", "theme-config.ts"));
-    cpSync(join(appRoot, "app", "mesha-theme.css"), join(root, "app", "mesha-theme.css"));
+    cpSync(join(appRoot, "theme", "mesha-tokens.ts"), join(root, "theme", "mesha-tokens.ts"));
     assert.deepEqual(muiPaletteLockFindings(root), []);
     // A retired green neutral in the token file.
     writeFileSync(join(root, "app", "minimal-tokens.css"), ":root{--grey-500:#94A89A;--g800-rgb:29 40 32}");
@@ -65,7 +65,7 @@ test("the lock fails a color-mix() blend inside a chart series array", () => {
   try {
     for (const d of ["theme", "app", "components"]) mkdirSync(join(root, d), { recursive: true });
     cpSync(join(appRoot, "theme", "theme-config.ts"), join(root, "theme", "theme-config.ts"));
-    cpSync(join(appRoot, "app", "mesha-theme.css"), join(root, "app", "mesha-theme.css"));
+    cpSync(join(appRoot, "theme", "mesha-tokens.ts"), join(root, "theme", "mesha-tokens.ts"));
     writeFileSync(join(root, "components", "ok.tsx"), 'export const SERIES_VARS = ["var(--brand)", "var(--info)"] as const;');
     assert.deepEqual(muiPaletteLockFindings(root), []);
     writeFileSync(join(root, "components", "bad.tsx"), 'export const SERIES_VARS = ["var(--brand)", "color-mix(in srgb, var(--info) 50%, var(--purple))"] as const;');
@@ -80,7 +80,7 @@ test("a data-URI SVG used only as a CSS mask is not a theme colour; the same SVG
   try {
     for (const d of ["theme", "app", "layouts"]) mkdirSync(join(root, d), { recursive: true });
     cpSync(join(appRoot, "theme", "theme-config.ts"), join(root, "theme", "theme-config.ts"));
-    cpSync(join(appRoot, "app", "mesha-theme.css"), join(root, "app", "mesha-theme.css"));
+    cpSync(join(appRoot, "theme", "mesha-tokens.ts"), join(root, "theme", "mesha-tokens.ts"));
     const svg = "const bulletSvg = `\"data:image/svg+xml,%3Csvg stroke='%23efefef'%3E%3C/svg%3E\"`;";
     writeFileSync(join(root, "layouts", "mask.tsx"), `${svg}\nconst s = { mask: \`url(\${bulletSvg}) no-repeat\`, WebkitMask: \`url(\${bulletSvg})\` };\n`);
     assert.deepEqual(muiPaletteLockFindings(root), []);

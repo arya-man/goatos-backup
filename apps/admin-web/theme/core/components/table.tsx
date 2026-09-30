@@ -43,6 +43,9 @@ const MuiTableCell: Components<Theme>['MuiTableCell'] = {
       borderBottomStyle: 'dashed',
     },
     head: ({ theme }) => ({
+      // Mesha (FIXJ6): column heads hold one line (the rule every page was built on, formerly the
+      // legacy `.wrap thead th { white-space: nowrap }`); a page that wants wrapping heads sets it in sx.
+      whiteSpace: 'nowrap',
       fontSize: theme.typography.pxToRem(14),
       color: theme.vars.palette.text.secondary,
       fontWeight: theme.typography.fontWeightSemiBold,

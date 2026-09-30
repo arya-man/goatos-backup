@@ -69,6 +69,18 @@ test("/vaccination/plan loading reads plan-layout.ts, as PlanConsole does", () =
   assert.deepEqual(facts, keys);
 });
 
+// guard: plan-header-action-width (FIXJ6). "Open V<n>" (draft waiting, 105px) and "Start a new version"
+// (176px) share one header slot width, so the twin's single action placeholder matches either state
+// at 390 (skeleton IoU 0.6 before); the draft banner twin is the ActionAlert's measured phone height.
+test("/vaccination/plan header action is one width in both states, read by page and twin", () => {
+  const layout = read("vaccination-plan/plan-layout.ts");
+  assert.match(layout, /export const PLAN_HEADER_ACTION_WIDTH = 176;/);
+  assert.match(layout, /headerActionWidths: \[PLAN_HEADER_ACTION_WIDTH\]/);
+  assert.match(layout, /draftBannerHeight: \{ xs: 98, md: 50 \}/);
+  const page = read("vaccination-plan/plan-console.tsx");
+  assert.equal((page.match(/sx=\{\{ minWidth: PLAN_HEADER_ACTION_WIDTH \}\}/g) ?? []).length, 2, "both header actions carry the slot width");
+});
+
 test("/counts/milk-preparation twin reads milk-preparation-layout.ts, as the page does", () => {
   const twin = read("counts/milk-preparation-skeletons.tsx");
   assert.match(twin, /from "\.\/milk-preparation-layout"/);

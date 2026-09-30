@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { legacyCss } from "../../scripts/lib/legacy-css.mjs";
 
 // guard: sop-no-internal-codes (FJ3 P1-13, OCI smoke #19/#42). The SOP editors printed each
 // capture/question key ("return_to_pen", "feed_transport_video", "purchase_date") and each choice's
@@ -34,7 +35,7 @@ test("SOP editor text fields carry their own MUI label and escape the legacy .qc
   }
   // FIXJ3: the legacy .qcard/.qcfg paint is gone with the classes; the editors are the shared
   // template parts (editor-parts.tsx) and no stylesheet reaches their MUI inputs.
-  const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
+  const css = legacyCss("mesha-theme");
   assert.doesNotMatch(css, /\.(qcard|qcfg|qhead|qbody|qfoot|optrow|condrow|inspection-page|numfield|numlbl)\b[^{]*\{/, "legacy SOP editor rules are deleted");
   for (const file of ["./weighing-editor.tsx", "./inspection-editor.tsx", "./shifting-editor.tsx", "./pc-care-editor.tsx", "./feed-editor.tsx", "./toxin-editor.tsx", "./capture-editor.tsx", "./followup-editor.tsx", "./question-card.tsx", "./sop-builder.tsx", "./builder-preview.tsx"]) {
     const src = read(file);

@@ -31,7 +31,7 @@
 //   - it does not check weight, colour, spacing or the mock's own values.
 //   - it is admin-web only; Android's bottom bar/drawer has its own rules.
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const repo = resolve(import.meta.dirname, "../..");
@@ -128,6 +128,12 @@ function selfTest() {
 function main() {
   if (process.argv.includes("--self-test")) {
     selfTest();
+    return;
+  }
+  if (!existsSync(resolve(repo, CSS))) {
+    // FIXJ6: mesha-theme.css is deleted; the sidebar is the verbatim template NavSectionVertical, whose
+    // typography the template owns (design:guard shell-nav-template, r2 shell|* checks).
+    console.log("sidebar-typography-guard: n/a (legacy sidebar stylesheet deleted; template nav owns the typography)");
     return;
   }
   const css = readFileSync(resolve(repo, CSS), "utf8");

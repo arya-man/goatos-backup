@@ -25,4 +25,10 @@ export const EARLIER_HEAD_CELLS = [
 // Loading-twin estimates of rendered sizes the page does not set itself (copy-driven).
 /** Header action ("Start a new version") width; the live card's "Published" Label; the earlier card's count Label; Label height. */
 /** `draftBannerHeight`: the "A draft is waiting" warning Alert (one line from md, wraps on a phone). */
-export const PLAN_SKELETON = { headerActionWidths: [176], publishedLabelWidth: 91, countLabelWidth: 40, labelHeight: 24, earlierRows: 3, draftBannerHeight: { xs: 90, md: 50 } } as const;
+/**
+ * The header's one action ("Start a new version", or "Open V<n>" while a draft waits) is ONE width in
+ * both states, so the loading twin's slot matches whichever the page lands with (FIXJ6: the 105px
+ * "Open V2" against the 176px twin failed skeleton IoU at 390).
+ */
+export const PLAN_HEADER_ACTION_WIDTH = 176;
+export const PLAN_SKELETON = { headerActionWidths: [PLAN_HEADER_ACTION_WIDTH], publishedLabelWidth: 91, countLabelWidth: 40, labelHeight: 24, earlierRows: 3, draftBannerHeight: { xs: 98, md: 50 } } as const;

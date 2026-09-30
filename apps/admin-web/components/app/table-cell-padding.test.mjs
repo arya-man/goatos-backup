@@ -5,8 +5,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { legacyCss } from "../../scripts/lib/legacy-css.mjs";
 
-const css = ["frame.css", "minimal-theme.css", "mesha-theme.css"].map((f) => readFileSync(new URL(`../../app/${f}`, import.meta.url), "utf8")).join("\n");
+const css = legacyCss("frame", "minimal-theme", "mesha-theme");
 
 test("template-table-padding: no global first/last-cell re-padding", () => {
   assert.doesNotMatch(css, /\.wrap (?:thead th|tbody td):first-child\{padding-left:24px\}/);

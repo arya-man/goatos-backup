@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { test } from "node:test";
+import { legacyCss } from "../../scripts/lib/legacy-css.mjs";
 
 // Template-fidelity guards (AFIX12, audit P0/P1 classes on PR #294). Each test is one rule id; the
 // rule text lives in apps/admin-web/AGENTS.md and the design-system / frontend-anti-patterns /
@@ -118,6 +119,9 @@ test("guard: css-token-defined -- every var(--token) a component reads is define
   // read them, silently dropping heights and line heights (AUDIT2 P1-5).
   const defined = new Set();
   for (const path of css) for (const match of read(path).matchAll(/(--[\w-]+)\s*:/g)) defined.add(match[1]);
+  // FIXJ6: the Mesha palette / shell tokens are theme values (theme/mesha-tokens.ts), emitted as CSS
+  // variables by theme/app-baseline.tsx.
+  for (const match of read("theme/mesha-tokens.ts").matchAll(/"(--[\w-]+)":/g)) defined.add(match[1]);
   // MUI CSS-variables theme (cssVarPrefix '') and template runtime vars.
   const generated = /^--(palette|shape|spacing|shadows|customShadows|font|typography|zIndex|opacity|transitions|mui|layout|nav|kanban|header|scrollbar|toolbar|overlay|Paper|Tooltip|Alert|AppBar|Avatar|Button|Chip|FilledInput|LinearProgress|Skeleton|Slider|SnackbarContent|StepConnector|StepContent|Switch|TableCell)\b/;
   const offenders = new Set();
@@ -205,7 +209,7 @@ test("guard: template-filter-toolbar -- filter bars use MUI Chips and one rows-p
 test("guard: routine-drawer-template -- the routine drawer renders only MUI form parts", () => {
   const drawer = read("features/pen-routines/routine-drawer.tsx");
   assert.doesNotMatch(drawer, /<textarea|<details|className="(fld|note)"|className=\{?["`]prt-/, "no raw textarea/details or legacy .fld/.note/.prt-* markup");
-  assert.doesNotMatch(read("app/mesha-theme.css"), /\.prt-(step|tile|pill|question|foot|row2|pens)\b/, "legacy .prt-* drawer rules stay deleted");
+  assert.doesNotMatch(legacyCss("mesha-theme"), /\.prt-(step|tile|pill|question|foot|row2|pens)\b/, "legacy .prt-* drawer rules stay deleted");
 });
 
 test("guard: dark-alert-tint -- dark standard Alerts are a tint, not a filled block", () => {
@@ -241,7 +245,7 @@ test("guard: legacy-card-css-deleted -- the retired chart-card / KPI-grid / dial
   // more, so their rules in the legacy stylesheets were dead weight that a stray class could revive.
   const DEAD = /(?:^|[\s,{}>+~(])\.(?:wchart|wtable|g[2-6])(?![\w-])|\.wb-dialog\s+\.it(?:\.open)?\s+\.car(?![\w-])/;
   for (const path of ["app/frame.css", "app/mesha-theme.css", "app/minimal-theme.css"]) {
-    const css = read(path).replace(/\/\*[\s\S]*?\*\//g, "");
+    const css = legacyCss(path.replace(/^app\/|\.css$/g, "")).replace(/\/\*[\s\S]*?\*\//g, "");
     const hits = css.split("\n").map((line, i) => [i + 1, line]).filter(([, line]) => DEAD.test(line));
     assert.deepEqual(hits, [], `${path}: retired selector is back:\n${hits.map(([n, l]) => `${n}: ${l.trim()}`).join("\n")}`);
   }

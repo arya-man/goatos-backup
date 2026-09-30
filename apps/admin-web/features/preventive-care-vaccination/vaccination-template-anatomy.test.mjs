@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { legacyCss } from "../../scripts/lib/legacy-css.mjs";
 
 // guard: vaccination-template-anatomy (TR1-#10, TR1-#21). /vaccination was an 11,000px page of
 // bespoke heat-maps painted by `.cbm-*` rules with off-palette hexes (#22633c / #d6f1e0 clear cells,
@@ -13,7 +14,7 @@ const view = read("./command-board-view.tsx");
 const board = read("./command-board.tsx");
 const cards = read("./command-board-cards.tsx");
 const skeleton = read("./vaccination-skeletons.tsx");
-const css = ["../../app/mesha-theme.css", "../../app/frame.css", "../../app/minimal-theme.css", "../../app/globals.css"].map(read).join("\n");
+const css = [legacyCss("mesha-theme", "frame", "minimal-theme"), read("../../app/globals.css")].join("\n");
 
 test("vaccination-template-anatomy: the command board renders no legacy cbm classes or raw controls", () => {
   for (const [name, src] of [["command-board-view.tsx", view], ["command-board.tsx", board], ["command-board-cards.tsx", cards]]) {

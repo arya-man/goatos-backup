@@ -1,4 +1,4 @@
-// guard: legacy-css-ceiling (SYNC, merge of origin/main into the template branch).
+// guard: legacy-css-ceiling (SYNC, merge of origin/main into the template branch; FIXJ6: the three legacy app stylesheets are deleted and must stay absent).
 //
 // Legacy CSS may only shrink. A merge from main is the easy way to grow it again: main still ships
 // fixes as mesha-theme.css rules (a222fbdd4 added .toxin-proof, 3b259ea96 three phone rules,
@@ -27,16 +27,31 @@ test("every stylesheet stays at or under its rule ceiling; a new stylesheet has 
   }
 });
 
-test("the four legacy stylesheets keep an explicit rule ceiling", () => {
-  for (const rel of ["app/mesha-theme.css", "app/frame.css", "app/minimal-theme.css", "app/globals.css"]) {
-    if (!existsSync(new URL(`../${rel}`, import.meta.url))) continue;
-    assert.ok(ratchet[`legacy-css-rules|${rel}`], `${rel} has no legacy-css-rules ceiling`);
+// FIXJ6: app/frame.css, app/minimal-theme.css, app/mesha-theme.css and layouts/mesha-layout.css are
+// DELETED. The Mesha palette lives in theme/mesha-tokens.ts (emitted by theme/app-baseline.tsx). They
+// must stay absent: a merge from main that brings one back (main still ships fixes as mesha-theme.css
+// rules) is template-fied in the merge, never landed as a stylesheet, and no layout imports them.
+const DELETED = ["app/frame.css", "app/minimal-theme.css", "app/mesha-theme.css", "layouts/mesha-layout.css"];
+test("the deleted legacy stylesheets stay absent, have no ceiling and are imported nowhere", () => {
+  for (const rel of DELETED) {
+    assert.ok(!existsSync(new URL(`../${rel}`, import.meta.url)), `${rel} is back: carry its rules as theme sx / template parts instead`);
+    assert.equal(ratchet[`legacy-css-rules|${rel}`], undefined, `${rel} still has a legacy-css-rules ceiling`);
+  }
+  for (const rel of ["app/layout.tsx", "app/global-error.tsx", "components/mesha-shell.tsx", "components/shell-skeleton.tsx"]) {
+    const src = readFileSync(new URL(`../${rel}`, import.meta.url), "utf8");
+    for (const css of ["frame.css", "minimal-theme.css", "mesha-theme.css", "mesha-layout.css"]) assert.ok(!src.includes(`/${css}"`), `${rel} imports ${css}`);
   }
 });
 
-test("rules main added to mesha-theme.css stay out (carried in sx instead)", () => {
-  const css = readFileSync(new URL("../app/mesha-theme.css", import.meta.url), "utf8");
-  for (const selector of [".toxin-proof", "feed-stock-table td:nth-child(3)", "mortality-recent-card td .mono", ".sales-card .hd .tag", ".vr-image-proof", ".vr-image-link"]) {
-    assert.ok(!css.includes(selector), `${selector} is back in mesha-theme.css`);
-  }
+test("globals.css keeps an explicit rule ceiling", () => {
+  assert.ok(ratchet["legacy-css-rules|app/globals.css"], "app/globals.css has no legacy-css-rules ceiling");
+});
+
+test("the Mesha palette tokens are theme values", () => {
+  const tokens = readFileSync(new URL("../theme/mesha-tokens.ts", import.meta.url), "utf8");
+  assert.match(tokens, /export const MESHA_TOKENS_DARK = \{/);
+  assert.match(tokens, /export const MESHA_TOKENS_LIGHT = \{/);
+  const baseline = readFileSync(new URL("../theme/app-baseline.tsx", import.meta.url), "utf8");
+  assert.match(baseline, /':root': \{ \.\.\.MESHA_TOKENS_DARK/);
+  assert.match(baseline, /':root\.light': \{ \.\.\.MESHA_TOKENS_LIGHT/);
 });

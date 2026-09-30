@@ -4,9 +4,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { legacyCss } from "../scripts/lib/legacy-css.mjs";
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), "utf8");
-const css = read("../app/mesha-theme.css");
+const css = legacyCss("mesha-theme");
 
 test("health-config tables scroll inside their own template TableContainer", () => {
   // Template table anatomy: MUI TableContainer (overflow-x auto) owns the sideways scroll, so a

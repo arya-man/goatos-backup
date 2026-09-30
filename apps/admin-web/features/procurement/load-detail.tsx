@@ -284,16 +284,22 @@ function timelineItems(events: ProcurementTimelineEvent[], goats: ProcurementLoa
 }
 
 // ---- Per-goat rows ----
+const LOAD_GOATS_TABLE_MIN_WIDTH = 1280;
+const LOAD_GOATS_TABLE_SX = {
+  "& th, & td": { whiteSpace: "nowrap", overflowWrap: "normal", wordBreak: "normal" },
+  "& :is(th, td):nth-of-type(1)": { minWidth: 240 },
+  "& :is(th, td):is(:nth-of-type(2), :nth-of-type(3), :nth-of-type(4))": { minWidth: 160 },
+} as const;
 function GoatRows({ goats, pageContract }: { goats: ProcurementLoadGoat[]; pageContract: AdminUiPageContract }) {
   const goatCols = tableLabels(pageContract, "load-goats");
   return (
     <DetailTableCard title={copy(pageContract, "section.goats.title")} count={goats.length}>
       <PagedRows
-        /* main's mobile-scroll fix (56b3da919) is these two class names: `.twrap` owns the
-           horizontal scroll and `.procurement-load-goats-table` carries the per-column
-           min-widths. PagedRows already supplies the tabIndex/role/aria-label that fix added. */
-        wrapClassName="twrap"
-        tableClassName="procurement-load-goats-table"
+        /* main's mobile-scroll fix (56b3da919) as theme sx: PagedRows' wrapper owns the horizontal
+           scroll, the table keeps a 1280px floor with single-line cells and per-column min-widths.
+           PagedRows supplies the tabIndex/role/aria-label that fix added. */
+        tableMinWidth={LOAD_GOATS_TABLE_MIN_WIDTH}
+        tableSx={LOAD_GOATS_TABLE_SX}
         ariaLabel={copy(pageContract, "section.goats.title")}
         head={
           <TableRow>

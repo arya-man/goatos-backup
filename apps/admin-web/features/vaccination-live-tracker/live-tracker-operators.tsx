@@ -135,7 +135,6 @@ export function LiveTrackerOperators({
           <PagedRows
             scrollbar
             tableMinWidth={1040}
-            wrapClassName=""
             ariaLabel={copy(pageContract, "section.operators.title")}
             head={<LiveHeadRow labels={cols} numeric={[3, 4, 5, 6, 7]} />}
             rows={operatorRows}

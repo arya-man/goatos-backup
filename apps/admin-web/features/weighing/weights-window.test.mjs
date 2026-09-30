@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
+import { legacyCss } from "../../scripts/lib/legacy-css.mjs";
 
 const source = readFileSync(new URL("./weights.tsx", import.meta.url), "utf8");
 const analyticsSource = readFileSync(new URL("./weights-analytics.tsx", import.meta.url), "utf8");
@@ -168,7 +169,7 @@ test("weights analytics time-wise uses the same selected/default period as every
 });
 
 test("analytics tab changes keep the page and show pending on the strip", () => {
-  const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
+  const css = legacyCss("mesha-theme");
   assert.doesNotMatch(analyticsSource, /pendingLabel=/);
   assert.doesNotMatch(segmentedLinksSource, /pendingLabel\?: string/);
   // FIXJ4: the pending cue is SegmentTabs `busy` (template Tabs), no legacy .metricseg classes.
@@ -377,7 +378,7 @@ test("shed lists and gain chart only show sheds weighed in the selected window",
 });
 
 test("weighed shed rows render breed and sex composition chips from the backend contract", () => {
-  const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
+  const css = legacyCss("mesha-theme");
   assert.match(source, /demo\?\.shed_composition \?\? \[\]/);
   assert.match(source, /shedLabelWithComposition/);
   // Three, not four: the gain chart no longer builds a row for a shed with one weigh.
@@ -437,7 +438,7 @@ test("the shed table reads breed, gender and count as columns, not out of the pe
   // down, so this also pins that they do not come back. The CHART still draws the composed
   // label, which is what keeps the two views naming the same pen.
   const client = readFileSync(new URL("./metric-chart.tsx", import.meta.url), "utf8");
-  const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
+  const css = legacyCss("mesha-theme");
   for (const key of ["breed", "sex", "count"]) {
     assert.match(source, new RegExp(`copy\\(pageContract, "table\\.shed_gain\\.${key}"\\)`));
     assert.match(contract, new RegExp(`"table\\.shed_gain\\.${key}":`));

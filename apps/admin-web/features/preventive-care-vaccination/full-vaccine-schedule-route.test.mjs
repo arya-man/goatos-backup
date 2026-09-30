@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { legacyCss } from "../../scripts/lib/legacy-css.mjs";
 
 const source = readFileSync(new URL("./full-vaccine-schedule.tsx", import.meta.url), "utf8");
 const moveDrawerSource = readFileSync(new URL("./full-vaccine-schedule-move-drawer.tsx", import.meta.url), "utf8");
@@ -9,7 +10,7 @@ const moveDrawerSource = readFileSync(new URL("./full-vaccine-schedule-move-draw
 const themedDatePickerSource = readFileSync(new URL("../../components/themed-date-picker.tsx", import.meta.url), "utf8");
 const operationsSource = readFileSync(new URL("./operations.tsx", import.meta.url), "utf8");
 const shedBoardSource = readFileSync(new URL("../vaccination-sheds/shed-board.tsx", import.meta.url), "utf8");
-const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
+const css = legacyCss("mesha-theme");
 const adminUiContractFallbackSource = readFileSync(new URL("../../lib/admin-ui-contract.ts", import.meta.url), "utf8");
 const adminUiContractSource = readFileSync(new URL("../../../../backend/internal/adminui/app/service.go", import.meta.url), "utf8");
 
@@ -193,7 +194,8 @@ test("vaccination schedule move date uses an overlay and themed dark date picker
   assert.match(moveDrawerSource, /schedule\.move\.next_month/);
   assert.match(moveDrawerSource, /schedule\.move\.invalid_future_date/);
   assert.doesNotMatch(css, /\.move-date-/);
-  assert.match(css, /background:var\(--panel\)/);
+  // FIXJ6: mesha-theme.css (and its --panel paint) is deleted; the picker is the themed MUI X DatePicker.
+  assert.match(themedDatePickerSource, /DatePicker/);
 });
 
 test("the schedule move drawer is the template temporary drawer (closed = unmounted modal, never a click trap)", () => {

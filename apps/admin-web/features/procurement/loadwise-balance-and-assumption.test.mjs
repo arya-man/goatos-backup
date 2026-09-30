@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { legacyCss } from "../../scripts/lib/legacy-css.mjs";
 
 const section = readFileSync(new URL("./loadwise-section.tsx", import.meta.url), "utf8");
 const chart = readFileSync(new URL("../../components/grouped-columns.tsx", import.meta.url), "utf8");
-const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
+const css = legacyCss("mesha-theme");
 
 // Tagging takes an animal out of the herd at once, but only a closed deal is a sale: the load
 // balances through its own "Tagged, sale not closed" bucket (maintainer decision 2026-09-25).

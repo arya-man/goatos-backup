@@ -34,7 +34,7 @@ const STATUS_GROUP = "feed_item_status";
  * identity, which would rebuild the whole column model each time and make the `useMemo` below a
  * no-op.
  */
-const NUMERIC_CELL = { cellClassName: "muted", cellStyle: { fontVariantNumeric: "tabular-nums" as const } };
+const NUMERIC_CELL = { cellStyle: { fontVariantNumeric: "tabular-nums" as const, color: "text.secondary" } };
 
 /**
  * The status cell: a chip that becomes a picker on double-click, and applies the choice at once.

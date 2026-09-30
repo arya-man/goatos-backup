@@ -13,7 +13,7 @@ function Demo({ label }: { label?: string }) {
   return (
     <Stack title={dense ? "dense: on" : "dense: off"}>
       <DenseToggle checked={dense} onChange={setDense} label={label} />
-      <div className={dense ? "tablewrap kit-dense" : "tablewrap"}>
+      <div data-dense={dense ? "" : undefined}>
         <table className="tbl" style={{ width: "100%" }}>
           <thead><tr><th>Pen</th><th>Kids</th><th>ADG</th><th>Vendor</th></tr></thead>
           <tbody>

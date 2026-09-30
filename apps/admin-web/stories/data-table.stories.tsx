@@ -40,7 +40,7 @@ function StatusChip({ status }: { status: string }) {
 
 function PenTable({ rows = PENS, dense = false, withMenu = true }: { rows?: typeof PENS; dense?: boolean; withMenu?: boolean }) {
   return (
-    <div className={cx("tablewrap", dense && "kit-dense")} tabIndex={0} role="group" aria-label="Pens">
+    <div data-dense={dense ? "" : undefined} tabIndex={0} role="group" aria-label="Pens">
       <table className="tbl">
         <thead>
           <tr>
@@ -154,7 +154,7 @@ export const ManyRowsAndOverflow: Story = {
     <States>
       <StateBlock label="Long vendor names + 40 rows — horizontal scroll inside .tablewrap">
         <Card className="kit-tablecard">
-          <div className="tablewrap" tabIndex={0} role="group" aria-label="Vendor loads">
+          <div tabIndex={0} role="group" aria-label="Vendor loads">
             <table className="tbl">
               <thead><tr><th>Vendor</th><th>Park</th><th>Load ref</th><th>Head</th><th>Avg weight</th><th>Status</th></tr></thead>
               <tbody>

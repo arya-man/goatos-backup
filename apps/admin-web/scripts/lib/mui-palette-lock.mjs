@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
-import { TEMPLATE_GREYS, TEMPLATE_SURFACES, hasRetiredNeutralLiteral, withDecodedDataUris } from "./design-palette.mjs";
+import { TEMPLATE_GREYS, TEMPLATE_SURFACES, hasRetiredNeutralLiteral, paletteCssText, withDecodedDataUris } from "./design-palette.mjs";
 
 // Locked values the MUI theme must carry (light / dark): Mesha brand, template surfaces.
 export const MUI_PALETTE_LOCK = {
@@ -61,7 +61,7 @@ export function muiPaletteLockFindings(appRoot) {
     for (const n of need) if (!seg.includes(n)) out.push(`MUI ${mode} surface missing ${n}`);
   }
   // Every colour literal under theme/, layouts/, app/ and components/ must be a locked value
-  // (app/mesha-theme.css, app/minimal-tokens.css): this keeps the retired green neutrals and the
+  // (theme/mesha-tokens.ts, app/minimal-tokens.css): this keeps the retired green neutrals and the
   // template's brand presets off screen. Inline SVG data URIs (base64 and URL-encoded) are decoded first, so a
   // colour cannot hide inside a background image (Judge 3 P1-A). Iconify icon bodies (brand logos
   // inside icon-sets.ts) are artwork, not theme colour. public/ SVGs (the template's empty-state
@@ -77,7 +77,7 @@ export function muiPaletteLockFindings(appRoot) {
     }
     return out;
   };
-  const lockedCss = existsSync(join(appRoot, "app", "mesha-theme.css")) ? readFileSync(join(appRoot, "app", "mesha-theme.css"), "utf8") : "";
+  const lockedCss = paletteCssText(appRoot);
   const tokensCss = existsSync(join(appRoot, "app", "minimal-tokens.css")) ? readFileSync(join(appRoot, "app", "minimal-tokens.css"), "utf8") : "";
   const locked = new Set([...`${lockedCss}\n${tokensCss}`.matchAll(/#[0-9a-f]{6}\b/gi)].map((m) => m[0].toUpperCase()));
   for (const hex of Object.values(TEMPLATE_GREYS)) locked.add(hex);
@@ -99,7 +99,7 @@ export function muiPaletteLockFindings(appRoot) {
           if (m) out.push(`${relative(appRoot, f)} carries Minimal default colour ${m[0]}`);
           if (lockedCss && !ICON_DATA.test(f)) {
             for (const hex of new Set([...src.matchAll(/#[0-9a-f]{6}\b/gi)].map((x) => x[0].toUpperCase())))
-              if (!locked.has(hex)) out.push(`${relative(appRoot, f)} carries ${hex}, which is not in the locked Mesha palette (app/mesha-theme.css)`);
+              if (!locked.has(hex)) out.push(`${relative(appRoot, f)} carries ${hex}, which is not in the locked Mesha palette (theme/mesha-tokens.ts)`);
           }
         }
       }

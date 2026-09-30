@@ -1,8 +1,17 @@
 {
   "_comment": "Count of known admin-web phone-viewport findings per file|rule. Shrink-only: regenerate with `node tools/agent-hooks/check-admin-web-phone-viewport.mjs --update-baseline` after FIXING debt; never grow it to land a new finding.",
   "entries": {
-    "apps/admin-web/app/mesha-theme.css|fixed-px-width": 7,
-    "apps/admin-web/app/mesha-theme.css|page-overflow-hidden": 5,
-    "apps/admin-web/app/mesha-theme.css|px-grid-sum": 8
+    "apps/admin-web/components/app/ranked-table-card.tsx|fixed-px-width": 1,
+    "apps/admin-web/features/control-tower/index.tsx|fixed-px-width": 1,
+    "apps/admin-web/features/counts/counts-breakdown-pens-table.tsx|fixed-px-width": 1,
+    "apps/admin-web/features/feed/feed-analytics.tsx|fixed-px-width": 3,
+    "apps/admin-web/features/feed/feed-config.tsx|fixed-px-width": 1,
+    "apps/admin-web/features/feed/feed-direction.tsx|fixed-px-width": 1,
+    "apps/admin-web/features/feed/feed-packing.tsx|fixed-px-width": 1,
+    "apps/admin-web/features/health/health-config.tsx|fixed-px-width": 2,
+    "apps/admin-web/features/procurement/sales-config.tsx|fixed-px-width": 1,
+    "apps/admin-web/features/procurement/sales-sold.tsx|fixed-px-width": 1,
+    "apps/admin-web/features/procurement/source-entry-board.tsx|fixed-px-width": 1,
+    "apps/admin-web/theme/app-baseline.tsx|fixed-px-width": 1
   }
 }

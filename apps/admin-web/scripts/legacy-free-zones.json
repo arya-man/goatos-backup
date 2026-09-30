@@ -45,6 +45,7 @@
     "components/app/avatar.tsx",
     "components/app/count-up.tsx",
     "components/app/date-time-field.tsx",
+    "components/app/dense-toggle-auto.tsx",
     "components/app/detail-drawer.tsx",
     "components/app/icon-badge.tsx",
     "components/app/iconify-extra.ts",
@@ -65,10 +66,12 @@
     "components/dense-table.tsx",
     "components/form-select.tsx",
     "components/local-view-switch.tsx",
+    "components/mesha-shell.tsx",
     "components/observability/error-boundary.tsx",
     "components/push-permission-prompt.tsx",
     "components/review-queue/review-queue-ui.tsx",
     "components/segmented-links.tsx",
+    "components/shell-skeleton.tsx",
     "components/themed-date-picker.tsx",
     "components/ui-primitives.tsx",
     "components/worklist-filters.tsx",
@@ -180,6 +183,8 @@
     "features/vaccination-sheds/shed-table-client.tsx",
     "features/verification-review/",
     "features/weighing/",
-    "features/work-board/"
+    "features/work-board/",
+    "layouts/app/dashboard/layout.tsx",
+    "theme/app-baseline.tsx"
   ]
 }

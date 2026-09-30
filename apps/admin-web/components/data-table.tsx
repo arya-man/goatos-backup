@@ -125,7 +125,7 @@ export type DataTableColumnMeta = {
   spanned?: boolean;
   /** Applied to both the header cell and every body cell in this column. */
   align?: "left" | "right";
-  /** Extra className for this column's body cells. */
+  /** A class HOOK for this column's body cells, targeted by the page's own sx (never a stylesheet). */
   cellClassName?: string;
   /**
    * Extra className for this column's HEADER cell.

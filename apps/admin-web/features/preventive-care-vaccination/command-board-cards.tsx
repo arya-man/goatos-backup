@@ -55,7 +55,6 @@ export function MatrixCard({
       <PagedRows
         rows={rows}
         head={head}
-        wrapClassName=""
         scrollbar
         tableMinWidth={minWidth}
         ariaLabel={ariaLabel}

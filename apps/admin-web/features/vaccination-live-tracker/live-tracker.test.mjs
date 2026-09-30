@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { legacyCss } from "../../scripts/lib/legacy-css.mjs";
 
 const board = readFileSync(new URL("./live-tracker-board.tsx", import.meta.url), "utf8");
 const kpis = readFileSync(new URL("./live-tracker-kpis.tsx", import.meta.url), "utf8");
@@ -10,7 +11,7 @@ const combo = readFileSync(new URL("./live-tracker-combo.tsx", import.meta.url),
 const rail = readFileSync(new URL("./live-tracker-rail.tsx", import.meta.url), "utf8");
 const poller = readFileSync(new URL("./live-poller.tsx", import.meta.url), "utf8");
 const params = readFileSync(new URL("./params.ts", import.meta.url), "utf8");
-const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
+const css = legacyCss("mesha-theme");
 
 // Assertions about what the page RENDERS must not be satisfied or defeated by prose in a comment —
 // several of these comments name the exact mock defect they exist to avoid reproducing.

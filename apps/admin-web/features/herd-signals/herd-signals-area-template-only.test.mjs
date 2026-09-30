@@ -7,6 +7,7 @@
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import test from "node:test";
+import { legacyCss } from "../../scripts/lib/legacy-css.mjs";
 
 const dir = new URL("./", import.meta.url);
 const read = (path) => readFileSync(new URL(path, dir), "utf8");
@@ -46,8 +47,8 @@ for (const name of files) {
 
 test("no feature stylesheet and no page-scoped legacy CSS for /herd-signals", () => {
   assert.deepEqual(readdirSync(dir).filter((name) => name.endsWith(".css")), []);
-  for (const css of ["../../app/mesha-theme.css", "../../app/frame.css", "../../app/minimal-theme.css"]) {
-    assert.doesNotMatch(read(css), /\.herd-signals-(?:page|table|pager|fbar|kpis)\b|\.hs-(?:selectable|watch|flash|mapping-tab|btn)\b/, `${css} still styles /herd-signals`);
+  for (const css of ["mesha-theme", "frame", "minimal-theme"]) {
+    assert.doesNotMatch(legacyCss(css), /\.herd-signals-(?:page|table|pager|fbar|kpis)\b|\.hs-(?:selectable|watch|flash|mapping-tab|btn)\b/, `${css} still styles /herd-signals`);
   }
 });
 

@@ -11,13 +11,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { legacyCss } from "../../scripts/lib/legacy-css.mjs";
 
 const read = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
 const page = read("./action-center.tsx");
 const parts = read("./action-center-board-parts.tsx");
 const board = read("./work-board.tsx");
 const adherence = read("./protocol-adherence.tsx");
-const theme = read("../../app/mesha-theme.css");
+const theme = legacyCss("mesha-theme");
 
 test("action-center-kpi-selected: selected tile uses the template text.primary ring, not a coloured outline", () => {
   assert.match(parts, /^"use client";/);

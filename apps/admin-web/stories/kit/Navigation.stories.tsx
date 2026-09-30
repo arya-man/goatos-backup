@@ -17,7 +17,7 @@ export const Overlays: Story = {
   render: () => (
     <div>
       <ScrollEdges />
-      <div className="tablewrap" style={{ overflowX: "auto" }}>
+      <div style={{ overflowX: "auto" }}>
         <div style={{ width: 1400, padding: 16 }}>Wide content scrolls inside its own card; edges fade.</div>
       </div>
       <BodyPortal>

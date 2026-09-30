@@ -95,7 +95,7 @@ export function FarmBornSoldTable({
     sale_value: {
       cell: (row) =>
         row.sale_value != null ? inr(row.sale_value) : <Typography component="span" variant="body2" sx={{ color: "text.secondary" }}>{labels.noDeal}</Typography>,
-      meta: { cellClassName: "num" },
+      meta: { align: "right", cellStyle: { fontVariantNumeric: "tabular-nums" } },
       sortValue: (row) => row.sale_value ?? undefined,
     },
   });

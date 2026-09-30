@@ -2,17 +2,42 @@
 //
 // Ravi 2026-09-27: neutrals are the MUI Minimal TEMPLATE's; brand + status hues stay Mesha.
 // - BRAND_LOCK: Mesha brand greens plus the template dark/light surfaces. They must stay verbatim in
-//   app/mesha-theme.css (P0).
+//   theme/mesha-tokens.ts (P0; FIXJ6 moved the tokens out of the deleted app/mesha-theme.css).
 // - TEMPLATE_GREYS / TEMPLATE_SURFACES: the template grey scale (theme/core/palette.ts) and the
 //   surfaces/ink it derives. theme/theme-config.ts and app/minimal-tokens.css must carry exactly
 //   these (P0 template-neutrals, scripts/lib/mui-palette-lock.mjs).
 // - RETIRED_MESHA_NEUTRALS: the old green-tinted neutral scale. BANNED in every file (P0
 //   retired-neutral-literal); hex, rgb() and bare-channel spellings are caught.
-// - THEME_LOCK: per-theme token -> exact value in app/mesha-theme.css (P0 brand-lock).
+// - THEME_LOCK: per-theme token -> exact value in theme/mesha-tokens.ts (P0 brand-lock).
 // - PRIMARY_STATE: selected/primary/active selectors must paint with brand tokens (P0 non-brand-selected).
 // - RETIRED_NEUTRALS: colours whose removal from the theme files is not drift.
 
 export const TOKEN_FILE = "app/minimal-tokens.css";
+
+import { existsSync as _exists, readFileSync as _read } from "node:fs";
+import { join as _join } from "node:path";
+
+/** The Mesha palette source (FIXJ6): theme values in TS, emitted as CSS variables by AppBaseline. */
+export const PALETTE_FILE = "theme/mesha-tokens.ts";
+
+/**
+ * The palette file as CSS text (`:root{--x:v;…}` + `:root.light{…}`), so every palette guard that
+ * parses token declarations keeps working on the TS source. "" when the file is missing.
+ */
+export function paletteCssText(appRoot) {
+  const abs = _join(appRoot, PALETTE_FILE);
+  if (!_exists(abs)) return "";
+  return paletteCssFromTs(_read(abs, "utf8"));
+}
+export function paletteCssFromTs(ts) {
+  const block = (name) => {
+    const i = ts.indexOf(`export const ${name} = {`);
+    if (i < 0) return "";
+    const body = ts.slice(i, ts.indexOf("\n}", i));
+    return [...body.matchAll(/^\s*"(--[\w-]+)":\s*("(?:[^"\\]|\\.)*"),?\s*$/gm)].map((m) => `${m[1]}:${JSON.parse(m[2])};`).join("");
+  };
+  return `:root{${block("MESHA_TOKENS_DARK")}}\n:root.light{${block("MESHA_TOKENS_LIGHT")}}\n`;
+}
 
 export const TEMPLATE_GREYS = {
   50: "#FCFDFD", 100: "#F9FAFB", 200: "#F4F6F8", 300: "#DFE3E8", 400: "#C4CDD5",

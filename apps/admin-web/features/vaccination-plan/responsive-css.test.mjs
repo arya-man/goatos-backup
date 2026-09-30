@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { legacyCss } from "../../scripts/lib/legacy-css.mjs";
 
 const read = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
 const files = {
@@ -15,7 +16,7 @@ const files = {
   anchors: read("./anchor-panel.tsx"),
   duration: read("./duration-field.tsx"),
 };
-const css = ["../../app/mesha-theme.css", "../../app/frame.css", "../../app/minimal-theme.css"].map(read).join("\n");
+const css = legacyCss("mesha-theme", "frame", "minimal-theme");
 
 test("vaccination-plan-template: no legacy .vplan / .vp-* CSS rules", () => {
   const rules = css.split("\n").filter((line) => /\.(vplan|vp-[a-z])[^{]*\{/.test(line) && !/^\s*(\/\*|\*)/.test(line));

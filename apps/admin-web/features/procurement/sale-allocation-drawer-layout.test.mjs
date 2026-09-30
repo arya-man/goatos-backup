@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { legacyCss } from "../../scripts/lib/legacy-css.mjs";
 
 // Tag animals to sale on a 390px phone (2026-09-25): the tagging tables were clipped inside the
 // drawer (the weight step showed ")6" beside a clipped box) and Park/Pen ran past its edge.
-const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
+const css = legacyCss("mesha-theme");
 const drawer = readFileSync(new URL("./sale-allocation-drawer.tsx", import.meta.url), "utf8");
 
 // R2-4 (Ravi): the drawer is the template temporary Drawer (DetailDrawer: portal, backdrop,
@@ -30,8 +31,10 @@ test("the actions live in the drawer footer", () => {
   assert.match(drawer, /footer=\{[^]*action\.done[^]*action\.confirm_sold[^]*\}\s*>/);
 });
 
-test("a card's bare empty line is padded and muted, at zero specificity", () => {
-  assert.match(css, /:where\(\.card\)>:where\(\.empty\)\{padding:14px 16px;color:var\(--muted\)/);
+// FIXJ6: the `:where(.card)>:where(.empty)` legacy rule died with mesha-theme.css; the drawer renders
+// no legacy `card` / `empty` class that would have needed it.
+test("the drawer renders no legacy card / empty class", () => {
+  assert.doesNotMatch(drawer, /className=["'{][^"'}]*\b(?:card|empty)\b/);
 });
 
 test("the Load wise hover card is the template tooltip, never clipped by a chart scroller", () => {

@@ -1,7 +1,7 @@
 "use client";
 import Table from "@mui/material/Table";
 import { PageRoot } from "@/components/app/page-root";
-import { EARLIER_HEAD_CELLS, LIVE_HEAD_CELLS, LIVE_PAGE_SIZE, PLAN_FACT_SIZE } from "./plan-layout";
+import { EARLIER_HEAD_CELLS, LIVE_HEAD_CELLS, LIVE_PAGE_SIZE, PLAN_FACT_SIZE, PLAN_HEADER_ACTION_WIDTH } from "./plan-layout";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
@@ -169,11 +169,11 @@ export function VaccinationPlanConsole({ searchParams, versions, catalog, change
         crumbs={[{ label: "Preventive Care" }, { label: "Vaccination plan" }]}
         actions={
           draft ? (
-            <LinkButton href={draftHref} variant="contained" color="primary" startIcon={<Iconify icon="solar:pen-bold" />}>
+            <LinkButton href={draftHref} variant="contained" color="primary" startIcon={<Iconify icon="solar:pen-bold" />} sx={{ minWidth: PLAN_HEADER_ACTION_WIDTH }}>
               Open {draftLabel}
             </LinkButton>
           ) : (
-            <Button variant="contained" color="primary" onClick={onStart} disabled={pending} startIcon={<Iconify icon="mingcute:add-line" />}>
+            <Button variant="contained" color="primary" onClick={onStart} disabled={pending} startIcon={<Iconify icon="mingcute:add-line" />} sx={{ minWidth: PLAN_HEADER_ACTION_WIDTH }}>
               {pending ? "Starting…" : "Start a new version"}
             </Button>
           )
