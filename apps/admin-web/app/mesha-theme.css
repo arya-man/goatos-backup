@@ -1710,16 +1710,6 @@ select:disabled { opacity: .45 }
 /* Separation-of-duty caution. Warns, never blocks: this authority is the
    maintainer's to grant, and the warning exists so granting it is a decision. */
 
-.prt-warn{color:var(--warn,#c98a16)}
-/* The routine drawer's "Who does it" (.prt): the single-person picker as a form field. */
-.prt .avs-single{position:relative;display:grid;grid-template-columns:1fr;width:100%}
-.prt .avs-trigger{display:flex;align-items:center;gap:9px;width:100%;min-height:44px;padding:8px 11px;background:var(--panel);border:1px solid var(--line);border-radius:9px;font:inherit;font-size:13.5px;color:var(--ink);text-align:left;cursor:pointer}
-.prt .avs-trigger:hover,.prt .avs-trigger.on{border-color:color-mix(in srgb,var(--brand) 45%,var(--line))}
-.prt .avs-trigger:focus-visible{outline:2px solid var(--brand);outline-offset:1px}
-.prt .avs-trigger.set{border-color:color-mix(in srgb,var(--brand) 55%,var(--line));background:var(--brand-soft)}
-.prt .avs-trigger[aria-invalid="true"]{border-color:var(--danger)}
-.prt .avs-trigger .avs-value{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.prt .avs-trigger .ic{width:14px;height:14px;flex:none;color:var(--muted)}
 
 /* Work Board — ported from the approved board mock (Goat OS Work Board artifact), scoped under .wb.
    Board grid, column, card, toolbar pieces and the Jira-shaped issue view; only the class names the
