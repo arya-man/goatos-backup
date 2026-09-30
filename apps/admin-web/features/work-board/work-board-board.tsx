@@ -3,6 +3,7 @@
 import { FOUR_LANE_COLUMN_WIDTH } from "@/components/app/kanban/board-layout";
 import { WB_MODULE_SELECT_WIDTH, WB_SKELETON_LANES } from "./work-board-layout";
 import Box from "@mui/material/Box";
+import { visuallyHidden } from "@mui/utils";
 import Select from "@mui/material/Select";
 import Divider from "@mui/material/Divider";
 import Tooltip from "@mui/material/Tooltip";
@@ -434,7 +435,7 @@ export function WorkBoardBoard({
                   // The header count is whole-filter; a column with work on OTHER pages but none
                   // on this one says so, instead of "Nothing here" under a non-zero count.
                   // An empty template column is just the empty list (no dashed "Nothing here" box, TR1-#24).
-                  count > 0 ? <Box component="li" sx={EMPTY_SX}>{copy(pageContract, "lane.empty.other_pages")}</Box> : <Box component="li" className="sr-only">{copy(pageContract, "lane.empty")}</Box>
+                  count > 0 ? <Box component="li" sx={EMPTY_SX}>{copy(pageContract, "lane.empty.other_pages")}</Box> : <Box component="li" sx={visuallyHidden}>{copy(pageContract, "lane.empty")}</Box>
                 )}
               {paged && !searching ? (
                 // Each column pages on its own: the header stays the whole count, the footer

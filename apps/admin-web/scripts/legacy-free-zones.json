@@ -36,9 +36,7 @@
     "app/(admin)/verification/page.tsx",
     "app/(admin)/verify/loading.tsx",
     "app/(admin)/verify/page.tsx",
-    "app/(admin)/work-board/error.tsx",
-    "app/(admin)/work-board/loading.tsx",
-    "app/(admin)/work-board/page.tsx",
+    "app/(admin)/work-board/",
     "app/(admin)/workflows/(index)/loading.tsx",
     "app/(admin)/workflows/(index)/page.tsx",
     "app/(admin)/workflows/[row_id]/loading.tsx",
@@ -189,13 +187,6 @@
     "features/verification-review/video-log-export-action.ts",
     "features/verification-review/video-log-params.ts",
     "features/verification-review/vr-queue-head.tsx",
-    "features/work-board/actions.ts",
-    "features/work-board/index.ts",
-    "features/work-board/work-board-counts.ts",
-    "features/work-board/work-board-layout.ts",
-    "features/work-board/work-board-model.ts",
-    "features/work-board/work-board-page.tsx",
-    "features/work-board/work-board-parts.tsx",
-    "features/work-board/work-board-subtasks.tsx"
+    "features/work-board/"
   ]
 }
