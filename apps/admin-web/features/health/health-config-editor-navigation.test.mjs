@@ -16,7 +16,8 @@ test("health config Back uses a history-entry nonce, not a stale URL marker", ()
 });
 
 test("health config Back keeps the safe href fallback for direct opens and reloads", () => {
-  assert.match(source, /<a[\s\S]*href=\{href\}[\s\S]*onClick=/);
+  // A real anchor (MUI Button rendered as <a>), so a direct open / reload still has the href.
+  assert.match(source, /component="a"[\s\S]*href=\{href\}[\s\S]*onClick=/);
   assert.match(source, /Reloads also lose the in-memory nonce, so the safe filtered href wins/);
   assert.match(source, /window\.sessionStorage\.removeItem\(BACK_TO_LIST_MARKER\);[\s\S]*return;/);
 });

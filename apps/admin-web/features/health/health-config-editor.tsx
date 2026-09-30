@@ -5,7 +5,10 @@ import { useRouter } from "next/navigation";
 import MuiButton from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import MuiTextField from "@mui/material/TextField";
-import { ArrowLeft, Pencil, Plus, Trash2 } from "lucide-react";
+import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
+
+import { Iconify } from "@/components/minimal/iconify";
 
 import { copy, optionalCopy, optionGroup, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import MenuItem from "@mui/material/MenuItem";
@@ -20,6 +23,7 @@ import { afterSubmit, CLOSED_STATE, openIntent, type AuthoringIdempotencyState }
 import Alert from "@mui/material/Alert";
 import MenuList from "@mui/material/MenuList";
 import { DropdownPaper } from "@/components/app/dropdown-paper";
+import { Label } from "@/components/minimal/label";
 
 type SelectOption = { value: string; label: string };
 
@@ -114,7 +118,7 @@ function EmptyDraftOverLiveNotice({
   const live = (detail.history ?? []).find((v) => v.status === "published");
   if (!live || live.step_count === 0) return null;
   return (
-    <Alert severity="error" style={{ marginBottom: 12 }}><div>{copy(pageContract, "warn.empty_draft_over_live")}</div>
+    <Alert severity="error" sx={{ mb: 1.5 }}><div>{copy(pageContract, "warn.empty_draft_over_live")}</div>
     </Alert>
   );
 }
@@ -189,7 +193,7 @@ function MedicinePicker({
   };
 
   return (
-    <div style={{ flex: "1 1 260px", minWidth: 200, position: "relative" }}>
+    <Box sx={{ flex: "1 1 260px", minWidth: 200, position: "relative" }}>
       <MuiTextField
         fullWidth
         label={copy(pageContract, "label.medicine_name")}
@@ -256,18 +260,20 @@ function MedicinePicker({
                 sx={{ flexDirection: "column", alignItems: "flex-start", gap: 0, whiteSpace: "normal" }}
               >
                 <div>{m.name}</div>
-                {m.category_path ? <div className="small muted">{m.category_path}</div> : null}
+                {m.category_path ? (
+                  <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{m.category_path}</Typography>
+                ) : null}
               </MenuItem>
             ))}
           </MenuList>
         </DropdownPaper>
       ) : null}
       {unknown ? (
-        <span className="small" style={{ color: "var(--danger)" }}>
+        <Typography variant="caption" component="span" sx={{ color: "error.main" }}>
           {copy(pageContract, "warn.medicine_not_in_catalog")}
-        </span>
+        </Typography>
       ) : null}
-    </div>
+    </Box>
   );
 }
 
@@ -396,18 +402,20 @@ function FieldErrors({
   const headline =
     optionalCopy(pageContract, result.messageKey) ?? copy(pageContract, "action.error_backend");
   return (
-    <Alert severity="error" style={{ marginTop: 10 }}>
+    <Alert severity="error" sx={{ mt: 1.25 }}>
       <div>
-        <b>{headline}</b>
-        {result.detail ? <div className="small muted">{result.detail}</div> : null}
+        <Typography variant="subtitle2" component="div">{headline}</Typography>
+        {result.detail ? (
+          <Typography variant="body2" component="div" sx={{ color: "text.secondary" }}>{result.detail}</Typography>
+        ) : null}
         {scoped.length > 0 ? (
-          <ul className="small" style={{ margin: "6px 0 0", paddingLeft: 18, lineHeight: 1.6 }}>
+          <Box component="ul" sx={{ typography: "body2", mt: 0.75, mb: 0, pl: 2.25 }}>
             {scoped.map((fieldError) => (
               <li key={`${fieldError.field}:${fieldError.message}`}>
                 <code>{fieldError.field}</code> — {fieldError.message}
               </li>
             ))}
-          </ul>
+          </Box>
         ) : null}
       </div>
     </Alert>
@@ -441,7 +449,7 @@ export function AddDiseaseForm({
       type="button"
       variant="contained"
       color="primary"
-      startIcon={<Plus className="ic" aria-hidden="true" />}
+      startIcon={<Iconify icon="mingcute:add-line" aria-hidden="true" />}
       disabled={!enabled}
       title={enabled ? undefined : disabledReason}
       onClick={() => {
@@ -553,8 +561,9 @@ export function ProtocolActionButton({
   const [idem] = useState(() => crypto.randomUUID());
 
   return (
-    <form
-      onSubmit={(event) => {
+    <Box
+      component="form"
+      onSubmit={(event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
         const formData = new FormData(event.currentTarget);
         startTransition(async () => {
@@ -589,7 +598,7 @@ export function ProtocolActionButton({
           }
         });
       }}
-      style={{ display: "inline-flex", flexDirection: "column", gap: 6 }}
+      sx={{ display: "inline-flex", flexDirection: "column", gap: 0.75 }}
     >
       {Object.entries(fields).map(([name, value]) => (
         <input key={name} type="hidden" name={name} value={value} />
@@ -607,7 +616,7 @@ export function ProtocolActionButton({
           {copy(pageContract, labelKey)}
         </MuiButton>
       ) : (
-        <span style={{ display: "inline-flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+        <Stack component="span" direction="row" spacing={0.75} useFlexGap sx={{ display: "inline-flex", alignItems: "center", flexWrap: "wrap" }}>
           {icon === "edit" ? (
             <IconButton
               type="submit"
@@ -617,7 +626,7 @@ export function ProtocolActionButton({
               title={enabled ? copy(pageContract, labelKey) : disabledReason}
               aria-label={copy(pageContract, labelKey)}
             >
-              <Pencil className="ic" aria-hidden="true" />
+              <Iconify icon="solar:pen-bold" aria-hidden="true" />
             </IconButton>
           ) : (
           <MuiButton
@@ -636,15 +645,15 @@ export function ProtocolActionButton({
               {copy(pageContract, "action.cancel")}
             </MuiButton>
           ) : null}
-        </span>
+        </Stack>
       )}
       {armed && confirmKey ? (
-        <span className="small muted" style={{ maxWidth: 320, lineHeight: 1.5 }}>
+        <Typography variant="body2" component="span" sx={{ color: "text.secondary", maxWidth: 320 }}>
           {copy(pageContract, confirmKey)}
-        </span>
+        </Typography>
       ) : null}
       <FieldErrors result={result} pageContract={pageContract} />
-    </form>
+    </Box>
   );
 }
 
@@ -655,10 +664,14 @@ export function BackToListButton({ href, label }: { href: string; label: string 
   }, [href]);
 
   return (
-    <a
-      className="btn sm"
+    <MuiButton
+      component="a"
+      size="small"
+      variant="outlined"
+      color="inherit"
       href={href}
-      onClick={(event) => {
+      startIcon={<Iconify icon="eva:arrow-ios-back-fill" aria-hidden="true" />}
+      onClick={(event: React.MouseEvent<HTMLAnchorElement>) => {
         // Only the catalog's Edit action binds the current history entry to an in-memory nonce.
         // URL equality alone is not enough: a stale marker can match a later direct-opened editor.
         // Reloads also lose the in-memory nonce, so the safe filtered href wins there too.
@@ -673,9 +686,8 @@ export function BackToListButton({ href, label }: { href: string; label: string 
         router.back();
       }}
     >
-      <ArrowLeft className="ic" aria-hidden="true" />
       {label}
-    </a>
+    </MuiButton>
   );
 }
 
@@ -728,8 +740,9 @@ export function DraftEditor({
   }
 
   return (
-    <form
-      onSubmit={(event) => {
+    <Box
+      component="form"
+      onSubmit={(event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
         const formData = new FormData(event.currentTarget);
         formData.set("steps", JSON.stringify(toPayload(steps)));
@@ -741,13 +754,13 @@ export function DraftEditor({
           if (outcome.ok) setIdem(crypto.randomUUID());
         });
       }}
-      style={{ display: "flex", flexDirection: "column", gap: 12 }}
+      sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}
     >
       <input type="hidden" name="disease_key" value={draft.disease_key} />
       <input type="hidden" name="age_band" value={draft.age_band} />
       <input type="hidden" name="idempotency_key" value={idem} />
 
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+      <Stack direction="row" spacing={1.5} useFlexGap sx={{ flexWrap: "wrap", alignItems: "flex-end" }}>
         <MuiTextField
           name="display_name"
           label={copy(pageContract, "label.disease")}
@@ -764,10 +777,10 @@ export function DraftEditor({
           slotProps={{ htmlInput: { inputMode: "numeric" }, inputLabel: { shrink: true } }}
           sx={{ maxWidth: 120 }}
         />
-        <p className="small muted" style={{ margin: 0, maxWidth: 420, lineHeight: 1.5 }}>
+        <Typography variant="body2" sx={{ color: "text.secondary", maxWidth: 420 }}>
           {copy(pageContract, "note.days_shrink")} {copy(pageContract, "note.rename_scope")}
-        </p>
-      </div>
+        </Typography>
+      </Stack>
 
       <EmptyDraftOverLiveNotice detail={draft} stepCount={steps.length} pageContract={pageContract} />
 
@@ -778,32 +791,26 @@ export function DraftEditor({
           the instruction — the longest and most important field on an action step — off the
           right edge behind a horizontal scrollbar. Here each step shows only its own fields,
           the instruction gets full width, and nothing scrolls sideways. */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <Stack spacing={1.25}>
         {steps.length === 0 ? (
-          <div className="muted small" style={{ padding: "18px 4px", textAlign: "center" }}>
+          <Typography variant="body2" component="div" sx={{ color: "text.secondary", py: 2, px: 0.5, textAlign: "center" }}>
             {copy(pageContract, "empty.steps")}
-          </div>
+          </Typography>
         ) : (
           steps.map((step, index) => {
             const isMedicine = step.record_type === "medication";
             const isCritical = step.record_type === "critical_action";
             return (
-              <div
+              <Stack
                 key={step.key}
-                style={{
-                  border: "1px solid var(--line)",
-                  borderRadius: 10,
-                  padding: "10px 12px",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 10,
-                }}
+                spacing={1.25}
+                sx={{ border: 1, borderColor: "divider", borderRadius: 1.5, px: 1.5, py: 1.25 }}
               >
                 {/* WHEN: day, session and kind — the three things that place a step in the course. */}
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
-                  <span className="tag t-mut" style={{ alignSelf: "center" }}>
+                <Stack direction="row" spacing={1.25} useFlexGap sx={{ flexWrap: "wrap", alignItems: "flex-end" }}>
+                  <Label variant="soft" color="default" sx={{ alignSelf: "center" }}>
                     {index + 1}
-                  </span>
+                  </Label>
                   <MuiTextField
                     label={copy(pageContract, "label.day_no")}
                     value={step.day_no}
@@ -855,18 +862,18 @@ export function DraftEditor({
                     size="small"
                     variant="outlined"
                     color="error"
-                    startIcon={<Trash2 className="ic" aria-hidden="true" />}
+                    startIcon={<Iconify icon="solar:trash-bin-trash-bold" aria-hidden="true" />}
                     title={copy(pageContract, "action.remove_step")}
                     sx={{ marginLeft: "auto" }}
                     onClick={() => setSteps((prev) => prev.filter((row) => row.key !== step.key))}
                   >
                     {copy(pageContract, "action.remove_step")}
                   </MuiButton>
-                </div>
+                </Stack>
 
                 {/* WHAT: only the fields this kind of step actually carries. */}
                 {isMedicine ? (
-                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+                  <Stack direction="row" spacing={1.25} useFlexGap sx={{ flexWrap: "wrap", alignItems: "flex-end" }}>
                     <MedicinePicker
                       value={step.medicine_name}
                       medicines={medicines}
@@ -909,9 +916,9 @@ export function DraftEditor({
                         </MenuItem>
                       ))}
                     </MuiTextField>
-                  </div>
+                  </Stack>
                 ) : (
-                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+                  <Stack direction="row" spacing={1.25} useFlexGap sx={{ flexWrap: "wrap", alignItems: "flex-end" }}>
                     <MuiTextField
                       fullWidth
                       multiline
@@ -938,16 +945,16 @@ export function DraftEditor({
                         ))}
                       </MuiTextField>
                     ) : null}
-                  </div>
+                  </Stack>
                 )}
-              </div>
+              </Stack>
             );
           })
         )}
-      </div>
+      </Stack>
 
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-        <MuiButton type="button" size="small" variant="outlined" startIcon={<Plus className="ic" aria-hidden="true" />} onClick={addStep}>
+      <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", alignItems: "center" }}>
+        <MuiButton type="button" size="small" variant="outlined" startIcon={<Iconify icon="mingcute:add-line" aria-hidden="true" />} onClick={addStep}>
           {copy(pageContract, "action.add_step")}
         </MuiButton>
         <MuiButton
@@ -960,12 +967,12 @@ export function DraftEditor({
         >
           {copy(pageContract, "action.save_draft")}
         </MuiButton>
-        <span className="small muted" style={{ lineHeight: 1.5 }}>
+        <Typography variant="body2" component="span" sx={{ color: "text.secondary" }}>
           {copy(pageContract, "note.unscheduled_session")}
-        </span>
-      </div>
+        </Typography>
+      </Stack>
 
       <FieldErrors result={result} pageContract={pageContract} />
-    </form>
+    </Box>
   );
 }
