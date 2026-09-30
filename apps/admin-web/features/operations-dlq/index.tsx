@@ -172,7 +172,7 @@ export async function OperationsDLQPage({
           }
           search={<Box sx={orderToolbarSearchSx}><Form action={PATHNAME} prefetch={false} title={copy(pageContract, "filter.search_label")}>
               {hiddenInputs(sp, ["q", "dlq_id", "action_status", "action_key", "action_code", "updated"])}
-              <SearchTextField name="q" defaultValue={rawQ} placeholder={copy(pageContract, "filter.search_placeholder")} ariaLabel={copy(pageContract, "filter.search_label")} />
+              <SearchTextField name="q" defaultValue={rawQ} placeholder={copy(pageContract, "filter.search_placeholder")} phonePlaceholder={copy(pageContract, "filter.search_label")} ariaLabel={copy(pageContract, "filter.search_label")} />
             </Form></Box>}
         />
 

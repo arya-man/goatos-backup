@@ -19,6 +19,36 @@ const GIVE_UP_MS = 8000;
  * shimmer"). guard: url-panel-no-timer (components/app/url-panel.test.mjs) + r2 stale-panel.
  */
 
+/**
+ * FIXJ4 (/operations/audit "tab moved 108px", "actor filter scrolled 562px"; r2 interact
+ * scroll-jump / fallback-jump, guard `url-panel-holds-page-height`): while a scrolled page swaps a
+ * panel to its skeleton and back, one commit can leave the document shorter than the scroll offset
+ * for a layout (a revealed Suspense boundary is still hidden while its fallback is gone), and the
+ * browser clamps the page to the top. The page keeps the height it had at the click until every
+ * pending panel has painted its content; then the floor is released, so a shorter result only
+ * clamps the page to its new bottom (the allowed case). One shared floor for every panel.
+ */
+let heldPanels = 0;
+let releaseFrame = 0;
+function holdPageHeight(): void {
+  if (typeof document === "undefined") return;
+  if (heldPanels++ === 0 && window.scrollY > 0) {
+    window.cancelAnimationFrame(releaseFrame);
+    document.body.style.minHeight = `${document.documentElement.scrollHeight}px`;
+  }
+}
+function releasePageHeight(): void {
+  if (typeof document === "undefined" || heldPanels === 0) return;
+  heldPanels -= 1;
+  if (heldPanels > 0) return;
+  // Two frames after the last panel painted, so the floor never lifts inside a commit.
+  releaseFrame = window.requestAnimationFrame(() => {
+    releaseFrame = window.requestAnimationFrame(() => {
+      if (heldPanels === 0) document.body.style.minHeight = "";
+    });
+  });
+}
+
 function navKeyOf(pathname: string | null, search: string): string {
   return `${pathname ?? "/"}?${search}`;
 }
@@ -56,6 +86,8 @@ export function UrlPanel({
   // own state, components/canonical-url.tsx) moves window.location without moving useSearchParams,
   // and a key taken from window.location would then never match `here` (the weighing hang).
   const hereRef = useRef(here);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const holdingRef = useRef(false);
   useEffect(() => {
     hereRef.current = here;
   }, [here]);
@@ -83,6 +115,10 @@ export function UrlPanel({
       // A control that calls router.push INSIDE its own startTransition announces from within that
       // transition; a state update made there would wait for the navigation to finish (the hang).
       // A microtask runs after the transition scope closes, so the skeleton is an urgent update.
+      if (!holdingRef.current) {
+        holdingRef.current = true;
+        holdPageHeight();
+      }
       queueMicrotask(() => {
         setTargetValue(value);
         setPendingFrom(from);
@@ -110,14 +146,48 @@ export function UrlPanel({
       }
     };
     window.addEventListener(URL_NAV_EVENT, onNavigate);
-    document.addEventListener("click", onClick, true);
-    document.addEventListener("submit", onSubmit, true);
+    // BUBBLE phase on window, i.e. AFTER React (its root listens on document) has dispatched the
+    // click: a capture listener flipped this panel to its skeleton first, which unmounted a link
+    // INSIDE the panel (a strip shortcut, an operator row, a pager) before next/link saw the click,
+    // so the browser followed the href as a full document reload (/operations/audit). guard:
+    // url-panel-click-after-react (components/app/url-panel.test.mjs) + r2 interact full-reload.
+    window.addEventListener("click", onClick);
+    window.addEventListener("submit", onSubmit);
     return () => {
       window.removeEventListener(URL_NAV_EVENT, onNavigate);
-      document.removeEventListener("click", onClick, true);
-      document.removeEventListener("submit", onSubmit, true);
+      window.removeEventListener("click", onClick);
+      window.removeEventListener("submit", onSubmit);
     };
   }, [watchKey, ignoreKey, shapeParam]);
+
+  // Release the page-height floor once the landed panel shows content (no skeleton left in it),
+  // or after the give-up time.
+  useEffect(() => {
+    if (pending || !holdingRef.current) return undefined;
+    const started = performance.now();
+    let frame = 0;
+    const check = () => {
+      const el = panelRef.current;
+      const settled = !el || !el.querySelector(".MuiSkeleton-root, [data-skel]");
+      if (settled || performance.now() - started > GIVE_UP_MS) {
+        holdingRef.current = false;
+        releasePageHeight();
+        return;
+      }
+      frame = window.requestAnimationFrame(check);
+    };
+    frame = window.requestAnimationFrame(check);
+    return () => window.cancelAnimationFrame(frame);
+  }, [pending, here]);
+  useEffect(
+    () => () => {
+      if (holdingRef.current) {
+        holdingRef.current = false;
+        releasePageHeight();
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!pending) return undefined;
@@ -133,6 +203,7 @@ export function UrlPanel({
   // guard: url-panel-min-width
   return (
     <Box
+      ref={panelRef}
       data-url-panel=""
       data-url-panel-pending={showFallback ? "" : undefined}
       aria-busy={pending || undefined}

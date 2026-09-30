@@ -6,6 +6,7 @@
 import type { Theme, SxProps } from '@mui/material/styles';
 
 import TextField from '@mui/material/TextField';
+import useMediaQuery from '@mui/material/useMediaQuery';
 import InputAdornment from '@mui/material/InputAdornment';
 
 import { Iconify } from '@/components/minimal/iconify';
@@ -15,6 +16,11 @@ export type SearchTextFieldProps = {
   value?: string;
   defaultValue?: string;
   placeholder?: string;
+  /**
+   * Shorter placeholder below sm, where a toolbar search is narrower than the hint (r2
+   * text-fit|placeholder-clipped, P0). Backend copy, e.g. the contract's filter.search_label.
+   */
+  phonePlaceholder?: string;
   ariaLabel?: string;
   disabled?: boolean;
   type?: 'search' | 'text';
@@ -25,7 +31,9 @@ export type SearchTextFieldProps = {
   sx?: SxProps<Theme>;
 };
 
-export function SearchTextField({ name, value, defaultValue, placeholder, ariaLabel, disabled, type = 'search', onChange, onBlur, onEnter, className, sx }: SearchTextFieldProps) {
+export function SearchTextField({ name, value, defaultValue, placeholder, phonePlaceholder, ariaLabel, disabled, type = 'search', onChange, onBlur, onEnter, className, sx }: SearchTextFieldProps) {
+  const phone = useMediaQuery((theme: Theme) => theme.breakpoints.down('sm'));
+  const shown = phone && phonePlaceholder ? phonePlaceholder : placeholder;
   return (
     <TextField
       fullWidth
@@ -33,7 +41,7 @@ export function SearchTextField({ name, value, defaultValue, placeholder, ariaLa
       name={name}
       value={value}
       defaultValue={defaultValue}
-      placeholder={placeholder}
+      placeholder={shown}
       disabled={disabled}
       className={className}
       onChange={onChange ? (event) => onChange(event.target.value) : undefined}

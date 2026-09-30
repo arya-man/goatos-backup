@@ -12,3 +12,26 @@ test("guard: url-panel-no-timer - the fallback shows as soon as the panel is pen
   assert.doesNotMatch(src, /shownFor|URL_PANEL_SKELETON_DELAY_MS/);
   assert.match(src, /data-url-panel-pending=\{showFallback \? "" : undefined\}/);
 });
+
+// guard: url-panel-holds-page-height (FIXJ4, /operations/audit "tab moved 108px" + "actor filter
+// scrolled 562px"). A scrolled page keeps its height from the click until every pending panel shows
+// content, so the swap never clamps the page to the top; the floor is released afterwards.
+test("url-panel-holds-page-height: the click holds the page height until the panel painted content", () => {
+  const src = readFileSync(new URL("./url-panel.tsx", import.meta.url), "utf8");
+  assert.match(src, /function holdPageHeight\(\)/);
+  assert.match(src, /document\.body\.style\.minHeight = `\$\{document\.documentElement\.scrollHeight\}px`/);
+  assert.match(src, /window\.scrollY > 0/, "only a scrolled page is held");
+  assert.match(src, /holdPageHeight\(\);\s*\}\s*queueMicrotask/, "the hold starts at the click, before the skeleton commits");
+  assert.match(src, /querySelector\("\.MuiSkeleton-root, \[data-skel\]"\)/, "released once no skeleton is left in the panel");
+  assert.match(src, /document\.body\.style\.minHeight = "";/, "the floor is released");
+});
+
+// guard: url-panel-click-after-react (FIXJ4). The panel hears link clicks and GET submits AFTER React
+// dispatched them (window, bubble phase): swapping to the skeleton in a capture listener unmounted a
+// link inside the panel before next/link handled it, and the browser reloaded the whole document.
+test("url-panel-click-after-react: link clicks / submits are heard after React, never in capture", () => {
+  const src = readFileSync(new URL("./url-panel.tsx", import.meta.url), "utf8");
+  assert.match(src, /window\.addEventListener\("click", onClick\);/);
+  assert.match(src, /window\.addEventListener\("submit", onSubmit\);/);
+  assert.doesNotMatch(src, /addEventListener\("(click|submit)", on(Click|Submit), true\)/);
+});
