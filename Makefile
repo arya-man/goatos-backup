@@ -848,7 +848,9 @@ org-boundary-guard:
 # Default auto-scopes against origin/main. MODE=all forces the full suite.
 # JOB=common|backend|guardrails|admin-web|android is partial and writes no receipt.
 # JOB= does NOT enable GOATOS_FAST_LOCAL_CI. For the red-fix-rerun loop use
-# GOATOS_FAST_LOCAL_CI=1 tools/ci/run-local-ci.sh <job> (Gradle daemon, no benchmark compile).
+# GOATOS_SKIP_REASON="<why>" GOATOS_FAST_LOCAL_CI=1 tools/ci/run-local-ci.sh <job> (Gradle daemon, no
+# benchmark compile). A lane-skipping flag without GOATOS_SKIP_REASON is refused; skips go to the
+# skip ledger (tools/ci/goatos-skip-ledger.sh) and are printed in the summary.
 # Runbook: docs/runbooks/local-ci-and-landing.md
 ci-local:
 	bash tools/ci/run-local-ci.sh $(if $(JOB),$(JOB),$(MODE))
@@ -1177,8 +1179,13 @@ admin-web-phone-viewport-guard:
 # app/(admin) route and fails on a NEW or GROWN P0 pattern (tab/filter full-page flash or reload,
 # bright bg in dark, off-palette colour, drawer clip / no backdrop, skeleton IoU < 0.8, tap < 44px
 # at 390, sideways scroll, crash). Baseline: apps/admin-web/scripts/r2-visual-audit-baseline.json
-# (shrink-only). GOATOS_VISUAL_GATE_STRICT=1 fails on every P0. Also runs from the pre-push hook for
-# pushes touching admin-web UI (opt out: GOATOS_SKIP_ADMIN_WEB_VISUAL_GATE=1).
+# (shrink-only). GOATOS_VISUAL_GATE_STRICT=1 fails on every P0. Also runs from the pre-push hook
+# (tools/ci/admin-web-push-gate.sh, every branch) for pushes touching admin-web UI. Opting out
+# (GOATOS_SKIP_ADMIN_WEB_VISUAL_GATE=1, or auditing a running GOATOS_ADMIN_WEB_BASE_URL) needs
+# GOATOS_SKIP_REASON="..." and is written to the skip ledger.
+.PHONY: admin-web-push-gate
+admin-web-push-gate:
+	bash tools/ci/admin-web-push-gate.sh --run
 .PHONY: admin-web-visual-gate
 admin-web-visual-gate:
 	bash tools/ci/admin-web-visual-gate.sh

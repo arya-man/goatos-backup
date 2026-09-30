@@ -273,7 +273,7 @@ dispatch_jobs() {
       echo "──────── last 40 lines of job '${ff_job}' ────────"
       tail -n 40 "$rundir/${ff_job}.log" 2>/dev/null || true
       echo "────────────────────────────────────────────────"
-      echo "ci-local: re-run just that step:  GOATOS_CI_ONLY_STEP='${ff_step}' tools/ci/run-local-ci.sh ${ff_job}"
+      echo "ci-local: re-run just that step:  GOATOS_SKIP_REASON=\"re-run failed step\" GOATOS_CI_ONLY_STEP='${ff_step}' tools/ci/run-local-ci.sh ${ff_job}"
       [ "${#live_pids[@]}" -eq 0 ] || _dispatch_stop_pids "${live_pids[@]}"
       live_pids=(); live_jobs=(); live_groups=()
       for job in ${pending[@]+"${pending[@]}"}; do

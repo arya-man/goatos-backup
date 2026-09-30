@@ -35,7 +35,7 @@ awk '
 ' "$src" >"$fx"
 
 hint_for() { # <lane>
-  bash "$fx" "$1" 2>&1 | sed -n 's/^[[:space:]]*GOATOS_FAST_LOCAL_CI=1 tools\/ci\/run-local-ci.sh //p'
+  bash "$fx" "$1" 2>&1 | sed -n 's/^[[:space:]]*\(GOATOS_SKIP_REASON="[^"]*" \)\{0,1\}GOATOS_FAST_LOCAL_CI=1 tools\/ci\/run-local-ci.sh //p'
 }
 
 g="$(hint_for guardrails)"
