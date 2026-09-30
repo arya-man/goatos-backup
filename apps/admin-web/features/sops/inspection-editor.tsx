@@ -1,7 +1,6 @@
 "use client";
 import Box from "@mui/material/Box";
-
-import { Tag } from "@/components/ui-primitives";
+import Stack from "@mui/material/Stack";
 
 // PROCUREMENT SOP (maintainer decision 2026-09-14, docs/decisions/procurement-sop.md).
 //
@@ -12,14 +11,33 @@ import { Tag } from "@/components/ui-primitives";
 // save and refuses one the phone could not run, naming the field.
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Check, ChevronDown, ChevronUp, Lock, Plus, X } from "lucide-react";
-import IconButton from "@mui/material/IconButton";
 import MuiTextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import Button from "@mui/material/Button";
-import Card from "@mui/material/Card";
-import { EditorHeader, InlineSelect, StickyActions, inspectionEditorSx } from "./editor-chrome";
+import { Iconify } from "@/components/minimal/iconify";
+import { EditorHeader, InlineSelect } from "./editor-chrome";
+import {
+  AddButton,
+  CheckLine,
+  CondRow,
+  ConfigBox,
+  EDITOR_ICON,
+  EditorCard,
+  EditorPage,
+  FieldGrid,
+  Hint,
+  IconAction,
+  LockedNote,
+  MoveActions,
+  NumBadge,
+  OptionRow,
+  ProblemList,
+  QuestionShell,
+  ResultNotice,
+  Spacer,
+  StickyBar,
+} from "./editor-parts";
 import {
   LOCKED_LOAD_KEYS,
   LOCKED_OPTION_KEYS,
@@ -45,9 +63,6 @@ import {
 import { publishInspectionVersion, saveInspectionVersion, type InspectionSaveResult } from "./sop-actions";
 import { publishedHref } from "./published-href";
 import { followQuestionKey, keyForTitle } from "./weighing-model";
-import Checkbox from "@mui/material/Checkbox";
-import FormControlLabel from "@mui/material/FormControlLabel";
-import Alert from "@mui/material/Alert";
 
 // The editor runs two documents of the same pages-of-questions shape:
 //   inspection   the animal purchase inspection (load form + per-animal pages, media allowed);
@@ -207,7 +222,7 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, v
   }
 
   return (
-    <Box className="kit-enter screen on sop-kit sop-inspection" sx={inspectionEditorSx}>
+    <EditorPage>
       <EditorHeader
         crumbs={[copy(pc, "crumb"), pc.title, sopName]}
         title={copy(pc, "inspection.title")}
@@ -217,112 +232,87 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, v
         backHref={basePath}
       />
 
-      {result ? (
-        <Alert severity={result.ok ? "info" : "warning"} style={{ marginBottom: 12 }} role="status">
-          {result.ok ? <Tag tone="ok">{copy(pc, "modal.builder.notice_ok")}</Tag> : <AlertTriangle className="ic" />} {result.message}
-          {result.report && !result.report.valid ? (
-            <ul className="small" style={{ margin: "6px 0 0 16px" }}>
-              {result.report.errors.slice(0, 6).map((e, i) => (
-                <li key={i}>{e.message}</li>
-              ))}
-            </ul>
-          ) : null}
-        </Alert>
-      ) : null}
+      <ResultNotice result={result} okLabel={copy(pc, "modal.builder.notice_ok")} />
 
-      <div>
-      <Card className="card inspection-page inspection-loadform">
-        <div className="inspection-page-head" style={{ cursor: "default" }}>
-          <span className="qnum">L</span>
-          <strong>{copy(pc, "inspection.loadform.title")}</strong>
-          <span className="muted small">{copy(pc, "inspection.loadform.subtitle")}</span>
-        </div>
-        <div className="bd">
-          <div className="qlist">
-            {rows.loadForm.map((q, qi) => (
-              <QuestionCard
-                key={q.id}
-                pc={pc}
-                copyPrefix={copyPrefix}
-                page={null}
-                pages={[]}
-                index={qi}
-                count={rows.loadForm.length}
-                q={q}
-                kinds={loadKinds}
-                captures={captures}
-                earlier={rows.loadForm.slice(0, qi)}
-                takenKeys={new Set(rows.loadForm.map((x) => x.key))}
-                savedKeys={savedKeys}
-                lockedKeys={LOCKED_LOAD_KEYS}
-                requiredKeys={REQUIRED_LOAD_KEYS}
-                onChange={(patch) => updateLoadQuestion(q.id, patch)}
-                onOptionRenamed={(from, to) => renameOptionRefs(q.key, from, to)}
-                onMove={(dir) => moveLoadQuestion(q.id, dir)}
-                onMovePage={() => undefined}
-                onRemove={() => removeLoadQuestion(q.id)}
-              />
-            ))}
-            <Button color="primary" variant="text" size="small" startIcon={<Plus size={14} />} onClick={addLoadQuestion}>
-              {copy(pc, "inspection.question.add")}
-            </Button>
-          </div>
-        </div>
-      </Card>
-      </div>
+      <EditorCard badge="L" title={copy(pc, "inspection.loadform.title")} meta={copy(pc, "inspection.loadform.subtitle")}>
+        <Stack spacing={1.5}>
+          {rows.loadForm.map((q, qi) => (
+            <QuestionCard
+              key={q.id}
+              pc={pc}
+              copyPrefix={copyPrefix}
+              page={null}
+              pages={[]}
+              index={qi}
+              count={rows.loadForm.length}
+              q={q}
+              kinds={loadKinds}
+              captures={captures}
+              earlier={rows.loadForm.slice(0, qi)}
+              takenKeys={new Set(rows.loadForm.map((x) => x.key))}
+              savedKeys={savedKeys}
+              lockedKeys={LOCKED_LOAD_KEYS}
+              requiredKeys={REQUIRED_LOAD_KEYS}
+              onChange={(patch) => updateLoadQuestion(q.id, patch)}
+              onOptionRenamed={(from, to) => renameOptionRefs(q.key, from, to)}
+              onMove={(dir) => moveLoadQuestion(q.id, dir)}
+              onMovePage={() => undefined}
+              onRemove={() => removeLoadQuestion(q.id)}
+            />
+          ))}
+          <AddButton label={copy(pc, "inspection.question.add")} onClick={addLoadQuestion} />
+        </Stack>
+      </EditorCard>
 
-      <div className="kit-enter qlist">
+      <Stack spacing={1.5}>
         {rows.pages.map((page, pi) => {
           const open = openPage === page.id;
           return (
-            <div key={page.id}>
-            <Card className="card inspection-page">
-              <button type="button" className="inspection-page-head" aria-expanded={open} onClick={() => setOpenPage(open ? "" : page.id)}>
-                <span className="qnum">{pi + 1}</span>
-                <strong>{page.title.trim() || `${copy(pc, "inspection.page")} ${pi + 1}`}</strong>
-                <span className="muted small">
-                  {page.questions.length} {copy(pc, page.questions.length === 1 ? "label.inspection_question" : "label.inspection_questions")}
-                </span>
-                {open ? <ChevronUp className="ic" /> : <ChevronDown className="ic" />}
-              </button>
+            <EditorCard
+              key={page.id}
+              badge={pi + 1}
+              title={page.title.trim() || `${copy(pc, "inspection.page")} ${pi + 1}`}
+              meta={`${page.questions.length} ${copy(pc, page.questions.length === 1 ? "label.inspection_question" : "label.inspection_questions")}`}
+              open={open}
+              onToggle={() => setOpenPage(open ? "" : page.id)}
+            >
               {open ? (
-                <div className="bd">
-                  <div className="qcfg">
-                    <div className="qcfg-head">
-                      <Typography variant="subtitle2" component="span">
-                        {copy(pc, "inspection.page")} {pi + 1}
-                      </Typography>
-                      <span className="inspection-page-actions">
-                        <IconButton type="button" size="small" className="ia" aria-label={copy(pc, "inspection.question.move_up")} disabled={pi === 0} onClick={() => movePage(page.id, -1)}>
-                          <ChevronUp className="ic" />
-                        </IconButton>
-                        <IconButton type="button" size="small" className="ia" aria-label={copy(pc, "inspection.question.move_down")} disabled={pi === rows.pages.length - 1} onClick={() => movePage(page.id, 1)}>
-                          <ChevronDown className="ic" />
-                        </IconButton>
-                        <IconButton type="button" size="small" className="ia del" aria-label={copy(pc, "inspection.page.remove")} disabled={rows.pages.length <= 1} onClick={() => removePage(page.id)}>
-                          <X className="ic" />
-                        </IconButton>
-                      </span>
-                    </div>
-                    <div className="rowf">
+                <>
+                  <ConfigBox
+                    title={`${copy(pc, "inspection.page")} ${pi + 1}`}
+                    action={
+                      <MoveActions
+                        upLabel={copy(pc, "inspection.question.move_up")}
+                        downLabel={copy(pc, "inspection.question.move_down")}
+                        removeLabel={copy(pc, "inspection.page.remove")}
+                        first={pi === 0}
+                        last={pi === rows.pages.length - 1}
+                        removeDisabled={rows.pages.length <= 1}
+                        onUp={() => movePage(page.id, -1)}
+                        onDown={() => movePage(page.id, 1)}
+                        onRemove={() => removePage(page.id)}
+                      />
+                    }
+                  >
+                    <FieldGrid>
                       <MuiTextField label={copy(pc, "inspection.page.title")}
-                          fullWidth
-                          size="small"
-                          value={page.title}
-                          placeholder={pi === 0 ? copy(pc, "inspection.page.first_untitled") : ""}
-                          onChange={(e) => {
-                            const title = e.target.value;
-                            updatePage(page.id, { title, key: keyForTitle(title, page.key, savedKeys, new Set(rows.pages.map((p) => p.key)), `page_${pi + 1}`) });
-                          }}
-                        />
+                        fullWidth
+                        size="small"
+                        value={page.title}
+                        placeholder={pi === 0 ? copy(pc, "inspection.page.first_untitled") : ""}
+                        onChange={(e) => {
+                          const title = e.target.value;
+                          updatePage(page.id, { title, key: keyForTitle(title, page.key, savedKeys, new Set(rows.pages.map((p) => p.key)), `page_${pi + 1}`) });
+                        }}
+                      />
                       <MuiTextField label={copy(pc, "inspection.page.hint")} fullWidth size="small" value={page.hint} onChange={(e) => updatePage(page.id, { hint: e.target.value })} />
-                    </div>
+                    </FieldGrid>
                     {!page.key ? (
                       <MuiTextField label={copy(pc, "inspection.question.key")} fullWidth size="small" value={page.key} onChange={(e) => updatePage(page.id, { key: e.target.value })} placeholder="page_key" />
                     ) : null}
-                  </div>
-                  <div className="qlist" style={{ marginTop: 10 }}>
-                    {page.questions.length === 0 ? <p className="muted">{copy(pc, "inspection.empty")}</p> : null}
+                  </ConfigBox>
+                  <Stack spacing={1.5}>
+                    {page.questions.length === 0 ? <Hint>{copy(pc, "inspection.empty")}</Hint> : null}
                     {page.questions.map((q, qi) => (
                       <QuestionCard
                         key={q.id}
@@ -347,41 +337,32 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, v
                         onRemove={() => removeQuestion(page.id, q.id)}
                       />
                     ))}
-                    <Button color="primary" variant="text" size="small" startIcon={<Plus size={14} />} onClick={() => addQuestion(page.id)}>
-                      {copy(pc, "inspection.question.add")}
-                    </Button>
-                  </div>
-                </div>
+                    <AddButton label={copy(pc, "inspection.question.add")} onClick={() => addQuestion(page.id)} />
+                  </Stack>
+                </>
               ) : null}
-            </Card>
-            </div>
+            </EditorCard>
           );
         })}
-        <Button color="primary" variant="outlined" size="small" startIcon={<Plus size={14} />} onClick={addPage}>
-          {copy(pc, "inspection.page.add")}
-        </Button>
-      </div>
+        <AddButton outlined label={copy(pc, "inspection.page.add")} onClick={addPage} />
+      </Stack>
 
-      <StickyActions>
-        <div>
-          <strong>{rows.pages.length}</strong> {copy(pc, rows.pages.length === 1 ? "label.inspection_page" : "label.inspection_pages")} · <strong>{questionCount}</strong> {copy(pc, questionCount === 1 ? "label.inspection_question" : "label.inspection_questions")}
-          {problems.length ? (
-            <ul className="small muted" style={{ margin: "4px 0 0 16px" }}>
-              {problems.slice(0, 5).map((p, i) => (
-                <li key={i}>{p}</li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
-        <span className="spacer" style={{ flex: 1 }} />
+      <StickyBar>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="body2" component="span">
+            <strong>{rows.pages.length}</strong> {copy(pc, rows.pages.length === 1 ? "label.inspection_page" : "label.inspection_pages")} · <strong>{questionCount}</strong> {copy(pc, questionCount === 1 ? "label.inspection_question" : "label.inspection_questions")}
+          </Typography>
+          <ProblemList items={problems} muted />
+        </Box>
+        <Spacer />
         <Button color="primary" variant="outlined" loading={pending} disabled={pending || problems.length > 0} onClick={() => submit(false)}>
           {copy(pc, "inspection.action.save_draft")}
         </Button>
-        <Button variant="contained" color="primary" startIcon={<Check size={16} />} disabled={pending || problems.length > 0} onClick={() => submit(true)}>
+        <Button variant="contained" color="primary" startIcon={<Iconify icon={EDITOR_ICON.check} />} disabled={pending || problems.length > 0} onClick={() => submit(true)}>
           {copy(pc, "inspection.action.publish")}
         </Button>
-      </StickyActions>
-    </Box>
+      </StickyBar>
+    </EditorPage>
   );
 }
 
@@ -419,10 +400,10 @@ function QuestionCard({
   const isVendor = q.kind === "vendor";
   const dep = earlier.find((e) => e.key === q.onlyIfQuestion);
   return (
-    <div className="qcard">
-      <div className="qhead">
-        <span className="qnum">{index + 1}</span>
-        <span className="qtype">
+    <QuestionShell
+      head={
+        <>
+          <NumBadge>{index + 1}</NumBadge>
           <InlineSelect
             label={copy(pc, "inspection.question.kind")}
             value={q.kind}
@@ -445,117 +426,27 @@ function QuestionCard({
               });
             }}
           />
-        </span>
-        {locked ? (
-          <span className="muted small" title={copy(pc, "inspection.notice.locked")}>
-            <Lock className="ic" style={{ width: 12 }} /> {q.key}
-          </span>
-        ) : null}
-        <span className="sp" style={{ flex: 1 }} />
-        <IconButton type="button" size="small" className="ia" aria-label={copy(pc, "inspection.question.move_up")} disabled={index === 0} onClick={() => onMove(-1)}>
-          <ChevronUp className="ic" />
-        </IconButton>
-        <IconButton type="button" size="small" className="ia" aria-label={copy(pc, "inspection.question.move_down")} disabled={index === count - 1} onClick={() => onMove(1)}>
-          <ChevronDown className="ic" />
-        </IconButton>
-        <IconButton type="button" size="small" className="ia del" aria-label={copy(pc, "inspection.question.remove")} disabled={locked} onClick={onRemove}>
-          <X className="ic" />
-        </IconButton>
-      </div>
-      <div className="qbody">
-        <MuiTextField
-            label={copy(pc, `${copyPrefix}.question.title`)}
-            fullWidth
-            size="small"
-            className="qtext"
-            value={q.title}
-            onChange={(e) => {
-              const title = e.target.value;
-              onChange({ title, key: keyForTitle(title, q.key, savedKeys, takenKeys) });
-            }}
+          {locked ? (
+            <LockedNote title={copy(pc, "inspection.notice.locked")}>{q.key}</LockedNote>
+          ) : null}
+          <Spacer />
+          <MoveActions
+            upLabel={copy(pc, "inspection.question.move_up")}
+            downLabel={copy(pc, "inspection.question.move_down")}
+            removeLabel={copy(pc, "inspection.question.remove")}
+            first={index === 0}
+            last={index === count - 1}
+            removeDisabled={locked}
+            onUp={() => onMove(-1)}
+            onDown={() => onMove(1)}
+            onRemove={onRemove}
           />
-        <MuiTextField label={copy(pc, "inspection.question.hint")} fullWidth multiline minRows={2} value={q.hint} onChange={(e) => onChange({ hint: e.target.value })} />
-        {!q.key && !locked ? (
-          <MuiTextField label={copy(pc, "inspection.question.key")} fullWidth size="small" value={q.key} onChange={(e) => onChange({ key: e.target.value })} />
-        ) : null}
-
-        {q.catalog ? (
-          <div className="qcfg">
-            <span className="muted small">
-              <Lock className="ic" style={{ width: 12 }} /> {copy(pc, "vendor_form.notice.catalog_choices")} <code>{q.catalog}</code>
-            </span>
-          </div>
-        ) : null}
-        {(q.kind === "choice" || q.kind === "multi") && !q.catalog ? (
-          <div className="qcfg">
-            <div className="qcfg-head">
-              <Typography variant="subtitle2" component="span">{copy(pc, "inspection.question.options")}</Typography>
-              {!optionsLocked ? (
-                <Button color="primary" variant="text" size="small" startIcon={<Plus size={14} />} onClick={() => onChange({ options: [...q.options, { value: "", label: "" }] })}>
-                  {copy(pc, "inspection.question.add_option")}
-                </Button>
-              ) : null}
-            </div>
-            {q.options.map((o, i) => (
-              <div className="optrow" key={i}>
-                <span className="optmark">{q.kind === "choice" ? <span className="optdot" /> : <span className="optbox" />}</span>
-                <MuiTextField
-                  fullWidth
-                  size="small"
-                  value={o.label}
-                  disabled={optionsLocked}
-                  onChange={(e) => {
-                    const label = e.target.value;
-                    // The wire value follows the label (unique within the question), so a renamed
-                    // Yes/No default becomes truck/tractor, never "yes" wearing a Truck label. The
-                    // "other" value is kept: it is what attaches the free text.
-                    const others = new Set(q.options.filter((_, j) => j !== i).map((y) => y.value));
-                    const value = o.value === "other" ? "other" : slugValue(label, others, "choice");
-                    const options = q.options.map((x, j) => (j === i ? { label, value } : x));
-                    onChange({ options });
-                    if (o.value && o.value !== value) onOptionRenamed(o.value, value);
-                  }}
-                />
-                {!optionsLocked ? (
-                  <IconButton type="button" size="small" className="ia del" aria-label={copy(pc, "inspection.question.remove")} onClick={() => onChange({ options: q.options.filter((_, j) => j !== i) })}>
-                    <X className="ic" />
-                  </IconButton>
-                ) : null}
-              </div>
-            ))}
-            {!optionsLocked ? (
-              <FormControlLabel className="chkline" control={<Checkbox checked={q.allowOther} onChange={(e) => onChange({ allowOther: e.target.checked })} sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<>{copy(pc, "inspection.question.allow_other")}</>} />
-            ) : null}
-          </div>
-        ) : null}
-
-        {q.kind === "media" ? (
-          <div className="qcfg">
-            <div className="rowf">
-              <InlineSelect
-                label={copy(pc, "inspection.question.accepts")}
-                value={q.accepts}
-                options={captures.map((c) => ({ value: c.key, label: c.label }))}
-                onChange={(next) => onChange({ accepts: next as CaptureKind })}
-              />
-              <MuiTextField label={copy(pc, "inspection.question.max_files")} size="small" type="number" slotProps={{ htmlInput: { min: 1, max: 10 } }} value={q.maxFiles} onChange={(e) => onChange({ maxFiles: Math.max(1, Math.min(10, Number(e.target.value) || 1)) })} />
-            </div>
-          </div>
-        ) : null}
-
-        {q.kind === "number" ? (
-          <div className="qcfg">
-            <div className="rowf">
-              <MuiTextField label={copy(pc, "inspection.question.min")} size="small" value={q.min} slotProps={{ htmlInput: { inputMode: "decimal" } }} onChange={(e) => onChange({ min: e.target.value })} />
-              <MuiTextField label={copy(pc, "inspection.question.max")} size="small" value={q.max} slotProps={{ htmlInput: { inputMode: "decimal" } }} onChange={(e) => onChange({ max: e.target.value })} />
-              <MuiTextField label={copy(pc, "inspection.question.unit")} size="small" value={q.unit} onChange={(e) => onChange({ unit: e.target.value })} />
-            </div>
-          </div>
-        ) : null}
-
-        <div className="qfoot">
-          <FormControlLabel className="chkline" disabled={requiredLocked} control={<Checkbox checked={q.required} onChange={(e) => onChange({ required: e.target.checked })} sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<>{copy(pc, "inspection.question.required")}</>} />
-          <span className="condrow">
+        </>
+      }
+      foot={
+        <>
+          <CheckLine disabled={requiredLocked} checked={q.required} onChange={(required) => onChange({ required })} label={copy(pc, "inspection.question.required")} />
+          <CondRow>
             {copy(pc, "inspection.question.only_if")}
             <InlineSelect
               label={copy(pc, "inspection.question.only_if")}
@@ -578,9 +469,9 @@ function QuestionCard({
                 />
               </>
             ) : null}
-          </span>
+          </CondRow>
           {page && pages.length > 1 ? (
-            <span className="condrow">
+            <CondRow>
               {copy(pc, "inspection.question.move_page")}
               <InlineSelect
                 label={copy(pc, "inspection.question.move_page")}
@@ -588,10 +479,100 @@ function QuestionCard({
                 options={pages.map((p, i) => ({ value: p.id, label: p.title.trim() || `${copy(pc, "inspection.page")} ${i + 1}` }))}
                 onChange={(next) => onMovePage(next)}
               />
-            </span>
+            </CondRow>
           ) : null}
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    >
+      <MuiTextField
+        label={copy(pc, `${copyPrefix}.question.title`)}
+        fullWidth
+        size="small"
+        value={q.title}
+        onChange={(e) => {
+          const title = e.target.value;
+          onChange({ title, key: keyForTitle(title, q.key, savedKeys, takenKeys) });
+        }}
+      />
+      <MuiTextField label={copy(pc, "inspection.question.hint")} fullWidth multiline minRows={2} value={q.hint} onChange={(e) => onChange({ hint: e.target.value })} />
+      {!q.key && !locked ? (
+        <MuiTextField label={copy(pc, "inspection.question.key")} fullWidth size="small" value={q.key} onChange={(e) => onChange({ key: e.target.value })} />
+      ) : null}
+
+      {q.catalog ? (
+        <ConfigBox>
+          <LockedNote>
+            {copy(pc, "vendor_form.notice.catalog_choices")} <Box component="code" sx={{ typography: "caption", fontFamily: "monospace" }}>{q.catalog}</Box>
+          </LockedNote>
+        </ConfigBox>
+      ) : null}
+      {(q.kind === "choice" || q.kind === "multi") && !q.catalog ? (
+        <ConfigBox
+          title={copy(pc, "inspection.question.options")}
+          action={
+            !optionsLocked ? (
+              <AddButton label={copy(pc, "inspection.question.add_option")} onClick={() => onChange({ options: [...q.options, { value: "", label: "" }] })} />
+            ) : null
+          }
+        >
+          {q.options.map((o, i) => (
+            <OptionRow
+              key={i}
+              multi={q.kind !== "choice"}
+              action={
+                !optionsLocked ? (
+                  <IconAction icon={EDITOR_ICON.remove} danger label={copy(pc, "inspection.question.remove")} onClick={() => onChange({ options: q.options.filter((_, j) => j !== i) })} />
+                ) : null
+              }
+            >
+              <MuiTextField
+                fullWidth
+                size="small"
+                value={o.label}
+                disabled={optionsLocked}
+                onChange={(e) => {
+                  const label = e.target.value;
+                  // The wire value follows the label (unique within the question), so a renamed
+                  // Yes/No default becomes truck/tractor, never "yes" wearing a Truck label. The
+                  // "other" value is kept: it is what attaches the free text.
+                  const others = new Set(q.options.filter((_, j) => j !== i).map((y) => y.value));
+                  const value = o.value === "other" ? "other" : slugValue(label, others, "choice");
+                  const options = q.options.map((x, j) => (j === i ? { label, value } : x));
+                  onChange({ options });
+                  if (o.value && o.value !== value) onOptionRenamed(o.value, value);
+                }}
+              />
+            </OptionRow>
+          ))}
+          {!optionsLocked ? (
+            <CheckLine checked={q.allowOther} onChange={(allowOther) => onChange({ allowOther })} label={copy(pc, "inspection.question.allow_other")} />
+          ) : null}
+        </ConfigBox>
+      ) : null}
+
+      {q.kind === "media" ? (
+        <ConfigBox>
+          <FieldGrid>
+            <InlineSelect
+              label={copy(pc, "inspection.question.accepts")}
+              value={q.accepts}
+              options={captures.map((c) => ({ value: c.key, label: c.label }))}
+              onChange={(next) => onChange({ accepts: next as CaptureKind })}
+            />
+            <MuiTextField label={copy(pc, "inspection.question.max_files")} size="small" type="number" slotProps={{ htmlInput: { min: 1, max: 10 } }} value={q.maxFiles} onChange={(e) => onChange({ maxFiles: Math.max(1, Math.min(10, Number(e.target.value) || 1)) })} />
+          </FieldGrid>
+        </ConfigBox>
+      ) : null}
+
+      {q.kind === "number" ? (
+        <ConfigBox>
+          <FieldGrid>
+            <MuiTextField label={copy(pc, "inspection.question.min")} size="small" value={q.min} slotProps={{ htmlInput: { inputMode: "decimal" } }} onChange={(e) => onChange({ min: e.target.value })} />
+            <MuiTextField label={copy(pc, "inspection.question.max")} size="small" value={q.max} slotProps={{ htmlInput: { inputMode: "decimal" } }} onChange={(e) => onChange({ max: e.target.value })} />
+            <MuiTextField label={copy(pc, "inspection.question.unit")} size="small" value={q.unit} onChange={(e) => onChange({ unit: e.target.value })} />
+          </FieldGrid>
+        </ConfigBox>
+      ) : null}
+    </QuestionShell>
   );
 }

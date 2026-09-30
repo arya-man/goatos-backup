@@ -4,11 +4,13 @@ import type { ReactNode } from "react";
 import { PageHeader } from "@/components/app/page-header";
 import { SegmentTabs } from "@/components/app/list/segment-tabs";
 import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
 import { Label } from "@/components/minimal/label";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
+import Stack from "@mui/material/Stack";
 import type { Theme } from "@mui/material/styles";
-import styles from "./editor-chrome.module.css";
+import { StickyBar } from "./editor-parts";
 
 /** `title` is the option's backend description (e.g. a toxin step kind's), shown as the menu item tooltip. */
 type SelectOption = { value: string; label: string; title?: string };
@@ -61,7 +63,7 @@ export function EditorHeader({
       {subtitle || notice ? (
         <Alert severity="info">
           {subtitle}
-          {notice ? <div>{notice}</div> : null}
+          {notice ? <Box component="span" sx={{ display: "block" }}>{notice}</Box> : null}
         </Alert>
       ) : null}
     </>
@@ -84,7 +86,6 @@ export function StudioViewToggle({
 }) {
   return (
     <SegmentTabs
-      className="studio-view-toggle"
       ariaLabel={label}
       value={value}
       tabs={[
@@ -122,9 +123,8 @@ export function InlineSelect({
       value={value}
       disabled={disabled}
       title={title}
-      className={styles.inlineSelect}
       onChange={(event) => onChange(event.target.value)}
-      sx={{ minWidth: { xs: 0, sm: minWidth }, flexShrink: 0, maxWidth: 1 }}
+      sx={{ minWidth: { xs: 0, sm: minWidth }, flex: "0 0 auto", alignSelf: "flex-start", width: "fit-content", maxWidth: 1 }}
       slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
     >
       {options.map((option) => (
@@ -161,9 +161,8 @@ export function FieldSelect({
       value={value}
       disabled={disabled}
       title={title}
-      className={styles.fieldSelect}
       onChange={(event) => onChange(event.target.value)}
-      sx={{ minWidth: { xs: 0, sm: minWidth }, flexShrink: 0, maxWidth: 1 }}
+      sx={{ mt: 1, minWidth: { xs: 0, sm: minWidth }, flex: "0 0 auto", alignSelf: "flex-start", width: "fit-content", maxWidth: 1 }}
       slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
     >
       {options.map((option) => (
@@ -176,13 +175,15 @@ export function FieldSelect({
 }
 
 export function FieldRow({ children }: { children: ReactNode }) {
-  return <div className={styles.fieldRow}>{children}</div>;
+  return (
+    <Stack direction="row" spacing={1.75} useFlexGap sx={{ flexWrap: "wrap", alignItems: "flex-end", mt: 1.25 }}>
+      {children}
+    </Stack>
+  );
 }
 
-/** Save / dry-run / publish bar that stays reachable while a long editor is scrolled. */
-export function StickyActions({ children }: { children: ReactNode }) {
-  return <div className={styles.stickyActions}>{children}</div>;
-}
+/** Save / dry-run / publish bar that stays reachable while a long editor is scrolled (template Card, editor-parts). */
+export const StickyActions = StickyBar;
 
 /**
  * Phone rhythm for the inspection-style SOP editors (inspection, weighing, feed, toxin, PC care,
@@ -206,4 +207,3 @@ export const inspectionEditorSx = (theme: Theme) => ({
 
 export { BodyPortal } from "@/components/app/body-portal";
 
-export { styles as editorChrome };
