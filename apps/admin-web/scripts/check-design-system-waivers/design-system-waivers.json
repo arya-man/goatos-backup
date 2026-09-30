@@ -10,7 +10,6 @@
     "legacy-table-paint|app/mesha-theme.css|.lt-page .lt-tablewrap tbody tr:has(.lt-tasklink):hover td",
     "legacy-table-paint|app/mesha-theme.css|.lt-page tr.is-selected td",
     "legacy-table-paint|app/mesha-theme.css|tbody tr:hover",
-    "legacy-table-paint|app/minimal-theme.css|.feed-table thead th",
     "legacy-table-paint|app/minimal-theme.css|.loadwise-table thead th",
     "legacy-table-paint|app/minimal-theme.css|.main tbody tr:hover>td",
     "legacy-table-paint|app/minimal-theme.css|.main tbody tr[data-selected=\"true\"]",
@@ -83,7 +82,6 @@
     "legacy-table-paint|app/mesha-theme.css|.lt-page .lt-tablewrap tbody tr:has(.lt-tasklink):hover td": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/mesha-theme.css|.lt-page tr.is-selected td": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/mesha-theme.css|tbody tr:hover": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
-    "legacy-table-paint|app/minimal-theme.css|.feed-table thead th": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/minimal-theme.css|.loadwise-table thead th": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/minimal-theme.css|.main tbody tr:hover>td": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/minimal-theme.css|.main tbody tr[data-selected=\"true\"]": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
@@ -200,26 +198,6 @@
       "allowed": 1,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: inline style={…} prop; use the theme sx. Shrink-only per file"
     },
-    "inline-style-prop|features/feed/feed-items-table.tsx": {
-      "allowed": 2,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: inline style={…} prop; use the theme sx. Shrink-only per file"
-    },
-    "inline-style-prop|features/feed/feed-lifecycle.tsx": {
-      "allowed": 6,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: inline style={…} prop; use the theme sx. Shrink-only per file"
-    },
-    "inline-style-prop|features/feed/feed-quantity.tsx": {
-      "allowed": 4,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: inline style={…} prop; use the theme sx. Shrink-only per file"
-    },
-    "inline-style-prop|features/feed/feed-stock-loads-table.tsx": {
-      "allowed": 2,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: inline style={…} prop; use the theme sx. Shrink-only per file"
-    },
-    "inline-style-prop|features/feed/range-coverage-note.tsx": {
-      "allowed": 1,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: inline style={…} prop; use the theme sx. Shrink-only per file"
-    },
     "inline-style-prop|features/leadership-tasks/new-task-modal.tsx": {
       "allowed": 1,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: inline style={…} prop; use the theme sx. Shrink-only per file"
@@ -332,26 +310,6 @@
       "allowed": 2,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: inline style={…} prop; use the theme sx. Shrink-only per file"
     },
-    "legacy-card-reachable|features/feed/feed-completion-table.tsx": {
-      "allowed": 2,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: hand-made card shell (className card/hd/bd/wchart/wtable/kpi/chartcard, <h2 className=\"h\">) in a file a route page imports; use the template section card (Card + CardHeader). Shrink-only per file"
-    },
-    "legacy-card-reachable|features/feed/feed-follow-up.tsx": {
-      "allowed": 2,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: hand-made card shell (className card/hd/bd/wchart/wtable/kpi/chartcard, <h2 className=\"h\">) in a file a route page imports; use the template section card (Card + CardHeader). Shrink-only per file"
-    },
-    "legacy-card-reachable|features/feed/feed-shed-feed-charts.tsx": {
-      "allowed": 2,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: hand-made card shell (className card/hd/bd/wchart/wtable/kpi/chartcard, <h2 className=\"h\">) in a file a route page imports; use the template section card (Card + CardHeader). Shrink-only per file"
-    },
-    "legacy-card-reachable|features/feed/feed-stock-loads-table.tsx": {
-      "allowed": 2,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: hand-made card shell (className card/hd/bd/wchart/wtable/kpi/chartcard, <h2 className=\"h\">) in a file a route page imports; use the template section card (Card + CardHeader). Shrink-only per file"
-    },
-    "legacy-card-reachable|features/feed/range-coverage-note.tsx": {
-      "allowed": 1,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: hand-made card shell (className card/hd/bd/wchart/wtable/kpi/chartcard, <h2 className=\"h\">) in a file a route page imports; use the template section card (Card + CardHeader). Shrink-only per file"
-    },
     "legacy-card-reachable|features/sops/feed-flow.tsx": {
       "allowed": 2,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: hand-made card shell (className card/hd/bd/wchart/wtable/kpi/chartcard, <h2 className=\"h\">) in a file a route page imports; use the template section card (Card + CardHeader). Shrink-only per file"
@@ -462,50 +420,6 @@
     },
     "legacy-class-use|features/calendar/calendar-drive-detail.tsx": {
       "allowed": 19,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
-    },
-    "legacy-class-use|features/feed/feed-completion-table.tsx": {
-      "allowed": 12,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
-    },
-    "legacy-class-use|features/feed/feed-direction.tsx": {
-      "allowed": 1,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
-    },
-    "legacy-class-use|features/feed/feed-follow-up.tsx": {
-      "allowed": 18,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
-    },
-    "legacy-class-use|features/feed/feed-items-table.tsx": {
-      "allowed": 5,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
-    },
-    "legacy-class-use|features/feed/feed-lifecycle.tsx": {
-      "allowed": 2,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
-    },
-    "legacy-class-use|features/feed/feed-packing.tsx": {
-      "allowed": 1,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
-    },
-    "legacy-class-use|features/feed/feed-pen-columns.tsx": {
-      "allowed": 8,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
-    },
-    "legacy-class-use|features/feed/feed-quantity.tsx": {
-      "allowed": 7,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
-    },
-    "legacy-class-use|features/feed/feed-shed-feed-charts.tsx": {
-      "allowed": 8,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
-    },
-    "legacy-class-use|features/feed/feed-stock-loads-table.tsx": {
-      "allowed": 30,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
-    },
-    "legacy-class-use|features/feed/range-coverage-note.tsx": {
-      "allowed": 1,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
     },
     "legacy-class-use|features/goat-passport/index.tsx": {
@@ -705,7 +619,7 @@
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
     },
     "legacy-css-rules|app/frame.css": {
-      "allowed": 119,
+      "allowed": 117,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a style rule in a legacy stylesheet or CSS module; style through template components + theme sx. Rule count per stylesheet is shrink-only, a new stylesheet has 0"
     },
     "legacy-css-rules|app/globals.css": {
@@ -713,7 +627,7 @@
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a style rule in a legacy stylesheet or CSS module; style through template components + theme sx. Rule count per stylesheet is shrink-only, a new stylesheet has 0"
     },
     "legacy-css-rules|app/mesha-theme.css": {
-      "allowed": 680,
+      "allowed": 636,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a style rule in a legacy stylesheet or CSS module; style through template components + theme sx. Rule count per stylesheet is shrink-only, a new stylesheet has 0"
     },
     "legacy-css-rules|app/minimal-theme.css": {
@@ -818,18 +732,6 @@
     },
     "lucide-import|features/calendar/calendar-event-drawer.tsx": {
       "allowed": 3,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/feed/feed-direction.tsx": {
-      "allowed": 1,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/feed/feed-lifecycle.tsx": {
-      "allowed": 8,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/feed/feed-packing.tsx": {
-      "allowed": 1,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
     },
     "lucide-import|features/leadership-tasks/edit-task-modal.tsx": {
@@ -1092,14 +994,6 @@
       "allowed": 9,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
     },
-    "raw-font-size|features/feed/feed-quantity.tsx": {
-      "allowed": 1,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
-    },
-    "raw-font-size|features/feed/range-coverage-note.tsx": {
-      "allowed": 1,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
-    },
     "raw-font-size|features/leadership-tasks/leadership-tasks-kit.css": {
       "allowed": 2,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
@@ -1221,10 +1115,6 @@
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: raw px or #hex literal in TS/TSX; use theme spacing / typography / palette tokens. Shrink-only per file"
     },
     "raw-px-hex-literal|features/configuration/sheet-drawer-parts.tsx": {
-      "allowed": 2,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: raw px or #hex literal in TS/TSX; use theme spacing / typography / palette tokens. Shrink-only per file"
-    },
-    "raw-px-hex-literal|features/feed/range-coverage-note.tsx": {
       "allowed": 2,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: raw px or #hex literal in TS/TSX; use theme spacing / typography / palette tokens. Shrink-only per file"
     },
@@ -1437,22 +1327,6 @@
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
     },
     "raw-px|features/feed/feed-config-editor.tsx": {
-      "allowed": 1,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
-    },
-    "raw-px|features/feed/feed-items-table.tsx": {
-      "allowed": 1,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
-    },
-    "raw-px|features/feed/feed-lifecycle.tsx": {
-      "allowed": 4,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
-    },
-    "raw-px|features/feed/feed-quantity.tsx": {
-      "allowed": 2,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
-    },
-    "raw-px|features/feed/range-coverage-note.tsx": {
       "allowed": 1,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
     },
