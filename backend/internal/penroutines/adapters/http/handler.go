@@ -22,7 +22,7 @@ import (
 
 // Service is the slice of the app service the assignee transport needs.
 type Service interface {
-	ListMine(ctx context.Context, tenantID, userID, filterKey string, limit int, cursor string) (ports.Page, error)
+	ListMine(ctx context.Context, tenantID, userID string, q app.ListQuery) (ports.Page, *domain.Tab, error)
 	GetTask(ctx context.Context, tenantID string, actor domain.Actor, taskID string) (domain.Task, error)
 	RecordPresence(ctx context.Context, p ports.PresenceParams) (domain.Task, error)
 	Submit(ctx context.Context, p ports.SubmitParams) (domain.Task, error)
@@ -71,7 +71,17 @@ func (h *Handler) ListMine(w http.ResponseWriter, r *http.Request) {
 		limit = parsed
 	}
 	actor := actorFrom(r)
-	page, err := h.service.ListMine(r.Context(), tenantID(r), actor.UserID, filterKey, limit, q.Get("cursor"))
+	shedID, partition, _ := strings.Cut(strings.TrimSpace(q.Get("pen")), "|")
+	page, tab, err := h.service.ListMine(r.Context(), tenantID(r), actor.UserID, app.ListQuery{
+		FilterKey:    filterKey,
+		Limit:        limit,
+		Cursor:       q.Get("cursor"),
+		TabKey:       q.Get("tab"),
+		DueFrom:      q.Get("due_from"),
+		DueTo:        q.Get("due_to"),
+		PenShedID:    shedID,
+		PenPartition: partition,
+	})
 	if err != nil {
 		writeErr(w, r, h.log, toAppError(err))
 		return
@@ -86,14 +96,20 @@ func (h *Handler) ListMine(w http.ResponseWriter, r *http.Request) {
 		c := page.NextCursor
 		next = &c
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, pagePayload{
+	out := pagePayload{
 		Title:      listTitle,
 		Rows:       rows,
 		NextCursor: next,
 		Filters:    toFilterPayloads(filterKey, page.StateCounts),
 		OpenCount:  domain.FilterCount(domain.FilterToDo, page.StateCounts),
+		PenOptions: toPenOptionPayloads(page.PenOptions),
 		TraceID:    traceID(r),
-	})
+	}
+	if tab != nil {
+		out.Title = tab.Label
+		out.Tab = &phoneTabPayload{Key: tab.Key, Label: tab.Label, Filters: tab.Filters}
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, out)
 }
 
 // GetTask serves GET /app/pen-routines/{task_id}.

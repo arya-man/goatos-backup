@@ -19,10 +19,17 @@ type fakeService struct {
 	presence  ports.PresenceParams
 	submitted ports.SubmitParams
 	submitErr error
+	listQuery app.ListQuery
 }
 
-func (f *fakeService) ListMine(_ context.Context, _, _, _ string, _ int, _ string) (ports.Page, error) {
-	return ports.Page{Rows: []domain.Task{f.task}, StateCounts: map[string]int{domain.WorkStateScheduled: 1, domain.WorkStateCompleted: 2}}, nil
+func (f *fakeService) ListMine(_ context.Context, _, _ string, q app.ListQuery) (ports.Page, *domain.Tab, error) {
+	f.listQuery = q
+	page := ports.Page{Rows: []domain.Task{f.task}, StateCounts: map[string]int{domain.WorkStateScheduled: 1, domain.WorkStateCompleted: 2}}
+	if q.TabKey == "" {
+		return page, nil, nil
+	}
+	page.PenOptions = []ports.PenOption{{ShedID: "s1", Partition: "2", Label: "Castro 2", ParkName: "Coimbatore", Count: 3}}
+	return page, &domain.Tab{Key: q.TabKey, Label: "Fumigation", Filters: []string{domain.TabFilterStatus, domain.TabFilterPen}}, nil
 }
 func (f *fakeService) GetTask(_ context.Context, _ string, actor domain.Actor, taskID string) (domain.Task, error) {
 	if !f.task.IsAssignee(actor) || taskID != f.task.TaskID {
@@ -208,6 +215,7 @@ func domainAnswerErr() error {
 type fakeAuthoring struct {
 	created domain.Definition
 	write   ports.WriteParams
+	tab     domain.Tab
 }
 
 func (f *fakeAuthoring) List(context.Context, string, string) ([]ports.RoutineListRow, []ports.Park, error) {
@@ -251,6 +259,24 @@ func (f *fakeAuthoring) SetStatus(_ context.Context, _ ports.WriteParams, _, sta
 }
 func (f *fakeAuthoring) ListTasks(context.Context, ports.ParkListParams) (ports.ParkPage, error) {
 	return ports.ParkPage{Rows: []domain.Task{fixtureTask()}, Summary: ports.ParkSummary{Due: 1}}, nil
+}
+func (f *fakeAuthoring) ListTabs(context.Context, string) ([]domain.Tab, error) {
+	return []domain.Tab{f.tab}, nil
+}
+func (f *fakeAuthoring) CreateTab(_ context.Context, w ports.WriteParams, t domain.Tab) (domain.Tab, error) {
+	f.write = w
+	t.TabID, t.Key, t.Status, t.RowVersion = "33333333-3333-4333-8333-333333333333", domain.TabKeyBase(t.Label), domain.TabStatusActive, 1
+	f.tab = t
+	return t, nil
+}
+func (f *fakeAuthoring) UpdateTab(_ context.Context, _ ports.WriteParams, t domain.Tab) (domain.Tab, error) {
+	f.tab = t
+	return t, nil
+}
+func (f *fakeAuthoring) SetTabStatus(_ context.Context, _ ports.WriteParams, _, status string, _ int) (domain.Tab, error) {
+	t := f.tab
+	t.Status = status
+	return t, nil
 }
 func (f *fakeAuthoring) Today() string { return "2026-09-16" }
 
@@ -379,5 +405,77 @@ func TestAdminCatalogEnablesQuestionProofAuthoringOnlyWithRolloutFlag(t *testing
 	}
 	if len(got) != 4 || got["none"] != "No proof" || got[domain.QuestionProofPhoto] != "Photo" || got[domain.QuestionProofVideo] != "Video" || got[domain.QuestionProofPhotoOrVideo] != "Photo or video" {
 		t.Fatalf("question proof kinds = %+v", cat.QuestionProofKinds)
+	}
+}
+
+// TestListOpenedFromAPhoneTabNarrowsAndNamesTheTab pins the phone-tab list contract: the tab,
+// date window and pen parameters reach the service parsed, the page is titled with the TAB's
+// label, and the tab's filters and pen options ride the response for the screen to render.
+func TestListOpenedFromAPhoneTabNarrowsAndNamesTheTab(t *testing.T) {
+	svc := &fakeService{task: fixtureTask()}
+	h := NewHandler(svc, nil)
+	rec := httptest.NewRecorder()
+	h.ListMine(rec, withActor(httptest.NewRequest(http.MethodGet, "/app/pen-routines?tab=fumigation&due_from=2026-10-01&due_to=2026-10-08&pen=s1%7C2", nil), "u-head"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %s", rec.Code, rec.Body.String())
+	}
+	q := svc.listQuery
+	if q.TabKey != "fumigation" || q.DueFrom != "2026-10-01" || q.DueTo != "2026-10-08" || q.PenShedID != "s1" || q.PenPartition != "2" {
+		t.Fatalf("query not parsed: %+v", q)
+	}
+	var body struct {
+		Title string `json:"title"`
+		Tab   *struct {
+			Key     string   `json:"key"`
+			Filters []string `json:"filters"`
+		} `json:"tab"`
+		PenOptions []struct {
+			Value string `json:"value"`
+			Label string `json:"label"`
+		} `json:"pen_options"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Title != "Fumigation" || body.Tab == nil || body.Tab.Key != "fumigation" || len(body.Tab.Filters) != 2 {
+		t.Fatalf("tab not rendered: %+v", body)
+	}
+	if len(body.PenOptions) != 1 || body.PenOptions[0].Value != "s1|2" || body.PenOptions[0].Label != "Castro 2" {
+		t.Fatalf("pen options = %+v", body.PenOptions)
+	}
+
+	// The Routines tab (no tab parameter) carries no tab and an empty pen list, never null.
+	rec = httptest.NewRecorder()
+	h.ListMine(rec, withActor(httptest.NewRequest(http.MethodGet, "/app/pen-routines", nil), "u-head"))
+	if strings.Contains(rec.Body.String(), `"tab":`) || !strings.Contains(rec.Body.String(), `"pen_options":[]`) {
+		t.Fatalf("routines tab body = %s", rec.Body.String())
+	}
+}
+
+// TestTabRoutesDecodeAndServeTheVocabulary pins the tab authoring transport: the create body
+// reaches the service, and the list carries the closed module / icon / filter vocabularies the
+// drawer renders verbatim.
+func TestTabRoutesDecodeAndServeTheVocabulary(t *testing.T) {
+	svc := &fakeAuthoring{}
+	h := NewAdminHandler(svc, nil)
+	req := httptest.NewRequest(http.MethodPost, "/admin/pen-routines/tabs", strings.NewReader(`{"label":"Fumigation","module_key":"pc_care","icon_key":"fumigation","filters":["pen","status"],"routine_ids":["11111111-1111-4111-8111-111111111111"]}`))
+	req.Header.Set("Idempotency-Key", "tab-1")
+	rec := httptest.NewRecorder()
+	h.CreateTab(rec, withActor(req, "u-ravi"))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body %s", rec.Code, rec.Body.String())
+	}
+	if svc.tab.ModuleKey != "pc_care" || svc.tab.IconKey != "fumigation" || len(svc.tab.RoutineIDs) != 1 || svc.write.IdempotencyKey != "tab-1" {
+		t.Fatalf("create body not decoded: %+v / %+v", svc.tab, svc.write)
+	}
+	if !strings.Contains(rec.Body.String(), `"module_label":"Preventive Care"`) || !strings.Contains(rec.Body.String(), `"key":"fumigation"`) {
+		t.Fatalf("create payload = %s", rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	h.ListTabs(rec, withActor(httptest.NewRequest(http.MethodGet, "/admin/pen-routines/tabs", nil), "u-ravi"))
+	for _, want := range []string{`"modules":[{"key":"pen_routines"`, `{"key":"fumigation","label":"Fumigation"}`, `"filters":[{"key":"status"`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("tab list lacks %s: %s", want, rec.Body.String())
+		}
 	}
 }

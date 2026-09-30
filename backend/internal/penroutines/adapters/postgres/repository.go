@@ -223,8 +223,32 @@ func (r *Repository) ListMine(ctx context.Context, p ports.ListParams) (ports.Pa
 	if len(states) == 0 {
 		states = []string{domain.WorkStateScheduled, domain.WorkStateDelayed}
 	}
-	args := []any{p.TenantID, p.UserID, states}
-	where := "t.tenant_id = $1 AND " + assigneePredicate + " AND t.work_state = ANY($3::text[])"
+	// base is the caller's routines narrowed by the tab, the due window and the pen -- the SAME
+	// predicate the rows, the chip counts and the pen options range over, so a chip never counts
+	// work its list does not show.
+	args := []any{p.TenantID, p.UserID}
+	base := "t.tenant_id = $1 AND " + assigneePredicate
+	if key := strings.TrimSpace(p.TabKey); key != "" {
+		args = append(args, key)
+		base += fmt.Sprintf(" AND t.routine_id IN (SELECT tdef.routine_id FROM pen_routine_definitions tdef JOIN pen_routine_tabs tb ON tb.tenant_id = tdef.tenant_id AND tb.tab_id = tdef.tab_id WHERE tdef.tenant_id = $1 AND tb.tab_key = $%d)", len(args))
+	}
+	if from := strings.TrimSpace(p.DueFrom); from != "" {
+		args = append(args, from)
+		base += fmt.Sprintf(" AND t.due_business_date >= $%d::date", len(args))
+	}
+	if to := strings.TrimSpace(p.DueTo); to != "" {
+		args = append(args, to)
+		base += fmt.Sprintf(" AND t.due_business_date <= $%d::date", len(args))
+	}
+	optionsBase, optionsArgs := base, append([]any(nil), args...)
+	if shed := strings.TrimSpace(p.PenShedID); shed != "" {
+		args = append(args, shed, strings.TrimSpace(p.PenPartition))
+		base += fmt.Sprintf(" AND t.shed_id = $%d::uuid AND COALESCE(t.partition_label, '') = $%d", len(args)-1, len(args))
+	}
+	countArgs := append([]any(nil), args...)
+	countBase := base
+	args = append(args, states)
+	where := base + fmt.Sprintf(" AND t.work_state = ANY($%d::text[])", len(args))
 	if p.Cursor != "" {
 		due, id, ok := decodeCursor(p.Cursor)
 		if !ok {
@@ -251,21 +275,50 @@ func (r *Repository) ListMine(ctx context.Context, p ports.ListParams) (ports.Pa
 		page.NextCursor = encodeCursor(last.DueDate, last.TaskID)
 	}
 	page.Rows = out
-	boundCounts := sqlbind.MustBind(sqlRepository3, p.TenantID, p.UserID)
+	boundCounts := sqlbind.MustBind(fmt.Sprintf(sqlRepositoryCounts, countBase), countArgs...)
 	countRows, err := r.pool.Query(ctx, boundCounts.SQL(), boundCounts.Args()...)
 	if err != nil {
 		return ports.Page{}, fmt.Errorf("pen routine: counts: %w", err)
 	}
-	defer countRows.Close()
 	for countRows.Next() {
 		var state string
 		var n int
 		if err := countRows.Scan(&state, &n); err != nil {
+			countRows.Close()
 			return ports.Page{}, err
 		}
 		page.StateCounts[state] = n
 	}
-	return page, countRows.Err()
+	countRows.Close()
+	if err := countRows.Err(); err != nil {
+		return ports.Page{}, err
+	}
+	if !p.WithPenOptions {
+		return page, nil
+	}
+	optionsArgs = append(optionsArgs, states)
+	optionsWhere := optionsBase + fmt.Sprintf(" AND t.work_state = ANY($%d::text[])", len(optionsArgs))
+	boundOptions := sqlbind.MustBind(fmt.Sprintf(sqlRepositoryPenOptions, optionsWhere), optionsArgs...)
+	optionRows, err := r.pool.Query(ctx, boundOptions.SQL(), boundOptions.Args()...)
+	if err != nil {
+		return ports.Page{}, fmt.Errorf("pen routine: pen options: %w", err)
+	}
+	defer optionRows.Close()
+	page.PenOptions = []ports.PenOption{}
+	for optionRows.Next() {
+		var o ports.PenOption
+		var shedName string
+		if err := optionRows.Scan(&o.ShedID, &o.Partition, &shedName, &o.ParkName, &o.Count); err != nil {
+			return ports.Page{}, err
+		}
+		partition := o.Partition
+		if oploc.NormalizePartition(partition) == oploc.WholeSentinel {
+			partition = ""
+		}
+		o.Label = oploc.OperationalLocation{ShedID: o.ShedID, ShedName: shedName, PartitionLabel: partition}.Display()
+		page.PenOptions = append(page.PenOptions, o)
+	}
+	return page, optionRows.Err()
 }
 
 func encodeCursor(due, id string) string { return due + "|" + id }
@@ -855,11 +908,26 @@ t.rework_reason, t.rolled_forward_count, t.delayed_since_business_date::text, t.
 ` + assigneesJSONSQL
 
 var (
-	sqlRepository3 = `
+	// sqlRepositoryCounts is the chip counts over the list's own predicate (%s, bound by the
+	// caller), every state.
+	sqlRepositoryCounts = `
 SELECT t.work_state, count(*)::int
 FROM pen_routine_tasks t
-WHERE t.tenant_id = $1 AND ` + assigneePredicate + `
+WHERE %s
 GROUP BY t.work_state`
+	// sqlRepositoryPenOptions is the pen picker: every pen the caller has work in under the
+	// list's tab, date and state filters (never its pen filter), with the count, bounded.
+	//
+	// projection-review: membership=pen_routine_tasks rows of the caller's routines under the list predicate; group_key=(shed_id, partition_label) plus the 1:1 shed and park names; join_cardinality=locations 1:1 on PK for both joins; pagination=LIMIT 500 pens; scope=tenant_id + assignee predicate + tab/date/state filters, the same predicate as the rows
+	sqlRepositoryPenOptions = `
+SELECT t.shed_id::text, COALESCE(t.partition_label, ''), COALESCE(NULLIF(shed.name, ''), shed.location_code, ''), COALESCE(park.name, ''), count(*)::int
+FROM pen_routine_tasks t
+LEFT JOIN locations park ON park.tenant_id = t.tenant_id AND park.location_id = t.park_id
+LEFT JOIN locations shed ON shed.tenant_id = t.tenant_id AND shed.location_id = t.shed_id
+WHERE %s AND t.shed_id IS NOT NULL
+GROUP BY t.shed_id, t.partition_label, shed.name, shed.location_code, park.name
+ORDER BY park.name, shed.name, t.partition_label
+LIMIT 500`
 	sqlRepository4 = `
 SELECT count(*)::int
 FROM pen_routine_tasks t

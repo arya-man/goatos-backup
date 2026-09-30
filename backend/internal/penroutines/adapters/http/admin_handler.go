@@ -25,6 +25,10 @@ type AuthoringService interface {
 	Update(ctx context.Context, w ports.WriteParams, d domain.Definition) (domain.Definition, error)
 	SetStatus(ctx context.Context, w ports.WriteParams, routineID, status string, rowVersion int) (domain.Definition, error)
 	ListTasks(ctx context.Context, p ports.ParkListParams) (ports.ParkPage, error)
+	ListTabs(ctx context.Context, tenantID string) ([]domain.Tab, error)
+	CreateTab(ctx context.Context, w ports.WriteParams, t domain.Tab) (domain.Tab, error)
+	UpdateTab(ctx context.Context, w ports.WriteParams, t domain.Tab) (domain.Tab, error)
+	SetTabStatus(ctx context.Context, w ports.WriteParams, tabID, status string, rowVersion int) (domain.Tab, error)
 	Today() string
 }
 
@@ -56,6 +60,81 @@ func RegisterAdmin(mux *http.ServeMux, h *AdminHandler) {
 	mux.HandleFunc("GET /admin/pen-routines/{routine_id}", h.Get)
 	mux.HandleFunc("PUT /admin/pen-routines/{routine_id}", h.Update)
 	mux.HandleFunc("POST /admin/pen-routines/{routine_id}/status", h.SetStatus)
+	mux.HandleFunc("GET /admin/pen-routines/tabs", h.ListTabs)
+	mux.HandleFunc("POST /admin/pen-routines/tabs", h.CreateTab)
+	mux.HandleFunc("PUT /admin/pen-routines/tabs/{tab_id}", h.UpdateTab)
+	mux.HandleFunc("POST /admin/pen-routines/tabs/{tab_id}/status", h.SetTabStatus)
+}
+
+// ListTabs serves GET /admin/pen-routines/tabs: every phone tab plus the drawer's vocabularies.
+func (h *AdminHandler) ListTabs(w http.ResponseWriter, r *http.Request) {
+	tabs, err := h.service.ListTabs(r.Context(), tenantID(r))
+	if err != nil {
+		writeErr(w, r, h.log, toAppError(err))
+		return
+	}
+	modules, icons, filters := tabVocabulary()
+	out := tabListPayload{Tabs: make([]tabPayload, 0, len(tabs)), Modules: modules, Icons: icons, Filters: filters, TraceID: traceID(r)}
+	for _, t := range tabs {
+		out.Tabs = append(out.Tabs, toTabPayload(t))
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, out)
+}
+
+// CreateTab serves POST /admin/pen-routines/tabs.
+func (h *AdminHandler) CreateTab(w http.ResponseWriter, r *http.Request) {
+	key, ok := idempotencyKey(w, r, h.log)
+	if !ok {
+		return
+	}
+	var body tabWrite
+	if !decode(w, r, h.log, &body) {
+		return
+	}
+	t, err := h.service.CreateTab(r.Context(), writeParams(r, key), body.toTab())
+	if err != nil {
+		writeErr(w, r, h.log, toAppError(err))
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusCreated, tabDetailPayload{Tab: toTabPayload(t), TraceID: traceID(r)})
+}
+
+// UpdateTab serves PUT /admin/pen-routines/tabs/{tab_id}.
+func (h *AdminHandler) UpdateTab(w http.ResponseWriter, r *http.Request) {
+	key, ok := idempotencyKey(w, r, h.log)
+	if !ok {
+		return
+	}
+	var body tabWrite
+	if !decode(w, r, h.log, &body) {
+		return
+	}
+	t := body.toTab()
+	t.TabID = r.PathValue("tab_id")
+	out, err := h.service.UpdateTab(r.Context(), writeParams(r, key), t)
+	if err != nil {
+		writeErr(w, r, h.log, toAppError(err))
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, tabDetailPayload{Tab: toTabPayload(out), TraceID: traceID(r)})
+}
+
+// SetTabStatus serves POST /admin/pen-routines/tabs/{tab_id}/status.
+func (h *AdminHandler) SetTabStatus(w http.ResponseWriter, r *http.Request) {
+	key, ok := idempotencyKey(w, r, h.log)
+	if !ok {
+		return
+	}
+	var body statusWrite
+	if !decode(w, r, h.log, &body) {
+		return
+	}
+	out, err := h.service.SetTabStatus(r.Context(), writeParams(r, key), r.PathValue("tab_id"), body.Status, body.RowVersion)
+	if err != nil {
+		writeErr(w, r, h.log, toAppError(err))
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, tabDetailPayload{Tab: toTabPayload(out), TraceID: traceID(r)})
 }
 
 // List serves GET /admin/pen-routines?park_id.

@@ -21,6 +21,7 @@ type Service struct {
 	repo   ports.Repository
 	now    func() time.Time
 	badges ModuleBadgeSource
+	tabs   ModuleTabSource
 	logger *slog.Logger
 	// cutoffs serves the tenant's feed & water removal cutoff on /app/bootstrap
 	// (maintainer decision 2026-09-07: config, not code) so the phone's plan
@@ -82,6 +83,30 @@ func (s *Service) feedWaterRemovalCutoffTime(ctx context.Context, tenantID strin
 // implement it badges the module only, and the phone puts that number on the module's landing tab.
 type NavItemBadgeSource interface {
 	NavItemBadgeCounts(ctx context.Context, tenantID, userID string, hrefs []string) (map[string]int, error)
+}
+
+// ModuleTab is one phone tab defined on the web (maintainer instruction 2026-10-01,
+// docs/decisions/simple-task-phone-tabs.md): a simple task's own bar item, placed in a module's
+// bottom bar. The source decides WHICH tabs a person gets (the ones holding work they owe); the
+// bootstrap decides only where they go.
+type ModuleTab struct {
+	ModuleKey string
+	Key       string
+	Label     string
+	Href      string
+	Icon      string
+}
+
+// ModuleTabSource answers the web-defined phone tabs one person's bar carries.
+type ModuleTabSource interface {
+	ModuleTabs(ctx context.Context, tenantID, userID string) ([]ModuleTab, error)
+}
+
+// WithModuleTabs wires the phone tab source. Optional: without it no bar carries a
+// web-defined tab.
+func (s *Service) WithModuleTabs(src ModuleTabSource) *Service {
+	s.tabs = src
+	return s
 }
 
 // WithModuleBadges wires the badge source. Optional: without it every badge is 0.
@@ -620,6 +645,9 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 	navChrome := navChromeFor(grants, bootstrapModules)
 	visibleNav := visibleNavigationForTicks(scope, moduleKeysForBootstrap, localeTag, tickedModules)
 	visibleNav, bootstrapModules = applyProfileEntryPlacement(navChrome, visibleNav, bootstrapModules)
+	if scope.has(permissions.PenRoutinesExecute) {
+		visibleNav = s.applyModuleTabs(ctx, tenantID, actorID, visibleNav, bootstrapModules)
+	}
 	s.applyModuleBadges(ctx, tenantID, actorID, bootstrapModules)
 	profile.PrimaryRoleLabel = roleHintLabel(profile.PrimaryRoleHint, localeTag)
 	<-capsDone
@@ -1087,6 +1115,99 @@ func optionSourcesFor(grants []domain.GrantSummary) []domain.BootstrapOptionSour
 		}
 	}
 	return items
+}
+
+// applyModuleTabs places each web-defined phone tab in its module's bar, before the trailing
+// "You" item. A tab whose module this person is not served falls back to their Routines module
+// (they hold it: the tab exists for them only because they owe a routine), so the work is never
+// stranded; with neither served, the tab is skipped. When the active bar is the module that
+// gained a tab, visible_navigation follows it, keeping visible_navigation == modules[i].nav_items.
+// A source error degrades to no tabs: the bootstrap is the phone's whole workspace.
+func (s *Service) applyModuleTabs(ctx context.Context, tenantID, userID string, visibleNav []domain.BootstrapNavigationItem, modules []domain.BootstrapModule) []domain.BootstrapNavigationItem {
+	if s.tabs == nil || len(modules) == 0 {
+		return visibleNav
+	}
+	tabs, err := s.tabs.ModuleTabs(ctx, tenantID, userID)
+	if err != nil {
+		if s.logger != nil {
+			s.logger.WarnContext(ctx, "bootstrap: phone tabs unavailable", "tenant_id", tenantID, "error", err)
+		}
+		return visibleNav
+	}
+	return placeModuleTabs(tabs, visibleNav, modules)
+}
+
+// placeModuleTabs is applyModuleTabs' pure half.
+func placeModuleTabs(tabs []ModuleTab, visibleNav []domain.BootstrapNavigationItem, modules []domain.BootstrapModule) []domain.BootstrapNavigationItem {
+	if len(tabs) == 0 {
+		return visibleNav
+	}
+	active := -1
+	for i := range modules {
+		if sameNavHrefs(modules[i].NavItems, visibleNav) {
+			active = i
+			break
+		}
+	}
+	indexOf := func(key string) int {
+		for i := range modules {
+			if modules[i].Key == key && modules[i].Status == moduleStatusAvailable {
+				return i
+			}
+		}
+		return -1
+	}
+	touchedActive := false
+	for _, tab := range tabs {
+		target := indexOf(tab.ModuleKey)
+		if target < 0 {
+			target = indexOf("pen_routines")
+		}
+		if target < 0 {
+			continue
+		}
+		item := domain.BootstrapNavigationItem{Key: "routine_tab_" + tab.Key, Label: tab.Label, Href: tab.Href, Icon: tab.Icon}
+		modules[target].NavItems = insertBeforeYou(modules[target].NavItems, item)
+		if target == active {
+			touchedActive = true
+		}
+	}
+	if touchedActive {
+		return append([]domain.BootstrapNavigationItem(nil), modules[active].NavItems...)
+	}
+	return visibleNav
+}
+
+func sameNavHrefs(a, b []domain.BootstrapNavigationItem) bool {
+	if len(a) != len(b) || len(a) == 0 {
+		return false
+	}
+	for i := range a {
+		if a[i].Href != b[i].Href {
+			return false
+		}
+	}
+	return true
+}
+
+// insertBeforeYou adds item ahead of the bar's "You" entry (last otherwise), once per href.
+func insertBeforeYou(items []domain.BootstrapNavigationItem, item domain.BootstrapNavigationItem) []domain.BootstrapNavigationItem {
+	for _, existing := range items {
+		if existing.Href == item.Href {
+			return items
+		}
+	}
+	at := len(items)
+	for i, existing := range items {
+		if existing.Key == navItemKeyYou {
+			at = i
+			break
+		}
+	}
+	out := make([]domain.BootstrapNavigationItem, 0, len(items)+1)
+	out = append(out, items[:at]...)
+	out = append(out, item)
+	return append(out, items[at:]...)
 }
 
 // applyModuleBadges fills BootstrapModule.BadgeCount from the badge source for the modules

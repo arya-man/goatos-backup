@@ -13845,6 +13845,8 @@ export interface components {
             href: string;
             /** @description Backend-owned attention count THIS bar item shows (maintainer decision 2026-09-07). A module with two tabs carries two numbers -- unseen asks on Raised by me, pens still owed on For me -- so the module badge alone could sit on only one of them. Absent or 0 renders nothing; the module's badge_count stays the drawer's number. */
             badge_count?: number;
+            /** @description An authored icon key from the closed phone-tab icon set, carried only by a phone tab defined on the web (docs/decisions/simple-task-phone-tabs.md, key routine_tab_<key>, href /pen-routines/tab/<key>). Absent on every other item, which the client draws from its key. */
+            icon?: string;
         };
         /** @description A drawer entry: the module's identity plus the bottom-bar items it contributes. `status` is `available` (built, tappable) or `soon` (declared roadmap, disabled row). */
         BootstrapModule: {
@@ -21507,7 +21509,29 @@ export interface components {
             filters: components["schemas"]["PenRoutineFilter"][];
             /** @description Checks still to do on the routines the caller is assigned to. */
             open_count: number;
+            tab?: components["schemas"]["PenRoutinePhoneTab"];
+            /** @description The pen picker's options when the tab offers the pen filter (tab, date and chip filters applied, never the pen filter); empty otherwise. */
+            pen_options: components["schemas"]["PenRoutinePenOption"][];
             trace_id: string;
+        };
+        /** @description The phone tab the list was opened from; absent on the Routines tab. */
+        PenRoutinePhoneTab: {
+            key: string;
+            /** @description The screen title */
+            label: string;
+            /** @description The controls the screen offers, in display order. */
+            filters: ("status" | "date" | "pen")[];
+        };
+        PenRoutinePenOption: {
+            /** @description Pass back as the pen parameter. */
+            value: string;
+            /** Format: uuid */
+            shed_id: string;
+            partition_label: string;
+            /** @description The operational location display (oploc). */
+            label: string;
+            park_name: string;
+            count: number;
         };
         /** @description What the phone captured when the punch was made; every field optional and recorded as given (nothing is refused by distance). */
         PenRoutinePresenceLocation: {
@@ -28718,6 +28742,14 @@ export interface operations {
                 limit?: number;
                 /** @description Keyset cursor from a previous page's next_cursor. */
                 cursor?: string;
+                /** @description The phone tab key (docs/decisions/simple-task-phone-tabs.md). Narrows the list, its counts and its pen options to the routines placed on that tab, and answers the tab itself. Absent = the Routines tab, every routine. */
+                tab?: string;
+                /** @description Inclusive start of the due-date window. */
+                due_from?: string;
+                /** @description Inclusive end of the due-date window. */
+                due_to?: string;
+                /** @description One pen, as a pen_options[].value from a previous response ("<shed_id>|<partition_label>"). */
+                pen?: string;
             };
             header?: never;
             path?: never;

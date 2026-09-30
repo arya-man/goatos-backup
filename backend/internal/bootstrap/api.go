@@ -1002,6 +1002,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	workforceService.WithModuleBadges(countshttp.NewApprovalsBadges(
 		penroutinesapp.NewModuleBadges(penvisitsapp.NewModuleBadges(leadershipTasksService, penVisitsService), penRoutinesService),
 		countsApprovalService))
+	// Web-defined phone tabs (docs/decisions/simple-task-phone-tabs.md): a simple task placed on
+	// its own bar item in a module's bottom bar, for the people who owe it.
+	workforceService.WithModuleTabs(penRoutineModuleTabs{src: penroutinesapp.NewPhoneTabSource(penRoutinesRepo)})
 	// The sales module: its own bounded ledger (sales_*) with a thin service -- a commercial
 	// record with no state machine to orchestrate.
 	// The feed store is wired in so a sale taking more feed than it holds asks the desk to confirm

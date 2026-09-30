@@ -19,6 +19,8 @@ var (
 	ErrNameTaken              = errors.New("pen routine: a routine with this name already exists in the park")
 	ErrParkImmutable          = errors.New("pen routine: a routine's park cannot change")
 	ErrRoutineVersionConflict = errors.New("pen routine: the routine changed since it was loaded")
+	ErrTabNotFound            = errors.New("pen routine: phone tab not found")
+	ErrTabVersionConflict     = errors.New("pen routine: the phone tab changed since it was loaded")
 )
 
 // ListParams selects one page of the tasks owed on the routines whose roles the caller holds
@@ -29,6 +31,28 @@ type ListParams struct {
 	States   []string
 	Limit    int
 	Cursor   string
+	// TabKey narrows the list to the routines placed on one phone tab ("" = every routine,
+	// the Routines tab).
+	TabKey string
+	// DueFrom / DueTo (YYYY-MM-DD, inclusive) narrow by due date; "" leaves that end open.
+	DueFrom string
+	DueTo   string
+	// PenShedID / PenPartition narrow to one pen ("" shed = every pen). The partition is the
+	// human label ("" for an undivided shed).
+	PenShedID    string
+	PenPartition string
+	// WithPenOptions asks for the pen picker's options (the tab offers the pen filter).
+	WithPenOptions bool
+}
+
+// PenOption is one pen the list's pen picker offers: a pen the caller has work in under the
+// same tab and date filters, with how many tasks it holds.
+type PenOption struct {
+	ShedID    string
+	Partition string
+	Label     string
+	ParkName  string
+	Count     int
 }
 
 // Page is one page plus the whole-list counts the chips show.
@@ -38,6 +62,8 @@ type Page struct {
 	// StateCounts range over the SAME role-holder predicate as the rows (never page-local,
 	// never tenant-wide), keyed by work state.
 	StateCounts map[string]int
+	// PenOptions is filled only when ListParams.WithPenOptions is set.
+	PenOptions []PenOption
 }
 
 // PresenceParams records one check-in / check-out punch on a task.
@@ -232,6 +258,24 @@ type Repository interface {
 	// ListRoutineAssignees is the batched preview of who currently holds each routine's roles
 	// in its park, keyed by routine id, bounded per routine.
 	ListRoutineAssignees(ctx context.Context, tenantID string, routineIDs []string) (map[string][]domain.Assignee, error)
+
+	// --- phone tabs ---
+	// ListTabs lists the tenant's tabs (active and retired), each with the routines placed on it.
+	ListTabs(ctx context.Context, tenantID string) ([]domain.Tab, error)
+	// GetTabByKey reads one tab by its route key.
+	GetTabByKey(ctx context.Context, tenantID, key string) (domain.Tab, error)
+	// CreateTab writes a tab (its key derived from the label, unique in the tenant) and places
+	// the named routines on it, in one transaction under the idempotency key.
+	CreateTab(ctx context.Context, w WriteParams, t domain.Tab) (domain.Tab, error)
+	// UpdateTab rewrites the tab and REPLACES its routines, fenced on t.RowVersion. The key
+	// never changes.
+	UpdateTab(ctx context.Context, w WriteParams, t domain.Tab) (domain.Tab, error)
+	// SetTabStatus retires or restores a tab. A retired tab leaves every bar; its routines keep
+	// raising work and read in Routines.
+	SetTabStatus(ctx context.Context, w WriteParams, tabID, status string, rowVersion int) (domain.Tab, error)
+	// PhoneTabsFor lists the active tabs one person's bar carries: tabs holding at least one
+	// active routine that person owes, under the same assignee predicate as the task list.
+	PhoneTabsFor(ctx context.Context, tenantID, userID string) ([]domain.PhoneTab, error)
 
 	// --- tasks ---
 	ListMine(ctx context.Context, p ListParams) (Page, error)

@@ -63,14 +63,66 @@ func ClampPageSize(limit int) int {
 }
 
 // ListMine pages the caller's own tasks for one chip.
-func (s *Service) ListMine(ctx context.Context, tenantID, userID, filterKey string, limit int, cursor string) (ports.Page, error) {
-	return s.repo.ListMine(ctx, ports.ListParams{
+// ListQuery is one phone list request: the chip, the page, and the tab's own filters.
+type ListQuery struct {
+	FilterKey string
+	Limit     int
+	Cursor    string
+	// TabKey names the phone tab the list is opened from ("" = the Routines tab, every routine).
+	TabKey string
+	// DueFrom / DueTo are the date window (YYYY-MM-DD); PenShedID / PenPartition the pen.
+	DueFrom, DueTo          string
+	PenShedID, PenPartition string
+}
+
+// ListMine lists the caller's routine checks. Opened from a phone tab, it lists only that tab's
+// routines and answers the tab itself (label and filters) so the screen renders what was authored.
+func (s *Service) ListMine(ctx context.Context, tenantID, userID string, q ListQuery) (ports.Page, *domain.Tab, error) {
+	params := ports.ListParams{
 		TenantID: tenantID,
 		UserID:   userID,
-		States:   domain.StatesForFilter(domain.FilterKeyOrDefault(filterKey)),
-		Limit:    ClampPageSize(limit),
-		Cursor:   strings.TrimSpace(cursor),
-	})
+		States:   domain.StatesForFilter(domain.FilterKeyOrDefault(q.FilterKey)),
+		Limit:    ClampPageSize(q.Limit),
+		Cursor:   strings.TrimSpace(q.Cursor),
+	}
+	for _, d := range []string{q.DueFrom, q.DueTo} {
+		if d = strings.TrimSpace(d); d != "" {
+			if _, err := time.Parse("2006-01-02", d); err != nil {
+				return ports.Page{}, nil, ports.ErrInvalidArgument
+			}
+		}
+	}
+	params.DueFrom, params.DueTo = strings.TrimSpace(q.DueFrom), strings.TrimSpace(q.DueTo)
+	if shed := strings.TrimSpace(q.PenShedID); shed != "" {
+		if !uuidutil.IsUUIDString(shed) {
+			return ports.Page{}, nil, ports.ErrInvalidArgument
+		}
+		params.PenShedID, params.PenPartition = shed, strings.TrimSpace(q.PenPartition)
+	}
+	var tab *domain.Tab
+	if key := strings.TrimSpace(q.TabKey); key != "" {
+		t, err := s.repo.GetTabByKey(ctx, tenantID, key)
+		if err != nil {
+			return ports.Page{}, nil, err
+		}
+		tab = &t
+		params.TabKey = t.Key
+		params.WithPenOptions = containsString(t.Filters, domain.TabFilterPen)
+	}
+	page, err := s.repo.ListMine(ctx, params)
+	if err != nil {
+		return ports.Page{}, nil, err
+	}
+	return page, tab, nil
+}
+
+func containsString(list []string, want string) bool {
+	for _, v := range list {
+		if v == want {
+			return true
+		}
+	}
+	return false
 }
 
 // GetTask reads one task the caller is assigned to. Anyone else's task reads as not found:

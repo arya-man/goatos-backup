@@ -1928,6 +1928,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/pen-routines/tabs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every phone tab defined on the web, with the drawer's closed vocabularies.
+         * @description Phone tabs (maintainer instruction 2026-10-01, docs/decisions/simple-task-phone-tabs.md): a simple task -- a routine -- appears on its own bottom-bar item in a chosen phone module. Lists every tab (active first) with the routines placed on it, plus the modules, icons and filters a tab may use, rendered verbatim. Needs pen_routines.read.
+         */
+        get: operations["listPenRoutineTabs"];
+        put?: never;
+        /**
+         * Define a phone tab and place routines on it.
+         * @description The route key is derived from the label and never changes. routine_ids moves each named routine onto this tab (a routine sits on one tab). Needs pen_routines.configure. Idempotent on the Idempotency-Key header.
+         */
+        post: operations["createPenRoutineTab"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/pen-routines/tabs/{tab_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Edit a phone tab and replace its routines.
+         * @description Rewrites label, module, icon and filters, and makes routine_ids exactly the tab's routines. Fenced on row_version. Needs pen_routines.configure. Idempotent on the Idempotency-Key header.
+         */
+        put: operations["updatePenRoutineTab"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/pen-routines/tabs/{tab_id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retire or restore a phone tab.
+         * @description A retired tab leaves every bar; its routines keep raising work and read in Routines. Restoring puts it back as it was. Fenced on row_version. Needs pen_routines.configure. Idempotent on the Idempotency-Key header.
+         */
+        post: operations["setPenRoutineTabStatus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/configuration/registers": {
         parameters: {
             query?: never;
@@ -5476,6 +5540,57 @@ export interface components {
             rows: components["schemas"]["PenRoutineRow"][];
             parks: components["schemas"]["PenRoutinePark"][];
             trace_id: string;
+        };
+        PenRoutineTabRoutine: {
+            /** Format: uuid */
+            routine_id: string;
+            name: string;
+            park_name: string;
+        };
+        /** @description One phone tab defined on the web (docs/decisions/simple-task-phone-tabs.md). */
+        PenRoutineTab: {
+            /** Format: uuid */
+            tab_id: string;
+            /** @description The route key (/pen-routines/tab/<key> on the phone); fixed at create. */
+            key: string;
+            label: string;
+            /** @description The phone module whose bottom bar carries the tab. */
+            module_key: string;
+            module_label: string;
+            icon_key: string;
+            filters: ("status" | "date" | "pen")[];
+            /** @enum {string} */
+            status: "active" | "retired";
+            routines: components["schemas"]["PenRoutineTabRoutine"][];
+            row_version: number;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        PenRoutineTabListResponse: {
+            tabs: components["schemas"]["PenRoutineTab"][];
+            modules: components["schemas"]["PenRoutineKeyLabel"][];
+            icons: components["schemas"]["PenRoutineKeyLabel"][];
+            filters: components["schemas"]["PenRoutineKeyLabel"][];
+            trace_id: string;
+        };
+        PenRoutineTabDetailResponse: {
+            tab: components["schemas"]["PenRoutineTab"];
+            trace_id: string;
+        };
+        PenRoutineTabWrite: {
+            label: string;
+            module_key: string;
+            icon_key: string;
+            filters?: ("status" | "date" | "pen")[];
+            /** @description REPLACES the tab's routines; each named routine leaves whichever tab it was on. */
+            routine_ids?: string[];
+            /** @description Update only; the version the drawer loaded with */
+            row_version?: number;
+        };
+        PenRoutineTabStatusWrite: {
+            /** @enum {string} */
+            status: "active" | "retired";
+            row_version?: number;
         };
         PenRoutineDetailResponse: {
             routine: components["schemas"]["PenRoutineRow"];
@@ -9739,6 +9854,155 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["WriteConflict"];
             /** @description Unknown status (invalid_routine). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listPenRoutineTabs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tabs and vocabularies. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PenRoutineTabListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    createPenRoutineTab: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PenRoutineTabWrite"];
+            };
+        };
+        responses: {
+            /** @description The new tab. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PenRoutineTabDetailResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            /** @description The tab is not valid (invalid_tab). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    updatePenRoutineTab: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tab_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PenRoutineTabWrite"];
+            };
+        };
+        responses: {
+            /** @description The tab. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PenRoutineTabDetailResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["WriteConflict"];
+            /** @description The tab is not valid (invalid_tab). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    setPenRoutineTabStatus: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tab_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PenRoutineTabStatusWrite"];
+            };
+        };
+        responses: {
+            /** @description The tab with its new status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PenRoutineTabDetailResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["WriteConflict"];
+            /** @description Unknown status (invalid_tab). */
             422: {
                 headers: {
                     [name: string]: unknown;

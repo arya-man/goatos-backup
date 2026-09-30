@@ -504,6 +504,11 @@ var protectedRoutes = []Route{
 	{OperationID: "getPenRoutine", Method: "GET", Pattern: "/admin/pen-routines/{routine_id}", Permissions: []string{PenRoutinesRead}},
 	{OperationID: "updatePenRoutine", Method: "PUT", Pattern: "/admin/pen-routines/{routine_id}", Permissions: []string{PenRoutinesConfigure}},
 	{OperationID: "setPenRoutineStatus", Method: "POST", Pattern: "/admin/pen-routines/{routine_id}/status", Permissions: []string{PenRoutinesConfigure}},
+	// Phone tabs (docs/decisions/simple-task-phone-tabs.md): where a routine appears on the phone.
+	{OperationID: "listPenRoutineTabs", Method: "GET", Pattern: "/admin/pen-routines/tabs", Permissions: []string{PenRoutinesRead}},
+	{OperationID: "createPenRoutineTab", Method: "POST", Pattern: "/admin/pen-routines/tabs", Permissions: []string{PenRoutinesConfigure}},
+	{OperationID: "updatePenRoutineTab", Method: "PUT", Pattern: "/admin/pen-routines/tabs/{tab_id}", Permissions: []string{PenRoutinesConfigure}},
+	{OperationID: "setPenRoutineTabStatus", Method: "POST", Pattern: "/admin/pen-routines/tabs/{tab_id}/status", Permissions: []string{PenRoutinesConfigure}},
 
 	// CONFIGURATION -> ITEMS AND SETTINGS (maintainer instruction 2026-09-18): the farm's
 	// reference registers (farms / parks / pens / partitions, species / sexes / stages, item

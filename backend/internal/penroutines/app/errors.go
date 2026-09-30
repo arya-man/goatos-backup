@@ -121,6 +121,12 @@ func HTTPError(err error) *Error {
 		return Unprocessable("invalid_routine", withDetail("The routine is not valid.", err, domain.ErrInvalidRoutine))
 	case errors.Is(err, ports.ErrNameTaken):
 		return Conflict("name_taken", "A routine with this name already exists in this park.")
+	case errors.Is(err, domain.ErrInvalidTab):
+		return Unprocessable("invalid_tab", withDetail("The phone tab is not valid.", err, domain.ErrInvalidTab))
+	case errors.Is(err, ports.ErrTabNotFound):
+		return NotFound("tab_not_found", "This phone tab is no longer available.")
+	case errors.Is(err, ports.ErrTabVersionConflict):
+		return Conflict("stale_tab", "This phone tab changed since you opened it. Reload and try again.")
 	case errors.Is(err, ports.ErrParkImmutable):
 		return Unprocessable("park_immutable", "A routine's park cannot change. Retire it and create one in the other park.")
 	}

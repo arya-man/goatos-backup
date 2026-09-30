@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/penroutines/domain"
 	"github.com/vgoats/goatos/backend/internal/penroutines/ports"
@@ -32,7 +33,115 @@ type pagePayload struct {
 	NextCursor *string         `json:"next_cursor"`
 	Filters    []filterPayload `json:"filters"`
 	OpenCount  int             `json:"open_count"`
-	TraceID    string          `json:"trace_id"`
+	// Tab is the phone tab the list was opened from (absent on the Routines tab): its label and
+	// the filters its screen offers, in display order.
+	Tab *phoneTabPayload `json:"tab,omitempty"`
+	// PenOptions feeds the pen picker when the tab offers the pen filter; empty otherwise.
+	PenOptions []penOptionPayload `json:"pen_options"`
+	TraceID    string             `json:"trace_id"`
+}
+
+type phoneTabPayload struct {
+	Key     string   `json:"key"`
+	Label   string   `json:"label"`
+	Filters []string `json:"filters"`
+}
+
+type penOptionPayload struct {
+	// Value is what the list's pen= parameter takes back: "<shed_id>|<partition_label>".
+	Value          string `json:"value"`
+	ShedID         string `json:"shed_id"`
+	PartitionLabel string `json:"partition_label"`
+	Label          string `json:"label"`
+	ParkName       string `json:"park_name"`
+	Count          int    `json:"count"`
+}
+
+func toPenOptionPayloads(in []ports.PenOption) []penOptionPayload {
+	out := make([]penOptionPayload, 0, len(in))
+	for _, o := range in {
+		out = append(out, penOptionPayload{Value: o.ShedID + "|" + o.Partition, ShedID: o.ShedID, PartitionLabel: o.Partition, Label: o.Label, ParkName: o.ParkName, Count: o.Count})
+	}
+	return out
+}
+
+// --- phone tabs (authoring) ---
+
+type tabPayload struct {
+	TabID       string              `json:"tab_id"`
+	Key         string              `json:"key"`
+	Label       string              `json:"label"`
+	ModuleKey   string              `json:"module_key"`
+	ModuleLabel string              `json:"module_label"`
+	IconKey     string              `json:"icon_key"`
+	Filters     []string            `json:"filters"`
+	Status      string              `json:"status"`
+	Routines    []tabRoutinePayload `json:"routines"`
+	RowVersion  int                 `json:"row_version"`
+	UpdatedAt   string              `json:"updated_at"`
+}
+
+type tabRoutinePayload struct {
+	RoutineID string `json:"routine_id"`
+	Name      string `json:"name"`
+	ParkName  string `json:"park_name"`
+}
+
+type tabListPayload struct {
+	Tabs []tabPayload `json:"tabs"`
+	// The closed vocabularies the tab drawer offers, rendered verbatim.
+	Modules []optionPayload `json:"modules"`
+	Icons   []optionPayload `json:"icons"`
+	Filters []optionPayload `json:"filters"`
+	TraceID string          `json:"trace_id"`
+}
+
+type tabDetailPayload struct {
+	Tab     tabPayload `json:"tab"`
+	TraceID string     `json:"trace_id"`
+}
+
+// tabWrite is the create / update body. routine_ids REPLACES the tab's routines.
+type tabWrite struct {
+	Label      string   `json:"label"`
+	ModuleKey  string   `json:"module_key"`
+	IconKey    string   `json:"icon_key"`
+	Filters    []string `json:"filters"`
+	RoutineIDs []string `json:"routine_ids"`
+	RowVersion int      `json:"row_version"`
+}
+
+func (b tabWrite) toTab() domain.Tab {
+	return domain.Tab{Label: b.Label, ModuleKey: b.ModuleKey, IconKey: b.IconKey, Filters: b.Filters, RoutineIDs: b.RoutineIDs, RowVersion: b.RowVersion}
+}
+
+func toTabPayload(t domain.Tab) tabPayload {
+	routines := make([]tabRoutinePayload, 0, len(t.Routines))
+	for _, r := range t.Routines {
+		routines = append(routines, tabRoutinePayload{RoutineID: r.RoutineID, Name: r.Name, ParkName: r.ParkName})
+	}
+	filters := t.Filters
+	if filters == nil {
+		filters = []string{}
+	}
+	return tabPayload{
+		TabID: t.TabID, Key: t.Key, Label: t.Label, ModuleKey: t.ModuleKey, ModuleLabel: domain.TabModuleLabel(t.ModuleKey),
+		IconKey: t.IconKey, Filters: filters, Status: t.Status, Routines: routines, RowVersion: t.RowVersion,
+		UpdatedAt: t.UpdatedAt.UTC().Format(time.RFC3339),
+	}
+}
+
+func tabVocabulary() (modules, icons, filters []optionPayload) {
+	for _, m := range domain.TabModules {
+		modules = append(modules, optionPayload{Key: m.Key, Label: m.Label})
+	}
+	for _, i := range domain.TabIcons {
+		icons = append(icons, optionPayload{Key: i.Key, Label: i.Label})
+	}
+	for _, f := range domain.TabFilters {
+		filters = append(filters, optionPayload{Key: f, Label: domain.TabFilterLabel(f)})
+	}
+	return modules, icons, filters
 }
 
 type presencePayload struct {

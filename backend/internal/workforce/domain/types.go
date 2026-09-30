@@ -305,6 +305,10 @@ type BootstrapNavigationItem struct {
 	// park head's pens still owed on "For me" -- and a single module badge could only sit on one
 	// of them. Zero renders nothing. The module's own BadgeCount stays the drawer's number.
 	BadgeCount int `json:"badge_count,omitempty"`
+	// Icon is an authored icon key from the closed tab icon set (penroutines/domain TabIcons),
+	// carried only by a phone tab defined on the web (docs/decisions/simple-task-phone-tabs.md).
+	// Absent on every registry item: the phone draws those from the item KEY as before.
+	Icon string `json:"icon,omitempty"`
 }
 
 // Nav chrome states shared by both bootstraps (see contract schema NavChrome).
