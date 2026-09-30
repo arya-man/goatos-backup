@@ -60,7 +60,10 @@ func TestLeadershipTasksModuleIsOfferedToDirectorsCEOAndParkHeads(t *testing.T) 
 			if found.Label != "Tasks" || found.Href != "/leadership-tasks" {
 				t.Fatalf("Tasks module rendered wrong: %+v", *found)
 			}
-			if role == permissions.RoleCEOInternal || role == permissions.RoleParkHead {
+			// A park head carries the For me tab too since 2026-09-30: it holds the ENQUIRY card
+			// (a death in their park) and the Record violation action. The CXO desk still has one
+			// list and no bar.
+			if role == permissions.RoleCEOInternal {
 				if len(found.NavItems) != 0 {
 					t.Fatalf("%s Tasks module must serve no bar destinations, got %+v", name, found.NavItems)
 				}

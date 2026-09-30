@@ -531,7 +531,10 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			// Pen visits: gated on PenVisitsExecute, the SAME permission its routes
 			// (/app/pen-visits*) require. Held by the director roles through the module's Do
 			// tick; a CXO holds it nowhere, so this tab and the bar never reach the CXO desk.
-			{key: "pen_visits", labelKey: "nav.pen_visits", href: "/pen-visits", shared_key: "", priority: 2, requiredPermission: permissions.PenVisitsExecute}, //nav-composition:ignore: registry entry
+			// Since 2026-09-30 the same tab also carries the ENQUIRY card type (an approved death in
+			// the park head's park) and the park head's Record violation action, so it opens on
+			// any of the three permissions; each card's own routes stay gated on their own.
+			{key: "pen_visits", labelKey: "nav.pen_visits", href: "/pen-visits", shared_key: "", priority: 2, requiredAnyPermission: []string{permissions.PenVisitsExecute, permissions.EnquiryFill, permissions.ViolationRecordPark}}, //nav-composition:ignore: registry entry
 		},
 	},
 	// Pen routines (module_key pen_routines, maintainer instruction 2026-09-16,
