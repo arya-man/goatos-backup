@@ -2,6 +2,10 @@ import { byParkThen, parksInArrivalOrder } from "@/lib/park-order";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { FeedAnalyticsShedFeedResponse } from "@/lib/api/server";
 import { InfoHint } from "@/components/app/info-hint";
+import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import Typography from "@mui/material/Typography";
 import { FeedFilters, type FeedFilterField } from "./feed-filters";
 import { FeedPenColumns, type PenColumnChart } from "./feed-pen-columns";
 
@@ -191,33 +195,41 @@ export function FeedShedFeedCharts({
   ];
 
   return (
-    <section className="card" aria-label={fc("shedfeed.title")}>
-      <div className="hd">
-        <h3>{fc("shedfeed.title")}</h3>
-        {/* The section's meaning lives behind the title's hint, not in a paragraph under it. */}
-        <InfoHint text={fc("shedfeed.hint")} />
-      </div>
+    <Card component="section" aria-label={fc("shedfeed.title")}>
+      <CardHeader
+        title={
+          <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5 }}>
+            {fc("shedfeed.title")}
+            {/* The section's meaning lives behind the title's hint, not in a paragraph under it. */}
+            <InfoHint text={fc("shedfeed.hint")} />
+          </Box>
+        }
+      />
 
       <FeedFilters basePath={basePath} pageParam="fsf_offset" fields={fields} pageContract={pageContract} />
 
       {rows.length > 0 && pens.length > 0 ? (
         // One legend for every pen of the name (they share the series and the axis), top-right.
-        <div className="penbars-legend" aria-hidden="true">
-          <span>
-            <i />
+        <Box aria-hidden="true" sx={{ display: "flex", flexWrap: "wrap", justifyContent: "flex-end", gap: 1.75, mx: { xs: 2.5, sm: 3 }, mt: 0.5, mb: 1.25, typography: "caption", fontWeight: "fontWeightSemiBold", color: "text.secondary" }}>
+          <Box component="span" sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+            <Box component="span" sx={{ width: "var(--sp-1)", height: "var(--sp-1)", borderRadius: "var(--r-sm)", bgcolor: "primary.main" }} />
             {fc("shedfeed.legend.directed")}
-          </span>
-          <span>
-            <i className="verified" />
+          </Box>
+          <Box component="span" sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+            <Box component="span" sx={{ width: "var(--sp-1)", height: "var(--sp-1)", borderRadius: "var(--r-sm)", bgcolor: "info.main" }} />
             {fc("shedfeed.legend.verified")}
-          </span>
-        </div>
+          </Box>
+        </Box>
       ) : null}
 
       {rows.length === 0 ? (
-        <p className="muted small">{fc("shedfeed.empty")}</p>
+        <Typography variant="body2" sx={{ color: "text.secondary", px: 3, pb: 3 }}>
+          {fc("shedfeed.empty")}
+        </Typography>
       ) : pens.length === 0 ? (
-        <p className="muted small">{fc("shedfeed.empty_filtered")}</p>
+        <Typography variant="body2" sx={{ color: "text.secondary", px: 3, pb: 3 }}>
+          {fc("shedfeed.empty_filtered")}
+        </Typography>
       ) : (
         <FeedPenColumns
           pens={charts}
@@ -228,7 +240,7 @@ export function FeedShedFeedCharts({
           missingLabel="—"
         />
       )}
-    </section>
+    </Card>
   );
 }
 

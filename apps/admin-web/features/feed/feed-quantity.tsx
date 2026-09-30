@@ -1,3 +1,4 @@
+import Box from "@mui/material/Box";
 import { Tag } from "@/components/ui-primitives";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtQty } from "@/lib/format";
@@ -62,12 +63,9 @@ export function FeedQuantityCell({
     const reasonDetail = item.blocked_reason?.detail;
     const blockedNote = copy(pageContract, "label.blocked_note");
     return (
-      <span
-        className="tag t-dng"
-        title={reasonDetail ? `${reasonDetail} — ${blockedNote}` : blockedNote}
-      >
+      <Tag tone="dng" title={reasonDetail ? `${reasonDetail} — ${blockedNote}` : blockedNote}>
         {copy(pageContract, "label.blocked_short")}
-      </span>
+      </Tag>
     );
   }
 
@@ -81,27 +79,28 @@ export function FeedQuantityCell({
   // wrap underneath when the column is tight instead of holding the whole column open at the width
   // of "0.000 kg Configured zero" (which is what pushed Feed Direction's session total off-screen).
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-      <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
-        <span
-          style={{
+    <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.75, flexWrap: "wrap" }}>
+      <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.75, whiteSpace: "nowrap" }}>
+        <Box
+          component="span"
+          sx={{
             fontVariantNumeric: "tabular-nums",
-            fontWeight: configuredZero ? 500 : 700,
-            color: configuredZero ? "var(--muted)" : "var(--brand-d)",
+            fontWeight: configuredZero ? "fontWeightMedium" : "fontWeightBold",
+            color: configuredZero ? "text.secondary" : "primary.dark",
           }}
         >
           {fmtQty(quantity)}
-        </span>
-        <span className="muted" style={{ fontSize: 11 }}>
+        </Box>
+        <Box component="span" sx={{ color: "text.secondary", typography: "caption" }}>
           {copy(pageContract, "label.kg_noun")}
-        </span>
-      </span>
+        </Box>
+      </Box>
       {configuredZero ? (
         <Tag tone="info" title={copy(pageContract, "label.configured_zero_note")}>
           {copy(pageContract, "label.configured_zero")}
         </Tag>
       ) : null}
-    </span>
+    </Box>
   );
 }
 
@@ -140,12 +139,9 @@ export function FeedWorkflowTag({
 }) {
   const experiment = workflow === "experiment";
   return (
-    <span
-      className={experiment ? "tag t-pur" : "tag t-ok"}
-      title={copy(pageContract, experiment ? "label.workflow_experiment_note" : "label.workflow_normal_note")}
-    >
+    <Tag tone={experiment ? "pur" : "ok"} title={copy(pageContract, experiment ? "label.workflow_experiment_note" : "label.workflow_normal_note")}>
       {copy(pageContract, experiment ? "label.workflow_experiment" : "label.workflow_normal")}
-    </span>
+    </Tag>
   );
 }
 
