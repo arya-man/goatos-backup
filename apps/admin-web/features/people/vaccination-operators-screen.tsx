@@ -1259,7 +1259,9 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
           </Stack>
           {operatorCount !== 1 ? (
             <Alert severity="info" sx={{ mt: 1.5 }}>
-              <b>Parallel mode:</b> selected operators run together. Week-off/leave drops that operator&apos;s slice for the day and the roster fills the open slot.
+              <span>
+                <b>Parallel mode:</b> selected operators run together. Week-off/leave drops that operator&apos;s slice for the day and the roster fills the open slot.
+              </span>
             </Alert>
           ) : null}
           <Typography variant="subtitle2" sx={{ mt: 3 }}>
@@ -1524,9 +1526,11 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
       >
         {toast ? (
           <Alert severity={toast.severity} variant="filled" onClose={() => setToastOpen(false)} sx={{ width: 1 }}>
-            {toast.title ? <b>{toast.title}</b> : null}
-            {toast.title ? ' · ' : null}
-            {toast.text}
+            <span>
+              {toast.title ? <b>{toast.title}</b> : null}
+              {toast.title ? ' · ' : null}
+              {toast.text}
+            </span>
           </Alert>
         ) : (
           <span />

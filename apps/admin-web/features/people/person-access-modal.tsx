@@ -237,7 +237,9 @@ export function PersonAccessModal({
 
           {access.warnings.map((warning) => (
             <Alert key={warning.module_key} severity="warning">
-              <b>{t("access.warning.title")}</b> {warning.message}
+              <span>
+                <b>{t("access.warning.title")}</b> {warning.message}
+              </span>
             </Alert>
           ))}
 
