@@ -70,6 +70,7 @@ func run(args []string) error {
 
 	candidates, opened, after := 0, 0, ""
 	for {
+		// scale-guard:ignore: keyset pagination of a one-shot operator command -- one bounded page read per page, never per row
 		page, err := repo.LittersOwingShift(ctx, *tenantID, stages, after, *pageSize)
 		if err != nil {
 			return err
@@ -83,6 +84,7 @@ func run(args []string) error {
 				fmt.Printf("candidate birth_event=%s kid=%s\n", l.BirthEventID, l.KidGoatID)
 				continue
 			}
+			// scale-guard:ignore: each litter's workflow opens in its own idempotent transaction through the production opener; one-shot backfill, bounded by the page
 			if err := svc.OpenLitterWorkflowForKid(ctx, *tenantID, l.KidGoatID); err != nil {
 				return fmt.Errorf("birth event %s: %w", l.BirthEventID, err)
 			}
