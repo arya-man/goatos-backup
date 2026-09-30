@@ -7,7 +7,9 @@
 // you delete rules, never raise it. It also names the selectors main added so they cannot slip back.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { cssRuleFindings, stylesheetFiles } from "./lib/shrink-ratchets.mjs";
 
 // FIXJ-CI (J1 P2-2): the ceiling counts style RULES, not lines (deleting comments or blank lines used
@@ -20,7 +22,7 @@ const ratchet = JSON.parse(readFileSync(new URL("./check-design-system-waivers/d
 
 test("every stylesheet stays at or under its rule ceiling; a new stylesheet has none", () => {
   for (const rel of stylesheetFiles(appRoot)) {
-    if (rel === "theme/fonts.css") continue;
+    if (rel === "theme/fonts.css" || rel === ".storybook/fonts.css") continue;
     const rules = cssRuleFindings(readFileSync(new URL(`../${rel}`, import.meta.url), "utf8")).length;
     const allowed = ratchet[`legacy-css-rules|${rel}`]?.allowed ?? 0;
     assert.ok(rules <= allowed, `${rel} has ${rules} style rules, ceiling ${allowed}: move the style into sx / a template component`);
@@ -37,9 +39,44 @@ test("the deleted legacy stylesheets stay absent, have no ceiling and are import
     assert.ok(!existsSync(new URL(`../${rel}`, import.meta.url)), `${rel} is back: carry its rules as theme sx / template parts instead`);
     assert.equal(ratchet[`legacy-css-rules|${rel}`], undefined, `${rel} still has a legacy-css-rules ceiling`);
   }
-  for (const rel of ["app/layout.tsx", "app/global-error.tsx", "components/mesha-shell.tsx", "components/shell-skeleton.tsx"]) {
-    const src = readFileSync(new URL(`../${rel}`, import.meta.url), "utf8");
-    for (const css of ["frame.css", "minimal-theme.css", "mesha-theme.css", "mesha-layout.css"]) assert.ok(!src.includes(`/${css}"`), `${rel} imports ${css}`);
+  // J1B P0-1: the import check used to read four TSX files, so `.storybook/preview.css` kept its
+  // `@import "../app/mesha-theme.css"` (and two more) and `storybook build` failed unseen. Every
+  // stylesheet and TS/TSX/MJS source in the app, `.storybook/` and `stories/` included, is read now.
+  const offenders = importsOfDeleted(appRoot);
+  assert.deepEqual(offenders, [], `the deleted legacy stylesheets are still imported: ${offenders.join(", ")}`);
+});
+
+const DELETED_NAMES = ["frame.css", "minimal-theme.css", "mesha-theme.css", "mesha-layout.css"];
+/** `file: name` for every import / @import / require of a deleted stylesheet under root. */
+export function importsOfDeleted(root) {
+  const out = [];
+  const walk = (dir) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      if (["node_modules", ".next", "storybook-static", ".git", "public", ".codex-goatos-render", "visual-baselines"].includes(e.name)) continue;
+      const abs = join(dir, e.name);
+      if (e.isDirectory()) walk(abs);
+      else if (/\.(css|tsx?|mjs|html)$/.test(e.name) && !/\.test\.mjs$/.test(e.name)) {
+        const src = readFileSync(abs, "utf8");
+        for (const name of DELETED_NAMES) {
+          const re = new RegExp(`(?:@import\\s+(?:url\\()?|\\bimport\\s+(?:[^"'\\n]*\\s+from\\s+)?|require\\()["'][^"']*\\/${name.replace(".", "\\.")}["']`);
+          if (re.test(src)) out.push(`${abs.slice(root.length).replace(/^\//, "")}: ${name}`);
+        }
+      }
+    }
+  };
+  walk(root);
+  return out;
+}
+
+test("importsOfDeleted self-test: finds a CSS @import and a TS import, ignores a comment-free mention", () => {
+  const dir = mkdtempSync(join(tmpdir(), "legacy-css-import-"));
+  try {
+    mkdirSync(join(dir, ".storybook"));
+    writeFileSync(join(dir, ".storybook", "preview.css"), '@import "../app/mesha-theme.css";\n');
+    writeFileSync(join(dir, "a.tsx"), 'import "./frame.css";\nconst s = "minimal-theme.css is deleted";\n');
+    assert.deepEqual(importsOfDeleted(dir).sort(), [".storybook/preview.css: mesha-theme.css", "a.tsx: frame.css"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 

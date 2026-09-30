@@ -73,7 +73,7 @@ tools/agent-hooks/pre-push.hook:pre-push
 "
 # Lanes the installed admin-web push gate must run on every push (Ravi 2026-09-30, J1 P0-4).
 # Dropping one from tools/ci/admin-web-push-gate.sh fails this guard even after make ai-setup.
-REQUIRED_LANES="design-guard typecheck unit-tests next-build visual-gate"
+REQUIRED_LANES="design-guard typecheck unit-tests next-build visual-gate storybook-build"
 
 fail=0
 checked=0

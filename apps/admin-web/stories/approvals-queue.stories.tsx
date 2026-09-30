@@ -17,10 +17,8 @@ const meta = {
   parameters: { nextjs: { appDirectory: true } },
   decorators: [
     (S: () => React.ReactElement) => (
-      // `.main` is the shell's content column; the phone card rules are scoped to it.
-      <div className="main" style={{ overflow: "visible" }}>
-        <Frame>{S()}</Frame>
-      </div>
+      // The phone card layout is the table's own breakpoint sx; no shell column class is needed.
+      <Frame>{S()}</Frame>
     ),
   ],
 } satisfies Meta;

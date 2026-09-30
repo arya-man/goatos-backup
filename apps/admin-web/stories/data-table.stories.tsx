@@ -9,18 +9,27 @@ import { DenseToggle } from "@/components/app/dense-toggle";
 import { RowMenu } from "@/components/app/row-menu";
 import { TableSkeleton } from "@/components/app/skeletons";
 import { TableFooter } from "@/components/app/table-footer";
-import { cx, toneVars, type KitTone } from "@/lib/tone";
+import Box from "@mui/material/Box";
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import TableContainer from "@mui/material/TableContainer";
+import TableHead from "@mui/material/TableHead";
+import TableRow from "@mui/material/TableRow";
+import Typography from "@mui/material/Typography";
+import { Label } from "@/components/minimal/label";
 import { Frame, MOBILE, PENS, StateBlock, States, VENDORS } from "./_fixtures";
 import { EmptyState } from "@/components/app/empty-state";
 
 /**
- * There is no `DataTable` component in the kit — a Goat OS table is a composition:
- * MUI `Card className="kit-tablecard"` (no padding) + MUI `CardHeader` + `div.tablewrap > table.tbl`
- * + `TableFooter`. These stories pin that treatment so it can be visually regressed.
+ * A Goat OS table on the template: MUI `Card` + `CardHeader` + `TableContainer > Table`
+ * (`TableHead` / `TableBody` / `TableRow` / `TableCell`) + `TableFooter`. The legacy
+ * `.kit-tablecard` / `.tablewrap` / `.tbl` classes are deleted; these stories pin the template
+ * treatment so it can be visually regressed.
  */
 const meta = {
   title: "Kit/Tables/DataTable",
-  parameters: { docs: { description: { component: "The kit table treatment: tablecard shell, .tbl rows, dense mode, row menu, footer paging." } } },
+  parameters: { docs: { description: { component: "The kit table treatment: Card shell, MUI Table rows, dense mode, row menu, footer paging." } } },
   decorators: [(S: () => React.ReactElement) => <Frame width={1040}>{S()}</Frame>],
 } satisfies Meta;
 export default meta;
@@ -29,37 +38,32 @@ type Story = StoryObj<typeof meta>;
 const COLS = ["Pen", "Park", "Head", "ADG (g/day)", "Kids", "Vet", "Status"];
 
 function StatusChip({ status }: { status: string }) {
-  const tone: KitTone = status === "Healthy" ? "success" : status === "Watch" ? "warning" : "info";
-  const t = toneVars(tone);
-  return (
-    <span style={{ display: "inline-flex", alignItems: "center", background: t.soft, color: t.ink, borderRadius: 999, padding: "3px 10px", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap" }}>
-      {status}
-    </span>
-  );
+  const color = status === "Healthy" ? "success" : status === "Watch" ? "warning" : "info";
+  return <Label color={color}>{status}</Label>;
 }
 
 function PenTable({ rows = PENS, dense = false, withMenu = true }: { rows?: typeof PENS; dense?: boolean; withMenu?: boolean }) {
   return (
-    <div data-dense={dense ? "" : undefined} tabIndex={0} role="group" aria-label="Pens">
-      <table className="tbl">
-        <thead>
-          <tr>
-            {COLS.map((c) => <th key={c}>{c}</th>)}
-            {withMenu ? <th aria-label="Row actions" /> : null}
-          </tr>
-        </thead>
-        <tbody>
+    <TableContainer data-dense={dense ? "" : undefined} tabIndex={0} role="group" aria-label="Pens">
+      <Table size={dense ? "small" : "medium"}>
+        <TableHead>
+          <TableRow>
+            {COLS.map((c) => <TableCell key={c}>{c}</TableCell>)}
+            {withMenu ? <TableCell aria-label="Row actions" /> : null}
+          </TableRow>
+        </TableHead>
+        <TableBody>
           {rows.map((r) => (
-            <tr key={r.pen}>
-              <td>{r.pen}</td>
-              <td>{r.park}</td>
-              <td>{r.head}</td>
-              <td>{r.adg}</td>
-              <td>{r.kids}</td>
-              <td>{r.vet}</td>
-              <td><StatusChip status={r.status} /></td>
+            <TableRow key={r.pen} hover>
+              <TableCell>{r.pen}</TableCell>
+              <TableCell>{r.park}</TableCell>
+              <TableCell>{r.head}</TableCell>
+              <TableCell>{r.adg}</TableCell>
+              <TableCell>{r.kids}</TableCell>
+              <TableCell>{r.vet}</TableCell>
+              <TableCell><StatusChip status={r.status} /></TableCell>
               {withMenu ? (
-                <td style={{ textAlign: "right" }}>
+                <TableCell align="right">
                   <RowMenu
                     ariaLabel={`Actions for ${r.pen}`}
                     actions={[
@@ -68,27 +72,26 @@ function PenTable({ rows = PENS, dense = false, withMenu = true }: { rows?: type
                       { label: "Archive pen", icon: <Iconify icon="solar:trash-bin-trash-bold" width={15} />, danger: true, onSelect: () => {} },
                     ]}
                   />
-                </td>
+                </TableCell>
               ) : null}
-            </tr>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
-    </div>
+        </TableBody>
+      </Table>
+    </TableContainer>
   );
 }
 
 function Shell({ children, action }: { children: React.ReactNode; action?: React.ReactNode }) {
   return (
-    <Card className="kit-tablecard" aria-label="Pen register">
+    <Card aria-label="Pen register">
       <CardHeader
-        sx={{ [`& .${cardHeaderClasses.action}`]: { m: 0, flex: { xs: "1 1 100%", sm: "0 0 auto" }, minWidth: 0, maxWidth: "100%" } }}
-        style={{ padding: "20px 24px 12px", alignItems: "center", gap: 12, flexWrap: "wrap" }}
-        title={<span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><Iconify icon="solar:bill-list-bold-duotone" style={{ width: 18, color: "var(--primary)" }} />Pen register</span>}
+        sx={{ alignItems: "center", gap: 1.5, flexWrap: "wrap", [`& .${cardHeaderClasses.action}`]: { m: 0, flex: { xs: "1 1 100%", sm: "0 0 auto" }, minWidth: 0, maxWidth: "100%" } }}
+        title={<Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 1 }}><Iconify icon="solar:bill-list-bold-duotone" width={18} sx={{ color: "primary.main" }} />Pen register</Box>}
         subheader="Kranji, Lim Chu Kang, Sungei Tengah and Mandai"
         action={action}
       />
-      {children}
+      <Box sx={{ mt: 1.5 }}>{children}</Box>
     </Card>
   );
 }
@@ -98,7 +101,7 @@ export const Default: Story = {
     const [page, setPage] = React.useState(1);
     const [rpp, setRpp] = React.useState(10);
     return (
-      <Shell action={<span style={{ fontSize: 13, color: "var(--success-ink)" }}>+3.4% head vs last week</span>}>
+      <Shell action={<Typography variant="body2" sx={{ color: "success.main" }}>+3.4% head vs last week</Typography>}>
         <PenTable />
         <TableFooter page={page} rowsPerPage={rpp} total={1248} onPageChange={setPage} onRowsPerPageChange={(n) => { setRpp(n); setPage(1); }} />
       </Shell>
@@ -138,11 +141,11 @@ export const Empty: Story = {
 export const ErrorState: Story = {
   render: () => (
     <Shell>
-      <div style={{ display: "grid", justifyItems: "center", gap: 10, padding: "56px 24px", textAlign: "center" }}>
-        <Iconify icon="solar:danger-triangle-bold" style={{ color: "var(--error)" }} />
-        <div className="small">Could not load the pen register (weighing service timed out).</div>
+      <Box sx={{ display: "grid", justifyItems: "center", gap: 1.25, px: 3, py: 7, textAlign: "center" }}>
+        <Iconify icon="solar:danger-triangle-bold" sx={{ color: "error.main" }} />
+        <Typography variant="body2" sx={{ color: "text.secondary" }}>Could not load the pen register (weighing service timed out).</Typography>
         <Button type="button" variant="outlined" color="inherit" size="small">Retry</Button>
-      </div>
+      </Box>
     </Shell>
   ),
 };
@@ -152,29 +155,29 @@ export const SingleRow: Story = { render: () => <Shell><PenTable rows={PENS.slic
 export const ManyRowsAndOverflow: Story = {
   render: () => (
     <States>
-      <StateBlock label="Long vendor names + 40 rows — horizontal scroll inside .tablewrap">
-        <Card className="kit-tablecard">
-          <div tabIndex={0} role="group" aria-label="Vendor loads">
-            <table className="tbl">
-              <thead><tr><th>Vendor</th><th>Park</th><th>Load ref</th><th>Head</th><th>Avg weight</th><th>Status</th></tr></thead>
-              <tbody>
+      <StateBlock label="Long vendor names + 40 rows — horizontal scroll inside the TableContainer">
+        <Card>
+          <TableContainer tabIndex={0} role="group" aria-label="Vendor loads">
+            <Table>
+              <TableHead><TableRow><TableCell>Vendor</TableCell><TableCell>Park</TableCell><TableCell>Load ref</TableCell><TableCell>Head</TableCell><TableCell>Avg weight</TableCell><TableCell>Status</TableCell></TableRow></TableHead>
+              <TableBody>
                 {Array.from({ length: 40 }, (_, i) => {
                   const v = VENDORS[i % VENDORS.length];
                   const p = PENS[i % PENS.length];
                   return (
-                    <tr key={i}>
-                      <td>{v}</td>
-                      <td>{p.park}</td>
-                      <td>LOAD-2026-{String(4100 + i)}</td>
-                      <td>{40 + (i % 17)}</td>
-                      <td>{(22 + (i % 9) * 0.4).toFixed(1)} kg</td>
-                      <td><StatusChip status={i % 3 === 0 ? "Watch" : "Healthy"} /></td>
-                    </tr>
+                    <TableRow key={i} hover>
+                      <TableCell sx={{ whiteSpace: "nowrap" }}>{v}</TableCell>
+                      <TableCell>{p.park}</TableCell>
+                      <TableCell>LOAD-2026-{String(4100 + i)}</TableCell>
+                      <TableCell>{40 + (i % 17)}</TableCell>
+                      <TableCell>{(22 + (i % 9) * 0.4).toFixed(1)} kg</TableCell>
+                      <TableCell><StatusChip status={i % 3 === 0 ? "Watch" : "Healthy"} /></TableCell>
+                    </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+            </Table>
+          </TableContainer>
           <TableFooter page={1} rowsPerPage={50} total={2140} onPageChange={() => {}} onRowsPerPageChange={() => {}} />
         </Card>
       </StateBlock>

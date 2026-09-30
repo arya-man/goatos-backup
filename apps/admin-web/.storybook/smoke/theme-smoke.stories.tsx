@@ -1,107 +1,76 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import * as React from "react";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Card from "@mui/material/Card";
+import Chip from "@mui/material/Chip";
+import Paper from "@mui/material/Paper";
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import TableHead from "@mui/material/TableHead";
+import TableRow from "@mui/material/TableRow";
+import Typography from "@mui/material/Typography";
 
 /**
- * Config-owned health check: proves the real theme tokens, the real fonts and
- * the light/dark switch are all wired into Storybook. It intentionally imports
- * nothing from components/ or features/ so it stays green while those are
- * being edited.
+ * Config-owned health check: proves the MUI theme (AppThemeStack: palette, typography, fonts) and
+ * the light/dark switch are wired into Storybook. It renders MUI parts only and imports nothing from
+ * components/ or features/, so it stays green while those are being edited. No app stylesheet
+ * carries the look any more (the legacy theme CSS is deleted); the palette comes from the theme.
  */
+const SWATCHES = ["background.default", "background.paper", "background.neutral", "primary.main", "primary.dark", "info.main", "warning.main", "error.main"] as const;
+const STATE_COLOR = { Overdue: "error", Done: "success", Due: "warning" } as const;
+
 function ThemeSmoke() {
   const rows = [
-    { id: "SF-048", shed: "Godel 1 - Part 1", due: 12, state: "Due" },
-    { id: "SF-112", shed: "Godel 2 - Part 3", due: 4, state: "Done" },
-    { id: "SF-203", shed: "Godel 3 - Part 1", due: 27, state: "Overdue" },
+    { id: "SF-048", shed: "Godel 1 - Part 1", due: 12, state: "Due" as const },
+    { id: "SF-112", shed: "Godel 2 - Part 3", due: 4, state: "Done" as const },
+    { id: "SF-203", shed: "Godel 3 - Part 1", due: 27, state: "Overdue" as const },
   ];
   return (
-    <div style={{ padding: 24, background: "var(--bg)", color: "var(--fg)", minHeight: "100vh" }}>
-      <h1 style={{ fontSize: 22, marginBottom: 4 }}>Storybook theme smoke</h1>
-      <p className="muted" style={{ marginBottom: 20 }}>
-        Public Sans, brand tokens and surfaces, straight from the app stylesheets.
-      </p>
+    <Box sx={{ p: 3, bgcolor: "background.default", color: "text.primary", minHeight: "100vh" }}>
+      <Typography variant="h5" component="h1" sx={{ mb: 0.5 }}>Storybook theme smoke</Typography>
+      <Typography variant="body2" sx={{ color: "text.secondary", mb: 2.5 }}>
+        Public Sans, brand palette and surfaces, straight from the MUI theme.
+      </Typography>
 
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
-        {["--bg", "--paper", "--paper-2", "--primary", "--primary-ink", "--info", "--warning", "--error"].map((token) => (
-          <div
-            key={token}
-            style={{
-              width: 116,
-              borderRadius: "var(--r-md)",
-              border: "1px solid var(--line)",
-              overflow: "hidden",
-              background: "var(--paper)",
-            }}
-          >
-            <div style={{ height: 40, background: `var(${token})` }} />
-            <div style={{ padding: "6px 8px", fontSize: 11, color: "var(--fg-muted)" }}>{token}</div>
-          </div>
+      <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", mb: 2.5 }}>
+        {SWATCHES.map((token) => (
+          <Paper key={token} variant="outlined" sx={{ width: 116, overflow: "hidden" }}>
+            <Box sx={{ height: 40, bgcolor: token }} />
+            <Typography variant="caption" component="div" sx={{ px: 1, py: 0.75, color: "text.secondary" }}>{token}</Typography>
+          </Paper>
         ))}
-      </div>
+      </Box>
 
-      <div
-        style={{
-          background: "var(--paper)",
-          border: "1px solid var(--line)",
-          borderRadius: "var(--r-lg)",
-          boxShadow: "var(--shadow-card)",
-          padding: 16,
-          maxWidth: 680,
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-          <strong>Vaccination queue</strong>
-          <button
-            type="button"
-            style={{
-              border: 0,
-              borderRadius: "var(--r-pill)",
-              padding: "8px 14px",
-              background: "var(--primary)",
-              color: "var(--on-brand)",
-              fontWeight: 600,
-              boxShadow: "var(--shadow-primary)",
-            }}
-          >
-            Start round
-          </button>
-        </div>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-          <thead>
-            <tr style={{ color: "var(--fg-muted)", textAlign: "left" }}>
-              <th style={{ padding: "6px 4px", borderBottom: "1px solid var(--line)" }}>Tag</th>
-              <th style={{ padding: "6px 4px", borderBottom: "1px solid var(--line)" }}>Partition</th>
-              <th style={{ padding: "6px 4px", borderBottom: "1px solid var(--line)" }}>Due</th>
-              <th style={{ padding: "6px 4px", borderBottom: "1px solid var(--line)" }}>State</th>
-            </tr>
-          </thead>
-          <tbody>
+      <Card sx={{ p: 2, maxWidth: 680 }}>
+        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1.5 }}>
+          <Typography variant="subtitle1" component="strong">Vaccination queue</Typography>
+          <Button variant="contained" color="primary">Start round</Button>
+        </Box>
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>Tag</TableCell>
+              <TableCell>Partition</TableCell>
+              <TableCell>Due</TableCell>
+              <TableCell>State</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
             {rows.map((row) => (
-              <tr key={row.id}>
-                <td style={{ padding: "8px 4px", borderBottom: "1px solid var(--line2)" }}>{row.id}</td>
-                <td style={{ padding: "8px 4px", borderBottom: "1px solid var(--line2)" }}>{row.shed}</td>
-                <td style={{ padding: "8px 4px", borderBottom: "1px solid var(--line2)" }}>{row.due}</td>
-                <td style={{ padding: "8px 4px", borderBottom: "1px solid var(--line2)" }}>
-                  <span
-                    style={{
-                      borderRadius: "var(--r-pill)",
-                      padding: "2px 10px",
-                      fontSize: 11,
-                      fontWeight: 600,
-                      background:
-                        row.state === "Overdue" ? "var(--dangerx)" : row.state === "Done" ? "var(--okx)" : "var(--warnx)",
-                      color:
-                        row.state === "Overdue" ? "var(--error-ink)" : row.state === "Done" ? "var(--success-ink)" : "var(--warning-ink)",
-                    }}
-                  >
-                    {row.state}
-                  </span>
-                </td>
-              </tr>
+              <TableRow key={row.id}>
+                <TableCell>{row.id}</TableCell>
+                <TableCell>{row.shed}</TableCell>
+                <TableCell>{row.due}</TableCell>
+                <TableCell>
+                  <Chip size="small" variant="soft" color={STATE_COLOR[row.state]} label={row.state} />
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
+          </TableBody>
+        </Table>
+      </Card>
+    </Box>
   );
 }
 

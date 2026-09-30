@@ -100,7 +100,7 @@ install_all "$sandbox/hooks"
 
 # (j) the push gate drops a lane (source and installed copy identical, so only the lane check sees it)
 cp tools/ci/admin-web-push-gate.sh "$sandbox/gate.intact"
-sed 's/^LANES=(design-guard typecheck unit-tests next-build visual-gate)$/LANES=(design-guard typecheck next-build visual-gate)/' "$sandbox/gate.intact" > tools/ci/admin-web-push-gate.sh
+sed 's/^LANES=(design-guard typecheck unit-tests next-build visual-gate storybook-build)$/LANES=(design-guard typecheck next-build visual-gate storybook-build)/' "$sandbox/gate.intact" > tools/ci/admin-web-push-gate.sh
 install_all "$sandbox/hooks"
 fresh; check "(j) push gate missing the unit-tests lane REJECTED" 1 $?
 grep -q "MISSING LANE 'unit-tests'" "$sandbox/fresh.log" && echo "ok    (j) names the missing lane" \

@@ -1,4 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import TableHead from "@mui/material/TableHead";
+import TableRow from "@mui/material/TableRow";
 import * as React from "react";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import { Iconify } from "@/components/minimal/iconify";
@@ -35,22 +40,22 @@ function RowMenuTable() {
   return (
     <Stack title={`last action: ${last}`}>
       <div>
-        <table className="tbl" style={{ width: "100%" }}>
-          <thead><tr><th>Pen</th><th>Kids</th><th>ADG</th><th /></tr></thead>
-          <tbody>
+        <Table>
+          <TableHead><TableRow><TableCell>Pen</TableCell><TableCell>Kids</TableCell><TableCell>ADG</TableCell><TableCell /></TableRow></TableHead>
+          <TableBody>
             {PEN_ROWS.map((r) => (
-              <tr key={r.pen}>
-                <td>{r.pen}</td><td>{r.kids}</td><td>{r.adg} g/day</td>
-                <td style={{ textAlign: "right" }}>
+              <TableRow key={r.pen}>
+                <TableCell>{r.pen}</TableCell><TableCell>{r.kids}</TableCell><TableCell>{r.adg} g/day</TableCell>
+                <TableCell align="right">
                   <RowMenu
                     ariaLabel={`${r.pen} actions`}
                     actions={ACTIONS.map((a) => ({ ...a, onSelect: () => setLast(`${r.pen}: ${a.label}`) }))}
                   />
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
     </Stack>
   );

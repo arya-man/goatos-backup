@@ -1,5 +1,10 @@
 import * as React from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import TableHead from "@mui/material/TableHead";
+import TableRow from "@mui/material/TableRow";
 import Dialog from "@mui/material/Dialog";
 import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
@@ -132,28 +137,28 @@ const rowActions = [
 export const RowMenuLastRow: Story = {
   render: () => (
     <Card>
-      <table className="tbl" style={{ width: "100%" }}>
-        <thead>
-          <tr>
-            <th>Pen</th>
-            <th>Kids</th>
-            <th>ADG</th>
-            <th style={{ width: 56 }} />
-          </tr>
-        </thead>
-        <tbody>
+      <Table>
+        <TableHead>
+          <TableRow>
+            <TableCell>Pen</TableCell>
+            <TableCell>Kids</TableCell>
+            <TableCell>ADG</TableCell>
+            <TableCell sx={{ width: 56 }} />
+          </TableRow>
+        </TableHead>
+        <TableBody>
           {PEN_ROWS.map((r, i) => (
-            <tr key={r.pen}>
-              <td>{r.pen}</td>
-              <td>{r.kids}</td>
-              <td>{r.adg} g/day</td>
-              <td>
+            <TableRow key={r.pen}>
+              <TableCell>{r.pen}</TableCell>
+              <TableCell>{r.kids}</TableCell>
+              <TableCell>{r.adg} g/day</TableCell>
+              <TableCell>
                 <RowMenu actions={rowActions} ariaLabel={`${r.pen} actions`} className={i === PEN_ROWS.length - 1 ? "last-row-menu" : undefined} />
-              </td>
-            </tr>
+              </TableCell>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </Card>
   ),
   parameters: { motionFrames: { trigger: { type: "click", selector: "role=button[name=Pen C1 actions]" }, at: [0, 60, 180] } },

@@ -1,5 +1,6 @@
 import * as React from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import Typography from "@mui/material/Typography";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import { TableFooter } from "@/components/app/table-footer";
 import { DenseToggle } from "@/components/app/dense-toggle";
@@ -55,7 +56,7 @@ export const AllStates: Story = {
         <TableFooter page={37} rowsPerPage={100} total={18420} onPageChange={() => {}} onRowsPerPageChange={() => {}} />
       </StateBlock>
       <StateBlock label="Left slot — selection count + dense toggle">
-        <Live total={248} left={<span className="small">6 pens selected</span>} />
+        <Live total={248} left={<Typography variant="body2" sx={{ color: "text.secondary" }}>6 pens selected</Typography>} />
       </StateBlock>
     </States>
   ),

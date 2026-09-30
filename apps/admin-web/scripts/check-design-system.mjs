@@ -1222,7 +1222,7 @@ async function selfTest() {
   put("docs/design/page-template-map.md", "| Route | Template | Files | Sections |\n|---|---|---|---|\n| `/foo` | user list | `features/foo-page.tsx` | `components/minimal/table` |\n");
   put("features/foo-page.tsx", 'import { KpiCard } from "@/components/minimal/widgets";\nexport const x = KpiCard;\n');
   put("app/(admin)/foo/page.tsx", 'export default function Page() { return <div />; }\n');
-  put("app/(admin)/ok/page.tsx", 'import { PageHeader } from "@/components/app/page-header";\nexport default function Page() { return <div className="kit-page"><PageHeader /></div>; }\n');
+  put("app/(admin)/ok/page.tsx", 'import { PageHeader } from "@/components/app/page-header";\nimport { PageRoot } from "@/components/app/page-root";\nexport default function Page() { return <PageRoot><PageHeader /></PageRoot>; }\n');
   put("app/(admin)/ok/loading.tsx", "export default function L() { return null; }\n");
   put("app/(admin)/drawn/loading.tsx", 'import Skeleton from "@mui/material/Skeleton";\nexport default function L() { return <div style={{ height: 40 }}><Skeleton /></div>; }\n');
   put("app/(admin)/composed/loading.tsx", 'import { PageSkeleton, TableSkeleton } from "@/components/app/skeletons";\nexport default function L() { return <PageSkeleton><TableSkeleton columns={4} /></PageSkeleton>; }\n');
@@ -1355,6 +1355,10 @@ async function selfTest() {
   // through a feature file NOT in page-template-map (and an orphan one that is not flagged), lucide
   // icons, a `<select` that ends its line, style props, raw px/hex, stylesheet rules.
   put("features/legacy-class.tsx", 'export const L = () => <div className="wrap fld">x</div>;\n');
+  // J1B P0-1 / P2-2: the frozen denylist bites in stories too (the legacy sheets are deleted, so the
+  // list no longer comes from them), and a documented hook (msh-side) is exempt.
+  put("stories/Bad.stories.tsx", 'export const B = () => <button className="chip on">x</button>;\n');
+  put("features/hooked.tsx", 'export const H = () => <nav className="msh-side">x</nav>;\n');
   put("app/(admin)/cardy/page.tsx", 'import { Panel } from "@/features/cardy";\nexport default function Page() { return <Panel />; }\n');
   put("app/(admin)/cardy/loading.tsx", "export default function L() { return null; }\n");
   put("features/cardy/index.ts", 'export { Panel } from "./panel";\n');
@@ -1368,6 +1372,8 @@ async function selfTest() {
     const hits = (check, file) => findings.filter((f) => f.check === check && f.file === file).length;
     const problems = [];
     if (hits("legacy-class-use", "features/legacy-class.tsx") !== 2) problems.push(`legacy-class-use wrap+fld=${hits("legacy-class-use", "features/legacy-class.tsx")} (want 2)`);
+    if (hits("legacy-class-use", "stories/Bad.stories.tsx") !== 2) problems.push(`legacy-class-use story chip+on=${hits("legacy-class-use", "stories/Bad.stories.tsx")} (want 2)`);
+    if (hits("legacy-class-use", "features/hooked.tsx") !== 0) problems.push("legacy-class-use flagged the documented hook msh-side");
     if (hits("legacy-card-reachable", "features/cardy/panel.tsx") !== 2) problems.push(`legacy-card-reachable panel=${hits("legacy-card-reachable", "features/cardy/panel.tsx")} (want 2: card + hd through the barrel)`);
     if (hits("legacy-card-reachable", "features/orphan-card.tsx") !== 0) problems.push("legacy-card-reachable flagged a file no page imports");
     if (hits("lucide-import", "features/icons.tsx") !== 2) problems.push(`lucide-import=${hits("lucide-import", "features/icons.tsx")} (want 2)`);

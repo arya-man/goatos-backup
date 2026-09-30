@@ -1,5 +1,7 @@
 /** Shared realistic Goat OS fixtures for the kit stories. No lorem ipsum anywhere. */
 import * as React from "react";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
 
 export const PENS = [
   { value: "", label: "All pens" },
@@ -38,23 +40,23 @@ export const PEN_ROWS = [
 ];
 
 export const Row = ({ children, wrap = true }: { children: React.ReactNode; wrap?: boolean }) => (
-  <div style={{ display: "flex", flexWrap: wrap ? "wrap" : "nowrap", gap: 12, alignItems: "center" }}>{children}</div>
+  <Box sx={{ display: "flex", flexWrap: wrap ? "wrap" : "nowrap", gap: 1.5, alignItems: "center" }}>{children}</Box>
 );
 
 export const Stack = ({ children, title }: { children: React.ReactNode; title?: string }) => (
-  <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr)", gap: 10, minWidth: 0 }}>
+  <Box sx={{ display: "grid", gridTemplateColumns: "minmax(0,1fr)", gap: 1.25, minWidth: 0 }}>
     {title ? (
-      <div style={{ font: "700 11px/1.4 var(--font-sans)", letterSpacing: ".06em", textTransform: "uppercase", opacity: 0.6 }}>{title}</div>
+      <Typography variant="overline" sx={{ color: "text.secondary" }}>{title}</Typography>
     ) : null}
     {children}
-  </div>
+  </Box>
 );
 
-/** Page-like padded canvas so stories sit on the app background, not on white. */
+/** Page-like padded canvas so stories sit on the app background (theme palette), not on white. */
 export const Canvas = ({ children }: { children: React.ReactNode }) => (
-  <div className="main" style={{ padding: 24, display: "grid", gridTemplateColumns: "minmax(0,1fr)", gap: 24, alignContent: "start", minWidth: 0, overflowX: "clip", background: "var(--bg)", minHeight: "100vh", color: "var(--fg, var(--ink))" }}>
+  <Box sx={{ p: 3, display: "grid", gridTemplateColumns: "minmax(0,1fr)", gap: 3, alignContent: "start", minWidth: 0, overflowX: "clip", bgcolor: "background.default", minHeight: "100vh", color: "text.primary" }}>
     {children}
-  </div>
+  </Box>
 );
 
 export const MOBILE = { globals: { viewport: { value: "mobile", isRotated: false } } };

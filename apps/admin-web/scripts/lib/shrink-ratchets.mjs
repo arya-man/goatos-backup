@@ -5,9 +5,9 @@
 // a file may never go over, a new file has 0, and an allowance above the current count FAILS until
 // it is lowered (npm run design:guard:update-baseline), so a baseline only ever goes down.
 //
-//   legacy-class-use       className tokens defined by a legacy stylesheet (app/frame.css,
-//                          minimal-theme.css, mesha-theme.css, globals.css, feature / component /
-//                          layout .css), counted per token use
+//   legacy-class-use       className tokens a legacy stylesheet defined (frozen denylist
+//                          scripts/legacy-class-denylist.json, 7e181ce32; hooks exempt), counted per
+//                          token use in app code AND in stories/ + .storybook/ (J1B P0-1)
 //   legacy-card-reachable  the hand-made card shell (className card / hd / bd / wchart / wtable /
 //                          kpi / chartcard, <h2 className="h">) in any file reachable by imports
 //                          from an app/**/page.tsx, not only the files named in page-template-map
@@ -26,6 +26,7 @@
 
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
+import { bannedLegacyClasses } from "./legacy-class-denylist.mjs";
 
 export const SHRINK_RATCHET_CHECKS = {
   "legacy-class-use": "a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file",
@@ -65,28 +66,21 @@ export function stripComments(text) {
     .replace(/(^|[^:"'`\\])\/\/.*$/gm, (m, p) => p + " ".repeat(m.length - p.length));
 }
 
-/** Stylesheets the ratchets cover: every .css outside the verbatim template. */
+/** Stylesheets the ratchets cover: every .css outside the verbatim template, Storybook's included (J1B P0-1). */
 export function stylesheetFiles(root) {
-  return ["app", "components", "features", "layouts", "lib", "theme", "styles"]
+  return ["app", "components", "features", "layouts", "lib", "theme", "styles", ".storybook", "stories"]
     .flatMap((d) => walk(join(root, d)))
     .map((abs) => toRel(root, abs))
     .filter((rel) => rel.endsWith(".css") && !rel.startsWith("components/minimal/") && !rel.startsWith("layouts/template/"));
 }
 
-/** Class names a legacy stylesheet defines (selectors only; MUI / Apex / FullCalendar parts excluded). */
+/**
+ * Legacy class names (J1B P2-2): the FROZEN denylist scripts/legacy-class-denylist.json minus its
+ * documented hooks. Deriving it from the stylesheets that exist now stopped working when FIXJ6
+ * deleted frame.css / minimal-theme.css / mesha-theme.css (the list shrank to `simplebar-*`).
+ */
 export function legacyClassNames(root) {
-  const out = new Set();
-  for (const rel of stylesheetFiles(root)) {
-    if (rel.endsWith(".module.css")) continue; // module classes are hashed, reached as styles.x
-    if (rel === "theme/fonts.css" || rel === "app/minimal-tokens.css") continue;
-    const text = readFileSync(join(root, rel), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/url\([^)]*\)/g, "");
-    for (const m of text.matchAll(/([^{}]+)\{/g)) {
-      if (m[1].trim().startsWith("@")) continue;
-      const sel = m[1].replace(/:(?:not)\((?:[^()]|\([^()]*\))*\)/g, "");
-      for (const c of sel.matchAll(/\.(-?[_a-zA-Z][\w-]*)/g)) if (!/^(?:Mui|apexcharts|fc-|simplebar|iconify)/.test(c[1])) out.add(c[1]);
-    }
-  }
-  return out;
+  return bannedLegacyClasses(root);
 }
 
 /** Style rules per stylesheet: leaf `selector { declarations }` blocks outside @keyframes / @font-face. */
@@ -229,8 +223,19 @@ export function shrinkRatchetFindings(root, { isExempt = () => false } = {}) {
   for (const rel of code) {
     for (const f of shrinkRatchetFindingsFor(rel, readFileSync(join(root, rel), "utf8"), { legacyClasses, reachable: reachable.has(rel) })) out.push({ ...f, file: rel });
   }
+  // J1B P0-1: stories and the Storybook config render through the same theme, so a legacy class in a
+  // story is counted too (it renders unstyled since the legacy stylesheets are gone).
+  const storyCode = ["stories", ".storybook"]
+    .flatMap((d) => walk(join(root, d)))
+    .map((abs) => toRel(root, abs))
+    .filter((rel) => /\.tsx$/.test(rel) && !isExempt(rel));
+  for (const rel of storyCode) {
+    for (const f of shrinkRatchetFindingsFor(rel, readFileSync(join(root, rel), "utf8"), { legacyClasses, reachable: false })) {
+      if (f.check === "legacy-class-use") out.push({ ...f, file: rel });
+    }
+  }
   for (const rel of stylesheetFiles(root)) {
-    if (isExempt(rel) || rel === "theme/fonts.css") continue;
+    if (isExempt(rel) || rel === "theme/fonts.css" || rel === ".storybook/fonts.css") continue;
     for (const f of cssRuleFindings(readFileSync(join(root, rel), "utf8"))) out.push({ check: "legacy-css-rules", file: rel, ...f });
   }
   return out;

@@ -20,6 +20,12 @@
 #   next-build     npm --prefix apps/admin-web run build           (machine build slot)
 #   visual-gate    admin-web-visual-gate.sh --pre-push             (5 shell routes + touched routes,
 #                  scan + interactions + skeleton-on-touched 1440/390; reuses the next-build output)
+#   storybook-build npm --prefix apps/admin-web run build-storybook (machine build slot) when the
+#                  pushed commits change stories/, .storybook/, components/, theme/ or the app's
+#                  package.json / the lockfile (STORYBOOK_INPUTS). J1B P0-1: deleting the legacy
+#                  stylesheets broke `storybook build` (preview.css still imported them) and no push
+#                  lane built Storybook, so the story visual lanes of run-local-ci were dead unseen.
+#                  Not applicable otherwise (printed); `--run storybook-build` always builds.
 #
 # Scope: the lanes apply when the pushed commits change an admin-web input (ADMIN_WEB_INPUTS);
 # a push with no such change prints "not applicable" and passes. A branch with no merge base is
@@ -41,7 +47,8 @@
 # own GOATOS_SKIP_ADMIN_WEB_VISUAL_GATE needs GOATOS_SKIP_REASON and lands in the skip ledger.
 set -euo pipefail
 
-LANES=(design-guard typecheck unit-tests next-build visual-gate)
+LANES=(design-guard typecheck unit-tests next-build visual-gate storybook-build)
+STORYBOOK_INPUTS='^(apps/admin-web/(stories/|\.storybook/|components/|theme/|package\.json$)|package-lock\.json$)'
 ADMIN_WEB_INPUTS='^(apps/admin-web/|docs/design/|package\.json$|package-lock\.json$|tools/ci/admin-web-|tools/ci/goatos-skip-ledger\.sh$|backend/internal/adminui/)'
 INPUT_PATHS=(apps/admin-web docs/design package.json package-lock.json tools/ci/admin-web-visual-gate.sh tools/ci/admin-web-push-gate.sh tools/ci/goatos-skip-ledger.sh backend/internal/adminui)
 
@@ -86,6 +93,7 @@ declare -a want_lanes=()
 if [ "$mode" = "--pre-push" ]; then
   cat >"$payload"
   needs=0
+  storybook_needed=0
   while read -r _lref lsha rref rsha; do
     [ -n "${lsha:-}" ] || continue
     [ "$lsha" = "$zero" ] && continue # deleting a ref: nothing to build
@@ -103,6 +111,7 @@ if [ "$mode" = "--pre-push" ]; then
       echo "admin-web-push-gate: ${rref:-?} changes admin-web inputs -> lanes: ${LANES[*]}"
       [ "$lsha" = "$head_sha" ] || block "the push sends ${lsha:0:12} to ${rref:-?} but this work tree's HEAD is ${head_sha:0:12}. The lanes judge the work tree: push from the worktree whose HEAD is the pushed commit."
       needs=1
+      if [ "$changed" = "<no-merge-base>" ] || [ "$changed" = "<diff-failed>" ] || printf '%s\n' "$changed" | grep -Eq "$STORYBOOK_INPUTS"; then storybook_needed=1; fi
     fi
   done <"$payload"
   if [ "$needs" = "0" ]; then
@@ -111,7 +120,14 @@ if [ "$mode" = "--pre-push" ]; then
   fi
   want_lanes=("${LANES[@]}")
 else
-  if [ "$#" -gt 0 ]; then want_lanes=("$@"); else want_lanes=("${LANES[@]}"); fi
+  if [ "$#" -gt 0 ]; then
+    want_lanes=("$@")
+    storybook_needed=1 # a lane named on the command line always runs
+  else
+    want_lanes=("${LANES[@]}")
+    sb_base="$(git merge-base HEAD origin/main 2>/dev/null || true)"
+    if [ -z "$sb_base" ] || git diff --name-only "$sb_base" HEAD 2>/dev/null | grep -Eq "$STORYBOOK_INPUTS"; then storybook_needed=1; else storybook_needed=0; fi
+  fi
   for l in "${want_lanes[@]}"; do
     case " ${LANES[*]} " in *" $l "*) ;; *) echo "unknown lane: $l (lanes: ${LANES[*]})" >&2; exit 2 ;; esac
   done
@@ -120,7 +136,7 @@ fi
 # ── preflight: a missing input FAILS, it never skips ─────────────────────────
 [ -f "$web/package.json" ] || block "apps/admin-web/package.json is missing in $repo"
 [ -d "$web/node_modules" ] || [ -d "$repo/node_modules" ] || block "no node_modules: run npm ci at the repo root first"
-for s in design:guard typecheck test build; do
+for s in design:guard typecheck test build build-storybook; do
   node -e 'const p=require(process.argv[1]); if(!p.scripts||!p.scripts[process.argv[2]]) process.exit(1)' "$web/package.json" "$s" \
     || block "apps/admin-web/package.json has no \"$s\" script"
 done
@@ -160,6 +176,13 @@ run_lane() { # lane
       if [ -n "$slot" ]; then rm -f "$slot/owner"; rmdir "$slot" 2>/dev/null || true; slot=""; fi
       return "$rc"
       ;;
+    storybook-build)
+      take_build_slot
+      local rc=0
+      npm --prefix "$web" run build-storybook || rc=$?
+      if [ -n "$slot" ]; then rm -f "$slot/owner"; rmdir "$slot" 2>/dev/null || true; slot=""; fi
+      return "$rc"
+      ;;
     visual-gate)
       if [ "${GOATOS_SKIP_ADMIN_WEB_VISUAL_GATE:-}" = "1" ]; then
         goatos_require_skip_reason GOATOS_SKIP_ADMIN_WEB_VISUAL_GATE "admin-web push gate: visual-gate" || return 1
@@ -172,6 +195,10 @@ run_lane() { # lane
 
 echo "admin-web-push-gate: ${head_sha:0:12} input tree ${digest:0:12} -> ${want_lanes[*]}"
 for lane in "${want_lanes[@]}"; do
+  if [ "$lane" = "storybook-build" ] && [ "${storybook_needed:-1}" = "0" ]; then
+    echo "admin-web-push-gate: storybook-build — not applicable (no change under stories/, .storybook/, components/, theme/, package.json)"
+    continue
+  fi
   if [ -f "$markers/$lane.pass" ]; then
     echo "admin-web-push-gate: ${lane} — reused PASS (same admin-web input tree, $(cut -f1 "$markers/$lane.pass"))"
     continue

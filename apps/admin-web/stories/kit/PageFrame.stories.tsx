@@ -1,6 +1,9 @@
 import * as React from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
+import Typography from "@mui/material/Typography";
+import { PageRoot } from "@/components/app/page-root";
 import CardHeader from "@mui/material/CardHeader";
 import { expect, within } from "storybook/test";
 import Button from "@mui/material/Button";
@@ -13,7 +16,7 @@ import { Iconify } from "@/components/minimal/iconify";
 import { MOBILE } from "../_data";
 
 /**
- * The page frame (FRAME-SPEC): a `.kit-page` content column with a 24px rhythm,
+ * The page frame (FRAME-SPEC): a `PageRoot` content column (theme sx) with a 24px rhythm,
  * one PageHeader anatomy for every route — eyebrow · title · crumbs · actions, a tab strip
  * and a toolbar below, and deliberately no description slot.
  */
@@ -23,9 +26,9 @@ const meta: Meta<typeof PageHeader> = {
   parameters: { layout: "fullscreen" },
   decorators: [
     (Story) => (
-      <div className="main" style={{ background: "var(--bg)", color: "var(--fg)", minHeight: "100vh", padding: "clamp(16px, 2vw, 24px)" }}>
+      <Box sx={{ bgcolor: "background.default", color: "text.primary", minHeight: "100vh", p: { xs: 2, md: 3 } }}>
         <Story />
-      </div>
+      </Box>
     ),
   ],
 };
@@ -58,7 +61,7 @@ function TabsDemo() {
 /** The standard page: header with crumbs + primary action, tab strip, KPI row, card, bar list. */
 export const Default: Story = {
   render: () => (
-    <div className="kit-page" aria-label="Herd analytics">
+    <PageRoot aria-label="Herd analytics">
       <PageHeader
         title="Herd analytics"
         crumbs={[{ label: "Counts", href: "#" }, { label: "Herd analytics" }]}
@@ -70,7 +73,7 @@ export const Default: Story = {
           <KpiWidget key={k.label} title={k.unit ? `${k.label} (${k.unit})` : k.label} total={k.value} />
         ))}
       </KpiGrid>
-    </div>
+    </PageRoot>
   ),
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
@@ -85,29 +88,29 @@ export const Mobile: Story = { ...Default, ...MOBILE };
 /** Header only, minimal: no eyebrow, no crumbs, no tabs — a settings-style page. */
 export const HeaderOnly: Story = {
   render: () => (
-    <div className="kit-page">
+    <PageRoot>
       <PageHeader title="Configuration" actions={<Button color="primary" variant="outlined">New table</Button>} />
       <Card sx={{ p: { xs: 2, sm: 3 } }}>
         <CardHeader sx={{ p: 0, mb: 2 }} title="Tables" />
-        <div style={{ color: "var(--fg-muted)", fontSize: 14, minHeight: 120 }}>
+        <Typography variant="body2" sx={{ color: "text.secondary", minHeight: 120 }}>
           Configuration tables appear here after the schema registry loads.
-        </div>
+        </Typography>
       </Card>
-    </div>
+    </PageRoot>
   ),
 };
 
 /** L2/L3 page: the heading is the back link (template `CustomBreadcrumbs` `backHref`), no separate Back bar. */
 export const DetailWithBack: Story = {
   render: () => (
-    <div className="kit-page">
+    <PageRoot>
       <PageHeader
         title="CPT · Pen A2"
         backHref="#"
         crumbs={[{ label: "Vaccination", href: "#" }, { label: "CPT" }, { label: "Pen A2" }]}
         actions={<Button color="primary" variant="outlined">Export</Button>}
       />
-    </div>
+    </PageRoot>
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -121,13 +124,13 @@ export const DetailWithBackMobile: Story = { ...DetailWithBack, ...MOBILE };
 export const MobileSingleIconAction: Story = {
   ...MOBILE,
   render: () => (
-    <div className="kit-page">
+    <PageRoot>
       <PageHeader
         title="Herd analytics"
         crumbs={[{ label: "Counts", href: "#" }, { label: "Herd analytics" }]}
         actions={<Button color="primary" variant="contained" startIcon={<Iconify icon="solar:download-bold" width={16} />}>Export</Button>}
       />
-    </div>
+    </PageRoot>
   ),
 };
 

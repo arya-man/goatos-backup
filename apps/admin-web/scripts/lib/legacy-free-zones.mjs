@@ -4,8 +4,8 @@
 // shells, `.btn`/`.qcard`/`.hrow` classes, native <button>/<input>/<select>/<table>, inline style={{}},
 // lucide icons and feature .css files. Once a file is converted it is listed in
 // scripts/legacy-free-zones.json, and from then on it may contain NONE of:
-//   - a className token that a legacy stylesheet defines (app/*.css, features/**/*.css,
-//     components/**/*.css outside components/minimal, layouts/**/*.css, CSS modules)
+//   - a className token a legacy stylesheet defined (the frozen denylist
+//     scripts/legacy-class-denylist.json, taken at 7e181ce32; documented JS / sx hooks exempt)
 //   - a `style={...}` prop (theme sx instead)
 //   - a native <button|input|select|textarea|table|thead|tbody|tfoot|tr|td|th> (MUI / template
 //     components; a hidden `<input type="file">` behind a template upload Button and a
@@ -20,6 +20,7 @@
 
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
+import { bannedLegacyClasses } from "./legacy-class-denylist.mjs";
 
 export const ZONES_FILE = "scripts/legacy-free-zones.json";
 const NATIVE = /<(button|input|select|textarea|table|thead|tbody|tfoot|tr|td|th)(?=[\s>/]|$)/gm;
@@ -42,22 +43,13 @@ function walk(dir, out = []) {
 }
 const rel = (root, abs) => relative(root, abs).split(sep).join("/");
 
-/** Every class selector a legacy stylesheet (or CSS module) in the app still defines. */
+/**
+ * Every legacy class name (J1B P2-2): the FROZEN denylist scripts/legacy-class-denylist.json (the
+ * class selectors the legacy stylesheets defined at 7e181ce32) minus its documented hooks. It used to
+ * be read from the stylesheets that exist now, which FIXJ6 deleted, so the zone rule lost its teeth.
+ */
 export function legacySelectors(root) {
-  const css = [
-    ...["app"].flatMap((d) => walk(join(root, d)).filter((f) => f.endsWith(".css") && !f.includes(`${sep}(`))),
-    ...["features", "components", "layouts"].flatMap((d) => walk(join(root, d)).filter((f) => f.endsWith(".css"))),
-  ].filter((abs) => !rel(root, abs).startsWith("components/minimal/"));
-  const out = new Set();
-  for (const abs of css) {
-    const text = readFileSync(abs, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/url\([^)]*\)/g, "");
-    // Selectors only (the part before each `{`), so a `.5s` or `1.25rem` in a declaration never counts.
-    for (const m of text.matchAll(/([^{}]+)\{/g)) {
-      if (m[1].trim().startsWith("@")) continue;
-      for (const c of m[1].matchAll(/\.(-?[_a-zA-Z][\w-]*)/g)) out.add(c[1]);
-    }
-  }
-  return out;
+  return bannedLegacyClasses(root);
 }
 
 export function readZones(root) {

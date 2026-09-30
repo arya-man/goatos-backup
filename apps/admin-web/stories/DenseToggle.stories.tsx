@@ -1,4 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import TableHead from "@mui/material/TableHead";
+import TableRow from "@mui/material/TableRow";
 import * as React from "react";
 import { expect, userEvent, within } from "storybook/test";
 import { DenseToggle } from "@/components/app/dense-toggle";
@@ -14,14 +19,14 @@ function Demo({ label }: { label?: string }) {
     <Stack title={dense ? "dense: on" : "dense: off"}>
       <DenseToggle checked={dense} onChange={setDense} label={label} />
       <div data-dense={dense ? "" : undefined}>
-        <table className="tbl" style={{ width: "100%" }}>
-          <thead><tr><th>Pen</th><th>Kids</th><th>ADG</th><th>Vendor</th></tr></thead>
-          <tbody>
+        <Table>
+          <TableHead><TableRow><TableCell>Pen</TableCell><TableCell>Kids</TableCell><TableCell>ADG</TableCell><TableCell>Vendor</TableCell></TableRow></TableHead>
+          <TableBody>
             {PEN_ROWS.map((r) => (
-              <tr key={r.pen}><td>{r.pen}</td><td>{r.kids}</td><td>{r.adg} g/day</td><td>{r.vendor}</td></tr>
+              <TableRow key={r.pen}><TableCell>{r.pen}</TableCell><TableCell>{r.kids}</TableCell><TableCell>{r.adg} g/day</TableCell><TableCell>{r.vendor}</TableCell></TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
     </Stack>
   );

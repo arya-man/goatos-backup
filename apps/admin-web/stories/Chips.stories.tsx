@@ -1,33 +1,55 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import Box from "@mui/material/Box";
+import Chip from "@mui/material/Chip";
+import { Label } from "@/components/minimal/label";
 import { Canvas, MOBILE, Row, Stack } from "./_data";
 
 /**
- * Chips / tags / pills are theme CSS classes (`.chip`, `.chipset`, `.tag`, `.pill`, `.achip`,
- * `.dimchip`) rather than kit components, so this file pins their rendered states.
+ * Chips / tags / pills on the template: MUI `Chip` (filter chips, applied filters) and the template
+ * `Label` (status tags, counts). The legacy `.chip` / `.chipset` / `.tag` / `.pill` / `.achip` /
+ * `.dimchip` theme classes are deleted; this file pins the template states that replaced them.
  */
 const meta = { title: "Kit/Chips & Labels", parameters: { layout: "fullscreen" } } satisfies Meta;
 export default meta;
 type Story = StoryObj;
 
+const Count = ({ n, on }: { n: number; on?: boolean }) => (
+  <Label variant={on ? "filled" : "soft"} color={on ? "primary" : "default"} sx={{ ml: 0.75 }}>
+    {n}
+  </Label>
+);
+
+const FILTERS = [
+  { label: "All pens", count: 164, on: true },
+  { label: "Kids 0–3 mo", count: 46 },
+  { label: "Growers", count: 101 },
+  { label: "Breeding does", count: 17 },
+];
+
 export const FilterChips: Story = {
   render: () => (
     <Canvas>
-      <Stack title="chipset — default / selected / disabled / with count">
-        <div className="chipset">
-          <button type="button" className="chip on">All pens<span className="cbq">164</span></button>
-          <button type="button" className="chip">Kids 0–3 mo<span className="cbq">46</span></button>
-          <button type="button" className="chip">Growers<span className="cbq">101</span></button>
-          <button type="button" className="chip">Breeding does<span className="cbq">17</span></button>
-          <button type="button" className="chip" aria-disabled="true" disabled>Quarantine<span className="cbq">0</span></button>
-        </div>
+      <Stack title="filter chips — default / selected / disabled / with count">
+        <Row>
+          {FILTERS.map((f) => (
+            <Chip
+              key={f.label}
+              clickable
+              variant={f.on ? "filled" : "outlined"}
+              color={f.on ? "primary" : "default"}
+              label={<>{f.label}<Count n={f.count} on={f.on} /></>}
+            />
+          ))}
+          <Chip disabled variant="outlined" label={<>Quarantine<Count n={0} /></>} />
+        </Row>
       </Stack>
-      <Stack title="applied filters (.achip) + clear">
-        <div className="fchipsbar">
-          <span className="achip">Park: Seletar <b>×</b></span>
-          <span className="achip">Vendor: Kranji Livestock <b>×</b></span>
-          <span className="achip">ADG &lt; 150 g/day <b>×</b></span>
-          <span className="achip clr">Clear all</span>
-        </div>
+      <Stack title="applied filters + clear">
+        <Row>
+          <Chip size="small" variant="soft" label="Park: Seletar" onDelete={() => {}} />
+          <Chip size="small" variant="soft" label="Vendor: Kranji Livestock" onDelete={() => {}} />
+          <Chip size="small" variant="soft" label="ADG < 150 g/day" onDelete={() => {}} />
+          <Chip size="small" color="error" variant="soft" label="Clear all" onClick={() => {}} />
+        </Row>
       </Stack>
     </Canvas>
   ),
@@ -38,20 +60,20 @@ export const StatusTags: Story = {
     <Canvas>
       <Stack title="status tags">
         <Row>
-          <span className="tag" style={{ background: "var(--success-soft)", color: "var(--success-ink)" }}>On target</span>
-          <span className="tag" style={{ background: "var(--warning-soft)", color: "var(--warning-ink)" }}>Watch</span>
-          <span className="tag" style={{ background: "var(--error-soft)", color: "var(--error-ink)" }}>Below target</span>
-          <span className="tag" style={{ background: "var(--info-soft)", color: "var(--info-ink)" }}>Awaiting verification</span>
-          <span className="tag" style={{ background: "var(--primary-soft)", color: "var(--primary-ink)" }}>SF-048</span>
-          <span className="pill">Draft</span>
+          <Label color="success">On target</Label>
+          <Label color="warning">Watch</Label>
+          <Label color="error">Below target</Label>
+          <Label color="info">Awaiting verification</Label>
+          <Label color="primary">SF-048</Label>
+          <Label variant="outlined">Draft</Label>
         </Row>
       </Stack>
       <Stack title="demographic chips">
-        <div className="dimchips">
-          <span className="dimchip f">Does <b>92</b></span>
-          <span className="dimchip m">Bucks <b>72</b></span>
-          <span className="dimchip">Untagged <b>4</b></span>
-        </div>
+        <Row>
+          <Chip size="small" variant="soft" color="secondary" label={<>Does <b>92</b></>} />
+          <Chip size="small" variant="soft" color="info" label={<>Bucks <b>72</b></>} />
+          <Chip size="small" variant="soft" label={<>Untagged <b>4</b></>} />
+        </Row>
       </Stack>
     </Canvas>
   ),
@@ -61,22 +83,37 @@ export const OverflowAndManyItems: Story = {
   render: () => (
     <Canvas>
       <Stack title="long label truncation">
-        <div className="chipset" style={{ maxWidth: 320 }}>
-          <span className="chip on" title="Kranji Livestock Supply Cooperative — Batch 2026-04">Kranji Livestock Supply Cooperative — Batch 2026-04</span>
-          <span className="tag" style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", display: "inline-block", whiteSpace: "nowrap", background: "var(--info-soft)", color: "var(--info-ink)" }}>
+        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, maxWidth: 320 }}>
+          <Chip
+            color="primary"
+            title="Kranji Livestock Supply Cooperative — Batch 2026-04"
+            label="Kranji Livestock Supply Cooperative — Batch 2026-04"
+            sx={{ maxWidth: 1 }}
+          />
+          <Label color="info" sx={{ maxWidth: 200, display: "inline-block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             Lim Chu Kang Goat Breeders Association
-          </span>
-        </div>
+          </Label>
+        </Box>
       </Stack>
       <Stack title="many items — must wrap, never scroll the page sideways">
-        <div className="chipset">
-          {Array.from({ length: 28 }, (_, i) => (
-            <span key={i} className={`chip${i % 7 === 0 ? " on" : ""}`}>Pen {String(i + 1).padStart(2, "0")}<span className="cbq">{100 + i * 3}</span></span>
-          ))}
-        </div>
+        <Row>
+          {Array.from({ length: 28 }, (_, i) => {
+            const on = i % 7 === 0;
+            return (
+              <Chip
+                key={i}
+                variant={on ? "filled" : "outlined"}
+                color={on ? "primary" : "default"}
+                label={<>Pen {String(i + 1).padStart(2, "0")}<Count n={100 + i * 3} on={on} /></>}
+              />
+            );
+          })}
+        </Row>
       </Stack>
       <Stack title="empty state">
-        <div className="chipset"><span className="achip clr">No filters applied</span></div>
+        <Row>
+          <Chip size="small" variant="soft" label="No filters applied" />
+        </Row>
       </Stack>
     </Canvas>
   ),
