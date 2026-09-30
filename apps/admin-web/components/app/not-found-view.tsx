@@ -13,7 +13,7 @@ import Typography from '@mui/material/Typography';
 
 import Link from '@/components/no-prefetch-link';
 import { varBounce, MotionContainer } from '@/layouts/template/animate';
-import PageNotFoundIllustration from '@/components/minimal/assets/illustrations/page-not-found-illustration';
+import PageNotFoundIllustration from '@/components/app/illustrations/page-not-found-illustration';
 
 export function NotFoundView({ title, body, homeLabel }: { title: string; body: string; homeLabel: string }) {
   return (
