@@ -24,6 +24,7 @@
     "smoke:calendar-identity:live": "GOATOS_SMOKE_ONLY_ROUTES=calendar GOATOS_SMOKE_STRICT_CALENDAR_IDENTITY=1 node scripts/smoke-visual-live.mjs",
     "smoke:sales-tolerance-layout:live": "node scripts/check-sales-tolerance-layout.mjs",
     "e2e:sop-builder": "node scripts/sop-builder-e2e.mjs",
+    "e2e:task-board-dnd": "node scripts/task-board-dnd-e2e.mjs",
     "smoke:visual:baseline": "node scripts/smoke-visual-live.mjs --baseline-dir .codex-goatos-render/admin-web-baselines --require-baseline",
     "smoke:visual:update-baseline": "node scripts/smoke-visual-live.mjs --baseline-dir .codex-goatos-render/admin-web-baselines --update-baseline",
     "smoke:webview": "node scripts/check-mobile-webview.mjs --baseline-dir apps/admin-web/scripts/check-mobile-webview-waivers --require-baseline",
@@ -66,6 +67,7 @@
   },
   "dependencies": {
     "@base-ui/react": "1.5.0",
+    "@dnd-kit/core": "6.3.1",
     "@emotion/cache": "11.14.0",
     "@emotion/react": "11.14.0",
     "@emotion/styled": "11.14.1",

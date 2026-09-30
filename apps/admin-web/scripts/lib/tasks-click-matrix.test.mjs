@@ -42,12 +42,10 @@ test("typing into the toolbar search must show more than its own value", () => {
   assert.deepEqual(observedChange(before, { inputs: "fence", href: "/tasks?t_q=fence" }, ["inputs"]), ["href"]);
 });
 
-test("planActivation: drag is asserted absent at phone width and exercised at desktop", () => {
+test("planActivation: a native HTML5 draggable fails at every width (the board drags with dnd-kit)", () => {
   const card = el({ draggable: "true", className: "ltb-card" });
-  assert.equal(planActivation(card, 390).how, "drag-absent");
-  assert.equal(planActivation(card, 1440).how, "drag");
-  assert.equal(planActivation(card, 760).how, "drag-absent");
-  assert.equal(planActivation(card, 761).how, "drag");
+  for (const width of [390, 760, 761, 1440]) assert.equal(planActivation(card, width).how, "drag-native");
+  assert.equal(planActivation(el({ draggable: "false", tag: "a", className: "ltb-card" }), 390).how, "click");
 });
 
 test("planActivation: a submit on a VALID form is guarded, on an INVALID form it is clicked", () => {

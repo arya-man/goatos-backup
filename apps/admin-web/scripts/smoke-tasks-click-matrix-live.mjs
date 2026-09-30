@@ -54,7 +54,6 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "@playwright/test";
 import {
-  DRAG_MIN_WIDTH,
   PHONE_TAP_FLOOR,
   coverageGaps,
   elementKey,
@@ -453,9 +452,9 @@ async function activateOne(page, viewport, stage, index, descriptor, ordinal = 0
     record({ ...base, how: "disabled", status: "pass", detail: plan.reason });
     return;
   }
-  if (plan.how === "drag-absent") {
+  if (plan.how === "drag-native") {
     await shot(page, stageLabel, index);
-    record({ ...base, how: "drag-absent", status: "fail", detail: plan.reason });
+    record({ ...base, how: "drag-native", status: "fail", detail: plan.reason });
     return;
   }
   if (plan.how === "file") {
@@ -535,25 +534,6 @@ async function activateOne(page, viewport, stage, index, descriptor, ordinal = 0
       case "toggle":
         await target.click(clickOptions);
         break;
-      case "drag": {
-        const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
-        await target.dispatchEvent("dragstart", { dataTransfer });
-        const during = await settleKey(page, before, "dragging");
-        await target.dispatchEvent("dragend", { dataTransfer });
-        const after = await settleKey(page, during, "dragging");
-        const started = observedChange(before, during, ["requests"]);
-        const cleared = observedChange(during, after, ["requests"]);
-        if (!started.length) {
-          await shot(page, stageLabel, index);
-          record({ ...base, how: plan.how, status: "fail", detail: "dragstart put the board in no visible drag state" });
-        } else if (!cleared.length) {
-          await shot(page, stageLabel, index);
-          record({ ...base, how: plan.how, status: "fail", detail: `dragend left the board in its drag state (${started.join(", ")})` });
-        } else {
-          record({ ...base, how: plan.how, status: currentIssues.length ? "fail" : "pass", detail: currentIssues.length ? `page issues: ${currentIssues.join(" | ")}` : `dragstart → ${started.join(", ")}; dragend cleared it` });
-        }
-        return;
-      }
       case "submit-invalid":
       case "click":
       default:
@@ -937,12 +917,13 @@ async function scriptedChecks(page, viewport, task) {
     return `t_sort=${next}`;
   });
 
-  await check(page, viewport, "drag is present at desktop width and absent at phone width", async () => {
+  await check(page, viewport, "cards drag with dnd-kit at every width (no native HTML5 drag)", async () => {
     await loadStage(page, { url: base });
-    const draggable = await page.locator('[draggable="true"]').count();
-    if (phone && draggable !== 0) throw new Error(`${draggable} draggable cards at phone width; drag must be off there`);
-    if (!phone && draggable === 0) throw new Error("no draggable card at desktop width");
-    return `${draggable} draggable cards`;
+    const native = await page.locator('.ltb-cols [draggable="true"]').count();
+    if (native !== 0) throw new Error(`${native} native HTML5 draggables on the board; the board drags with dnd-kit (touch never fires HTML5 drag)`);
+    const draggable = await page.locator('.ltb-card-root[data-board-draggable="true"]').count();
+    if (draggable === 0) throw new Error(`no draggable card at ${phone ? "phone" : "desktop"} width`);
+    return `${draggable} dnd-kit draggable cards`;
   });
 
   await check(page, viewport, "card → detail panel → Edit opens/closes → composer takes text → @ opens the picker → Close drops the selection", async () => {
