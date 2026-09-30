@@ -178,7 +178,7 @@ function windowSx(view: View): SxProps<Theme> {
     flex: "none",
     overflow: "hidden",
     boxShadow: theme.vars.customShadows.dialog,
-    width: view === "max" ? 1 : view === "min" ? 360 : 960,
+    width: view === "max" ? 1 : view === "min" ? 420 : 960,
     height: view === "max" ? 1 : view === "min" ? HEADER_HEIGHT : 720,
     maxWidth: 1,
     maxHeight: 1,
@@ -188,7 +188,7 @@ function windowSx(view: View): SxProps<Theme> {
 
 // An answer fills the thread; the reader's own turn keeps the template 320 bubble.
 const ANSWER_SLOTS = {
-  column: { flex: "1 1 auto", minWidth: 0 },
+  column: { flex: "1 1 auto", minWidth: 0, alignItems: "stretch" },
   body: { maxWidth: 1, flex: "1 1 auto", minWidth: 0 },
   actions: { "@media (hover: none)": { opacity: 1 } },
 };
@@ -1561,7 +1561,7 @@ export function CeoAiPanel({
                       onCloseMobile={conversationsNav.onCloseMobile}
                       displayName={thread.title || CHROME.newChat}
                       lastActivity={thread.updated_at ? fmtDate(thread.updated_at) : undefined}
-                      avatar={<Iconify icon="solar:chat-round-dots-bold" width={24} />}
+                      avatar={<MeshaLogo size={48} />}
                       onClickConversation={(id) => void resumeThread(id)}
                     />
                   ))
