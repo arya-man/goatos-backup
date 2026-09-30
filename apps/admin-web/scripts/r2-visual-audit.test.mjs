@@ -247,3 +247,13 @@ test("guard: panel-fallback-twin - fallbackTwinFails flags a jump and a mis-shap
   assert.deepEqual(fallbackTwinFails({ maxTargetShift: 0, fallback: { skeleton: { ...box(300, 390), table: true }, loaded: { ...box(300, 192), table: true } } }), []);
   assert.ok(isP0("interact|Tab|fallback-jump") && isP0("interact|Filter link|fallback-shape") && isP0("interact|Tab|stale-panel"));
 });
+
+// guard: pick-state-audit (J2B P1-2). The /people Vaccination roster exists only after a park is
+// picked; the interact lane must reach that state and run the text-fit + dead-control probes on it.
+test("guard: pick-state-audit - the interact lane audits the /people Vaccination roster after a park pick", async () => {
+  const { PICK_STATES } = await import("./r2-visual-audit.mjs");
+  const src = readFileSync(new URL("./r2-visual-audit.mjs", import.meta.url), "utf8");
+  assert.ok(PICK_STATES.some((s) => s.route === "/people" && /tab=vaccination/.test(s.path)));
+  assert.match(src, /for \(const st of PICK_STATES\.filter\(\(x\) => x\.route === route\.route\)\)/, "pick states are scheduled with the interact jobs");
+  assert.match(src, /page\.evaluate\(probeTextFit\)[\s\S]{0,120}probeDeadControls/, "the picked state gets the text-fit and dead-control probes");
+});

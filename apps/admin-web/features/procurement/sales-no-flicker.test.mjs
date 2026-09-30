@@ -37,7 +37,9 @@ test("Farm born stages its filters and never dims the whole page", () => {
 test("the Over 35 kg margin re-counts its own card in place", () => {
   const control = read("./sales-ready-tolerance-control.tsx");
   assert.doesNotMatch(control, /router\.replace|useRouter/, "Apply must not re-render the whole page");
-  assert.match(control, /disabled=\{draftG === valueG \|\| pending\}/, "the pending state is shown, not thrown away");
+  assert.match(control, /const changed = draftG !== valueG \|\| pending;/, "the pending state is shown, not thrown away");
+  assert.match(control, /disabled=\{pending\}/, "Apply is busy while the margin lands");
+  assert.match(control, /visibility: changed \? "visible" : "hidden"/, "no dimmed idle Apply (DECIDED no dead controls)");
   const card = read("./over35-kpi.tsx");
   assert.match(card, /await countOver35Action\(parkId, nextG\)/);
   assert.match(card, /replaceLocalOverlayUrl\(/);

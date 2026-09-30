@@ -48,6 +48,7 @@ import CardContent from "@mui/material/CardContent";
 import CardHeader from "@mui/material/CardHeader";
 import Card from "@mui/material/Card";
 import IconButton from "@mui/material/IconButton";
+import InputAdornment from "@mui/material/InputAdornment";
 import { Iconify } from "@/components/minimal/iconify";
 import { MinimalDrawer } from "@/components/app/drawer";
 import { useBackCloses } from "@/components/use-back-closes";
@@ -1043,46 +1044,67 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
                     </TableCell>
                     <TableCell>{scopedParkName || '—'}</TableCell>
                     <TableCell>
-                      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }}>
+                      {/* Template table cell: the value on one line, the row action as a one-line
+                          small button under it (J2B P1-2: "Set / shift" wrapped). A seat with no
+                          person gets the reason as text, not a dimmed button (no dead controls). */}
+                      <Stack spacing={0.5} sx={{ alignItems: 'flex-start' }}>
                         {shift ? (
-                          <Typography variant="body2">{shiftSummary(shift)}</Typography>
+                          <Typography variant="body2" sx={{ whiteSpace: 'nowrap' }}>{shiftSummary(shift)}</Typography>
                         ) : (
-                          <Typography variant="body2" sx={{ color: 'text.disabled' }}>Not set</Typography>
+                          <Typography variant="body2" sx={{ color: 'text.disabled', whiteSpace: 'nowrap' }}>Not set</Typography>
                         )}
-                        <Button
-                          color="primary"
-                          size="small"
-                          variant="soft"
-                          onClick={() => openShiftForm(op)}
-                          disabled={!op.workforce_member_id}
-                          title={op.workforce_member_id ? undefined : 'This seat has no person yet'}
-                        >
-                          {shift ? 'Edit shift' : 'Set shift'}
-                        </Button>
+                        {op.workforce_member_id ? (
+                          <Button
+                            color="primary"
+                            size="small"
+                            variant="soft"
+                            onClick={() => openShiftForm(op)}
+                            sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}
+                          >
+                            {shift ? 'Edit shift' : 'Set shift'}
+                          </Button>
+                        ) : (
+                          <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'nowrap' }}>No person on this seat yet</Typography>
+                        )}
                       </Stack>
                     </TableCell>
                     <TableCell>
-                      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                        <MuiTextField
-                          size="small"
-                          type="number"
-                          value={draftCap}
-                          onChange={(event) => setDraftCaps((current) => ({ ...current, [positionId]: event.target.value }))}
-                          sx={{ width: 92 }}
-                          slotProps={{ htmlInput: { 'aria-label': `${shortName} animals/day cap`, inputMode: 'numeric', min: 1, max: 200 } }}
-                        />
-                        <Typography variant="body2" sx={{ color: 'text.secondary' }}>/day</Typography>
-                        <IconButton
-                          color={capChanged ? 'primary' : 'default'}
-                          disabled={!capChanged || savingCap === positionId}
-                          aria-busy={savingCap === positionId || undefined}
-                          onClick={() => void saveOperatorCap(op)}
-                          title={savingCap === positionId ? 'Saving' : capChanged ? 'Save cap' : 'Cap unchanged'}
-                          aria-label={savingCap === positionId ? 'Saving' : `Save ${shortName} cap`}
-                        >
-                          <Iconify icon="eva:checkmark-fill" />
-                        </IconButton>
-                      </Stack>
+                      {/* Template small TextField with its unit as an end adornment (J2B P1-2). The
+                          save tick sits inside the field and appears only once the cap is edited
+                          (DECIDED no dead controls: no dimmed idle tick). */}
+                      <MuiTextField
+                        size="small"
+                        type="number"
+                        value={draftCap}
+                        onChange={(event) => setDraftCaps((current) => ({ ...current, [positionId]: event.target.value }))}
+                        onKeyDown={(event) => { if (event.key === 'Enter' && capChanged) void saveOperatorCap(op); }}
+                        sx={{ width: 132 }}
+                        slotProps={{
+                          htmlInput: { 'aria-label': `${shortName} animals/day cap`, inputMode: 'numeric', min: 1, max: 200 },
+                          input: {
+                            endAdornment: (
+                              <InputAdornment position="end" sx={{ ml: 0.5 }}>
+                                {capChanged || savingCap === positionId ? (
+                                  <IconButton
+                                    size="small"
+                                    edge="end"
+                                    color="primary"
+                                    disabled={savingCap === positionId}
+                                    aria-busy={savingCap === positionId || undefined}
+                                    onClick={() => void saveOperatorCap(op)}
+                                    title={savingCap === positionId ? 'Saving' : 'Save cap'}
+                                    aria-label={savingCap === positionId ? 'Saving' : `Save ${shortName} cap`}
+                                  >
+                                    <Iconify icon="eva:checkmark-fill" width={18} />
+                                  </IconButton>
+                                ) : (
+                                  '/day'
+                                )}
+                              </InputAdornment>
+                            ),
+                          },
+                        }}
+                      />
                     </TableCell>
                     <TableCell>
                       <Label color="info">{weekOffLabel}</Label>

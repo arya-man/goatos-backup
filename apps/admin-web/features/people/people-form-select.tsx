@@ -22,6 +22,7 @@ export function PeopleFormSelect({
   required,
   disabled,
   minWidth = 180,
+  fullWidth,
   form,
   autoSubmit,
 }: {
@@ -32,6 +33,11 @@ export function PeopleFormSelect({
   required?: boolean;
   disabled?: boolean;
   minWidth?: number;
+  /**
+   * Form-column field (drawer / dialog body): full width like every template form TextField, no
+   * label-sized floor (J2B P1-1: minWidth 0 in a column body collapsed the select to ~60px).
+   */
+  fullWidth?: boolean;
   /** Owning form id, so the value still submits when the field is rendered in a portal. */
   form?: string;
   /**
@@ -43,10 +49,11 @@ export function PeopleFormSelect({
   const [value, setValue] = useState(defaultValue ?? "");
   const labelMinWidth = Math.min(260, Math.max(minWidth, label.length * 7 + 24));
   return (
-    <Box sx={{ minWidth: labelMinWidth }}>
+    <Box sx={fullWidth ? { width: 1 } : { minWidth: labelMinWidth }}>
       <input type="hidden" name={name} value={value} required={required} form={form} />
       <TextField
         select
+        fullWidth={fullWidth}
         label={label}
         value={options.some((option) => option.value === value) ? value : ""}
         disabled={disabled}
@@ -55,7 +62,7 @@ export function PeopleFormSelect({
           flushSync(() => setValue(event.target.value));
           if (autoSubmit && form) (document.getElementById(form) as HTMLFormElement | null)?.requestSubmit();
         }}
-        sx={{ minWidth: { xs: 0, sm: minWidth }, flexShrink: 0, maxWidth: 1 }}
+        sx={fullWidth ? undefined : { minWidth: { xs: 0, sm: minWidth }, flexShrink: 0, maxWidth: 1 }}
         slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
       >
         {options.map((option) => (

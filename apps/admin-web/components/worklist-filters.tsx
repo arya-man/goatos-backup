@@ -765,10 +765,11 @@ export function WorklistFilters({
           {copy(pageContract, "filter.clear_all")}
         </MuiButton>
       ) : null}
-      {/* The bar's ONE commit point when it defers: always rendered, disabled until something is
-          staged, so the reader sees before touching anything that this bar waits for a press. */}
-      {deferApply ? (
-        <MuiButton variant="contained" color="primary" disabled={!staged || busy} onClick={applyStaged}>
+      {/* The bar's ONE commit point when it defers. DECIDED "no dead controls" (J2B P2-8): it renders
+          only once something is staged (never a dimmed idle Apply), and shows its loading state while
+          the committed filters land. guard: no-dead-controls (r2 text-fit dead-primary, page body). */}
+      {deferApply && (staged || busy) ? (
+        <MuiButton variant="contained" color="primary" loading={busy} onClick={applyStaged}>
           {applyLabel}
         </MuiButton>
       ) : null}

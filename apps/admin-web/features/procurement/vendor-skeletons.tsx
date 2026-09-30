@@ -11,7 +11,7 @@ export function VendorRowsSkeleton({ columns = 6, rows = PAGE_SIZE }: { columns?
 /**
  * Loading twin of VendorBoardPage (procurement + sales vendors): header + Add (the parent crumb is
  * plain text), then the register card — status tabs, the order toolbar (the non-status selects,
- * Apply, search, ⋮), the rows and footer.
+ * search, ⋮; Apply renders only once a filter is staged), the rows and footer.
  */
 export function VendorBoardSkeleton() {
   return (
@@ -22,7 +22,7 @@ export function VendorBoardSkeleton() {
         rows={PAGE_SIZE}
         header={false}
         tabs={<TabsSkeleton count={1} counts />}
-        toolbar={<OrderToolbarSkeleton filters={VENDOR_FILTER_KEYS.filter((key) => key !== "status").length} trailing={[120]} trailingTall menu />}
+        toolbar={<OrderToolbarSkeleton filters={VENDOR_FILTER_KEYS.filter((key) => key !== "status").length} menu />}
       />
     </PageSkeleton>
   );

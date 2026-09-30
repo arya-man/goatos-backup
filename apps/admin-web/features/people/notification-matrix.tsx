@@ -137,12 +137,14 @@ export function NotificationMatrix({
           <Typography variant="subtitle1" component="span">{t("notifications.column.alert")}</Typography>
           <InfoHint text={`${t("notifications.intro")} ${t("notifications.always_told")}`} />
         </Stack>
-        {canEdit ? (
+        {/* DECIDED "no dead controls" (J2B P2-8): Save renders once a cell is changed (or while the
+            save runs), never as an idle dimmed button. */}
+        {canEdit && (dirtyKeys.length > 0 || anyPending) ? (
           <Button
             variant="contained"
             color="primary"
             size="small"
-            disabled={dirtyKeys.length === 0 || anyPending}
+            loading={anyPending}
             aria-busy={anyPending || undefined}
             onClick={saveAll}
             endIcon={dirtyKeys.length > 0 ? <Label color="default" variant="filled">{dirtyKeys.length}</Label> : undefined}

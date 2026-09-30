@@ -242,7 +242,7 @@ export function PersonAddDrawer({
                   label={field("role")}
                   value={role}
                   onChange={(event) => setRole(event.target.value)}
-                  sx={{ flexShrink: 0, maxWidth: 1 }}
+                  fullWidth
                   slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
                 >
                   <MenuItem value="">—</MenuItem>
@@ -258,7 +258,7 @@ export function PersonAddDrawer({
                   label={parkRequired ? field("park") : `${field("park")} (${field("optional")})`}
                   value={parkID}
                   onChange={(event) => setParkID(event.target.value)}
-                  sx={{ flexShrink: 0, maxWidth: 1 }}
+                  fullWidth
                   slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
                 >
                   <MenuItem value="">—</MenuItem>
@@ -270,13 +270,13 @@ export function PersonAddDrawer({
                 </TextField>
               <PeopleFormSelect
                 name="department_id"
-                minWidth={0}
+                fullWidth
                 label={`${field("department")} (${field("optional")})`}
                 options={[{ value: "", label: "—" }, ...catalog.departments.map((department) => ({ value: department.id, label: department.label }))]}
               />
               <PeopleFormSelect
                 name="designation_grade"
-                minWidth={0}
+                fullWidth
                 label={`${field("designation")} (${field("optional")})`}
                 options={[{ value: "", label: "—" }, ...grades.map((grade) => ({ value: grade.key, label: grade.label }))]}
               />

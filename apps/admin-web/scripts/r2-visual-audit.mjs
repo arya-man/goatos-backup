@@ -32,6 +32,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSy
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { probeDeadControls, probeFieldWidths, probeTextFit } from "./r2-audit-checks/text-fit.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const appRoot = resolve(scriptDir, "..");
@@ -294,6 +295,9 @@ export const P0_PATTERNS = [
   /^chart-black\|/, // a chart series / legend mark whose colour never resolved (paints black)
   /^chart-light-scheme\|/, // a dark-mode chart painted a light-scheme-only palette colour
   /^drawer\|(overflow\|clipped|no-backdrop)/,
+  // J2B P1-1 / P2-8: a form field collapsed next to full-width siblings, and a dimmed idle Apply /
+  // Save inside a drawer / dialog (DECIDED no dead controls). guard: drawer-field-width, no-dead-controls
+  /^drawer\|(field-collapsed|dead-control)$/,
   /^skeleton\|(mismatch|missing|extra)/, // skeleton vs loaded block IoU < 0.8, block missing / extra
   /^tap\|/,
   /^sideways-scroll\|/,
@@ -328,6 +332,14 @@ export function gateFailures(patterns, baseline, strict, { strictRoutes = null, 
 
 // Five routes that exercise the whole shell (sidebar groups, header, tabs + filter toolbar, sort
 // headers, KPI rows, charts, a table pager). Every fast run audits them, whatever the push touched.
+// Screens that only exist after a pick (J2B P1-2): the /people Vaccination roster renders only once
+// a park is chosen, so the plain scan never saw its cells ("Set / shift" wrapped, schedule cut).
+// The interact lane opens `path`, picks the first real option of the page's first select and runs
+// the text-fit + dead-control probes on the picked state. guard: pick-state-audit
+export const PICK_STATES = [
+  { route: "/people", path: "/people?tab=vaccination", label: "Vaccination roster after picking a park" },
+];
+
 export const SHELL_ROUTES = ["/verify", "/approvals", "/sales/sold", "/weighing/analytics", "/counts/herd"];
 
 const IMPORT_RE = /(?:import|export)\s[^'"`;]*?from\s*["']([^"']+)["']|import\(\s*["']([^"']+)["']\s*\)|^\s*import\s*["']([^"']+)["']/gm;
@@ -1457,6 +1469,29 @@ async function main() {
     } finally { await ctx.close(); }
   }
 
+  async function pickStateJob(route, state, profile = PROFILES[0]) {
+    const ctx = await newContext(profile, false);
+    try {
+      const page = await ctx.newPage();
+      const res = await gotoSettled(page, urlFor(state.path));
+      if (res.error || redirected(page, route)) return;
+      const select = page.locator(".minimal__layout__main__content [role=combobox], main [role=combobox]").first();
+      try {
+        await select.click({ timeout: 5000 });
+        await page.locator("[role=listbox] [role=option]:not(.Mui-disabled)").filter({ hasText: /\S/ }).filter({ hasNotText: /^\s*(—|-|all\b|choose|select)/i }).first().click({ timeout: 5000 });
+      } catch (e) {
+        add({ check: "interact", pattern: "pick-state|unreachable", label: "Pick-state screen could not be reached", route: route.route, profile: profile.label, detail: `${state.label}: ${String(e.message).split("\n")[0].slice(0, 120)}` });
+        return;
+      }
+      await sleep(400);
+      await page.waitForFunction(() => window.__r2lib && window.__r2lib.settled(800), null, { timeout: 15000, polling: 200 }).catch(() => {});
+      const found = [...(await page.evaluate(probeTextFit).catch(() => [])), ...(await page.evaluate(probeDeadControls, ".minimal__layout__main__content, main").catch(() => []))];
+      const shot = join(outDir, "shots", `${slug(route.route)}__pick-state__${profile.label}.jpg`);
+      await page.screenshot({ path: shot, type: "jpeg", quality: 80 }).catch(() => {});
+      for (const f of found) add({ check: "text-fit", pattern: `text-fit|${f.kind}`, label: `${f.kind} (after a pick)`, route: route.route, profile: profile.label, detail: `${state.label}: ${f.detail}`, evidence: rel(shot), p0: true });
+    } finally { await ctx.close(); }
+  }
+
   async function drawerJob(route, path) {
     const profile = PROFILES[0];
     const ctx = await newContext(profile, false);
@@ -1496,6 +1531,8 @@ async function main() {
         }
         if (!o.backdrop) add({ check: "drawers", pattern: `drawer|no-backdrop|${o.kind}`, label: `${o.kind === "drawer" ? "Drawer" : "Dialog"} opens without a backdrop`, route: route.route, profile: profile.label, detail: `${what} (${o.sig})`, evidence });
         for (const ov of o.overflow) add({ check: "drawers", pattern: `drawer|overflow|${ov.soft ? "table-scroll" : "clipped"}`, label: ov.soft ? "Table squeezed into a sideways-scrolling drawer" : "Drawer/dialog content overflows or is clipped", route: route.route, profile: profile.label, detail: `${what}: ${ov.sig} ${ov.detail}`, evidence });
+        for (const f of await page.evaluate(probeFieldWidths, "[data-r2-paper]").catch(() => [])) add({ check: "drawers", pattern: "drawer|field-collapsed", label: "Drawer/dialog form field collapsed next to full-width fields", route: route.route, profile: profile.label, detail: `${what}: ${f.detail}`, evidence });
+        for (const f of await page.evaluate(probeDeadControls, "[data-r2-paper]").catch(() => [])) add({ check: "drawers", pattern: "drawer|dead-control", label: "Disabled (dead) Apply / Save / primary in a drawer or dialog", route: route.route, profile: profile.label, detail: `${what}: ${f.detail}`, evidence });
         if (checks.has("scan")) {
           const out = await page.evaluate((o2) => window.__r2lib.scan(o2), { theme: "dark", tap: false, scope: "[data-r2-paper]" });
           await nameRules(page, out.findings);
@@ -1597,6 +1634,7 @@ async function main() {
   const jobsFor = (route, path) => {
     const js = [];
     if (checks.has("interact")) for (const p of interactProfiles) js.push({ name: p === PROFILES[0] ? "interact" : `interact ${p.label}`, route: route.route, run: () => interactJob(route, path, p) });
+    if (checks.has("interact")) for (const st of PICK_STATES.filter((x) => x.route === route.route)) for (const p of interactProfiles) js.push({ name: `interact pick-state ${p.label}`, route: route.route, run: () => pickStateJob(route, st, p) });
     if (checks.has("drawers")) js.push({ name: "drawers", route: route.route, run: () => drawerJob(route, path) });
     if (checks.has("skeleton") || skeletonTouched?.has(route.route)) for (const p of skeletonProfiles) js.push({ name: `skeleton ${p.label}`, route: route.route, run: () => skeletonJob(route, path, p) });
     if (checks.has("scan") || checks.has("sbs")) for (const p of PROFILES) js.push({ name: `scan ${p.label}`, route: route.route, run: () => scanJob(route, path, p) });
