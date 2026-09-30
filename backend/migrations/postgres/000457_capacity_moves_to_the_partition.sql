@@ -58,6 +58,143 @@ WHERE sp.tenant_id = src.tenant_id
   AND sp.capacity IS NULL
   AND src.capacity IS NOT NULL;
 
+-- THE FARM'S OWN FIGURES (maintainer instruction 2026-09-30: "capacity seed data from here only
+-- capacity" -- the Sheds DB Google Sheet, tab DB, Capacity columns CBE / CPT, read 2026-09-30).
+-- Only the Capacity columns were taken; tags, area and potential tags in that sheet are ignored.
+-- A pen is matched by park code + pen building name + normalized partition label, never by id, so
+-- the same migration lands on any clone of the farm. Only a pen with NO capacity yet is written, so
+-- a value the farm has already set in Items & settings is never overwritten. Left out on purpose,
+-- and reported to the maintainer rather than guessed:
+--   * sheet rows with no such pen: CBE Gandhi 1 - Part 1 / Part 2, CBE Q1-Q3, CPT Ho Chi Minh 1/2;
+--   * sheet rows whose pen is retired: CBE Ho Chi Minh 2, CBE Godel 1 - Part 9 / Part 10;
+--   * active pens the sheet leaves blank stay blank.
+-- projection-review: membership=the 105 (park code, building, partition) rows below that name a
+-- catalogued pen; group_key=(tenant_id, shed_id, normalized_label), shed_partitions' primary key, so
+-- each pen is written at most once; join_cardinality=locations joined 1:1 on its primary key for the
+-- building and its park, park_profiles 1:{0,1} on location_id, and the VALUES list holds each
+-- (park, building, label) once; pagination=NONE, a one-shot seed over a bounded list;
+-- scope=tenant_id carried from the partition onto its building and park joins and the UPDATE.
+UPDATE public.shed_partitions sp
+SET capacity = v.capacity,
+    updated_at = now()
+FROM (VALUES
+    ('CBE', 'Castro', '1', 50),
+    ('CBE', 'Castro', '2', 50),
+    ('CBE', 'Castro', '3', 50),
+    ('CBE', 'Gandhi', '2', 50),
+    ('CBE', 'Gandhi', '3', 50),
+    ('CBE', 'Godel 1', '1', 10),
+    ('CBE', 'Godel 1', '2', 10),
+    ('CBE', 'Godel 1', '3', 10),
+    ('CBE', 'Godel 1', '4', 10),
+    ('CBE', 'Godel 1', '5', 10),
+    ('CBE', 'Godel 1', '6', 10),
+    ('CBE', 'Godel 1', '7', 10),
+    ('CBE', 'Godel 1', '8', 10),
+    ('CBE', 'Godel 2', '1', 10),
+    ('CBE', 'Godel 2', '2', 10),
+    ('CBE', 'Godel 2', '3', 10),
+    ('CBE', 'Godel 2', '4', 10),
+    ('CBE', 'Godel 2', '5', 10),
+    ('CBE', 'Godel 2', '6', 10),
+    ('CBE', 'Godel 2', '7', 10),
+    ('CBE', 'Godel 2', '8', 10),
+    ('CBE', 'Ho Chi Minh', '1', 30),
+    ('CBE', 'Mandela 1', '1', 13),
+    ('CBE', 'Mandela 1', '2', 13),
+    ('CBE', 'Mandela 1', '3', 13),
+    ('CBE', 'Mandela 1', '4', 13),
+    ('CBE', 'Mandela 1', '5', 13),
+    ('CBE', 'Mandela 1', '6', 13),
+    ('CBE', 'Mandela 1', '7', 26),
+    ('CBE', 'Mandela 2', '1', 13),
+    ('CBE', 'Mandela 2', '2', 13),
+    ('CBE', 'Mandela 2', '3', 13),
+    ('CBE', 'Mandela 2', '4', 13),
+    ('CBE', 'Mandela 2', '5', 13),
+    ('CBE', 'Mandela 2', '6', 13),
+    ('CBE', 'Mandela 2', '7', 13),
+    ('CBE', 'Mandela 2', '8', 13),
+    ('CBE', 'Sumathi 1', '1', 13),
+    ('CBE', 'Sumathi 1', '2', 13),
+    ('CBE', 'Sumathi 1', '3', 13),
+    ('CBE', 'Sumathi 1', '4', 13),
+    ('CBE', 'Sumathi 1', '5', 13),
+    ('CBE', 'Sumathi 1', '6', 13),
+    ('CBE', 'Sumathi 1', '7', 13),
+    ('CBE', 'Sumathi 1', '8', 13),
+    ('CBE', 'Sumathi 2', '1', 13),
+    ('CBE', 'Sumathi 2', '2', 13),
+    ('CBE', 'Sumathi 2', '3', 13),
+    ('CBE', 'Sumathi 2', '4', 13),
+    ('CBE', 'Sumathi 2', '5', 13),
+    ('CBE', 'Sumathi 2', '6', 13),
+    ('CBE', 'Sumathi 2', '7', 13),
+    ('CBE', 'Sumathi 2', '8', 13),
+    ('CBE', 'Yashoda', '1', 15),
+    ('CBE', 'Yashoda', '10', 15),
+    ('CBE', 'Yashoda', '2', 15),
+    ('CBE', 'Yashoda', '3', 15),
+    ('CBE', 'Yashoda', '4', 15),
+    ('CBE', 'Yashoda', '5', 15),
+    ('CBE', 'Yashoda', '6', 15),
+    ('CBE', 'Yashoda', '7', 15),
+    ('CBE', 'Yashoda', '8', 15),
+    ('CBE', 'Yashoda', '9', 30),
+    ('CPT', 'Castro', '1', 30),
+    ('CPT', 'Castro', '2', 30),
+    ('CPT', 'Gandhi', '1', 50),
+    ('CPT', 'Gandhi', '2', 50),
+    ('CPT', 'Gandhi', '3', 50),
+    ('CPT', 'Godel 1', '1', 20),
+    ('CPT', 'Godel 1', '2', 20),
+    ('CPT', 'Godel 1', '3', 20),
+    ('CPT', 'Godel 1', '4', 20),
+    ('CPT', 'Godel 2', '1', 20),
+    ('CPT', 'Godel 2', '2', 20),
+    ('CPT', 'Godel 2', '3', 20),
+    ('CPT', 'Godel 2', '4', 20),
+    ('CPT', 'Mandela 1', '1', 10),
+    ('CPT', 'Mandela 1', '10', 10),
+    ('CPT', 'Mandela 1', '2', 10),
+    ('CPT', 'Mandela 1', '3', 10),
+    ('CPT', 'Mandela 1', '4', 10),
+    ('CPT', 'Mandela 1', '5', 10),
+    ('CPT', 'Mandela 1', '6', 10),
+    ('CPT', 'Mandela 1', '7', 10),
+    ('CPT', 'Mandela 1', '8', 10),
+    ('CPT', 'Mandela 1', '9', 10),
+    ('CPT', 'Mandela 2', '1', 10),
+    ('CPT', 'Mandela 2', '10', 10),
+    ('CPT', 'Mandela 2', '2', 10),
+    ('CPT', 'Mandela 2', '3', 10),
+    ('CPT', 'Mandela 2', '4', 10),
+    ('CPT', 'Mandela 2', '5', 10),
+    ('CPT', 'Mandela 2', '6', 10),
+    ('CPT', 'Mandela 2', '7', 10),
+    ('CPT', 'Mandela 2', '8', 10),
+    ('CPT', 'Mandela 2', '9', 10),
+    ('CPT', 'Old Yashoda', '1', 5),
+    ('CPT', 'Old Yashoda', '2', 5),
+    ('CPT', 'Old Yashoda', '3', 5),
+    ('CPT', 'Old Yashoda', '4', 5),
+    ('CPT', 'Old Yashoda', '5', 15),
+    ('CPT', 'Yashoda', '1', 10),
+    ('CPT', 'Yashoda', '2', 10),
+    ('CPT', 'Yashoda', '3', 20),
+    ('CPT', 'Yashoda', '4', 40)
+) AS v(park_code, shed_name, normalized_label, capacity),
+     public.locations s,
+     public.locations p
+LEFT JOIN public.park_profiles pp ON pp.tenant_id = p.tenant_id AND pp.location_id = p.location_id
+WHERE s.tenant_id = sp.tenant_id AND s.location_id = sp.shed_id
+  AND p.tenant_id = s.tenant_id AND p.location_id = s.parent_location_id AND p.location_type = 'park'
+  AND upper(COALESCE(NULLIF(pp.park_code, ''), p.location_code)) = v.park_code
+  AND s.name = v.shed_name
+  AND sp.normalized_label = v.normalized_label
+  AND sp.status = 'active'
+  AND sp.capacity IS NULL;
+
 -- The building column is RETIRED: nothing writes it after this change and the one reader (below)
 -- moves to the partition. It is kept rather than dropped because a dozen test fixtures still insert
 -- it as part of a building profile -- the same choice 2026-09-22 made for the pen's stage and sex.
