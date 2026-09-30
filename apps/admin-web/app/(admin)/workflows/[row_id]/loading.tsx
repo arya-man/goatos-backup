@@ -8,7 +8,7 @@ import { WF_BLOCKER_HEIGHT, WF_DETAIL_GRID, WF_ROWS, WF_TOOLBAR } from "@/featur
  */
 export default function Loading() {
   return (
-    <PageSkeleton>
+    <PageSkeleton root="page-root">
       <OrderDetailsToolbarSkeleton flush titleWidth={WF_TOOLBAR.titleWidth} titleLines={WF_TOOLBAR.titleLines} subtitleLines={WF_TOOLBAR.subtitleLines} actions={WF_TOOLBAR.actions} wrapActions />
       <OptionalSkeleton>
         <BlockSkeleton height={WF_BLOCKER_HEIGHT} card={false} />

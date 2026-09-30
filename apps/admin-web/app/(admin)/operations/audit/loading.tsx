@@ -4,7 +4,7 @@ import { AUDIT_ADVANCED_COLLAPSED_HEIGHT, AUDIT_ANOMALIES_BUTTON_TWIN_WIDTH, AUD
 /** /operations/audit: header + Export (plain crumb), the InvoiceAnalytic strip, the list card (status tabs, family select + Anomalies + search, table, pager), operators beside the advanced filters. */
 export default function Loading() {
   return (
-    <PageSkeleton>
+    <PageSkeleton root="page-root">
       <PageHeaderSkeleton crumbLink={false} titleWidth={120} actions={1} />
       <StatStripSkeleton count={AUDIT_STRIP_CELLS} meta wrapBelowMd />
       <TableSkeleton

@@ -5,7 +5,7 @@ import { VIEW_SKELETON } from "@/features/process-integrity/action-center-skelet
  *  behind (quick tiles, toolbar, kanban lanes, pager). guard: action-center-loading-mirrors-page */
 export default function Loading() {
   return (
-    <PageSkeleton>
+    <PageSkeleton root="page-root">
       <StackSkeleton spacing={3}>
         <PageHeaderSkeleton />
         <TabsSkeleton count={2} />

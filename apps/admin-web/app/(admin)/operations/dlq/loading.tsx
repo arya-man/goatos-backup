@@ -4,7 +4,7 @@ import { DLQ_APPLY_TWIN_WIDTH, DLQ_EVENT_COLUMNS, DLQ_FIELD_WIDTH, DLQ_SKELETON_
 /** /operations/dlq: header + Audit Log (plain crumb), the InvoiceAnalytic status strip, the list card (status tabs, event-type + topic + Apply form and search, events table, readout footer). */
 export default function Loading() {
   return (
-    <PageSkeleton>
+    <PageSkeleton root="page-root">
       <PageHeaderSkeleton crumbLink={false} titleWidth={120} actions={1} />
       <StatStripSkeleton count={DLQ_STRIP_CELLS} minHeight={false} />
       <TableSkeleton

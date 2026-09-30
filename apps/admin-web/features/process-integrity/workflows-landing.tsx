@@ -1,4 +1,5 @@
 import Box from "@mui/material/Box";
+import { PageRoot } from "@/components/app/page-root";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import { DetailCardSkeleton, KpiRowSkeleton, StackSkeleton, TableSkeleton } from "@/components/app/skeletons";
@@ -201,7 +202,7 @@ export async function VaccinationWorkflowsPage({
   const activePct = activeWorkflow && activeWorkflow.expected_count > 0 ? Math.round((activeWorkflow.completed_count / activeWorkflow.expected_count) * 100) : 0;
 
   return (
-    <Stack spacing={3}>
+    <PageRoot>
       <PageHeader title={pageContract.title} crumbs={crumbItems} />
 
       {!countsResult.ok || !result.ok ? (
@@ -398,7 +399,7 @@ export async function VaccinationWorkflowsPage({
           </UrlSuspense>
         </Grid>
       </Grid>
-    </Stack>
+    </PageRoot>
   );
 }
 

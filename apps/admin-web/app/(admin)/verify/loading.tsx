@@ -8,7 +8,7 @@ import { BOARD_TOOLBAR_FIELDS, HEADER_ACTION_WIDTHS, QUEUE_COLUMNS, QUEUE_LIMIT,
  */
 export default function Loading() {
   return (
-    <PageSkeleton>
+    <PageSkeleton root="page-root">
       <PageHeaderSkeleton crumbLink={false} titleWidth={80} actionWidths={HEADER_ACTION_WIDTHS} />
       <StatStripSkeleton count={STATUS_STRIP_CELLS} />
       <TableSkeleton

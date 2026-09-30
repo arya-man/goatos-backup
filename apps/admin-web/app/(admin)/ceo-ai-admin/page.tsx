@@ -1,6 +1,6 @@
 import { CeoAiAdminTraceViewer } from "@/features/ceo-ai-admin";
+import { PageRoot } from "@/components/app/page-root";
 import { one, type RouteSearchParams } from "@/lib/search-params";
-import Box from "@mui/material/Box";
 import { PageHeader } from "@/components/app/page-header";
 
 export const dynamic = "force-dynamic";
@@ -27,9 +27,9 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rou
   const initialRequestId = one(params, "request_id") ?? "";
   return (
     // Page column: the 24px block rhythm the legacy `.screen` grid gave, as theme sx.
-    <Box className="ceo-ai-admin-page" sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: "var(--sp-3)", minWidth: 0, alignContent: "start" }}>
+    <PageRoot>
       <PageHeader title="Request history" crumbs={[{ label: "Admin" }, { label: "Leadership assistant" }, { label: "Request history" }]} />
       <CeoAiAdminTraceViewer initialRequestId={initialRequestId} />
-    </Box>
+    </PageRoot>
   );
 }
