@@ -1,5 +1,6 @@
 "use client";
 import Box from "@mui/material/Box";
+import Stack from "@mui/material/Stack";
 
 // FEED SOP (maintainer decision 2026-09-16, docs/decisions/feed-sop.md).
 //
@@ -11,24 +12,36 @@ import Box from "@mui/material/Box";
 // phone could not render, naming the field. The collaboration model (any operator may record any
 // capture, slots are independent), the per-bag packing grain and the one-trip transport grain are
 // maintainer locks and are shown, not edited.
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Check, ChevronDown, ChevronUp, Lock, Plus, X } from "lucide-react";
-import IconButton from "@mui/material/IconButton";
 import MuiTextField from "@mui/material/TextField";
-import Typography from "@mui/material/Typography";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import Button from "@mui/material/Button";
-import Card from "@mui/material/Card";
-import { EditorHeader, InlineSelect, StickyActions, StudioViewToggle, inspectionEditorSx } from "./editor-chrome";
+import { Iconify } from "@/components/minimal/iconify";
+import { EditorHeader, InlineSelect, StudioViewToggle } from "./editor-chrome";
+import {
+  AddButton,
+  CheckLine,
+  ConfigBox,
+  EDITOR_ICON,
+  EditorCard,
+  EditorPage,
+  GroupTitle,
+  Hint,
+  LockedNote,
+  MoveActions,
+  NumBadge,
+  ProblemList,
+  QuestionShell,
+  Spacer,
+  StickyBar,
+} from "./editor-parts";
 import { blankProofSlot, blankQuestion, keyForTitle, type RemovalProofKind, type RemovalProofRow, type WeighingQuestionRow } from "./weighing-model";
 import { QuestionCard } from "./weighing-editor";
 import { FEED_STAGES_BY_CODE, emitFeed, feedProblems, type FeedRows, type FeedStage, type FeedStageRows } from "./feed-model";
 import { publishedHref } from "./published-href";
 import { FeedFlow, type FeedInsert, type FeedRef } from "./feed-flow";
 import { publishFeedVersion, saveFeedVersion, type FeedSaveResult } from "./sop-actions";
-import Checkbox from "@mui/material/Checkbox";
-import FormControlLabel from "@mui/material/FormControlLabel";
 import Alert from "@mui/material/Alert";
 
 type Props = {
@@ -183,10 +196,10 @@ export function FeedEditor({ pageContract: pc, basePath, sopId, sopName, version
     if (!block) return null;
     if (ref.kind === "proof") {
       const i = block.proofs.findIndex((p) => p.id === ref.id);
-      return i < 0 ? null : <div className="qlist">{slotCardFor(ref.stage, block.proofs[i], i)}</div>;
+      return i < 0 ? null : <Stack spacing={1.5}>{slotCardFor(ref.stage, block.proofs[i], i)}</Stack>;
     }
     const qi = block.questions.findIndex((q) => q.id === ref.id);
-    return qi < 0 ? null : <div className="qlist">{questionCardFor(ref.stage, block.questions[qi], qi)}</div>;
+    return qi < 0 ? null : <Stack spacing={1.5}>{questionCardFor(ref.stage, block.questions[qi], qi)}</Stack>;
   }
 
   function submit(publish: boolean) {
@@ -202,7 +215,7 @@ export function FeedEditor({ pageContract: pc, basePath, sopId, sopName, version
   }
 
   return (
-    <Box className="kit-enter screen on sop-kit sop-inspection sop-weighing sop-feed" sx={inspectionEditorSx}>
+    <EditorPage>
       <EditorHeader
         crumbs={[copy(pc, "crumb"), pc.title, sopName]}
         title={copy(pc, "fsop.title")}
@@ -223,8 +236,7 @@ export function FeedEditor({ pageContract: pc, basePath, sopId, sopName, version
 
       {result ? (
         <Alert severity={result.ok ? "success" : "error"} role="status">
-          {result.ok ? <Check className="ic" /> : <AlertTriangle className="ic" />}
-          <div>{result.message}</div>
+          {result.message}
         </Alert>
       ) : null}
 
@@ -235,89 +247,49 @@ export function FeedEditor({ pageContract: pc, basePath, sopId, sopName, version
         const block = rows.stages[stage];
         if (!block) return null;
         return (
-          <div key={stage}>
-          <Card className="card inspection-page">
-            <div className="inspection-page-head" style={{ cursor: "default" }}>
-              <span className="qnum">{si + 1}</span>
-              <strong>{stageLabel(stage)}</strong>
-              <span className="muted small">{copy(pc, `fsop.stage.${stage}.sub`)}</span>
-            </div>
-            <div className="bd">
-              <div className="qcfg">
-                <MuiTextField label={copy(pc, "fsop.instruction")} fullWidth multiline minRows={3} value={block.instruction} onChange={(e) => patchStage(stage, (s) => ({ ...s, instruction: e.target.value }))} />
-              </div>
+          <EditorCard key={stage} badge={si + 1} title={stageLabel(stage)} meta={copy(pc, `fsop.stage.${stage}.sub`)}>
+            <ConfigBox>
+              <MuiTextField label={copy(pc, "fsop.instruction")} fullWidth multiline minRows={3} value={block.instruction} onChange={(e) => patchStage(stage, (s) => ({ ...s, instruction: e.target.value }))} />
+            </ConfigBox>
 
-              <div className="qcfg" style={{ marginTop: 10 }}>
-                <div className="qcfg-head">
-                  <Typography variant="subtitle2" component="span">{copy(pc, "fsop.proofs")}</Typography>
-                  <span className="muted small">{copy(pc, "fsop.proofs.subtitle")}</span>
-                </div>
-                <div className="qlist">
-                  {block.proofs.map((p, i) => slotCardFor(stage, p, i))}
-                  <Button color="primary" variant="text" size="small" startIcon={<Plus size={14} />} onClick={() => patchStage(stage, (s) => ({ ...s, proofs: [...s.proofs, blankProofSlot()] }))}>
-                    {copy(pc, "fsop.proof.add")}
-                  </Button>
-                </div>
-              </div>
+            <ConfigBox title={<GroupTitle title={copy(pc, "fsop.proofs")} hint={copy(pc, "fsop.proofs.subtitle")} />}>
+              <Stack spacing={1.5}>
+                {block.proofs.map((p, i) => slotCardFor(stage, p, i))}
+                <AddButton label={copy(pc, "fsop.proof.add")} onClick={() => patchStage(stage, (s) => ({ ...s, proofs: [...s.proofs, blankProofSlot()] }))} />
+              </Stack>
+            </ConfigBox>
 
-              <div className="qcfg" style={{ marginTop: 10 }}>
-                <div className="qcfg-head">
-                  <Typography variant="subtitle2" component="span">{copy(pc, "fsop.questions")}</Typography>
-                  <span className="muted small">{copy(pc, "fsop.questions.subtitle")}</span>
-                </div>
-                <div className="qlist">
-                  {block.questions.length === 0 ? <p className="muted">{copy(pc, "fsop.questions.empty")}</p> : null}
-                  {block.questions.map((q, qi) => questionCardFor(stage, q, qi))}
-                  <Button color="primary" variant="text" size="small" startIcon={<Plus size={14} />} onClick={() => patchStage(stage, (s) => ({ ...s, questions: [...s.questions, blankQuestion()] }))}>
-                    {copy(pc, "inspection.question.add")}
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </Card>
-          </div>
+            <ConfigBox title={<GroupTitle title={copy(pc, "fsop.questions")} hint={copy(pc, "fsop.questions.subtitle")} />}>
+              <Stack spacing={1.5}>
+                {block.questions.length === 0 ? <Hint>{copy(pc, "fsop.questions.empty")}</Hint> : null}
+                {block.questions.map((q, qi) => questionCardFor(stage, q, qi))}
+                <AddButton label={copy(pc, "inspection.question.add")} onClick={() => patchStage(stage, (s) => ({ ...s, questions: [...s.questions, blankQuestion()] }))} />
+              </Stack>
+            </ConfigBox>
+          </EditorCard>
         );
       })}
 
-      <div>
-      <Card className="card inspection-page">
-        <div className="bd">
-          <p className="muted small" style={{ margin: 0 }}>
-            <Lock className="ic" style={{ width: 12 }} /> {copy(pc, "fsop.locked")}
-          </p>
-          <p className="muted small" style={{ margin: "6px 0 0" }}>
-            {copy(pc, "fsop.summary.legacy_key_note")}
-          </p>
-        </div>
-      </Card>
-      </div>
+      <EditorCard title={<LockedNote>{copy(pc, "fsop.locked")}</LockedNote>} meta={copy(pc, "fsop.summary.legacy_key_note")} />
 
-      <StickyActions>
-        <div>
-          {problems.length ? (
-            <ul className="small muted" style={{ margin: "4px 0 0 16px" }}>
-              {problems.slice(0, 5).map((p, i) => (
-                <li key={i}>{p}</li>
-              ))}
-            </ul>
-          ) : (
-            <span className="muted small">{copy(pc, "fsop.footer.ready")}</span>
-          )}
-        </div>
-        <span className="spacer" style={{ flex: 1 }} />
+      <StickyBar>
+        <Box sx={{ minWidth: 0 }}>
+          {problems.length ? <ProblemList items={problems} muted /> : <Hint caption>{copy(pc, "fsop.footer.ready")}</Hint>}
+        </Box>
+        <Spacer />
         <Button color="primary" variant="outlined" loading={pending} disabled={pending || problems.length > 0} onClick={() => submit(false)}>
           {copy(pc, "inspection.action.save_draft")}
         </Button>
-        <Button variant="contained" color="primary" startIcon={<Check size={16} />} disabled={pending || problems.length > 0} onClick={() => submit(true)}>
+        <Button variant="contained" color="primary" startIcon={<Iconify icon={EDITOR_ICON.check} />} disabled={pending || problems.length > 0} onClick={() => submit(true)}>
           {copy(pc, "inspection.action.publish")}
         </Button>
-      </StickyActions>
-    </Box>
+      </StickyBar>
+    </EditorPage>
   );
 }
 
 export function SlotCard({
-  pc, kindLabel, index, count, slot, proofKinds, takenKeys, savedKeys, onChange, onMove, onRemove,
+  pc, kindLabel, index, count, slot, proofKinds, takenKeys, savedKeys, onChange, onMove, onRemove, extra,
 }: {
   pc: AdminUiPageContract;
   /** Label of the capture-kind select, from the RENDERING page's own contract (the pages that share
@@ -333,12 +305,14 @@ export function SlotCard({
   onChange: (patch: Partial<RemovalProofRow>) => void;
   onMove: (dir: -1 | 1) => void;
   onRemove: () => void;
+  /** Extra config under the slot's fields (e.g. PC Care's minimum video seconds). */
+  extra?: ReactNode;
 }) {
   return (
-    <div className="qcard">
-      <div className="qhead">
-        <span className="qnum">{index + 1}</span>
-        <span className="qtype">
+    <QuestionShell
+      head={
+        <>
+          <NumBadge>{index + 1}</NumBadge>
           <InlineSelect
             label={kindLabel}
             value={slot.kind}
@@ -346,39 +320,37 @@ export function SlotCard({
             options={proofKinds.map((k) => ({ value: k.key, label: k.label }))}
             onChange={(next) => onChange({ kind: next as RemovalProofKind })}
           />
-        </span>
-        <span className="sp" style={{ flex: 1 }} />
-        <IconButton type="button" size="small" className="ia" aria-label={copy(pc, "inspection.question.move_up")} disabled={index === 0} onClick={() => onMove(-1)}>
-          <ChevronUp className="ic" />
-        </IconButton>
-        <IconButton type="button" size="small" className="ia" aria-label={copy(pc, "inspection.question.move_down")} disabled={index === count - 1} onClick={() => onMove(1)}>
-          <ChevronDown className="ic" />
-        </IconButton>
-        <IconButton type="button" size="small" className="ia del" aria-label={copy(pc, "fsop.proof.remove")} onClick={onRemove}>
-          <X className="ic" />
-        </IconButton>
-      </div>
-      <div className="qbody">
-        <MuiTextField label={copy(pc, "fsop.proof.title")}
-            fullWidth
-            size="small"
-            className="qtext"
-            value={slot.title}
-            onChange={(e) => {
-              const title = e.target.value;
-              // A NEW slot's key follows its title until saved; an existing key is never rewritten
-              // (it is what the phones stamp on uploads).
-              onChange({ title, key: keyForTitle(title, slot.key, savedKeys, takenKeys, "capture") });
-            }}
+          <Spacer />
+          <MoveActions
+            upLabel={copy(pc, "inspection.question.move_up")}
+            downLabel={copy(pc, "inspection.question.move_down")}
+            removeLabel={copy(pc, "fsop.proof.remove")}
+            first={index === 0}
+            last={index === count - 1}
+            onUp={() => onMove(-1)}
+            onDown={() => onMove(1)}
+            onRemove={onRemove}
           />
-        <MuiTextField label={copy(pc, "fsop.proof.hint")} fullWidth size="small" value={slot.hint} onChange={(e) => onChange({ hint: e.target.value })} />
-        {!slot.key ? (
-          <MuiTextField label={copy(pc, "inspection.question.key")} fullWidth size="small" value={slot.key} onChange={(e) => onChange({ key: e.target.value })} />
-        ) : null}
-        <div className="qfoot">
-          <FormControlLabel className="chkline" control={<Checkbox checked={slot.required} onChange={(e) => onChange({ required: e.target.checked })} sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<>{copy(pc, "inspection.question.required")}</>} />
-        </div>
-      </div>
-    </div>
+        </>
+      }
+      foot={<CheckLine checked={slot.required} onChange={(required) => onChange({ required })} label={copy(pc, "inspection.question.required")} />}
+    >
+      <MuiTextField label={copy(pc, "fsop.proof.title")}
+        fullWidth
+        size="small"
+        value={slot.title}
+        onChange={(e) => {
+          const title = e.target.value;
+          // A NEW slot's key follows its title until saved; an existing key is never rewritten
+          // (it is what the phones stamp on uploads).
+          onChange({ title, key: keyForTitle(title, slot.key, savedKeys, takenKeys, "capture") });
+        }}
+      />
+      <MuiTextField label={copy(pc, "fsop.proof.hint")} fullWidth size="small" value={slot.hint} onChange={(e) => onChange({ hint: e.target.value })} />
+      {!slot.key ? (
+        <MuiTextField label={copy(pc, "inspection.question.key")} fullWidth size="small" value={slot.key} onChange={(e) => onChange({ key: e.target.value })} />
+      ) : null}
+      {extra}
+    </QuestionShell>
   );
 }

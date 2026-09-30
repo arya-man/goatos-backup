@@ -18,7 +18,7 @@
 //   ResultNotice   the save / publish result Alert with the backend's first problems
 // Presentation only: nothing here touches SOP state, ordering or upload behaviour.
 
-import type { ReactNode } from "react";
+import type { InputHTMLAttributes, ReactNode } from "react";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -29,6 +29,7 @@ import Checkbox from "@mui/material/Checkbox";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import IconButton from "@mui/material/IconButton";
 import Paper from "@mui/material/Paper";
+import Radio from "@mui/material/Radio";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import type { SxProps, Theme } from "@mui/material/styles";
@@ -95,7 +96,8 @@ export function EditorCard({
   testId,
 }: {
   badge?: ReactNode;
-  title: ReactNode;
+  /** Omit for a body-only card (no header row). */
+  title?: ReactNode;
   meta?: ReactNode;
   action?: ReactNode;
   open?: boolean;
@@ -122,7 +124,7 @@ export function EditorCard({
   );
   return (
     <Card data-testid={testId}>
-      {onToggle ? (
+      {title == null && badge == null ? null : onToggle ? (
         <ButtonBase aria-expanded={Boolean(open)} onClick={onToggle} sx={{ display: "block", width: 1, borderRadius: "inherit" }}>
           {header}
         </ButtonBase>
@@ -130,7 +132,7 @@ export function EditorCard({
         header
       )}
       {children ? (
-        <Stack spacing={2} sx={{ px: { xs: 2, sm: 3 }, pb: { xs: 2, sm: 3 }, minWidth: 0 }}>
+        <Stack spacing={2} sx={{ px: { xs: 2, sm: 3 }, pb: { xs: 2, sm: 3 }, pt: title == null && badge == null ? { xs: 2, sm: 3 } : 0, minWidth: 0 }}>
           {children}
         </Stack>
       ) : null}
@@ -227,6 +229,22 @@ export function ConfigHead({ title, action }: { title?: ReactNode; action?: Reac
   );
 }
 
+/** A config group heading with its one-line explainer under it (subtitle2 + caption). */
+export function GroupTitle({ title, hint }: { title: ReactNode; hint?: ReactNode }) {
+  return (
+    <Stack spacing={0.25} sx={{ minWidth: 0 }}>
+      <Typography variant="subtitle2" component="span">
+        {title}
+      </Typography>
+      {hint ? (
+        <Typography variant="caption" component="span" sx={{ color: "text.secondary" }}>
+          {hint}
+        </Typography>
+      ) : null}
+    </Stack>
+  );
+}
+
 /** A row of fields that share the width from sm up and stack on a phone. */
 export function FieldGrid({ children }: { children: ReactNode }) {
   return (
@@ -258,6 +276,7 @@ export function CheckLine({
   disabled,
   title,
   testId,
+  inputTestId,
 }: {
   checked: boolean;
   onChange: (checked: boolean) => void;
@@ -265,13 +284,33 @@ export function CheckLine({
   disabled?: boolean;
   title?: string;
   testId?: string;
+  /** data-testid on the checkbox input itself (tests tick it directly). */
+  inputTestId?: string;
 }) {
   return (
     <FormControlLabel
       disabled={disabled}
       title={title}
       data-testid={testId}
-      control={<Checkbox checked={checked} onChange={(e) => onChange(e.target.checked)} sx={{ p: { xs: 1.5, sm: 1 } }} />}
+      control={
+        <Checkbox
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+          sx={{ p: { xs: 1.5, sm: 1 } }}
+          slotProps={inputTestId ? { input: { "data-testid": inputTestId } as InputHTMLAttributes<HTMLInputElement> } : undefined}
+        />
+      }
+      label={label}
+      sx={{ mr: 0, ml: -1, alignItems: "center", minWidth: 0, "& .MuiFormControlLabel-label": { typography: "body2" } }}
+    />
+  );
+}
+
+/** A labelled template Radio (one of a mode group) with a 44px tap box on a phone. */
+export function RadioLine({ name, value, checked, onChange, label }: { name: string; value: string; checked: boolean; onChange: () => void; label: ReactNode }) {
+  return (
+    <FormControlLabel
+      control={<Radio name={name} value={value} checked={checked} onChange={onChange} sx={{ p: { xs: 1.5, sm: 1 } }} />}
       label={label}
       sx={{ mr: 0, ml: -1, alignItems: "center", minWidth: 0, "& .MuiFormControlLabel-label": { typography: "body2" } }}
     />
@@ -323,13 +362,14 @@ export function IconAction({
 }
 
 /** "Add a question / option / page" action: template text Button (outlined for the page-level add). */
-export function AddButton({ label, onClick, outlined, disabled }: { label: string; onClick: () => void; outlined?: boolean; disabled?: boolean }) {
+export function AddButton({ label, onClick, outlined, disabled, testId }: { label: string; onClick: () => void; outlined?: boolean; disabled?: boolean; testId?: string }) {
   return (
     <Button
       color="primary"
       variant={outlined ? "outlined" : "text"}
       size="small"
       disabled={disabled}
+      data-testid={testId}
       startIcon={<Iconify icon={EDITOR_ICON.add} />}
       onClick={onClick}
       sx={{ alignSelf: "flex-start" }}

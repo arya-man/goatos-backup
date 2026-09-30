@@ -447,7 +447,6 @@ function QuestionCard({
         <>
           <CheckLine disabled={requiredLocked} checked={q.required} onChange={(required) => onChange({ required })} label={copy(pc, "inspection.question.required")} />
           <CondRow>
-            {copy(pc, "inspection.question.only_if")}
             <InlineSelect
               label={copy(pc, "inspection.question.only_if")}
               value={q.onlyIfQuestion}
@@ -458,21 +457,17 @@ function QuestionCard({
               onChange={(next) => onChange({ onlyIfQuestion: next, onlyIfValue: "" })}
             />
             {dep ? (
-              <>
-                {copy(pc, "inspection.question.only_if_value")}
-                <InlineSelect
-                  label={copy(pc, "inspection.question.only_if_value")}
-                  value={q.onlyIfValue}
-                  minWidth={120}
-                  options={[{ value: "", label: "—" }, ...dep.options.map((o) => ({ value: o.value, label: o.label }))]}
-                  onChange={(next) => onChange({ onlyIfValue: next })}
-                />
-              </>
+              <InlineSelect
+                label={copy(pc, "inspection.question.only_if_value")}
+                value={q.onlyIfValue}
+                minWidth={120}
+                options={[{ value: "", label: "—" }, ...dep.options.map((o) => ({ value: o.value, label: o.label }))]}
+                onChange={(next) => onChange({ onlyIfValue: next })}
+              />
             ) : null}
           </CondRow>
           {page && pages.length > 1 ? (
             <CondRow>
-              {copy(pc, "inspection.question.move_page")}
               <InlineSelect
                 label={copy(pc, "inspection.question.move_page")}
                 value={page.id}

@@ -1,5 +1,6 @@
 "use client";
 import Box from "@mui/material/Box";
+import Stack from "@mui/material/Stack";
 
 // THE TOXIN PROCEDURE IS AUTHORED (maintainer decision 2026-09-20,
 // docs/decisions/procurement-sop-driven.md).
@@ -15,11 +16,8 @@ import Box from "@mui/material/Box";
 // comes back void.
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Check, ChevronDown, ChevronUp, Lock, Plus, X } from "lucide-react";
 import MuiButton from "@mui/material/Button";
-import IconButton from "@mui/material/IconButton";
 import MuiTextField from "@mui/material/TextField";
-import Typography from "@mui/material/Typography";
 import MenuItem from "@mui/material/MenuItem";
 
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -29,7 +27,9 @@ import { ToxinFlow, toxinStepSummaryLine, waitWords, type ToxinInsert } from "./
 import { publishToxinVersion, saveToxinVersion, type ToxinSaveResult } from "./sop-actions";
 import Alert from "@mui/material/Alert";
 import { SegmentTabs } from "@/components/app/list/segment-tabs";
-import { EditorHeader, InlineSelect, inspectionEditorSx } from "./editor-chrome";
+import { Iconify } from "@/components/minimal/iconify";
+import { EditorHeader, InlineSelect } from "./editor-chrome";
+import { AddButton, ConfigBox, EDITOR_ICON, EditorCard, EditorPage, GroupTitle, Hint, LockedNote, MoveActions, NumBadge, ProblemList, QuestionShell, Spacer, StickyBar } from "./editor-parts";
 
 type Props = {
   pageContract: AdminUiPageContract;
@@ -118,7 +118,7 @@ export function ToxinEditor({ pageContract: pc, basePath, sopId, sopName, versio
 
   function cardFor(id: string) {
     const i = rows.steps.findIndex((s) => s.id === id);
-    return i < 0 ? null : <div className="qlist">{stepCard(rows.steps[i], i)}</div>;
+    return i < 0 ? null : <Stack spacing={1.5}>{stepCard(rows.steps[i], i)}</Stack>;
   }
 
   function stepCard(step: ToxinStepRow, index: number) {
@@ -126,10 +126,12 @@ export function ToxinEditor({ pageContract: pc, basePath, sopId, sopName, versio
     // completion to count from, and a later step has not happened yet.
     const gateChoices = rows.steps.slice(0, index).filter((s) => s.kind !== "wait");
     return (
-      <div className="qcard" key={step.id} data-testid={`toxin-step-${index + 1}`}>
-        <div className="qhead">
-          <span className="qnum">{index + 1}</span>
-          <span className="qtype">
+      <QuestionShell
+        key={step.id}
+        testId={`toxin-step-${index + 1}`}
+        head={
+          <>
+            <NumBadge>{index + 1}</NumBadge>
             <InlineSelect
               label={copy(pc, "tsop.step.kind")}
               value={step.kind}
@@ -146,55 +148,51 @@ export function ToxinEditor({ pageContract: pc, basePath, sopId, sopName, versio
                 });
               }}
             />
-          </span>
-          <span className="muted small">{toxinStepSummaryLine(step, kindLabels, pc)}</span>
-          <span className="sp" style={{ flex: 1 }} />
-          <IconButton type="button" size="small" className="ia" aria-label={copy(pc, "inspection.question.move_up")} disabled={index === 0} onClick={() => moveStep(step.id, -1)}>
-            <ChevronUp className="ic" />
-          </IconButton>
-          <IconButton type="button" size="small" className="ia" aria-label={copy(pc, "inspection.question.move_down")} disabled={index === rows.steps.length - 1} onClick={() => moveStep(step.id, 1)}>
-            <ChevronDown className="ic" />
-          </IconButton>
-          <IconButton type="button" size="small" className="ia del" aria-label={copy(pc, "tsop.step.remove")} onClick={() => removeStep(step.id)}>
-            <X className="ic" />
-          </IconButton>
-        </div>
-        <div className="qbody">
-          <MuiTextField label={copy(pc, "tsop.step.title")} fullWidth size="small" className="qtext" value={step.title} onChange={(e) => patchStep(step.id, { title: e.target.value })} />
-          <MuiTextField label={copy(pc, "tsop.step.instruction")} fullWidth multiline minRows={2} value={step.instruction} onChange={(e) => patchStep(step.id, { instruction: e.target.value })} />
-          {step.kind === "wait" ? (
-            <MuiTextField label={copy(pc, "tsop.step.wait_minutes")} fullWidth size="small" type="number" slotProps={{ htmlInput: { min: 1 } }} value={step.waitMinutes} onChange={(e) => patchStep(step.id, { waitMinutes: Number(e.target.value) || 0 })} />
-          ) : (
-            <div className="qcfg">
-              <div className="qcfg-head">
-                <Typography variant="subtitle2" component="span">{copy(pc, "tsop.gate.title")}</Typography>
-                <span className="muted small">{copy(pc, "tsop.gate.subtitle")}</span>
-              </div>
-              <MuiTextField
-                  select
-                  label={copy(pc, "tsop.gate.after")}
-                  fullWidth
-                  size="small"
-                  value={step.gateAfterStep || 0}
-                  onChange={(e) => {
-                    const after = Number(e.target.value) || 0;
-                    patchStep(step.id, { gateAfterStep: after, gateMinutes: after === 0 ? 0 : step.gateMinutes || 30 });
-                  }}
-                >
-                  <MenuItem value={0}>{copy(pc, "tsop.gate.none")}</MenuItem>
-                  {gateChoices.map((s) => (
-                    <MenuItem key={s.id} value={rows.steps.indexOf(s) + 1}>
-                      {rows.steps.indexOf(s) + 1}. {s.title || copy(pc, "tsop.step.untitled")}
-                    </MenuItem>
-                  ))}
-                </MuiTextField>
-              {step.gateAfterStep > 0 ? (
-                <MuiTextField label={copy(pc, "tsop.gate.minutes")} fullWidth size="small" type="number" slotProps={{ htmlInput: { min: 1 } }} value={step.gateMinutes} onChange={(e) => patchStep(step.id, { gateMinutes: Number(e.target.value) || 0 })} />
-              ) : null}
-            </div>
-          )}
-        </div>
-      </div>
+            <Hint caption sx={{ minWidth: 0 }}>{toxinStepSummaryLine(step, kindLabels, pc)}</Hint>
+            <Spacer />
+            <MoveActions
+              upLabel={copy(pc, "inspection.question.move_up")}
+              downLabel={copy(pc, "inspection.question.move_down")}
+              removeLabel={copy(pc, "tsop.step.remove")}
+              first={index === 0}
+              last={index === rows.steps.length - 1}
+              onUp={() => moveStep(step.id, -1)}
+              onDown={() => moveStep(step.id, 1)}
+              onRemove={() => removeStep(step.id)}
+            />
+          </>
+        }
+      >
+        <MuiTextField label={copy(pc, "tsop.step.title")} fullWidth size="small" value={step.title} onChange={(e) => patchStep(step.id, { title: e.target.value })} />
+        <MuiTextField label={copy(pc, "tsop.step.instruction")} fullWidth multiline minRows={2} value={step.instruction} onChange={(e) => patchStep(step.id, { instruction: e.target.value })} />
+        {step.kind === "wait" ? (
+          <MuiTextField label={copy(pc, "tsop.step.wait_minutes")} fullWidth size="small" type="number" slotProps={{ htmlInput: { min: 1 } }} value={step.waitMinutes} onChange={(e) => patchStep(step.id, { waitMinutes: Number(e.target.value) || 0 })} />
+        ) : (
+          <ConfigBox title={<GroupTitle title={copy(pc, "tsop.gate.title")} hint={copy(pc, "tsop.gate.subtitle")} />}>
+            <MuiTextField
+              select
+              label={copy(pc, "tsop.gate.after")}
+              fullWidth
+              size="small"
+              value={step.gateAfterStep || 0}
+              onChange={(e) => {
+                const after = Number(e.target.value) || 0;
+                patchStep(step.id, { gateAfterStep: after, gateMinutes: after === 0 ? 0 : step.gateMinutes || 30 });
+              }}
+            >
+              <MenuItem value={0}>{copy(pc, "tsop.gate.none")}</MenuItem>
+              {gateChoices.map((s) => (
+                <MenuItem key={s.id} value={rows.steps.indexOf(s) + 1}>
+                  {rows.steps.indexOf(s) + 1}. {s.title || copy(pc, "tsop.step.untitled")}
+                </MenuItem>
+              ))}
+            </MuiTextField>
+            {step.gateAfterStep > 0 ? (
+              <MuiTextField label={copy(pc, "tsop.gate.minutes")} fullWidth size="small" type="number" slotProps={{ htmlInput: { min: 1 } }} value={step.gateMinutes} onChange={(e) => patchStep(step.id, { gateMinutes: Number(e.target.value) || 0 })} />
+            ) : null}
+          </ConfigBox>
+        )}
+      </QuestionShell>
     );
   }
 
@@ -213,7 +211,7 @@ export function ToxinEditor({ pageContract: pc, basePath, sopId, sopName, versio
   const totalWait = rows.steps.reduce((sum, s) => sum + (s.kind === "wait" ? s.waitMinutes : 0), 0);
 
   return (
-    <Box className="screen on sop-inspection sop-weighing sop-feed" sx={inspectionEditorSx}>
+    <EditorPage>
       <EditorHeader
         crumbs={[copy(pc, "crumb"), pc.title, sopName]}
         title={copy(pc, "tsop.title")}
@@ -223,7 +221,6 @@ export function ToxinEditor({ pageContract: pc, basePath, sopId, sopName, versio
         backHref={basePath}
         actions={
           <SegmentTabs
-            className="studio-view-toggle"
             ariaLabel={copy(pc, "studio.view.label")}
             value={view}
             tabs={[
@@ -236,61 +233,38 @@ export function ToxinEditor({ pageContract: pc, basePath, sopId, sopName, versio
 
       {result ? (
         <Alert severity={result.ok ? "success" : "error"} role="status">
-          {result.ok ? <Check className="ic" /> : <AlertTriangle className="ic" />}
-          <div>{result.message}</div>
+          {result.message}
         </Alert>
       ) : null}
 
       {view === "flow" ? (
         <ToxinFlow pc={pc} rows={rows} kindLabels={kindLabels} selected={selected} onSelect={setSelected} onInsert={insertAt} renderCard={cardFor} />
       ) : (
-        <section className="card inspection-page">
-          <div className="inspection-page-head" style={{ cursor: "default" }}>
-            <strong>{copy(pc, "tsop.steps")}</strong>
-            <span className="muted small">
-              {rows.steps.length} {copy(pc, "tsop.steps.unit")}
-              {totalWait > 0 ? ` · ${copy(pc, "tsop.steps.waiting")} ${waitWords(totalWait, pc)}` : ""}
-            </span>
-          </div>
-          <div className="bd">
-            <div className="qlist">
-              {rows.steps.map((s, i) => stepCard(s, i))}
-              <MuiButton type="button" variant="text" size="small" startIcon={<Plus className="ic" />} onClick={() => insertAt({ index: rows.steps.length })} data-testid="toxin-add-step">
-                {copy(pc, "tsop.step.add")}
-              </MuiButton>
-            </div>
-          </div>
-        </section>
+        <EditorCard
+          title={copy(pc, "tsop.steps")}
+          meta={`${rows.steps.length} ${copy(pc, "tsop.steps.unit")}${totalWait > 0 ? ` · ${copy(pc, "tsop.steps.waiting")} ${waitWords(totalWait, pc)}` : ""}`}
+        >
+          <Stack spacing={1.5}>
+            {rows.steps.map((s, i) => stepCard(s, i))}
+            <AddButton label={copy(pc, "tsop.step.add")} onClick={() => insertAt({ index: rows.steps.length })} testId="toxin-add-step" />
+          </Stack>
+        </EditorCard>
       )}
 
-      <section className="card inspection-page">
-        <div className="bd">
-          <p className="muted small" style={{ margin: 0 }}>
-            <Lock className="ic" style={{ width: 12 }} /> {copy(pc, "tsop.locked")}
-          </p>
-        </div>
-      </section>
+      <EditorCard title={<LockedNote>{copy(pc, "tsop.locked")}</LockedNote>} />
 
-      <div className="cfgmf inspection-footer">
-        <div>
-          {problems.length ? (
-            <ul className="small muted" style={{ margin: "4px 0 0 16px" }}>
-              {problems.slice(0, 5).map((p, i) => (
-                <li key={i}>{p}</li>
-              ))}
-            </ul>
-          ) : (
-            <span className="muted small">{copy(pc, "tsop.footer.ready")}</span>
-          )}
-        </div>
-        <div className="sp" style={{ flex: 1 }} />
-        <MuiButton type="button" variant="outlined" disabled={pending || problems.length > 0} onClick={() => submit(false)}>
+      <StickyBar>
+        <Box sx={{ minWidth: 0 }}>
+          {problems.length ? <ProblemList items={problems} muted /> : <Hint caption>{copy(pc, "tsop.footer.ready")}</Hint>}
+        </Box>
+        <Spacer />
+        <MuiButton type="button" variant="outlined" color="primary" disabled={pending || problems.length > 0} onClick={() => submit(false)}>
           {copy(pc, "inspection.action.save_draft")}
         </MuiButton>
-        <MuiButton type="button" variant="contained" color="primary" startIcon={<Check className="ic" />} disabled={pending || problems.length > 0} onClick={() => submit(true)}>
+        <MuiButton type="button" variant="contained" color="primary" startIcon={<Iconify icon={EDITOR_ICON.check} />} disabled={pending || problems.length > 0} onClick={() => submit(true)}>
           {copy(pc, "inspection.action.publish")}
         </MuiButton>
-      </div>
-    </Box>
+      </StickyBar>
+    </EditorPage>
   );
 }

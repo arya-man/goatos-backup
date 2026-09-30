@@ -1,5 +1,7 @@
 "use client";
 import Box from "@mui/material/Box";
+import Stack from "@mui/material/Stack";
+import MuiTextField from "@mui/material/TextField";
 
 // HERD OPERATIONS CAPTURE CARD (maintainer decision 4, 2026-09-16).
 //
@@ -11,7 +13,6 @@ import Box from "@mui/material/Box";
 // by this editor and ride along verbatim.
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Check, Plus } from "lucide-react";
 import MuiButton from "@mui/material/Button";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { blankProofSlot, blankQuestion, followQuestionKey, type WeighingQuestionRow } from "./weighing-model";
@@ -21,7 +22,9 @@ import { captureProblems, emitCaptureCard, type CaptureRows } from "./capture-mo
 import { publishedHref } from "./published-href";
 import { publishCaptureCardVersion, saveCaptureCardVersion, type FeedSaveResult } from "./sop-actions";
 import Alert from "@mui/material/Alert";
-import { EditorHeader, inspectionEditorSx } from "./editor-chrome";
+import { Iconify } from "@/components/minimal/iconify";
+import { EditorHeader } from "./editor-chrome";
+import { AddButton, ConfigBox, EDITOR_ICON, EditorCard, EditorPage, GroupTitle, Hint, ProblemList, Spacer, StickyBar } from "./editor-parts";
 
 type Props = {
   pageContract: AdminUiPageContract;
@@ -68,7 +71,7 @@ export function CaptureCardEditor({ pageContract: pc, basePath, sopId, sopName, 
   }
 
   return (
-    <Box className="screen on sop-inspection sop-weighing sop-capture" sx={inspectionEditorSx}>
+    <EditorPage>
       <EditorHeader
         crumbs={[copy(pc, "crumb"), pc.title, sopName]}
         title={copy(pc, "capture.title")}
@@ -80,27 +83,18 @@ export function CaptureCardEditor({ pageContract: pc, basePath, sopId, sopName, 
 
       {result ? (
         <Alert severity={result.ok ? "success" : "error"} role="status">
-          {result.ok ? <Check className="ic" /> : <AlertTriangle className="ic" />}
-          <div>{result.message}</div>
+          {result.message}
         </Alert>
       ) : null}
 
-      <section className="card inspection-page">
-        <div className="bd">
-          <div className="qcfg">
-            <label className="numfield">
-              <span className="numlbl">{copy(pc, "capture.instruction")}</span>
-              <textarea className="qhelp" rows={3} value={rows.instruction} onChange={(e) => setRows((r) => ({ ...r, instruction: e.target.value }))} />
-            </label>
-          </div>
+      <EditorCard>
+          <ConfigBox>
+            <MuiTextField label={copy(pc, "capture.instruction")} fullWidth multiline minRows={3} value={rows.instruction} onChange={(e) => setRows((r) => ({ ...r, instruction: e.target.value }))} />
+          </ConfigBox>
 
-          <div className="qcfg" style={{ marginTop: 10 }}>
-            <div className="qcfg-head">
-              <span className="qcfg-title">{copy(pc, "capture.proofs")}</span>
-              <span className="muted small">{copy(pc, "capture.proofs.subtitle")}</span>
-            </div>
-            <div className="qlist">
-              {rows.proofs.length === 0 ? <p className="muted">{copy(pc, "capture.proofs.empty")}</p> : null}
+          <ConfigBox title={<GroupTitle title={copy(pc, "capture.proofs")} hint={copy(pc, "capture.proofs.subtitle")} />}>
+            <Stack spacing={1.5}>
+              {rows.proofs.length === 0 ? <Hint>{copy(pc, "capture.proofs.empty")}</Hint> : null}
               {rows.proofs.map((p, i) => (
                 <SlotCard
                   kindLabel={copy(pc, "capture.proofs")}
@@ -117,19 +111,13 @@ export function CaptureCardEditor({ pageContract: pc, basePath, sopId, sopName, 
                   onRemove={() => setRows((r) => ({ ...r, proofs: r.proofs.filter((x) => x.id !== p.id) }))}
                 />
               ))}
-              <MuiButton type="button" variant="text" size="small" startIcon={<Plus className="ic" />} onClick={() => setRows((r) => ({ ...r, proofs: [...r.proofs, { ...blankProofSlot(), kind: "photo" }] }))}>
-                {copy(pc, "capture.proof.add")}
-              </MuiButton>
-            </div>
-          </div>
+              <AddButton label={copy(pc, "capture.proof.add")} onClick={() => setRows((r) => ({ ...r, proofs: [...r.proofs, { ...blankProofSlot(), kind: "photo" }] }))} />
+            </Stack>
+          </ConfigBox>
 
-          <div className="qcfg" style={{ marginTop: 10 }}>
-            <div className="qcfg-head">
-              <span className="qcfg-title">{copy(pc, "capture.questions")}</span>
-              <span className="muted small">{copy(pc, "capture.questions.subtitle")}</span>
-            </div>
-            <div className="qlist">
-              {rows.questions.length === 0 ? <p className="muted">{copy(pc, "capture.questions.empty")}</p> : null}
+          <ConfigBox title={<GroupTitle title={copy(pc, "capture.questions")} hint={copy(pc, "capture.questions.subtitle")} />}>
+            <Stack spacing={1.5}>
+              {rows.questions.length === 0 ? <Hint>{copy(pc, "capture.questions.empty")}</Hint> : null}
               {rows.questions.map((q, qi) => (
                 <QuestionCard
                   key={q.id}
@@ -149,37 +137,24 @@ export function CaptureCardEditor({ pageContract: pc, basePath, sopId, sopName, 
                   onRemove={() => setRows((r) => ({ ...r, questions: r.questions.filter((x) => x.id !== q.id) }))}
                 />
               ))}
-              <MuiButton type="button" variant="text" size="small" startIcon={<Plus className="ic" />} onClick={() => setRows((r) => ({ ...r, questions: [...r.questions, blankQuestion()] }))}>
-                {copy(pc, "inspection.question.add")}
-              </MuiButton>
-            </div>
-          </div>
-          <p className="muted small" style={{ margin: "10px 0 0" }}>
-            {copy(pc, "capture.note.older_app")}
-          </p>
-        </div>
-      </section>
+              <AddButton label={copy(pc, "inspection.question.add")} onClick={() => setRows((r) => ({ ...r, questions: [...r.questions, blankQuestion()] }))} />
+            </Stack>
+          </ConfigBox>
+          <Hint caption>{copy(pc, "capture.note.older_app")}</Hint>
+      </EditorCard>
 
-      <div className="cfgmf inspection-footer">
-        <div>
-          {problems.length ? (
-            <ul className="small muted" style={{ margin: "4px 0 0 16px" }}>
-              {problems.slice(0, 5).map((p, i) => (
-                <li key={i}>{p}</li>
-              ))}
-            </ul>
-          ) : (
-            <span className="muted small">{copy(pc, "capture.footer.ready")}</span>
-          )}
-        </div>
-        <div className="sp" style={{ flex: 1 }} />
-        <MuiButton type="button" variant="outlined" disabled={pending || problems.length > 0} onClick={() => submit(false)}>
+      <StickyBar>
+        <Box sx={{ minWidth: 0 }}>
+          {problems.length ? <ProblemList items={problems} muted /> : <Hint caption>{copy(pc, "capture.footer.ready")}</Hint>}
+        </Box>
+        <Spacer />
+        <MuiButton type="button" variant="outlined" color="primary" disabled={pending || problems.length > 0} onClick={() => submit(false)}>
           {copy(pc, "inspection.action.save_draft")}
         </MuiButton>
-        <MuiButton type="button" variant="contained" color="primary" startIcon={<Check className="ic" />} disabled={pending || problems.length > 0} onClick={() => submit(true)}>
+        <MuiButton type="button" variant="contained" color="primary" startIcon={<Iconify icon={EDITOR_ICON.check} />} disabled={pending || problems.length > 0} onClick={() => submit(true)}>
           {copy(pc, "inspection.action.publish")}
         </MuiButton>
-      </div>
-    </Box>
+      </StickyBar>
+    </EditorPage>
   );
 }

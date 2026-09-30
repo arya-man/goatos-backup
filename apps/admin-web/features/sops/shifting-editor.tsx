@@ -1,5 +1,6 @@
 "use client";
 import Box from "@mui/material/Box";
+import Stack from "@mui/material/Stack";
 
 // SHIFTING SOP (maintainer decision 2026-09-16, docs/decisions/shifting-sop.md).
 //
@@ -13,21 +14,18 @@ import Box from "@mui/material/Box";
 import MenuItem from "@mui/material/MenuItem";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Check, ChevronDown, ChevronUp, Lock, Plus, X } from "lucide-react";
 import MuiButton from "@mui/material/Button";
-import IconButton from "@mui/material/IconButton";
 import MuiTextField from "@mui/material/TextField";
-import Typography from "@mui/material/Typography";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { blankProofSlot, blankQuestion, followQuestionKey, keyForTitle, type RemovalProofKind, type RemovalProofRow, type WeighingQuestionRow } from "./weighing-model";
 import { QuestionCard } from "./weighing-editor";
 import { SHIFTING_SECTIONS, emitShifting, shiftingProblems, type ShiftingRows, type ShiftingSection, type ShiftingSectionRows } from "./shifting-model";
 import { publishedHref } from "./published-href";
 import { publishShiftingVersion, saveShiftingVersion, type ShiftingSaveResult } from "./sop-actions";
-import Checkbox from "@mui/material/Checkbox";
-import FormControlLabel from "@mui/material/FormControlLabel";
 import Alert from "@mui/material/Alert";
-import { EditorHeader, inspectionEditorSx } from "./editor-chrome";
+import { Iconify } from "@/components/minimal/iconify";
+import { EditorHeader } from "./editor-chrome";
+import { AddButton, CheckLine, ConfigBox, EDITOR_ICON, EditorCard, EditorPage, GroupTitle, Hint, LockedNote, MoveActions, NumBadge, ProblemList, QuestionShell, Spacer, StickyBar } from "./editor-parts";
 
 type Props = {
   pageContract: AdminUiPageContract;
@@ -73,7 +71,7 @@ export function ShiftingEditor({ pageContract: pc, basePath, sopId, sopName, ver
   }
 
   return (
-    <Box className="screen on sop-inspection sop-weighing sop-feed sop-shifting" sx={inspectionEditorSx}>
+    <EditorPage>
       <EditorHeader
         crumbs={[copy(pc, "crumb"), pc.title, sopName]}
         title={copy(pc, "ssop.title")}
@@ -85,31 +83,20 @@ export function ShiftingEditor({ pageContract: pc, basePath, sopId, sopName, ver
 
       {result ? (
         <Alert severity={result.ok ? "success" : "error"} role="status">
-          {result.ok ? <Check className="ic" /> : <AlertTriangle className="ic" />}
-          <div>{result.message}</div>
+          {result.message}
         </Alert>
       ) : null}
 
       {SHIFTING_SECTIONS.map((section, si) => {
         const block = rows[section];
         return (
-          <section className="card inspection-page" key={section}>
-            <div className="inspection-page-head" style={{ cursor: "default" }}>
-              <span className="qnum">{si + 1}</span>
-              <strong>{sectionLabel(section)}</strong>
-              <span className="muted small">{copy(pc, `ssop.section.${section}.sub`)}</span>
-            </div>
-            <div className="bd">
-              <div className="qcfg">
-                <MuiTextField label={copy(pc, "ssop.instruction")} fullWidth multiline minRows={3} value={block.instruction} onChange={(e) => patchSection(section, (s) => ({ ...s, instruction: e.target.value }))} />
-              </div>
+          <EditorCard key={section} badge={si + 1} title={sectionLabel(section)} meta={copy(pc, `ssop.section.${section}.sub`)}>
+            <ConfigBox>
+              <MuiTextField label={copy(pc, "ssop.instruction")} fullWidth multiline minRows={3} value={block.instruction} onChange={(e) => patchSection(section, (s) => ({ ...s, instruction: e.target.value }))} />
+            </ConfigBox>
 
-              <div className="qcfg" style={{ marginTop: 10 }}>
-                <div className="qcfg-head">
-                  <Typography variant="subtitle2" component="span">{copy(pc, "ssop.proofs")}</Typography>
-                  <span className="muted small">{copy(pc, "ssop.proofs.subtitle")}</span>
-                </div>
-                <div className="qlist">
+            <ConfigBox title={<GroupTitle title={copy(pc, "ssop.proofs")} hint={copy(pc, "ssop.proofs.subtitle")} />}>
+              <Stack spacing={1.5}>
                   {block.proofs.map((p, i) => (
                     <SlotCard
                       key={p.id}
@@ -134,19 +121,13 @@ export function ShiftingEditor({ pageContract: pc, basePath, sopId, sopName, ver
                       onRemove={() => patchSection(section, (s) => ({ ...s, proofs: s.proofs.filter((x) => x.id !== p.id) }))}
                     />
                   ))}
-                  <MuiButton type="button" variant="text" size="small" startIcon={<Plus className="ic" />} onClick={() => patchSection(section, (s) => ({ ...s, proofs: [...s.proofs, blankProofSlot()] }))}>
-                    {copy(pc, "ssop.proof.add")}
-                  </MuiButton>
-                </div>
-              </div>
+                  <AddButton label={copy(pc, "ssop.proof.add")} onClick={() => patchSection(section, (s) => ({ ...s, proofs: [...s.proofs, blankProofSlot()] }))} />
+              </Stack>
+            </ConfigBox>
 
-              <div className="qcfg" style={{ marginTop: 10 }}>
-                <div className="qcfg-head">
-                  <Typography variant="subtitle2" component="span">{copy(pc, "ssop.questions")}</Typography>
-                  <span className="muted small">{copy(pc, "ssop.questions.subtitle")}</span>
-                </div>
-                <div className="qlist">
-                  {block.questions.length === 0 ? <p className="muted">{copy(pc, "ssop.questions.empty")}</p> : null}
+            <ConfigBox title={<GroupTitle title={copy(pc, "ssop.questions")} hint={copy(pc, "ssop.questions.subtitle")} />}>
+              <Stack spacing={1.5}>
+                  {block.questions.length === 0 ? <Hint>{copy(pc, "ssop.questions.empty")}</Hint> : null}
                   {block.questions.map((q, qi) => (
                     <QuestionCard
                       key={q.id}
@@ -178,48 +159,28 @@ export function ShiftingEditor({ pageContract: pc, basePath, sopId, sopName, ver
                       onRemove={() => patchSection(section, (s) => ({ ...s, questions: s.questions.filter((x) => x.id !== q.id) }))}
                     />
                   ))}
-                  <MuiButton type="button" variant="text" size="small" startIcon={<Plus className="ic" />} onClick={() => patchSection(section, (s) => ({ ...s, questions: [...s.questions, blankQuestion()] }))}>
-                    {copy(pc, "inspection.question.add")}
-                  </MuiButton>
-                </div>
-              </div>
-            </div>
-          </section>
+                  <AddButton label={copy(pc, "inspection.question.add")} onClick={() => patchSection(section, (s) => ({ ...s, questions: [...s.questions, blankQuestion()] }))} />
+              </Stack>
+            </ConfigBox>
+          </EditorCard>
         );
       })}
 
-      <section className="card inspection-page">
-        <div className="bd">
-          <p className="muted small" style={{ margin: 0 }}>
-            <Lock className="ic" style={{ width: 12 }} /> {copy(pc, "ssop.locked")}
-          </p>
-          <p className="muted small" style={{ margin: "6px 0 0" }}>
-            {copy(pc, "ssop.summary.legacy_key_note")}
-          </p>
-        </div>
-      </section>
+      <EditorCard title={<LockedNote>{copy(pc, "ssop.locked")}</LockedNote>} meta={copy(pc, "ssop.summary.legacy_key_note")} />
 
-      <div className="cfgmf inspection-footer">
-        <div>
-          {problems.length ? (
-            <ul className="small muted" style={{ margin: "4px 0 0 16px" }}>
-              {problems.slice(0, 5).map((p, i) => (
-                <li key={i}>{p}</li>
-              ))}
-            </ul>
-          ) : (
-            <span className="muted small">{copy(pc, "ssop.footer.ready")}</span>
-          )}
-        </div>
-        <div className="sp" style={{ flex: 1 }} />
-        <MuiButton type="button" variant="outlined" disabled={pending || problems.length > 0} onClick={() => submit(false)}>
+      <StickyBar>
+        <Box sx={{ minWidth: 0 }}>
+          {problems.length ? <ProblemList items={problems} muted /> : <Hint caption>{copy(pc, "ssop.footer.ready")}</Hint>}
+        </Box>
+        <Spacer />
+        <MuiButton type="button" variant="outlined" color="primary" disabled={pending || problems.length > 0} onClick={() => submit(false)}>
           {copy(pc, "inspection.action.save_draft")}
         </MuiButton>
-        <MuiButton type="button" variant="contained" color="primary" startIcon={<Check className="ic" />} disabled={pending || problems.length > 0} onClick={() => submit(true)}>
+        <MuiButton type="button" variant="contained" color="primary" startIcon={<Iconify icon={EDITOR_ICON.check} />} disabled={pending || problems.length > 0} onClick={() => submit(true)}>
           {copy(pc, "inspection.action.publish")}
         </MuiButton>
-      </div>
-    </Box>
+      </StickyBar>
+    </EditorPage>
   );
 }
 
@@ -239,10 +200,10 @@ function SlotCard({
   onRemove: () => void;
 }) {
   return (
-    <div className="qcard">
-      <div className="qhead">
-        <span className="qnum">{index + 1}</span>
-        <span className="qtype">
+    <QuestionShell
+      head={
+        <>
+          <NumBadge>{index + 1}</NumBadge>
           <MuiTextField
             select
             label={copy(pc, "ssop.proofs")}
@@ -257,39 +218,36 @@ function SlotCard({
               </MenuItem>
             ))}
           </MuiTextField>
-        </span>
-        <span className="sp" style={{ flex: 1 }} />
-        <IconButton type="button" size="small" className="ia" aria-label={copy(pc, "inspection.question.move_up")} disabled={index === 0} onClick={() => onMove(-1)}>
-          <ChevronUp className="ic" />
-        </IconButton>
-        <IconButton type="button" size="small" className="ia" aria-label={copy(pc, "inspection.question.move_down")} disabled={index === count - 1} onClick={() => onMove(1)}>
-          <ChevronDown className="ic" />
-        </IconButton>
-        <IconButton type="button" size="small" className="ia del" aria-label={copy(pc, "ssop.proof.remove")} onClick={onRemove}>
-          <X className="ic" />
-        </IconButton>
-      </div>
-      <div className="qbody">
-        <MuiTextField label={copy(pc, "ssop.proof.title")}
-            fullWidth
-            size="small"
-            className="qtext"
-            value={slot.title}
-            onChange={(e) => {
-              const title = e.target.value;
-              // A NEW slot's key follows its title until saved; an existing key is never rewritten
-              // (it is what the phones stamp on uploads).
-              onChange({ title, key: keyForTitle(title, slot.key, savedKeys, takenKeys, "capture") });
-            }}
+          <Spacer />
+          <MoveActions
+            upLabel={copy(pc, "inspection.question.move_up")}
+            downLabel={copy(pc, "inspection.question.move_down")}
+            removeLabel={copy(pc, "ssop.proof.remove")}
+            first={index === 0}
+            last={index === count - 1}
+            onUp={() => onMove(-1)}
+            onDown={() => onMove(1)}
+            onRemove={onRemove}
           />
-        <MuiTextField label={copy(pc, "ssop.proof.hint")} fullWidth size="small" value={slot.hint} onChange={(e) => onChange({ hint: e.target.value })} />
-        {!slot.key ? (
-          <MuiTextField label={copy(pc, "inspection.question.key")} fullWidth size="small" value={slot.key} onChange={(e) => onChange({ key: e.target.value })} />
-        ) : null}
-        <div className="qfoot">
-          <FormControlLabel className="chkline" control={<Checkbox checked={slot.required} onChange={(e) => onChange({ required: e.target.checked })} sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<>{copy(pc, "inspection.question.required")}</>} />
-        </div>
-      </div>
-    </div>
+        </>
+      }
+      foot={<CheckLine checked={slot.required} onChange={(required) => onChange({ required })} label={copy(pc, "inspection.question.required")} />}
+    >
+      <MuiTextField label={copy(pc, "ssop.proof.title")}
+        fullWidth
+        size="small"
+        value={slot.title}
+        onChange={(e) => {
+          const title = e.target.value;
+          // A NEW slot's key follows its title until saved; an existing key is never rewritten
+          // (it is what the phones stamp on uploads).
+          onChange({ title, key: keyForTitle(title, slot.key, savedKeys, takenKeys, "capture") });
+        }}
+      />
+      <MuiTextField label={copy(pc, "ssop.proof.hint")} fullWidth size="small" value={slot.hint} onChange={(e) => onChange({ hint: e.target.value })} />
+      {!slot.key ? (
+        <MuiTextField label={copy(pc, "inspection.question.key")} fullWidth size="small" value={slot.key} onChange={(e) => onChange({ key: e.target.value })} />
+      ) : null}
+    </QuestionShell>
   );
 }

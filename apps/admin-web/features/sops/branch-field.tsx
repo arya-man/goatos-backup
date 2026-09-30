@@ -3,8 +3,11 @@
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { FieldSelect } from "./editor-chrome";
 import { ANSWER_OPS, NUMERIC_ANSWER_OPS, stepAnswerKind, type AnswerOp, type FollowUpStepRow } from "./followup-model";
-import Checkbox from "@mui/material/Checkbox";
-import FormControlLabel from "@mui/material/FormControlLabel";
+import Box from "@mui/material/Box";
+import Stack from "@mui/material/Stack";
+import MuiTextField from "@mui/material/TextField";
+import type { InputHTMLAttributes } from "react";
+import { CheckLine, Hint } from "./editor-parts";
 
 /**
  * The answer-driven branch control of one step (SOP studio phase 2, 2026-09-18): which earlier
@@ -34,7 +37,18 @@ export function BranchField({
   const ops = ANSWER_OPS.filter((op) => (kind === "number" ? true : !NUMERIC_ANSWER_OPS.includes(op)));
   if (questions.length === 0) return null;
   return (
-    <div className="studio-branch" data-testid="branch-field">
+    <Box
+      data-testid="branch-field"
+      sx={(theme) => ({
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+        columnGap: 1,
+        rowGap: 1,
+        p: 1.25,
+        border: `dashed 1px ${theme.vars.palette.divider}`,
+        borderRadius: "var(--r-md)",
+      })}
+    >
       <FieldSelect
         label={copy(pc, "studio.branch.title")}
         value={step.whenStep}
@@ -71,29 +85,30 @@ export function BranchField({
               onChange={(next) => onChange({ whenValues: [next] })}
             />
           ) : (
-          <label>
-            {copy(pc, "studio.branch.value")}
-            {kind === "select" || kind === "multiselect" ? (
-              <span className="studio-branch-options">
+          kind === "select" || kind === "multiselect" ? (
+            <Stack sx={{ gridColumn: "1 / -1" }}>
+              <Hint caption>{copy(pc, "studio.branch.value")}</Hint>
+              <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
                 {question.options.map((o) => (
-                  <FormControlLabel key={o} className="chkline" control={<Checkbox checked={step.whenValues.includes(o)} onChange={(e) => onChange({ whenValues: e.target.checked ? [...step.whenValues, o] : step.whenValues.filter((v) => v !== o) })} sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<>{" "}
-                    {o}</>} />
+                  <CheckLine key={o} checked={step.whenValues.includes(o)} onChange={(on) => onChange({ whenValues: on ? [...step.whenValues, o] : step.whenValues.filter((v) => v !== o) })} label={o} />
                 ))}
-              </span>
-            ) : (
-              <input
-                value={step.whenValues.join(", ")}
-                inputMode={kind === "number" ? "decimal" : "text"}
-                placeholder={copy(pc, "studio.branch.values_hint")}
-                onChange={(e) => onChange({ whenValues: e.target.value.split(",").map((v) => v.trim()).filter(Boolean) })}
-                data-testid="branch-value"
-              />
-            )}
-          </label>
+              </Stack>
+            </Stack>
+          ) : (
+            <MuiTextField
+              label={copy(pc, "studio.branch.value")}
+              size="small"
+              value={step.whenValues.join(", ")}
+              placeholder={copy(pc, "studio.branch.values_hint")}
+              slotProps={{ inputLabel: { shrink: true }, htmlInput: { inputMode: kind === "number" ? "decimal" : "text", "data-testid": "branch-value" } as InputHTMLAttributes<HTMLInputElement> }}
+              onChange={(e) => onChange({ whenValues: e.target.value.split(",").map((v) => v.trim()).filter(Boolean) })}
+              sx={{ mt: 1 }}
+            />
+          )
           )}
         </>
       ) : null}
-    </div>
+    </Box>
   );
 }
 
