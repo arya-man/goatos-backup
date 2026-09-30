@@ -3895,6 +3895,298 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "500":
           $ref: "#/components/responses/ServerError"
+  /admin/workforce/violations:
+    get:
+      tags:
+        - People
+      operationId: listWorkforceViolations
+      summary: HRMS violations for one park (or all) and one month, with whole-filter totals.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: month
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ViolationsPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Not found, or not in the caller parks.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          description: The request breaks an HRMS SOP rule (farm-worded code and message).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    post:
+      tags:
+        - People
+      operationId: recordWorkforceViolation
+      summary: Record a violation by hand (HR or the CEO) against the published HRMS SOP. Idempotent on idempotency_key.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordViolationRequest"
+      responses:
+        "200":
+          description: The recorded violation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ViolationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Not found, or not in the caller parks.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          description: The request breaks an HRMS SOP rule (farm-worded code and message).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin/workforce/violations/{violation_id}/withdraw:
+    post:
+      tags:
+        - People
+      operationId: withdrawWorkforceViolation
+      summary: Withdraw a mistaken violation with a reason; it stays on record.
+      parameters:
+        - name: violation_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WithdrawViolationRequest"
+      responses:
+        "200":
+          description: The withdrawn violation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ViolationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Not found, or not in the caller parks.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          description: The request breaks an HRMS SOP rule (farm-worded code and message).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin/workforce/enquiries:
+    get:
+      tags:
+        - People
+      operationId: listWorkforceEnquiries
+      summary: HRMS enquiries opened by farm events (first, an approved death).
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnquiryPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Not found, or not in the caller parks.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          description: The request breaks an HRMS SOP rule (farm-worded code and message).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin/workforce/enquiries/{enquiry_id}:
+    get:
+      tags:
+        - People
+      operationId: getWorkforceEnquiry
+      summary: One enquiry with its pinned questions, the violation types and the people of its park.
+      parameters:
+        - name: enquiry_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The enquiry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnquiryDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Not found, or not in the caller parks.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          description: The request breaks an HRMS SOP rule (farm-worded code and message).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin/workforce/enquiries/{enquiry_id}/submit:
+    post:
+      tags:
+        - People
+      operationId: submitWorkforceEnquiry
+      summary: Submit the report; every named violation is recorded in the same transaction.
+      parameters:
+        - name: enquiry_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitEnquiryRequest"
+      responses:
+        "200":
+          description: The submitted enquiry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnquiryDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Not found, or not in the caller parks.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          description: The request breaks an HRMS SOP rule (farm-worded code and message).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /admin/workforce/clock-entries:
     get:
       tags:
@@ -13333,6 +13625,214 @@ components:
           type: boolean
         row_version:
           type: integer
+    ViolationTypeOption:
+      type: object
+      additionalProperties: false
+      required: [key, title, default_fine, default_fine_label]
+      properties:
+        key: {type: string}
+        title: {type: string}
+        default_fine: {type: integer}
+        default_fine_label: {type: string}
+    ViolationPersonOption:
+      type: object
+      additionalProperties: false
+      required: [person_id, name, designation, park_id, park_label]
+      properties:
+        person_id: {type: string}
+        name: {type: string}
+        designation: {type: string}
+        park_id: {type: string}
+        park_label: {type: string}
+    Violation:
+      type: object
+      additionalProperties: false
+      required: [violation_id, person_id, person_name, designation, park_id, park_label, type_key, type_label, fine_rupees, fine_label, occurred_on, occurred_on_label, note, source, source_label, enquiry_id, recorded_by_name, recorded_at_label, status, status_label, withdraw_reason, sop_version, row_version]
+      properties:
+        violation_id: {type: string}
+        person_id: {type: string}
+        person_name: {type: string}
+        designation: {type: string}
+        park_id: {type: string}
+        park_label: {type: string}
+        type_key: {type: string}
+        type_label: {type: string}
+        fine_rupees: {type: integer}
+        fine_label: {type: string}
+        occurred_on: {type: string}
+        occurred_on_label: {type: string}
+        note: {type: string}
+        source: {type: string}
+        source_label: {type: string}
+        enquiry_id: {type: string}
+        recorded_by_name: {type: string}
+        recorded_at_label: {type: string}
+        status: {type: string}
+        status_label: {type: string}
+        withdraw_reason: {type: string}
+        sop_version: {type: integer}
+        row_version: {type: integer}
+    ViolationPersonTotal:
+      type: object
+      additionalProperties: false
+      required: [person_id, person_name, designation, park_label, count, fine_rupees, fine_label]
+      properties:
+        person_id: {type: string}
+        person_name: {type: string}
+        designation: {type: string}
+        park_label: {type: string}
+        count: {type: integer}
+        fine_rupees: {type: integer}
+        fine_label: {type: string}
+    ViolationSummary:
+      type: object
+      additionalProperties: false
+      required: [count, fine_rupees, fine_label, people]
+      properties:
+        count: {type: integer}
+        fine_rupees: {type: integer}
+        fine_label: {type: string}
+        people: {type: integer}
+    ViolationMonthOption:
+      type: object
+      additionalProperties: false
+      required: [key, label]
+      properties:
+        key: {type: string}
+        label: {type: string}
+    ViolationPark:
+      type: object
+      additionalProperties: false
+      required: [park_id, label]
+      properties:
+        park_id: {type: string}
+        label: {type: string}
+    ViolationsPage:
+      type: object
+      additionalProperties: false
+      required: [parks, park_id, months, month, status, summary, by_person, items, next_cursor, types, people, sop_version, trace_id]
+      properties:
+        parks: {type: array, items: {$ref: "#/components/schemas/ViolationPark"}}
+        park_id: {type: string}
+        months: {type: array, items: {$ref: "#/components/schemas/ViolationMonthOption"}}
+        month: {type: string}
+        status: {type: string}
+        summary: {$ref: "#/components/schemas/ViolationSummary"}
+        by_person: {type: array, items: {$ref: "#/components/schemas/ViolationPersonTotal"}}
+        items: {type: array, items: {$ref: "#/components/schemas/Violation"}}
+        next_cursor: {type: string}
+        types: {type: array, items: {$ref: "#/components/schemas/ViolationTypeOption"}}
+        people: {type: array, items: {$ref: "#/components/schemas/ViolationPersonOption"}}
+        sop_version: {type: integer}
+        trace_id: {type: string}
+    RecordViolationRequest:
+      type: object
+      additionalProperties: false
+      required: [person_id, type_key, occurred_on]
+      properties:
+        person_id: {type: string}
+        type_key: {type: string}
+        fine_rupees: {type: [integer, "null"]}
+        occurred_on: {type: string, description: "YYYY-MM-DD, not in the future"}
+        note: {type: string}
+        idempotency_key: {type: string}
+    WithdrawViolationRequest:
+      type: object
+      additionalProperties: false
+      required: [reason, row_version]
+      properties:
+        reason: {type: string}
+        row_version: {type: integer}
+    ViolationResponse:
+      type: object
+      additionalProperties: false
+      required: [violation, trace_id]
+      properties:
+        violation: {$ref: "#/components/schemas/Violation"}
+        trace_id: {type: string}
+    EnquiryQuestion:
+      type: object
+      additionalProperties: false
+      required: [id, kind, title, required]
+      properties:
+        id: {type: string}
+        kind: {type: string, enum: [text, yes_no]}
+        title: {type: string}
+        required: {type: boolean}
+    Enquiry:
+      type: object
+      additionalProperties: false
+      required: [enquiry_id, trigger_key, title, subject_label, park_id, park_label, occurred_at_label, opened_at_label, due_at, due_at_label, status, status_label, overdue, submitted_by_name, submitted_at_label, penalty_count, penalty_label, row_version]
+      properties:
+        enquiry_id: {type: string}
+        trigger_key: {type: string}
+        title: {type: string}
+        subject_label: {type: string}
+        park_id: {type: string}
+        park_label: {type: string}
+        occurred_at_label: {type: string}
+        opened_at_label: {type: string}
+        due_at: {type: string}
+        due_at_label: {type: string}
+        status: {type: string}
+        status_label: {type: string}
+        overdue: {type: boolean}
+        submitted_by_name: {type: string}
+        submitted_at_label: {type: string}
+        penalty_count: {type: integer}
+        penalty_label: {type: string}
+        row_version: {type: integer}
+    EnquirySummary:
+      type: object
+      additionalProperties: false
+      required: [open, overdue, submitted]
+      properties:
+        open: {type: integer}
+        overdue: {type: integer}
+        submitted: {type: integer}
+    EnquiryPage:
+      type: object
+      additionalProperties: false
+      required: [parks, park_id, status, summary, items, next_cursor, trace_id]
+      properties:
+        parks: {type: array, items: {$ref: "#/components/schemas/ViolationPark"}}
+        park_id: {type: string}
+        status: {type: string}
+        summary: {$ref: "#/components/schemas/EnquirySummary"}
+        items: {type: array, items: {$ref: "#/components/schemas/Enquiry"}}
+        next_cursor: {type: string}
+        trace_id: {type: string}
+    EnquiryDetail:
+      type: object
+      additionalProperties: false
+      required: [enquiry, questions, answers, violations, types, people, can_submit, sop_version, trace_id]
+      properties:
+        enquiry: {$ref: "#/components/schemas/Enquiry"}
+        questions: {type: array, items: {$ref: "#/components/schemas/EnquiryQuestion"}}
+        answers: {type: object, additionalProperties: true}
+        violations: {type: array, items: {$ref: "#/components/schemas/Violation"}}
+        types: {type: array, items: {$ref: "#/components/schemas/ViolationTypeOption"}}
+        people: {type: array, items: {$ref: "#/components/schemas/ViolationPersonOption"}}
+        can_submit: {type: boolean}
+        sop_version: {type: integer}
+        trace_id: {type: string}
+    EnquiryPenalty:
+      type: object
+      additionalProperties: false
+      required: [person_id, type_key]
+      properties:
+        person_id: {type: string}
+        type_key: {type: string}
+        fine_rupees: {type: [integer, "null"]}
+        note: {type: string}
+    SubmitEnquiryRequest:
+      type: object
+      additionalProperties: false
+      required: [answers, penalties, row_version]
+      properties:
+        answers: {type: object, additionalProperties: true}
+        penalties: {type: array, items: {$ref: "#/components/schemas/EnquiryPenalty"}}
+        row_version: {type: integer}
     LeaveRequestCreate:
       type: object
       additionalProperties: false

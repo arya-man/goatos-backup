@@ -226,6 +226,9 @@ var protectedRoutes = []Route{
 	{OperationID: "listWorkforceEnquiries", Method: "GET", Pattern: "/admin/workforce/enquiries", Permissions: []string{WorkforceViolationsRead}},
 	{OperationID: "getWorkforceEnquiry", Method: "GET", Pattern: "/admin/workforce/enquiries/{enquiry_id}", Permissions: []string{WorkforceViolationsRead}},
 	{OperationID: "submitWorkforceEnquiry", Method: "POST", Pattern: "/admin/workforce/enquiries/{enquiry_id}/submit", Permissions: []string{WorkforceViolationsWrite}},
+	// Park heads record violations for their own park's people from the phone (2026-09-30).
+	{OperationID: "listAppViolations", Method: "GET", Pattern: "/app/violations", AnyPermissions: []string{ViolationRecordPark, WorkforceViolationsRead}},
+	{OperationID: "recordAppViolation", Method: "POST", Pattern: "/app/violations", AnyPermissions: []string{ViolationRecordPark, WorkforceViolationsWrite}},
 	{OperationID: "listAppEnquiries", Method: "GET", Pattern: "/app/enquiries", AnyPermissions: []string{EnquiryFill, WorkforceViolationsRead}},
 	{OperationID: "getAppEnquiry", Method: "GET", Pattern: "/app/enquiries/{enquiry_id}", AnyPermissions: []string{EnquiryFill, WorkforceViolationsRead}},
 	{OperationID: "submitAppEnquiry", Method: "POST", Pattern: "/app/enquiries/{enquiry_id}/submit", AnyPermissions: []string{EnquiryFill, WorkforceViolationsWrite}},

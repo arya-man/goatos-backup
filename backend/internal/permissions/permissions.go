@@ -611,9 +611,13 @@ const (
 	// phone (maintainer decisions 2026-09-30: an approved death opens one; the park head names the
 	// people responsible and a violation for each). HR and the CEO fill on the web through
 	// WorkforceViolationsWrite. Park scope is applied by the workforce service, not the route.
-	EnquiryFill  = "workforce.enquiry.fill"
-	RosterRead   = "roster.read"
-	RosterManage = "roster.manage"
+	EnquiryFill = "workforce.enquiry.fill"
+	// ViolationRecordPark lets a park head record a violation, from the phone, against a person
+	// whose home park they head (maintainer request 2026-09-30, widening the earlier "HR and CEO
+	// only" answer for recording). The park scope is the workforce service's.
+	ViolationRecordPark = "workforce.violations.record_park"
+	RosterRead          = "roster.read"
+	RosterManage        = "roster.manage"
 	// CountsWrite gates the app-tier Counts write surface: an operator recording a shifting
 	// (movement) event, a birth, or a death from the phone (/app/counts/*).
 	//
@@ -1021,7 +1025,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		CountsWrite: {},
 		// HRMS enquiries (maintainer decisions 2026-09-30): the park head fills the enquiry a
 		// death in their park opens, on the phone.
-		EnquiryFill: {},
+		EnquiryFill: {}, ViolationRecordPark: {},
 		// Leave requests (maintainer decision 2026-09-10): the park head signs the park-head
 		// line of their own park's leave requests. This is NOT the counts approval authority
 		// removed below -- a different request kind, decided in the same Approvals module.

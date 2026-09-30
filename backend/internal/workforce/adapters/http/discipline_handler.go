@@ -35,6 +35,8 @@ func RegisterDiscipline(mux *http.ServeMux, h *DisciplineHandler) {
 	mux.HandleFunc("GET /admin/workforce/enquiries/{enquiry_id}", h.Enquiry)
 	mux.HandleFunc("POST /admin/workforce/enquiries/{enquiry_id}/submit", h.SubmitEnquiry)
 	// The phone twins: one service, one scope rule.
+	mux.HandleFunc("GET /app/violations", h.Violations)
+	mux.HandleFunc("POST /app/violations", h.RecordViolation)
 	mux.HandleFunc("GET /app/enquiries", h.Enquiries)
 	mux.HandleFunc("GET /app/enquiries/{enquiry_id}", h.Enquiry)
 	mux.HandleFunc("POST /app/enquiries/{enquiry_id}/submit", h.SubmitEnquiry)
@@ -76,7 +78,7 @@ func (h *DisciplineHandler) RecordViolation(w http.ResponseWriter, r *http.Reque
 	if body.IdempotencyKey == "" {
 		body.IdempotencyKey = idempotencyKeyHeader(r)
 	}
-	result, err := h.service.RecordViolation(r.Context(), tenantID(r), actorID(r), body, traceID(r))
+	result, err := h.service.RecordViolation(r.Context(), tenantID(r), disciplineCaller(r.Context()), actorID(r), body, traceID(r))
 	h.warn(r, "hrms_violation_record_failed", err)
 	writeServiceResponse(w, r, h.log, result, err)
 }

@@ -73,6 +73,7 @@ var disciplineCopy = map[string]string{
 	"penalty.many":            "%d people penalised",
 	"error.type":              "Choose a violation from the published list.",
 	"error.person":            "That person was not found, or is no longer active.",
+	"error.person_park":       "You can record a violation only for someone whose home park is yours.",
 	"error.fine":              "The fine must be between ₹0 and ₹1,00,00,000.",
 	"error.date":              "Choose the date it happened; it cannot be in the future.",
 	"error.note":              "The note is too long (2000 letters at most).",
@@ -158,9 +159,27 @@ func (s *DisciplineService) Violations(ctx context.Context, tenantID string, cal
 }
 
 // RecordViolation records one violation by hand, against the PUBLISHED HRMS SOP.
-func (s *DisciplineService) RecordViolation(ctx context.Context, tenantID, actorID string, req domain.RecordViolationRequest, traceID string) (*domain.ViolationResponse, error) {
+func (s *DisciplineService) RecordViolation(ctx context.Context, tenantID string, caller DisciplineCaller, actorID string, req domain.RecordViolationRequest, traceID string) (*domain.ViolationResponse, error) {
 	if strings.TrimSpace(req.IdempotencyKey) == "" {
 		return nil, &Error{Code: "idempotency_key_required", Message: disciplineCopy["error.key"], HTTPStatus: 400}
+	}
+	if !caller.All {
+		// A park head records only against a person whose home park they head (2026-09-30).
+		home, err := s.repo.MemberHomePark(ctx, tenantID, strings.TrimSpace(req.PersonID))
+		if err != nil {
+			return nil, mapDisciplineError(err)
+		}
+		heads, err := s.repo.ParkHeadParks(ctx, tenantID, caller.UserID)
+		if err != nil {
+			return nil, err
+		}
+		ok := false
+		for _, p := range heads {
+			ok = ok || (home != "" && p == home)
+		}
+		if !ok {
+			return nil, &Error{Code: "person_not_in_your_park", Message: disciplineCopy["error.person_park"], HTTPStatus: 422}
+		}
 	}
 	rules, err := s.rules.Published(ctx, tenantID)
 	if err != nil {

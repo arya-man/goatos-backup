@@ -771,11 +771,11 @@ var moduleCapabilities = []ModuleCapability{
 		// violation for each. Its own module so it is a per-person tick like every other phone
 		// module; it renders as a card on the Tasks module's "For me" tab.
 		Key:      "enquiries",
-		Label:    "Enquiries",
-		Blurb:    "Filling the enquiry a death in your park opens: who was responsible, and the violation.",
+		Label:    "Enquiries and violations",
+		Blurb:    "Filling the enquiry a death in your park opens, and recording a violation against someone in your park.",
 		Surfaces: []string{SurfaceMobile},
 		Levels: map[string][]string{
-			LevelDo: {EnquiryFill},
+			LevelDo: {EnquiryFill, ViolationRecordPark},
 		},
 	},
 	{

@@ -1846,6 +1846,92 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/workforce/violations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** HRMS violations for one park (or all) and one month, with whole-filter totals. */
+        get: operations["listWorkforceViolations"];
+        put?: never;
+        /** Record a violation by hand (HR or the CEO) against the published HRMS SOP. Idempotent on idempotency_key. */
+        post: operations["recordWorkforceViolation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/workforce/violations/{violation_id}/withdraw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Withdraw a mistaken violation with a reason; it stays on record. */
+        post: operations["withdrawWorkforceViolation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/workforce/enquiries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** HRMS enquiries opened by farm events (first, an approved death). */
+        get: operations["listWorkforceEnquiries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/workforce/enquiries/{enquiry_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One enquiry with its pinned questions, the violation types and the people of its park. */
+        get: operations["getWorkforceEnquiry"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/workforce/enquiries/{enquiry_id}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit the report; every named violation is recorded in the same transaction. */
+        post: operations["submitWorkforceEnquiry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/workforce/clock-entries": {
         parameters: {
             query?: never;
@@ -5185,6 +5271,166 @@ export interface components {
         LeaveApprovalConfigUpdate: {
             park_head_required: boolean;
             hr_required: boolean;
+            row_version: number;
+        };
+        ViolationTypeOption: {
+            key: string;
+            title: string;
+            default_fine: number;
+            default_fine_label: string;
+        };
+        ViolationPersonOption: {
+            person_id: string;
+            name: string;
+            designation: string;
+            park_id: string;
+            park_label: string;
+        };
+        Violation: {
+            violation_id: string;
+            person_id: string;
+            person_name: string;
+            designation: string;
+            park_id: string;
+            park_label: string;
+            type_key: string;
+            type_label: string;
+            fine_rupees: number;
+            fine_label: string;
+            occurred_on: string;
+            occurred_on_label: string;
+            note: string;
+            source: string;
+            source_label: string;
+            enquiry_id: string;
+            recorded_by_name: string;
+            recorded_at_label: string;
+            status: string;
+            status_label: string;
+            withdraw_reason: string;
+            sop_version: number;
+            row_version: number;
+        };
+        ViolationPersonTotal: {
+            person_id: string;
+            person_name: string;
+            designation: string;
+            park_label: string;
+            count: number;
+            fine_rupees: number;
+            fine_label: string;
+        };
+        ViolationSummary: {
+            count: number;
+            fine_rupees: number;
+            fine_label: string;
+            people: number;
+        };
+        ViolationMonthOption: {
+            key: string;
+            label: string;
+        };
+        ViolationPark: {
+            park_id: string;
+            label: string;
+        };
+        ViolationsPage: {
+            parks: components["schemas"]["ViolationPark"][];
+            park_id: string;
+            months: components["schemas"]["ViolationMonthOption"][];
+            month: string;
+            status: string;
+            summary: components["schemas"]["ViolationSummary"];
+            by_person: components["schemas"]["ViolationPersonTotal"][];
+            items: components["schemas"]["Violation"][];
+            next_cursor: string;
+            types: components["schemas"]["ViolationTypeOption"][];
+            people: components["schemas"]["ViolationPersonOption"][];
+            sop_version: number;
+            trace_id: string;
+        };
+        RecordViolationRequest: {
+            person_id: string;
+            type_key: string;
+            fine_rupees?: number | null;
+            /** @description YYYY-MM-DD, not in the future */
+            occurred_on: string;
+            note?: string;
+            idempotency_key?: string;
+        };
+        WithdrawViolationRequest: {
+            reason: string;
+            row_version: number;
+        };
+        ViolationResponse: {
+            violation: components["schemas"]["Violation"];
+            trace_id: string;
+        };
+        EnquiryQuestion: {
+            id: string;
+            /** @enum {string} */
+            kind: "text" | "yes_no";
+            title: string;
+            required: boolean;
+        };
+        Enquiry: {
+            enquiry_id: string;
+            trigger_key: string;
+            title: string;
+            subject_label: string;
+            park_id: string;
+            park_label: string;
+            occurred_at_label: string;
+            opened_at_label: string;
+            due_at: string;
+            due_at_label: string;
+            status: string;
+            status_label: string;
+            overdue: boolean;
+            submitted_by_name: string;
+            submitted_at_label: string;
+            penalty_count: number;
+            penalty_label: string;
+            row_version: number;
+        };
+        EnquirySummary: {
+            open: number;
+            overdue: number;
+            submitted: number;
+        };
+        EnquiryPage: {
+            parks: components["schemas"]["ViolationPark"][];
+            park_id: string;
+            status: string;
+            summary: components["schemas"]["EnquirySummary"];
+            items: components["schemas"]["Enquiry"][];
+            next_cursor: string;
+            trace_id: string;
+        };
+        EnquiryDetail: {
+            enquiry: components["schemas"]["Enquiry"];
+            questions: components["schemas"]["EnquiryQuestion"][];
+            answers: {
+                [key: string]: unknown;
+            };
+            violations: components["schemas"]["Violation"][];
+            types: components["schemas"]["ViolationTypeOption"][];
+            people: components["schemas"]["ViolationPersonOption"][];
+            can_submit: boolean;
+            sop_version: number;
+            trace_id: string;
+        };
+        EnquiryPenalty: {
+            person_id: string;
+            type_key: string;
+            fine_rupees?: number | null;
+            note?: string;
+        };
+        SubmitEnquiryRequest: {
+            answers: {
+                [key: string]: unknown;
+            };
+            penalties: components["schemas"]["EnquiryPenalty"][];
             row_version: number;
         };
         LeaveRequestCreate: {
@@ -9679,6 +9925,293 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["WriteConflict"];
             /** @description The shift is not on the farm's shift list (unknown_shift). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listWorkforceViolations: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                month?: string;
+                status?: string;
+                cursor?: string;
+                limit?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ViolationsPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Not found, or not in the caller parks. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            409: components["responses"]["WriteConflict"];
+            /** @description The request breaks an HRMS SOP rule (farm-worded code and message). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    recordWorkforceViolation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordViolationRequest"];
+            };
+        };
+        responses: {
+            /** @description The recorded violation. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ViolationResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Not found, or not in the caller parks. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            409: components["responses"]["WriteConflict"];
+            /** @description The request breaks an HRMS SOP rule (farm-worded code and message). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    withdrawWorkforceViolation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                violation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WithdrawViolationRequest"];
+            };
+        };
+        responses: {
+            /** @description The withdrawn violation. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ViolationResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Not found, or not in the caller parks. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            409: components["responses"]["WriteConflict"];
+            /** @description The request breaks an HRMS SOP rule (farm-worded code and message). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listWorkforceEnquiries: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                status?: string;
+                cursor?: string;
+                limit?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The list. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnquiryPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Not found, or not in the caller parks. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            409: components["responses"]["WriteConflict"];
+            /** @description The request breaks an HRMS SOP rule (farm-worded code and message). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getWorkforceEnquiry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                enquiry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The enquiry. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnquiryDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Not found, or not in the caller parks. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            409: components["responses"]["WriteConflict"];
+            /** @description The request breaks an HRMS SOP rule (farm-worded code and message). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    submitWorkforceEnquiry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                enquiry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmitEnquiryRequest"];
+            };
+        };
+        responses: {
+            /** @description The submitted enquiry. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnquiryDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Not found, or not in the caller parks. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            409: components["responses"]["WriteConflict"];
+            /** @description The request breaks an HRMS SOP rule (farm-worded code and message). */
             422: {
                 headers: {
                     [name: string]: unknown;

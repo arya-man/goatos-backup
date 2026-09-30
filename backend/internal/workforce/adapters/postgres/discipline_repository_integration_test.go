@@ -94,7 +94,7 @@ func ip(v int) *int { return &v }
 func TestViolationRecordReplayAndWithdrawWithDockerPostgres(t *testing.T) {
 	f := dsSeed(t)
 	req := domain.RecordViolationRequest{PersonID: dsMember(0), TypeKey: "negligence", OccurredOn: "2026-09-29", Note: "Left the gate open", IdempotencyKey: "k1"}
-	got, err := f.svc.RecordViolation(f.ctx, dsTenant, dsHRUser, req, "t")
+	got, err := f.svc.RecordViolation(f.ctx, dsTenant, dsHR, dsHRUser, req, "t")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,25 +102,25 @@ func TestViolationRecordReplayAndWithdrawWithDockerPostgres(t *testing.T) {
 	if v.FineRupees != 500 || v.FineLabel != "₹500" || v.TypeLabel != "Negligence" || v.SOPVersion != 2 || v.ParkLabel != "Channapatna" || v.OccurredOnLabel != "29/09/2026" || v.Status != "recorded" {
 		t.Fatalf("recorded = %+v", v)
 	}
-	again, err := f.svc.RecordViolation(f.ctx, dsTenant, dsHRUser, req, "t")
+	again, err := f.svc.RecordViolation(f.ctx, dsTenant, dsHR, dsHRUser, req, "t")
 	if err != nil || again.Violation.ViolationID != v.ViolationID {
 		t.Fatalf("replay = %+v %v", again, err)
 	}
 	other := req
 	other.FineRupees = ip(900)
-	if _, err := f.svc.RecordViolation(f.ctx, dsTenant, dsHRUser, other, "t"); !isCode(err, "idempotency_conflict") {
+	if _, err := f.svc.RecordViolation(f.ctx, dsTenant, dsHR, dsHRUser, other, "t"); !isCode(err, "idempotency_conflict") {
 		t.Fatalf("same key, other fine = %v", err)
 	}
 	for _, key := range []string{"old", "missing"} {
 		bad := req
 		bad.TypeKey, bad.IdempotencyKey = key, "k-"+key
-		if _, err := f.svc.RecordViolation(f.ctx, dsTenant, dsHRUser, bad, "t"); !isCode(err, "unknown_violation_type") {
+		if _, err := f.svc.RecordViolation(f.ctx, dsTenant, dsHR, dsHRUser, bad, "t"); !isCode(err, "unknown_violation_type") {
 			t.Fatalf("type %s = %v", key, err)
 		}
 	}
 	future := req
 	future.OccurredOn, future.IdempotencyKey = time.Now().AddDate(0, 0, 3).Format("2006-01-02"), "k-future"
-	if _, err := f.svc.RecordViolation(f.ctx, dsTenant, dsHRUser, future, "t"); !isCode(err, "invalid_date") {
+	if _, err := f.svc.RecordViolation(f.ctx, dsTenant, dsHR, dsHRUser, future, "t"); !isCode(err, "invalid_date") {
 		t.Fatalf("future date = %v", err)
 	}
 	if _, err := f.svc.WithdrawViolation(f.ctx, dsTenant, dsHRUser, v.ViolationID, domain.WithdrawViolationRequest{Reason: " ", RowVersion: 1}, "t"); !isCode(err, "reason_required") {
@@ -229,7 +229,7 @@ func TestEnquiryNobodyPenalisedWithDockerPostgres(t *testing.T) {
 
 func dsRecord(t *testing.T, f dsFixture, person int, key, date string, fine int) domain.Violation {
 	t.Helper()
-	got, err := f.svc.RecordViolation(f.ctx, dsTenant, dsHRUser, domain.RecordViolationRequest{
+	got, err := f.svc.RecordViolation(f.ctx, dsTenant, dsHR, dsHRUser, domain.RecordViolationRequest{
 		PersonID: dsMember(person), TypeKey: key, FineRupees: ip(fine), OccurredOn: date, IdempotencyKey: fmt.Sprintf("%d-%s-%s-%d", person, key, date, fine)}, "t")
 	if err != nil {
 		t.Fatal(err)
@@ -329,3 +329,17 @@ func isCode(err error, code string) bool {
 }
 
 var _ = ports.ErrNotFound
+
+// A park head records violations from the phone for their own park's people only.
+func TestParkHeadRecordsViolationsForTheirParkOnly(t *testing.T) {
+	f := dsSeed(t)
+	ok, err := f.svc.RecordViolation(f.ctx, dsTenant, dsHead, dsHeadUser, domain.RecordViolationRequest{
+		PersonID: dsMember(0), TypeKey: "late", OccurredOn: "2026-09-29", IdempotencyKey: "ph-1"}, "t")
+	if err != nil || ok.Violation.PersonName != "Amit" || ok.Violation.RecordedByName != "Head CPT" {
+		t.Fatalf("own park = %+v %v", ok, err)
+	}
+	if _, err := f.svc.RecordViolation(f.ctx, dsTenant, dsHead, dsHeadUser, domain.RecordViolationRequest{
+		PersonID: dsMember(3), TypeKey: "late", OccurredOn: "2026-09-29", IdempotencyKey: "ph-2"}, "t"); !isCode(err, "person_not_in_your_park") {
+		t.Fatalf("CBE person by the CPT head = %v", err)
+	}
+}
