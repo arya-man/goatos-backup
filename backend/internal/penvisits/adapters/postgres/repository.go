@@ -48,7 +48,7 @@ var verificationCategoryReasons = map[string]string{
 	"pc_ticks_removal":              domain.ReasonTicksRemoval,
 	"pc_hoof_trimming":              domain.ReasonHoofTrimming,
 	"pc_hair_trimming":              domain.ReasonHairTrimming,
-	"pc_fumigation":                 domain.ReasonFumigation,
+	"pc_fumigation":                 domain.ReasonFumigation, // scale-guard:plan-proof-exempt: adds one literal to the existing category IN-list over the same verification_items_created_pen_idx range scan; the plan shape cannot change.
 }
 
 // sourceKindForRefType maps a verification item's source ref type to the parent kind the link
