@@ -165,7 +165,7 @@ function FeedItemStatusCell({
           cursor: "pointer",
           textDecoration: "underline dashed",
           textUnderlineOffset: 3,
-          "&:focus-visible": { outline: "2px solid", outlineColor: "primary.main", outlineOffset: 2 },
+          "&:focus-visible": { outlineStyle: "solid", outlineWidth: 2, outlineColor: "primary.main", outlineOffset: 2 },
         }}
         // Both sentences: what this state means, and that the cell can be changed.
         title={`${optionTitle(pageContract, STATUS_GROUP, shown)} ${copy(pageContract, "hint.feed_item_status_edit")}`}

@@ -67,7 +67,9 @@ function nodeSx(node: CanvasNode, selected: boolean, clickable: boolean): SxProp
     textAlign: "left",
     color: "text.primary",
     bgcolor: kind === "decision" ? "background.neutral" : "background.paper",
-    border: `1px ${kind === "fixed" ? "dashed" : "solid"} ${theme.vars.palette.divider}`,
+    border: 1,
+    borderStyle: kind === "fixed" ? "dashed" : "solid",
+    borderColor: "divider",
     borderRadius: "var(--r-lg)",
     ...(accent ? { borderTopWidth: 3, borderTopStyle: "solid", borderTopColor: accent } : {}),
     ...(kind === "fixed" ? { opacity: 0.85 } : {}),
@@ -75,10 +77,10 @@ function nodeSx(node: CanvasNode, selected: boolean, clickable: boolean): SxProp
       ? {
           cursor: "pointer",
           "&:hover": { borderColor: "primary.dark" },
-          "&:focus-visible": { outline: `2px solid ${theme.vars.palette.primary.dark}`, outlineOffset: 2 },
+          "&:focus-visible": { outlineStyle: "solid", outlineWidth: 2, outlineColor: theme.vars.palette.primary.dark, outlineOffset: 2 },
         }
       : {}),
-    ...(selected ? { borderColor: "primary.dark", boxShadow: `0 0 0 2px ${varAlpha(theme.vars.palette.primary.darkChannel, 0.3)}` } : {}),
+    ...(selected ? { borderColor: "primary.dark", boxShadow: `0 0 0 ${theme.spacing(0.25)} ${varAlpha(theme.vars.palette.primary.darkChannel, 0.3)}` } : {}),
   });
 }
 
@@ -183,7 +185,10 @@ export function NodeButton({ onClick, testId, children }: { onClick: (event: Rea
  */
 export function FlowStudio({ pc, canvas, children }: { pc: AdminUiPageContract; canvas: ReactNode; children: ReactNode }) {
   return (
-    <Box data-testid="flow-view" sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "minmax(0, 1fr) 380px" }, gap: 1.75, alignItems: "stretch", mt: 1.25 }}>
+    <Box
+      data-testid="flow-view"
+      sx={(theme) => ({ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: `minmax(0, 1fr) ${theme.spacing(47.5)}` }, gap: 1.75, alignItems: "stretch", mt: 1.25 })}
+    >
       {canvas}
       <Card component="aside" data-testid="flow-props" sx={{ boxSizing: "border-box", overflow: "auto", height: { lg: 0 }, minHeight: { lg: "100%" }, maxHeight: { xs: "60vh", lg: "none" } }}>
         <CardHeader title={copy(pc, "studio.flow.properties")} sx={{ mb: 1.5 }} />
@@ -269,7 +274,9 @@ export function FlowCanvas<T, I>({
           border: 1,
           borderColor: "divider",
           borderRadius: "var(--r-lg)",
-          background: "radial-gradient(circle, var(--palette-divider) 1px, transparent 1px) 0 0 / 22px 22px, var(--palette-background-default)",
+          // A dotted grid: a one-unit dot every 2.75 spacing units, on the page background.
+          background: (theme) =>
+            `radial-gradient(circle, ${theme.vars.palette.divider} ${theme.spacing(0.125)}, transparent ${theme.spacing(0.125)}) 0 0 / ${theme.spacing(2.75)} ${theme.spacing(2.75)}, ${theme.vars.palette.background.default}`,
           minHeight: "50vh",
           maxHeight: "72vh",
           p: 1.5,
