@@ -109,8 +109,24 @@ data class PcCareSopRemovalDto(
 @Serializable
 data class PcCareSopCategoryDto(
     @SerialName("instruction") val instruction: String = "",
-    @SerialName("proofs") val proofs: List<PcCareSlotDto> = emptyList(),
+    // The AUTHORED capture shape (key / title / hint / kind / required / min_seconds), never the
+    // task-slot shape (field_key / label): typing it as PcCareSlotDto made every task detail that
+    // carries its pinned card fail to decode, which left the fumigation face empty on a real phone.
+    @SerialName("proofs") val proofs: List<PcCareSopCaptureDto> = emptyList(),
     @SerialName("questions") val questions: List<WeighingSopQuestionDto> = emptyList(),
+)
+
+/** One authored capture on a PC Care card, as the SOP document serves it. */
+@Serializable
+data class PcCareSopCaptureDto(
+    @SerialName("key") val key: String = "",
+    @SerialName("title") val title: String = "",
+    @SerialName("hint") val hint: String = "",
+    /** video | photo | either. */
+    @SerialName("kind") val kind: String = "video",
+    @SerialName("required") val required: Boolean = true,
+    /** Recorder-chrome guidance ("record about N seconds"); 0 = no hint. Never a cap. */
+    @SerialName("min_seconds") val minSeconds: Int = 0,
 )
 
 @Serializable

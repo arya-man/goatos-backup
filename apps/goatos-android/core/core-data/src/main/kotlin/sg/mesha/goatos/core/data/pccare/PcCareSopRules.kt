@@ -1,5 +1,6 @@
 package sg.mesha.goatos.core.data.pccare
 
+import sg.mesha.goatos.core.network.dto.PcCareSopCaptureDto
 import sg.mesha.goatos.core.network.dto.PcCareSopCategoryDto
 import sg.mesha.goatos.core.network.dto.PcCareSopDto
 import sg.mesha.goatos.core.network.dto.PcCareSlotDto
@@ -107,6 +108,15 @@ fun PcCareSlotDto.toSopSlot(): PcCareSopSlot = PcCareSopSlot(
     kind = kind.ifBlank { PcCareSopSlot.KIND_VIDEO },
     required = required,
     minSeconds = minDurationHintSeconds,
+)
+
+fun PcCareSopCaptureDto.toSopSlot(): PcCareSopSlot = PcCareSopSlot(
+    key = key,
+    title = title,
+    hint = hint,
+    kind = kind.ifBlank { PcCareSopSlot.KIND_VIDEO },
+    required = required,
+    minSeconds = minSeconds,
 )
 
 fun PcCareSopCategoryDto.toSopCategory(): PcCareSopCategory = PcCareSopCategory(
