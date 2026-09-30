@@ -77,9 +77,7 @@ export async function PeopleVaccinationPage({
     : [];
   const park = one(searchParams, "park");
   const initialParkId = park && park !== "all" ? park : undefined;
-  return (
-    <HrmsPageFrame pageContract={pageContract}>
-      <mod.VaccinationOperatorsScreen initialParkId={initialParkId} pageContract={pageContract} parks={parks} />
-    </HrmsPageFrame>
-  );
+  // The operators screen carries its own page header (crumb, title, park scope line), so it is
+  // not wrapped in the HRMS frame -- that stacked two "Vaccination operators" headings.
+  return <mod.VaccinationOperatorsScreen initialParkId={initialParkId} pageContract={pageContract} parks={parks} />;
 }
