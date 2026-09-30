@@ -538,8 +538,6 @@
      for every other chip and wrong for this one: a sentence that may not wrap can only be cut, and
      it was, at 334px inside a 166px cell. Only THIS cell's chip wraps. */
   .main table.adherence-table td:nth-child(3) .celllink>.tag{white-space:normal;height:auto;min-height:0;display:inline-flex;align-items:flex-start}
-  .main table.control-tower-gaps-table{min-width:920px}
-  .main table.control-tower-gaps-table th:nth-child(1),.main table.control-tower-gaps-table td:nth-child(1),.main table.control-tower-gaps-table th:nth-child(2),.main table.control-tower-gaps-table td:nth-child(2){min-width:132px}
   /* The .twrap table wrapper OWNS horizontal scrolling for every wide table that sits in it
      (People directory, Clock In/Out, sales, vendors, feed purchases). The nowrap rules below
      depend on this rule existing: without it the nowrap cells push the card wider than the

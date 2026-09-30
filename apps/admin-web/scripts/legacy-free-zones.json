@@ -114,6 +114,7 @@
     "features/configuration/register-filter.tsx",
     "features/configuration/register-filters-result.tsx",
     "features/configuration/register-toolbar.tsx",
+    "features/control-tower/",
     "features/feed/experiment-enroller-scope.ts",
     "features/feed/feed-analytics-charts.tsx",
     "features/feed/feed-analytics-skeletons.tsx",

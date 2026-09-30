@@ -6,7 +6,7 @@ import { useLocalOverlaySelection } from "@/components/local-overlay-link";
 import { Tag } from "@/components/ui-primitives";
 import { copy, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ControlTowerAlert } from "@/lib/api/server";
-import { AlertTriangle } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import type { Tone } from "@/features/process-integrity";
 
 const SEVERITY_FILL = {
@@ -80,7 +80,7 @@ function ControlTowerAlertDrawer({
       onClose={closeDrawer}
       title={alert.title}
       eyebrow={pageContract.title}
-      icon={<AlertTriangle aria-hidden="true" />}
+      icon={<Iconify icon="solar:danger-triangle-bold" aria-hidden="true" />}
       iconColors={fill}
       ariaLabel={copy(pageContract, "drawer.alert.aria")}
       closeLabel={copy(pageContract, "drawer.alert.close_label")}

@@ -2,14 +2,22 @@ import Table from "@mui/material/Table";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { PanelSkeleton } from "@/components/app/panel-skeleton";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
-import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
-import { AlertTriangle, CheckCircle2, MapPin } from "lucide-react";
+import { varAlpha } from "minimal-shared/utils";
+import Avatar from "@mui/material/Avatar";
+import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import MuiLink from "@mui/material/Link";
+import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
+import { TableHeadCustom } from "@/components/app/table";
+import { Iconify, type IconifyName } from "@/components/minimal/iconify";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError, getVaccinationControlTower } from "@/lib/api/server";
 import type { ControlTowerAlert, ProcessIntegritySeverity, WorkState } from "@/lib/api/server";
@@ -27,23 +35,26 @@ import { SEVERITY_ORDER, WORK_STATE_ORDER, type Tone } from "@/features/process-
 import { ControlTowerLocalDrawer, type ControlTowerDrawerRecord } from "./control-tower-local-drawer";
 import Alert from "@mui/material/Alert";
 
-// Severity tint for the alert-band icon chip.
-const SEVERITY_FILL: Record<ProcessIntegritySeverity, { bg: string; fg: string }> = {
-  broken: { bg: "var(--dangerx)", fg: "var(--danger)" },
-  at_risk: { bg: "var(--warnx)", fg: "var(--warn)" },
-  watch: { bg: "var(--infox)", fg: "var(--info)" },
-  ok: { bg: "var(--okx)", fg: "var(--brand-d)" },
+// Severity colour for the alert-band icon chip (template soft avatar: tinted main channel).
+const SEVERITY_COLOR: Record<ProcessIntegritySeverity, "error" | "warning" | "info" | "success"> = {
+  broken: "error",
+  at_risk: "warning",
+  watch: "info",
+  ok: "success",
 };
+
+const bandRowSx = { px: 3, py: 1.5, gap: 2, display: "flex", alignItems: "center", minHeight: 44 } as const;
+
+function BandIcon({ severity, icon }: { severity: ProcessIntegritySeverity; icon: IconifyName }) {
+  const color = SEVERITY_COLOR[severity];
+  return (
+    <Avatar variant="rounded" aria-hidden="true" sx={{ width: 40, height: 40, flexShrink: 0, bgcolor: varAlpha(`var(--palette-${color}-mainChannel)`, 0.16), color: `${color}.main` }}>
+      <Iconify icon={icon} width={22} />
+    </Avatar>
+  );
+}
 
 type Tone4 = "ok" | "warn" | "dng" | "info" | "mut";
-const accentVar: Record<Tone4, string> = {
-  ok: "var(--brand)",
-  warn: "var(--amber)",
-  dng: "var(--danger)",
-  info: "var(--info)",
-  mut: "var(--line)",
-};
-
 const CT_TONE: Record<Tone4, KitTone> = { ok: "success", warn: "warning", dng: "error", info: "info", mut: "neutral" };
 
 
@@ -183,10 +194,14 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
     vaccinationHref: scopeHref("/vaccination", scope),
   }));
 
+  const cellLinkSx = { color: "inherit", display: "block", textDecoration: "none", minHeight: 44, py: 0.5 } as const;
+  const bandTone = summary && summary.critical_count > 0 ? "dng" : summary && summary.warning_count > 0 ? "warn" : "mut";
+
   return (
-    <div className="screen on">
+    <Box sx={{ minWidth: 0 }}>
       <PageHeader title={pageContract.title} crumbs={[{ label: pageContract.title }]} />
 
+      <Stack spacing={3}>
       {/* Process-integrity KPIs only — no census/count totals (Counts is a separate vertical). */}
       <KpiGrid min={210}>
         {/* The process state is a word, not a count: it rides in the template widget title. */}
@@ -209,12 +224,12 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
       </KpiGrid>
 
       {!result.ok ? (
-        <Alert severity="error" style={{ marginBottom: 16 }}>
+        <Alert severity="error">
           <b>{result.error.code ?? result.error.kind}</b>&nbsp;{result.error.message}
         </Alert>
       ) : null}
 
-      <div style={{ marginBottom: 8 }}>
+      <Stack spacing={1}>
         <TemplateTabs
           variant="pill"
           ariaLabel={copy(pageContract, "label.all_severity")}
@@ -229,9 +244,6 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
             })),
           ]}
         />
-      </div>
-
-      <div style={{ marginBottom: 16 }}>
         <TemplateTabs
           variant="pill"
           ariaLabel={copy(pageContract, "label.all_states")}
@@ -246,11 +258,12 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
             })),
           ]}
         />
-      </div>
+      </Stack>
 
       {/* Config / SOP authority gap — server-counted (config_or_sop_blockers). */}
       {summary && summary.config_or_sop_blockers > 0 ? (
-        <Alert severity="warning" style={{ marginBottom: 16 }}><div>
+        <Alert severity="warning">
+          <div>
             <b>
               {summary.config_or_sop_blockers} {copy(pageContract, summary.config_or_sop_blockers === 1 ? "alert.config_sop.singular" : "alert.config_sop.plural")} {copy(pageContract, "alert.config_sop.action_required")}
             </b>{" "}
@@ -259,9 +272,9 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
                 plan console, so it named two screens that no longer exist and sent
                 you to the same place twice. */}
             {copy(pageContract, "alert.config_sop.body_prefix")}{" "}
-            <Link href="/vaccination/plan" className="lk">
+            <MuiLink component={Link} href="/vaccination/plan" underline="hover" sx={{ fontWeight: "fontWeightSemiBold" }}>
               {copy(pageContract, "alert.config_sop.config_label")}
-            </Link>
+            </MuiLink>
             {copy(pageContract, "alert.config_sop.body_suffix")}
           </div>
         </Alert>
@@ -271,77 +284,81 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
           their skeleton at once; header and pill strips stay on screen. */}
       <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={["ct_alert"]} fallback={<PanelSkeleton charts={1} table={10} />}>
       <TabPanel tabKey={`${severityFilter}|${stateFilter}`}>
-      {/* Critical alert band — top broken / at-risk vaccination process only. */}
-      <section className="card" style={{ marginBottom: 16, borderColor: "color-mix(in srgb,var(--danger) 28%,var(--line))" }}>
-        <div className="hd">
-          <AlertTriangle className="ic" style={{ color: "var(--danger)" }} aria-hidden="true" />
-          <h3>{copy(pageContract, "section.critical_alerts.title")}</h3>
-          <div className="sp" style={{ flex: 1 }} />
-          <Tag tone={summary && summary.critical_count > 0 ? "dng" : summary && summary.warning_count > 0 ? "warn" : "mut"}>
-            {summary ? summary.critical_count : 0} {copy(pageContract, "label.critical")} · {summary ? summary.warning_count : 0} {copy(pageContract, "label.at_risk")}
-          </Tag>
-        </div>
-        <div className="bd feed">
+      <Stack spacing={3}>
+      {/* Critical alert band — top broken / at-risk vaccination process only (template news-list card). */}
+      <Card component="section">
+        <CardHeader
+          avatar={<Iconify icon="solar:danger-triangle-bold" width={24} sx={{ color: "error.main" }} aria-hidden="true" />}
+          title={copy(pageContract, "section.critical_alerts.title")}
+          action={
+            <Tag tone={bandTone}>
+              {summary ? summary.critical_count : 0} {copy(pageContract, "label.critical")} · {summary ? summary.warning_count : 0} {copy(pageContract, "label.at_risk")}
+            </Tag>
+          }
+          sx={{ mb: 1, "& .MuiCardHeader-action": { alignSelf: "center", m: 0 } }}
+        />
+        <Box sx={{ pb: 1 }}>
           {band.length === 0 ? (
-            <div className="fitem" style={{ cursor: "default" }}>
-              <span className="fic" style={{ background: "var(--okx)", color: "var(--brand-d)" }}>
-                <CheckCircle2 className="ic" />
-              </span>
-              <div className="tx">
-                <b>
+            <Box sx={bandRowSx}>
+              <BandIcon severity="ok" icon="solar:check-circle-bold" />
+              <Box sx={{ minWidth: 0, flex: 1 }}>
+                <Typography variant="subtitle2">
                   {result.ok
                     ? hasAlertFilters
                       ? copy(pageContract, "empty.open_gaps_filtered")
                       : copy(pageContract, "empty.critical_ok_title")
                     : copy(pageContract, "empty.critical_unavailable")}
-                </b>
-                <div className="mt">
+                </Typography>
+                <Typography variant="body2" sx={{ color: "text.secondary" }}>
                   {result.ok
                     ? hasAlertFilters
                       ? copy(pageContract, "filter.reason")
                       : copy(pageContract, "empty.critical_ok_body")
                     : copy(pageContract, "empty.resolve_error")}
-                </div>
-              </div>
-            </div>
+                </Typography>
+              </Box>
+            </Box>
           ) : (
             band.map((alert) => {
-              const fill = SEVERITY_FILL[alert.severity];
               const capacityLabel = driveCapacityLabel(alert);
               return (
-                <LocalOverlayLink
+                <Box
+                  component={LocalOverlayLink}
                   key={alert.row_id}
                   href={alertDrawerHref(alert)}
-                  className="fitem"
                   scroll={false}
                   aria-label={`${copy(pageContract, "action.open_alert_for")} ${alert.title}`}
+                  sx={{ ...bandRowSx, color: "inherit", textDecoration: "none", "&:hover": { bgcolor: "action.hover" } }}
                 >
-                  <span className="fic" style={{ background: fill.bg, color: fill.fg }}>
-                    <MapPin className="ic" />
-                  </span>
-                  <div className="tx">
-                    <b>{alert.title}</b>
-                    <div className="mt">
+                  <BandIcon severity={alert.severity} icon="mingcute:location-fill" />
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Typography variant="subtitle2" noWrap>
+                      {alert.title}
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: "text.secondary" }}>
                       {alert.detail} · {ownerOf(alert, ownerUnassignedLabel)} → {alert.next_action}
-                    </div>
-                    {capacityLabel ? <div className="mt">{capacityLabel}</div> : null}
-                  </div>
+                    </Typography>
+                    {capacityLabel ? (
+                      <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                        {capacityLabel}
+                      </Typography>
+                    ) : null}
+                  </Box>
                   <Tag tone={contractTone(pageContract, "severity_chips", alert.severity)}>{optionLabel(pageContract, "severity_chips", alert.severity)}</Tag>
-                </LocalOverlayLink>
+                </Box>
               );
             })
           )}
-        </div>
-      </section>
+        </Box>
+      </Card>
 
-      {/* Open gaps table — every alert row, with owner + next action. */}
-      <section className="card" style={{ marginBottom: 16 }} data-filter-scope>
-        <div className="hd">
-          <AlertTriangle className="ic" style={{ color: "var(--amber)" }} aria-hidden="true" />
-          <h3>{copy(pageContract, "section.open_gaps.title")}</h3>
-          <div className="sp" style={{ flex: 1 }} />
-        </div>
-        <div className="tbar">
+      {/* Open gaps table — every alert row, with owner + next action (template list anatomy). */}
+      <Card component="section" data-filter-scope>
+        <CardHeader
+          avatar={<Iconify icon="solar:danger-triangle-bold" width={24} sx={{ color: "warning.main" }} aria-hidden="true" />}
+          title={copy(pageContract, "section.open_gaps.title")}
+        />
+        <Box sx={{ p: 2.5, gap: 2, display: "flex", alignItems: "center", flexWrap: "wrap" }}>
           <VaccinationFilterButton
             pageContract={pageContract}
             title={copy(pageContract, "filter.drawer.title")}
@@ -352,63 +369,59 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
             actionLabel={copy(pageContract, "action.open_action_center")}
             facets={openGapLabels}
           />
-          <span className="muted small">
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>
             {paged.start}-{paged.end} of {paged.total} {copy(pageContract, "table.open_gaps.noun")}s
-          </span>
-        </div>
+          </Typography>
+        </Box>
         {paged.total === 0 ? (
-          <div className="bd">
-            <p className="muted small" style={{ margin: 0, lineHeight: 1.6 }}>
-              {result.ok ? (hasAlertFilters ? copy(pageContract, "empty.open_gaps_filtered") : copy(pageContract, "empty.open_gaps_detail")) : copy(pageContract, "empty.open_gaps_unavailable")}
-            </p>
-          </div>
+          <Typography variant="body2" sx={{ color: "text.secondary", px: 2.5, pb: 2.5 }}>
+            {result.ok ? (hasAlertFilters ? copy(pageContract, "empty.open_gaps_filtered") : copy(pageContract, "empty.open_gaps_detail")) : copy(pageContract, "empty.open_gaps_unavailable")}
+          </Typography>
         ) : (
-          <div style={{ overflowX: "auto", padding: 0 }} tabIndex={0} role="group" aria-label={copy(pageContract, "table.open_gaps.aria")}>
-            <Table className="control-tower-gaps-table">
-              <TableHead>
-                <TableRow>
-                  {openGapLabels.map((label) => (
-                    <TableCell component="th" key={label}>{label}</TableCell>
-                  ))}
-                </TableRow>
-              </TableHead>
+          <Box sx={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "table.open_gaps.aria")}>
+            <Table sx={{ minWidth: 920, "& td:nth-of-type(-n+2), & th:nth-of-type(-n+2)": { minWidth: 132 } }}>
+              <TableHeadCustom headCells={openGapLabels.map((label, index) => ({ id: `c${index}`, label }))} />
               <TableBody>
                 {paged.items.map((alert) => {
                   const capacityLabel = driveCapacityLabel(alert);
                   return (
-                  <TableRow key={alert.row_id} data-filter-row>
+                  <TableRow hover key={alert.row_id} data-filter-row>
                     <TableCell>
-                      <LocalOverlayLink href={alertDrawerHref(alert)} className="celllink" scroll={false}>
+                      <Box component={LocalOverlayLink} href={alertDrawerHref(alert)} scroll={false} sx={cellLinkSx}>
                         <Tag tone={contractTone(pageContract, "work_state_filter_chips", alert.work_state)}>{optionLabel(pageContract, "work_state_filter_chips", alert.work_state)}</Tag>
-                      </LocalOverlayLink>
+                      </Box>
                     </TableCell>
                     <TableCell>
-                      <LocalOverlayLink href={alertDrawerHref(alert)} className="celllink" scroll={false}>
+                      <Box component={LocalOverlayLink} href={alertDrawerHref(alert)} scroll={false} sx={cellLinkSx}>
                         <Tag tone={contractTone(pageContract, "severity_chips", alert.severity)}>{optionLabel(pageContract, "severity_chips", alert.severity)}</Tag>
-                      </LocalOverlayLink>
+                      </Box>
                     </TableCell>
-                    <TableCell className="muted">
-                      <LocalOverlayLink href={alertDrawerHref(alert)} className="celllink" scroll={false}>
+                    <TableCell sx={{ color: "text.secondary" }}>
+                      <Box component={LocalOverlayLink} href={alertDrawerHref(alert)} scroll={false} sx={cellLinkSx}>
                         {alert.detail}
-                        {capacityLabel ? <span className="mt">{capacityLabel}</span> : null}
-                      </LocalOverlayLink>
+                        {capacityLabel ? (
+                          <Box component="span" sx={{ display: "block", typography: "caption" }}>
+                            {capacityLabel}
+                          </Box>
+                        ) : null}
+                      </Box>
                     </TableCell>
-                    <TableCell className="muted">
-                      <LocalOverlayLink href={alertDrawerHref(alert)} className="celllink" scroll={false}>
+                    <TableCell sx={{ color: "text.secondary" }}>
+                      <Box component={LocalOverlayLink} href={alertDrawerHref(alert)} scroll={false} sx={cellLinkSx}>
                         {ownerOf(alert, ownerUnassignedLabel)}
-                      </LocalOverlayLink>
+                      </Box>
                     </TableCell>
                     <TableCell>
-                      <LocalOverlayLink href={alertDrawerHref(alert)} className="celllink" scroll={false}>
-                        <span className="lk small">{alert.next_action} →</span>
-                      </LocalOverlayLink>
+                      <Box component={LocalOverlayLink} href={alertDrawerHref(alert)} scroll={false} sx={{ ...cellLinkSx, color: "info.main", typography: "subtitle2" }}>
+                        {alert.next_action} →
+                      </Box>
                     </TableCell>
                   </TableRow>
                   );
                 })}
               </TableBody>
             </Table>
-          </div>
+          </Box>
         )}
         <VaccinationTablePager
           pageContract={pageContract}
@@ -422,32 +435,30 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
           hrefForPage={pagerHref}
           hrefForPageSize={pageSizeHref}
         />
-        <div className="bd" style={{ paddingTop: 12, display: "flex", gap: 14, flexWrap: "wrap" }}>
-          <Link href={scopeHref("/action-center", scope)} className="lk small">
-            {copy(pageContract, "link.action_center")}
-          </Link>
-          <Link href={scopeHref("/protocol-adherence", scope)} className="lk small">
-            {copy(pageContract, "link.protocol_adherence")}
-          </Link>
-          <Link href={scopeHref("/workflows", scope)} className="lk small">
-            {copy(pageContract, "link.workflows")}
-          </Link>
-          <Link href={scopeHref("/vaccination", scope)} className="lk small">
-            {copy(pageContract, "link.vaccination_ops")}
-          </Link>
-          <Link href={`${scopeHref("/vaccination", scope)}#execution`} className="lk small">
-            {copy(pageContract, "link.park_shed_execution")}
-          </Link>
-        </div>
-      </section>
+        <Box sx={{ px: 2.5, py: 1.5, display: "flex", columnGap: 2, flexWrap: "wrap" }}>
+          {[
+            { href: scopeHref("/action-center", scope), label: copy(pageContract, "link.action_center") },
+            { href: scopeHref("/protocol-adherence", scope), label: copy(pageContract, "link.protocol_adherence") },
+            { href: scopeHref("/workflows", scope), label: copy(pageContract, "link.workflows") },
+            { href: scopeHref("/vaccination", scope), label: copy(pageContract, "link.vaccination_ops") },
+            { href: `${scopeHref("/vaccination", scope)}#execution`, label: copy(pageContract, "link.park_shed_execution") },
+          ].map((item) => (
+            <MuiLink key={item.href} component={Link} href={item.href} underline="hover" variant="subtitle2" sx={{ minHeight: 44, display: "inline-flex", alignItems: "center" }}>
+              {item.label}
+            </MuiLink>
+          ))}
+        </Box>
+      </Card>
+      </Stack>
       </TabPanel>
       </UrlSuspense>
+      </Stack>
       <ControlTowerLocalDrawer
         records={drawerRecords}
         pageContract={pageContract}
         initialSelectedAlertId={initialSelectedAlertId}
         closeHref={closeDrawerHref}
       />
-    </div>
+    </Box>
   );
 }
