@@ -153,7 +153,7 @@ function ApprovalsDrawerPanel({
       onClose={onClose}
       title={`${titleCase(item.request_type)} request`}
       eyebrow={COPY.drawer.eyebrow}
-      icon={<Iconify icon="solar:verified-check-bold" />}
+      icon={<Iconify icon="solar:verified-check-bold" aria-hidden="true" />}
       ariaLabel={COPY.drawer.aria}
       closeLabel={COPY.drawer.closeLabel}
       footer={
