@@ -142,7 +142,10 @@ test("the seeded sale document round-trips with its step owners", () => {
 test("the litter track keeps its target stages through the editor", () => {
   const rows = parseFollowUp({ follow_up: seededDoc("counts_birth_litter_track.json") });
   const steps = rows.tracks[0].steps;
-  assert.deepEqual(steps.map((s) => s.targetStage), ["K1", "K2"]);
+  assert.deepEqual(steps.map((s) => s.targetStage), ["K1", "K2", "Non-Pregnant"]);
+  assert.deepEqual(steps.map((s) => s.targetSex), ["", "", "female"]);
+  assert.equal(emitFollowUp(rows).tracks[0].steps[2].target_sex, "female");
+  assert.equal("target_sex" in emitFollowUp(rows).tracks[0].steps[0], false);
   steps[1].targetStage = "K3";
   assert.equal(emitFollowUp(rows).tracks[0].steps[1].target_stage, "K3");
   steps[1].targetStage = "";

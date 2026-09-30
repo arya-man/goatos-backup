@@ -348,7 +348,7 @@ VALUES (gen_random_uuid(), $1::uuid, $2::uuid, 'goat.stage_changed', 1, $3, $3, 
 		}
 	}
 
-	litters, err := taskspg.NewRepository(pool, 10*time.Second).LittersOwingShift(ctx, countsTenant, []string{"K0", "K1"}, "", 50)
+	litters, err := taskspg.NewRepository(pool, 10*time.Second).LittersOwingShift(ctx, countsTenant, []string{"K0", "K1"}, nil, "", 50)
 	if err != nil || len(litters) != 1 || litters[0].BirthEventID != kidShiftBirth {
 		t.Fatalf("backfill candidates=%v err=%v, want the one litter", litters, err)
 	}
@@ -356,7 +356,7 @@ VALUES (gen_random_uuid(), $1::uuid, $2::uuid, 'goat.stage_changed', 1, $3, $3, 
 		t.Fatalf("backfill open: %v", err)
 	}
 	// Re-running finds nothing: the litter has its workflow.
-	if again, _ := taskspg.NewRepository(pool, 10*time.Second).LittersOwingShift(ctx, countsTenant, []string{"K0", "K1"}, "", 50); len(again) != 0 {
+	if again, _ := taskspg.NewRepository(pool, 10*time.Second).LittersOwingShift(ctx, countsTenant, []string{"K0", "K1"}, nil, "", 50); len(again) != 0 {
 		t.Fatalf("second backfill pass found %d candidates, want 0", len(again))
 	}
 
@@ -373,4 +373,106 @@ VALUES (gen_random_uuid(), $1::uuid, $2::uuid, 'goat.stage_changed', 1, $3, $3, 
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM workflow_instances WHERE tenant_id = $1::uuid AND template_key IN ('birth_kid', 'birth_mother')`, countsTenant).Scan(&others); err != nil || others != 0 {
 		t.Fatalf("backfill opened %d kid/mother workflows (err %v), want 0", others, err)
 	}
+}
+
+// Farm-born FEMALES to Non-Pregnant 10 weeks from the day of birth, whatever stage they are on
+// (maintainer instruction 2026-10-01). A litter already on the farm -- a K3 female and her K3
+// brother, born 71 days ago -- is picked up by the backfill for the female alone; the K1/K2 steps
+// read as done, the Non-Pregnant step is owed and on the park head's board; a REAL growth shifting
+// moves the K3 female straight into a Non-Pregnant pen (the age-entry rule, from the stage's own
+// "From (days)"), and the step closes itself while the brother is never asked about.
+func TestKidShiftFemaleToNonPregnantAtTenWeeksFromAnyStage(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	mux, repo := typedE2EStack(t, pool)
+	svc, bus := kidShiftStack(pool)
+
+	bornAt := time.Now().UTC().Add(-71 * 24 * time.Hour).Truncate(time.Minute)
+	seedLitter(t, ctx, pool, "K3", bornAt)
+	for _, s := range []string{"K3", "Non-Pregnant"} {
+		seedStageVocabulary(t, ctx, pool, s)
+	}
+	// The farm's own settings the rule reads: Non-Pregnant's "From (days)" (migration 000462 sets
+	// 70 where a farm has none; the fixture's vocabulary is seeded after migrations), the brother's
+	// sex, and a Non-Pregnant pen to move her into.
+	if _, err := pool.Exec(ctx, `UPDATE animal_stage_lookup SET min_age_days = 70 WHERE tenant_id = $1::uuid AND stage_code = 'Non-Pregnant'`, countsTenant); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE goats SET sex = 'male' WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, countsTenant, kidShiftKidB); err != nil {
+		t.Fatal(err)
+	}
+	seedShedProfile(t, ctx, pool, countsShedB, "Non-Pregnant")
+
+	// The backfill: K0/K1 kids (none here) or a FEMALE before Non-Pregnant (kid A).
+	tasks := taskspg.NewRepository(pool, 10*time.Second)
+	if none, _ := tasks.LittersOwingShift(ctx, countsTenant, []string{"K0", "K1"}, nil, "", 50); len(none) != 0 {
+		t.Fatalf("a K3 litter is a K0/K1 candidate: %v", none)
+	}
+	litters, err := tasks.LittersOwingShift(ctx, countsTenant, []string{"K0", "K1"}, domain.GrowthStagesBefore("Non-Pregnant"), "", 50)
+	if err != nil || len(litters) != 1 || litters[0].BirthEventID != kidShiftBirth {
+		t.Fatalf("female backfill candidates=%v err=%v, want the one litter", litters, err)
+	}
+	if err := svc.OpenLitterWorkflowForKid(ctx, countsTenant, litters[0].KidGoatID); err != nil {
+		t.Fatalf("backfill open: %v", err)
+	}
+	_, steps := litterSteps(t, ctx, pool)
+	np := steps["shift_to_non_pregnant"]
+	if steps["shift_to_k1"].status != "completed" || steps["shift_to_k2"].status != "completed" {
+		t.Fatalf("K1/K2 steps %s/%s on a K3 litter, want completed", steps["shift_to_k1"].status, steps["shift_to_k2"].status)
+	}
+	if np.status != "pending" || np.owner != "park_head" || np.target != "Non-Pregnant" {
+		t.Fatalf("Non-Pregnant step %+v, want the park head's pending move", np)
+	}
+	if np.dueAt == nil || np.dueAt.Sub(bornAt).Round(time.Minute) != 70*24*time.Hour {
+		t.Fatalf("Non-Pregnant due %v, want 70 days after birth %v", np.dueAt, bornAt)
+	}
+	if !boardShowsLitter(t, ctx, pool, false) {
+		t.Fatal("an owed Non-Pregnant move is not on the park head's Work Board")
+	}
+
+	// The step serves the female alone for its raise.
+	detail, err := svc.GetWorkflowBySubject(ctx, countsTenant, tasksdomain.TemplateKeyBirthLitter, kidShiftBirth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	groups := tasksdomain.ShiftGroups(detail.LitterKids, "Non-Pregnant", "female")
+	if len(groups) != 1 || len(groups[0].Kids) != 1 || groups[0].Kids[0].GoatID != kidShiftKidA {
+		t.Fatalf("raise groups %+v, want kid A alone", groups)
+	}
+
+	// A real growth shifting moves the K3 female straight to Non-Pregnant.
+	res := raiseTypedShifting(t, mux, "e2e-kidshift-np", domain.ShiftTypeGrowth, []string{kidShiftKidA})
+	if res.Code != http.StatusOK {
+		t.Fatalf("raise status=%d body=%s", res.Code, res.Body.String())
+	}
+	var raised struct {
+		ShiftingEventID string `json:"shifting_event_id"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &raised); err != nil || raised.ShiftingEventID == "" {
+		t.Fatalf("decode raise: %v", err)
+	}
+	if category, target, _ := storedShiftingSnapshot(t, ctx, pool, raised.ShiftingEventID); category != domain.ShiftTypeGrowth || target != "Non-Pregnant" {
+		t.Fatalf("stored %q/%q, want growth/Non-Pregnant", category, target)
+	}
+	if _, _, err := approveShifting(repo, ctx, "e2e-kidshift-np", pendingApprovalForShifting(t, ctx, pool, raised.ShiftingEventID), raised.ShiftingEventID, []string{kidShiftKidA}); err != nil {
+		t.Fatalf("approval: %v", err)
+	}
+	done, _, err := repo.CompleteShiftingEvent(ctx, domain.ShiftingCompletionCommand{
+		TenantID: countsTenant, ShiftingEventID: raised.ShiftingEventID, CompletedByUserID: countsOperator,
+		CompletedAt: time.Now().In(biztime.DefaultLocation()), ProofRef: "proof-artifact-np",
+		IdempotencyKey: "complete-np", RequestFingerprint: "complete-fp-np", TraceID: "trace-np",
+	})
+	if err != nil || done.EventStatus != domain.ShiftingEventStatusApplied {
+		t.Fatalf("completion: status=%q err=%v", done.EventStatus, err)
+	}
+	if got := goatStage(t, ctx, pool, kidShiftKidA); got != "Non-Pregnant" {
+		t.Fatalf("kid A stage %q after the apply, want Non-Pregnant", got)
+	}
+	relayOutbox(t, ctx, pool, bus)
+
+	state, steps := litterSteps(t, ctx, pool)
+	if steps["shift_to_non_pregnant"].status != "completed" {
+		t.Fatalf("Non-Pregnant step %s with the female on Non-Pregnant and her brother on K3, want completed", steps["shift_to_non_pregnant"].status)
+	}
+	t.Logf("litter workflow state after the last step: %s", state)
 }

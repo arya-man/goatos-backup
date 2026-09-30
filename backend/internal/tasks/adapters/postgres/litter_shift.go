@@ -28,7 +28,7 @@ WHERE tenant_id = $1::uuid AND child_goat_id = $2::uuid AND birth_event_id IS NO
 	litterKidsSQL = `
 SELECT gb.child_goat_id::text, COALESCE(g.management_stage, ''),
        (g.lifecycle_status = 'alive' AND g.merged_into_goat_id IS NULL),
-       since.occurred_at
+       since.occurred_at, COALESCE(g.sex, '')
 FROM goat_births gb
 JOIN goats g ON g.tenant_id = gb.tenant_id AND g.goat_id = gb.child_goat_id
 LEFT JOIN LATERAL (
@@ -123,7 +123,7 @@ func litterKids(ctx context.Context, q queryer, tenantID, birthEventID string) (
 	var out []domain.LitterKid
 	for rows.Next() {
 		var k domain.LitterKid
-		if err := rows.Scan(&k.GoatID, &k.Stage, &k.Alive, &k.StageSince); err != nil {
+		if err := rows.Scan(&k.GoatID, &k.Stage, &k.Alive, &k.StageSince, &k.Sex); err != nil {
 			return nil, err
 		}
 		out = append(out, k)
@@ -174,7 +174,8 @@ type LitterOwingShift struct {
 
 // scale-guard:plan-proof-exempt: keyset-paged by birth_event_id with LIMIT; goat rows are probed from the litter child index.
 // littersOwingShiftSQL lists, keyset-paged on birth_event_id, the recorded litters that still hold
-// a LIVE kid on one of $2's stages and have NO litter workflow yet. goat_births is read through
+// a LIVE kid on one of $2's stages -- or a live FEMALE kid on one of $5's (the female-only
+// Non-Pregnant step) -- and have NO litter workflow yet. goat_births is read through
 // goat_births_event_child_unique (tenant_id, birth_event_id, child_ordinal); goats and
 // workflow_instances_subject_ref_uq are probed by key. A rejected birth is not a litter.
 const littersOwingShiftSQL = `
@@ -185,7 +186,8 @@ WHERE gb.tenant_id = $1::uuid
   AND gb.birth_event_id IS NOT NULL
   AND gb.count_status <> 'rejected'
   AND g.lifecycle_status = 'alive' AND g.merged_into_goat_id IS NULL
-  AND g.management_stage = ANY($2::text[])
+  AND (g.management_stage = ANY($2::text[])
+       OR (g.sex = 'female' AND g.management_stage = ANY($5::text[])))
   AND ($3::text = '' OR gb.birth_event_id > nullif($3::text, '')::uuid)
   AND NOT EXISTS (
     SELECT 1 FROM workflow_instances wi
@@ -197,10 +199,13 @@ LIMIT $4`
 
 // LittersOwingShift is one keyset page of the backfill's candidates (after = last birth event
 // id of the previous page, "" for the first).
-func (r *Repository) LittersOwingShift(ctx context.Context, tenantID string, stages []string, after string, limit int) ([]LitterOwingShift, error) {
+func (r *Repository) LittersOwingShift(ctx context.Context, tenantID string, stages, femaleStages []string, after string, limit int) ([]LitterOwingShift, error) {
+	if femaleStages == nil {
+		femaleStages = []string{}
+	}
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
-	bound := sqlbind.MustBind(littersOwingShiftSQL, tenantID, stages, after, limit)
+	bound := sqlbind.MustBind(littersOwingShiftSQL, tenantID, stages, after, limit, femaleStages)
 	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, err

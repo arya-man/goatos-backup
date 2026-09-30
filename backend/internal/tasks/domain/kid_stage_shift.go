@@ -41,6 +41,8 @@ type LitterKid struct {
 	GoatID string
 	Stage  string
 	Alive  bool
+	// Sex is "male"/"female"/"" -- a step with a TargetSex judges only its kids.
+	Sex string
 	// StageSince is when the kid entered its CURRENT stage, from the herd register's own history
 	// (the latest goat.stage_changed naming that stage); nil when the register holds none (a kid
 	// seeded on its stage). It is what a completed step is stamped with, so the next step's
@@ -82,7 +84,10 @@ func JudgeLitterShift(kids []LitterKid, target string) LitterShiftOutcome {
 		case stage == "":
 		case containsFold(before, stage):
 			out.Waiting++
-		case strings.EqualFold(stage, target), containsFold(countsdomain.GrowthStagesBefore(stage), target):
+		// On the target, past it, or on another rung of the ladder that is not before it (a female
+		// already Mother owes no move to Non-Pregnant). A kid OFF the ladder (ICU-Kid) is neither.
+		case strings.EqualFold(stage, target), containsFold(countsdomain.GrowthStagesBefore(stage), target),
+			countsdomain.IsGrowthLadderStage(stage):
 			out.Reached++
 		}
 	}
@@ -96,6 +101,21 @@ func KidsWaitingForShift(kids []LitterKid, target string) []LitterKid {
 	var out []LitterKid
 	for _, k := range kids {
 		if k.Alive && containsFold(before, strings.TrimSpace(k.Stage)) {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// KidsOfSex narrows a litter to the kids a step with TargetSex judges ("" = every kid).
+func KidsOfSex(kids []LitterKid, sex string) []LitterKid {
+	sex = strings.TrimSpace(sex)
+	if sex == "" {
+		return kids
+	}
+	out := make([]LitterKid, 0, len(kids))
+	for _, k := range kids {
+		if strings.EqualFold(strings.TrimSpace(k.Sex), sex) {
 			out = append(out, k)
 		}
 	}
@@ -150,13 +170,23 @@ func ApplyLitterShift(actions []WorkflowAction, kids []LitterKid, at time.Time) 
 		if !a.HasHook(EngineHookShiftKidsStage) || a.Status != ActionStatusPending {
 			continue
 		}
+		judged := KidsOfSex(kids, a.TargetSex)
+		// A step for one sex's kids that the litter has none of (alive) owes nothing: it is off the
+		// path, never overdue. An all-male litter is never owed the Non-Pregnant move.
+		if a.TargetSex != "" && JudgeLitterShift(judged, a.TargetStage).Live == 0 {
+			a.Status = ActionStatusSkipped
+			a.RowVersion++
+			actions[i] = a
+			changed = append(changed, a)
+			continue
+		}
 		if !prerequisitesComplete(a, actions) {
 			continue
 		}
-		if !JudgeLitterShift(kids, a.TargetStage).Done() {
+		if !JudgeLitterShift(judged, a.TargetStage).Done() {
 			continue
 		}
-		doneAt := litterReachedAt(kids, a.TargetStage, at)
+		doneAt := litterReachedAt(judged, a.TargetStage, at)
 		key := "litter-shift:" + a.ActionID
 		updated, replay, err := ApplyComplete(a, CompleteActionCommand{
 			TenantID: a.TenantID, WorkflowID: a.WorkflowID, ActionID: a.ActionID,
@@ -250,11 +280,12 @@ type ShiftGroup struct {
 // than invent one stage or sex for it. Twins of different sex therefore need two raises. The groups
 // use exactly that descriptor, in birth order of each group's first kid, so the phone offers one
 // button per raise the server will accept and never a raise it will refuse.
-func ShiftGroups(kids []LitterKidView, target string) []ShiftGroup {
+func ShiftGroups(kids []LitterKidView, target, sex string) []ShiftGroup {
 	judge := make([]LitterKid, 0, len(kids))
 	for _, k := range kids {
-		judge = append(judge, LitterKid{GoatID: k.GoatID, Stage: k.Stage, Alive: k.Alive})
+		judge = append(judge, LitterKid{GoatID: k.GoatID, Stage: k.Stage, Alive: k.Alive, Sex: k.Sex})
 	}
+	judge = KidsOfSex(judge, sex)
 	waiting := map[string]bool{}
 	for _, k := range KidsWaitingForShift(judge, target) {
 		waiting[k.GoatID] = true

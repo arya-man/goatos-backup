@@ -137,6 +137,9 @@ type WorkflowAction struct {
 	// TargetStage is the stage a litter shift step moves the kids to (workflow_actions.target_stage,
 	// stamped from the SOP at open); blank on every other step. See kid_stage_shift.go.
 	TargetStage string
+	// TargetSex narrows a litter shift step to one sex's kids (workflow_actions.target_sex); blank =
+	// every kid.
+	TargetSex string
 	// ReworkReason is the verifier's words when this step was sent back; cleared on completion.
 	ReworkReason       *string
 	CompletedBy        *string

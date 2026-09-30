@@ -169,6 +169,8 @@ type ActionTemplate struct {
 	Owner string
 	// TargetStage is a kid shift step's authored target stage (kid_stage_shift.go).
 	TargetStage string
+	// TargetSex narrows a kid shift step to one sex's kids ("female"); blank = every kid.
+	TargetSex string
 }
 
 // IsDependencyTimed reports a step whose due time is set by another step's completion.

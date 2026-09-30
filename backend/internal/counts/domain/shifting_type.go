@@ -149,6 +149,9 @@ type ShiftTypeAnimal struct {
 	Stage string
 	// Sex is "male"/"female"/"" (unknown).
 	Sex string
+	// AgeDays is the animal's age in whole farm days (from its date of birth); nil when unknown.
+	// Read only by the age-entry rule (growthAgeEntryStages).
+	AgeDays *int
 }
 
 // ShiftTypeContext is everything a typed raise's tag decision depends on. The handler assembles it
@@ -179,6 +182,11 @@ type ShiftTypeContext struct {
 
 	// WritableStages is the tenant's active animal_stage_lookup vocabulary (canonical casing).
 	WritableStages []string
+
+	// StageMinAgeDays is each active stage's "From (days)" on Items & settings
+	// (animal_stage_lookup.min_age_days), keyed by stage code; a stage with none is absent. The
+	// age-entry rule reads it: the farm sets the age, not the code.
+	StageMinAgeDays map[string]int
 }
 
 // ShiftTypeDecision is a typed raise's resolved outcome.
@@ -331,6 +339,18 @@ func resolveGrowthShift(ctx ShiftTypeContext) (ShiftTypeDecision, *ShiftTypeRefu
 func resolveGrowthIntoEmptyPen(ctx ShiftTypeContext) (ShiftTypeDecision, *ShiftTypeRefusal) {
 	target := ""
 	for _, animal := range ctx.Animals {
+		// An empty pen SET to an age-entry stage (a Non-Pregnant pen nobody stands in yet) takes an
+		// old-enough animal straight to it, whatever rung she is on.
+		if pen := canonicalWritableStage(ctx.DestinationConfiguredStage, ctx.WritableStages); pen != "" && growthAgeEntryAllowed(animal, pen, ctx.StageMinAgeDays) {
+			if growthStageSexFor(pen) != "" && !strings.EqualFold(strings.TrimSpace(animal.Sex), growthStageSexFor(pen)) {
+				return ShiftTypeDecision{}, refuse("growth_sex_mismatch", shiftCopyGrowthSexMismatch)
+			}
+			if target != "" && !strings.EqualFold(target, pen) {
+				return ShiftTypeDecision{}, refuse("growth_group_needs_split", shiftCopyGrowthGroupNeedsSplit)
+			}
+			target = pen
+			continue
+		}
 		next, refusal := growthNextStageForEmptyPen(animal, ctx.WritableStages, ctx.DestinationConfiguredStage)
 		if refusal != nil {
 			return ShiftTypeDecision{}, refusal
@@ -436,7 +456,7 @@ func resolveGrowthFromResidents(ctx ShiftTypeContext) growthResidentOutcome {
 	for i, animal := range ctx.Animals {
 		var fits []string
 		for _, stage := range residents {
-			if !growthEdgeExists(animal.Stage, stage) {
+			if !growthEntryAllowed(animal, stage, ctx.StageMinAgeDays) {
 				continue
 			}
 			if sex := growthStageSexFor(stage); sex != "" && !strings.EqualFold(strings.TrimSpace(animal.Sex), sex) {
@@ -482,7 +502,7 @@ func resolveGrowthFromPenTag(ctx ShiftTypeContext) (ShiftTypeDecision, *ShiftTyp
 	}
 	requiredSex := growthStageSexFor(tag)
 	for _, animal := range ctx.Animals {
-		if !growthEdgeExists(strings.TrimSpace(animal.Stage), tag) {
+		if !growthEntryAllowed(animal, tag, ctx.StageMinAgeDays) {
 			return ShiftTypeDecision{}, refuse("growth_not_next_stage", shiftCopyGrowthNotNext)
 		}
 		if requiredSex != "" && !strings.EqualFold(strings.TrimSpace(animal.Sex), requiredSex) {
@@ -675,6 +695,39 @@ func movingGroupSharedStage(ctx ShiftTypeContext) (string, *ShiftTypeRefusal) {
 	return shared, nil
 }
 
+// growthAgeEntryStages may be entered DIRECTLY by growth from any earlier rung, once the animal is at
+// least that stage's "From (days)" old (maintainer decision 2026-09-30): at 10 weeks a farm-born
+// female goes to Non-Pregnant "whatever its current stage" -- K2, K3, F2 or F2-Female -- in ONE
+// shifting, not one rung at a time. With no "From (days)" set on the stage there is no direct entry
+// and the ordinary ladder applies unchanged. Sex still binds: Non-Pregnant takes females only.
+var growthAgeEntryStages = []string{"Non-Pregnant"}
+
+// growthEntryAllowed reports whether a growth shifting may take this animal to stage `to`: the
+// ladder's next rung, or -- for an age-entry stage -- any earlier rung once the animal is old enough.
+func growthEntryAllowed(animal ShiftTypeAnimal, to string, minAges map[string]int) bool {
+	if growthEdgeExists(animal.Stage, to) {
+		return true
+	}
+	return growthAgeEntryAllowed(animal, to, minAges)
+}
+
+func growthAgeEntryAllowed(animal ShiftTypeAnimal, to string, minAges map[string]int) bool {
+	to = strings.TrimSpace(to)
+	if !stageListContains(growthAgeEntryStages, to) || animal.AgeDays == nil {
+		return false
+	}
+	minAge, ok := -1, false
+	for stage, days := range minAges {
+		if strings.EqualFold(strings.TrimSpace(stage), strings.TrimSpace(to)) {
+			minAge, ok = days, true
+		}
+	}
+	if !ok || *animal.AgeDays < minAge {
+		return false
+	}
+	return stageListContains(GrowthStagesBefore(to), strings.TrimSpace(animal.Stage))
+}
+
 func growthEdgeExists(from, to string) bool {
 	for stage, nexts := range growthForwardEdges {
 		if !strings.EqualFold(stage, strings.TrimSpace(from)) {
@@ -796,6 +849,11 @@ func GrowthStagesBefore(target string) []string {
 				continue
 			}
 			for _, to := range tos {
+				// The ONE reverse edge (Pregnant -> Non-Pregnant) returns a female to a rung, it does
+				// not put her before it: a pregnant female owes no move to Non-Pregnant.
+				if strings.EqualFold(from, "Pregnant") && strings.EqualFold(to, "Non-Pregnant") {
+					continue
+				}
 				if strings.EqualFold(to, next) {
 					seen[strings.ToLower(from)] = true
 					out = append(out, from)
@@ -829,4 +887,23 @@ func GrowthTargetStages() []string {
 		}
 	}
 	return out
+}
+
+// IsGrowthLadderStage reports a stage that is ON the growth ladder -- a rung animals move from or
+// into. A clinical or pen tag (ICU-Kid) and an unplaced stage (Milking, M0, Warmup) are not. Kid
+// stage shift tasks read it to tell a female already PAST a target (Mother, Pregnant: nothing owed)
+// from a kid off the ladder (ICU: not yet judged either way).
+func IsGrowthLadderStage(stage string) bool {
+	stage = strings.TrimSpace(stage)
+	for from, tos := range growthForwardEdges {
+		if strings.EqualFold(from, stage) {
+			return true
+		}
+		for _, to := range tos {
+			if strings.EqualFold(to, stage) {
+				return true
+			}
+		}
+	}
+	return false
 }

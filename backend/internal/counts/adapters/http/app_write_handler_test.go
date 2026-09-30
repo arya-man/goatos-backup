@@ -111,6 +111,10 @@ func (f *fakeShiftingRepo) ActiveBreeds(_ context.Context, _ string) ([]domain.B
 // GoatShiftingFacts mirrors the real query's behaviour for a missing animal: it returns FEWER rows
 // than requested rather than an error, so the service's own "did every id resolve" check is what
 // gets exercised.
+func (f *fakeShiftingRepo) StageMinAgeDays(context.Context, string) (map[string]int, error) {
+	return nil, nil
+}
+
 func (f *fakeShiftingRepo) GoatShiftingFacts(_ context.Context, _ string, goatIDs []string) ([]domain.GoatShiftingFact, error) {
 	f.goatFactsCalls++
 	out := make([]domain.GoatShiftingFact, 0, len(goatIDs))

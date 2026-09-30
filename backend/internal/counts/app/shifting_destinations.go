@@ -52,6 +52,12 @@ func (s *Service) AnimalVocabulary(ctx context.Context, tenantID string) (animal
 	return animalvocab.Builtins(), nil
 }
 
+// StageMinAgeDays is each active stage's "From (days)" (Items & settings), for the growth age-entry
+// rule: a female at least Non-Pregnant's age may be shifted straight to it.
+func (s *Service) StageMinAgeDays(ctx context.Context, tenantID string) (map[string]int, error) {
+	return s.repo.StageMinAgeDays(ctx, tenantID)
+}
+
 // ShiftingGoatFacts reads the named animals' narrow canonical facts (stage, sex, placement) for
 // the typed-raise rulebook (domain.ResolveShiftTypeDecision). Same fail-closed contract as the
 // derivations below: every id must resolve to a live, non-merged animal in this tenant.

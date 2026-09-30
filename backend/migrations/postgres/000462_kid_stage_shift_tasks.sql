@@ -4,7 +4,8 @@
 --
 -- KID STAGE SHIFT TASKS (maintainer decision 2026-09-30, docs/decisions/kid-stage-shift-tasks.md).
 -- A birth now owes the park head two moves, authored as the Birth SOP's new `birth_litter` track:
--- the litter K0 -> K1 24 hours after birth, and K1 -> K2 seven days after the litter reached K1.
+-- the litter K0 -> K1 24 hours after birth, K1 -> K2 seven days after the litter reached K1, and
+-- (2026-10-01) its FEMALE kids to Non-Pregnant 70 days (10 weeks) after birth, from any stage.
 -- ONE workflow per litter (subject_ref_id = goat_births.birth_event_id). Both steps are
 -- engine-completed from the herd register (goat.stage_changed), never by a tap.
 
@@ -16,6 +17,9 @@ ALTER TABLE public.workflow_instances ADD CONSTRAINT workflow_instances_template
 -- 2. The stage a shift step moves the kids to, stamped from the SOP at open. NULL on every other
 --    step (a nullable column add is metadata-only).
 ALTER TABLE public.workflow_actions ADD COLUMN IF NOT EXISTS target_stage text;
+
+-- 2b. Which kids a shift step judges ('female' / 'male'); NULL = every kid of the litter.
+ALTER TABLE public.workflow_actions ADD COLUMN IF NOT EXISTS target_sex text;
 
 -- 3. The kid-shift task type, for every tenant. Embedded verbatim from
 --    tasks/domain/sopseed/task_types_kid_shift.json (pinned by TestMigrationEmbedsTheKidShiftSeed).
@@ -39,7 +43,8 @@ UPDATE public.sop_versions v
 SET form_dsl = jsonb_set(v.form_dsl, '{follow_up,tracks}',
       (v.form_dsl->'follow_up'->'tracks') || jsonb_build_array($seed${"key": "birth_litter", "module": "birth", "label": "Litter", "subject": "litter", "steps": [
   {"key": "shift_to_k1", "task_type": "shift_kids_stage", "title": "Shift the kids to K1", "detail": "Raise a growth shifting that moves this litter's kids from K0 into a K1 pen. This step completes on its own once every kid is on K1.", "proof": {}, "schedule": {"kind": "after_event", "offset_minutes": 1440}, "owner": "park_head", "target_stage": "K1"},
-  {"key": "shift_to_k2", "task_type": "shift_kids_stage", "title": "Shift the kids to K2", "detail": "Raise a growth shifting that moves this litter's kids from K1 into a K2 pen. This step completes on its own once every kid is on K2.", "proof": {}, "schedule": {"kind": "after_step", "step": "shift_to_k1", "offset_minutes": 10080}, "owner": "park_head", "requires": ["shift_to_k1"], "target_stage": "K2"}
+  {"key": "shift_to_k2", "task_type": "shift_kids_stage", "title": "Shift the kids to K2", "detail": "Raise a growth shifting that moves this litter's kids from K1 into a K2 pen. This step completes on its own once every kid is on K2.", "proof": {}, "schedule": {"kind": "after_step", "step": "shift_to_k1", "offset_minutes": 10080}, "owner": "park_head", "requires": ["shift_to_k1"], "target_stage": "K2"},
+  {"key": "shift_to_non_pregnant", "task_type": "shift_kids_stage", "title": "Shift the female kids to Non-Pregnant", "detail": "Raise a growth shifting that moves this litter's female kids into a Non-Pregnant pen, from whatever stage they are on. This step completes on its own once every female kid is on Non-Pregnant or past it.", "proof": {}, "schedule": {"kind": "after_event", "offset_minutes": 100800}, "owner": "park_head", "target_stage": "Non-Pregnant", "target_sex": "female"}
 ]}$seed$::jsonb)),
     updated_at = now()
 FROM public.sop_definitions sd
@@ -51,6 +56,13 @@ WHERE sd.tenant_id = v.tenant_id AND sd.sop_id = v.sop_id
     SELECT 1 FROM jsonb_array_elements(v.form_dsl->'follow_up'->'tracks') AS t(track)
     WHERE t.track->>'key' = 'birth_litter'
   );
+
+-- 5. Non-Pregnant's "From (days)" (Items & settings): the age at which a growth shifting may move a
+--    female straight into Non-Pregnant from any earlier rung (counts/domain growthAgeEntryAllowed).
+--    70 days matches the litter step above. Set only where the farm has not set its own.
+UPDATE public.animal_stage_lookup
+SET min_age_days = 70
+WHERE stage_code = 'Non-Pregnant' AND min_age_days IS NULL;
 
 -- +goose Down
 -- Forward-only on the document and the registry row: removing them would strand every open litter

@@ -428,8 +428,8 @@ func (h *Handler) writeDetail(w http.ResponseWriter, detail domain.WorkflowDetai
 			// Kids are "waiting" for a step only once it can be worked: a K2 step behind an unfinished
 			// K1 step has no kids to raise yet, and listing K0 kids under it read as K2 work.
 			if a.Status == domain.ActionStatusPending && domain.StepPrerequisitesComplete(a, detail.Actions) {
-				dto.WaitingKids = waitingKidsDTO(detail.LitterKids, a.TargetStage)
-				for _, g := range domain.ShiftGroups(detail.LitterKids, a.TargetStage) {
+				dto.WaitingKids = waitingKidsDTO(detail.LitterKids, a.TargetStage, a.TargetSex)
+				for _, g := range domain.ShiftGroups(detail.LitterKids, a.TargetStage, a.TargetSex) {
 					kids := make([]litterKidDTO, 0, len(g.Kids))
 					for _, k := range g.Kids {
 						kids = append(kids, litterKidDTO{GoatID: k.GoatID, Tag: k.Tag, Stage: k.Stage, PenLabel: k.PenLabel})
@@ -448,11 +448,12 @@ func (h *Handler) writeDetail(w http.ResponseWriter, detail domain.WorkflowDetai
 }
 
 // waitingKidsDTO lists the live kids still on a stage before target, in birth order.
-func waitingKidsDTO(kids []domain.LitterKidView, target string) []litterKidDTO {
+func waitingKidsDTO(kids []domain.LitterKidView, target, sex string) []litterKidDTO {
 	judge := make([]domain.LitterKid, 0, len(kids))
 	for _, k := range kids {
-		judge = append(judge, domain.LitterKid{GoatID: k.GoatID, Stage: k.Stage, Alive: k.Alive})
+		judge = append(judge, domain.LitterKid{GoatID: k.GoatID, Stage: k.Stage, Alive: k.Alive, Sex: k.Sex})
 	}
+	judge = domain.KidsOfSex(judge, sex)
 	waiting := map[string]bool{}
 	for _, k := range domain.KidsWaitingForShift(judge, target) {
 		waiting[k.GoatID] = true

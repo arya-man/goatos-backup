@@ -853,6 +853,9 @@ type GoatShiftingFact struct {
 	StageTag   *string
 	AgeClass   *string
 	Sex        *string
+	// AgeDays is the animal's age in whole farm (IST) days from its date of birth; nil when no
+	// birth date is recorded. Read by the growth age-entry rule (Non-Pregnant at 10 weeks).
+	AgeDays *int
 	// ParkID / ShedID are the animal's CURRENT placement, used to backfill a shifting event's
 	// source when the operator did not send one. The simplified Shifting screen deliberately stops
 	// asking the operator to retype a location the server already knows, so without this the stored

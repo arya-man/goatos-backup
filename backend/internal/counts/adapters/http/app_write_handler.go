@@ -126,6 +126,9 @@ type ShiftingEventRecorder interface {
 	// ShiftingGoatFacts reads the named animals' narrow canonical facts (stage, sex, placement)
 	// for the typed-raise rulebook (domain.ResolveShiftTypeDecision).
 	ShiftingGoatFacts(ctx context.Context, tenantID string, goatIDs []string) ([]domain.GoatShiftingFact, error)
+
+	// StageMinAgeDays is each active stage's "From (days)", for the growth age-entry rule.
+	StageMinAgeDays(ctx context.Context, tenantID string) (map[string]int, error)
 }
 
 // shiftingRaiseReplayer is the OPTIONAL replay pre-check a recorder may offer (counts/app.Service
@@ -714,7 +717,13 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 			if fact.Sex != nil {
 				animal.Sex = strings.TrimSpace(*fact.Sex)
 			}
+			animal.AgeDays = fact.AgeDays
 			typeAnimals = append(typeAnimals, animal)
+		}
+		stageMinAges, agesErr := h.shifting.StageMinAgeDays(r.Context(), tenantID)
+		if agesErr != nil {
+			h.writeCountsError(w, r, agesErr)
+			return
 		}
 		// The SOURCE pen's authored tag and live population, from the same catalog. The source is
 		// the derived/explicit (shed, partition) pair; a group without one single source pen keeps
@@ -755,7 +764,8 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 			Animals:                    typeAnimals,
 			// The COMPLETE vocabulary, clinical included: a health movement stamps a clinical
 			// state, and the rulebook's own per-type refusals guard every other type.
-			WritableStages: catalog.AllManagementStages,
+			WritableStages:  catalog.AllManagementStages,
+			StageMinAgeDays: stageMinAges,
 		})
 		if refusal != nil {
 			h.writeAppError(w, r, identityapp.BadRequest(refusal.Code, refusal.Message))

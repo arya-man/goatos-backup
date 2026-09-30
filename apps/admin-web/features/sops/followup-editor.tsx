@@ -501,6 +501,14 @@ function StepCard({
               ))}
             </select>
           </label>
+          <label title={copy(pc, "followup.step.target_sex_hint")}>
+            {copy(pc, "followup.step.target_sex")}
+            <select data-testid="step-target-sex" value={step.targetSex} onChange={(e) => onChange({ targetSex: e.target.value })}>
+              <option value="">{copy(pc, "followup.step.target_sex_all")}</option>
+              <option value="female">{copy(pc, "followup.step.target_sex_female")}</option>
+              <option value="male">{copy(pc, "followup.step.target_sex_male")}</option>
+            </select>
+          </label>
         </div>
       ) : null}
 

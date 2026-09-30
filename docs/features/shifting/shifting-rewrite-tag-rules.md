@@ -67,6 +67,21 @@ K0 -> K1 -> K2 -> K3 -+- F2 -+- F2-Male   -> Buck
   them on the ladder. `F2-Male -> Buck` is present per the maintainer's 2026-08-20
   confirmation; most fattening males exit by sale instead, which is not a shifting.
 
+## Growth: a female of age enters Non-Pregnant from any earlier rung (maintainer decision 2026-10-01)
+
+"After 10 weeks shift farm born female to non-pregnant ... whatever its current stage it should
+change to non-pregnant." A growth raise may move a FEMALE straight into `Non-Pregnant` from any
+stage before it on the ladder (K0 ... K3, F2, F2-Female) once her age (days since `dob`, IST) is at
+least `Non-Pregnant`'s own **From (days)** (`animal_stage_lookup.min_age_days`, Items & settings;
+migration `000462` sets 70 where a farm has none). It is an ADDITIONAL edge, never a replacement:
+the ordinary one-rung steps still apply, a male or unknown sex is still refused, a stage PAST
+Non-Pregnant (Pregnant, Mother) is not "before" it (the Pregnant -> Non-Pregnant reverse edge does
+not count as before), and a female younger than the From (days) -- or a farm with no From (days)
+set -- is refused `growth_not_next_stage` exactly as before. It applies on all three paths: a
+Non-Pregnant resident, a pen set to Non-Pregnant, and an empty pen whose Stage is Non-Pregnant.
+Rulebook: `counts/domain.growthEntryAllowed` / `growthAgeEntryStages`; pinned by
+`growth_age_entry_test.go` and the real-Postgres `TestKidShiftFemaleToNonPregnantAtTenWeeksFromAnyStage`.
+
 ## Growth: a resident carrying the next stage decides first (maintainer decision 2026-09-23)
 
 On 2026-09-23 a K2 animal could not be moved into a pen holding a K3 and a sick animal. A pen's

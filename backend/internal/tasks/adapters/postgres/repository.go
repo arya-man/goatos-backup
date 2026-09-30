@@ -253,16 +253,16 @@ RETURNING workflow_id::text`,
 	sb.WriteString(`INSERT INTO workflow_actions (
   tenant_id, workflow_id, action_key, seq, section, action_type, title, detail, requires_video, options, due_at,
   task_type, answer_type, engine_hook, proof_min_videos, proof_min_photos, hard_time_gate, wait_for_all,
-  requires_keys, after_action_key, after_offset_seconds, answer_gate, owner_role, target_stage
+  requires_keys, after_action_key, after_offset_seconds, answer_gate, owner_role, target_stage, target_sex
 ) VALUES `)
 	for i, a := range template.Actions {
 		if i > 0 {
 			sb.WriteString(", ")
 		}
 		base := len(args)
-		sb.WriteString(fmt.Sprintf("($%d::uuid, $%d::uuid, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d::jsonb, $%d::timestamptz, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d::jsonb, $%d, $%d, $%d::jsonb, $%d, nullif($%d::text, ''))",
+		sb.WriteString(fmt.Sprintf("($%d::uuid, $%d::uuid, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d::jsonb, $%d::timestamptz, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d::jsonb, $%d, $%d, $%d::jsonb, $%d, nullif($%d::text, ''), nullif($%d::text, ''))",
 			base+1, base+2, base+3, base+4, base+5, base+6, base+7, base+8, base+9, base+10, base+11,
-			base+12, base+13, base+14, base+15, base+16, base+17, base+18, base+19, base+20, base+21, base+22, base+23, base+24))
+			base+12, base+13, base+14, base+15, base+16, base+17, base+18, base+19, base+20, base+21, base+22, base+23, base+24, base+25))
 		var options any
 		if len(a.Options) > 0 {
 			raw, err := json.Marshal(a.Options)
@@ -300,7 +300,7 @@ RETURNING workflow_id::text`,
 		}
 		args = append(args, cmd.TenantID, workflowID, a.Key, a.Seq, a.Section, a.Type, a.Title, a.Detail, a.RequiresVideo, options, dueAt,
 			a.TaskType, answerKind, a.EngineHook, a.Proof.Video, a.Proof.Photo, a.HardTimeGate, a.WaitForAll,
-			string(requires), a.Schedule.AfterStepKey, int(a.Schedule.Offset.Seconds()), answerGate, a.Owner, a.TargetStage)
+			string(requires), a.Schedule.AfterStepKey, int(a.Schedule.Offset.Seconds()), answerGate, a.Owner, a.TargetStage, a.TargetSex)
 	}
 	boundActionsInsert := sqlbind.MustBind(sb.String(), args...)
 	if _, err := tx.Exec(ctx, boundActionsInsert.SQL(), boundActionsInsert.Args()...); err != nil {
@@ -1000,7 +1000,7 @@ SELECT action_id::text, tenant_id::text, workflow_id::text, action_key, seq, sec
        task_type, answer_type, engine_hook, proof_min_videos, proof_min_photos, proof_refs,
        hard_time_gate, wait_for_all, requires_keys, after_action_key, after_offset_seconds, rework_reason, answer_gate,
        owner_role, COALESCE((SELECT dc.label FROM designation_catalog dc WHERE dc.designation_code = wa.owner_role), ''),
-       COALESCE(target_stage, '')
+       COALESCE(target_stage, ''), COALESCE(target_sex, '')
 FROM workflow_actions wa
 WHERE tenant_id = $1::uuid AND workflow_id = $2::uuid
 ORDER BY seq ASC`+lock, tenantID, workflowID)
@@ -1026,7 +1026,7 @@ ORDER BY seq ASC`+lock, tenantID, workflowID)
 			&a.IdempotencyKey, &a.RequestFingerprint, &a.RowVersion,
 			&a.TaskType, &a.AnswerType, &a.EngineHook, &a.ProofMinVideos, &a.ProofMinPhotos, &proofRefs,
 			&a.HardTimeGate, &a.WaitForAll, &requires, &a.AfterActionKey, &a.AfterOffsetSeconds, &a.ReworkReason, &answerGate,
-			&a.OwnerRole, &a.OwnerLabel, &a.TargetStage,
+			&a.OwnerRole, &a.OwnerLabel, &a.TargetStage, &a.TargetSex,
 		); err != nil {
 			return nil, err
 		}

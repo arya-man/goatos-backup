@@ -201,6 +201,11 @@ type FollowUpStep struct {
 	// days later. Only a `shift_kids_stage` step carries it, and only on the birth_litter track;
 	// publish checks it against the tenant's live stage vocabulary (sop/app).
 	TargetStage string `json:"target_stage,omitempty"`
+	// TargetSex narrows a kid shift step to the kids of ONE sex ("female"): only they are owed the
+	// move, listed, grouped and judged. Blank = every kid. A litter with no live kid of that sex
+	// owes the step nothing (it is skipped). Maintainer decision 2026-09-30: at 10 weeks a farm-born
+	// FEMALE goes to Non-Pregnant; males are never included.
+	TargetSex string `json:"target_sex,omitempty"`
 }
 
 // AnswerCondition is one branch condition: the earlier question step, the comparison and the
@@ -558,6 +563,13 @@ func ValidateFollowUp(d FollowUpDSL, taskTypes map[string]FollowUpTaskTy) []stri
 			} else if strings.TrimSpace(s.TargetStage) != "" {
 				add("%s.target_stage: only a kid shift step names a target stage", sp)
 			}
+			switch sex := strings.TrimSpace(s.TargetSex); {
+			case sex == "":
+			case !(ok && tt.EngineHook == EngineHookShiftKidsStage):
+				add("%s.target_sex: only a kid shift step names which kids it is for", sp)
+			case sex != "female" && sex != "male":
+				add("%s.target_sex: %q is not female or male", sp, sex)
+			}
 			answerKinds[s.Key] = answerKindOf(s, taskTypes)
 		}
 	}
@@ -711,6 +723,7 @@ func CompileTrack(track FollowUpTrack, taskTypes map[string]FollowUpTaskTy, opts
 			AnswerGate:    s.WhenAnswer,
 			Owner:         strings.TrimSpace(s.Owner),
 			TargetStage:   strings.TrimSpace(s.TargetStage),
+			TargetSex:     strings.TrimSpace(s.TargetSex),
 		}
 		switch s.Schedule.Kind {
 		case ScheduleKindSeries:

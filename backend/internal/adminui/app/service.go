@@ -9181,6 +9181,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"followup.step.target_stage":      "Move the kids to",
 			"followup.step.target_stage_none": "Choose a stage",
 			"followup.step.target_stage_hint": "The step completes on its own once every live kid of the litter has reached this stage through a growth shifting.",
+			"followup.step.target_sex":        "Only for",
+			"followup.step.target_sex_hint":   "Which of the litter's kids this step waits for. A litter with no live kid of that sex skips the step.",
+			"followup.step.target_sex_all":    "Every kid",
+			"followup.step.target_sex_female": "Female kids",
+			"followup.step.target_sex_male":   "Male kids",
 		}
 		// Per-module copy: crumb names the owning vertical, and the builder's domain lock names
 		// the module the page is scoped to (SOP split, maintainer decision 2026-08-18).

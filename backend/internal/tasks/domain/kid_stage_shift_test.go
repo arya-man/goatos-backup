@@ -57,8 +57,17 @@ func TestSeededLitterTrackIsTheParkHeadsTwoTimedMoves(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tpl.Actions) != 2 {
-		t.Fatalf("want 2 steps, got %d", len(tpl.Actions))
+	if len(tpl.Actions) != 3 {
+		t.Fatalf("want 3 steps, got %d", len(tpl.Actions))
+	}
+	// Farm-born FEMALES to Non-Pregnant 10 weeks from the day of birth, whatever stage they are on
+	// (maintainer instruction 2026-10-01), the park head's task like the other two.
+	np := tpl.Actions[2]
+	if np.TargetStage != "Non-Pregnant" || np.TargetSex != "female" || np.Owner != "park_head" {
+		t.Fatalf("third step = %q/%q/%q", np.TargetStage, np.TargetSex, np.Owner)
+	}
+	if got := np.Schedule.DueAt(born); !got.Equal(born.Add(70 * 24 * time.Hour)) {
+		t.Fatalf("Non-Pregnant due %v, want 70 days after birth", got)
 	}
 	k1, k2 := tpl.Actions[0], tpl.Actions[1]
 	if k1.TargetStage != "K1" || k2.TargetStage != "K2" {
@@ -253,24 +262,65 @@ func TestShiftGroupsSplitWhatOneShiftingCannotCarry(t *testing.T) {
 	kid := func(id, sex, breed string, alive bool) LitterKidView {
 		return LitterKidView{GoatID: id, Tag: "T-" + id, Stage: "K0", Alive: alive, Sex: sex, Breed: breed, AgeBand: "kid"}
 	}
-	mixed := ShiftGroups([]LitterKidView{kid("a", "female", "Sirohi", true), kid("b", "male", "Sirohi", true)}, "K1")
+	mixed := ShiftGroups([]LitterKidView{kid("a", "female", "Sirohi", true), kid("b", "male", "Sirohi", true)}, "K1", "")
 	if len(mixed) != 2 || mixed[0].Label != "1 female kid" || mixed[1].Label != "1 male kid" {
 		t.Fatalf("mixed-sex twins: %+v", mixed)
 	}
-	same := ShiftGroups([]LitterKidView{kid("a", "female", "Sirohi", true), kid("b", "female", "Sirohi", true)}, "K1")
+	same := ShiftGroups([]LitterKidView{kid("a", "female", "Sirohi", true), kid("b", "female", "Sirohi", true)}, "K1", "")
 	if len(same) != 1 || same[0].Label != "2 female kids" || len(same[0].Kids) != 2 {
 		t.Fatalf("same-sex twins: %+v", same)
 	}
-	dead := ShiftGroups([]LitterKidView{kid("a", "female", "Sirohi", false), kid("b", "male", "Sirohi", true)}, "K1")
+	dead := ShiftGroups([]LitterKidView{kid("a", "female", "Sirohi", false), kid("b", "male", "Sirohi", true)}, "K1", "")
 	if len(dead) != 1 || dead[0].Label != "1 male kid" {
 		t.Fatalf("dead twin: %+v", dead)
 	}
-	breeds := ShiftGroups([]LitterKidView{kid("a", "female", "Sirohi", true), kid("b", "female", "Jamunapari", true)}, "K1")
+	breeds := ShiftGroups([]LitterKidView{kid("a", "female", "Sirohi", true), kid("b", "female", "Jamunapari", true)}, "K1", "")
 	if len(breeds) != 2 || breeds[0].Label != "1 female Sirohi kid" {
 		t.Fatalf("two breeds: %+v", breeds)
 	}
-	moved := ShiftGroups([]LitterKidView{{GoatID: "a", Stage: "K1", Alive: true, Sex: "female"}}, "K1")
+	moved := ShiftGroups([]LitterKidView{{GoatID: "a", Stage: "K1", Alive: true, Sex: "female"}}, "K1", "")
 	if len(moved) != 0 {
 		t.Fatalf("a kid already on the target is offered: %+v", moved)
+	}
+}
+
+// The Non-Pregnant step judges the litter's FEMALE kids only, from any stage before Non-Pregnant;
+// a female already Mother or Pregnant is past it; an all-male litter skips the step.
+func TestNonPregnantStepJudgesFemalesOnly(t *testing.T) {
+	now := time.Date(2026, 12, 10, 9, 0, 0, 0, time.UTC)
+	step := func() []WorkflowAction {
+		return []WorkflowAction{{ActionID: "np", ActionKey: "shift_to_non_pregnant", ActionType: ActionTypeAction, Section: SectionMain, Status: ActionStatusPending, EngineHook: EngineHookShiftKidsStage,
+			TargetStage: "Non-Pregnant", TargetSex: "female"}}
+	}
+	// A K3 female waits; her K3 brother is not judged.
+	kids := []LitterKid{{GoatID: "f", Stage: "K3", Alive: true, Sex: "female"}, {GoatID: "m", Stage: "F2-Male", Alive: true, Sex: "male"}}
+	if changed, _ := ApplyLitterShift(step(), kids, now); len(changed) != 0 {
+		t.Fatalf("a K3 female should keep the step owed, changed %+v", changed)
+	}
+	if w := KidsWaitingForShift(KidsOfSex(kids, "female"), "Non-Pregnant"); len(w) != 1 || w[0].GoatID != "f" {
+		t.Fatalf("waiting = %v", w)
+	}
+	// She reaches Non-Pregnant: done, whatever the brother is on.
+	kids[0].Stage = "Non-Pregnant"
+	if changed, _ := ApplyLitterShift(step(), kids, now); len(changed) != 1 || changed[0].Status != ActionStatusCompleted {
+		t.Fatalf("female on Non-Pregnant should complete the step, got %+v", changed)
+	}
+	// Already past it (Mother, or Pregnant by the reverse edge): nothing owed.
+	for _, past := range []string{"Mother", "Pregnant"} {
+		kids[0].Stage = past
+		if changed, _ := ApplyLitterShift(step(), kids, now); len(changed) != 1 || changed[0].Status != ActionStatusCompleted {
+			t.Fatalf("female on %s should count as past Non-Pregnant, got %+v", past, changed)
+		}
+	}
+	// An all-male litter never owes it.
+	males := []LitterKid{{GoatID: "m", Stage: "K3", Alive: true, Sex: "male"}}
+	if changed, _ := ApplyLitterShift(step(), males, now); len(changed) != 1 || changed[0].Status != ActionStatusSkipped {
+		t.Fatalf("all-male litter should skip the step, got %+v", changed)
+	}
+	// The raise groups carry only the females.
+	views := []LitterKidView{{GoatID: "f", Stage: "K3", Alive: true, Sex: "female", Breed: "Sirohi", AgeBand: "kid"},
+		{GoatID: "m", Stage: "K3", Alive: true, Sex: "male", Breed: "Sirohi", AgeBand: "kid"}}
+	if g := ShiftGroups(views, "Non-Pregnant", "female"); len(g) != 1 || g[0].Label != "1 female kid" {
+		t.Fatalf("groups = %+v", g)
 	}
 }

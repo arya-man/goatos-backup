@@ -54,6 +54,8 @@ export type FollowUpStepRow = {
   // KID STAGE SHIFT TASKS (2026-09-30): the growth stage a litter shift step moves the kids to
   // (`K1`, `K2`). Only a step whose task type's engine hook is shift_kids_stage carries it.
   targetStage: string;
+  /** Which kids a litter shift step judges: "female" / "male", or "" for every kid. */
+  targetSex: string;
 };
 
 /** Answer comparisons the engine evaluates (tasks/domain.AnswerCondition). */
@@ -133,6 +135,7 @@ export function blankStep(taskType = "record_yes_no"): FollowUpStepRow {
     whenValues: [],
     owner: "",
     targetStage: "",
+    targetSex: "",
   };
 }
 
@@ -233,6 +236,7 @@ export function parseFollowUp(formDsl: unknown): FollowUpRows | null {
                 whenValues: strList(whenAnswer["value"]),
                 owner: str(step["owner"]),
                 targetStage: str(step["target_stage"]),
+                targetSex: str(step["target_sex"]),
               } satisfies FollowUpStepRow,
             ];
           }),
@@ -323,6 +327,7 @@ export function emitFollowUp(rows: FollowUpRows): Record<string, unknown> {
         if (row.whenStep) out.when_answer = { step: row.whenStep, op: row.whenOp, value: row.whenValues.map((v) => v.trim()).filter(Boolean) };
         if (row.owner.trim()) out.owner = row.owner.trim();
         if (row.targetStage.trim()) out.target_stage = row.targetStage.trim();
+        if (row.targetSex.trim()) out.target_sex = row.targetSex.trim();
         return out;
       }),
     })),

@@ -4,10 +4,12 @@ Status: implemented on `feat/kid-stage-shift-tasks` · Owner: tasks + counts + s
 
 ## Decision
 
-Every litter owes the **park head** two moves, raised by the system as a task **only when a move is actually owed**:
+Every litter owes the **park head** three moves, raised by the system as a task **only when a move is actually owed**:
 
 1. **K0 → K1, exactly 24 hours after the kids were born.**
 2. **K1 → K2, exactly 7 days after the litter reached K1.**
+3. **Its FEMALE kids → Non-Pregnant, 70 days (10 weeks) from the day of birth, whatever stage they
+   are on** (maintainer instruction 2026-10-01; see "The Non-Pregnant step" below).
 
 The rule is **authored data, not code**. The maintainer said *"once i set rule, that's all it should
 work for all born animals"* and *"in future if i need anything more these things should be
@@ -45,6 +47,40 @@ The maintainer answered three questions on 2026-09-30:
   - A litter with no live kid is canceled.
   - A rejected birth cancels the litter workflow with its kid and mother tracks.
   - A kid in an off-ladder pen tag (`ICU-Kid`) counts as neither waiting nor reached. A litter whose only live kid is in ICU stays owed.
+
+## The Non-Pregnant step (maintainer instruction 2026-10-01)
+
+"After 10 weeks shift farm born female to non-pregnant, this is one more task to park head." The
+maintainer answered: from the **day of birth**; **whatever her current stage**; owed **only if she
+is before Non-Pregnant**.
+
+- **The step.** `shift_to_non_pregnant`, `after_event` 100800 minutes (70 days), `owner: park_head`,
+  `target_stage: Non-Pregnant`, and the new **`target_sex: female`** (`workflow_actions.target_sex`,
+  migration `000462`). A step's `target_sex` makes it judge only that sex's kids: waiting kids,
+  raise groups and completion all read the litter's female kids alone. Publish refuses
+  `target_sex` on any step that is not a kid shift step, and any value but `female` / `male`. The
+  web editor shows it as **Only for** (Every kid / Female kids / Male kids).
+- **Nothing owed.** A litter with no live female kid SKIPS the step on its first judge (an all-male
+  litter is never asked). A female already past Non-Pregnant (Pregnant, Mother) reads as reached:
+  "reached" is now the target, anything past it, or any other rung on the ladder that is not before
+  it. A kid off the ladder (ICU-Kid) is still neither waiting nor reached.
+- **The raise is allowed.** The growth ladder had no K3 → Non-Pregnant edge, so the raise the task
+  opens would have been refused. Growth gained an **age-entry rule** (shifting rulebook doc →
+  "a female of age enters Non-Pregnant from any earlier rung"): a female whose age is at least
+  Non-Pregnant's **From (days)** may enter Non-Pregnant from any earlier rung. Migration `000462`
+  sets that From (days) to 70 where the farm has none, so the task and the raise agree. **They are
+  two settings**: changing the step's 70 days on the Birth SOP does not change the stage's From
+  (days) on Items & settings, and the raise follows the latter.
+- **Animals already on the farm.** `backfill-kid-shift-tasks` now also opens the litter for any
+  birth with a live FEMALE kid on a stage before Non-Pregnant (`-female-target-stage`, default
+  `Non-Pregnant`). Opening an old litter completes K1/K2 at once (the kids are past them) and leaves
+  the Non-Pregnant step owed from 70 days after birth.
+- **Proven on the phone (2026-10-01)** against the throwaway DB: a 72-day K3 female and her K3
+  brother were backfilled; the park head's board read "Shift the female kids to Non-Pregnant · 2 of 3
+  steps done · Overdue"; the step listed only the female with "Raise shifting · 1 female kid"; the
+  raise into a Non-Pregnant pen was accepted, approved and completed; she became Non-Pregnant, her
+  brother stayed K3, and the step and litter closed on their own (3 / 3 done). A 2-day-old female
+  raised into the same pen was refused `growth_not_next_stage`.
 
 ## Where it is seen
 
@@ -109,4 +145,5 @@ A tenant on the seeded document gets the same track from `sopseed.FollowUpTrackA
 
 - **No push when a step falls due.** Nothing in the engine pushes on a workflow step's due time; colostrum rounds do not either. A due-time push is a new notification pipeline: an audience catalog row, specificity copy and FCM routing. That needs its own maintainer decision.
 - **The backfill is a one-shot command**, not a sweep: after deploy, run `backfill-kid-shift-tasks -tenant-id <id>` (dry-run) and then with `-apply`. It opens ONLY the litter workflow (never the old kid/mother tracks), anchored on the kid's recorded birth, and is idempotent. Kids with no `goat_births` litter row (bought animals, animals imported without a recorded birth) have no litter to key on and get no task.
-- **Future rule, parked by the maintainer (2026-09-30):** "farm-born FEMALES → breeding after 10 weeks". There is no Breeding stage in the vocabulary (Breeding is a shift type that keeps the tag); the target (Non-Pregnant, Flushing, or a breeding-type shift) is undecided, and the step would need a female-only filter.
+- **"Farm-born" is read as "born on the farm with a recorded litter".** The litter is keyed on
+  `goat_births`, so a bought female never gets the Non-Pregnant task.

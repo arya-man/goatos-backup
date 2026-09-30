@@ -40,6 +40,7 @@ func run(args []string) error {
 	fs := flag.NewFlagSet("backfill-kid-shift-tasks", flag.ContinueOnError)
 	tenantID := fs.String("tenant-id", os.Getenv("GOATOS_TENANT_ID"), "tenant id")
 	lastTarget := fs.String("last-target-stage", "K2", "the last shift step's target; litters with a live kid on a stage before it are candidates")
+	femaleTarget := fs.String("female-target-stage", "Non-Pregnant", "the female-only shift step's target; litters with a live FEMALE kid on a stage before it are candidates too (empty = none)")
 	apply := fs.Bool("apply", false, "write; without it the command only lists candidates")
 	pageSize := fs.Int("page-size", 200, "litters per page")
 	timeout := fs.Duration("timeout", 10*time.Minute, "overall timeout")
@@ -52,6 +53,12 @@ func run(args []string) error {
 	stages := countsdomain.GrowthStagesBefore(*lastTarget)
 	if len(stages) == 0 {
 		return fmt.Errorf("%q is not a stage animals grow into", *lastTarget)
+	}
+	var femaleStages []string
+	if strings.TrimSpace(*femaleTarget) != "" {
+		if femaleStages = countsdomain.GrowthStagesBefore(*femaleTarget); len(femaleStages) == 0 {
+			return fmt.Errorf("%q is not a stage animals grow into", *femaleTarget)
+		}
 	}
 	if *pageSize < 1 || *pageSize > 1000 {
 		return fmt.Errorf("page-size must be between 1 and 1000")
@@ -71,7 +78,7 @@ func run(args []string) error {
 	candidates, opened, after := 0, 0, ""
 	for {
 		// scale-guard:ignore: keyset pagination of a one-shot operator command -- one bounded page read per page, never per row
-		page, err := repo.LittersOwingShift(ctx, *tenantID, stages, after, *pageSize)
+		page, err := repo.LittersOwingShift(ctx, *tenantID, stages, femaleStages, after, *pageSize)
 		if err != nil {
 			return err
 		}
@@ -92,6 +99,6 @@ func run(args []string) error {
 		}
 		after = page[len(page)-1].BirthEventID
 	}
-	fmt.Printf("kid shift backfill stages=%v candidates=%d opened=%d apply=%v\n", stages, candidates, opened, *apply)
+	fmt.Printf("kid shift backfill stages=%v female_stages=%v candidates=%d opened=%d apply=%v\n", stages, femaleStages, candidates, opened, *apply)
 	return nil
 }

@@ -320,6 +320,7 @@ SELECT
     NULLIF(btrim(COALESCE(g.management_stage, '')), '') AS stage_tag,
     NULLIF(btrim(COALESCE(g.age_band, '')), '')         AS age_class,
     NULLIF(btrim(COALESCE(g.sex, '')), '')              AS sex,
+    ((now() AT TIME ZONE 'Asia/Kolkata')::date - g.dob) AS age_days,
     g.park_id::text,
     g.shed_id::text,
     -- The goat's current partition within g.shed_id, when it sits in a partitioned shed. Excludes the
@@ -369,7 +370,7 @@ func (r *Repository) GoatShiftingFacts(ctx context.Context, tenantID string, goa
 		var fact domain.GoatShiftingFact
 		var breedLabel string
 		if err := rows.Scan(&fact.GoatID, &fact.LifecycleStatus, &fact.ExitedAt,
-			&fact.BreedID, &breedLabel, &fact.StageTag, &fact.AgeClass, &fact.Sex,
+			&fact.BreedID, &breedLabel, &fact.StageTag, &fact.AgeClass, &fact.Sex, &fact.AgeDays,
 			&fact.ParkID, &fact.ShedID, &fact.ShedPartitionLabel); err != nil {
 			return nil, fmt.Errorf("counts: goat shifting facts scan: %w", err)
 		}
@@ -385,4 +386,32 @@ func (r *Repository) GoatShiftingFacts(ctx context.Context, tenantID string, goa
 		return nil, fmt.Errorf("counts: goat shifting facts rows: %w", err)
 	}
 	return out, nil
+}
+
+// stageMinAgeDaysQuery reads each active stage's "From (days)" (Items & settings), the age the
+// growth age-entry rule judges against. animal_stage_lookup is a tens-of-rows tenant catalog.
+const stageMinAgeDaysQuery = `
+SELECT stage_code, min_age_days
+FROM animal_stage_lookup
+WHERE tenant_id = $1::uuid AND status = 'active' AND min_age_days IS NOT NULL`
+
+// StageMinAgeDays implements ports.Repository.StageMinAgeDays.
+func (r *Repository) StageMinAgeDays(ctx context.Context, tenantID string) (map[string]int, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, stageMinAgeDaysQuery, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("counts: stage min ages: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var code string
+		var days int
+		if err := rows.Scan(&code, &days); err != nil {
+			return nil, fmt.Errorf("counts: stage min ages scan: %w", err)
+		}
+		out[code] = days
+	}
+	return out, rows.Err()
 }

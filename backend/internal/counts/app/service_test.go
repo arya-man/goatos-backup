@@ -601,6 +601,10 @@ func (f *fakeRepo) ActiveBreeds(_ context.Context, _ string) ([]domain.BirthBree
 	return f.activeBreeds, f.activeBreedsErr
 }
 
+func (f *fakeRepo) StageMinAgeDays(context.Context, string) (map[string]int, error) {
+	return nil, nil
+}
+
 func (f *fakeRepo) GoatShiftingFacts(_ context.Context, _ string, goatIDs []string) ([]domain.GoatShiftingFact, error) {
 	f.goatFactsReq = goatIDs
 	if f.goatFactsErr != nil {

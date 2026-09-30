@@ -194,6 +194,9 @@ type Repository interface {
 	// for the named animals. It is READ-ONLY: counts never writes goats. It must return exactly one
 	// fact per requested id or the caller fails closed -- see ErrGoatNotFound.
 	GoatShiftingFacts(ctx context.Context, tenantID string, goatIDs []string) ([]domain.GoatShiftingFact, error)
+	// StageMinAgeDays returns each active stage's "From (days)" (animal_stage_lookup.min_age_days),
+	// keyed by stage code; a stage with none is absent.
+	StageMinAgeDays(ctx context.Context, tenantID string) (map[string]int, error)
 
 	// DecideApprovalRequest flips the request's status and applies the decision's effect in ONE
 	// transaction. An approved request can therefore never be readable while its effect failed to
