@@ -35,6 +35,8 @@ export interface HrmsAttendanceRow {
   graceMinutes: string;
   lateType: string;
   absentType: string;
+  /** First day checked (YYYY-MM-DD), "" = no floor. */
+  startsOn: string;
 }
 
 export interface HrmsRows {
@@ -85,7 +87,7 @@ export function parseHrms(formDsl: unknown): HrmsRows | null {
   });
   const a = obj(section["attendance"]);
   const attendance: HrmsAttendanceRow | null = a
-    ? { graceMinutes: typeof a["grace_minutes"] === "number" ? String(a["grace_minutes"]) : "15", lateType: str(a["late_type"]), absentType: str(a["absent_type"]) }
+    ? { graceMinutes: typeof a["grace_minutes"] === "number" ? String(a["grace_minutes"]) : "15", lateType: str(a["late_type"]), absentType: str(a["absent_type"]), startsOn: str(a["starts_on"]) }
     : null;
   return { types, enquiries, attendance };
 }
@@ -139,7 +141,9 @@ export function emitHrms(rows: HrmsRows): Record<string, unknown> {
   // The clock-in check travels with every save: an editor that forgot it would switch it off.
   if (rows.attendance) {
     const grace = wholeNumber(rows.attendance.graceMinutes);
-    out.attendance = { grace_minutes: Number.isNaN(grace) ? null : grace, late_type: rows.attendance.lateType, absent_type: rows.attendance.absentType };
+    const att: Record<string, unknown> = { grace_minutes: Number.isNaN(grace) ? null : grace, late_type: rows.attendance.lateType, absent_type: rows.attendance.absentType };
+    if (rows.attendance.startsOn) att.starts_on = rows.attendance.startsOn;
+    out.attendance = att;
   }
   return out;
 }

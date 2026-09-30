@@ -1,6 +1,6 @@
 # HRMS violations, enquiries and the clock-in check
 
-Maintainer decisions, 2026-09-30. Migrations 000458 and 000459.
+Maintainer decisions, 2026-09-30. Migrations 000471 and 000472.
 
 ## Violations
 

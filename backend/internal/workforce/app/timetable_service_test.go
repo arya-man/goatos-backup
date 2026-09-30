@@ -213,3 +213,17 @@ func TestDesignationNeverShowsARawRoleCode(t *testing.T) {
 		t.Fatalf("the catalog designation must win over the hint, got %q", got)
 	}
 }
+
+func (f *fakeTimetableRepo) SetMemberWeekOffs(context.Context, string, string, string, []int, int) (ports.TimetablePersonRow, error) {
+	return ports.TimetablePersonRow{}, nil
+}
+
+func (f *fakeTimetableRepo) Holidays(context.Context, string, string, string, string) ([]ports.HolidayRow, error) {
+	return nil, nil
+}
+
+func (f *fakeTimetableRepo) AddHoliday(context.Context, string, string, string, string, string) (ports.HolidayRow, error) {
+	return ports.HolidayRow{}, nil
+}
+
+func (f *fakeTimetableRepo) RemoveHoliday(context.Context, string, string, string) error { return nil }

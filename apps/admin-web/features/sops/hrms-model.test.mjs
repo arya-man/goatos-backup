@@ -60,6 +60,11 @@ test("the clock-in check survives a save, and a version without it stays without
   const rows = parseHrms(seed);
   rows.attendance.graceMinutes = "20";
   assert.deepEqual(emitHrms(rows).attendance, { grace_minutes: 20, late_type: "late_to_shift", absent_type: "" });
+  rows.attendance.startsOn = "2026-10-01";
+  assert.equal(emitHrms(rows).attendance.starts_on, "2026-10-01");
+  // A stored start date survives an untouched save.
+  const dated = parseHrms({ violations: { ...seed.violations, attendance: { ...seed.violations.attendance, starts_on: "2026-10-01" } } });
+  assert.equal(emitHrms(dated).attendance.starts_on, "2026-10-01");
   const bare = parseHrms({ violations: { ...seed.violations, attendance: undefined } });
   assert.equal(bare.attendance, null);
   assert.equal("attendance" in emitHrms(bare), false);

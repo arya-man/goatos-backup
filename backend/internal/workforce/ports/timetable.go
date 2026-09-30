@@ -32,8 +32,23 @@ type TimetablePersonRow struct {
 	Department       string
 	ParkID           string
 	ShiftCode        string
-	RowVersion       int
+	// WeekOffs are ISO weekdays (Monday = 1) the person is off every week.
+	WeekOffs   []int
+	RowVersion int
 }
+
+// HolidayRow is one active holiday HR entered. ParkID "" = every park.
+type HolidayRow struct {
+	HolidayID  string
+	HolidayOn  string // YYYY-MM-DD
+	ParkID     string
+	ParkLabel  string
+	Label      string
+	RowVersion int
+}
+
+// ErrNoShift: weekly offs belong to a person's shift, and they have none yet.
+var ErrNoShift = errors.New("the person has no shift")
 
 // ListTimetablePeopleParams pages the people of ONE park on a keyset (lower(name), id).
 type ListTimetablePeopleParams struct {
@@ -63,6 +78,13 @@ type TimetableRepository interface {
 	// SetMemberShift puts a person on a shift ("" = off every shift), fenced and audited the
 	// same way.
 	SetMemberShift(ctx context.Context, tenantID, actorUserID, personID, shiftCode string, rowVersion int) (TimetablePersonRow, error)
+	// SetMemberWeekOffs sets the weekdays a person is off every week, fenced on the shift row's
+	// version. It does NOT move the shift's set date (a new off day is not a new shift).
+	SetMemberWeekOffs(ctx context.Context, tenantID, actorUserID, personID string, weekOffs []int, rowVersion int) (TimetablePersonRow, error)
+	// Holidays lists the active holidays from..to (inclusive) that apply to parkID (or every park).
+	Holidays(ctx context.Context, tenantID, parkID, from, to string) ([]HolidayRow, error)
+	AddHoliday(ctx context.Context, tenantID, actorUserID, holidayOn, parkID, label string) (HolidayRow, error)
+	RemoveHoliday(ctx context.Context, tenantID, actorUserID, holidayID string) error
 }
 
 // TimetableParkRow is one active park.

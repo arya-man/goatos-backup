@@ -82,6 +82,8 @@ type Attendance struct {
 	GraceMinutes int    `json:"grace_minutes"`
 	LateType     string `json:"late_type"`
 	AbsentType   string `json:"absent_type"`
+	// StartsOn (YYYY-MM-DD) is the first day checked: switching the check on never raises old days.
+	StartsOn string `json:"starts_on,omitempty"`
 }
 
 // Document is the `violations` section of the HRMS SOP.
@@ -116,7 +118,7 @@ type Rules struct {
 	Document Document
 }
 
-// Seed is the seeded document -- byte for byte the migration 000458 seed.
+// Seed is the seeded document -- byte for byte the migration 000471 seed.
 func Seed() Document {
 	return Document{
 		SchemaVersion:  SchemaVersion,
@@ -164,6 +166,8 @@ func (d Document) ActiveTypes() []ViolationType {
 }
 
 var keyPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,39}$`)
+
+var datePattern = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 
 // Parse decodes a section (as it sits in form_dsl) strictly: an unknown key is a problem, never a
 // silent drop, because a misspelt field would otherwise publish a rule nobody applies.
@@ -219,6 +223,9 @@ func Validate(doc Document) []string {
 	if a := doc.Attendance; a != nil {
 		if a.GraceMinutes < 0 || a.GraceMinutes > MaxGraceMinutes {
 			add("clock-in check: the grace must be between 0 and %d minutes", MaxGraceMinutes)
+		}
+		if a.StartsOn != "" && !datePattern.MatchString(a.StartsOn) {
+			add("clock-in check: the start date must be YYYY-MM-DD")
 		}
 		for _, k := range []string{a.LateType, a.AbsentType} {
 			if k != "" && !seenKey[k] {

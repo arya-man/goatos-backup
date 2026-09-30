@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -31,6 +32,11 @@ FROM sop_definitions WHERE tenant_id = $1::uuid AND code = 'hrms.violations'`, d
 	// CPT General shift 8:30 am - 6:00 pm; CBE has no time set, so Farid (CBE) is never checked.
 	f.exec(`INSERT INTO workforce_park_shift_timings (tenant_id, park_id, shift_code, start_minute, end_minute)
 VALUES ($1::uuid, $2::uuid, 'general', 510, 1080)`, dsTenant, dsCPT)
+	// Only people with an app login are checked: give the CPT people theirs.
+	for i := 0; i < 4; i++ {
+		f.exec(`UPDATE workforce_members SET user_id = $2::uuid WHERE workforce_member_id = $1::uuid AND user_id IS NULL`,
+			dsMember(i), fmt.Sprintf("93000000-0000-4000-8000-%012d", 700+i))
+	}
 	// Amit on time, Bhavya late, Chetan on leave he applied for, Head CPT never clocks in, Farid no timing.
 	for _, i := range []int{0, 1, 2, 3, 4} {
 		f.exec(`INSERT INTO workforce_member_shifts (tenant_id, workforce_member_id, shift_code, updated_at)
@@ -165,5 +171,113 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $4::date, $5::date, 'x', 'pending', $2::uu
 	// 2 + 1 + 2 (29-30 Sep only; the October days are outside the month) = 5 days applied.
 	if p.Count != 2 || p.FineRupees != 300 || p.LeavePendingDays != 5 {
 		t.Fatalf("Amit = %+v, want 2 violations, ₹300, 5 days applied", p)
+	}
+}
+
+// The days the check must NEVER raise one, and the two clock-in shapes the first version got wrong
+// (review 2026-09-30): a weekly off, a holiday, someone with no login, a day before the check's
+// start; a clock-in only after the shift ended counts as NO clock-in; a night shift's 00:30 punch
+// is late for the shift that began the evening before, not "no clock-in". A leave applied later
+// closes the waiting violation of its day by itself.
+func TestAttendanceSkipsOffDaysAndMatchesClockInsByTimeWithDockerPostgres(t *testing.T) {
+	f := dsSeed(t)
+	doc := `{"schema_version":"goatos.sop-form.v1","sop_code":"hrms.violations","title":"x","fields":[],
+"violations":{"schema_version":"goatos.sop-hrms-violations.v1",
+ "violation_types":[{"key":"late_clock_in","title":"Late clock-in","active":true},{"key":"did_not_clock_in","title":"Did not clock in","active":true}],
+ "enquiries":[],
+ "attendance":{"grace_minutes":15,"late_type":"late_clock_in","absent_type":"did_not_clock_in","starts_on":"2026-09-29"}}}`
+	f.exec(`UPDATE sop_versions SET status = 'retired' WHERE tenant_id = $1::uuid AND status = 'published'
+AND sop_id = (SELECT sop_id FROM sop_definitions WHERE tenant_id = $1::uuid AND code = 'hrms.violations')`, dsTenant)
+	f.exec(`INSERT INTO sop_versions (tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy, compatibility, validation_report, published_at)
+SELECT $1::uuid, sop_id, 3, 'v3', 'published', $2::jsonb, '{}'::jsonb, '{}'::jsonb, '{"valid":true,"errors":[],"warnings":[]}'::jsonb, now()
+FROM sop_definitions WHERE tenant_id = $1::uuid AND code = 'hrms.violations'`, dsTenant, doc)
+	// CPT: General 8:30 am - 6 pm; a night shift 10 pm - 6 am on "second".
+	f.exec(`INSERT INTO workforce_park_shift_timings (tenant_id, park_id, shift_code, start_minute, end_minute) VALUES
+($1::uuid, $2::uuid, 'general', 510, 1080), ($1::uuid, $2::uuid, 'second', 1320, 360)`, dsTenant, dsCPT)
+	// 29/09/2026 is a Tuesday (ISO 2). Amit: weekly off Tuesday. Bhavya: no login. Chetan: clocks
+	// in only after the shift ended. Farid (CBE): holiday at CBE -- but CBE has no timing anyway, so
+	// Head CPT carries the holiday case via an all-parks holiday on 28/09, before the start date.
+	people := map[int]string{0: "general", 1: "general", 2: "general", 4: "second"}
+	for i, shift := range people {
+		f.exec(`INSERT INTO workforce_member_shifts (tenant_id, workforce_member_id, shift_code, updated_at, week_offs)
+VALUES ($1::uuid, $2::uuid, $3, '2026-09-20 10:00+05:30', CASE WHEN $4 THEN '{2}'::smallint[] ELSE '{}'::smallint[] END)`,
+			dsTenant, dsMember(i), shift, i == 0)
+	}
+	f.exec(`UPDATE workforce_members SET user_id = $2::uuid WHERE workforce_member_id = $1::uuid`, dsMember(0), "93000000-0000-4000-8000-000000000800")
+	f.exec(`UPDATE workforce_members SET user_id = $2::uuid WHERE workforce_member_id = $1::uuid`, dsMember(2), "93000000-0000-4000-8000-000000000802")
+	punch := func(member int, day, at string) {
+		f.exec(`WITH ev AS (
+  INSERT INTO workforce_clock_events (tenant_id, workforce_member_id, user_id, event_type, business_date, captured_at, recorded_at, location_status)
+  VALUES ($1::uuid, $2::uuid, $2::uuid, 'clock_in', $3::date, $4::timestamptz, $4::timestamptz, 'unavailable')
+  RETURNING clock_event_id)
+INSERT INTO workforce_clock_entries (tenant_id, workforce_member_id, business_date, clock_in_event_id, clock_in_at, status)
+SELECT $1::uuid, $2::uuid, $3::date, clock_event_id, $4::timestamptz, 'open' FROM ev`, dsTenant, dsMember(member), day, at)
+	}
+	punch(2, "2026-09-29", "2026-09-29 18:30+05:30") // after the General shift ended
+	punch(4, "2026-09-30", "2026-09-30 00:30+05:30") // Head CPT, for Tuesday's 10 pm night shift
+	svc := f.svc.WithClock(func() time.Time { t, _ := time.Parse(time.RFC3339, "2026-09-30T07:00:00+05:30"); return t })
+	if _, err := svc.RaiseAttendanceViolations(f.ctx, dsTenant); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	rows, err := f.repo.pool.Query(f.ctx, `SELECT m.display_name || ' ' || to_char(v.occurred_on, 'YYYY-MM-DD'), v.attendance_kind
+FROM workforce_violations v JOIN workforce_members m USING (workforce_member_id) WHERE v.tenant_id = $1::uuid AND v.source = 'attendance'`, dsTenant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			t.Fatal(err)
+		}
+		got[k] = v
+	}
+	rows.Close()
+	want := map[string]string{
+		"Chetan 2026-09-29":   "absent", // clocked in only after the shift ended
+		"Head CPT 2026-09-29": "late",   // 00:30 punch belongs to Tuesday's 10 pm shift: 2 h 30 min late
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Fatalf("%s = %q, want %q; all = %v", k, got[k], v, got)
+		}
+	}
+	// Amit (Tuesday off), Bhavya (no login), anything before 29/09 (start date): nothing.
+	for k := range got {
+		if _, ok := want[k]; !ok {
+			t.Fatalf("unexpected violation %s; all = %v", k, got)
+		}
+	}
+
+	// Chetan applies for leave covering 29/09 afterwards: his waiting violation closes itself.
+	f.exec(`INSERT INTO workforce_leave_requests (tenant_id, workforce_member_id, park_id, starts_on, ends_on, reason, status,
+  raised_by_user_id, idempotency_key, request_fingerprint)
+VALUES ($1::uuid, $2::uuid, $3::uuid, '2026-09-29', '2026-09-29', 'Sick', 'pending', $2::uuid, 'lv-late-1', 'fp')`, dsTenant, dsMember(2), dsCPT)
+	if _, err := svc.RaiseAttendanceViolations(f.ctx, dsTenant); err != nil {
+		t.Fatal(err)
+	}
+	var status, note string
+	if err := f.repo.pool.QueryRow(f.ctx, `SELECT status, decision_note FROM workforce_violations WHERE workforce_member_id = $1::uuid AND source = 'attendance'`,
+		dsMember(2)).Scan(&status, &note); err != nil {
+		t.Fatal(err)
+	}
+	if status != "closed" || !strings.Contains(note, "leave") {
+		t.Fatalf("Chetan after leave = %s / %q, want closed by itself for leave", status, note)
+	}
+
+	// 30/09 is a CPT holiday: the next morning nobody at CPT is owed anything for it.
+	f.exec(`INSERT INTO workforce_holidays (tenant_id, holiday_on, park_id, label, created_by) VALUES ($1::uuid, '2026-09-30', $2::uuid, 'Festival', $3::uuid)`,
+		dsTenant, dsCPT, dsHRUser)
+	next := f.svc.WithClock(func() time.Time { t, _ := time.Parse(time.RFC3339, "2026-10-01T07:00:00+05:30"); return t })
+	if _, err := next.RaiseAttendanceViolations(f.ctx, dsTenant); err != nil {
+		t.Fatal(err)
+	}
+	var onHoliday int
+	if err := f.repo.pool.QueryRow(f.ctx, `SELECT count(*) FROM workforce_violations WHERE tenant_id = $1::uuid AND source = 'attendance' AND occurred_on = '2026-09-30'`,
+		dsTenant).Scan(&onHoliday); err != nil {
+		t.Fatal(err)
+	}
+	if onHoliday != 0 {
+		t.Fatalf("a holiday raised %d violations", onHoliday)
 	}
 }

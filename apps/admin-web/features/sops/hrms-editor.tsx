@@ -10,6 +10,7 @@ import { useState, useTransition } from "react";
 import Link from "@/components/no-prefetch-link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, ChevronLeft, Plus, X } from "lucide-react";
+import { ThemedDatePicker } from "@/components/themed-date-picker";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { publishHrmsVersion, saveHrmsVersion, type HrmsSaveResult } from "./sop-actions";
 import { publishedHref } from "./published-href";
@@ -57,7 +58,7 @@ export function HrmsEditor({
 
   const spare = freeTriggers(rows);
   const setAttendance = (patch: Partial<HrmsAttendanceRow>) =>
-    setRows((r) => ({ ...r, attendance: { ...(r.attendance ?? { graceMinutes: "15", lateType: "", absentType: "" }), ...patch } }));
+    setRows((r) => ({ ...r, attendance: { ...(r.attendance ?? { graceMinutes: "15", lateType: "", absentType: "", startsOn: "" }), ...patch } }));
   // Only types already saved can be named by the check: a new row gets its key when it is saved.
   const namedTypes = rows.types.filter((x) => x.stored && x.key);
 
@@ -218,6 +219,18 @@ export function HrmsEditor({
               <span className="small muted">{t("hsop.attendance.grace")}</span>
               <input className="inp" inputMode="numeric" value={rows.attendance?.graceMinutes ?? ""} onChange={(e) => setAttendance({ graceMinutes: e.target.value.replace(/[^0-9]/g, "") })} data-testid="hsop-grace" />
             </label>
+            <div className="fld hsop-num">
+              <span className="small muted">{t("hsop.attendance.starts")}</span>
+              <ThemedDatePicker
+                name="attendance_starts_on"
+                label={t("hsop.attendance.starts")}
+                value={rows.attendance?.startsOn ?? ""}
+                onChange={(v) => setAttendance({ startsOn: v })}
+                previousMonthLabel={t("hsop.attendance.prev_month")}
+                nextMonthLabel={t("hsop.attendance.next_month")}
+                invalidDateText={t("hsop.attendance.invalid_date")}
+              />
+            </div>
             <label className="fld hsop-grow">
               <span className="small muted">{t("hsop.attendance.late")}</span>
               <select className="inp" value={rows.attendance?.lateType ?? ""} onChange={(e) => setAttendance({ lateType: e.target.value })} data-testid="hsop-late-type">

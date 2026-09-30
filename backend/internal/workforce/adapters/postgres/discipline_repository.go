@@ -14,7 +14,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/workforce/ports"
 )
 
-// HRMS violations and enquiries (maintainer decisions 2026-09-30, migration 000458). Staff-sized
+// HRMS violations and enquiries (maintainer decisions 2026-09-30, migration 000471). Staff-sized
 // reads: every query is one tenant, optionally narrowed to a park list, keyset-paged where it
 // lists, with 1:1 joins only (member -> person_access -> designation; member -> park; recorder
 // via a LATERAL LIMIT 1).

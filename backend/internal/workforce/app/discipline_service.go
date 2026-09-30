@@ -67,57 +67,60 @@ const (
 )
 
 var disciplineCopy = map[string]string{
-	"status.recorded":         "Recorded",
-	"status.withdrawn":        "Withdrawn",
-	"status.pending":          "Waiting for HR",
-	"status.closed":           "Closed by HR",
-	"source.manual":           "Recorded by hand",
-	"source.enquiry":          "From an enquiry",
-	"source.attendance":       "Clock-in check",
-	"period.month":            "Month",
-	"period.year":             "Year",
-	"period.all":              "All time",
-	"period.all_label":        "All time",
-	"leave.day":               "1 day",
-	"leave.days":              "%d days",
-	"leave.applied":           "%s applied",
-	"attendance.late":         "Clocked in %s · %s starts %s · %s late",
-	"attendance.minutes":      "%d min",
-	"attendance.hours":        "%d h %d min",
-	"attendance.absent":       "No clock-in · %s starts %s",
-	"error.decide_conflict":   "This violation was already decided, or someone changed it just now. The latest is shown.",
-	"error.close_reason":      "Say why it is closed (up to 500 letters).",
-	"error.period":            "That period is not valid.",
-	"enquiry.open":            "Open",
-	"enquiry.overdue":         "Overdue",
-	"enquiry.submitted":       "Submitted",
-	"penalty.none":            "Nobody penalised",
-	"penalty.one":             "1 person penalised",
-	"penalty.many":            "%d people penalised",
-	"error.type":              "Choose a violation from the published list.",
-	"error.person":            "That person was not found, or is no longer active.",
-	"error.person_park":       "You can record a violation only for someone whose home park is yours.",
-	"error.fine":              "The fine must be between ₹0 and ₹1,00,00,000.",
-	"error.date":              "Choose the date it happened; it cannot be in the future.",
-	"error.note":              "The note is too long (2000 letters at most).",
-	"error.key":               "This request is missing its retry key.",
-	"error.reason":            "Say why it is withdrawn (up to 500 letters).",
-	"error.withdraw_conflict": "Someone else changed this violation just now. The latest is shown.",
-	"error.month":             "That month is not valid.",
-	"error.park":              "That park is not one of the farm's active parks.",
-	"error.enquiry":           "That enquiry was not found.",
-	"error.enquiry_submitted": "This enquiry was already submitted.",
-	"error.enquiry_conflict":  "Someone else changed this enquiry just now. Reload and try again.",
-	"error.answer_required":   "Answer: %s",
-	"error.answer_unknown":    "An answer was given to a question this enquiry does not ask.",
-	"error.answer_long":       "An answer is too long (2000 letters at most).",
-	"error.answer_kind":       "Answer %s with yes or no.",
-	"error.penalty_person":    "Each person penalised must work at this park and be active.",
-	"error.penalty_twice":     "The same person is penalised twice for the same violation.",
-	"error.penalty_many":      "At most 50 people can be penalised in one enquiry.",
-	"error.idempotency":       "This retry key was already used for a different violation.",
-	"error.filter":            "That filter is not valid.",
-	"error.no_enquiry":        "No enquiry is authored for this event.",
+	"status.recorded":          "Recorded",
+	"status.withdrawn":         "Withdrawn",
+	"status.pending":           "Waiting for HR",
+	"status.closed":            "Closed by HR",
+	"source.manual":            "Recorded by hand",
+	"source.enquiry":           "From an enquiry",
+	"source.attendance":        "Clock-in check",
+	"period.month":             "Month",
+	"period.year":              "Year",
+	"period.all":               "All time",
+	"period.all_label":         "All time",
+	"leave.day":                "1 day",
+	"leave.days":               "%d days",
+	"leave.applied":            "%s applied",
+	"attendance.late":          "Clocked in %s · %s starts %s · %s late",
+	"attendance.minutes":       "%d min",
+	"attendance.hours":         "%d h %d min",
+	"attendance.absent":        "No clock-in · %s starts %s",
+	"attendance.close_leave":   "Closed by itself: leave was applied for this day",
+	"attendance.close_holiday": "Closed by itself: this day is a holiday",
+	"attendance.close_weekoff": "Closed by itself: this day is the weekly off",
+	"error.decide_conflict":    "This violation was already decided, or someone changed it just now. The latest is shown.",
+	"error.close_reason":       "Say why it is closed (up to 500 letters).",
+	"error.period":             "That period is not valid.",
+	"enquiry.open":             "Open",
+	"enquiry.overdue":          "Overdue",
+	"enquiry.submitted":        "Submitted",
+	"penalty.none":             "Nobody penalised",
+	"penalty.one":              "1 person penalised",
+	"penalty.many":             "%d people penalised",
+	"error.type":               "Choose a violation from the published list.",
+	"error.person":             "That person was not found, or is no longer active.",
+	"error.person_park":        "You can record a violation only for someone whose home park is yours.",
+	"error.fine":               "The fine must be between ₹0 and ₹1,00,00,000.",
+	"error.date":               "Choose the date it happened; it cannot be in the future.",
+	"error.note":               "The note is too long (2000 letters at most).",
+	"error.key":                "This request is missing its retry key.",
+	"error.reason":             "Say why it is withdrawn (up to 500 letters).",
+	"error.withdraw_conflict":  "Someone else changed this violation just now. The latest is shown.",
+	"error.month":              "That month is not valid.",
+	"error.park":               "That park is not one of the farm's active parks.",
+	"error.enquiry":            "That enquiry was not found.",
+	"error.enquiry_submitted":  "This enquiry was already submitted.",
+	"error.enquiry_conflict":   "Someone else changed this enquiry just now. Reload and try again.",
+	"error.answer_required":    "Answer: %s",
+	"error.answer_unknown":     "An answer was given to a question this enquiry does not ask.",
+	"error.answer_long":        "An answer is too long (2000 letters at most).",
+	"error.answer_kind":        "Answer %s with yes or no.",
+	"error.penalty_person":     "Each person penalised must work at this park and be active.",
+	"error.penalty_twice":      "The same person is penalised twice for the same violation.",
+	"error.penalty_many":       "At most 50 people can be penalised in one enquiry.",
+	"error.idempotency":        "This retry key was already used for a different violation.",
+	"error.filter":             "That filter is not valid.",
+	"error.no_enquiry":         "No enquiry is authored for this event.",
 }
 
 // ---------- violations ----------
@@ -166,13 +169,12 @@ func (s *DisciplineService) Violations(ctx context.Context, tenantID string, cal
 	if err != nil {
 		return nil, err
 	}
-	// The totals are what is OWED: under "all" they count recorded violations only -- a withdrawn
-	// one stays in the list (greyed, with its reason), a waiting one is not owed until HR keeps it,
-	// and a closed one never is. Filtering to a status totals that status.
+	// The tiles are ALWAYS what counts -- recorded violations and their fines -- whatever tab is
+	// open, with "waiting for HR" as its own tile; the status tab narrows only the list. (The review
+	// found tiles that meant "waiting" on one tab and "counts" on another beside a per-person table
+	// that followed neither.)
 	totalsFilter := f
-	if totalsFilter.Status == "" {
-		totalsFilter.Status = domain.ViolationRecorded
-	}
+	totalsFilter.Status = domain.ViolationRecorded
 	sum, err := s.repo.ViolationSummary(ctx, totalsFilter)
 	if err != nil {
 		return nil, err
@@ -195,6 +197,7 @@ func (s *DisciplineService) Violations(ctx context.Context, tenantID string, cal
 	if err != nil {
 		return nil, err
 	}
+	pageTypes := manualTypeOptions(rules.Document)
 	out := &domain.ViolationsPage{
 		Parks: parks, ParkID: parkID, Months: monthOptions(s.now()), Month: monthKey, Status: status,
 		Periods: []domain.MonthOption{
@@ -206,7 +209,7 @@ func (s *DisciplineService) Violations(ctx context.Context, tenantID string, cal
 		Summary: domain.ViolationSummary{Count: sum.Count, FineRupees: sum.FineRupees, FineLabel: domain.RupeesLabel(sum.FineRupees),
 			People: sum.People, Pending: pending.Count},
 		ByPerson: []domain.ViolationPersonTotal{}, Items: []domain.Violation{}, NextCursor: next,
-		Types: typeOptions(rules.Document), People: personOptions(people), SOPVersion: rules.Version, TraceID: traceID,
+		Types: pageTypes, People: personOptions(people), SOPVersion: rules.Version, TraceID: traceID,
 	}
 	for _, t := range totals {
 		out.ByPerson = append(out.ByPerson, domain.ViolationPersonTotal{
@@ -297,6 +300,13 @@ func (s *DisciplineService) RaiseAttendanceViolations(ctx context.Context, tenan
 	if err != nil {
 		return 0, err
 	}
+	// A waiting one whose day is now leave, a holiday or the weekly off closes itself first --
+	// even when the check has since been switched off, it raised them.
+	if _, err := s.repo.CloseExcusedAttendance(ctx, tenantID, ports.AttendanceCloseCopy{
+		Leave: disciplineCopy["attendance.close_leave"], Holiday: disciplineCopy["attendance.close_holiday"], WeekOff: disciplineCopy["attendance.close_weekoff"],
+	}); err != nil {
+		return 0, err
+	}
 	late, lateOn := rules.Document.AttendanceType(false)
 	absent, absentOn := rules.Document.AttendanceType(true)
 	if !lateOn && !absentOn {
@@ -305,7 +315,7 @@ func (s *DisciplineService) RaiseAttendanceViolations(ctx context.Context, tenan
 	now := s.now()
 	cands, err := s.repo.AttendanceCandidates(ctx, ports.AttendanceQuery{
 		TenantID: tenantID, Today: biztime.BusinessDate(now), Now: now, GraceMinutes: rules.Document.Attendance.GraceMinutes,
-		LateOn: lateOn, AbsentOn: absentOn, Limit: attendanceBatch,
+		LateOn: lateOn, AbsentOn: absentOn, StartsOn: rules.Document.Attendance.StartsOn, Limit: attendanceBatch,
 	})
 	if err != nil {
 		return 0, err
@@ -621,7 +631,7 @@ func (s *DisciplineService) composeDetail(ctx context.Context, tenantID string, 
 	enquiry, _ := rules.Document.Enquiry(row.TriggerKey)
 	out := &domain.EnquiryDetail{
 		Enquiry: composeEnquiry(row, rules.Document, s.now()), Questions: []domain.EnquiryQuestion{}, Answers: row.Answers,
-		Violations: []domain.Violation{}, Types: typeOptions(rules.Document), People: personOptions(people),
+		Violations: []domain.Violation{}, Types: manualTypeOptions(rules.Document), People: personOptions(people),
 		CanSubmit: row.Status == domain.EnquiryOpen, SOPVersion: row.SOPVersion, TraceID: traceID,
 	}
 	for _, q := range enquiry.Questions {
@@ -635,6 +645,10 @@ func (s *DisciplineService) composeDetail(ctx context.Context, tenantID string, 
 
 func buildViolation(rules hrmsdomain.Rules, personID, typeKey string, fine *int, note string, occurred time.Time) (ports.NewViolation, error) {
 	t, ok := rules.Document.ViolationType(strings.TrimSpace(typeKey))
+	// The clock-in check's own types are raised by the check, never typed by a person.
+	if a := rules.Document.Attendance; ok && a != nil && (t.Key == a.LateType || t.Key == a.AbsentType) {
+		ok = false
+	}
 	if !ok || !t.Active {
 		return ports.NewViolation{}, &Error{Code: "unknown_violation_type", Message: disciplineCopy["error.type"], HTTPStatus: 422}
 	}
@@ -731,6 +745,22 @@ func monthOptions(now time.Time) []domain.MonthOption {
 	for i := 0; i < 12; i++ {
 		m := first.AddDate(0, -i, 0)
 		out = append(out, domain.MonthOption{Key: m.Format("2006-01"), Label: m.Format("Jan 2006")})
+	}
+	return out
+}
+
+// manualTypeOptions are the types a person may RECORD by hand: every active one except those the
+// clock-in check raises itself (a hand-typed "Late clock-in" would bypass the clock and HR's check).
+func manualTypeOptions(doc hrmsdomain.Document) []domain.ViolationTypeOption {
+	auto := map[string]bool{}
+	if doc.Attendance != nil {
+		auto[doc.Attendance.LateType], auto[doc.Attendance.AbsentType] = true, true
+	}
+	out := []domain.ViolationTypeOption{}
+	for _, t := range typeOptions(doc) {
+		if !auto[t.Key] {
+			out = append(out, t)
+		}
 	}
 	return out
 }

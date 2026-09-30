@@ -11,7 +11,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/workforce/ports"
 )
 
-// HRMS Timetable (maintainer request 2026-09-30, migration 000457). Staff-sized reads: every
+// HRMS Timetable (maintainer request 2026-09-30, migration 000470). Staff-sized reads: every
 // query is scoped to one tenant and one park, the people list is keyset-paged on
 // (lower(display_name), workforce_member_id), and every join is 1:1 (member -> person_access ->
 // designation, member -> department, member -> shift on the member PK).
@@ -58,6 +58,7 @@ SELECT
   COALESCE(d.label, ''),
   COALESCE(wm.primary_location_id::text, ''),
   COALESCE(ms.shift_code, ''),
+  COALESCE(ms.week_offs::int[], '{}'::int[]),
   COALESCE(ms.row_version, 0)
 FROM workforce_members wm
 LEFT JOIN person_access pa
@@ -244,7 +245,7 @@ func scanTimetablePeople(rows pgx.Rows) ([]ports.TimetablePersonRow, error) {
 	for rows.Next() {
 		var p ports.TimetablePersonRow
 		if err := rows.Scan(&p.PersonID, &p.DisplayName, &p.DesignationLabel, &p.RoleHint, &p.DesignationGrade,
-			&p.Department, &p.ParkID, &p.ShiftCode, &p.RowVersion); err != nil {
+			&p.Department, &p.ParkID, &p.ShiftCode, &p.WeekOffs, &p.RowVersion); err != nil {
 			return nil, err
 		}
 		out = append(out, p)

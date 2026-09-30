@@ -1,5 +1,6 @@
 "use client";
 
+import { fmtDate } from "@/lib/format";
 import { parseHrms } from "./hrms-model";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -493,7 +494,7 @@ function HrmsSummary({ pageContract, formDsl }: { pageContract: AdminUiPageContr
       </div>
       {rows.enquiries.map((e) => (
         <div className="small" key={e.trigger}>
-          <b>{e.title}</b> · {e.questions.length} · {e.dueHours} h
+          <b>{e.title}</b> · {t("hsop.enquiry.summary").replace("%d", String(e.questions.length)).replace("%d", e.dueHours)}
         </div>
       ))}
       <div className="b700" style={{ margin: "12px 0 8px" }}>
@@ -501,7 +502,7 @@ function HrmsSummary({ pageContract, formDsl }: { pageContract: AdminUiPageContr
       </div>
       <div className="small">
         {a && (a.lateType || a.absentType)
-          ? `${t("hsop.attendance.grace")}: ${a.graceMinutes} · ${t("hsop.attendance.late")}: ${title(a.lateType) || t("hsop.attendance.off")} · ${t("hsop.attendance.absent")}: ${title(a.absentType) || t("hsop.attendance.off")}`
+          ? `${t("hsop.attendance.grace")}: ${a.graceMinutes} · ${t("hsop.attendance.late")}: ${title(a.lateType) || t("hsop.attendance.off")} · ${t("hsop.attendance.absent")}: ${title(a.absentType) || t("hsop.attendance.off")}${a.startsOn ? ` · ${t("hsop.attendance.starts")}: ${fmtDate(a.startsOn)}` : ""}`
           : t("hsop.attendance.off")}
       </div>
     </div>

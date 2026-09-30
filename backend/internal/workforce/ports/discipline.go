@@ -90,7 +90,16 @@ type AttendanceQuery struct {
 	GraceMinutes int
 	LateOn       bool
 	AbsentOn     bool
-	Limit        int
+	// StartsOn is the first business date checked ("" = no floor).
+	StartsOn string
+	Limit    int
+}
+
+// AttendanceCloseCopy is the reason a waiting violation closes itself with, per cause.
+type AttendanceCloseCopy struct {
+	Leave   string
+	Holiday string
+	WeekOff string
 }
 
 // AttendanceCandidate is one (person, day, kind) owed a violation. ClockInAt is nil when absent.
@@ -210,6 +219,9 @@ type DisciplineRepository interface {
 	CloseViolation(ctx context.Context, tenantID, actorUserID, violationID, reason string, rowVersion int) (ViolationRow, error)
 	AttendanceCandidates(ctx context.Context, q AttendanceQuery) ([]AttendanceCandidate, error)
 	InsertAttendanceViolations(ctx context.Context, tenantID string, sopVersion int, items []NewAttendanceViolation) (int, error)
+	// CloseExcusedAttendance closes WAITING automatic violations whose day is now covered by leave
+	// the person applied for, a holiday or their weekly off. Returns how many closed.
+	CloseExcusedAttendance(ctx context.Context, tenantID string, reasons AttendanceCloseCopy) (int, error)
 	ViolationsForEnquiry(ctx context.Context, tenantID, enquiryID string) ([]ViolationRow, error)
 
 	OpenEnquiry(ctx context.Context, cmd OpenEnquiryCommand) (created bool, err error)

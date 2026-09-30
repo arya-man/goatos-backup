@@ -26,7 +26,7 @@ func ttMember(i int) string { return fmt.Sprintf("97000000-0000-4000-8000-%012d"
 func ptr(v int) *int { return &v }
 
 // TestTimetableRepositoryWithDockerPostgres proves the HRMS Timetable storage (maintainer request
-// 2026-09-30, migration 000457) on the real database: the shift catalog is seeded; a park with
+// 2026-09-30, migration 000470) on the real database: the shift catalog is seeded; a park with
 // no stored hours reads every shift unset; hours are per park; a write is fenced on row_version,
 // audited in the same transaction, and an exact replay writes nothing; the people read is one
 // park's ACTIVE members, keyset-paged, filterable by shift, and the whole-park counts sum to the
@@ -43,7 +43,7 @@ func TestTimetableRepositoryWithDockerPostgres(t *testing.T) {
 			t.Fatalf("seed: %v\n%s", err, sql)
 		}
 	}
-	// Migration 000457 seeded the two parks' stated hours IN PLACE: Morning CBE 06:00 / CPT 07:00
+	// Migration 000470 seeded the two parks' stated hours IN PLACE: Morning CBE 06:00 / CPT 07:00
 	// with no end, General 08:30-18:00, Second 15:00-24:00 at both.
 	seeded, err := pool.Query(ctx, `
 SELECT l.location_code, t.shift_code, t.start_minute, COALESCE(t.end_minute, -1)

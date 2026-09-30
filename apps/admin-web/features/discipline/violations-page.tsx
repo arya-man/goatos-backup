@@ -66,7 +66,11 @@ export async function ViolationsPage({ searchParams, pageContract }: { searchPar
             </Link>
           ))}
         </nav>
-        {data.period === "all" ? null : <MonthSelect label={t("filter.month")} months={data.months} value={data.month} pathname={PATHNAME} searchParams={sp} />}
+        {data.period === "all" ? null : data.period === "year" ? (
+          <MonthSelect label={t("filter.year")} months={yearOptions(data.months)} value={`${data.month.slice(0, 4)}-01`} pathname={PATHNAME} searchParams={sp} />
+        ) : (
+          <MonthSelect label={t("filter.month")} months={data.months} value={data.month} pathname={PATHNAME} searchParams={sp} />
+        )}
         <nav className="subtabs" aria-label={t("filter.status")} data-testid="violations-status">
           {statuses.map((s) => (
             <Link key={s.key || "all"} href={hrefWith(PATHNAME, sp, { status: s.key || null, cursor: null })} className={status === s.key ? "on" : undefined} replace scroll={false}>
@@ -86,4 +90,10 @@ export async function ViolationsPage({ searchParams, pageContract }: { searchPar
       />
     </HrmsFrame>
   );
+}
+
+/** The years the month list spans, as options keyed to their January (the year window reads it). */
+function yearOptions(months: { key: string; label: string }[]): { key: string; label: string }[] {
+  const years = Array.from(new Set(months.map((m) => m.key.slice(0, 4))));
+  return years.map((y) => ({ key: `${y}-01`, label: y }));
 }

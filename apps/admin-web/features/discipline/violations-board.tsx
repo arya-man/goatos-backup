@@ -96,7 +96,7 @@ export function ViolationsBoard({
           <div className="empty">{t("people.empty")}</div>
         ) : (
           <div className="twrap" tabIndex={0} role="region" aria-label={t("people.title")}>
-            <table className="people-table">
+            <table className="people-table dsc-rtable">
               <thead>
                 <tr>
                   {personLabels.map((l) => (
@@ -107,18 +107,18 @@ export function ViolationsBoard({
               <tbody>
                 {byPerson.map((p) => (
                   <tr key={p.person_id} data-testid="violations-person-row">
-                    <td>
+                    <td className="dsc-rt-head">
                       <b>{p.person_name}</b>
                       {p.designation ? <div className="small muted">{p.designation}</div> : null}
                     </td>
-                    <td>{p.park_label}</td>
-                    <td>{p.count}</td>
-                    <td>
+                    <td data-label={personLabels[1]}>{p.park_label}</td>
+                    <td data-label={personLabels[2]}>{p.count}</td>
+                    <td data-label={personLabels[3]}>
                       <b>{p.fine_label}</b>
                     </td>
-                    <td>{p.pending > 0 ? <span className="tag t-warn">{p.pending}</span> : <span className="muted">0</span>}</td>
-                    <td>{p.closed}</td>
-                    <td>{p.leave_label || <span className="muted">—</span>}</td>
+                    <td data-label={personLabels[4]}>{p.pending > 0 ? <span className="tag t-warn">{p.pending}</span> : <span className="muted">0</span>}</td>
+                    <td data-label={personLabels[5]}>{p.closed}</td>
+                    <td data-label={personLabels[6]}>{p.leave_label || <span className="muted">—</span>}</td>
                   </tr>
                 ))}
               </tbody>
@@ -135,13 +135,13 @@ export function ViolationsBoard({
           <div className="empty">{t("list.empty")}</div>
         ) : (
           <div className="twrap" tabIndex={0} role="region" aria-label={t("list.title")}>
-            <table className="people-table">
+            <table className="people-table dsc-rtable dsc-list-table">
               <thead>
                 <tr>
                   {listLabels.map((l) => (
                     <th key={l}>{l}</th>
                   ))}
-                  <th aria-hidden="true" />
+                  <th>{t("column.actions")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -150,6 +150,7 @@ export function ViolationsBoard({
                     key={v.violation_id}
                     pageContract={pageContract}
                     violation={v}
+                    labels={listLabels}
                     canEdit={canEdit}
                     editReason={editReason}
                     onChanged={(row, change) => {
@@ -186,12 +187,14 @@ type Asking = "" | "withdraw" | "keep" | "close";
 function ViolationRow({
   pageContract,
   violation: v,
+  labels,
   canEdit,
   editReason,
   onChanged,
 }: {
   pageContract: AdminUiPageContract;
   violation: Violation;
+  labels: string[];
   canEdit: boolean;
   editReason: string;
   onChanged: (v: Violation, change: ViolationChange) => void;
@@ -233,79 +236,88 @@ function ViolationRow({
   };
   const decided = v.decided_by_name ? t("action.decided_by").replace("%s", v.decided_by_name).replace("%s", v.decided_at_label) : "";
 
+  const cols = labels.length + 1;
   return (
-    <tr className={muted ? "dsc-withdrawn" : undefined} data-testid="violation-row">
-      <td>{v.occurred_on_label}</td>
-      <td>
-        <b>{v.person_name}</b>
-        {v.designation ? <div className="small muted">{v.designation}</div> : null}
-      </td>
-      <td>
-        {v.type_label}
-        {/* An automatic one says what happened; "Clock-in check" already reads in Recorded by. */}
-        {v.detail ? <div className="small dsc-detail">{v.detail}</div> : <div className="small muted">{v.source_label}</div>}
-      </td>
-      <td>
-        <b>{v.fine_label}</b>
-      </td>
-      <td className="dsc-note">{v.note}</td>
-      <td>
-        {v.recorded_by_name || <span className="muted">{v.source_label}</span>}
-        <div className="small muted">{v.recorded_at_label}</div>
-      </td>
-      <td>
-        <span className={muted ? "tag t-mut" : waiting ? "tag t-info" : "tag t-warn"} data-testid="violation-status">
-          {v.status_label}
-        </span>
-        {v.withdraw_reason ? <div className="small muted">{v.withdraw_reason}</div> : null}
-        {decided ? <div className="small muted">{decided}</div> : null}
-        {v.status === "closed" && v.decision_note ? <div className="small muted">{v.decision_note}</div> : null}
-      </td>
-      <td>
-        {muted ? null : asking ? (
-          <div className="dsc-withdraw" data-testid={`violation-${asking}-form`}>
-            {asking === "keep" ? (
-              <input className="inp dsc-fine-inp" inputMode="numeric" value={fine} placeholder={t("form.fine_none")} aria-label={t("form.fine")} onChange={(e) => setFine(e.target.value.replace(/[^0-9]/g, ""))} data-testid="violation-keep-fine" />
-            ) : null}
-            <input
-              className="inp"
-              value={text}
-              maxLength={asking === "keep" ? 2000 : 500}
-              placeholder={asking === "keep" ? t("form.note") : asking === "close" ? t("action.close_reason") : t("action.withdraw_reason")}
-              aria-label={asking === "keep" ? t("form.note") : asking === "close" ? t("action.close_reason") : t("action.withdraw_reason")}
-              onChange={(e) => setText(e.target.value)}
-              data-testid={`violation-${asking}-text`}
-            />
-            <button
-              type="button"
-              className={asking === "keep" ? "btn sm primary" : "btn sm dng"}
-              disabled={pending || (asking !== "keep" && !text.trim())}
-              onClick={confirm}
-              data-testid={`violation-${asking}-confirm`}
-            >
-              {asking === "keep" ? t("action.keep_confirm") : asking === "close" ? t("action.close_confirm") : t("action.withdraw_confirm")}
+    <>
+      <tr className={muted ? "dsc-withdrawn" : undefined} data-testid="violation-row">
+        <td data-label={labels[0]}>{v.occurred_on_label}</td>
+        <td className="dsc-rt-head">
+          <b>{v.person_name}</b>
+          {v.designation ? <div className="small muted">{v.designation}</div> : null}
+        </td>
+        <td data-label={labels[2]}>
+          {v.type_label}
+          {/* An automatic one says what happened; "Clock-in check" already reads in Recorded by. */}
+          {v.detail ? <div className="small dsc-detail">{v.detail}</div> : <div className="small muted">{v.source_label}</div>}
+          {v.note ? <div className="small dsc-note">{v.note}</div> : null}
+        </td>
+        <td data-label={labels[3]}>
+          <b>{v.fine_label}</b>
+        </td>
+        <td data-label={labels[4]}>
+          {v.recorded_by_name || <span className="muted">{v.source_label}</span>}
+          <div className="small muted">{v.recorded_at_label}</div>
+        </td>
+        <td data-label={labels[5]}>
+          <span className={muted ? "tag t-mut" : waiting ? "tag t-info" : "tag t-warn"} data-testid="violation-status">
+            {v.status_label}
+          </span>
+          {v.withdraw_reason ? <div className="small muted">{v.withdraw_reason}</div> : null}
+          {decided ? <div className="small muted">{decided}</div> : null}
+          {v.status === "closed" && v.decision_note ? <div className="small muted">{v.decision_note}</div> : null}
+        </td>
+        <td className="dsc-rt-actions">
+          {muted || asking ? null : waiting ? (
+            <div className="dsc-actions">
+              <button type="button" className="btn sm primary" disabled={!canEdit} title={canEdit ? undefined : editReason} onClick={() => open("keep")} data-testid="violation-keep">
+                {t("action.keep")}
+              </button>
+              <button type="button" className="btn sm" disabled={!canEdit} title={canEdit ? undefined : editReason} onClick={() => open("close")} data-testid="violation-close">
+                {t("action.close")}
+              </button>
+            </div>
+          ) : (
+            <button type="button" className="btn sm" disabled={!canEdit} title={canEdit ? undefined : editReason} onClick={() => open("withdraw")} data-testid="violation-withdraw">
+              {t("action.withdraw")}
             </button>
-            <button type="button" className="btn sm" disabled={pending} onClick={() => open("")}>
-              {t("action.cancel")}
-            </button>
-            {error ? <div className="small tt-status dng">{error}</div> : null}
-          </div>
-        ) : waiting ? (
-          <div className="dsc-actions">
-            <button type="button" className="btn sm primary" disabled={!canEdit} title={canEdit ? undefined : editReason} onClick={() => open("keep")} data-testid="violation-keep">
-              {t("action.keep")}
-            </button>
-            <button type="button" className="btn sm" disabled={!canEdit} title={canEdit ? undefined : editReason} onClick={() => open("close")} data-testid="violation-close">
-              {t("action.close")}
-            </button>
-          </div>
-        ) : (
-          <button type="button" className="btn sm" disabled={!canEdit} title={canEdit ? undefined : editReason} onClick={() => open("withdraw")} data-testid="violation-withdraw">
-            {t("action.withdraw")}
-          </button>
-        )}
-      </td>
-    </tr>
+          )}
+        </td>
+      </tr>
+      {asking ? (
+        <tr className="dsc-editor-row">
+          <td colSpan={cols}>
+            {/* The decision opens as a full-width row under the violation: nothing is squeezed into a cell. */}
+            <div className="dsc-decide" data-testid={`violation-${asking}-form`}>
+              {asking === "keep" ? (
+                <label className="fld dsc-f-fine">
+                  <span className="small muted">{t("form.fine")}</span>
+                  <input className="inp" inputMode="numeric" value={fine} placeholder={t("form.fine_none")} onChange={(e) => setFine(e.target.value.replace(/[^0-9]/g, ""))} data-testid="violation-keep-fine" />
+                </label>
+              ) : null}
+              <label className="fld dsc-f-note">
+                <span className="small muted">{asking === "keep" ? t("form.note") : asking === "close" ? t("action.close_reason") : t("action.withdraw_reason")}</span>
+                <input className="inp" value={text} maxLength={asking === "keep" ? 2000 : 500} onChange={(e) => setText(e.target.value)} data-testid={`violation-${asking}-text`} />
+              </label>
+              <div className="dsc-f-actions">
+                <button
+                  type="button"
+                  className={asking === "keep" ? "btn primary" : "btn dng"}
+                  disabled={pending || (asking !== "keep" && !text.trim())}
+                  onClick={confirm}
+                  data-testid={`violation-${asking}-confirm`}
+                >
+                  {asking === "keep" ? t("action.keep_confirm") : asking === "close" ? t("action.close_confirm") : t("action.withdraw_confirm")}
+                </button>
+                <button type="button" className="btn" disabled={pending} onClick={() => open("")}>
+                  {t("action.cancel")}
+                </button>
+              </div>
+              {error ? <div className="small tt-status dng">{error}</div> : null}
+            </div>
+          </td>
+        </tr>
+      ) : null}
+    </>
   );
 }
 

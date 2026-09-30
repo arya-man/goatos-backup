@@ -19,7 +19,7 @@ Maintainer request 2026-09-30, with answers given the same day.
 3. **Timetable.** Pick a park and see that park's shifts with their working hours. Below them is
    everyone whose home park it is, with the shift each person works.
 
-## The timetable model (migration 000457)
+## The timetable model (migration 000470)
 
 | Fact | Where | Why |
 |---|---|---|

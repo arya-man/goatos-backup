@@ -1846,6 +1846,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/workforce/timetable/people/{person_id}/week-offs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set the weekdays a person is off every week; the clock-in check never checks them. */
+        put: operations["setWorkforceWeekOffs"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/workforce/holidays": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enter a holiday for every park or one park; the clock-in check skips it. */
+        post: operations["addWorkforceHoliday"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/workforce/holidays/{holiday_id}/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Take a holiday off (kept on record). */
+        post: operations["removeWorkforceHoliday"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/workforce/violations": {
         parameters: {
             query?: never;
@@ -5250,7 +5301,38 @@ export interface components {
             total_people: number;
             unassigned_count: number;
             people: components["schemas"]["TimetablePerson"][];
+            weekdays: components["schemas"]["TimetableWeekday"][];
+            holidays: components["schemas"]["WorkforceHoliday"][];
             next_cursor: string;
+            trace_id: string;
+        };
+        TimetableWeekday: {
+            /** @description ISO weekday, Monday = 1 */
+            key: number;
+            label: string;
+        };
+        WorkforceHoliday: {
+            holiday_id: string;
+            /** @description YYYY-MM-DD */
+            holiday_on: string;
+            date_label: string;
+            /** @description empty = every park */
+            park_id: string;
+            park_label: string;
+            label: string;
+            row_version: number;
+        };
+        WeekOffsUpdate: {
+            week_offs: number[];
+            row_version: number;
+        };
+        AddHolidayRequest: {
+            holiday_on: string;
+            park_id: string;
+            label: string;
+        };
+        HolidayResponse: {
+            holiday: components["schemas"]["WorkforceHoliday"];
             trace_id: string;
         };
         TimetablePark: {
@@ -5275,6 +5357,8 @@ export interface components {
             shift_code: string;
             shift_label: string;
             timing_label: string;
+            week_offs: number[];
+            week_off_label: string;
             row_version: number;
         };
         ShiftTimingUpdate: {
@@ -9991,6 +10075,110 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    setWorkforceWeekOffs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                person_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WeekOffsUpdate"];
+            };
+        };
+        responses: {
+            /** @description The person's row after the write. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberShiftResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            /** @description Not weekdays, or the person has no shift yet. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    addWorkforceHoliday: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddHolidayRequest"];
+            };
+        };
+        responses: {
+            /** @description The holiday. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HolidayResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description No date, no name, or an unknown park. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    removeWorkforceHoliday: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                holiday_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        trace_id?: string;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];
         };
     };

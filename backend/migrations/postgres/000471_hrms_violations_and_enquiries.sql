@@ -146,13 +146,13 @@ SELECT sd.tenant_id, sd.sop_id, 1, 'Violations and enquiries v1', 'published',
        ),
        '{"subject_scope": "task", "types": ["photo", "video"], "required": false, "minimum_count": 0, "verify_before_apply": false, "approval_before_apply": false}'::jsonb,
        '{"min_app_version": "0.2.0", "supported_field_types": ["boolean", "select", "multiselect", "number", "text"], "supported_proof_actions": [], "supported_rule_operators": ["equals", "not_equals", "empty", "not_empty", "in"]}'::jsonb,
-       '{"valid": true, "errors": [], "warnings": [{"code": "seeded", "field": "form_dsl", "message": "Seeded HRMS violations and enquiries (migration 000458)."}]}'::jsonb,
+       '{"valid": true, "errors": [], "warnings": [{"code": "seeded", "field": "form_dsl", "message": "Seeded HRMS violations and enquiries (migration 000471)."}]}'::jsonb,
        now()
 FROM public.sop_definitions sd
 WHERE sd.code = 'hrms.violations'
 ON CONFLICT (tenant_id, sop_id, version) DO NOTHING;
 
--- PER-PERSON ACCESS (the 000457 shape): HR and the CEO get the web-only `violations` module at
+-- PER-PERSON ACCESS (the 000470 shape): HR and the CEO get the web-only `violations` module at
 -- configure, ledgered so Down removes exactly these rows.
 CREATE TABLE IF NOT EXISTS public.person_module_access_violations_backfill (
   tenant_id           uuid NOT NULL,

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/workforce/domain"
 	"github.com/vgoats/goatos/backend/internal/workforce/ports"
@@ -127,6 +128,12 @@ func (s *TimetableService) Timetable(ctx context.Context, tenantID, parkID, shif
 		out.People = append(out.People, composeTimetablePerson(row, byCode))
 	}
 	out.NextCursor = next
+	out.Weekdays = weekdays()
+	holidays, err := s.holidaysFor(ctx, tenantID, out.ParkID, time.Now())
+	if err != nil {
+		return nil, err
+	}
+	out.Holidays = holidays
 	return out, nil
 }
 
@@ -246,8 +253,10 @@ func composeTimetablePerson(row ports.TimetablePersonRow, shifts map[string]port
 		Department:  row.Department,
 		ShiftCode:   row.ShiftCode,
 		ShiftLabel:  timetableCopy["shift.none"],
+		WeekOffs:    append([]int{}, row.WeekOffs...),
 		RowVersion:  row.RowVersion,
 	}
+	out.WeekOffLabel = weekOffLabel(row.WeekOffs)
 	if row.ShiftCode == "" {
 		return out
 	}

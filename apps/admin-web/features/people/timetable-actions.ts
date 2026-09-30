@@ -1,6 +1,15 @@
 "use server";
 
-import { setWorkforceMemberShift, setWorkforceParkShiftTiming, type TimetablePerson, type TimetableShift } from "@/lib/api/server";
+import {
+  addWorkforceHoliday,
+  removeWorkforceHoliday,
+  setWorkforceMemberShift,
+  setWorkforceParkShiftTiming,
+  setWorkforceWeekOffs,
+  type TimetablePerson,
+  type TimetableShift,
+  type WorkforceHoliday,
+} from "@/lib/api/server";
 
 // People / HRMS > Timetable writes (maintainer request 2026-09-30). Server Actions, authenticated
 // through the server config, never a client fetch. Each RETURNS the saved row and the client puts
@@ -34,4 +43,24 @@ export async function setShiftTimingAction(input: {
   });
   if (!result.ok) return { ok: false, code: result.error.code ?? result.error.kind, message: result.error.message };
   return { ok: true, row: result.data.shift };
+}
+
+/** A person's weekly off days (ISO weekdays, Monday = 1). */
+export async function setWeekOffsAction(input: { personId: string; weekOffs: number[]; rowVersion: number }): Promise<TimetableActionResult<TimetablePerson>> {
+  const result = await setWorkforceWeekOffs(input.personId, { week_offs: input.weekOffs, row_version: input.rowVersion });
+  if (!result.ok) return { ok: false, code: result.error.code ?? result.error.kind, message: result.error.message };
+  return { ok: true, row: result.data.person };
+}
+
+/** A holiday for every park (parkId "") or one park. */
+export async function addHolidayAction(input: { holidayOn: string; parkId: string; label: string }): Promise<TimetableActionResult<WorkforceHoliday>> {
+  const result = await addWorkforceHoliday({ holiday_on: input.holidayOn, park_id: input.parkId, label: input.label });
+  if (!result.ok) return { ok: false, code: result.error.code ?? result.error.kind, message: result.error.message };
+  return { ok: true, row: result.data.holiday };
+}
+
+export async function removeHolidayAction(holidayId: string): Promise<TimetableActionResult<string>> {
+  const result = await removeWorkforceHoliday(holidayId);
+  if (!result.ok) return { ok: false, code: result.error.code ?? result.error.kind, message: result.error.message };
+  return { ok: true, row: holidayId };
 }

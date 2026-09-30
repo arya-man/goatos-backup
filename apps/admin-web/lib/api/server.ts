@@ -2286,6 +2286,43 @@ export async function setWorkforceParkShiftTiming(
   );
 }
 
+export type WorkforceHoliday = AdminApiComponents["schemas"]["WorkforceHoliday"];
+
+// Weekly offs and holidays (2026-09-30): the days the clock-in check never checks.
+export async function setWorkforceWeekOffs(personId: string, body: { week_offs: number[]; row_version: number }): Promise<ApiResult<MemberShiftResult>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<MemberShiftResult>(`/admin/workforce/timetable/people/${encodeURIComponent(personId)}/week-offs` as keyof AdminApiPaths & string, {
+      method: "PUT",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
+export async function addWorkforceHoliday(body: { holiday_on: string; park_id: string; label: string }): Promise<ApiResult<{ holiday: WorkforceHoliday; trace_id: string }>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<{ holiday: WorkforceHoliday; trace_id: string }>("/admin/workforce/holidays", { method: "POST", cache: "no-store", body }),
+  );
+}
+
+export async function removeWorkforceHoliday(holidayId: string): Promise<ApiResult<{ trace_id: string }>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<{ trace_id: string }>(`/admin/workforce/holidays/${encodeURIComponent(holidayId)}/remove` as keyof AdminApiPaths & string, {
+      method: "POST",
+      cache: "no-store",
+    }),
+  );
+}
+
 export async function setWorkforceMemberShift(
   personId: string,
   body: { shift_code: string; row_version: number },

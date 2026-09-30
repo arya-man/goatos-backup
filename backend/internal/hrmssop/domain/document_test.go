@@ -56,10 +56,10 @@ func TestParseRefusesAnUnknownField(t *testing.T) {
 	}
 }
 
-// The migration 000458 seed and Seed() are one document: a version-0 fallback that disagreed with
+// The migration 000471 seed and Seed() are one document: a version-0 fallback that disagreed with
 // the published v1 would run different rules for the same farm.
 func TestMigrationEmbedsTheSeed(t *testing.T) {
-	raw, err := os.ReadFile("../../../migrations/postgres/000458_hrms_violations_and_enquiries.sql")
+	raw, err := os.ReadFile("../../../migrations/postgres/000471_hrms_violations_and_enquiries.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,10 +109,10 @@ func TestAttendanceNamesTypesFromTheList(t *testing.T) {
 	}
 }
 
-// Migration 000459 adds the clock-in check to every published HRMS SOP in place; its patch must
+// Migration 000472 adds the clock-in check to every published HRMS SOP in place; its patch must
 // itself be a valid document part.
 func TestMigrationAddsAValidClockInCheck(t *testing.T) {
-	raw, err := os.ReadFile("../../../migrations/postgres/000459_hrms_attendance_violations.sql")
+	raw, err := os.ReadFile("../../../migrations/postgres/000472_hrms_attendance_violations.sql")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Clock3, UsersRound } from "lucide-react";
+import { CalendarOff, Clock3, UsersRound } from "lucide-react";
 import { faro } from "@grafana/faro-web-sdk";
 
 import Link from "@/components/no-prefetch-link";
+import { ThemedDatePicker } from "@/components/themed-date-picker";
 import { copy, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import type { TimetablePerson, TimetableShift, WorkforceTimetable } from "@/lib/api/server";
-import { setPersonShiftAction, setShiftTimingAction } from "./timetable-actions";
+import type { TimetablePerson, TimetableShift, WorkforceHoliday, WorkforceTimetable } from "@/lib/api/server";
+import { addHolidayAction, removeHolidayAction, setPersonShiftAction, setShiftTimingAction, setWeekOffsAction } from "./timetable-actions";
 import {
   HOURS,
   draftFromTiming,
@@ -20,7 +21,7 @@ import {
 } from "./timetable-form";
 
 // Faro RUM for the page's two writes (TELEMETRY GUARDRAIL): the outcome only, never a name.
-function track(event: "timetable_person_shift" | "timetable_shift_timing", status: "success" | "error", code = "") {
+function track(event: "timetable_person_shift" | "timetable_shift_timing" | "timetable_week_offs" | "timetable_holiday_add" | "timetable_holiday_remove", status: "success" | "error", code = "") {
   try {
     faro.api?.pushEvent(event, { status, code });
   } catch {
@@ -143,6 +144,7 @@ export function TimetableBoard({
                     pageContract={pageContract}
                     person={person}
                     shifts={shifts}
+                    weekdays={timetable.weekdays}
                     canEdit={canEdit}
                     editReason={editReason}
                     onSaved={onPersonSaved}
@@ -167,6 +169,8 @@ export function TimetableBoard({
           </div>
         ) : null}
       </section>
+
+      <HolidaysCard pageContract={pageContract} timetable={timetable} canEdit={canEdit} editReason={editReason} />
     </>
   );
 }
@@ -175,6 +179,7 @@ function PersonRow({
   pageContract,
   person,
   shifts,
+  weekdays,
   canEdit,
   editReason,
   onSaved,
@@ -182,6 +187,7 @@ function PersonRow({
   pageContract: AdminUiPageContract;
   person: TimetablePerson;
   shifts: TimetableShift[];
+  weekdays: WorkforceTimetable["weekdays"];
   canEdit: boolean;
   editReason: string;
   onSaved: (before: TimetablePerson, saved: TimetablePerson) => void;
@@ -189,6 +195,23 @@ function PersonRow({
   const t = (key: string) => copy(pageContract, key);
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const [pending, startTransition] = useTransition();
+
+  // A weekly off is a fact about the person's shift: it saves the moment a day is ticked.
+  const toggleOff = (day: number) => {
+    const next = person.week_offs.includes(day) ? person.week_offs.filter((d) => d !== day) : [...person.week_offs, day].sort();
+    setStatus({ kind: "saving" });
+    startTransition(async () => {
+      const result = await setWeekOffsAction({ personId: person.person_id, weekOffs: next, rowVersion: person.row_version });
+      if (result.ok) {
+        track("timetable_week_offs", "success");
+        onSaved(person, result.row);
+        setStatus({ kind: "saved" });
+      } else {
+        track("timetable_week_offs", "error", result.code);
+        setStatus({ kind: "error", message: result.message || t("action.failed") });
+      }
+    });
+  };
 
   const change = (shiftCode: string) => {
     if (shiftCode === person.shift_code) return;
@@ -234,6 +257,20 @@ function PersonRow({
         <StatusLine pageContract={pageContract} status={status} />
       </td>
       <td className={person.timing_label ? undefined : "muted"}>{person.timing_label || "—"}</td>
+      <td>
+        {person.shift_code ? (
+          <div className="tt-offs" role="group" aria-label={t("weekoff.aria").replace("%s", person.display_name)} data-testid="timetable-week-offs">
+            {weekdays.map((d) => (
+              <label key={d.key} className={person.week_offs.includes(d.key) ? "tt-off on" : "tt-off"}>
+                <input type="checkbox" checked={person.week_offs.includes(d.key)} disabled={!canEdit || pending} onChange={() => toggleOff(d.key)} />
+                <span>{d.label}</span>
+              </label>
+            ))}
+          </div>
+        ) : (
+          <span className="muted small">{t("weekoff.needs_shift")}</span>
+        )}
+      </td>
     </tr>
   );
 }
@@ -413,5 +450,130 @@ function StatusLine({ pageContract, status }: { pageContract: AdminUiPageContrac
     <div className={status.kind === "error" ? "small tt-status dng" : "small tt-status muted"} role={status.kind === "error" ? "alert" : "status"}>
       {text}
     </div>
+  );
+}
+
+/**
+ * Holidays (2026-09-30): dates HR enters for every park or one park. The clock-in check checks
+ * nobody on them. None today -- the farm runs every day -- so an empty card is the normal state.
+ */
+function HolidaysCard({ pageContract, timetable, canEdit, editReason }: { pageContract: AdminUiPageContract; timetable: WorkforceTimetable; canEdit: boolean; editReason: string }) {
+  const t = (key: string) => copy(pageContract, key);
+  const [holidays, setHolidays] = useState<WorkforceHoliday[]>(timetable.holidays);
+  const [date, setDate] = useState("");
+  const [parkId, setParkId] = useState("");
+  const [label, setLabel] = useState("");
+  const [confirming, setConfirming] = useState("");
+  const [status, setStatus] = useState<Status>({ kind: "idle" });
+  const [pending, startTransition] = useTransition();
+
+  const add = () =>
+    startTransition(async () => {
+      setStatus({ kind: "saving" });
+      const result = await addHolidayAction({ holidayOn: date, parkId, label });
+      if (result.ok) {
+        track("timetable_holiday_add", "success");
+        const saved = result.row;
+        // Only a holiday for this park (or every park) belongs on this park's card.
+        if (!saved.park_id || saved.park_id === timetable.park_id) {
+          setHolidays((prev) => [...prev.filter((h) => h.holiday_id !== saved.holiday_id), saved].sort((a, b) => a.holiday_on.localeCompare(b.holiday_on)));
+        }
+        setDate("");
+        setLabel("");
+        setStatus({ kind: "saved" });
+      } else {
+        track("timetable_holiday_add", "error", result.code);
+        setStatus({ kind: "error", message: result.message || t("action.failed") });
+      }
+    });
+  const remove = (id: string) =>
+    startTransition(async () => {
+      const result = await removeHolidayAction(id);
+      if (result.ok) {
+        track("timetable_holiday_remove", "success");
+        setHolidays((prev) => prev.filter((h) => h.holiday_id !== id));
+        setConfirming("");
+      } else {
+        track("timetable_holiday_remove", "error", result.code);
+        setStatus({ kind: "error", message: result.message || t("action.failed") });
+      }
+    });
+
+  return (
+    <section className="card" data-testid="timetable-holidays" style={{ marginTop: 16 }}>
+      <div className="hd">
+        <CalendarOff className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
+        <h3>{t("holidays.title")}</h3>
+        <div className="sp" style={{ flex: 1 }} />
+        <span className="muted small">{t("holidays.hint")}</span>
+      </div>
+      <div className="bd">
+        {holidays.length === 0 ? (
+          <div className="small muted" data-testid="timetable-holidays-empty">
+            {t("holidays.empty")}
+          </div>
+        ) : (
+          <div className="tt-holidays">
+            {holidays.map((h) => (
+              <div className="tt-holiday" key={h.holiday_id} data-testid="timetable-holiday">
+                <b>{h.date_label}</b>
+                <span>{h.label}</span>
+                <span className="muted small">{h.park_label}</span>
+                <div className="sp" style={{ flex: 1 }} />
+                {confirming === h.holiday_id ? (
+                  <>
+                    <button type="button" className="btn sm dng" disabled={pending} onClick={() => remove(h.holiday_id)}>
+                      {t("holidays.remove_confirm")}
+                    </button>
+                    <button type="button" className="btn sm" disabled={pending} onClick={() => setConfirming("")}>
+                      {t("action.cancel")}
+                    </button>
+                  </>
+                ) : (
+                  <button type="button" className="btn sm" disabled={!canEdit} title={canEdit ? undefined : editReason} onClick={() => setConfirming(h.holiday_id)}>
+                    {t("holidays.remove")}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        {canEdit ? (
+          <div className="tt-holiday-form" data-testid="timetable-holiday-form">
+            <div className="fld">
+              <span className="small muted">{t("holidays.date")}</span>
+              <ThemedDatePicker
+                name="holiday_on"
+                label={t("holidays.date")}
+                value={date}
+                onChange={setDate}
+                previousMonthLabel={t("holidays.prev_month")}
+                nextMonthLabel={t("holidays.next_month")}
+                invalidDateText={t("holidays.invalid_date")}
+              />
+            </div>
+            <label className="fld">
+              <span className="small muted">{t("holidays.park")}</span>
+              <select className="inp" value={parkId} onChange={(e) => setParkId(e.target.value)} data-testid="timetable-holiday-park">
+                <option value="">{t("holidays.every_park")}</option>
+                {timetable.parks.map((p) => (
+                  <option key={p.park_id} value={p.park_id}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="fld tt-holiday-name">
+              <span className="small muted">{t("holidays.name")}</span>
+              <input className="inp" value={label} maxLength={80} placeholder={t("holidays.name_hint")} onChange={(e) => setLabel(e.target.value)} data-testid="timetable-holiday-name" />
+            </label>
+            <button type="button" className="btn primary" disabled={pending || !date || !label.trim()} onClick={add} data-testid="timetable-holiday-add">
+              {t("holidays.add")}
+            </button>
+          </div>
+        ) : null}
+        <StatusLine pageContract={pageContract} status={status} />
+      </div>
+    </section>
   );
 }

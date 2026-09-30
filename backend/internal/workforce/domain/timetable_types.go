@@ -45,7 +45,47 @@ type TimetablePerson struct {
 	// TimingLabel is the person's working hours: their shift's hours at their park, "Not set"
 	// when that shift has no hours yet, or "" when no shift is assigned.
 	TimingLabel string `json:"timing_label"`
-	RowVersion  int    `json:"row_version"`
+	// WeekOffs are ISO weekdays (Monday = 1) the person is off every week; WeekOffLabel reads them
+	// ("Tue, Sun"), "" when none.
+	WeekOffs     []int  `json:"week_offs"`
+	WeekOffLabel string `json:"week_off_label"`
+	RowVersion   int    `json:"row_version"`
+}
+
+// Weekday is one day of the week the page offers as a weekly off (key 1 = Monday).
+type Weekday struct {
+	Key   int    `json:"key"`
+	Label string `json:"label"`
+}
+
+// Holiday is one holiday HR entered: a date for every park (ParkID "") or one park.
+type Holiday struct {
+	HolidayID  string `json:"holiday_id"`
+	HolidayOn  string `json:"holiday_on"`
+	DateLabel  string `json:"date_label"`
+	ParkID     string `json:"park_id"`
+	ParkLabel  string `json:"park_label"`
+	Label      string `json:"label"`
+	RowVersion int    `json:"row_version"`
+}
+
+// WeekOffsUpdate sets a person's weekly offs.
+type WeekOffsUpdate struct {
+	WeekOffs   []int `json:"week_offs"`
+	RowVersion int   `json:"row_version"`
+}
+
+// AddHolidayRequest enters a holiday; ParkID "" = every park.
+type AddHolidayRequest struct {
+	HolidayOn string `json:"holiday_on"`
+	ParkID    string `json:"park_id"`
+	Label     string `json:"label"`
+}
+
+// HolidayResponse is one holiday after a write.
+type HolidayResponse struct {
+	Holiday Holiday `json:"holiday"`
+	TraceID string  `json:"trace_id"`
 }
 
 // WorkforceTimetable is the whole page read for one park.
@@ -62,7 +102,11 @@ type WorkforceTimetable struct {
 	TotalPeople     int               `json:"total_people"`
 	UnassignedCount int               `json:"unassigned_count"`
 	People          []TimetablePerson `json:"people"`
-	NextCursor      string            `json:"next_cursor"`
+	// Weekdays are the weekly-off choices; Holidays are this park's (and every park's) holidays from
+	// 30 days ago on, the clock-in check never checks any of them.
+	Weekdays   []Weekday `json:"weekdays"`
+	Holidays   []Holiday `json:"holidays"`
+	NextCursor string    `json:"next_cursor"`
 	TraceID         string            `json:"trace_id"`
 }
 

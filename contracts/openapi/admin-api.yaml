@@ -3895,6 +3895,107 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "500":
           $ref: "#/components/responses/ServerError"
+  /admin/workforce/timetable/people/{person_id}/week-offs:
+    put:
+      tags:
+        - People
+      operationId: setWorkforceWeekOffs
+      summary: "Set the weekdays a person is off every week; the clock-in check never checks them."
+      parameters:
+        - name: person_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WeekOffsUpdate"
+      responses:
+        "200":
+          description: The person's row after the write.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemberShiftResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          description: Not weekdays, or the person has no shift yet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin/workforce/holidays:
+    post:
+      tags:
+        - People
+      operationId: addWorkforceHoliday
+      summary: "Enter a holiday for every park or one park; the clock-in check skips it."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddHolidayRequest"
+      responses:
+        "200":
+          description: The holiday.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HolidayResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          description: No date, no name, or an unknown park.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin/workforce/holidays/{holiday_id}/remove:
+    post:
+      tags:
+        - People
+      operationId: removeWorkforceHoliday
+      summary: "Take a holiday off (kept on record)."
+      parameters:
+        - name: holiday_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Removed.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  trace_id: {type: string}
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /admin/workforce/violations:
     get:
       tags:
@@ -13568,7 +13669,7 @@ components:
     WorkforceTimetable:
       type: object
       additionalProperties: false
-      required: [parks, park_id, park_label, shifts, shift_filter, total_people, unassigned_count, people, next_cursor, trace_id]
+      required: [parks, park_id, park_label, shifts, shift_filter, total_people, unassigned_count, people, weekdays, holidays, next_cursor, trace_id]
       properties:
         parks:
           type: array
@@ -13592,10 +13693,59 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/TimetablePerson"
+        weekdays:
+          type: array
+          items:
+            $ref: "#/components/schemas/TimetableWeekday"
+        holidays:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkforceHoliday"
         next_cursor:
           type: string
         trace_id:
           type: string
+    TimetableWeekday:
+      type: object
+      additionalProperties: false
+      required: [key, label]
+      properties:
+        key: {type: integer, description: "ISO weekday, Monday = 1"}
+        label: {type: string}
+    WorkforceHoliday:
+      type: object
+      additionalProperties: false
+      required: [holiday_id, holiday_on, date_label, park_id, park_label, label, row_version]
+      properties:
+        holiday_id: {type: string}
+        holiday_on: {type: string, description: "YYYY-MM-DD"}
+        date_label: {type: string}
+        park_id: {type: string, description: "empty = every park"}
+        park_label: {type: string}
+        label: {type: string}
+        row_version: {type: integer}
+    WeekOffsUpdate:
+      type: object
+      additionalProperties: false
+      required: [week_offs, row_version]
+      properties:
+        week_offs: {type: array, items: {type: integer}}
+        row_version: {type: integer}
+    AddHolidayRequest:
+      type: object
+      additionalProperties: false
+      required: [holiday_on, park_id, label]
+      properties:
+        holiday_on: {type: string}
+        park_id: {type: string}
+        label: {type: string}
+    HolidayResponse:
+      type: object
+      additionalProperties: false
+      required: [holiday, trace_id]
+      properties:
+        holiday: {$ref: "#/components/schemas/WorkforceHoliday"}
+        trace_id: {type: string}
     TimetablePark:
       type: object
       additionalProperties: false
@@ -13633,7 +13783,7 @@ components:
     TimetablePerson:
       type: object
       additionalProperties: false
-      required: [person_id, display_name, designation, department, shift_code, shift_label, timing_label, row_version]
+      required: [person_id, display_name, designation, department, shift_code, shift_label, timing_label, week_offs, week_off_label, row_version]
       properties:
         person_id:
           type: string
@@ -13648,6 +13798,12 @@ components:
         shift_label:
           type: string
         timing_label:
+          type: string
+        week_offs:
+          type: array
+          items:
+            type: integer
+        week_off_label:
           type: string
         row_version:
           type: integer

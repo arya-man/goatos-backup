@@ -217,6 +217,10 @@ var protectedRoutes = []Route{
 	{OperationID: "getWorkforceTimetable", Method: "GET", Pattern: "/admin/workforce/timetable", Permissions: []string{WorkforceTimetableRead}},
 	{OperationID: "setWorkforceParkShiftTiming", Method: "PUT", Pattern: "/admin/workforce/timetable/parks/{park_id}/shifts/{shift_code}", Permissions: []string{WorkforceTimetableWrite}},
 	{OperationID: "setWorkforceMemberShift", Method: "PUT", Pattern: "/admin/workforce/timetable/people/{person_id}/shift", Permissions: []string{WorkforceTimetableWrite}},
+	// Weekly offs and holidays (2026-09-30): HR and the CEO/CXO, the timetable's own writers.
+	{OperationID: "setWorkforceWeekOffs", Method: "PUT", Pattern: "/admin/workforce/timetable/people/{person_id}/week-offs", Permissions: []string{WorkforceTimetableWrite}},
+	{OperationID: "addWorkforceHoliday", Method: "POST", Pattern: "/admin/workforce/holidays", Permissions: []string{WorkforceTimetableWrite}},
+	{OperationID: "removeWorkforceHoliday", Method: "POST", Pattern: "/admin/workforce/holidays/{holiday_id}/remove", Permissions: []string{WorkforceTimetableWrite}},
 	// HRMS Violations (maintainer decisions 2026-09-30): HR and the CEO/CXO record and withdraw.
 	{OperationID: "listWorkforceViolations", Method: "GET", Pattern: "/admin/workforce/violations", Permissions: []string{WorkforceViolationsRead}},
 	{OperationID: "recordWorkforceViolation", Method: "POST", Pattern: "/admin/workforce/violations", Permissions: []string{WorkforceViolationsWrite}},

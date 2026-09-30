@@ -7274,6 +7274,36 @@ aside.drawer.approvals-drawer .df{flex-wrap:wrap}
 .dsc-f-actions{display:flex;gap:8px;flex:0 0 auto}
 .dsc-f-actions .btn{height:40px;box-sizing:border-box;padding-top:0;padding-bottom:0}
 .dsc-form .tt-status{margin-top:8px}
+.tt-offs{display:flex;gap:4px;flex-wrap:wrap}
+.tt-off{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);border-radius:999px;padding:3px 8px;font-size:12px;cursor:pointer;color:var(--muted)}
+.tt-off input{margin:0}
+.tt-off.on{border-color:var(--warn);color:var(--warn)}
+.tt-holidays{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+.tt-holiday{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 10px;border:1px solid var(--line);border-radius:10px}
+.tt-holiday-form{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-top:8px}
+.tt-holiday-form .fld{display:flex;flex-direction:column;gap:4px;margin:0;flex:0 1 180px;min-width:0}
+.tt-holiday-form .tt-holiday-name{flex:1 1 200px}
+.tt-holiday-form .inp,.tt-holiday-form .move-date-button,.tt-holiday-form .btn{height:40px;box-sizing:border-box}
+.dsc-filters .subtabs{flex-wrap:wrap}
+.dsc-list-table .dsc-note{color:var(--ink);margin-top:2px}
+.dsc-rt-actions{white-space:nowrap}
+.dsc-editor-row td{background:var(--surf2,rgba(255,255,255,.03))}
+.dsc-decide{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}
+.dsc-decide .fld{display:flex;flex-direction:column;gap:4px;margin:0;min-width:0}
+.dsc-decide .inp,.dsc-decide .btn{height:40px;box-sizing:border-box}
+.dsc-decide .tt-status{flex-basis:100%}
+@media (max-width:640px){
+  .twrap .dsc-rtable{min-width:0;width:100%}
+  .dsc-rtable thead{display:none}
+  .dsc-rtable,.dsc-rtable tbody,.dsc-rtable tr,.dsc-rtable td{display:block;width:100%;box-sizing:border-box}
+  .dsc-rtable tr{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:0 0 10px}
+  .dsc-rtable td{border:0;padding:4px 0}
+  .dsc-rtable td[data-label]{display:flex;justify-content:space-between;gap:12px;text-align:right}
+  .dsc-rtable td[data-label]::before{content:attr(data-label);color:var(--muted);font-size:12px;text-align:left;flex:0 0 auto}
+  .dsc-rtable td[data-label] > *{text-align:right}
+  .dsc-rtable .dsc-rt-actions{padding-top:8px}
+  .dsc-rtable .dsc-editor-row{border-style:dashed}
+}
 .dsc-tile-warn{border-color:var(--warn)}
 .dsc-tile-warn .dsc-tile-value{color:var(--warn)}
 .dsc-detail{color:var(--muted);margin-top:2px}
