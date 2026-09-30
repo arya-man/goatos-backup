@@ -612,17 +612,6 @@
   .main .feed-scroll::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px}
   .main .feed-scroll::-webkit-scrollbar-track{background:transparent}
 
-  .main table.health-analytics-table{width:100%;min-width:760px}
-  .main table.health-analytics-table th,
-  .main table.health-analytics-table td{white-space:nowrap;vertical-align:top}
-  .main table.health-analytics-table td:first-child,
-  .main table.health-analytics-table td:nth-child(5){white-space:normal;overflow-wrap:anywhere}
-  .main table.health-analytics-table .tag{max-width:100%;white-space:normal;line-height:1.25}
-  .main .card:has(table.health-analytics-table) > p.muted.small{color:color-mix(in srgb,var(--muted) 76%,var(--ink))}
-  @media(max-width:600px){
-
-    .main table.health-analytics-table{min-width:680px}
-  }
   .move-date-picker{position:relative}
   .move-date-picker summary{list-style:none}
   .move-date-picker summary::-webkit-details-marker{display:none}
