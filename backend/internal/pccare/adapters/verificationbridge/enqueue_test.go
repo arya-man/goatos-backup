@@ -82,3 +82,46 @@ func TestEnqueueInventoryVaccineNeverCreatesAVerifierItem(t *testing.T) {
 		t.Fatalf("CreateItem calls = %d, want 0 — stock work is the PC Director's, never the verifier's", len(creator.calls))
 	}
 }
+
+// A fumigation task reaches the verifier under its own category, titled by the pen, with its two
+// pen videos in card order and the planned date in the farm's DD/MM/YYYY (found in the verifier
+// drawer during the 2026-09-30 E2E, where it read the raw wire date).
+func TestEnqueueFumigationCarriesThePenVideosAndAFarmDate(t *testing.T) {
+	creator := &fakeVerificationCreator{}
+	enq := New(creator)
+	if err := enq.EnqueuePCCareVerification(context.Background(), pccareapp.VerificationEnqueueRequest{
+		TenantID:            "tenant-1",
+		TaskID:              "task-2",
+		Category:            pccaredomain.CategoryFumigation,
+		ParkID:              "park-1",
+		ShedID:              "shed-1",
+		ShedName:            "Castro",
+		PartitionLabel:      "1",
+		PlannedBusinessDate: "2026-09-30",
+		MediaRefs: []ports.LabeledRef{
+			{ProofRef: "proof-mixing", Label: "Mixing video", Kind: "video"},
+			{ProofRef: "proof-spraying", Label: "Spraying video", Kind: "video"},
+		},
+		OperatorID:     "operator-1",
+		CapturedAt:     time.Date(2026, time.September, 30, 6, 30, 0, 0, time.UTC),
+		IdempotencyKey: "pc-care-verification:task-2:3",
+	}); err != nil {
+		t.Fatalf("EnqueuePCCareVerification: %v", err)
+	}
+	if len(creator.calls) != 1 {
+		t.Fatalf("CreateItem calls = %d, want 1", len(creator.calls))
+	}
+	item := creator.calls[0]
+	if item.Category != "pc_fumigation" || len(item.MediaRefs) != 2 || item.MediaRefs[0] != "proof-mixing" {
+		t.Fatalf("item = %+v, want pc_fumigation with the mixing then spraying videos", item)
+	}
+	planned := ""
+	for _, row := range item.ContextRows {
+		if row.Label == "Planned for" {
+			planned = row.Value
+		}
+	}
+	if planned != "30/09/2026" {
+		t.Fatalf("Planned for = %q, want 30/09/2026", planned)
+	}
+}
