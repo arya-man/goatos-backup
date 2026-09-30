@@ -407,53 +407,9 @@
     .top-date-popover{right:auto;left:0;width:min(306px,calc(100vw - 24px))}
   }
 
-  .vr-module-legend.busy{cursor:progress}
-  .vr-results-zone{position:relative;min-height:190px}
-  .vr-results-loading{display:none;position:absolute;inset:0;z-index:2;padding:8px 0;background:linear-gradient(180deg,color-mix(in srgb,var(--panel) 82%,transparent),color-mix(in srgb,var(--panel) 62%,transparent));pointer-events:none}
-  .vr-results-loading span{display:block;height:42px;margin:10px 0;border-radius:8px;background:linear-gradient(90deg,color-mix(in srgb,var(--line) 52%,transparent),color-mix(in srgb,var(--muted) 18%,transparent),color-mix(in srgb,var(--line) 52%,transparent));background-size:220% 100%;animation:vr-loading-sweep 1.05s ease-in-out infinite}
-  .vr-results-loading span:nth-child(1){width:28%;height:36px}
-  .vr-results-loading span:nth-child(2){width:100%}
-  .vr-results-loading span:nth-child(3){width:100%}
-  .vr-results-loading span:nth-child(4){width:86%}
-  body[data-vr-module-loading="1"] .vr-results-zone{min-height:230px}
-  body[data-vr-module-loading="1"] .vr-table,
-  body[data-vr-module-loading="1"] .pager{visibility:hidden}
-  body[data-vr-module-loading="1"] .vr-results-loading{display:block}
-  .vr-board:has(.vr-module-legend.busy) .vr-results-zone{min-height:230px}
-  .vr-board:has(.vr-module-legend.busy) .vr-table,
-  .vr-board:has(.vr-module-legend.busy) .pager{visibility:hidden}
-  .vr-board:has(.vr-module-legend.busy) .vr-results-loading{display:block}
-  @keyframes vr-loading-sweep{0%{background-position:120% 0}100%{background-position:-120% 0}}
 
-  /* ===== verification-review video review anatomy (ported from mock/verifier-web-mock.html
-     .thumb/.player/.proofstrip/.facts) — layout/CSS only, no visible copy. ===== */
-  .vr-player{background:#000000;border:1px solid var(--line);border-radius:12px;width:100%;aspect-ratio:16/9;max-height:44vh;display:flex;flex-direction:column;position:relative;overflow:hidden}
-  /* position:absolute + inset:0 is what actually pins the video TO the stage. With plain
-     width/height:100% the height does not resolve against an aspect-ratio parent, so the element
-     fell back to the clip's intrinsic ratio -- a 720x1280 portrait proof rendered 852x1515 and
-     overflowed the 44vh stage, which is what read as a giant black rectangle. Pinned, portrait
-     letterboxes with bars left and right and landscape fills the rectangle. */
-  .vr-player video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
-  .vr-player:fullscreen{max-height:none;width:100vw;height:100vh;height:100dvh;border-radius:0;border:0}
-  .vr-player-empty{display:grid;place-items:center;color:var(--muted);font-size:13px;height:100%}
-  .vr-media-open{position:absolute;inset:0;border:0;background:linear-gradient(135deg,#0b120e,#14221a 54%,#101b16);color:#FFFFFF;display:grid;place-items:center;align-content:center;gap:12px;font-size:17px;font-weight:750;cursor:pointer}
-  .vr-media-open:hover{background:linear-gradient(135deg,#0d1711,#1a2d22 54%,#13211a)}
   .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-  .vr-media-open:disabled{cursor:wait;opacity:.78}
-  .vr-media-open-mark{width:54px;height:54px;border-radius:999px;background:rgba(156,213,88,.18);border:1px solid rgba(156,213,88,.48);display:grid;place-items:center}
-  .vr-media-open-mark .ic{width:26px;height:26px}
-  .vr-fsbtn{position:absolute;right:10px;bottom:10px;width:30px;height:30px;border-radius:7px;display:grid;place-items:center;cursor:pointer;color:#FFFFFF;background:rgba(0,0,0,.5);border:0;z-index:2}
-  .vr-fsbtn:hover{background:rgba(0,0,0,.72)}
-  .vr-fsbtn .ic{width:15px;height:15px}
-  .vr-proofstrip{display:flex;gap:9px;flex-wrap:wrap}
-  .vr-pthumb{border:1px solid var(--line);background:var(--panel-2);border-radius:24px;padding:9px 16px;font-size:13px;font-weight:650;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:8px}
-  .vr-pthumb .ic{width:14px;height:14px}
-  .vr-pthumb.on{border-color:var(--brand);color:var(--brand-d);background:var(--brand-soft)}
 
-  .vr-facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:1px;background:var(--line2);border:1px solid var(--line2);border-radius:12px;overflow:hidden}
-  .vr-fact{background:var(--panel-2);padding:12px 14px;font-size:13.5px;font-weight:600}
-  .vr-fact b{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--faint);font-weight:750;margin-bottom:4px}
-  .vr-fact-group{grid-column:1/-1;background:var(--panel);padding:10px 14px 6px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:800}
   .grid{display:grid;gap:14px}
   /* Let grid items shrink below their content's min-content so a wide child (e.g. a multi-column table in a
      .card .bd overflow-x:auto region) scrolls INSIDE its container instead of forcing the track — and the
@@ -886,8 +842,6 @@
     .celllink{min-width:40px}
     .main table td .celllink{display:flex;align-items:center;min-height:44px}
     .main table td .celllink.mono{font-size:12px}
-    .vr-sortlink{min-width:40px;min-height:40px;padding:0 4px}
-    .vr-rowlink{min-height:44px}
     
     /* Tabs, quick-filter tabs, and filter chips are real controls — keep them >=40px on touch widths. */
     .subtabs a,.subtabs button{min-height:40px}
