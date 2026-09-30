@@ -1,5 +1,8 @@
 import { Tag } from "@/components/ui-primitives";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
 import { Iconify, type IconifyName } from "@/components/minimal/iconify";
+import { Label, type LabelColor } from "@/components/minimal/label";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { FeedDirectionLifecycle, FeedDirectionWorkflowLifecycle } from "@/lib/api/server";
@@ -28,7 +31,6 @@ export { isLifecycleEmpty };
 type LifecycleState = FeedDirectionLifecycle["state"];
 type WorkflowState = FeedDirectionWorkflowLifecycle["state"];
 
-
 const STATE_ICON: Record<LifecycleState, IconifyName> = {
   issued: "solar:check-circle-bold",
   amended: "solar:pen-bold",
@@ -52,18 +54,18 @@ function alertSeverity(state: LifecycleState): AlertSeverity {
   if (state === "amended" || state === "not_issued") return "warning";
   return "info";
 }
-function workflowChipTone(state: WorkflowState): string {
+function workflowChipColor(state: WorkflowState): LabelColor {
   switch (state) {
     case "issued":
-      return "tag t-ok";
+      return "success";
     case "amended":
-      return "tag t-warn";
+      return "warning";
     case "locked":
-      return "tag t-info";
+      return "info";
     case "not_issued":
-      return "tag t-dng";
+      return "error";
     default:
-      return "tag t-mut";
+      return "default";
   }
 }
 
@@ -106,6 +108,7 @@ export function FeedLifecycleBanner({
   pageContract: AdminUiPageContract;
 }) {
   const state = lifecycle.state;
+  const icon = STATE_ICON[state];
   const instant = headlineInstant(lifecycle);
   // Not-yet-frozen states are anchored by WHICH feed day they cover and by the per-workflow expected
   // issue times, not by a frozen instant. `preview` (rows generated on demand) belongs here too — it
@@ -123,45 +126,47 @@ export function FeedLifecycleBanner({
   return (
     <Alert
       severity={alertSeverity(state)}
-      icon={<Iconify icon={STATE_ICON[state]} />}
+      icon={<Iconify icon={icon} aria-hidden="true" />}
       role="status"
       aria-label={copy(pageContract, "lifecycle.aria")}
-      style={{ marginBottom: 16 }}
+      sx={{ mb: 2 }}
     >
-      <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
-        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: 8 }}>
+      <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75, minWidth: 0 }}>
+        <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: 1 }}>
           <b>{copy(pageContract, `lifecycle.${state}.title`)}</b>
           {/* A frozen sheet is anchored by WHEN it was frozen; a not-yet-issued day by WHICH day it
               is. Both are client-formatted from a backend instant/date, never a literal. */}
           {instant ? (
-            <span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtDateTime(instant)}</span>
+            <Box component="span" sx={{ fontVariantNumeric: "tabular-nums" }}>{fmtDateTime(instant)}</Box>
           ) : notFrozen ? (
-            <span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtDate(feedDay)}</span>
+            <Box component="span" sx={{ fontVariantNumeric: "tabular-nums" }}>{fmtDate(feedDay)}</Box>
           ) : null}
           {state === "amended" ? (
             <Tag tone="warn">
               {lifecycle.amendment_count} {copy(pageContract, "lifecycle.corrections_noun")}
             </Tag>
           ) : null}
-        </div>
+        </Box>
 
-        <div className="small muted">{copy(pageContract, `lifecycle.${state}.body`)}</div>
+        <Typography variant="body2" sx={{ color: "text.secondary" }}>
+          {copy(pageContract, `lifecycle.${state}.body`)}
+        </Typography>
 
         {showBreakdown ? (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75 }}>
             {lifecycle.workflows.map((wf) => {
               const at = workflowInstant(wf);
               return (
-                <span key={wf.workflow} className={workflowChipTone(wf.state)}>
+                <Label key={wf.workflow} variant="soft" color={workflowChipColor(wf.state)}>
                   {copy(pageContract, `lifecycle.workflow.${wf.workflow}`)}{" · "}
                   {copy(pageContract, `lifecycle.state.${wf.state}`)}
                   {at ? <>{" · "}{fmtDateTime(at)}</> : null}
-                </span>
+                </Label>
               );
             })}
-          </div>
+          </Box>
         ) : null}
-      </div>
+      </Box>
     </Alert>
   );
 }
