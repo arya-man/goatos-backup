@@ -2,7 +2,6 @@ import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import { FaroProvider } from "@/components/observability/faro-provider";
 import { ObservabilityErrorBoundary } from "@/components/observability/error-boundary";
-import "./globals.css";
 import "./minimal-tokens.css";
 import "@/theme/fonts.css";
 import "@/layouts/template/scrollbar/styles.css";
@@ -66,7 +65,7 @@ export default async function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
         {process.env.NODE_ENV !== "production" ? <script dangerouslySetInnerHTML={{ __html: DEV_PERF_GUARD_SCRIPT }} /> : null}
       </head>
-      <body className="font-sans antialiased" suppressHydrationWarning>
+      <body suppressHydrationWarning>
         <FaroProvider />
         {/*
           Root-level boundary so every route — including /login, /auth/action, and /api/auth/*
