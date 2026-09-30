@@ -8,6 +8,14 @@ import sg.mesha.goatos.core.model.nav.NavItem
 import sg.mesha.goatos.core.model.nav.NavModule
 import sg.mesha.goatos.core.model.nav.NavModuleStatus
 import sg.mesha.goatos.core.model.nav.NavState
+import sg.mesha.goatos.core.network.dto.EnquiryDetailDto
+import sg.mesha.goatos.core.network.dto.EnquiryDto
+import sg.mesha.goatos.core.network.dto.EnquiryPageDto
+import sg.mesha.goatos.core.network.dto.RecordViolationRequestDto
+import sg.mesha.goatos.core.network.dto.SubmitEnquiryRequestDto
+import sg.mesha.goatos.core.network.dto.ViolationDto
+import sg.mesha.goatos.core.network.dto.ViolationResponseDto
+import sg.mesha.goatos.core.network.dto.ViolationsPageDto
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.ClockPersonDayResponseDto
 import sg.mesha.goatos.core.network.dto.ClockPresenceResponseDto
@@ -2339,6 +2347,21 @@ interface AppApi {
         idempotencyKey: String,
     ): LeaveRequestResponseDto
 
+    /** GET /app/enquiries — HRMS enquiries in the parks the caller heads (2026-09-30). */
+    suspend fun listEnquiries(status: String? = null, limit: Int? = null, cursor: String? = null): EnquiryPageDto
+
+    /** GET /app/enquiries/{id} — one enquiry with its pinned questions, types and park people. */
+    suspend fun getEnquiry(enquiryId: String): EnquiryDetailDto
+
+    /** POST /app/enquiries/{id}/submit — the report and its violations, in one write. */
+    suspend fun submitEnquiry(enquiryId: String, idempotencyKey: String, request: SubmitEnquiryRequestDto): EnquiryDetailDto
+
+    /** GET /app/violations — the month's violations in the caller's parks + the form options. */
+    suspend fun listViolations(month: String? = null, limit: Int? = null, cursor: String? = null): ViolationsPageDto
+
+    /** POST /app/violations — a park head records a violation (retry-keyed). */
+    suspend fun recordViolation(idempotencyKey: String, request: RecordViolationRequestDto): ViolationResponseDto
+
     /** GET /app/leave/approvals — the caller's open queue (park head / HR / CEO), keyset ~20. */
     suspend fun listLeaveApprovals(
         limit: Int? = null,
@@ -3844,6 +3867,19 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         personName = "Fake Person",
         businessDate = date ?: "2026-08-28",
     )
+
+    override suspend fun listEnquiries(status: String?, limit: Int?, cursor: String?): EnquiryPageDto = EnquiryPageDto()
+
+    override suspend fun getEnquiry(enquiryId: String): EnquiryDetailDto =
+        EnquiryDetailDto(enquiry = EnquiryDto(enquiryId = enquiryId, status = "open"), canSubmit = true)
+
+    override suspend fun submitEnquiry(enquiryId: String, idempotencyKey: String, request: SubmitEnquiryRequestDto): EnquiryDetailDto =
+        EnquiryDetailDto(enquiry = EnquiryDto(enquiryId = enquiryId, status = "submitted"))
+
+    override suspend fun listViolations(month: String?, limit: Int?, cursor: String?): ViolationsPageDto = ViolationsPageDto()
+
+    override suspend fun recordViolation(idempotencyKey: String, request: RecordViolationRequestDto): ViolationResponseDto =
+        ViolationResponseDto(ViolationDto(violationId = "fake-violation", personId = request.personId, typeKey = request.typeKey, status = "recorded"))
 
     override suspend fun createLeaveRequest(
         idempotencyKey: String,

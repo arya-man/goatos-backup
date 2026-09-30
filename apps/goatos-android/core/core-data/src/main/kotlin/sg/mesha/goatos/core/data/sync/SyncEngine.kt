@@ -627,6 +627,8 @@ class SyncEngine(
         OutboxOpType.LEAVE_REQUEST_WITHDRAW -> dispatchLeaveRequestWithdraw(item)
         OutboxOpType.LEAVE_APPROVE -> dispatchLeaveDecision(item, approve = true)
         OutboxOpType.LEAVE_REJECT -> dispatchLeaveDecision(item, approve = false)
+        OutboxOpType.ENQUIRY_SUBMIT -> dispatchEnquirySubmit(item)
+        OutboxOpType.VIOLATION_RECORD -> dispatchViolationRecord(item)
         OutboxOpType.VENDOR_CREATE -> dispatchVendorCreate(item)
         OutboxOpType.VENDOR_UPDATE -> dispatchVendorUpdate(item)
         OutboxOpType.FEED_PURCHASE_CREATE -> dispatchFeedPurchaseCreate(item)
@@ -1362,6 +1364,23 @@ class SyncEngine(
     private suspend fun dispatchLeaveRequestCreate(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<LeaveRequestCreatePayload>(item.payloadJson)
         val response = api.createLeaveRequest(item.idempotencyKey, payload.request)
+        return syncJson.encodeToString(response)
+    }
+
+    /**
+     * HRMS (maintainer decisions 2026-09-30). Same stored-key replay contract: the report and the
+     * record replay the original request; a report on an enquiry already submitted is a 409 --
+     * terminal, surfaced once, never retried.
+     */
+    private suspend fun dispatchEnquirySubmit(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<EnquirySubmitPayload>(item.payloadJson)
+        val response = api.submitEnquiry(payload.enquiryId, item.idempotencyKey, payload.request)
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchViolationRecord(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<ViolationRecordPayload>(item.payloadJson)
+        val response = api.recordViolation(item.idempotencyKey, payload.request)
         return syncJson.encodeToString(response)
     }
 

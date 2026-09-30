@@ -11,6 +11,8 @@ import kotlinx.serialization.json.Json
 import sg.mesha.goatos.core.network.dto.ClockPunchRequestDto
 import sg.mesha.goatos.core.network.dto.LeaveDecisionRequestDto
 import sg.mesha.goatos.core.network.dto.LeaveRequestCreateDto
+import sg.mesha.goatos.core.network.dto.RecordViolationRequestDto
+import sg.mesha.goatos.core.network.dto.SubmitEnquiryRequestDto
 import sg.mesha.goatos.core.network.dto.CountsApprovalDecisionRequestDto
 import sg.mesha.goatos.core.network.dto.CountsBirthEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
@@ -679,4 +681,17 @@ data class LeaveRequestWithdrawPayload(
 data class LeaveDecisionPayload(
     @SerialName("leave_request_id") val leaveRequestId: String,
     @SerialName("request") val request: LeaveDecisionRequestDto,
+)
+
+/** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.ENQUIRY_SUBMIT]. */
+@Serializable
+data class EnquirySubmitPayload(
+    @SerialName("enquiry_id") val enquiryId: String,
+    @SerialName("request") val request: SubmitEnquiryRequestDto,
+)
+
+/** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.VIOLATION_RECORD]. */
+@Serializable
+data class ViolationRecordPayload(
+    @SerialName("request") val request: RecordViolationRequestDto,
 )

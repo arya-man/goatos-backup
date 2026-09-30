@@ -24,6 +24,12 @@ import retrofit2.http.Path
 import retrofit2.http.PUT
 import retrofit2.http.Query
 import retrofit2.http.Streaming
+import sg.mesha.goatos.core.network.dto.EnquiryDetailDto
+import sg.mesha.goatos.core.network.dto.EnquiryPageDto
+import sg.mesha.goatos.core.network.dto.RecordViolationRequestDto
+import sg.mesha.goatos.core.network.dto.SubmitEnquiryRequestDto
+import sg.mesha.goatos.core.network.dto.ViolationResponseDto
+import sg.mesha.goatos.core.network.dto.ViolationsPageDto
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.ClockPersonDayResponseDto
 import sg.mesha.goatos.core.network.dto.ClockPresenceResponseDto
@@ -1731,6 +1737,37 @@ interface AppApiService {
         @Query("date") date: String?,
     ): ClockPersonDayResponseDto
 
+    // --- HRMS enquiries + violations (2026-09-30) ---------------------------------------------
+    @GET("app/enquiries")
+    suspend fun listEnquiries(
+        @Query("status") status: String?,
+        @Query("limit") limit: Int?,
+        @Query("cursor") cursor: String?,
+    ): EnquiryPageDto
+
+    @GET("app/enquiries/{enquiry_id}")
+    suspend fun getEnquiry(@Path("enquiry_id") enquiryId: String): EnquiryDetailDto
+
+    @POST("app/enquiries/{enquiry_id}/submit")
+    suspend fun submitEnquiry(
+        @Path("enquiry_id") enquiryId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: SubmitEnquiryRequestDto,
+    ): EnquiryDetailDto
+
+    @GET("app/violations")
+    suspend fun listViolations(
+        @Query("month") month: String?,
+        @Query("limit") limit: Int?,
+        @Query("cursor") cursor: String?,
+    ): ViolationsPageDto
+
+    @POST("app/violations")
+    suspend fun recordViolation(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: RecordViolationRequestDto,
+    ): ViolationResponseDto
+
     // --- Leave requests (docs/features/leave-requests/plan.md) ------------------------------
     @POST("app/leave/requests")
     suspend fun createLeaveRequest(
@@ -2990,6 +3027,20 @@ class RetrofitAppApi(
     ): ClockPunchResponseDto = service.recordClockOut(idempotencyKey, request)
 
     override suspend fun getClockStatus(): ClockStatusResponseDto = service.getClockStatus()
+
+    override suspend fun listEnquiries(status: String?, limit: Int?, cursor: String?): EnquiryPageDto =
+        service.listEnquiries(status, limit, cursor)
+
+    override suspend fun getEnquiry(enquiryId: String): EnquiryDetailDto = service.getEnquiry(enquiryId)
+
+    override suspend fun submitEnquiry(enquiryId: String, idempotencyKey: String, request: SubmitEnquiryRequestDto): EnquiryDetailDto =
+        service.submitEnquiry(enquiryId, idempotencyKey, request)
+
+    override suspend fun listViolations(month: String?, limit: Int?, cursor: String?): ViolationsPageDto =
+        service.listViolations(month, limit, cursor)
+
+    override suspend fun recordViolation(idempotencyKey: String, request: RecordViolationRequestDto): ViolationResponseDto =
+        service.recordViolation(idempotencyKey, request)
 
     override suspend fun createLeaveRequest(
         idempotencyKey: String,

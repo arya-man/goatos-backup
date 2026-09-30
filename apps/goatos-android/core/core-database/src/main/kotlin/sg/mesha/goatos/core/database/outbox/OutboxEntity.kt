@@ -390,6 +390,16 @@ enum class OutboxOpType {
     LEAVE_REJECT,
 
     /**
+     * HRMS (maintainer decisions 2026-09-30): a park head's enquiry report
+     * (`POST /app/enquiries/{id}/submit`) and a violation recorded on the phone
+     * (`POST /app/violations`). Both keys are minted ONCE per form submission and persisted, so a
+     * retry replays; 409 enquiry_already_submitted / enquiry_changed and 422 answer or penalty
+     * refusals are definitive server answers, terminal by `isTerminalAppApiError`.
+     */
+    ENQUIRY_SUBMIT,
+    VIOLATION_RECORD,
+
+    /**
      * Vendors module (maintainer decision 2026-09-03): a vendor recorded on the phone
      * (`POST /procurement/vendors`). Its optional voice note rides ahead of it as a PROOF_UPLOAD
      * on the same per-vendor group, so the upload drains first and the dispatcher resolves the

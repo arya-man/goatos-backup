@@ -762,6 +762,19 @@ object AppModule {
         impl: sg.mesha.goatos.capture.AppClockPunchFactsProvider,
     ): ClockPunchFactsProvider = impl
 
+    /** HRMS enquiries + violations (maintainer decisions 2026-09-30). */
+    @Provides
+    @Singleton
+    fun provideDisciplineRepository(
+        api: AppApi,
+        database: GoatDatabase,
+        syncRepository: SyncRepository,
+    ): sg.mesha.goatos.core.data.DisciplineRepository = sg.mesha.goatos.core.data.DefaultDisciplineRepository(
+        api = api,
+        dao = database.hrmsBlobCacheDao(),
+        syncRepository = syncRepository,
+    )
+
     @Provides
     @Singleton
     fun provideClockRepository(
@@ -1025,6 +1038,7 @@ object AppModule {
         // Provider for the same cycle reason as PC Care above: ClockRepository enqueues its own
         // outbox punches through SyncRepository, so a direct dependency here would recurse.
         clockRepositoryProvider: javax.inject.Provider<ClockRepository>,
+        disciplineRepositoryProvider: javax.inject.Provider<sg.mesha.goatos.core.data.DisciplineRepository>,
         // Without this, toxinRepository defaults to null in the constructor and the
         // TOXIN_STEP_COMPLETE/TOXIN_SUBMIT reconciliation silently no-ops in production: every
         // step write would land on the server while the phone kept rendering the PREVIOUS step
@@ -1122,6 +1136,10 @@ object AppModule {
             OutboxOpType.LEAVE_REQUEST_WITHDRAW to PostSuccessRefreshHook { clockRepositoryProvider.get().refreshStatus() },
             OutboxOpType.LEAVE_APPROVE to PostSuccessRefreshHook { clockRepositoryProvider.get().fetchLeaveQueue(null) },
             OutboxOpType.LEAVE_REJECT to PostSuccessRefreshHook { clockRepositoryProvider.get().fetchLeaveQueue(null) },
+            // HRMS (maintainer decisions 2026-09-30): a drained report re-reads the open enquiries so
+            // the card leaves For me; a drained violation re-reads the month's list.
+            OutboxOpType.ENQUIRY_SUBMIT to PostSuccessRefreshHook { disciplineRepositoryProvider.get().fetchOpenEnquiries() },
+            OutboxOpType.VIOLATION_RECORD to PostSuccessRefreshHook { disciplineRepositoryProvider.get().fetchViolations() },
             // Pen visits: a drained submit (or a visit another visitor already filmed) changes
             // the Tasks "For me" badge, which lives in the bootstrap -- re-read it quietly.
             OutboxOpType.PEN_VISIT_SUBMIT to sg.mesha.goatos.core.data.sync.penVisitSubmitSuccessHook { navRefresh.request() },

@@ -1902,3 +1902,18 @@ val MIGRATION_67_68: Migration = object : Migration(67, 68) {
         db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `obligationCyclesJson` TEXT")
     }
 }
+
+/**
+ * v68 -> v69: adds the HRMS enquiries + violations blob cache (maintainer decisions 2026-09-30):
+ * the park head's open enquiries, one enquiry's report, and this month's violations with the
+ * record form's options, read from Room like every other screen.
+ */
+val MIGRATION_68_69: Migration = object : Migration(68, 69) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `hrms_blob_cache` " +
+                "(`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`cacheKey`))",
+        )
+    }
+}

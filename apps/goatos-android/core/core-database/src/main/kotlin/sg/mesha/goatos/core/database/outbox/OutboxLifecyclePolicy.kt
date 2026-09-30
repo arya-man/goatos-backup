@@ -222,6 +222,10 @@ val OutboxOpType.lifecyclePolicy: OutboxLifecyclePolicy
         OutboxOpType.LEAVE_REQUEST_WITHDRAW -> exactItemPostSuccessRefreshLifecycle()
         OutboxOpType.LEAVE_APPROVE -> optimisticRefreshLifecycle()
         OutboxOpType.LEAVE_REJECT -> optimisticRefreshLifecycle()
+        // HRMS (maintainer decisions 2026-09-30): the report / record form holds until the write
+        // lands or fails terminally, then the enquiries / violations blobs are re-read.
+        OutboxOpType.ENQUIRY_SUBMIT -> exactItemPostSuccessRefreshLifecycle()
+        OutboxOpType.VIOLATION_RECORD -> exactItemPostSuccessRefreshLifecycle()
     }
 
 private fun exactItemLifecycle() = lifecycle(

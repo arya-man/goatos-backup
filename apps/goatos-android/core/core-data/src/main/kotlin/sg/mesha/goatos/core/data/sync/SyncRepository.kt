@@ -48,6 +48,8 @@ import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingWeightCorrectionRequestDto
 import sg.mesha.goatos.core.network.dto.LeaveDecisionRequestDto
 import sg.mesha.goatos.core.network.dto.LeaveRequestCreateDto
+import sg.mesha.goatos.core.network.dto.RecordViolationRequestDto
+import sg.mesha.goatos.core.network.dto.SubmitEnquiryRequestDto
 import java.security.MessageDigest
 import java.util.UUID
 
@@ -332,6 +334,22 @@ interface SyncRepository {
         idempotencyKey: String,
         request: LeaveRequestCreateDto,
     ): AppResult<String> = AppResult.Err("leave request sync is not configured")
+
+    /**
+     * Enqueues a park head's enquiry report (`POST /app/enquiries/{id}/submit`, maintainer
+     * decisions 2026-09-30). The enquiry id is the group key so a resend drains after the first.
+     */
+    suspend fun enqueueEnquirySubmit(
+        enquiryId: String,
+        idempotencyKey: String,
+        request: SubmitEnquiryRequestDto,
+    ): AppResult<String> = AppResult.Err("enquiry sync is not configured")
+
+    /** Enqueues a violation recorded on the phone (`POST /app/violations`). */
+    suspend fun enqueueViolationRecord(
+        idempotencyKey: String,
+        request: RecordViolationRequestDto,
+    ): AppResult<String> = AppResult.Err("violation sync is not configured")
 
     /** Enqueues the requester's own withdrawal (`POST /app/leave/requests/{id}/withdraw`). */
     suspend fun enqueueLeaveWithdraw(
@@ -1511,6 +1529,27 @@ class DefaultSyncRepository(
         groupKey = "leave:" + idempotencyKey,
         idempotencyKey = idempotencyKey,
         payloadJson = syncJson.encodeToString(LeaveRequestCreatePayload(request = request)),
+    )
+
+    override suspend fun enqueueEnquirySubmit(
+        enquiryId: String,
+        idempotencyKey: String,
+        request: SubmitEnquiryRequestDto,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.ENQUIRY_SUBMIT,
+        groupKey = "enquiry:" + enquiryId,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(EnquirySubmitPayload(enquiryId = enquiryId, request = request)),
+    )
+
+    override suspend fun enqueueViolationRecord(
+        idempotencyKey: String,
+        request: RecordViolationRequestDto,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.VIOLATION_RECORD,
+        groupKey = "violation:" + idempotencyKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(ViolationRecordPayload(request = request)),
     )
 
     override suspend fun enqueueLeaveWithdraw(

@@ -19,6 +19,8 @@ import sg.mesha.goatos.core.data.cache.CalendarScheduleRemoteKeyDao
 import sg.mesha.goatos.core.data.cache.CalendarScheduleRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.ClockBlobCacheDao
 import sg.mesha.goatos.core.data.cache.ClockBlobCacheEntity
+import sg.mesha.goatos.core.data.cache.HrmsBlobCacheDao
+import sg.mesha.goatos.core.data.cache.HrmsBlobCacheEntity
 import sg.mesha.goatos.core.data.cache.ControlTowerCacheDao
 import sg.mesha.goatos.core.data.cache.ControlTowerCacheEntity
 import sg.mesha.goatos.core.data.cache.CountsCaptureCardCacheDao
@@ -369,6 +371,7 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         ToxinTaskRemoteKeyEntity::class,
         ToxinTaskDetailCacheEntity::class,
         ClockBlobCacheEntity::class,
+        HrmsBlobCacheEntity::class,
         WeighingFastingCardEntity::class,
         WeighingFastingRemoteKeyEntity::class,
         VendorItemEntity::class,
@@ -451,7 +454,7 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // v67 (see [MIGRATION_66_67]) adds the three Pen Routines read-model tables: paged routine
     // rows, their per-filter cursor, and the task-detail JSON cache.
     // v68 (see [MIGRATION_67_68]) persists vaccination proof obligation-cycle metadata.
-    version = 68,
+    version = 69,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -654,6 +657,8 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun animalPurchaseAnimalRemoteKeyDao(): AnimalPurchaseAnimalRemoteKeyDao
     abstract fun animalPurchaseBlobCacheDao(): AnimalPurchaseBlobCacheDao
     abstract fun clockBlobCacheDao(): ClockBlobCacheDao
+
+    abstract fun hrmsBlobCacheDao(): HrmsBlobCacheDao
     abstract fun vendorItemDao(): VendorItemDao
     abstract fun vendorRemoteKeyDao(): VendorRemoteKeyDao
     abstract fun feedPurchaseItemDao(): FeedPurchaseItemDao

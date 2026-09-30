@@ -57,6 +57,10 @@ fun PenVisitListScreen(
     rows: LazyPagingItems<PenVisitCardUi>,
     onEvent: (PenVisitListEvent) -> Unit = {},
     modifier: Modifier = Modifier,
+    // HRMS (maintainer decisions 2026-09-30): the park head's enquiries and Record a violation,
+    // at the top of the same list. Empty by default, so the tab reads exactly as before.
+    hrms: ForMeHrmsUi = ForMeHrmsUi(),
+    onHrmsEvent: (ForMeHrmsEvent) -> Unit = {},
 ) {
     RefreshOnResume { onEvent(PenVisitListEvent.Refresh) }
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
@@ -66,8 +70,8 @@ fun PenVisitListScreen(
                 SyncStatusIndicator(
                     isRefreshing = state.isRefreshing,
                     lastSyncedAt = state.lastSyncedAt,
-                    hasData = rows.itemCount > 0,
-                    refreshFailedLabel = if (state.refreshFailed) stringResource(R.string.pen_visits_refresh_failed) else null,
+                    hasData = rows.itemCount > 0 || hrms.enquiries.isNotEmpty(),
+                    refreshFailedLabel = if (state.refreshFailed && !hrms.penVisitsDenied) stringResource(R.string.pen_visits_refresh_failed) else null,
                 )
             },
             actions = {
@@ -78,14 +82,21 @@ fun PenVisitListScreen(
                 )
             },
         )
-        if (state.filters.isNotEmpty()) {
+        if (state.filters.isNotEmpty() && !hrms.penVisitsDenied) {
             PenVisitFilterRow(filters = state.filters, onEvent = onEvent)
         }
         // A first open with nothing cached and the server down: the error with Try again, never a
         // blank page (it needs no page facts from the server).
-        val emptyTitle = if (state.isErrorEmpty) stringResource(R.string.pen_visits_list_unavailable) else state.emptyMessage
+        // Pen visits are not this person's (403): nothing to say about them. If the HRMS part is
+        // empty too, the tab says there is nothing for them -- never a load error.
+        val hrmsEmpty = hrms.enquiries.isEmpty() && !hrms.canRecordViolation
+        val emptyTitle = when {
+            hrms.penVisitsDenied -> if (hrmsEmpty) stringResource(R.string.hrms_nothing_for_you) else null
+            state.isErrorEmpty -> stringResource(R.string.pen_visits_list_unavailable)
+            else -> state.emptyMessage
+        }
         val tryAgainLabel = stringResource(R.string.pen_visits_action_try_again)
-        val retryAction: (@Composable () -> Unit)? = if (state.isErrorEmpty) {
+        val retryAction: (@Composable () -> Unit)? = if (state.isErrorEmpty && !hrms.penVisitsDenied) {
             {
                 PenVisitGhostButton(
                     label = tryAgainLabel,
@@ -101,13 +112,15 @@ fun PenVisitListScreen(
             contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            forMeHrmsItems(hrms, onHrmsEvent)
+
             if (rows.itemCount == 0 && emptyTitle != null) {
                 item(key = "empty") {
                     EmptyState(
                         title = emptyTitle,
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                        icon = if (state.isErrorEmpty) MeshaIcons.Warn else MeshaIcons.PenVisit,
-                        tone = if (state.isErrorEmpty) EmptyTone.Warn else EmptyTone.Neutral,
+                        icon = if (state.isErrorEmpty && !hrms.penVisitsDenied) MeshaIcons.Warn else MeshaIcons.PenVisit,
+                        tone = if (state.isErrorEmpty && !hrms.penVisitsDenied) EmptyTone.Warn else EmptyTone.Neutral,
                         action = retryAction,
                     )
                 }

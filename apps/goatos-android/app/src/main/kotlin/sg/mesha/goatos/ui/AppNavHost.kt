@@ -105,6 +105,18 @@ import sg.mesha.goatos.feature.leadershiptasks.LeadershipTaskDetailEvent
 import sg.mesha.goatos.feature.leadershiptasks.LeadershipTaskDetailScreen
 import sg.mesha.goatos.feature.leadershiptasks.LeadershipTaskListEvent
 import sg.mesha.goatos.feature.leadershiptasks.LeadershipTaskListScreen
+import sg.mesha.goatos.core.network.CallFailure
+import sg.mesha.goatos.core.network.classifyCallFailure
+import sg.mesha.goatos.feature.penvisits.EnquiryReportEvent
+import sg.mesha.goatos.feature.penvisits.EnquiryReportScreen
+import sg.mesha.goatos.feature.penvisits.ForMeHrmsEvent
+import sg.mesha.goatos.feature.penvisits.RecordViolationEvent
+import sg.mesha.goatos.feature.penvisits.RecordViolationScreen
+import sg.mesha.goatos.viewmodel.EnquiryReportViewModel
+import sg.mesha.goatos.viewmodel.ForMeHrmsViewModel
+import sg.mesha.goatos.viewmodel.HrmsLocalError
+import sg.mesha.goatos.viewmodel.RecordViolationViewModel
+import sg.mesha.goatos.feature.penvisits.R as PenVisitsR
 import sg.mesha.goatos.feature.penvisits.PenVisitDetailEvent
 import sg.mesha.goatos.feature.penvisits.PenVisitDetailScreen
 import sg.mesha.goatos.feature.penvisits.PenVisitListEvent
@@ -851,6 +863,15 @@ object Routes {
     const val PEN_VISIT = "/pen-visits/{$PEN_VISIT_ID_ARG}"
 
     fun penVisitRoute(taskId: String): String = "/pen-visits/${Uri.encode(taskId)}"
+
+    // HRMS on For me (maintainer decisions 2026-09-30): the park head's enquiry report and the
+    // Record a violation form, two more hosted drills under the SAME L0 list. Two path segments,
+    // so neither can be matched by the one-segment visit drill above.
+    const val PEN_VISIT_ENQUIRY_ID_ARG = "enquiry_id"
+    const val PEN_VISIT_ENQUIRY = "/pen-visits/enquiries/{$PEN_VISIT_ENQUIRY_ID_ARG}"
+    const val PEN_VISIT_VIOLATION_NEW = "/pen-visits/violations/new"
+
+    fun penVisitEnquiryRoute(enquiryId: String): String = "/pen-visits/enquiries/${Uri.encode(enquiryId)}"
 
     /** The task id a `/pen-visits/<id>` push href names, or null for anything else. */
     fun penVisitIdFromHref(href: String): String? {
@@ -4484,6 +4505,10 @@ fun AppNavHost(
         // nav item); nothing here gates on a role string.
         composable(Routes.PEN_VISITS) {
             val vm: PenVisitListViewModel = hiltViewModel()
+            // HRMS (maintainer decisions 2026-09-30): a park head's enquiries and Record a
+            // violation ride the same tab. Whether each shows is the server's 403, not a role.
+            val hrmsVm: ForMeHrmsViewModel = hiltViewModel()
+            val hrms by hrmsVm.state.collectAsStateWithLifecycle()
             // The backend nav label, so the header reads as the nav item does until the page's
             // own title lands.
             LaunchedEffect(vm) { vm.bind(PEN_VISITS_TAB_TITLE) }
@@ -4497,7 +4522,15 @@ fun AppNavHost(
                 when (refreshState) {
                     is LoadState.Loading -> vm.onRowsLoading()
                     is LoadState.NotLoading -> vm.onRowsLoaded()
-                    is LoadState.Error -> vm.onRowsLoadFailed(refreshState.error)
+                    is LoadState.Error ->
+                        // Pen visits are not this person's (a park head holding only HRMS work):
+                        // not an error, the tab shows the HRMS part alone.
+                        if (refreshState.error.classifyCallFailure() is CallFailure.Denied) {
+                            vm.onRowsLoaded()
+                            hrmsVm.onPenVisitsDenied()
+                        } else {
+                            vm.onRowsLoadFailed(refreshState.error)
+                        }
                 }
             }
             val appendError = (rows.loadState.append as? LoadState.Error)?.error
@@ -4505,10 +4538,20 @@ fun AppNavHost(
             PenVisitListScreen(
                 state = state,
                 rows = rows,
+                hrms = hrms,
+                onHrmsEvent = { event ->
+                    when (event) {
+                        is ForMeHrmsEvent.OpenEnquiry ->
+                            navController.navigate(Routes.penVisitEnquiryRoute(event.enquiryId)) { launchSingleTop = true }
+                        ForMeHrmsEvent.RecordViolation ->
+                            navController.navigate(Routes.PEN_VISIT_VIOLATION_NEW) { launchSingleTop = true }
+                    }
+                },
                 onEvent = { event ->
                     when (event) {
                         PenVisitListEvent.Refresh -> {
                             vm.onEvent(event)
+                            hrmsVm.refresh()
                             rows.refresh()
                         }
                         is PenVisitListEvent.SelectFilter -> {
@@ -4547,6 +4590,45 @@ fun AppNavHost(
                     },
                 )
             }
+        }
+
+        // The enquiry report and Record a violation (L1 drills of For me, 2026-09-30).
+        composable(
+            route = Routes.PEN_VISIT_ENQUIRY,
+            arguments = listOf(navArgument(Routes.PEN_VISIT_ENQUIRY_ID_ARG) { type = NavType.StringType }),
+        ) {
+            val vm: EnquiryReportViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            val localError by vm.localError.collectAsStateWithLifecycle()
+            val localMessage = when (localError) {
+                HrmsLocalError.ANSWER_REQUIRED -> stringResource(PenVisitsR.string.hrms_answer_required)
+                HrmsLocalError.PENALTY_INCOMPLETE -> stringResource(PenVisitsR.string.hrms_penalty_incomplete)
+                HrmsLocalError.PENALTY_TWICE -> stringResource(PenVisitsR.string.hrms_penalty_twice)
+                null -> null
+            }
+            EnquiryReportScreen(
+                state = if (localMessage != null) state.copy(message = localMessage) else state,
+                onEvent = { event ->
+                    when (event) {
+                        EnquiryReportEvent.Back -> navController.popBackStack()
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
+        composable(Routes.PEN_VISIT_VIOLATION_NEW) {
+            val vm: RecordViolationViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            RecordViolationScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        RecordViolationEvent.Back -> navController.popBackStack()
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
         }
 
         // --- Pen routines (maintainer instruction 2026-09-16) --------------------------------
