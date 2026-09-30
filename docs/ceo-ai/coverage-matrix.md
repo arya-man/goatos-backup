@@ -724,6 +724,20 @@ documented exclusion -- no coverage-matrix mapping required beyond these rows.
 | rejection_cleanup_consumers | func:NewBirthRejectedCaptureWithdrawHandler, func:NewCountsBirthRejectedHandler, func:HandleEvent, func:Register, func:WithdrawBirthCaptureVerification, func:WithdrawBirthStepVerification, func:RetireGoatRecordedInErrorInTx, func:CancelDeathWorkflowForGoat, func:CancelBirthWorkflowsForRejectedBirth, func:CancelRejectedBirthWorkflows, func:OpenReportedDeathWorkflow | Explicit exclusion: write-path consumers that clean up after a rejected birth/death report (cancel the operator workflows, withdraw pending verifier items, retire a rejected birth's kid through identity's normal exit) and reopen a death workflow for a new report. Herd counts they change are already covered by the herd/counts reads. |
 | tasks_and_visits_rules | func:ShowsCountdown, func:IsKnownFilterKey, func:OpensAfter, func:CanSubmitOn, func:CheckSubmit, func:Instruction, func:Error, func:Unwrap, func:Message | Explicit exclusion: pure Leadership Tasks / Pen Visits rules and typed errors (countdown visibility, filter-key validation, a pen visit opening on its planned day); both modules are already excluded above. |
 
+## Explicit exclusion: kid stage shift tasks (2026-09-30 / 2026-10-01)
+
+The park head's litter shift tasks (`docs/decisions/kid-stage-shift-tasks.md`: K0 -> K1 at 24 h,
+K1 -> K2 seven days later, female kids -> Non-Pregnant at 70 days) are steps of a tasks-engine
+workflow (`birth_litter`) rendered on the Work Board and the phone step screen -- an operational
+lens over covered reads, not a leadership KPI. The herd facts they act on (stages, pens, births) are
+already covered by the herd/counts reads. None of the names below introduces a new leadership table,
+Cube metric, `ceo_ai.*` view, MCP Toolbox tool or SQL fallback. Explicit documented exclusion -- no
+coverage-matrix mapping required beyond these rows.
+
+| kid_shift_rulebook | func:GrowthStagesBefore, func:GrowthTargetStages, func:IsGrowthLadderStage, func:StageMinAgeDays | Explicit exclusion: pure growth-ladder rules (which stages come before a target, which stages a growth shifting can reach, ladder membership) and the stage catalog's From (days) read the growth age-entry rule judges against; the shifting write path's own rulebook, derives no fact. |
+| kid_shift_engine | func:LitterOfChild, func:LitterKids, func:ReconcileLitterShiftSteps, func:LittersOwingShift, func:NewLitterShiftWorkflowHandler, func:Register, func:HandleEvent, func:OpenLitterWorkflowForKid, func:ReconcileLitterShift | Explicit exclusion: the tasks engine's litter reads, the goat.stage_changed / goat.exited consumer that completes a litter's shift steps, and the one-shot backfill's candidate read. Write-path workflow plumbing; the workflow's state is shown on the Work Board, itself an operational lens. |
+| kid_shift_domain | func:Done, func:JudgeLitterShift, func:KidsWaitingForShift, func:KidsOfSex, func:ApplyLitterShift, func:ShiftGroups, func:StepPrerequisitesComplete | Explicit exclusion: pure domain helpers judging whether a litter reached a step's target stage, which kids are still waiting (optionally one sex), and the raise groups a growth shifting can carry. |
+
 ## Explicit exclusion: feed follow-up day-window helpers (2026-09-23)
 
 `func:ResolveFeedFollowUpDay` and `func:AddBusinessDays`
