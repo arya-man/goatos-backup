@@ -24,4 +24,5 @@ export const EARLIER_HEAD_CELLS = [
 
 // Loading-twin estimates of rendered sizes the page does not set itself (copy-driven).
 /** Header action ("Start a new version") width; the live card's "Published" Label; the earlier card's count Label; Label height. */
-export const PLAN_SKELETON = { headerActionWidths: [176], publishedLabelWidth: 91, countLabelWidth: 40, labelHeight: 24, earlierRows: 3 } as const;
+/** `draftBannerHeight`: the "A draft is waiting" warning Alert (one line from md, wraps on a phone). */
+export const PLAN_SKELETON = { headerActionWidths: [176], publishedLabelWidth: 91, countLabelWidth: 40, labelHeight: 24, earlierRows: 3, draftBannerHeight: { xs: 90, md: 50 } } as const;

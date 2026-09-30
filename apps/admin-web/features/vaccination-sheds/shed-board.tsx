@@ -275,7 +275,7 @@ export async function VaccinationShedBoard({
         <>
           <ShedSelectionProvider allIds={rows.map((row) => row.shedId)}>
           <Scrollbar>
-            <Table data-testid="shed-summary-table" sx={{ minWidth: 1080 }} aria-label={copy(pageContract, "section.sheds.title")}>
+            <Table data-testid="shed-summary-table" sx={{ minWidth: 960 }} aria-label={copy(pageContract, "section.sheds.title")}>
               <TableHead>
                 <TableRow>
                   <TableCell padding="checkbox" sx={ROW_CONTROL_SX}>
