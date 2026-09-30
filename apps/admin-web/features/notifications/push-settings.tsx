@@ -21,7 +21,13 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Monitor } from "lucide-react";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import CircularProgress from "@mui/material/CircularProgress";
+import Switch from "@mui/material/Switch";
+import Typography from "@mui/material/Typography";
+import { Iconify } from "@/components/minimal/iconify";
+import { Label } from "@/components/minimal/label";
 import { fmtDateTime } from "@/lib/format";
 import { pushCopy } from "@/lib/push-copy";
 import type { BrowserPushRegistration } from "@/lib/api/browser-push-server";
@@ -36,7 +42,6 @@ import {
   resolveWebPushState,
   type WebPushState,
 } from "@/lib/web-push";
-import { cx } from "@/lib/tone";
 import type { NotificationCentreCopy } from "./notification-copy";
 
 type Busy = "idle" | "checking" | "enabling" | "disabling" | "listing" | "removing";
@@ -149,58 +154,82 @@ export function PushSettings({ centreCopy, contractCopy }: { centreCopy: Notific
   const reason = state.status === "blocked" ? copy("push.blocked") : "";
 
   return (
-    <div className="nc-push" data-push-settings>
-      <div className="nc-push-row">
-        <span className="nc-push-text">
-          <span className="nc-push-label">{centreCopy.pushThisBrowser}</span>
-          <span className="nc-push-hint">{reason || note || copy("push.this_browser_only")}</span>
-        </span>
-        <label className={cx("nc-switch", enabled && "on", (pending || blocked) && "is-disabled")}>
-          <input
-            type="checkbox"
-            role="switch"
-            className="nc-switch-input"
-            checked={enabled}
-            aria-label={centreCopy.pushThisBrowser}
-            disabled={pending || blocked}
-            onChange={() => void toggle()}
-          />
-          {busy === "enabling" || busy === "disabling" || busy === "checking" ? <Loader2 className="nc-spin" aria-hidden="true" /> : null}
-          <span className="nc-switch-knob" aria-hidden="true" />
-        </label>
-      </div>
+    <Box data-push-settings sx={{ display: "flex", flexDirection: "column", gap: 1.5, pb: 1.5 }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+        <Box sx={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 0.25 }}>
+          <Typography variant="subtitle2">{centreCopy.pushThisBrowser}</Typography>
+          <Typography variant="caption" sx={{ color: "text.secondary", overflowWrap: "anywhere" }}>
+            {reason || note || copy("push.this_browser_only")}
+          </Typography>
+        </Box>
+        {busy === "enabling" || busy === "disabling" || busy === "checking" ? (
+          <CircularProgress size={16} color="inherit" aria-hidden="true" sx={{ color: "text.secondary", flex: "none" }} />
+        ) : null}
+        <Switch
+          checked={enabled}
+          disabled={pending || blocked}
+          onChange={() => void toggle()}
+          slotProps={{ input: { role: "switch", "aria-label": centreCopy.pushThisBrowser } }}
+          sx={{ flex: "none" }}
+        />
+      </Box>
 
-      <div className="nc-push-list" aria-busy={rows === null}>
-        <span className="nc-push-listhead">{centreCopy.pushBrowsers}</span>
-        {listError ? <span className="nc-push-err">{listError}</span> : null}
-        {rows === null && !listError ? <span className="nc-push-hint">{centreCopy.busy}</span> : null}
-        {rows !== null && rows.length === 0 && !listError ? <span className="nc-push-hint">{centreCopy.pushNoBrowsers}</span> : null}
+      <Box aria-busy={rows === null} sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
+        <Typography variant="overline" sx={{ color: "text.disabled" }}>
+          {centreCopy.pushBrowsers}
+        </Typography>
+        {listError ? (
+          <Typography variant="caption" sx={{ color: "error.main" }}>
+            {listError}
+          </Typography>
+        ) : null}
+        {rows === null && !listError ? (
+          <Typography variant="caption" sx={{ color: "text.secondary" }}>
+            {centreCopy.busy}
+          </Typography>
+        ) : null}
+        {rows !== null && rows.length === 0 && !listError ? (
+          <Typography variant="caption" sx={{ color: "text.secondary" }}>
+            {centreCopy.pushNoBrowsers}
+          </Typography>
+        ) : null}
         {rows?.map((row) => {
           const mine = row.browser_install_id === installId;
           return (
-            <div key={row.browser_registration_id} className={cx("nc-push-item", row.status === "stale" && "nc-push-stale")}>
-              <Monitor aria-hidden="true" />
-              <span className="nc-push-itemtext">
-                <span className="nc-push-itemlabel">
-                  {row.browser_label || copy("push.enabled")}
-                  {mine ? <span className="nc-chip">{centreCopy.pushThisOne}</span> : null}
-                  {row.status === "stale" ? <span className="nc-chip">{centreCopy.pushStale}</span> : null}
-                </span>
-                <span className="nc-push-hint">{fmtDateTime(row.created_at)}</span>
-              </span>
-              <button
-                type="button"
-                className="nc-btn nc-btn-outlined nc-btn-xs"
+            <Box
+              key={row.browser_registration_id}
+              data-push-row
+              data-stale={row.status === "stale" ? "true" : undefined}
+              sx={{ display: "flex", alignItems: "center", gap: 1.25, p: 1.5, pl: 1.25, borderRadius: "var(--r-lg)", bgcolor: "background.neutral", opacity: row.status === "stale" ? 0.7 : 1 }}
+            >
+              <Iconify icon="solar:monitor-bold" width={18} aria-hidden="true" sx={{ flex: "none", color: "text.secondary" }} />
+              <Box sx={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 0.25 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, minWidth: 0 }}>
+                  <Typography variant="subtitle2" noWrap sx={{ minWidth: 0 }}>
+                    {row.browser_label || copy("push.enabled")}
+                  </Typography>
+                  {mine ? <Label variant="outlined">{centreCopy.pushThisOne}</Label> : null}
+                  {row.status === "stale" ? <Label variant="outlined" color="warning">{centreCopy.pushStale}</Label> : null}
+                </Box>
+                <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                  {fmtDateTime(row.created_at)}
+                </Typography>
+              </Box>
+              <Button
+                size="small"
+                variant="outlined"
+                color="inherit"
                 disabled={removing !== null || pending}
                 onClick={() => void remove(row)}
+                startIcon={removing === row.browser_registration_id ? <CircularProgress size={12} color="inherit" aria-hidden="true" /> : undefined}
+                sx={{ flex: "none" }}
               >
-                {removing === row.browser_registration_id ? <Loader2 className="nc-spin" aria-hidden="true" /> : null}
                 {centreCopy.pushRemove}
-              </button>
-            </div>
+              </Button>
+            </Box>
           );
         })}
-      </div>
-    </div>
+      </Box>
+    </Box>
   );
 }

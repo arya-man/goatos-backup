@@ -16,7 +16,7 @@ import test from "node:test";
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 const bell = read("./notification-bell.tsx");
-const css = read("./notification-panel.css");
+const panel = read("./notification-panel.tsx");
 
 test("the bell renders the centre as the portaled template temporary drawer at every width", () => {
   assert.match(bell, /import \{ MinimalDrawer \} from "@\/components\/app\/drawer"/, "the drawer must be the template MinimalDrawer (right, backdrop)");
@@ -45,9 +45,14 @@ test("the bell's reads are deferred GETs, never Server Actions", () => {
   assert.match(bell, /markNotificationsReadAction/, "mark-read stays a Server Action (a real mutation)");
 });
 
-test("the panel stylesheet uses tokens only and keeps the row contract", () => {
-  assert.doesNotMatch(css, /#[0-9a-fA-F]{3,8}\b/, "no colour hexes; Mesha tokens only");
-  assert.match(css, /\.nc-row\{[^}]*min-height:72px/, "rows keep the 72px floor");
-  assert.match(css, /\.nc-row\{[^}]*padding:14px 12px 14px 16px/, "rows keep 16px leading padding");
-  assert.match(css, /\.nc-av\{[^}]*width:40px;height:40px/, "40px actor avatar");
+test("the panel is template notifications-drawer anatomy in theme sx and keeps the row contract", () => {
+  // FIXJ3: notification-panel.css is gone; the rows are the template NotificationItem in sx.
+  assert.doesNotMatch(panel, /\.css["']/, "no feature stylesheet");
+  assert.doesNotMatch(panel, /className=/, "no legacy classes: sx + data-* hooks only");
+  assert.doesNotMatch(panel, /#[0-9a-fA-F]{3,8}\b|rgba?\(\s*\d/, "no colour literals; theme palette only");
+  assert.match(panel, /minHeight: "var\(--table-row-h\)",/, "rows keep the 72px floor (--table-row-h)");
+  assert.match(panel, /p: 2\.5,/, "rows keep the template 20px padding");
+  assert.match(panel, /width: "var\(--sp-5\)",\s*height: "var\(--sp-5\)",/, "40px actor avatar / icon circle (--sp-5)");
+  assert.match(panel, /borderBottom: `dashed 1px \$\{theme\.vars\.palette\.divider\}`/, "template dashed row divider");
+  assert.match(panel, /<Tabs\s+variant="fullWidth"[\s\S]*?indicatorColor="custom"/, "template full-width tabs");
 });
