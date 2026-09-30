@@ -12,6 +12,7 @@ export PATH := $(HOME)/.local/bin:$(PATH)
 
 .PHONY: pc-care-sop-guard weighing-sop-guard shifting-sop-guard commandboard-query-plan-guard commandboard-query-plan-wiring-guard additive-publish-guard seed-state-guard check guardrails herd-signals-language-guard exception-guard-ratchet telemetry-guard-ratchet exception-guard-ratchet-regenerate telemetry-guard-ratchet-regenerate exception-guard-ratchet-v2 telemetry-guard-ratchet-v2 exception-guard-ratchet-v2-regenerate telemetry-guard-ratchet-v2-regenerate git-identity-guard guardrail-registration-guard stg-deploy-scripts-test grafana-provisioning-guard backend-foundations-guard postgres-bind-contract-guard postgres-scan-projection-guard test-execution-integrity-guard operator-cap-fail-closed-guard stg-operator-scope-guard cascade-event-wiring-guard frontend-foundations-guard domain-event-architecture-guard operational-read-model-contract-guard critical-animal-action-availability-guard leadership-assistant-coverage-guard ceo-ai-page-contract-drift-guard assistant-route-closure-guard local-ci-evidence-guard kernel-worker-retirement-gate-guard stg-disposable-topology-guard stg-promotion-guard stg-promotion-guard-install e2e-integrity-guard aggregate-projection-guard vaccination-schedule-canonical-guard vaccination-shared-source-sync-guard calendar-endpoint-grain-guard goat-shed-scope-guard operational-partition-identity-guard role-scoped-ui-contract-guard goat-shed-integrity-db-proof scale-certification-docs-guard scale-guard scale-guard-plan-proof clinical-defer-guard ceo-ai-boundary-guard ceo-ai-schema-card-guard operational-location-guard vaccination-drive-clubbing-guard vaccination-adult-drive-contract-guard vaccination-drive-clubbing-db-proof vaccination-shed-ack-guard vaccination-hrms-seed-fixture-guard vaccination-hrms-source-audit fcm-recipient-routing-guard sweeper-deployment-guard deployed-job-flags-guard secret-accessors-guard worker-stage-budgets-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard ui-vaccine-labels-guard notification-specificity-guard review-lens-ledger-guard seed-migration-guard india-date-guard offline-first-guard local-single-db-guard local-gcp-kernel-parity-guard ci-local ci-local-screenshots screenshot-remediation-guard push-hook-freshness-guard parallel-dispatch-cleanup-guard gradle-worktree-lock-guard land-main land-check ci-fast-retry-guard land-main-self-test java21-self-test node22-self-test gradle-home-self-test mobile-guard mobile-guard-audit backend-proof-media-egress-guard android-runtime-permission-sdk-gates-guard android-runtime-permission-sdk-gates-guard-audit android-row-action-scope-guard android-vaccination-submit-gate-guard android-navigation-stack-guard nav-entry-point-placement-guard nav-entry-point-placement-guard-audit telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit admin-web-phone-viewport-guard admin-web-phone-viewport-guard-list admin-web-phone-viewport-baseline-update admin-web-prefetch-guard admin-web-heavy-client-imports-guard admin-web-server-client-values-guard admin-web-server-client-values-guard-audit android-bounded-memory-guard android-bounded-memory-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit weighing-partition-composition-guard exception-guard exception-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants seed-stg-firebase-password-users seed-stg-9-person-login seed-stg-postflight verify-stg-9-person-login seed-closeout seed-closeout-dry-run seed-vaccination-source-full seed-checkout-staleness-gate seed-vaccination-cpt-operator-drive legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test db-mutation-guard-test local-stack-service-guard dev-local dev-local-kernel-up dev-local-kernel-status dev-local-kernel-logs dev-local-kernel-smoke dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph kernel-worker-cutover-guard seed-feed-ration ceo-ai-eval ceo-ai-eval-selftest e2e-mcp-smoke oci-stg-db-parity grant-assistant-public-read
 
+.PHONY: push-hooks-install
 .PHONY: ai-setup ai-doctor ai-rebuild ai-rebuild-code ai-rebuild-docs ai-rebuild-repowise ai-repowise-coverage docs-graph-open ai-telemetry ai-telemetry-ui
 .PHONY: mcp-full-e2e
 .PHONY: release-tag release-tag-contract-guard restore-stg-android-release-env stg-zero-downtime-migration-audit
@@ -356,6 +357,13 @@ stg-promotion-guard:
 
 stg-promotion-guard-install:
 	bash tools/agent-hooks/install-stg-push-guard.sh
+
+# push-hooks-install: install the shared pre-push SHIM (tools/agent-hooks/pre-push.shim) and prove it
+# with real test pushes. The shim runs the pushing worktree's own committed
+# tools/agent-hooks/pre-push.hook, so installing from any branch never downgrades another (J1B P0-2).
+push-hooks-install:
+	bash tools/agent-hooks/install-stg-push-guard.sh
+	bash tools/ci/check-push-hook-freshness.sh
 
 aggregate-projection-guard:
 	node tools/agent-hooks/check-aggregate-projection-review.mjs --self-test
@@ -861,11 +869,13 @@ ci-local:
 screenshot-remediation-guard:
 	bash tools/ci/check-screenshot-remediation.sh
 
-# push-hook-freshness-guard: the installed pre-push hook runs a COPY of
-# tools/ci/check-local-ci-evidence.mjs. Improvements to the repo file are inert
-# for `git push` / `git mesha-push` until `make ai-setup` refreshes that copy —
-# measured drift once left two closed gate holes closed only for `make land-main`
-# users. This refuses to go green while the copy differs from its source.
+# push-hook-freshness-guard: the shared pre-push hook must be the SHIM
+# (tools/agent-hooks/pre-push.shim), which runs the pushing worktree's own committed
+# tools/agent-hooks/pre-push.hook. The old installer COPIED one branch's hook into the hooks dir
+# every worktree shares, so the last `make ai-setup` from any branch decided every push (J1B P0-2:
+# pr-307's stg/main-only hook replaced PR #294's admin-web gate). REAL test pushes prove main is
+# refused without a receipt, an admin-web feature push runs the lanes, and a no-hook branch gets
+# the legacy stg/main guard.
 # Self-test: bash tools/ci/check-push-hook-freshness.test.sh
 push-hook-freshness-guard:
 	bash tools/ci/check-push-hook-freshness.sh

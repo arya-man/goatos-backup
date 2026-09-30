@@ -38,6 +38,48 @@
   `GOATOS_SKIP_REASON="..."` and are recorded in the skip ledger (`tools/ci/goatos-skip-ledger.sh`).
   Details: `apps/admin-web/AGENTS.md` "Local CI is strict".
 
+- **The shared pre-push hook is a shim; each branch runs its own hook (FIXJ8, J1B P0-2,
+  2026-09-30)**: every worktree of a clone shares `<git-common-dir>/hooks`. The installer used
+  to COPY the installing branch's hook and guards there, so whichever branch last ran
+  `make ai-setup` decided what every branch's push ran: review/pr-307's old stg/main-only hook
+  silently replaced PR #294's admin-web gate, and 2d43dee4a reached the PR with no visual-gate
+  pass and no skip-ledger row. Now `tools/agent-hooks/install-stg-push-guard.sh`
+  (`make push-hooks-install`, `make ai-setup`, every `make land-main`) installs
+  `tools/agent-hooks/pre-push.shim` as `hooks/pre-push`. The shim holds no gate logic. On each
+  push it reads the pushing worktree's committed `tools/agent-hooks/pre-push.hook`, plus the
+  files `tools/agent-hooks/pre-push.bundle` lists, from HEAD, stages them and runs them. A
+  branch with no checked-in hook gets the legacy stg/main guard: its own
+  `tools/ci/check-{stg-promotion,local-ci-evidence}.mjs`, else the snapshots beside the shim.
+  Nothing found means the push is refused. Installing from any branch never downgrades another.
+  An older branch's installer treats the shim as a foreign hook and chains it as
+  `pre-push.before-goatos-stg-guard`, so the shim still runs. Change the gate by committing to
+  `pre-push.hook` / `pre-push.bundle`; no reinstall is needed. The branch hook judges its own
+  branch, and main stays protected by the exact-SHA ci-local receipt, the required
+  `goatos/land-main-receipt` status and the receipt check below.
+  `tools/ci/check-push-hook-freshness.sh` (self-test `check-push-hook-freshness.test.sh`)
+  fails unless:
+  - the installed pre-push is byte-identical to the shim;
+  - the shim resolves this worktree's hook (`GOATOS_PUSH_SHIM_WHICH=1 .git/hooks/pre-push`);
+  - REAL test pushes into a throwaway bare repo behave: main without a receipt is refused, an
+    admin-web feature push is refused by the admin-web lanes, and a branch with no hook gets
+    the legacy guard.
+- **Push-gate receipts reach the PR and gate landing (FIXJ8)**:
+  - Every push the gate sees writes a receipt to `<git-common-dir>/goatos-push-gate/receipts`
+    (`tools/ci/admin-web-push-receipt.mjs`). It records the SHA, ref, input digest, each lane
+    as pass / reused-pass / skip (with its written reason) / not-applicable, the skip-ledger
+    rows for the SHA, and the commits the push covered (SHA + `git patch-id --stable`). A
+    skipped lane without a >= 12 char reason is refused.
+  - Once the SHA is on GitHub, the receipt is posted on the PR as the `goatos/push-gate`
+    commit status: green when every lane ran, red with `SKIP <lane>: <reason>` when one was
+    skipped.
+  - `make land-main` checks every commit in origin/main..candidate before ci-local. A commit
+    no receipt covers (by SHA, or by patch-id after a rebase) REFUSES the landing. Fix: run
+    `tools/ci/admin-web-push-gate.sh --certify origin/main`, which runs every lane on HEAD and
+    records a receipt for the range.
+  - The receipts are attached to the land-main receipt (`goatos-land-main-gate-receipts.json`
+    in the git dir), and the `goatos/land-main-receipt` status carries the commit and skip
+    counts.
+
 - **Exact-SHA local-CI push gate (main)**: Only a complete green `make ci-local`
   on the exact commit SHA authorizes a push to `main`. The pre-push hook installed by
   `make ai-setup` enforces this via a machine-local SHA-bound receipt

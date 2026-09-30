@@ -1,15 +1,21 @@
 #!/usr/bin/env bash
 # GOATOS_PUSH_GUARDS
-# Installed verbatim as <hooks>/pre-push by tools/agent-hooks/install-stg-push-guard.sh
-# (`make ai-setup`). tools/ci/check-push-hook-freshness.sh fails local CI while the installed
-# copy differs from tools/agent-hooks/pre-push.hook, so edit THIS file and re-run make ai-setup.
+# THIS BRANCH'S hook. It is NOT copied into the shared hooks dir any more: the installed
+# <git-common-dir>/hooks/pre-push is the thin shim tools/agent-hooks/pre-push.shim, which on every
+# push reads THIS file (and the guards in tools/agent-hooks/pre-push.bundle) from the pushing
+# worktree's HEAD, stages them in one temp dir and runs this file from there. So $hooks_dir below is
+# that staging dir, and an edit here takes effect on the next push once committed (no reinstall).
+# tools/ci/check-push-hook-freshness.sh proves it with real test pushes.
 #
 # Runs on EVERY push to ANY branch of vgoats/goatos:
 #   1. goatos-check-stg-promotion.mjs      blocks direct updates of refs/heads/stg
 #   2. goatos-check-local-ci-evidence.mjs  refs/heads/main needs an exact-SHA ci-local receipt
 #   3. goatos-admin-web-push-gate.sh       admin-web lanes for every pushed ref that changes an
 #                                          admin-web input: design:guard, typecheck, npm test,
-#                                          next build, visual gate (touched routes + skeleton)
+#                                          next build, visual gate (touched routes + skeleton),
+#                                          then writes the gate receipt (lanes, pass/skip + reason,
+#                                          SHA, covered commits) and publishes it on the PR as the
+#                                          goatos/push-gate commit status
 # A missing guard file FAILS the push (fail closed); nothing here is skipped silently.
 set -euo pipefail
 
@@ -30,14 +36,15 @@ origin="$(git remote get-url origin 2>/dev/null || true)"
 case "$origin" in
   git@github.com:vgoats/goatos.git|ssh://git@github.com/vgoats/goatos.git|https://github.com/vgoats/goatos.git|https://github.com/vgoats/goatos)
     for f in goatos-check-stg-promotion.mjs goatos-check-local-ci-evidence.mjs step-input-digest.mjs \
-      goatos-admin-web-push-gate.sh goatos-admin-web-visual-gate.sh goatos-skip-ledger.sh; do
+      goatos-admin-web-push-gate.sh goatos-admin-web-visual-gate.sh goatos-skip-ledger.sh \
+      goatos-admin-web-push-receipt.mjs; do
       if [ ! -f "$hooks_dir/$f" ]; then
-        echo "!! pre-push: push guard $hooks_dir/$f is NOT INSTALLED — the push is refused. Fix: make ai-setup" >&2
+        echo "!! pre-push: push guard $hooks_dir/$f is MISSING from this branch's hook bundle — the push is refused. Fix: commit the file (tools/agent-hooks/pre-push.bundle lists them)" >&2
         exit 1
       fi
     done
     node "$stg_guard" --pre-push <"$payload"
     node "$evidence_guard" --pre-push <"$payload"
-    bash "$push_gate" --pre-push <"$payload"
+    bash "$push_gate" --pre-push "$@" <"$payload"
     ;;
 esac

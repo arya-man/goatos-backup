@@ -95,7 +95,7 @@ stamp_receipt() { # sha
   receipt="$(git rev-parse --git-path goatos-ci-local-receipt.json)"
   mode="$(node -e 'const r=require(process.argv[1]);process.stdout.write(String(r.mode||""))' "$receipt" 2>/dev/null || true)"
   jobs="$(node -e 'const r=require(process.argv[1]);process.stdout.write((r.jobs||[]).join(","))' "$receipt" 2>/dev/null || true)"
-  desc="ci-local green (${mode:-?}: ${jobs:-?}) on $(short_sha "$sha") via make land-main"
+  desc="ci-local green (${mode:-?}: ${jobs:-?}) on $(short_sha "$sha") via make land-main; $(gate_receipts_summary)"
   git mesha-push "$sha:$tmp_ref" >/dev/null 2>&1 || die "could not publish candidate ref ${tmp_ref} for the receipt stamp"
   if ! gh api -X POST "repos/vgoats/goatos/statuses/$sha" \
       -f state=success -f context="$receipt_context" -f description="${desc:0:140}" >/dev/null; then
@@ -103,6 +103,26 @@ stamp_receipt() { # sha
     die "could not post ${receipt_context} status on $(short_sha "$sha")"
   fi
   echo "land-main: stamped ${receipt_context} on $(short_sha "$sha")"
+}
+# Push-gate receipts (J1B P0-2 / CI gap 2, 2026-09-30). Every commit in origin/main..candidate must
+# be covered by a receipt the admin-web push gate wrote when it was pushed (by SHA, or by patch-id
+# so land-main's own rebase keeps the coverage). A commit no receipt covers never went through the
+# push gate (--no-verify, another machine, a stale copied hook: 2d43dee4a) and the landing is
+# REFUSED before ci-local runs. Fix: tools/ci/admin-web-push-gate.sh --certify origin/main (runs
+# every lane on HEAD and records a receipt for the range). The receipts, with every skipped lane
+# and its reason, are attached to the land-main receipt (goatos-land-main-gate-receipts.json in the
+# git dir) and summarised in the goatos/land-main-receipt status.
+gate_receipts_out="$(git rev-parse --git-path goatos-land-main-gate-receipts.json 2>/dev/null || echo /dev/null)"
+gate_receipts_check() { # base head
+  if [ "$test_mode" = "1" ] && [ "${GOATOS_LAND_TEST_SKIP_GATE_RECEIPTS:-0}" = "1" ]; then return 0; fi
+  local tool="tools/ci/admin-web-push-receipt.mjs"
+  [ -f "$tool" ] || tool="$script_dir/admin-web-push-receipt.mjs"
+  [ -f "$tool" ] || die "push-gate receipt checker is missing ($tool); refusing to land"
+  node "$tool" check-range --base "$1" --head "$2" --out "$gate_receipts_out" \
+    || die "refusing to land: commits in $(short_sha "$1")..$(short_sha "$2") have no push-gate receipt (see above). Run tools/ci/admin-web-push-gate.sh --certify $(short_sha "$1") on the candidate, then make land-main again"
+}
+gate_receipts_summary() {
+  node -e 'const r=require(process.argv[1]);process.stdout.write(`gate receipts ${r.commits.length} commits, ${r.skips.length} skip(s)`)' "$gate_receipts_out" 2>/dev/null || true
 }
 cleanup_stamp_ref() { # sha
   git mesha-push ":refs/heads/land/$(short_sha "$1")" >/dev/null 2>&1 || true
@@ -240,6 +260,7 @@ while [ "$attempt" -le "$max_attempts" ]; do
     echo "land-main: candidate already equals current origin/main; nothing to push"
     exit 0
   fi
+  gate_receipts_check "$base_before" "$candidate_sha"
 
   if [ "$test_mode" = "1" ]; then
     test_ci="${GOATOS_LAND_TEST_CI_COMMAND:-}"
@@ -289,6 +310,7 @@ while [ "$attempt" -le "$max_attempts" ]; do
           --new-base "$base_after" \
           --jobs "$rebased_jobs"; then
           log_attempt "attempt=${attempt} receipt_reuse=ok"
+          gate_receipts_check "$base_after" "$rebased_sha"
           echo "land-main: reused green CI receipt after patch-identical rebase $(short_sha "$candidate_sha") -> $(short_sha "$rebased_sha")"
           candidate_sha="$rebased_sha"
           base_before="$base_after"

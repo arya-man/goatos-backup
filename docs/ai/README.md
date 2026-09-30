@@ -44,8 +44,10 @@ stack before doing the actual work:
   `.code-review-graph/` exists, or after one setup attempt on the clone
   (marker `<git-dir>/goatos-ai-setup-attempted`), so an offline machine cannot
   deadlock. Disable with `GOATOS_AI_SETUP_GUARD=0`.
-- `make ai-setup` also installs a machine-local Git `pre-push` hook scoped to
-  `vgoats/goatos`. It blocks every direct update to remote `stg`, including
+- `make ai-setup` (or `make push-hooks-install`) also installs a machine-local Git
+  `pre-push` shim (`tools/agent-hooks/pre-push.shim`) shared by every worktree; on each
+  push it runs that worktree's own committed `tools/agent-hooks/pre-push.hook` (see
+  `docs/agent-rules/ci-landing-release.md`), scoped to `vgoats/goatos`. It blocks every direct update to remote `stg`, including
   `HEAD:stg`, `main:stg`, local `stg`, deletions, and forced updates. Human and
   agent pushes are both covered. Remote `stg` is not deployment authority; Goat
   OS staging deploys through the manual Cloud Deploy runbook from the latest
