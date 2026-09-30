@@ -1,11 +1,19 @@
+import Alert from "@mui/material/Alert";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import Stack from "@mui/material/Stack";
 import Table from "@mui/material/Table";
-import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
-import { ClipboardCheck, Clock, ShieldCheck, Snowflake, Video } from "lucide-react";
-import type { ReactNode } from "react";
-import { Tag, type Tone } from "@/components/ui-primitives";
+import Typography from "@mui/material/Typography";
+import { Label, type LabelColor } from "@/components/minimal/label";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { DividedStack } from "@/components/app/divided-stack";
+import { EmptyState } from "@/components/app/empty-state";
+import { InvoiceAnalytic } from "@/components/app/sections/invoice/invoice-analytic";
+import { TableHeadCustom } from "@/components/app/table/table-head-custom";
+import { INVENTORY } from "./command-board-layout";
 import { copy, optionLabel, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate } from "@/lib/format";
 import { listPCCareTasks, type ApiResult, type PCCareTask, type PCCareTaskPage } from "@/lib/api/server";
@@ -26,24 +34,12 @@ function todayBusinessDate(pageContract: AdminUiPageContract) {
   }).format(new Date());
 }
 
-function statusTone(task: PCCareTask): Tone {
-  if (task.work_state === "delayed" || task.status === "rework") return "dng";
+function statusColor(task: PCCareTask): LabelColor {
+  if (task.work_state === "delayed" || task.status === "rework") return "error";
   if (task.status === "pending_verification") return "info";
-  if (task.status === "completed" || task.work_state === "completed") return "ok";
-  if (task.work_state === "scheduled") return "warn";
-  return "mut";
-}
-
-function metric(label: string, value: number, icon: ReactNode) {
-  return (
-    <div className="card" style={{ padding: 12, borderRadius: 8, minWidth: 0 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        {icon}
-        <span className="small muted">{label}</span>
-      </div>
-      <div style={{ marginTop: 4, fontSize: 24, fontWeight: 700, lineHeight: 1 }}>{value}</div>
-    </div>
-  );
+  if (task.status === "completed" || task.work_state === "completed") return "success";
+  if (task.work_state === "scheduled") return "warning";
+  return "default";
 }
 
 function requirementLine(pageContract: AdminUiPageContract, task: PCCareTask) {
@@ -105,16 +101,13 @@ function InventoryProgressContent({
   asOf: string;
   pageContract: AdminUiPageContract;
 }) {
+  const title = copy(pageContract, "section.inventory_progress.title");
   if (!result.ok) {
     return (
-      <section className="card" id="pc-care-inventory-progress" style={{ scrollMarginTop: 80 }}>
-        <div className="hd">
-          <h2>{copy(pageContract, "section.inventory_progress.title")}</h2>
-        </div>
-        <div className="bd">
-          <div className="muted">{copy(pageContract, "inventory_progress.unavailable")}</div>
-        </div>
-      </section>
+      <Card id="pc-care-inventory-progress" sx={{ scrollMarginTop: "calc(var(--sp-5) * 2)" }}>
+        <CardHeader title={title} />
+        <Alert severity="error" sx={{ m: 3 }}>{copy(pageContract, "inventory_progress.unavailable")}</Alert>
+      </Card>
     );
   }
 
@@ -122,72 +115,61 @@ function InventoryProgressContent({
   const delayed = rows.filter((task) => task.work_state === "delayed").length;
   const waitingVerifier = rows.filter((task) => task.status === "pending_verification").length;
   const completed = rows.filter((task) => task.status === "completed" || task.work_state === "completed").length;
+  const share = (value: number) => (rows.length ? Math.round((value / rows.length) * 100) : 0);
+  const metrics = [
+    { key: "current", title: copy(pageContract, "inventory_progress.metric.current"), value: rows.length, percent: 100, icon: "solar:file-check-bold-duotone" as const, color: "info.main" },
+    { key: "overdue", title: copy(pageContract, "inventory_progress.metric.overdue"), value: delayed, percent: share(delayed), icon: "solar:clock-circle-bold" as const, color: "error.main" },
+    { key: "verifier", title: copy(pageContract, "inventory_progress.metric.verifier"), value: waitingVerifier, percent: share(waitingVerifier), icon: "solar:shield-check-bold" as const, color: "warning.main" },
+    { key: "done_today", title: copy(pageContract, "inventory_progress.metric.done_today"), value: completed, percent: share(completed), icon: "solar:videocamera-record-bold" as const, color: "success.main" },
+  ];
+  const headCells = tableLabels(pageContract, "inventory-vaccine-progress").map((label) => ({ id: label, label }));
 
+  // Template invoice list card: CardHeader, the InvoiceAnalytic strip, the task table in the Scrollbar.
   return (
-    <section className="card" id="pc-care-inventory-progress" style={{ scrollMarginTop: 80 }}>
-      <div className="hd">
-        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-          <Snowflake className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
-          <h2 style={{ margin: 0 }}>{copy(pageContract, "section.inventory_progress.title")}</h2>
-        </div>
-        <div className="sp" style={{ flex: 1 }} />
-        <span className="small muted">{copy(pageContract, "inventory_progress.subtitle")} · {fmtDate(asOf)}</span>
-      </div>
-      <div className="bd" style={{ display: "grid", gap: 12 }}>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
-            gap: 10,
-          }}
-        >
-          {metric(copy(pageContract, "inventory_progress.metric.current"), rows.length, <ClipboardCheck className="ic" aria-hidden="true" />)}
-          {metric(copy(pageContract, "inventory_progress.metric.overdue"), delayed, <Clock className="ic" aria-hidden="true" />)}
-          {metric(copy(pageContract, "inventory_progress.metric.verifier"), waitingVerifier, <ShieldCheck className="ic" aria-hidden="true" />)}
-          {metric(copy(pageContract, "inventory_progress.metric.done_today"), completed, <Video className="ic" aria-hidden="true" />)}
-        </div>
+    <Card id="pc-care-inventory-progress" sx={{ scrollMarginTop: "calc(var(--sp-5) * 2)" }}>
+      <CardHeader title={title} subheader={`${copy(pageContract, "inventory_progress.subtitle")} · ${fmtDate(asOf)}`} />
+      <Scrollbar sx={{ minHeight: INVENTORY.stripMinHeight }}>
+        <DividedStack dividerOrientation="vertical" direction="row" sx={{ py: 2 }}>
+          {metrics.map((metric) => (
+            <InvoiceAnalytic key={metric.key} title={metric.title} total={metric.value} percent={metric.percent} icon={metric.icon} color={metric.color} />
+          ))}
+        </DividedStack>
+      </Scrollbar>
 
-        {rows.length === 0 ? (
-          <div className="muted" style={{ padding: "10px 2px" }}>
-            {copy(pageContract, "inventory_progress.empty")}
-          </div>
-        ) : (
-          <div className="twrap" tabIndex={0} role="group" aria-label={copy(pageContract, "section.inventory_progress.title")}>
-            <Table className="data-table">
-              <TableHead>
-                <TableRow>
-                  {tableLabels(pageContract, "inventory-vaccine-progress").map((label) => (
-                    <TableCell component="th" key={label}>{label}</TableCell>
-                  ))}
+      {rows.length === 0 ? (
+        <EmptyState title={copy(pageContract, "inventory_progress.empty")} sx={{ mx: 3, mb: 3 }} />
+      ) : (
+        <Scrollbar>
+          <Table aria-label={title} sx={{ minWidth: INVENTORY.tableMinWidth }}>
+            <TableHeadCustom headCells={headCells} />
+            <TableBody>
+              {rows.map((task) => (
+                <TableRow key={task.task_id} hover>
+                  <TableCell>{task.park_label}</TableCell>
+                  <TableCell>
+                    <Typography variant="body2" component="div">
+                      {task.task_label || task.operational_location_display || operationalLocationLabel({ shedName: task.shed_label, partitionLabel: task.partition_label })}
+                    </Typography>
+                    {task.partition_label ? (
+                      <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{task.partition_label}</Typography>
+                    ) : null}
+                  </TableCell>
+                  <TableCell>{assigneeLine(pageContract, task)}</TableCell>
+                  <TableCell>{requirementLine(pageContract, task)}</TableCell>
+                  <TableCell sx={{ whiteSpace: "nowrap" }}>{fmtDate(task.due_business_date)}</TableCell>
+                  <TableCell>
+                    <Stack direction="row" useFlexGap sx={{ flexWrap: "wrap", gap: 0.75 }}>
+                      <Label color={statusColor(task)}>{optionLabel(pageContract, "inventory_task_work_states", task.work_state)}</Label>
+                      <Label color={statusColor(task)}>{optionLabel(pageContract, "inventory_task_statuses", task.status)}</Label>
+                    </Stack>
+                  </TableCell>
                 </TableRow>
-              </TableHead>
-              <TableBody>
-                {rows.map((task) => (
-                  <TableRow key={task.task_id}>
-                    <TableCell>{task.park_label}</TableCell>
-                    <TableCell>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                        <span>{task.task_label || task.operational_location_display || operationalLocationLabel({ shedName: task.shed_label, partitionLabel: task.partition_label })}</span>
-                        {task.partition_label ? <span className="small muted">{task.partition_label}</span> : null}
-                      </div>
-                    </TableCell>
-                    <TableCell>{assigneeLine(pageContract, task)}</TableCell>
-                    <TableCell>{requirementLine(pageContract, task)}</TableCell>
-                    <TableCell>{fmtDate(task.due_business_date)}</TableCell>
-                    <TableCell>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                        <Tag tone={statusTone(task)}>{optionLabel(pageContract, "inventory_task_work_states", task.work_state)}</Tag>
-                        <Tag tone={statusTone(task)}>{optionLabel(pageContract, "inventory_task_statuses", task.status)}</Tag>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-      </div>
-    </section>
+              ))}
+            </TableBody>
+          </Table>
+        </Scrollbar>
+      )}
+    </Card>
   );
 }
 

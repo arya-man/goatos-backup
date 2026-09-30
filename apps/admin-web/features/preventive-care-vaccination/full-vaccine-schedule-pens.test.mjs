@@ -58,7 +58,7 @@ test("the schedule renders pens through the helper and never groups by shed name
   const source = readFileSync(new URL("./full-vaccine-schedule.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(source, /item\.name === row\.physicalShed/);
   assert.doesNotMatch(source, /schedule\.partition\.prefix/);
-  assert.match(source, /<b>\{pen\.display\}<\/b>/);
+  assert.match(source, /title=\{penTitle\(pen\)\}>\s*\{pen\.display\}/);
   assert.match(source, /label: pen\.display/);
   assert.match(source, /partition_label: pen\.partitionLabel/);
 });

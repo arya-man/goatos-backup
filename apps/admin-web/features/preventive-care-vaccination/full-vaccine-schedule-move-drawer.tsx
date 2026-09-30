@@ -5,7 +5,7 @@ import {
   currentHistoryEntryIsLocalOverlay,
   replaceLocalOverlayUrl,
 } from "@/components/local-overlay-link";
-import { Tag } from "@/components/ui-primitives";
+import { Label } from "@/components/minimal/label";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate, todayIso } from "@/lib/format";
 import { useCallback, useEffect, useState, type ComponentProps } from "react";
@@ -99,6 +99,7 @@ export function ScheduleMoveDrawer({
   }, [closeHref, hideRow]);
 
   if (!displayedRow) return null;
+  const originalDriveDate = displayedRow.vaccineOriginalDates[selectedVaccineCode] || displayedRow.originalPlannedDate || displayedRow.plannedDate;
 
   // Template temporary drawer (portal, backdrop, focus trapped and returned). Escape and the backdrop
   // land on closeDrawer, which steps the local-overlay history entry back once.
@@ -124,18 +125,8 @@ export function ScheduleMoveDrawer({
     >
       <Stack component="form" id={MOVE_FORM_ID} action={action} spacing={2.5}>
         <input type="hidden" name="park_id" value={displayedRow.parkId} />
-        <input
-          type="hidden"
-          name="original_drive_date"
-          value={displayedRow.vaccineOriginalDates[selectedVaccineCode] || displayedRow.originalPlannedDate || displayedRow.plannedDate}
-        />
-        <input
-          type="hidden"
-          name="original_drive_dates"
-          value={(displayedRow.vaccineOriginalDateSets[selectedVaccineCode] ?? [
-            displayedRow.vaccineOriginalDates[selectedVaccineCode] || displayedRow.originalPlannedDate || displayedRow.plannedDate,
-          ]).join(",")}
-        />
+        <input type="hidden" name="original_drive_date" value={originalDriveDate} />
+        <input type="hidden" name="original_drive_dates" value={(displayedRow.vaccineOriginalDateSets[selectedVaccineCode] ?? [originalDriveDate]).join(",")} />
         <input type="hidden" name="reason" value={copy(pageContract, "schedule.postpone.reason_default")} />
         <input type="hidden" name="return_to" value={displayedRow.returnTo} />
         <input type="hidden" name="vaccine_code" value={selectedVaccineCode} />
@@ -169,7 +160,7 @@ export function ScheduleMoveDrawer({
           </Typography>
         </Stack>
         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75 }}>
-          {displayedRow.vaccineNames.map((name) => <Tag key={name} tone="teal">{name}</Tag>)}
+          {displayedRow.vaccineNames.map((name) => <Label key={name} color="info">{name}</Label>)}
         </Box>
       </Stack>
     </DetailDrawer>

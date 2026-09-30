@@ -524,7 +524,6 @@ input[type="radio"],input[type="checkbox"]{accent-color:var(--primary)}
   }
 /* Minimal list toolbar: every control in the row shares the search field's height, so a Filters
    button beside the 56px (48px phone) search is not a 36px pill floating in the middle. */
-.main .card>.tbar:has(>.tsearch)>.btn{align-self:stretch;height:auto}
 /* Phone breadcrumbs: one line, the trail ellipsizes instead of wrapping into columns. */
 /* Health Analytics with nothing recorded: KPI cards at content height (no reserved sparkline
    slot, no stretched grid rows) instead of tall empty cards. */

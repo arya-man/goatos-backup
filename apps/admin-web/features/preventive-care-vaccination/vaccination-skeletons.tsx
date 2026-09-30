@@ -60,9 +60,9 @@ function LegendSkeleton({ count }: { count: number }) {
   );
 }
 
-/** Inventory progress: four metric tiles over the per-vaccine table. */
+/** Inventory progress: CardHeader (date subheader), the four-cell InvoiceAnalytic strip, the task table. */
 export function VaccinationInventorySkeleton({ id }: { id?: string }) {
-  return <TableSkeleton id={id} columns={INVENTORY.columns} rows={INVENTORY.rows} pager={false} toolbar={<StatStripSkeleton count={INVENTORY.tiles} card={false} />} />;
+  return <TableSkeleton id={id} columns={INVENTORY.columns} rows={INVENTORY.rows} pager={false} subheader toolbar={<StatStripSkeleton count={INVENTORY.tiles} card={false} />} />;
 }
 
 /**
@@ -85,7 +85,23 @@ export function VaccinationShedBoardSkeleton({ columns = SHED_BOARD_TOOLBAR.colu
   );
 }
 
-/** Full schedule: the month chips over the operator-day table (8 schedule columns). */
+/** Full schedule: CardHeader + action, the summary strip, the month segment tabs, the operator-day table. */
 export function VaccinationFullScheduleSkeleton() {
-  return <TableSkeleton columns={FULL_SCHEDULE.columns} rows={FULL_SCHEDULE.rows} pager={false} headerAction toolbar={<ChipRowSkeleton count={FULL_SCHEDULE.monthChips} />} />;
+  return (
+    <TableSkeleton
+      columns={FULL_SCHEDULE.columns}
+      rows={FULL_SCHEDULE.rows}
+      pager={false}
+      subheader
+      headerAction
+      toolbar={
+        <>
+          <StatStripSkeleton count={FULL_SCHEDULE.summaryCells} card={false} />
+          <Box sx={{ px: 2.5, py: 2 }}>
+            <TabsSkeleton count={FULL_SCHEDULE.monthTabs} variant="pill" links />
+          </Box>
+        </>
+      }
+    />
+  );
 }

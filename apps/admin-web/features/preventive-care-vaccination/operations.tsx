@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import Box from "@mui/material/Box";
 
 import { PageHeader } from "@/components/app/page-header";
 import { one, type RouteSearchParams } from "@/lib/search-params";
@@ -39,7 +40,8 @@ export function VaccinationOperationsPage({
   const scheduleYear = vaccinationScheduleYear(sp);
 
   return (
-    <div className="screen on">
+    // Page root: the shell's page grid (24px column gap, min-width 0 children), in sx.
+    <Box sx={{ display: "grid", gap: 3, minWidth: 0, alignContent: "start", "& > *": { minWidth: 0, my: 0 } }}>
       <PageHeader
         title={pageContract.title}
         crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
@@ -53,31 +55,25 @@ export function VaccinationOperationsPage({
           <VaccinationFullSchedule searchParams={sp} scope={scope} pageContract={pageContract} />
         </UrlSuspense>
       ) : (
-        <div className="kit-enter" style={{ display: "grid", gap: 16, gridTemplateColumns: "minmax(0,1fr)" }}>
-      {/* CEO command board — KPIs, cohort matrix, shed dose matrix, weekly given, verification queue. */}
-      <div style={{ minWidth: 0 }}>
-        <Suspense fallback={<VaccinationCommandBoardSkeleton />}>
-          <VaccinationCommandBoard pageContract={pageContract} searchParams={sp} driveBatchId={one(sp, "cb_drive")} driveParkId={one(sp, "cb_drive_park")} />
-        </Suspense>
-      </div>
+        <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: "minmax(0, 1fr)", "& > *": { minWidth: 0 } }}>
+          {/* CEO command board — KPIs, cohort matrix, shed dose matrix, weekly given, verification queue. */}
+          <Suspense fallback={<VaccinationCommandBoardSkeleton />}>
+            <VaccinationCommandBoard pageContract={pageContract} searchParams={sp} driveBatchId={one(sp, "cb_drive")} driveParkId={one(sp, "cb_drive_park")} />
+          </Suspense>
 
-      <div style={{ minWidth: 0 }}>
-      <UrlSuspense searchParams={sp} watch={SCOPE_WATCH} fallback={<VaccinationInventorySkeleton id="pc-care-inventory-progress" />}>
-        <InventoryVaccineProgressSection searchParams={sp} pageContract={pageContract} />
-      </UrlSuspense>
-      </div>
+          <UrlSuspense searchParams={sp} watch={SCOPE_WATCH} fallback={<VaccinationInventorySkeleton id="pc-care-inventory-progress" />}>
+            <InventoryVaccineProgressSection searchParams={sp} pageContract={pageContract} />
+          </UrlSuspense>
 
-      {/* Shed-wise vaccination table — one row per shed, animal-level due/done, planned sessions, capacity,
-          and merged status. Rows deep-link to the shed detail. This is the MAIN vaccination table. */}
-      <div style={{ minWidth: 0 }}>
-        <Suspense fallback={<VaccinationShedBoardSkeleton columns={shedBoardColumns(pageContract)} />}>
-          <VaccinationShedBoard searchParams={sp} pageContract={pageContract} />
-        </Suspense>
-      </div>
-        </div>
+          {/* Shed-wise vaccination table — one row per shed, animal-level due/done, planned sessions, capacity,
+              and merged status. Rows deep-link to the shed detail. This is the MAIN vaccination table. */}
+          <Suspense fallback={<VaccinationShedBoardSkeleton columns={shedBoardColumns(pageContract)} />}>
+            <VaccinationShedBoard searchParams={sp} pageContract={pageContract} />
+          </Suspense>
+        </Box>
       )}
       </UrlSuspense>
-    </div>
+    </Box>
   );
 }
 

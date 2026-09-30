@@ -107,26 +107,26 @@ test("vaccination schedule renders one visible row per operator day", () => {
 
 test("vaccination schedule keeps shed totals visible and partition detail out of the overview columns", () => {
   assert.match(source, /title=\{penTitle\(pen\)\}/);
-  assert.match(source, /operator-day-shed/);
+  assert.match(source, /<Label key=\{pen\.key\} variant="outlined" title=\{penTitle\(pen\)\}>/);
   assert.doesNotMatch(source, /<th>\{copy\(pageContract, "schedule\.column\.partition"\)\}<\/th>/);
   assert.doesNotMatch(source, /className="operator-day-partitions"/);
 });
 
 test("vaccination schedule keeps workload bars animal-based on backend assignment rows", () => {
-  assert.match(source, /schedule-load-card operator-workload-card/);
   assert.match(source, /scheduleLoadBuckets/);
-  assert.match(source, /schedule-load-bar/);
+  assert.match(source, /flexBasis: workloadSegmentWidth\(bucket, segmentTotal\)/);
   assert.match(source, /row\.dueAnimals/);
   assert.match(source, /row\.deferredAnimals/);
   assert.match(source, /row\.overdueAnimals/);
-  assert.match(source, /schedule-load-total">\{row\.animals\}/);
-  assert.match(source, /schedule-load-goats">\{row\.totalDoses\}/);
+  assert.match(source, /component="span">\{row\.animals\}<\/Typography>/);
+  assert.match(source, /\{row\.totalDoses\} \{copy\(pageContract, "schedule\.unit\.doses"\)\}/);
   assert.match(source, /row\.totalDoses/);
   assert.match(source, /row\.animals/);
-  assert.match(css, /\.operator-workload-card/);
-  assert.match(css, /\.schedule-load-seg\.tone-danger/);
-  assert.match(css, /\.schedule-load-seg\.tone-warn/);
-  assert.match(css, /\.schedule-load-seg\.tone-done/);
+  // Bucket tones are theme palette colours (template sx), not legacy .schedule-load-* CSS.
+  assert.match(source, /danger: "error\.main"/);
+  assert.match(source, /warn: "warning\.main"/);
+  assert.match(source, /done: "grey\.500"/);
+  assert.doesNotMatch(css, /\.operator-workload-card|\.schedule-load-seg/);
 });
 
 test("vaccination shed summary row keys include the full rendered summary grain", () => {
@@ -160,7 +160,7 @@ test("vaccination schedule move date uses an overlay and themed dark date picker
   assert.match(source, /schedule_move_result/);
   assert.match(source, /schedule_move_vaccine/);
   assert.match(source, /schedule_move_date/);
-  assert.match(source, /schedule-move-banner/);
+  assert.match(source, /<Alert severity=\{scheduleMoveStatus === "recorded" \? "success" : "error"\} role="status"/);
   assert.match(source, /redirect\(/);
   assert.doesNotMatch(source, /<input name="override_date"[^>]*type="date"/);
   assert.doesNotMatch(source, /<select name="vaccine_code"/);
@@ -219,14 +219,12 @@ test("full schedule action is hidden while already inside the schedule view", ()
   assert.match(operationsSource, /isFullSchedule \? null : <VaccinationFullScheduleButton/);
 });
 
-test("vaccination schedule table is visually bounded on desktop", () => {
-  assert.equal(
-    /\.full-vaccine-schedule-table\{[^}]*min-width\s*:\s*1280px/.test(css),
-    false,
-    "Full schedule table must not force right-edge columns off-screen at desktop widths.",
-  );
-  assert.match(css, /\.full-vaccine-schedule-table\{[^}]*width\s*:\s*100%/);
-  assert.match(css, /\.vaccination-schedule-tablewrap\{[^}]*overflow-x\s*:\s*auto/);
-  assert.match(source, /className="bd tablewrap vaccination-schedule-tablewrap"/);
-  assert.match(css, /\.full-vaccine-schedule-table th:nth-child\(6\)/);
+test("vaccination schedule table scrolls inside its card on the template Scrollbar", () => {
+  // Template table anatomy: the table scrolls sideways in the card's Scrollbar at its own min width;
+  // no legacy .full-vaccine-schedule-table / .vaccination-schedule-* CSS (FIXJ2 J1 P0-1/P0-2).
+  assert.match(source, /<Scrollbar>\s*<Table aria-label=\{copy\(pageContract, "section\.full_schedule\.operator_title"\)\} sx=\{\{ minWidth: FULL_SCHEDULE\.tableMinWidth \}\}>/);
+  assert.match(source, /<TableHeadCustom headCells=\{headCells\} \/>/);
+  assert.doesNotMatch(source, /className=/);
+  assert.doesNotMatch(source, /style=\{\{/);
+  assert.doesNotMatch(css, /full-vaccine-schedule-table|vaccination-schedule-(?:card|hd|summary|legend|tablewrap)/);
 });

@@ -106,8 +106,6 @@
 /* skeleton tables sit in a card like the real table */
 
 /* table toolbars inside cards keep the card gutter */
-.card>.tbar{padding:0 24px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-.card>.hd+.tbar{margin-top:16px}
 
 /* Work board cards lift on hover like every interactive kit card. */
 /* Stat/meta grids: sentence-case labels on the kit caption anatomy, values on the display face. */
@@ -156,8 +154,8 @@
   :root .main .iconbtn.kit-row-edit{width:44px;height:44px}
   /* Generic floor for every interactive control inside the page (buttons, inputs, summaries, chips, pager
      and calendar links). Inline text links keep their flow; these are all block/flex controls. */
-  :root .main button:not(.kit-check input),:root .main input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),:root .main select,:root .main textarea,:root .main summary,:root .main .chip,:root .main .parkpick a,:root .main .datenav a,:root .main .move-date-button,:root .main a.more,:root .main .wt-feedband-gone,:root .main .lt-intervalpick button,:root .main .vaccination-schedule-legend a{min-height:44px}
-  :root .main summary,:root .main .chip,:root .main .parkpick a,:root .main .datenav a,:root .main a.more,:root .main .wt-feedband-gone,:root .main .vaccination-schedule-legend a{display:inline-flex;align-items:center;justify-content:center;min-width:44px;box-sizing:border-box}
+  :root .main button:not(.kit-check input),:root .main input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),:root .main select,:root .main textarea,:root .main summary,:root .main .chip,:root .main .parkpick a,:root .main .datenav a,:root .main .move-date-button,:root .main a.more,:root .main .wt-feedband-gone,:root .main .lt-intervalpick button{min-height:44px}
+  :root .main summary,:root .main .chip,:root .main .parkpick a,:root .main .datenav a,:root .main a.more,:root .main .wt-feedband-gone{display:inline-flex;align-items:center;justify-content:center;min-width:44px;box-sizing:border-box}
   :root .main .move-date-popover,:root .main .top-date-popover{width:min(100vw - 16px,360px);max-width:calc(100vw - 16px);left:0;right:auto;padding:12px}
   :root .main .top-date-grid{gap:1px}
   

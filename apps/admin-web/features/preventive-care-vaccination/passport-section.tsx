@@ -10,7 +10,7 @@ import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
 import Paper from "@mui/material/Paper";
 import Typography from "@mui/material/Typography";
-import { Label } from "@/components/minimal/label";
+import { Label, type LabelColor } from "@/components/minimal/label";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { TableHeadCustom } from "@/components/app/table";
 import {
@@ -18,22 +18,20 @@ import {
   type VaccinationPassport,
   type VaccinationPassportHistoryItem,
 } from "@/lib/api/server";
-import { Tag } from "@/components/ui-primitives";
 import { fmtDate, humanizeEnum } from "@/lib/format";
 import { copy, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
-type Tone = "ok" | "warn" | "dng" | "info" | "mut";
-function statusTone(status: string): Tone {
-  if (status === "accepted") return "ok";
-  if (status === "rejected") return "dng";
-  if (status === "recorded") return "warn";
-  return "mut";
+function statusColor(status: string): LabelColor {
+  if (status === "accepted") return "success";
+  if (status === "rejected") return "error";
+  if (status === "recorded") return "warning";
+  return "default";
 }
 function proofLabel(item: VaccinationPassportHistoryItem, pageContract: AdminUiPageContract): React.ReactNode {
-  if (item.status === "accepted") return <Tag tone="ok">{copy(pageContract, "vaccination.proof_verified")}</Tag>;
-  if (item.status === "recorded") return <Tag tone="warn">{copy(pageContract, "vaccination.awaiting_verify")}</Tag>;
-  if (item.status === "rejected") return <Tag tone="dng">{copy(pageContract, "vaccination.rework_rejected")}</Tag>;
-  return <Tag tone="mut">{humanizeEnum(item.status)}</Tag>;
+  if (item.status === "accepted") return <Label color="success">{copy(pageContract, "vaccination.proof_verified")}</Label>;
+  if (item.status === "recorded") return <Label color="warning">{copy(pageContract, "vaccination.awaiting_verify")}</Label>;
+  if (item.status === "rejected") return <Label color="error">{copy(pageContract, "vaccination.rework_rejected")}</Label>;
+  return <Label color="default">{humanizeEnum(item.status)}</Label>;
 }
 function workflowHref(rowId: string): string {
   return `/workflows/${encodeURIComponent(rowId)}`;
@@ -88,7 +86,7 @@ export async function VaccinationPassportSection({ goatId, pageContract }: { goa
       key: "next",
       label: copy(pageContract, "vaccination.next_due"),
       value: p.next_due ? fmtDate(p.next_due.scheduled_for || p.next_due.due_at) : placeholder,
-      extra: p.next_due ? <Tag tone="warn">{humanizeEnum(p.next_due.status)}</Tag> : null,
+      extra: p.next_due ? <Label color="warning">{humanizeEnum(p.next_due.status)}</Label> : null,
     },
     { key: "open", label: copy(pageContract, "vaccination.open_obligations"), value: String(open.length), extra: null },
     { key: "last", label: copy(pageContract, "vaccination.last_accepted"), value: p.last_accepted ? fmtDate(p.last_accepted.administered_at) : placeholder, extra: null },
@@ -157,7 +155,7 @@ export async function VaccinationPassportSection({ goatId, pageContract }: { goa
                     </TableCell>
                     <TableCell>{vaccineRowLabel(due)}</TableCell>
                     <TableCell>
-                      <Tag tone={statusTone(due.status)}>{humanizeEnum(due.status)}</Tag>
+                      <Label color={statusColor(due.status)}>{humanizeEnum(due.status)}</Label>
                     </TableCell>
                     <TableCell>
                       {rowId ? (
@@ -203,7 +201,7 @@ export async function VaccinationPassportSection({ goatId, pageContract }: { goa
                   <TableCell>{vaccineRowLabel(h)}</TableCell>
                   <TableCell sx={{ color: "text.secondary" }}>{h.route_site || placeholder}</TableCell>
                   <TableCell>
-                    <Tag tone={statusTone(h.status)}>{humanizeEnum(h.status)}</Tag>
+                    <Label color={statusColor(h.status)}>{humanizeEnum(h.status)}</Label>
                   </TableCell>
                   <TableCell>{proofLabel(h, pageContract)}</TableCell>
                   <TableCell>

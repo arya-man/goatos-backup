@@ -516,7 +516,6 @@ const SCOPE_AWARE_FILES = new Set([
   "features/process-integrity/workflows-landing.tsx",
   "features/process-integrity/workflow-drilldown.tsx",
   "features/preventive-care-vaccination/operations.tsx",
-  "features/preventive-care-vaccination/execution-section.tsx",
   "features/vaccination-execution/execution-board.tsx",
   "features/vaccination-execution/shed-drilldown.tsx",
   "features/vaccination-live-tracker/live-tracker-board.tsx",

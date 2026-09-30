@@ -31,10 +31,7 @@ const ALLOWED = {
   "features/counts/counts-breakdown-loads.tsx": 1,
   "features/counts/herd-actions-ui.tsx": 5,
   "features/counts/herd-passport-vaccination.tsx": 2,
-  "features/preventive-care-vaccination/cohort-detail.tsx": 1,
   "features/preventive-care-vaccination/command-board-view.tsx": 11,
-  "features/preventive-care-vaccination/status-matrix.tsx": 1,
-  "features/preventive-care-vaccination/supplier-warmup-context.tsx": 1,
   "features/procurement/load-forms.tsx": 1,
 };
 

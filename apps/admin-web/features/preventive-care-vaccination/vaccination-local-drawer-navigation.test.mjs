@@ -8,21 +8,18 @@ function source(relativePath) {
 }
 
 test("vaccination list-backed drawers use local history instead of route refreshes", () => {
-  const cohort = source("./cohort-detail.tsx");
-  const matrix = source("./status-matrix.tsx");
-  const warmup = source("./supplier-warmup-context.tsx");
+  // The unrendered cohort-detail / status-matrix / supplier-warmup sections were deleted (FIXJ2-PCV);
+  // the full schedule and the pen execution board are the list-backed drawers left on /vaccination.
+  const schedule = source("./full-vaccine-schedule.tsx");
   const execution = source("../vaccination-execution/execution-board.tsx");
 
-  assert.match(cohort, /LocalOverlayLink/);
-  assert.match(cohort, /VaccinationRecordVerifyLocalDrawer/);
-  assert.match(matrix, /LocalOverlayLink/);
-  assert.match(matrix, /VaccinationRecordVerifyLocalDrawer/);
-  assert.match(warmup, /LocalOverlayLink/);
-  assert.match(warmup, /<LocalOverlayDrawer/);
+  assert.match(schedule, /LocalOverlayLink/);
+  assert.match(schedule, /<ScheduleLocalDrawer/);
+  assert.match(schedule, /<ScheduleMoveDrawer/);
   assert.match(execution, /LocalOverlayLink/);
   assert.match(execution, /<LocalOverlayDrawer/);
 
-  for (const text of [cohort, matrix, warmup, execution]) {
+  for (const text of [schedule, execution]) {
     assert.doesNotMatch(text, /<Link\b[^>]*href=\{(?:drawerHref|href)\}[^>]*className="celllink"/s);
     assert.doesNotMatch(text, /className="veil"/);
   }

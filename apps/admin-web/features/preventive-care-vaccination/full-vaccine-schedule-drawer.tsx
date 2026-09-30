@@ -6,10 +6,9 @@ import {
   currentHistoryEntryIsLocalOverlay,
   replaceLocalOverlayUrl,
 } from "@/components/local-overlay-link";
-import { Tag } from "@/components/ui-primitives";
+import { Label } from "@/components/minimal/label";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate } from "@/lib/format";
-import { Warehouse } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
@@ -217,9 +216,9 @@ export function ScheduleLocalDrawer({
         {visibleSheds.length > 0 ? visibleSheds.map((shed) => {
           const contents = (
             <>
-              <Box component="span" aria-hidden="true" sx={{ display: "inline-flex", color: "primary.main" }}><Warehouse size={16} /></Box>
+              <Iconify icon="solar:home-angle-bold-duotone" width={16} aria-hidden="true" sx={{ color: "primary.main", flexShrink: 0 }} />
               <Box component="span" sx={{ flexGrow: 1, minWidth: 0, typography: "body2" }}>{shed.label}</Box>
-              <Tag tone="info">{shed.count > 0 ? `${shed.count} ${copy(pageContract, "schedule.unit.animals")}` : copy(pageContract, "schedule.drawer.open_roster")}</Tag>
+              <Label color="info">{shed.count > 0 ? `${shed.count} ${copy(pageContract, "schedule.unit.animals")}` : copy(pageContract, "schedule.drawer.open_roster")}</Label>
             </>
           );
           return shed.href ? (

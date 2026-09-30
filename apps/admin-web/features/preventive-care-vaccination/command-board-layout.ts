@@ -42,9 +42,18 @@ export const CB_MATRIX = {
   infoTipSize: 44,
   legendChipHeight: 24,
 } as const;
-/** Inventory progress: metric tiles and per-vaccine rows / columns. */
-export const INVENTORY = { tiles: 4, columns: 5, rows: 4 } as const;
+/**
+ * Inventory progress card (template invoice list): CardHeader with the date subheader, the
+ * InvoiceAnalytic strip (`tiles` cells, Scrollbar min height `stripMinHeight`), then the contract's
+ * six-column task table in the template Scrollbar (`tableMinWidth`); `rows` rows drawn while loading.
+ */
+export const INVENTORY = { tiles: 4, columns: 6, rows: 4, stripMinHeight: 108, tableMinWidth: 880 } as const;
 /** Pen board toolbar: search + page-size fields, status and capacity pill counts; default columns. */
 export const SHED_BOARD_TOOLBAR = { fields: [280, 72], statusPills: 7, capacityPills: 4, columns: 10 } as const;
-/** Full schedule: operator-day columns, rows shown, month chips. */
-export const FULL_SCHEDULE = { columns: 8, rows: 5, monthChips: 12 } as const;
+/**
+ * Full schedule card (template invoice list): CardHeader (subheader + year Label / shed-board action),
+ * the InvoiceAnalytic strip (`summaryCells`, Scrollbar min height `stripMinHeight`), the month
+ * SegmentTabs (`monthTabs`: previous / current / next), then the seven-column operator-day table
+ * (`tableMinWidth`) in the template Scrollbar; `rows` rows drawn while loading.
+ */
+export const FULL_SCHEDULE = { columns: 7, rows: 5, monthTabs: 3, summaryCells: 4, stripMinHeight: 108, tableMinWidth: 1120 } as const;

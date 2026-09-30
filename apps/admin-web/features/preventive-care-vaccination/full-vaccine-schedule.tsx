@@ -1,13 +1,20 @@
+import type { ReactNode } from "react";
+import Alert from "@mui/material/Alert";
+import AlertTitle from "@mui/material/AlertTitle";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import MuiLink from "@mui/material/Link";
+import Stack from "@mui/material/Stack";
 import Table from "@mui/material/Table";
-import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
+import Typography from "@mui/material/Typography";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import { listOrEmpty } from "@/lib/list-or-empty";
-import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
-import { CalendarDays, Layers, MapPinned, Warehouse } from "lucide-react";
 import {
   getVaccinationDriveAssignments,
   postponeVaccinationDriveDate,
@@ -18,11 +25,19 @@ import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate, todayIso } from "@/lib/format";
 import { backendScope, scopeHref, type Scope } from "@/lib/scope";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
-import { ClipText, Tag } from "@/components/ui-primitives";
+import { Label } from "@/components/minimal/label";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { DividedStack } from "@/components/app/divided-stack";
+import { EmptyState } from "@/components/app/empty-state";
+import { LinkButton } from "@/components/app/link-button";
+import { SegmentTabs } from "@/components/app/list/segment-tabs";
+import { InvoiceAnalytic } from "@/components/app/sections/invoice/invoice-analytic";
+import { TableHeadCustom } from "@/components/app/table/table-head-custom";
 import { scheduleLoadBuckets, type ScheduleLoadBucket } from "./full-vaccine-schedule-load";
 import { ScheduleLocalDrawer, type ScheduleDrawerRow } from "./full-vaccine-schedule-drawer";
 import { ScheduleMoveDrawer, type ScheduleMoveDrawerRow } from "./full-vaccine-schedule-move-drawer";
 import { HashSectionScroller } from "./hash-section-scroller";
+import { FULL_SCHEDULE } from "./command-board-layout";
 import { revalidateVaccinationCommandLenses } from "@/lib/vaccination-command-lenses";
 import { addSchedulePen, schedulePenKey, type SchedulePen } from "./full-vaccine-schedule-pens.ts";
 
@@ -97,10 +112,18 @@ function strongerCapacity(left: string, right: string): string {
   return capacityRank(right) > capacityRank(left) ? right : left;
 }
 
+/** Workload bucket tone -> theme palette colour (the bar segments and legend dots). */
+const LOAD_TONE_COLOR: Record<ScheduleLoadBucket["tone"], string> = {
+  ok: "success.main",
+  warn: "warning.main",
+  danger: "error.main",
+  done: "grey.500",
+};
+
 function workloadTone(capacity: string): string {
-  if (capacityRank(capacity) >= 3) return "tone-danger";
-  if (capacity === "capacity_action") return "tone-warn";
-  return "tone-ok";
+  if (capacityRank(capacity) >= 3) return LOAD_TONE_COLOR.danger;
+  if (capacity === "capacity_action") return LOAD_TONE_COLOR.warn;
+  return LOAD_TONE_COLOR.ok;
 }
 
 function workloadSegmentWidth(bucket: ScheduleLoadBucket, total: number): string {
@@ -375,197 +398,191 @@ export async function VaccinationFullSchedule({
     return scopeHref("/vaccination", scope, {}, { view: "schedule", schedule_year: String(nextYear), schedule_month: String(nextMonth) });
   }
 
+  const headCells = [
+    { id: "date", label: copy(pageContract, "schedule.column.date") },
+    { id: "operator", label: copy(pageContract, "schedule.column.operator") },
+    { id: "park", label: copy(pageContract, "schedule.column.park") },
+    { id: "sheds", label: copy(pageContract, "schedule.column.sheds") },
+    { id: "vaccines", label: copy(pageContract, "schedule.column.vaccines") },
+    { id: "workload", label: copy(pageContract, "schedule.column.workload") },
+    { id: "postpone", label: copy(pageContract, "schedule.column.postpone") },
+  ];
+  const summaryCells = [
+    { key: "parks", title: copy(pageContract, "schedule.kpi.parks"), value: parks.size, icon: "mingcute:location-fill" as const, color: "info.main" },
+    { key: "sheds", title: copy(pageContract, "schedule.kpi.sheds"), value: sheds.size, icon: "solar:home-angle-bold-duotone" as const, color: "primary.main" },
+    { key: "animals", title: copy(pageContract, "schedule.kpi.animals_assigned"), value: animals, icon: "solar:users-group-rounded-bold-duotone" as const, color: "warning.main" },
+    { key: "drive_rows", title: copy(pageContract, "schedule.kpi.drive_rows"), value: operatorDayRows.length, icon: "solar:calendar-date-bold" as const, color: "success.main" },
+  ];
+
   return (
-    <section id="full-schedule" className="card vaccination-schedule-card" style={{ scrollMarginTop: 80 }}>
+    // Template list card (sections/invoice list view): CardHeader + action, the InvoiceAnalytic summary
+    // strip, the month segment tabs, then the operator-day table in the template Scrollbar.
+    <Card id="full-schedule" sx={{ scrollMarginTop: "calc(var(--sp-5) * 2)" }}>
       <HashSectionScroller id="full-schedule" />
-      <div className="hd vaccination-schedule-hd">
-        <CalendarDays className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-        <div style={{ minWidth: 0 }}>
-          <h3>{copy(pageContract, "section.full_schedule.operator_title")}</h3>
-          <span className="muted small">{copy(pageContract, "section.full_schedule.operator_note")}</span>
-        </div>
-        <div className="sp" style={{ flex: 1 }} />
-        <span className="chip on" aria-current="page">
-          {year}
-        </span>
-        <Link href={scopeHref("/vaccination", scope)} className="btn sm" scroll={false} prefetch={false}>
-          {copy(pageContract, "action.open_shed_board")}
-        </Link>
-      </div>
+      <CardHeader
+        title={copy(pageContract, "section.full_schedule.operator_title")}
+        subheader={copy(pageContract, "section.full_schedule.operator_note")}
+        action={
+          <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+            <Label color="primary" aria-current="page">{year}</Label>
+            <LinkButton href={scopeHref("/vaccination", scope)} scroll={false} size="small" variant="outlined" color="inherit">
+              {copy(pageContract, "action.open_shed_board")}
+            </LinkButton>
+          </Stack>
+        }
+      />
 
-      <div className="vaccination-schedule-summary compact">
-        <div className="kpi">
-          <MapPinned className="ic" aria-hidden="true" />
-          <span>{copy(pageContract, "schedule.kpi.parks")}</span>
-          <b>{parks.size}</b>
-        </div>
-        <div className="kpi">
-          <Warehouse className="ic" aria-hidden="true" />
-          <span>{copy(pageContract, "schedule.kpi.sheds")}</span>
-          <b>{sheds.size}</b>
-        </div>
-        <div className="kpi">
-          <Layers className="ic" aria-hidden="true" />
-          <span>{copy(pageContract, "schedule.kpi.animals_assigned")}</span>
-          <b>{animals}</b>
-        </div>
-        <div className="kpi">
-          <CalendarDays className="ic" aria-hidden="true" />
-          <span>{copy(pageContract, "schedule.kpi.drive_rows")}</span>
-          <b>{operatorDayRows.length}</b>
-        </div>
-      </div>
+      <Scrollbar sx={{ minHeight: FULL_SCHEDULE.stripMinHeight }}>
+        <DividedStack dividerOrientation="vertical" direction="row" sx={{ py: 2 }}>
+          {summaryCells.map((cell) => (
+            <InvoiceAnalytic
+              key={cell.key}
+              title={cell.title}
+              total={cell.value}
+              percent={100}
+              icon={cell.icon}
+              color={cell.color}
+            />
+          ))}
+        </DividedStack>
+      </Scrollbar>
 
-      <div className="chips vaccination-schedule-legend" aria-label={copy(pageContract, "schedule.legend.aria")}>
-        {monthWindow.map(({ year: itemYear, month: itemMonth }) => (
-          <Link
-            key={`${itemYear}-${itemMonth}`}
-            href={monthHref(itemYear, itemMonth)}
-            className={itemYear === year && itemMonth === month ? "chip on" : "chip"}
-            scroll={false}
-            prefetch={false}
-            aria-current={itemYear === year && itemMonth === month ? "page" : undefined}
-          >
-            {monthLabel(itemYear, itemMonth)}
-          </Link>
-        ))}
-      </div>
+      <Box sx={{ px: 2.5, py: 2 }}>
+        <SegmentTabs
+          keepScroll
+          ariaLabel={copy(pageContract, "schedule.legend.aria")}
+          value={`${year}-${month}`}
+          tabs={monthWindow.map(({ year: itemYear, month: itemMonth }) => ({
+            value: `${itemYear}-${itemMonth}`,
+            label: monthLabel(itemYear, itemMonth),
+            href: monthHref(itemYear, itemMonth),
+          }))}
+        />
+      </Box>
 
       {scheduleMoveStatus ? (
-        <div className={`schedule-move-banner ${scheduleMoveStatus === "recorded" ? "tone-ok" : "tone-danger"}`} role="status">
-          <b>{copy(pageContract, scheduleMoveStatus === "recorded" ? "schedule.move.recorded_title" : scheduleMoveStatus === "missing" ? "schedule.move.missing_title" : "schedule.move.error_title")}</b>
-          <span>
-            {scheduleMoveStatus === "recorded" && scheduleMoveVaccine && scheduleMoveDate
-              ? scheduleMoveShifted && scheduleMoveRequestedDate
-                ? `Requested ${fmtDate(scheduleMoveRequestedDate)}; scheduled ${fmtDate(scheduleMoveDate)} due to vaccine spacing.${scheduleMoveConflictVaccine && scheduleMoveConflictDate ? ` Too close to ${scheduleMoveConflictVaccine} on ${fmtDate(scheduleMoveConflictDate)}.` : ""}`
-                : `${scheduleMoveVaccine} moved to ${fmtDate(scheduleMoveDate)}. ${copy(pageContract, "schedule.move.recorded_body")}`
-              : copy(pageContract, scheduleMoveStatus === "recorded" ? "schedule.move.recorded_body" : scheduleMoveStatus === "missing" ? "schedule.move.missing_body" : "schedule.move.error_body")}
-          </span>
-        </div>
+        <Alert severity={scheduleMoveStatus === "recorded" ? "success" : "error"} role="status" sx={{ mx: 2.5, mb: 2 }}>
+          <AlertTitle>{copy(pageContract, scheduleMoveStatus === "recorded" ? "schedule.move.recorded_title" : scheduleMoveStatus === "missing" ? "schedule.move.missing_title" : "schedule.move.error_title")}</AlertTitle>
+          {scheduleMoveStatus === "recorded" && scheduleMoveVaccine && scheduleMoveDate
+            ? scheduleMoveShifted && scheduleMoveRequestedDate
+              ? `Requested ${fmtDate(scheduleMoveRequestedDate)}; scheduled ${fmtDate(scheduleMoveDate)} due to vaccine spacing.${scheduleMoveConflictVaccine && scheduleMoveConflictDate ? ` Too close to ${scheduleMoveConflictVaccine} on ${fmtDate(scheduleMoveConflictDate)}.` : ""}`
+              : `${scheduleMoveVaccine} moved to ${fmtDate(scheduleMoveDate)}. ${copy(pageContract, "schedule.move.recorded_body")}`
+            : copy(pageContract, scheduleMoveStatus === "recorded" ? "schedule.move.recorded_body" : scheduleMoveStatus === "missing" ? "schedule.move.missing_body" : "schedule.move.error_body")}
+        </Alert>
       ) : null}
 
       {!result.ok ? (
-        <div className="bd" style={{ display: "flex", alignItems: "center", gap: 12, padding: "18px 16px", flexWrap: "wrap" }}>
-          <Layers className="ic" aria-hidden="true" style={{ width: 18, height: 18, color: "var(--danger)", flexShrink: 0 }} />
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <b style={{ fontSize: 14 }}>{copy(pageContract, "section.full_schedule.assignment_unavailable_title")}</b>
-            <span className="muted small" style={{ display: "block", marginTop: 2, lineHeight: 1.5 }}>
-              {result.error.message}
-            </span>
-          </div>
-        </div>
+        <Alert severity="error" sx={{ mx: 2.5, mb: 3 }}>
+          <AlertTitle>{copy(pageContract, "section.full_schedule.assignment_unavailable_title")}</AlertTitle>
+          {result.error.message}
+        </Alert>
       ) : rows.length === 0 ? (
-        <div className="bd" style={{ display: "flex", alignItems: "center", gap: 12, padding: "18px 16px", flexWrap: "wrap" }}>
-          <Layers className="ic" aria-hidden="true" style={{ width: 18, height: 18, color: "var(--brand)", flexShrink: 0 }} />
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <b style={{ fontSize: 14 }}>{copy(pageContract, "section.full_schedule.no_assignments_title")}</b>
-            <span className="muted small" style={{ display: "block", marginTop: 2, lineHeight: 1.5 }}>
-              {copy(pageContract, "section.full_schedule.no_assignments_body")} {monthLabel(year, month)}.
-            </span>
-          </div>
-        </div>
+        <EmptyState
+          title={copy(pageContract, "section.full_schedule.no_assignments_title")}
+          description={`${copy(pageContract, "section.full_schedule.no_assignments_body")} ${monthLabel(year, month)}.`}
+          sx={{ mx: 2.5, mb: 3 }}
+        />
       ) : (
-        <div className="bd tablewrap vaccination-schedule-tablewrap" tabIndex={0} role="group" aria-label={copy(pageContract, "section.full_schedule.operator_title")}>
-          <Table className="full-vaccine-schedule-table">
-            <TableHead>
-              <TableRow>
-                <TableCell component="th">{copy(pageContract, "schedule.column.date")}</TableCell>
-                <TableCell component="th">{copy(pageContract, "schedule.column.operator")}</TableCell>
-                <TableCell component="th">{copy(pageContract, "schedule.column.park")}</TableCell>
-                <TableCell component="th">{copy(pageContract, "schedule.column.sheds")}</TableCell>
-                <TableCell component="th">{copy(pageContract, "schedule.column.vaccines")}</TableCell>
-                <TableCell component="th">{copy(pageContract, "schedule.column.workload")}</TableCell>
-                <TableCell component="th">{copy(pageContract, "schedule.column.postpone")}</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {operatorDayRows.map((row) => {
-                const drawerHref = scheduleDrawerHref(closeHref, row);
-                const load = scheduleLoadBuckets({
-                  total: row.animals,
-                  scheduled: row.dueAnimals,
-                  due: 0,
-                  inProgress: 0,
-                  deferred: row.deferredAnimals,
-                  overdue: row.overdueAnimals,
-                  missed: 0,
-                }, row.animals);
-                const visibleBuckets = load.buckets.filter((bucket) => bucket.value > 0);
-                const segmentTotal = visibleBuckets.reduce((sum, bucket) => sum + bucket.value, 0) || load.total || row.animals || 1;
-                return (
-                <TableRow key={row.key} className="schedule-click-row">
-                  <TableCell className="schedule-date-cell state-scheduled">
-                    <LocalOverlayLink href={drawerHref} className="celllink schedule-date-link" scroll={false}>
-                      <span className="schedule-date-stack">
-                      <span className="schedule-date-main">{fmtDate(row.plannedDate)}</span>
-                      <span className="schedule-date-sub">{dateEyebrow(row.plannedDate)}</span>
-                    </span>
-                    </LocalOverlayLink>
-                  </TableCell>
-                  <TableCell><LocalOverlayLink href={drawerHref} className="celllink" scroll={false}><b>{row.operatorName}</b></LocalOverlayLink></TableCell>
-                  <TableCell><LocalOverlayLink href={drawerHref} className="celllink" scroll={false}><ClipText title={row.parkName}>{row.parkName}</ClipText></LocalOverlayLink></TableCell>
-                  <TableCell className="schedule-shed-cell">
-                    <LocalOverlayLink href={drawerHref} className="celllink schedule-wrap-link" scroll={false} title={row.pens.map(penTitle).join(", ")}>
-                      <span className="operator-day-sheds">
-                        {row.pens.map((pen) => (
-                          <span key={pen.key} className="operator-day-shed" title={penTitle(pen)}>
-                            <b>{pen.display}</b>
-                            <span className="muted">{pen.animals}</span>
-                          </span>
-                        ))}
-                      </span>
-                    </LocalOverlayLink>
-                  </TableCell>
-                  <TableCell>
-                    <LocalOverlayLink href={drawerHref} className="celllink schedule-wrap-link" scroll={false}>
-                    <span className="operator-day-vaccines">
-                      {row.vaccineNames.map((vaccineName) => (
-                        <Tag key={vaccineName} tone="teal" title={vaccineName}>{vaccineName}</Tag>
-                      ))}
-                    </span>
-                    </LocalOverlayLink>
-                  </TableCell>
-                  <TableCell>
-                    <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
-                    <span className="schedule-load-card operator-workload-card">
-                      <span className="schedule-load-head">
-                        <span className="schedule-load-total">{row.animals}</span>
-                        <span className="schedule-load-total-label">{copy(pageContract, "schedule.unit.animals")}</span>
-                        <span className="schedule-load-goats">{row.totalDoses} {copy(pageContract, "schedule.unit.doses")}</span>
-                      </span>
-                      <span className="schedule-load-bar" aria-hidden="true">
-                        {visibleBuckets.length > 0 ? visibleBuckets.map((bucket) => (
-                          <span
-                            key={bucket.key}
-                            className={`schedule-load-seg tone-${bucket.tone}`}
-                            style={{ flexBasis: workloadSegmentWidth(bucket, segmentTotal) }}
-                          />
-                        )) : (
-                          <span className={`schedule-load-seg ${workloadTone(row.capacity)}`} style={{ flexBasis: "100%" }} />
-                        )}
-                      </span>
-                      <span className="schedule-load-legend" aria-label={copy(pageContract, "schedule.column.workload")}>
-                        {visibleBuckets.map((bucket) => (
-                          <span key={bucket.key} className={`schedule-load-item tone-${bucket.tone}`}>
-                            <span className="schedule-load-dot" aria-hidden="true" />
-                            <span className="schedule-load-count">{bucket.value}</span>
-                            <span className="schedule-load-name">{workloadBucketLabel(pageContract, bucket.key)}</span>
-                          </span>
-                        ))}
-                      </span>
-                    </span>
-                    </LocalOverlayLink>
-                  </TableCell>
-                  <TableCell>
-                    <LocalOverlayLink href={scheduleMoveHref(closeHref, row)} className="celllink schedule-status-link" scroll={false}>
-                      <span className="btn sm">{copy(pageContract, "schedule.move.open")}</span>
-                    </LocalOverlayLink>
-                  </TableCell>
-                </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+        <>
+          <Scrollbar>
+            <Table aria-label={copy(pageContract, "section.full_schedule.operator_title")} sx={{ minWidth: FULL_SCHEDULE.tableMinWidth }}>
+              <TableHeadCustom headCells={headCells} />
+              <TableBody>
+                {operatorDayRows.map((row) => {
+                  const drawerHref = scheduleDrawerHref(closeHref, row);
+                  const load = scheduleLoadBuckets({
+                    total: row.animals,
+                    scheduled: row.dueAnimals,
+                    due: 0,
+                    inProgress: 0,
+                    deferred: row.deferredAnimals,
+                    overdue: row.overdueAnimals,
+                    missed: 0,
+                  }, row.animals);
+                  const visibleBuckets = load.buckets.filter((bucket) => bucket.value > 0);
+                  const segmentTotal = visibleBuckets.reduce((sum, bucket) => sum + bucket.value, 0) || load.total || row.animals || 1;
+                  return (
+                    <TableRow key={row.key} hover>
+                      <TableCell sx={{ whiteSpace: "nowrap" }}>
+                        <DrawerLink href={drawerHref}>
+                          <Typography variant="subtitle2" component="span" sx={{ display: "block" }}>{fmtDate(row.plannedDate)}</Typography>
+                          <Typography variant="caption" component="span" sx={{ display: "block", color: "text.secondary" }}>{dateEyebrow(row.plannedDate)}</Typography>
+                        </DrawerLink>
+                      </TableCell>
+                      <TableCell sx={{ whiteSpace: "nowrap" }}>
+                        <DrawerLink href={drawerHref}><Typography variant="subtitle2" component="span">{row.operatorName}</Typography></DrawerLink>
+                      </TableCell>
+                      <TableCell sx={{ maxWidth: 180 }}>
+                        <DrawerLink href={drawerHref}><Typography variant="body2" component="span" noWrap title={row.parkName} sx={{ display: "block" }}>{row.parkName}</Typography></DrawerLink>
+                      </TableCell>
+                      <TableCell sx={{ minWidth: 200 }}>
+                        <DrawerLink href={drawerHref} title={row.pens.map(penTitle).join(", ")}>
+                          <Stack direction="row" useFlexGap sx={{ flexWrap: "wrap", gap: 0.75 }}>
+                            {row.pens.map((pen) => (
+                              <Label key={pen.key} variant="outlined" title={penTitle(pen)}>
+                                {pen.display}
+                                <Box component="span" sx={{ ml: 0.5, color: "text.secondary" }}>{pen.animals}</Box>
+                              </Label>
+                            ))}
+                          </Stack>
+                        </DrawerLink>
+                      </TableCell>
+                      <TableCell sx={{ minWidth: 160 }}>
+                        <DrawerLink href={drawerHref}>
+                          <Stack direction="row" useFlexGap sx={{ flexWrap: "wrap", gap: 0.75 }}>
+                            {row.vaccineNames.map((vaccineName) => (
+                              <Label key={vaccineName} color="info" title={vaccineName}>{vaccineName}</Label>
+                            ))}
+                          </Stack>
+                        </DrawerLink>
+                      </TableCell>
+                      <TableCell sx={{ minWidth: 220 }}>
+                        <DrawerLink href={drawerHref}>
+                          {/* Operator workload: animals + doses, the animal-based bucket bar, then the bucket legend. */}
+                          <Stack spacing={0.75} sx={{ maxWidth: 260 }}>
+                            <Stack direction="row" spacing={0.75} sx={{ alignItems: "baseline" }}>
+                              <Typography variant="subtitle1" component="span">{row.animals}</Typography>
+                              <Typography variant="caption" component="span" sx={{ color: "text.secondary" }}>{copy(pageContract, "schedule.unit.animals")}</Typography>
+                              <Typography variant="caption" component="span" sx={{ ml: "auto", color: "text.secondary", whiteSpace: "nowrap" }}>{row.totalDoses} {copy(pageContract, "schedule.unit.doses")}</Typography>
+                            </Stack>
+                            <Stack direction="row" spacing={0.125} aria-hidden="true" sx={{ height: "var(--sp-1)", borderRadius: "var(--r-md)", overflow: "hidden", bgcolor: "action.hover" }}>
+                              {visibleBuckets.length > 0 ? visibleBuckets.map((bucket) => (
+                                <Box key={bucket.key} component="span" sx={{ flexBasis: workloadSegmentWidth(bucket, segmentTotal), minWidth: 2, bgcolor: LOAD_TONE_COLOR[bucket.tone] }} />
+                              )) : (
+                                <Box component="span" sx={{ flexBasis: "100%", bgcolor: workloadTone(row.capacity) }} />
+                              )}
+                            </Stack>
+                            <Stack direction="row" useFlexGap aria-label={copy(pageContract, "schedule.column.workload")} sx={{ flexWrap: "wrap", columnGap: 1.25, rowGap: 0.5 }}>
+                              {visibleBuckets.map((bucket) => (
+                                <Stack key={bucket.key} component="span" direction="row" spacing={0.5} sx={{ alignItems: "center", typography: "caption" }}>
+                                  <Box component="span" aria-hidden="true" sx={{ width: "var(--sp-1)", height: "var(--sp-1)", borderRadius: "var(--r-sm)", flexShrink: 0, bgcolor: LOAD_TONE_COLOR[bucket.tone] }} />
+                                  <Box component="span" sx={{ fontWeight: "fontWeightSemiBold" }}>{bucket.value}</Box>
+                                  <Box component="span" sx={{ color: "text.secondary" }}>{workloadBucketLabel(pageContract, bucket.key)}</Box>
+                                </Stack>
+                              ))}
+                            </Stack>
+                          </Stack>
+                        </DrawerLink>
+                      </TableCell>
+                      <TableCell sx={{ whiteSpace: "nowrap" }}>
+                        <Button
+                          component={LocalOverlayLink}
+                          href={scheduleMoveHref(closeHref, row)}
+                          scroll={false}
+                          aria-haspopup="dialog"
+                          size="small"
+                          variant="outlined"
+                          color="inherit"
+                        >
+                          {copy(pageContract, "schedule.move.open")}
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </Scrollbar>
           <ScheduleLocalDrawer
             rows={scheduleDrawerRows}
             initialSelectedEventId={selectedScheduleEvent}
@@ -579,8 +596,17 @@ export async function VaccinationFullSchedule({
             pageContract={pageContract}
             action={postponeDriveDateAction}
           />
-        </div>
+        </>
       )}
-    </section>
+    </Card>
+  );
+}
+
+/** A table cell's whole content opens the operator-day drawer (template `Link component={RouterLink}`). */
+function DrawerLink({ href, title, children }: { href: string; title?: string; children: ReactNode }) {
+  return (
+    <MuiLink component={LocalOverlayLink} href={href} scroll={false} aria-haspopup="dialog" title={title} underline="none" color="inherit" sx={{ display: "block" }}>
+      {children}
+    </MuiLink>
   );
 }
