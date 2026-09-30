@@ -26,6 +26,7 @@ import ButtonBase from "@mui/material/ButtonBase";
 import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
 import Checkbox from "@mui/material/Checkbox";
+import Divider from "@mui/material/Divider";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import IconButton from "@mui/material/IconButton";
 import Paper from "@mui/material/Paper";
@@ -132,8 +133,9 @@ export function EditorCard({
       ) : (
         header
       )}
+      {children && (title != null || badge != null) ? <Divider /> : null}
       {children ? (
-        <Stack spacing={2} sx={{ px: { xs: 2, sm: 3 }, pb: { xs: 2, sm: 3 }, pt: title == null && badge == null ? { xs: 2, sm: 3 } : 0, minWidth: 0 }}>
+        <Stack spacing={2} sx={{ p: { xs: 2, sm: 3 }, minWidth: 0 }}>
           {children}
         </Stack>
       ) : null}

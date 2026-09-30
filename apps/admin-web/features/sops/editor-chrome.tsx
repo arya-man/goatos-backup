@@ -118,6 +118,7 @@ export function InlineSelect({
   return (
     <TextField
       select
+      size="small"
       label={label}
       value={value}
       disabled={disabled}
@@ -156,6 +157,7 @@ export function FieldSelect({
   return (
     <TextField
       select
+      size="small"
       label={label}
       value={value}
       disabled={disabled}
