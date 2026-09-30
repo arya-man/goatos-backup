@@ -9,6 +9,7 @@ import { listOrEmpty } from "@/lib/list-or-empty";
 import Alert from "@mui/material/Alert";
 import Avatar from "@mui/material/Avatar";
 import Box from "@mui/material/Box";
+import { PageRoot } from "@/components/app/page-root";
 import Stack from "@mui/material/Stack";
 import Button from "@mui/material/Button";
 import Card from "@mui/material/Card";
@@ -135,7 +136,7 @@ export async function LeavePage({
   const feedbackText = feedbackCopy(pageContract, feedback.status, feedback.code);
 
   return (
-    <Box className="screen on leave-page">
+    <PageRoot>
       <LeaveActionTelemetry status={feedback.status} code={feedback.code} />
       <PageHeader
         title={t("page.title")}
@@ -174,7 +175,7 @@ export async function LeavePage({
         ) : null}
 
         {mayDecide ? (
-            <Card className="kit-tablecard" data-testid="leave-queue">
+            <Card data-testid="leave-queue">
               <LeaveDenseScope>
               <CardHeader
                 sx={LEAVE_QUEUE_HEADER_SX}
@@ -291,7 +292,7 @@ export async function LeavePage({
         ) : null}
 
         {mayList ? (
-            <Card className="kit-tablecard" data-testid="leave-list">
+            <Card data-testid="leave-list">
               <LeaveDenseScope>
               <CardHeader
                 sx={LEAVE_LIST_HEADER_SX}
@@ -392,7 +393,7 @@ export async function LeavePage({
             <Alert severity="error">{control(pageContract, "leave_list").disabled_reason ?? ""}</Alert>
         ) : null}
       </Stack>
-    </Box>
+    </PageRoot>
   );
 }
 

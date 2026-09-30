@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CircleAlert } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import Dialog from "@mui/material/Dialog";
 import Button from "@mui/material/Button";
 import Box from "@mui/material/Box";
@@ -50,7 +50,7 @@ export function LeaveRejectDialog({ leaveRequestId, personName, datesLabel, retu
           <input type="hidden" name="return_to" value={returnTo} />
           {/* Template custom-dialog ConfirmDialog layout: title, body2 content, actions. */}
           <DialogTitle component="div" sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, pb: 1 }}>
-            <Box component="span" aria-hidden="true" sx={{ display: "inline-flex", color: "error.main", pt: 0.25 }}><CircleAlert size={20} /></Box>
+            <Box component="span" aria-hidden="true" sx={{ display: "inline-flex", color: "error.main", pt: 0.25 }}><Iconify icon="solar:danger-bold" width={20} /></Box>
             <Box sx={{ minWidth: 0 }}>
               <Typography variant="h6" component="div">{labels.title}</Typography>
               <Typography variant="body2" sx={{ color: "text.secondary" }}>{personName} · {datesLabel}</Typography>
@@ -80,7 +80,7 @@ export function LeaveRejectDialog({ leaveRequestId, personName, datesLabel, retu
           <DialogActions>
             <Button color="primary" type="button" variant="outlined" onClick={() => setOpen(false)}>{labels.cancel}</Button>
             <Box sx={{ flex: 1 }} />
-            <Button variant="contained" type="submit" color="error" startIcon={<CircleAlert size={16} />} disabled={reason.trim().length === 0}>
+            <Button variant="contained" type="submit" color="error" startIcon={<Iconify icon="solar:danger-bold" width={16} />} disabled={reason.trim().length === 0}>
               {labels.confirm}
             </Button>
           </DialogActions>
