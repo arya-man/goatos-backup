@@ -1129,8 +1129,10 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			out[i].Controls = compilePenRoutineControls(out[i].Controls, input, out[i].Copy)
 		case "configuration-items":
 			out[i].Controls = compileConfigurationControls(out[i].Controls, input, out[i].Copy)
-		case "people":
+		case "people", "people-clock", "people-notifications", "people-vaccination":
 			out[i].Controls = compilePeopleControls(out[i].Controls, input, out[i].Copy)
+		case "people-timetable":
+			out[i].Controls = compileTimetableControls(out[i].Controls, input, out[i].Copy)
 		case "counts-breakdown":
 			out[i].Controls = compileCountsBreakdownControls(out[i].Controls, input, out[i].Copy)
 			// The breed catalog for the inline breed correction, injected the same way Feed's
@@ -1807,6 +1809,34 @@ func compilePeopleControls(controls []domain.Control, input BootstrapInput, copy
 		Enabled:        clockAllowed,
 		DisabledReason: clockReason,
 		Action:         "GET /admin/workforce/clock-entries",
+	})
+}
+
+// compileTimetableControls splits People / HRMS > Timetable by authority (maintainer request
+// 2026-09-30): WorkforceTimetableRead opens the page; only WorkforceTimetableWrite -- HR and the
+// CEO/CXO -- may change a person's shift or a park's shift hours. A reader sees each control
+// DISABLED with a reason rather than missing, and the PUT routes refuse regardless.
+func compileTimetableControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
+	allowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.WorkforceTimetableWrite})
+	reason := ""
+	if !allowed {
+		reason = controlCopy(copy, "disabled.timetable_write", "Your current role can see the timetable but not change it.")
+	}
+	controls = upsertControl(controls, domain.Control{
+		ID:             "edit_person_shift",
+		Label:          controlCopy(copy, "action.save_shift", "Save"),
+		Kind:           "row_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "PUT /admin/workforce/timetable/people/{person_id}/shift",
+	})
+	return upsertControl(controls, domain.Control{
+		ID:             "edit_shift_timing",
+		Label:          controlCopy(copy, "action.set_timing", "Set time"),
+		Kind:           "row_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "PUT /admin/workforce/timetable/parks/{park_id}/shifts/{shift_code}",
 	})
 }
 
@@ -2685,6 +2715,15 @@ func permissionsForNav(id string) []string {
 		// the nil default and rendered for ANY principal with admin_web.bootstrap
 		// — the nav-leak fixed by the 2026-08-22 People/HRMS rewrite.
 		return []string{permissions.OperatorsRead}
+	case "people-notifications", "people-vaccination":
+		// Split out of the /people tab strip (maintainer request 2026-09-30); the same gate the
+		// directory page had when they were its tabs.
+		return []string{permissions.OperatorsRead}
+	case "people-clock":
+		// The tab needed the directory page AND the presence read; the page keeps both.
+		return []string{permissions.OperatorsRead, permissions.ClockPresenceRead}
+	case "people-timetable":
+		return []string{permissions.WorkforceTimetableRead}
 	case "audit-log":
 		return []string{permissions.OperatorsViewAudit}
 	case "dlq-center":

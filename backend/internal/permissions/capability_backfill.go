@@ -261,7 +261,11 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	// queue back on the phone as a separate module rather than a tab inside Counts). The
 	// `counts` row is kept alongside it because the retired role's three approve permissions
 	// resolve from either -- dropping it would change what this person holds.
-	RoleHR: rows(bothSurfaces("leave_approvals", LevelView, LevelOversee)),
+	RoleHR: rows(
+		bothSurfaces("leave_approvals", LevelView, LevelOversee),
+		// HRMS Timetable (2026-09-30): HR edits who works which shift. Web only.
+		one(assign("timetable", SurfaceWeb, LevelView, LevelConfigure)),
+	),
 	RoleCountsApprover: rows(
 		bothSurfaces("counts", LevelOversee),
 		bothSurfaces("approvals", LevelOversee),
@@ -309,6 +313,8 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		// Configuration (2026-09-18): the CEO floor edits every register.
 		one(assign("configuration", SurfaceWeb, LevelView, LevelConfigure)),
 		bothSurfaces("leave_approvals", LevelView, LevelOversee, LevelConfigure),
+		// HRMS Timetable (2026-09-30): the CEO floor sees and edits every park's shifts.
+		one(assign("timetable", SurfaceWeb, LevelView, LevelConfigure)),
 		bothSurfaces("vaccination", LevelView, LevelOversee, LevelConfigure),
 		bothSurfaces("weighing", LevelView, LevelConfigure),
 		bothSurfaces("pc_care", LevelView, LevelConfigure),

@@ -7,12 +7,16 @@ import (
 	"github.com/vgoats/goatos/backend/internal/permissions"
 )
 
-// The People / HRMS Notifications tab (maintainer decision 2026-09-08): which designation hears
-// which alert. The page contract carries the tab, the table over the matrix read, and a WRITE
-// control gated on OperatorsManageCapability -- the same authority as editing access, because
-// deciding what every holder of a job title is told is deciding what they may do.
-func TestPeoplePageCarriesTheNotificationsTab(t *testing.T) {
-	page := pageByRouteID(t, pages(), "people")
+// People / HRMS > Notifications (maintainer decision 2026-09-08): which designation hears which
+// alert. Since 2026-09-30 it is its own HRMS page rather than a tab of /people: its contract
+// carries the table over the matrix read, and a WRITE control gated on OperatorsManageCapability
+// -- the same authority as editing access, because deciding what every holder of a job title is
+// told is deciding what they may do.
+func TestNotificationsPageCarriesTheAudienceTable(t *testing.T) {
+	page := pageByRouteID(t, pages(), "people-notifications")
+	if page.Href != "/people/notifications" {
+		t.Fatalf("notifications page href = %q, want /people/notifications", page.Href)
+	}
 	var found bool
 	for _, tbl := range page.Tables {
 		if tbl.ID == "notification-audiences" {
@@ -23,21 +27,7 @@ func TestPeoplePageCarriesTheNotificationsTab(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatal("people page must carry the notification-audiences table contract")
-	}
-	var tabEnabled bool
-	for _, group := range pageOptionGroups("people") {
-		if group.ID != "people_view_tabs" {
-			continue
-		}
-		for _, opt := range group.Options {
-			if opt.Key == "notifications" {
-				tabEnabled = opt.Enabled
-			}
-		}
-	}
-	if !tabEnabled {
-		t.Fatal("people_view_tabs must offer an enabled notifications tab")
+		t.Fatal("notifications page must carry the notification-audiences table contract")
 	}
 }
 
@@ -61,7 +51,7 @@ func TestEditNotificationsControlIsCapabilityGated(t *testing.T) {
 					{Role: tc.role, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
 				},
 			})
-			page := pageByRouteID(t, resp.Pages, "people")
+			page := pageByRouteID(t, resp.Pages, "people-notifications")
 			control := controlByID(t, page.Controls, "edit_notifications")
 			if control.Enabled != tc.enabled {
 				t.Fatalf("%s edit_notifications.enabled = %v want %v (%#v)", tc.name, control.Enabled, tc.enabled, control)

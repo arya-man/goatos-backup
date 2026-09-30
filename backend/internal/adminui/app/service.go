@@ -243,6 +243,27 @@ func navigation() domain.NavigationContract {
 				},
 			},
 			{
+				// HRMS (maintainer request 2026-09-30): People / HRMS came out of Others into a
+				// module group of its own, seated directly above Others, and every view that was a
+				// TAB of /people is a page of its own. Timetable (who works which shift at each
+				// park) sits after Clock In / Out, and Leave -- which already had its own page --
+				// joins the group.
+				ID: "hrms", Label: "HRMS", Icon: "users", DefaultOpen: false,
+				Leaves: []domain.NavigationItem{
+					navLeafDomain("people", "People", "/people", "admin.people", nil),
+					navLeafDomain("people-clock", "Clock In / Out", "/people/clock", "admin.people", nil),
+					navLeafDomain("people-timetable", "Timetable", "/people/timetable", "admin.people", nil),
+					// Leave (maintainer decision 2026-09-10): the park head + HR queue for leave
+					// raised from the phone Clock screen, the list of every request, and the
+					// CEO-only "who approves" flags. Gated server-side by leave.approve
+					// (permissionsForNav); the list and the flags are page-contract controls on
+					// leave.read / leave.approval.configure.
+					navLeafDomain("leave", "Leave", "/leave", "admin.people", nil),
+					navLeafDomain("people-notifications", "Notifications", "/people/notifications", "admin.people", nil),
+					navLeafDomain("people-vaccination", "Vaccination operators", "/people/vaccination", "admin.people", nil),
+				},
+			},
+			{
 				ID: "others", Label: "Others", Icon: "edit-3", DefaultOpen: false,
 				Leaves: []domain.NavigationItem{
 					// The four command lenses moved here from the primary bar (maintainer request
@@ -260,14 +281,8 @@ func navigation() domain.NavigationContract {
 					navLeafDomain("audit-log", "Audit Log", "/operations/audit", "admin.audit", nil),
 					// Parked from the sidebar (maintainer request 2026-09-09); /operations/dlq stays served.
 					// navLeafDomain("dlq-center", "DLQ Center", "/operations/dlq", "admin.audit", nil),
-					navLeafDomain("people", "People / HRMS", "/people", "admin.people", nil),
-					// Leave (maintainer decision 2026-09-10): the park head + HR queue for leave
-					// raised from the phone Clock screen, the list of every request, and the
-					// CEO-only "who approves" flags. Sits beside People / HRMS rather than in the
-					// primary bar, whose two decision surfaces (Approvals, Verify) are pinned.
-					// Gated server-side by leave.approve (permissionsForNav); the list and the
-					// flags are page-contract controls on leave.read / leave.approval.configure.
-					navLeafDomain("leave", "Leave", "/leave", "admin.people", nil),
+					// People / HRMS and Leave moved to their own HRMS group above (maintainer
+					// request 2026-09-30).
 				},
 			},
 			{
@@ -346,7 +361,11 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/operations/audit", Label: "Audit Log", Match: "exact"},
 		{Pattern: "/operations/dlq", Label: "DLQ Center", Match: "exact"},
 		{Pattern: "/config", Label: "Config — Protocol Rules", Match: "exact"},
-		{Pattern: "/people", Label: "People / HRMS", Match: "exact"},
+		{Pattern: "/people", Label: "People", Match: "exact"},
+		{Pattern: "/people/clock", Label: "Clock In / Out", Match: "exact"},
+		{Pattern: "/people/timetable", Label: "Timetable", Match: "exact"},
+		{Pattern: "/people/notifications", Label: "Notifications", Match: "exact"},
+		{Pattern: "/people/vaccination", Label: "Vaccination operators", Match: "exact"},
 		{Pattern: "/goats/{goat_id}", Label: "Goat Passport", Match: "pattern"},
 	}
 }
@@ -1075,17 +1094,37 @@ func pages() []domain.PageContract {
 		// vaccination-operators screen lives under the `vaccination` tab of the
 		// backend-owned `people_view_tabs` option group. The dead `timetable`
 		// table contract is dropped (its panel had no importers).
-		page("people", "/people", "/people", "People / HRMS", "Everyone on the farm — park, department, designation, and login — with per-module staffing views", "authority-screen",
+		page("people", "/people", "/people", "People", "Everyone on the farm — park, department, designation, and login", "authority-screen",
 			[]domain.TableContract{
 				tableP("people", "All People", "/admin/workforce/people", []string{"display_name", "park", "department", "designation", "email", "status", "clock_in_today"}, "person_id", []int{25, 50, 100}),
-				table("positions", "Vaccination Operators", "/admin/roster/positions", []string{"person_display_name", "position_title", "center_label", "week_off", "vaccination_daily_animal_cap", "status"}, "position_id"),
-				// Clock In / Out tab (maintainer decisions 2026-08-27/28): one row
-				// per active person per selected IST day, not-clocked-in included.
+			}),
+		// HRMS split (maintainer request 2026-09-30): the three views that were TABS of /people are
+		// pages of their own. They share the People copy map and option groups (pageSpecificCopy,
+		// pageOptionGroups) so the screens render the same words they always did; each carries only
+		// its own table and is narrowed by its own page tick.
+		//
+		// Clock In / Out (maintainer decisions 2026-08-27/28): one row per active person per
+		// selected IST day, not-clocked-in included.
+		page("people-clock", "/people/clock", "/people/clock", "Clock In / Out", "Who clocked in and out on the selected day, with hours, place and device", "authority-screen",
+			[]domain.TableContract{
 				table("clock-entries", "Clock In / Out", "/admin/workforce/clock-entries", []string{"person", "park", "designation", "clock_in", "clock_out", "hours", "location", "device", "flags"}, "clock_entry_id"),
-				// Notifications tab (maintainer decision 2026-09-08): which DESIGNATION hears
-				// which alert. One row per configurable alert; the designation columns are
-				// tenant rows carried in the data source, so only the fixed columns are named.
+			}),
+		// Timetable (maintainer request 2026-09-30): one park at a time -- that park's shifts and
+		// their hours, then everyone who works there with their shift. HR and the CEO/CXO edit.
+		page("people-timetable", "/people/timetable", "/people/timetable", "Timetable", "Who works which shift at each park, and each shift's working hours", "authority-screen",
+			[]domain.TableContract{
+				tableP("timetable-people", "People", "/admin/workforce/timetable", []string{"person", "designation", "department", "shift", "work_timings"}, "person_id", []int{50}),
+			}),
+		// Notifications (maintainer decision 2026-09-08): which DESIGNATION hears which alert.
+		// One row per configurable alert; the designation columns are tenant rows carried in the
+		// data source, so only the fixed columns are named.
+		page("people-notifications", "/people/notifications", "/people/notifications", "Notifications", "Which job titles hear each alert", "authority-screen",
+			[]domain.TableContract{
 				table("notification-audiences", "Notifications", "/admin/notifications/designations", []string{"alert", "who_receives"}, "alert_key"),
+			}),
+		page("people-vaccination", "/people/vaccination", "/people/vaccination", "Vaccination operators", "Vaccination operators per park: shift, week off and daily animal limit", "authority-screen",
+			[]domain.TableContract{
+				table("positions", "Vaccination Operators", "/admin/roster/positions", []string{"person_display_name", "position_title", "center_label", "week_off", "vaccination_daily_animal_cap", "status"}, "position_id"),
 			}),
 		// SOP SPLIT (maintainer decision 2026-08-18): the /sops authority screen is retired;
 		// each remaining module owns its SOP page as a module-surface, sharing the
@@ -2221,6 +2260,54 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.empty_placeholder":          "—",
 			"section.work_board.aria":          "Action Center work board",
 			"error.unavailable_prefix":         "Workflow record unavailable",
+		}
+	case "people-timetable":
+		// HRMS Timetable (maintainer request 2026-09-30). Every word the page shows; the shift
+		// names, the parks and every timing sentence ("6:00 am – 2:30 pm") come from the
+		// timetable read itself, composed by the backend.
+		return map[string]string{
+			"crumb":                    "HRMS",
+			"filter.park":              "Park",
+			"filter.shift":             "Shift",
+			"filter.shift_all":         "All shifts",
+			"filter.shift_unassigned":  "Not assigned",
+			"filter.apply":             "Show",
+			"shifts.title":             "Shift timings",
+			"shifts.hint":              "Working hours of each shift at this park. A shift with no time set shows Set time.",
+			"shifts.people_count":      "%d people",
+			"shifts.person_count":      "1 person",
+			"people.title":             "People and their shifts",
+			"people.hint":              "Everyone whose home park is this park.",
+			"people.empty":             "Nobody has this park as their home park yet.",
+			"people.empty_filtered":    "Nobody at this park is on this shift.",
+			"parks.empty":              "No parks yet. Add a park under Configuration › Items and settings and it appears here.",
+			"column.person":            "Person",
+			"column.designation":       "Designation",
+			"column.department":        "Department",
+			"column.shift":             "Shift",
+			"column.work_timings":      "Work timings",
+			"shift.none":               "Not assigned",
+			"shift.choose":             "Choose a shift",
+			"shift.aria":               "Shift for %s",
+			"timing.not_set":           "Not set",
+			"field.start":              "Starts",
+			"field.end":                "Ends",
+			"field.hour":               "Hour",
+			"field.minute":             "Minute",
+			"field.end_none":           "No end time yet",
+			"action.set_timing":        "Set time",
+			"action.edit_timing":       "Change time",
+			"action.save":              "Save",
+			"action.save_shift":        "Save",
+			"action.cancel":            "Cancel",
+			"action.saving":            "Saving…",
+			"action.saved":             "Saved",
+			"action.failed":            "Could not save. Try again.",
+			"action.conflict":          "Someone else changed this just now. The latest is shown; try again.",
+			"action.start_required":    "Choose when the shift starts.",
+			"pager.next":               "Next",
+			"pager.first":              "Back to the start",
+			"disabled.timetable_write": "Your current role can see the timetable but not change it.",
 		}
 	case "leave":
 		return map[string]string{
@@ -8700,12 +8787,13 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.rule_editor.label.tenant":                            "tenant",
 			"modal.rule_editor.label.park_scope_prefix":                 "park:",
 		}
-	case "people":
-		// Backend-owned copy for the People/HRMS directory + Add Person drawer.
+	case "people", "people-clock", "people-notifications", "people-vaccination":
+		// Backend-owned copy for the People/HRMS directory + Add Person drawer, shared by the
+		// three pages split out of its old tab strip (maintainer request 2026-09-30).
 		// The client renders these verbatim; per the golden rule it must not
 		// hardcode a label, an empty state, or a disabled reason of its own.
 		return map[string]string{
-			"crumb":                     "Admin / Data Ops",
+			"crumb":                     "HRMS",
 			"section.people.title":      "All people",
 			"section.people.aria":       "Farm staff directory",
 			"section.people.row_hint":   "everyone with a login or roster entry",
@@ -9648,41 +9736,11 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 			// Parks are tenant rows; the compiler fills this from ReferenceFamilies.Parks.
 			{ID: "work_board_parks", Options: []domain.Option{}},
 		})
-	case "people":
-		// The module tab strip on /people (maintainer decision 2026-08-22):
-		// `all` is the general directory, `vaccination` hosts the former
-		// vaccination-operators screen, and the remaining module views are
-		// backend-declared DISABLED placeholders carrying their reason — the
-		// client renders them inert with that copy. Adding a real module tab
-		// later is a backend change only.
-		soonTab := func(key, label string) domain.Option {
-			return domain.Option{Key: key, Label: label, Enabled: false, DisabledReason: "This staffing view is coming soon."}
-		}
+	case "people", "people-clock", "people-notifications", "people-vaccination":
+		// The /people tab strip (people_view_tabs) is retired (maintainer request 2026-09-30):
+		// each view is now its own HRMS nav leaf, and the "coming soon" module placeholders went
+		// with the strip. The four People pages share the groups below.
 		return withGenericOptionGroups([]domain.OptionGroup{
-			{
-				ID: "people_view_tabs",
-				Options: []domain.Option{
-					option("all", "All People", "", ""),
-					// Clock In / Out (maintainer decisions 2026-08-27/28): the
-					// attendance view, seated DIRECTLY beside All People
-					// (maintainer ask 2026-08-29 — attendance comes before the
-					// per-module staffing views). The tab is ENABLED here for
-					// everyone the page admits; the per-principal gate is the
-					// view_clock control (clock.presence.read) compiled beside
-					// it — the renderer combines both, per role-scoped-UI rules.
-					option("clock", "Clock In / Out", "", ""),
-					// Notifications (maintainer decision 2026-09-08): who hears which
-					// alert, per designation, seated right after Clock In / Out (maintainer
-					// ask, same day). Enabled for everyone the page admits; the WRITE is
-					// gated by the edit_notifications control compiled beside it.
-					option("notifications", "Notifications", "", ""),
-					option("vaccination", "Vaccination", "", ""),
-					soonTab("weighing", "Weighing"),
-					soonTab("feed", "Feed"),
-					soonTab("counts", "Herd Operations"),
-					soonTab("health", "Health"),
-				},
-			},
 			{
 				// The roles the Add Person form may grant — the same closed set the
 				// backend enforces (workforce/app.grantablePersonRoles). Title carries

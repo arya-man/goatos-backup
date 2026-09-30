@@ -55,6 +55,13 @@ func TestBootstrapPublishesAdminWebContract(t *testing.T) {
 			t.Fatalf("%s must sit in the health group, got %q", id, got)
 		}
 	}
+	// HRMS is its own module group seated directly above Others (maintainer request
+	// 2026-09-30); each former /people tab is a leaf of it, and Leave moved in beside them.
+	for _, id := range []string{"people", "people-clock", "people-timetable", "leave", "people-notifications", "people-vaccination"} {
+		if got := othersLeafGroup(t, resp.Navigation.Groups, id); got != "hrms" {
+			t.Fatalf("%s must sit in the hrms group, got %q", id, got)
+		}
+	}
 	for _, group := range resp.Navigation.Groups {
 		if group.ID == "pc" && group.Label != "Preventive Care" {
 			t.Fatalf("preventive care group label = %q, want %q", group.Label, "Preventive Care")
@@ -71,6 +78,7 @@ func TestBootstrapPublishesAdminWebContract(t *testing.T) {
 		{"pc", "Preventive Care"},
 		{"procurement", "Procurement"},
 		{"health", "Health"},
+		{"hrms", "HRMS"},
 		{"others", "Others"},
 		{"configuration", "Configuration"},
 	}

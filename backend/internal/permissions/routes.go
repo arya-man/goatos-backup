@@ -212,6 +212,11 @@ var protectedRoutes = []Route{
 	{OperationID: "listAdminLeaveRequests", Method: "GET", Pattern: "/admin/leave/requests", Permissions: []string{LeaveRead}},
 	{OperationID: "getLeaveApprovalConfig", Method: "GET", Pattern: "/admin/leave/approval-config", Permissions: []string{LeaveApprovalConfigure}},
 	{OperationID: "setLeaveApprovalConfig", Method: "PUT", Pattern: "/admin/leave/approval-config", Permissions: []string{LeaveApprovalConfigure}},
+	// HRMS Timetable (maintainer request 2026-09-30): the read opens the page; each write is
+	// the timetable write, which only HR and the CEO/CXO hold.
+	{OperationID: "getWorkforceTimetable", Method: "GET", Pattern: "/admin/workforce/timetable", Permissions: []string{WorkforceTimetableRead}},
+	{OperationID: "setWorkforceParkShiftTiming", Method: "PUT", Pattern: "/admin/workforce/timetable/parks/{park_id}/shifts/{shift_code}", Permissions: []string{WorkforceTimetableWrite}},
+	{OperationID: "setWorkforceMemberShift", Method: "PUT", Pattern: "/admin/workforce/timetable/people/{person_id}/shift", Permissions: []string{WorkforceTimetableWrite}},
 	// Mobile live remote-config poll (docs/mobile/backend-driven-config.md): ETag/revision +
 	// cache_policy, presentation feature flags/owned-module registry, and bounded client runtime
 	// knobs. Same AppBootstrap "any authenticated app principal" gate as /app/bootstrap.

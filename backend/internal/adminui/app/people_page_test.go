@@ -18,90 +18,53 @@ func TestPeopleNavLeafIsGatedOnOperatorsRead(t *testing.T) {
 	}
 }
 
-// TestPeoplePageContractCarriesDirectoryAndTabs pins the rewrite's page shape:
-// the default table is the ALL-PEOPLE directory over /admin/workforce/people,
-// the vaccination positions table survives for the Vaccination tab, and the
-// backend owns the tab strip (people_view_tabs) with the module placeholders
-// DISABLED and carrying a reason.
-func TestPeoplePageContractCarriesDirectoryAndTabs(t *testing.T) {
-	var people *struct {
-		hasPeopleTable    bool
-		hasPositionsTable bool
+// TestPeoplePagesAreSplitOutOfTheTabStrip pins the HRMS split (maintainer request 2026-09-30):
+// /people is the ALL-PEOPLE directory alone, and each view that was a tab of it -- Clock In /
+// Out, Notifications, Vaccination operators -- is its own page contract at its own route with
+// its own table. The old tab strip (people_view_tabs) and its "coming soon" placeholders are
+// gone; the Add Person form's role set survives on every People page.
+func TestPeoplePagesAreSplitOutOfTheTabStrip(t *testing.T) {
+	want := map[string]struct{ href, table, source string }{
+		"people":               {"/people", "people", "/admin/workforce/people"},
+		"people-clock":         {"/people/clock", "clock-entries", "/admin/workforce/clock-entries"},
+		"people-notifications": {"/people/notifications", "notification-audiences", "/admin/notifications/designations"},
+		"people-vaccination":   {"/people/vaccination", "positions", "/admin/roster/positions"},
+		"people-timetable":     {"/people/timetable", "timetable-people", "/admin/workforce/timetable"},
 	}
-	for _, page := range pages() {
-		if page.RouteID != "people" {
-			continue
+	for id, w := range want {
+		page := pageByRouteID(t, pages(), id)
+		if page.Href != w.href {
+			t.Fatalf("%s href = %q, want %q", id, page.Href, w.href)
 		}
-		state := struct {
-			hasPeopleTable    bool
-			hasPositionsTable bool
-		}{}
-		for _, tbl := range page.Tables {
-			switch tbl.ID {
-			case "people":
-				state.hasPeopleTable = true
-				if tbl.DataSource != "/admin/workforce/people" {
-					t.Fatalf("people table source = %q, want /admin/workforce/people", tbl.DataSource)
-				}
-			case "positions":
-				state.hasPositionsTable = true
-			case "timetable":
-				t.Fatalf("the dead timetable table contract must stay deleted")
+		if len(page.Tables) != 1 || page.Tables[0].ID != w.table || page.Tables[0].DataSource != w.source {
+			t.Fatalf("%s must carry exactly its own table %s over %s, got %#v", id, w.table, w.source, page.Tables)
+		}
+	}
+	for _, id := range []string{"people", "people-clock", "people-notifications", "people-vaccination"} {
+		var roles []string
+		for _, group := range pageOptionGroups(id) {
+			if group.ID == "people_view_tabs" {
+				t.Fatalf("%s: the retired people_view_tabs strip must not come back", id)
 			}
-		}
-		people = &state
-	}
-	if people == nil {
-		t.Fatalf("people page contract not found")
-	}
-	if !people.hasPeopleTable || !people.hasPositionsTable {
-		t.Fatalf("people page must carry both the directory and positions tables: %+v", *people)
-	}
-
-	groups := pageOptionGroups("people")
-	var tabs, roles []string
-	disabledWithReason := 0
-	for _, group := range groups {
-		switch group.ID {
-		case "people_view_tabs":
-			for _, opt := range group.Options {
-				tabs = append(tabs, opt.Key)
-				if !opt.Enabled {
-					if opt.DisabledReason == "" {
-						t.Fatalf("disabled tab %q must carry a reason", opt.Key)
+			if group.ID == "people_roles" {
+				for _, opt := range group.Options {
+					roles = append(roles, opt.Key)
+					if opt.Title != "park" && opt.Title != "tenant" {
+						t.Fatalf("role option %q must carry its scope shape in Title, got %q", opt.Key, opt.Title)
 					}
-					disabledWithReason++
-				}
-			}
-		case "people_roles":
-			for _, opt := range group.Options {
-				roles = append(roles, opt.Key)
-				if opt.Title != "park" && opt.Title != "tenant" {
-					t.Fatalf("role option %q must carry its scope shape in Title, got %q", opt.Key, opt.Title)
 				}
 			}
 		}
-	}
-	wantEnabled := map[string]bool{"all": true, "vaccination": true}
-	for _, group := range groups {
-		if group.ID != "people_view_tabs" {
-			continue
+		if len(roles) == 0 {
+			t.Fatalf("%s: people_roles must declare the grantable role set", id)
 		}
-		for _, opt := range group.Options {
-			if wantEnabled[opt.Key] && !opt.Enabled {
-				t.Fatalf("tab %q must be enabled", opt.Key)
+		for _, role := range roles {
+			if role == permissions.RoleCEOInternal {
+				t.Fatalf("ceo_internal must never be grantable from the Add Person form")
 			}
 		}
-	}
-	if len(tabs) < 4 || disabledWithReason == 0 {
-		t.Fatalf("people_view_tabs must declare the module strip with disabled placeholders, got %v", tabs)
-	}
-	if len(roles) == 0 {
-		t.Fatalf("people_roles must declare the grantable role set")
-	}
-	for _, role := range roles {
-		if role == permissions.RoleCEOInternal {
-			t.Fatalf("ceo_internal must never be grantable from the Add Person form")
+		if pageSpecificCopy(id)["crumb"] != "HRMS" {
+			t.Fatalf("%s must share the People copy map (crumb HRMS)", id)
 		}
 	}
 }

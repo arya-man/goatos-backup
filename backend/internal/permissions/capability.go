@@ -735,6 +735,21 @@ var moduleCapabilities = []ModuleCapability{
 		},
 	},
 	{
+		// HRMS Timetable (maintainer request 2026-09-30): People / HRMS > Timetable -- pick a
+		// park, see who works there, which shift each person is on and that shift's hours.
+		// Its OWN module rather than a level on `people`, because HR edits it and HR must not be
+		// handed the whole staff directory (and its roster/device authority) to do so. Web only:
+		// park heads, who work from the phone, get an editor there later.
+		Key:      "timetable",
+		Label:    "Timetable",
+		Blurb:    "Who works which shift at each park, and each shift's working hours.",
+		Surfaces: []string{SurfaceWeb},
+		Levels: map[string][]string{
+			LevelView:      {WorkforceTimetableRead},
+			LevelConfigure: {WorkforceTimetableRead, WorkforceTimetableWrite},
+		},
+	},
+	{
 		// The landed cost of a purchased ANIMAL load, entered on the Sales page's load-wise
 		// section (maintainer decision 2026-08-31, docs/decisions/sales-loadwise.md). Its own
 		// module for the same reason feed_purchases is: this is supplier money, and folding it

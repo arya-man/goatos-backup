@@ -170,7 +170,16 @@ var modulePages = []ModulePage{
 
 	{Key: "audit-log", Module: "operations", Label: "Audit Log", Href: "/operations/audit", Permissions: []string{OperatorsViewAudit}},
 	{Key: "dlq-center", Module: "operations", Label: "DLQ Center", Href: "/operations/dlq", Permissions: []string{OperatorsViewAudit}, HiddenFromNav: true},
-	{Key: "people", Module: "people", Label: "People / HRMS", Href: "/people", Permissions: []string{OperatorsRead}},
+	// HRMS (maintainer request 2026-09-30): People / HRMS left Others and became its own group,
+	// and each view that was a TAB of /people is a page of its own. Clock keeps the two gates
+	// the tab had (open the directory AND read presence); Notifications and Vaccination
+	// operators keep the directory's. Leave stays its own module above (leave_approvals) and
+	// only moved group. Timetable is its own module so HR reaches it without the directory.
+	{Key: "people", Module: "people", Label: "People", Href: "/people", Permissions: []string{OperatorsRead}},
+	{Key: "people-clock", Module: "people", Label: "Clock In / Out", Href: "/people/clock", Permissions: []string{OperatorsRead, ClockPresenceRead}},
+	{Key: "people-timetable", Module: "timetable", Label: "Timetable", Href: "/people/timetable", Permissions: []string{WorkforceTimetableRead}},
+	{Key: "people-notifications", Module: "people", Label: "Notifications", Href: "/people/notifications", Permissions: []string{OperatorsRead}},
+	{Key: "people-vaccination", Module: "people", Label: "Vaccination operators", Href: "/people/vaccination", Permissions: []string{OperatorsRead}},
 
 	// Work Board (2026-09-10): one page, its own module, so access is an explicit tick per
 	// person rather than a side effect of holding some other module.
@@ -228,6 +237,7 @@ var moduleRoutePrefixes = map[string]string{
 	"/health":                       "aas_health",
 	"/operations":                   "operations",
 	"/people":                       "people",
+	"/people/timetable":             "timetable",
 	"/leave":                        "leave_approvals",
 	"/work-board":                   "work_board",
 	"/alerts":                       "alerts",

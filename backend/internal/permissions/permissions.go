@@ -590,8 +590,14 @@ const (
 	// the maintainer's "feature flag in HRM, only I should set whom it goes to". One
 	// capability gates the control AND the route (role-scoped-UI lock).
 	LeaveApprovalConfigure = "leave.approval.configure"
-	RosterRead             = "roster.read"
-	RosterManage           = "roster.manage"
+	// HRMS Timetable (maintainer request 2026-09-30): which shift each person works and the
+	// hours each park's shifts run. READ opens People / HRMS > Timetable; WRITE changes a
+	// person's shift or a park's shift hours. HR and the CEO/CXO hold both. Park heads hold
+	// neither for now (maintainer answer 2026-09-30: they get a phone editor later).
+	WorkforceTimetableRead  = "workforce.timetable.read"
+	WorkforceTimetableWrite = "workforce.timetable.write"
+	RosterRead              = "roster.read"
+	RosterManage            = "roster.manage"
 	// CountsWrite gates the app-tier Counts write surface: an operator recording a shifting
 	// (movement) event, a birth, or a death from the phone (/app/counts/*).
 	//
@@ -1375,6 +1381,9 @@ var rolePermissions = map[string]map[string]struct{}{
 		// because, unlike counts_approver, HR may be a person with no other job role in the
 		// app; it carries NOTHING park-scoped.
 		LeaveApprove: {}, LeaveRead: {}, AppBootstrap: {}, AdminWebBootstrap: {},
+		// HRMS Timetable (2026-09-30): HR decides who works which shift and each park's
+		// shift hours, on the web.
+		WorkforceTimetableRead: {}, WorkforceTimetableWrite: {},
 	},
 	RoleCountsApprover: {
 		CountsApproveAccess:    {},
@@ -1461,6 +1470,8 @@ var rolePermissions = map[string]map[string]struct{}{
 		// Leave requests (maintainer decision 2026-09-10): the CEO floor sees every
 		// request, may sign either approver line, and alone sets who must approve.
 		LeaveApprove: {}, LeaveRead: {}, LeaveApprovalConfigure: {},
+		// HRMS Timetable (2026-09-30): the CEO floor sees and changes every park's shifts.
+		WorkforceTimetableRead: {}, WorkforceTimetableWrite: {},
 		GoatRead: {}, GoatWriteIdentity: {}, GoatWriteHealth: {},
 		// The ONLY holder of the whole-pen cohort reclassification. See the constant's doc comment:
 		// it applies immediately, with no approval and no proof, and flips kid/adult for the whole
