@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { startTransition, useActionState, useEffect, useRef, useState } from "react";
 import { usePopover } from "minimal-shared/hooks";
+import Box from "@mui/material/Box";
 import IconButton from "@mui/material/IconButton";
 import MenuItem from "@mui/material/MenuItem";
 import MenuList from "@mui/material/MenuList";
@@ -130,7 +131,7 @@ export function RowActions({
     (deleteState.status === "error" ? deleteState.detail || labels.failed : "");
 
   return (
-    <div className="cfg-rowacts">
+    <Box sx={{ position: "relative", display: "inline-flex", gap: 0.75, alignItems: "center", justifyContent: "flex-end" }}>
       {canEdit ? (
         // Template user-table-row: a pencil IconButton with a Tooltip, then the ⋮ (TR2-P2-8; guard:
         // config-row-edit-icon). Same edit href, same local overlay.
@@ -198,6 +199,6 @@ export function RowActions({
           ) : null}
         </MenuList>
       </CustomPopover>
-    </div>
+    </Box>
   );
 }

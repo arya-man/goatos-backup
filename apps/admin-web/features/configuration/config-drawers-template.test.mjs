@@ -26,3 +26,25 @@ test("guard: config-row-drawer-required -- the label is the column label; MUI ad
   assert.doesNotMatch(src, /column\.required \? " \*" : ""/);
   assert.doesNotMatch(src, /className="fld"/);
 });
+
+test("guard: legacy-free-zone -- sheet / workbook drawers compose the template parts, not .cfg-sheet shells", () => {
+  for (const file of ["./sheet-drawer.tsx", "./workbook-drawer.tsx"]) {
+    const src = read(file);
+    assert.match(src, /from "\.\/sheet-drawer-parts";/, file);
+    assert.match(src, /<SheetJobCard /, file);
+    assert.match(src, /<Button component="a" [^>]*download/, `${file}: downloads are template Buttons`);
+    assert.doesNotMatch(src, /className=/, `${file} still carries a className`);
+    assert.doesNotMatch(src, /lucide-react/, file);
+  }
+  assert.match(read("./workbook-drawer.tsx"), /<TableHeadCustom headCells=\{headCells\} \/>/);
+  const parts = read("./sheet-drawer-parts.tsx");
+  assert.match(parts, /import \{ Label \} from "@\/components\/minimal\/label";/);
+  assert.match(parts, /<Paper variant="outlined"/);
+});
+
+test("guard: legacy-free-zone -- row drawer outcomes are MUI Alerts, hidden fields carry no native <input>", () => {
+  const src = read("./row-drawer.tsx");
+  assert.doesNotMatch(src, /"cfg-ferr"|"note"|style=\{/);
+  assert.doesNotMatch(src, /<input /);
+  assert.match(src, /<Alert severity=\{state\.status === "error" \? "error" : "success"\}/);
+});

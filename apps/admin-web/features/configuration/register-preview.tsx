@@ -24,6 +24,7 @@ import { TableHeadCustom, TablePaginationLinks } from "@/components/app/table";
 import { OrderTableToolbar } from "@/components/app/sections/order/order-table-toolbar";
 import { orderToolbarFilterSx, orderToolbarSearchSx } from "@/components/app/order-toolbar-filter";
 import { MailNavItem } from "@/components/app/sections/mail/mail-nav-item";
+import { CONFIG_PAGE_SX } from "./items-layout";
 
 /**
  * PRESENTATION-ONLY replica of the /configuration/items register view (rail · table card) for
@@ -60,7 +61,7 @@ export function RegisterPreview({
   const c = (key: string) => copy[key] ?? key;
   const hasCounts = rows.some((row) => row.counts);
   return (
-    <div className="screen on">
+    <Box sx={CONFIG_PAGE_SX}>
       <PageHeader
         title={c("title")}
         crumbs={[{ label: c("crumb") }, { label: title }]}
@@ -147,7 +148,7 @@ export function RegisterPreview({
                       {rows.map((row) => (
                         <TableRow key={row.id} hover>
                           <TableCell>
-                            <a href="#" className="cfg-row-link">
+                            <a href="#" className="config-row-link">
                               <Typography component="span" variant="subtitle2">
                                 {row.cells.name ?? row.id}
                               </Typography>
@@ -187,6 +188,6 @@ export function RegisterPreview({
           </Card>
         </Grid>
       </Grid>
-    </div>
+    </Box>
   );
 }

@@ -1,13 +1,11 @@
 "use client";
 import Table from "@mui/material/Table";
-import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 
 import CircularProgress from "@mui/material/CircularProgress";
 import LinearProgress from "@mui/material/LinearProgress";
-import { BookOpen, Download, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -16,6 +14,12 @@ import type { ConfigurationImportBundle, ConfigurationImportJob } from "@/lib/ap
 import { UploadFile } from "@/components/app/upload-file";
 import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
+import Alert from "@mui/material/Alert";
+import Typography from "@mui/material/Typography";
+import { Iconify } from "@/components/minimal/iconify";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { TableHeadCustom, type TableHeadCellProps } from "@/components/app/table";
+import { SheetActions, SheetCounts, SheetDrawerBody, SheetHint, SheetJobCard, SheetRecent, SheetSection, SheetStatus } from "./sheet-drawer-parts";
 
 /**
  * The onboarding workbook drawer (maintainer instruction 2026-09-19): DOWNLOAD one Excel
@@ -177,32 +181,36 @@ export function WorkbookDrawer({ pageContract, canWrite, registerLabels }: { pag
   const tabsDone = (bundle?.jobs ?? []).filter((job) => job.status === (bundle?.status === "applying" || bundle?.status === "applied" ? "applied" : "previewed")).length;
   const hasProblems = totals.invalid > 0 || totals.failed > 0;
 
+  const headCells: TableHeadCellProps[] = [
+    { id: "tab", label: c("workbook.tab") },
+    { id: "rows", label: c("workbook.col.rows"), align: "right" },
+    { id: "ready", label: c("workbook.col.ready"), align: "right" },
+    { id: "fix", label: c("workbook.col.fix"), align: "right" },
+    { id: "applied", label: c("workbook.col.applied"), align: "right" },
+    { id: "failed", label: c("workbook.col.failed"), align: "right" },
+    { id: "status", label: c("column.status") },
+  ];
+
   return (
-    <div className="cfg-sheet" data-testid="workbook-drawer">
-      <section className="cfg-sheet-section">
-        <div className="cfg-sheet-title">
-          <BookOpen className="ic" aria-hidden="true" /> {c("workbook.title")}
-        </div>
-        <p className="muted small">{c("workbook.intro")}</p>
-        <div className="cfg-sheet-actions">
-          <a className="btn sm b" href={`${SHEETS}/workbook/template?format=xlsx`} download data-testid="workbook-template">
-            <Download className="ic" aria-hidden="true" /> {c("workbook.template")}
-          </a>
-          <a className="btn sm" href={`${SHEETS}/workbook/export?format=xlsx`} download data-testid="workbook-export">
-            <Download className="ic" aria-hidden="true" /> {c("workbook.export")}
-          </a>
-        </div>
-        <p className="muted small">{c("workbook.template_hint")}</p>
-        <p className="muted small">{c("workbook.export_hint")}</p>
-      </section>
+    <SheetDrawerBody testId="workbook-drawer">
+      <SheetSection icon="solar:notebook-bold-duotone" title={c("workbook.title")}>
+        <SheetHint>{c("workbook.intro")}</SheetHint>
+        <SheetActions>
+          <Button component="a" size="small" variant="contained" color="primary" href={`${SHEETS}/workbook/template?format=xlsx`} download data-testid="workbook-template" startIcon={<Iconify icon="solar:download-bold" width={18} aria-hidden="true" />}>
+            {c("workbook.template")}
+          </Button>
+          <Button component="a" size="small" variant="outlined" color="inherit" href={`${SHEETS}/workbook/export?format=xlsx`} download data-testid="workbook-export" startIcon={<Iconify icon="solar:download-bold" width={18} aria-hidden="true" />}>
+            {c("workbook.export")}
+          </Button>
+        </SheetActions>
+        <SheetHint>{c("workbook.template_hint")}</SheetHint>
+        <SheetHint>{c("workbook.export_hint")}</SheetHint>
+      </SheetSection>
 
       {canWrite ? (
-        <section className="cfg-sheet-section">
-          <div className="cfg-sheet-title">
-            <Upload className="ic" aria-hidden="true" /> {c("workbook.upload_title")}
-          </div>
-          <p className="muted small">{c("workbook.upload_hint")}</p>
-          <p className="muted small">{c("workbook.order_hint")}</p>
+        <SheetSection icon="eva:cloud-upload-fill" title={c("workbook.upload_title")}>
+          <SheetHint>{c("workbook.upload_hint")}</SheetHint>
+          <SheetHint>{c("workbook.order_hint")}</SheetHint>
           <Stack spacing={1.5}>
             <UploadFile
               inputRef={fileRef}
@@ -220,7 +228,7 @@ export function WorkbookDrawer({ pageContract, canWrite, registerLabels }: { pag
               disabled={busy || !fileName}
               onClick={() => void upload()}
               data-testid="workbook-upload"
-              startIcon={phase === "uploading" ? <CircularProgress size={14} color="inherit" aria-hidden="true" /> : <Upload className="ic" aria-hidden="true" />}
+              startIcon={phase === "uploading" ? <CircularProgress size={14} color="inherit" aria-hidden="true" /> : <Iconify icon="eva:cloud-upload-fill" width={18} aria-hidden="true" />}
               sx={{ alignSelf: "flex-start" }}
             >
               {phase === "uploading" ? c("sheet.uploading") : c("workbook.upload_action")}
@@ -228,129 +236,94 @@ export function WorkbookDrawer({ pageContract, canWrite, registerLabels }: { pag
           </Stack>
 
           {bundle ? (
-            <div className="cfg-sheet-job" data-testid="workbook-bundle" data-status={bundle.status}>
-              <div className="cfg-sheet-job-head">
-                <b className="cfg-sheet-file-name">{bundle.file_name}</b>
-                <span className={`tag ${bundle.status === "applied" ? "ok" : bundle.status === "failed" ? "bad" : ""}`}>{statusLabel(bundle.status)}</span>
-              </div>
-              <dl className="cfg-sheet-counts">
-                <div>
-                  <dt>{c("sheet.rows_total")}</dt>
-                  <dd data-testid="workbook-total">{totals.total}</dd>
-                </div>
-                <div>
-                  <dt>{c("sheet.rows_valid")}</dt>
-                  <dd data-testid="workbook-valid">{totals.valid}</dd>
-                </div>
-                <div>
-                  <dt>{c("sheet.rows_invalid")}</dt>
-                  <dd data-testid="workbook-invalid">{totals.invalid}</dd>
-                </div>
-                {bundle.status === "applying" || bundle.status === "applied" || totals.applied > 0 || totals.failed > 0 ? (
-                  <>
-                    <div>
-                      <dt>{c("sheet.rows_applied")}</dt>
-                      <dd data-testid="workbook-applied">{totals.applied}</dd>
-                    </div>
-                    <div>
-                      <dt>{c("sheet.rows_failed")}</dt>
-                      <dd data-testid="workbook-failed">{totals.failed}</dd>
-                    </div>
-                  </>
-                ) : null}
-                <div>
-                  <dt>{c("workbook.tabs_done")}</dt>
-                  <dd data-testid="workbook-tabs-done">
-                    {tabsDone} / {bundle.jobs.length}
-                  </dd>
-                </div>
-              </dl>
-              {bundle.status === "failed" && bundle.error ? <div className="note bad">{bundle.error}</div> : null}
+            <SheetJobCard testId="workbook-bundle" status={bundle.status} fileName={bundle.file_name} statusLabel={statusLabel(bundle.status)}>
+              <SheetCounts
+                items={[
+                  { label: c("sheet.rows_total"), value: totals.total, testId: "workbook-total" },
+                  { label: c("sheet.rows_valid"), value: totals.valid, testId: "workbook-valid" },
+                  { label: c("sheet.rows_invalid"), value: totals.invalid, testId: "workbook-invalid" },
+                  ...(bundle.status === "applying" || bundle.status === "applied" || totals.applied > 0 || totals.failed > 0
+                    ? [
+                        { label: c("sheet.rows_applied"), value: totals.applied, testId: "workbook-applied" },
+                        { label: c("sheet.rows_failed"), value: totals.failed, testId: "workbook-failed" },
+                      ]
+                    : []),
+                  { label: c("workbook.tabs_done"), value: `${tabsDone} / ${bundle.jobs.length}`, testId: "workbook-tabs-done" },
+                ]}
+              />
+              {bundle.status === "failed" && bundle.error ? <Alert severity="error">{bundle.error}</Alert> : null}
               {bundle.unknown_sheets.length > 0 ? (
-                <p className="muted small" data-testid="workbook-unknown">
+                <SheetHint testId="workbook-unknown">
                   {c("workbook.unknown_sheets")} {bundle.unknown_sheets.join(", ")}
-                </p>
+                </SheetHint>
               ) : null}
-              <div className="cfg-workbook-scroll">
-              <Table className="tbl cfg-workbook-tabs" data-testid="workbook-tabs">
-                <TableHead>
-                  <TableRow>
-                    <TableCell component="th">{c("workbook.tab")}</TableCell>
-                    <TableCell component="th" className="num">{c("workbook.col.rows")}</TableCell>
-                    <TableCell component="th" className="num">{c("workbook.col.ready")}</TableCell>
-                    <TableCell component="th" className="num">{c("workbook.col.fix")}</TableCell>
-                    <TableCell component="th" className="num">{c("workbook.col.applied")}</TableCell>
-                    <TableCell component="th" className="num">{c("workbook.col.failed")}</TableCell>
-                    <TableCell component="th">{c("column.status")}</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {bundle.jobs.map((job) => (
-                    <TableRow key={job.id} data-testid="workbook-tab" data-register={job.register} data-status={job.status}>
-                      <TableCell title={registerLabels[job.register] ?? job.register}>
-                        {job.sheet_name || job.register}
-                        {registerLabels[job.register] && registerLabels[job.register] !== job.sheet_name ? <div className="muted small">{registerLabels[job.register]}</div> : null}
-                      </TableCell>
-                      <TableCell className="num">{job.total_rows}</TableCell>
-                      <TableCell className="num">{job.valid_rows}</TableCell>
-                      <TableCell className="num">{job.invalid_rows}</TableCell>
-                      <TableCell className="num">{job.applied_rows}</TableCell>
-                      <TableCell className="num">{job.failed_rows}</TableCell>
-                      <TableCell>
-                        <span className={`tag ${job.status === "applied" ? "ok" : job.status === "failed" ? "bad" : ""}`}>{statusLabel(job.status)}</span>
-                        {job.status === "validating" || job.status === "applying" ? (
-                          <LinearProgress variant="determinate" value={jobProgress(job)} />
-                        ) : null}
-                        {job.status === "failed" && job.error ? <div className="muted small">{job.error}</div> : null}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-              </div>
-              {bundle.status === "previewed" ? <p className="muted small">{c("workbook.apply_hint")}</p> : null}
-              <div className="cfg-sheet-actions">
+              <Scrollbar>
+                <Table size="small" data-testid="workbook-tabs" sx={{ minWidth: 560 }}>
+                  <TableHeadCustom headCells={headCells} />
+                  <TableBody>
+                    {bundle.jobs.map((job) => (
+                      <TableRow key={job.id} data-testid="workbook-tab" data-register={job.register} data-status={job.status}>
+                        <TableCell title={registerLabels[job.register] ?? job.register}>
+                          {job.sheet_name || job.register}
+                          {registerLabels[job.register] && registerLabels[job.register] !== job.sheet_name ? (
+                            <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>
+                              {registerLabels[job.register]}
+                            </Typography>
+                          ) : null}
+                        </TableCell>
+                        <TableCell align="right">{job.total_rows}</TableCell>
+                        <TableCell align="right">{job.valid_rows}</TableCell>
+                        <TableCell align="right">{job.invalid_rows}</TableCell>
+                        <TableCell align="right">{job.applied_rows}</TableCell>
+                        <TableCell align="right">{job.failed_rows}</TableCell>
+                        <TableCell>
+                          <SheetStatus status={job.status} label={statusLabel(job.status)} />
+                          {job.status === "validating" || job.status === "applying" ? <LinearProgress variant="determinate" value={jobProgress(job)} sx={{ mt: 0.5 }} /> : null}
+                          {job.status === "failed" && job.error ? (
+                            <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>
+                              {job.error}
+                            </Typography>
+                          ) : null}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Scrollbar>
+              {bundle.status === "previewed" ? <SheetHint>{c("workbook.apply_hint")}</SheetHint> : null}
+              <SheetActions>
                 {bundle.status === "previewed" && totals.valid > 0 ? (
-                  <button type="button" className="btn sm b" onClick={() => void act("apply")} data-testid="workbook-apply">
+                  <Button type="button" size="small" variant="contained" color="primary" onClick={() => void act("apply")} data-testid="workbook-apply">
                     {c("workbook.apply")} ({totals.valid})
-                  </button>
+                  </Button>
                 ) : null}
                 {hasProblems ? (
-                  <a className="btn sm ghost" href={`${bundleHref(bundle.id, "errors")}?format=xlsx`} download data-testid="workbook-errors">
+                  <Button component="a" size="small" variant="text" color="inherit" href={`${bundleHref(bundle.id, "errors")}?format=xlsx`} download data-testid="workbook-errors">
                     {c("workbook.download_errors")}
-                  </a>
+                  </Button>
                 ) : null}
                 {inFlight(bundle) || bundle.status === "previewed" ? (
-                  <button type="button" className="btn sm ghost" onClick={() => void act("cancel")} data-testid="workbook-cancel">
+                  <Button type="button" size="small" variant="text" color="inherit" onClick={() => void act("cancel")} data-testid="workbook-cancel">
                     {c("workbook.cancel")}
-                  </button>
+                  </Button>
                 ) : null}
-              </div>
-            </div>
+              </SheetActions>
+            </SheetJobCard>
           ) : null}
           {phase === "error" && message ? (
-            <div className="note bad" role="alert">
+            <Alert severity="error" role="alert">
               {message}
-            </div>
+            </Alert>
           ) : null}
 
           {recent.length > 0 ? (
-            <div className="cfg-sheet-recent">
-              <div className="cfg-sheet-title small">{c("workbook.recent")}</div>
-              <ul>
-                {recent.slice(0, 5).map((item) => (
-                  <li key={item.id}>
-                    <span className="cfg-sheet-file-name">{item.file_name}</span>
-                    <span className="muted small cfg-sheet-recent-meta">
-                      {item.jobs.length} {c("workbook.tab").toLowerCase()} · {statusLabel(item.status)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <SheetRecent
+              title={c("workbook.recent")}
+              items={recent.slice(0, 5).map((item) => ({ id: item.id, fileName: item.file_name, meta: `${item.jobs.length} ${c("workbook.tab").toLowerCase()} · ${statusLabel(item.status)}` }))}
+            />
           ) : null}
-        </section>
+        </SheetSection>
       ) : null}
-    </div>
+    </SheetDrawerBody>
   );
 }

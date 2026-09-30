@@ -153,8 +153,8 @@ export const overlayJourneys = {
   "configuration-items": [
     {
       id: "item-row-drawer",
-      // features/configuration/items-page.tsx: <LocalOverlayLink className="cfg-row-link"> ; LocalOverlayDrawer (components/local-overlay-drawer.tsx)
-      trigger: "a.cfg-row-link",
+      // features/configuration/items-page.tsx: <LocalOverlayLink className="config-row-link"> ; LocalOverlayDrawer (components/local-overlay-drawer.tsx)
+      trigger: "a.config-row-link",
       ...DETAIL_DRAWER,
       kind: "drawer",
       source: "features/configuration/items-page.tsx, components/local-overlay-drawer.tsx",

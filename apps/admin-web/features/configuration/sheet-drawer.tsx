@@ -2,7 +2,6 @@
 
 import CircularProgress from "@mui/material/CircularProgress";
 import LinearProgress from "@mui/material/LinearProgress";
-import { Download, FileSpreadsheet, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -11,6 +10,11 @@ import type { ConfigurationImportJob, ConfigurationImportRow, ConfigurationRegis
 import { UploadFile } from "@/components/app/upload-file";
 import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
+import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
+import { Iconify } from "@/components/minimal/iconify";
+import { SheetActions, SheetCounts, SheetDrawerBody, SheetHint, SheetJobCard, SheetRecent, SheetSection, SheetSubtitle } from "./sheet-drawer-parts";
 
 /**
  * The bulk sheet drawer (maintainer instruction 2026-09-18): DOWNLOAD a register as CSV or
@@ -188,37 +192,31 @@ export function SheetDrawer({
   const statusLabel = (status: string) => c(`sheet.status.${status}`) || status;
 
   return (
-    <div className="cfg-sheet" data-testid="sheet-drawer">
-      <section className="cfg-sheet-section">
-        <div className="cfg-sheet-title">
-          <Download className="ic" aria-hidden="true" /> {c("sheet.download")}
-        </div>
-        <p className="muted small">{register.import_create_only ? c("sheet.download_hint_animals") : c("sheet.download_hint")}</p>
-        <div className="cfg-sheet-actions">
-          <a className="btn sm" href={sheetHref(register.key, "export", "csv")} download data-testid="sheet-download-csv">
-            <FileSpreadsheet className="ic" aria-hidden="true" /> {c("sheet.download_csv")}
-          </a>
-          <a className="btn sm" href={sheetHref(register.key, "export", "xlsx")} download data-testid="sheet-download-xlsx">
-            <FileSpreadsheet className="ic" aria-hidden="true" /> {c("sheet.download_xlsx")}
-          </a>
-        </div>
-      </section>
+    <SheetDrawerBody testId="sheet-drawer">
+      <SheetSection icon="solar:download-bold" title={c("sheet.download")}>
+        <SheetHint>{register.import_create_only ? c("sheet.download_hint_animals") : c("sheet.download_hint")}</SheetHint>
+        <SheetActions>
+          <Button component="a" size="small" variant="outlined" color="inherit" href={sheetHref(register.key, "export", "csv")} download data-testid="sheet-download-csv" startIcon={<Iconify icon="solar:file-text-bold" width={18} aria-hidden="true" />}>
+            {c("sheet.download_csv")}
+          </Button>
+          <Button component="a" size="small" variant="outlined" color="inherit" href={sheetHref(register.key, "export", "xlsx")} download data-testid="sheet-download-xlsx" startIcon={<Iconify icon="solar:file-text-bold" width={18} aria-hidden="true" />}>
+            {c("sheet.download_xlsx")}
+          </Button>
+        </SheetActions>
+      </SheetSection>
 
       {register.importable && canWrite ? (
-        <section className="cfg-sheet-section">
-          <div className="cfg-sheet-title">
-            <Upload className="ic" aria-hidden="true" /> {c("sheet.upload_title")}
-          </div>
-          <p className="muted small">{register.key === "animals" ? c("sheet.upload_hint_animals") : c("sheet.upload_hint")}</p>
-          <div className="cfg-sheet-actions">
-            <a className="btn sm ghost" href={sheetHref(register.key, "template", "csv")} download data-testid="sheet-template-csv">
+        <SheetSection icon="eva:cloud-upload-fill" title={c("sheet.upload_title")}>
+          <SheetHint>{register.key === "animals" ? c("sheet.upload_hint_animals") : c("sheet.upload_hint")}</SheetHint>
+          <SheetActions>
+            <Button component="a" size="small" variant="text" color="inherit" href={sheetHref(register.key, "template", "csv")} download data-testid="sheet-template-csv">
               {c("sheet.template")} (CSV)
-            </a>
-            <a className="btn sm ghost" href={sheetHref(register.key, "template", "xlsx")} download data-testid="sheet-template-xlsx">
+            </Button>
+            <Button component="a" size="small" variant="text" color="inherit" href={sheetHref(register.key, "template", "xlsx")} download data-testid="sheet-template-xlsx">
               {c("sheet.template")} (Excel)
-            </a>
-          </div>
-          <p className="muted small">{c("sheet.template_hint")}</p>
+            </Button>
+          </SheetActions>
+          <SheetHint>{c("sheet.template_hint")}</SheetHint>
           <Stack spacing={1.5}>
             <UploadFile
               inputRef={fileRef}
@@ -236,7 +234,7 @@ export function SheetDrawer({
               disabled={busy || !fileName}
               onClick={() => void upload()}
               data-testid="sheet-upload"
-              startIcon={phase === "uploading" ? <CircularProgress size={14} color="inherit" aria-hidden="true" /> : <Upload className="ic" aria-hidden="true" />}
+              startIcon={phase === "uploading" ? <CircularProgress size={14} color="inherit" aria-hidden="true" /> : <Iconify icon="eva:cloud-upload-fill" width={18} aria-hidden="true" />}
               sx={{ alignSelf: "flex-start" }}
             >
               {phase === "uploading" ? c("sheet.uploading") : c("sheet.upload_action")}
@@ -244,99 +242,71 @@ export function SheetDrawer({
           </Stack>
 
           {job ? (
-            <div className="cfg-sheet-job" data-testid="sheet-job" data-status={job.status}>
-              <div className="cfg-sheet-job-head">
-                <b className="cfg-sheet-file-name">{job.file_name}</b>
-                <span className={`tag ${job.status === "applied" ? "ok" : job.status === "failed" ? "bad" : ""}`}>{statusLabel(job.status)}</span>
-              </div>
-              {inFlight(job) ? (
-                <LinearProgress variant="determinate" value={progress} />
-              ) : null}
-              <dl className="cfg-sheet-counts">
-                <div>
-                  <dt>{c("sheet.rows_total")}</dt>
-                  <dd data-testid="sheet-total">{job.total_rows}</dd>
-                </div>
-                <div>
-                  <dt>{c("sheet.rows_valid")}</dt>
-                  <dd data-testid="sheet-valid">{job.valid_rows}</dd>
-                </div>
-                <div>
-                  <dt>{c("sheet.rows_invalid")}</dt>
-                  <dd data-testid="sheet-invalid">{job.invalid_rows}</dd>
-                </div>
-                {job.status === "applying" || job.status === "applied" || job.applied_rows > 0 || job.failed_rows > 0 ? (
-                  <>
-                    <div>
-                      <dt>{c("sheet.rows_applied")}</dt>
-                      <dd data-testid="sheet-applied">{job.applied_rows}</dd>
-                    </div>
-                    <div>
-                      <dt>{c("sheet.rows_failed")}</dt>
-                      <dd data-testid="sheet-failed">{job.failed_rows}</dd>
-                    </div>
-                  </>
-                ) : null}
-              </dl>
-              {job.status === "failed" && job.error ? <div className="note bad">{job.error}</div> : null}
-              {job.status === "previewed" ? <p className="muted small">{c("sheet.apply_hint")}</p> : null}
+            <SheetJobCard testId="sheet-job" status={job.status} fileName={job.file_name} statusLabel={statusLabel(job.status)}>
+              {inFlight(job) ? <LinearProgress variant="determinate" value={progress} /> : null}
+              <SheetCounts
+                items={[
+                  { label: c("sheet.rows_total"), value: job.total_rows, testId: "sheet-total" },
+                  { label: c("sheet.rows_valid"), value: job.valid_rows, testId: "sheet-valid" },
+                  { label: c("sheet.rows_invalid"), value: job.invalid_rows, testId: "sheet-invalid" },
+                  ...(job.status === "applying" || job.status === "applied" || job.applied_rows > 0 || job.failed_rows > 0
+                    ? [
+                        { label: c("sheet.rows_applied"), value: job.applied_rows, testId: "sheet-applied" },
+                        { label: c("sheet.rows_failed"), value: job.failed_rows, testId: "sheet-failed" },
+                      ]
+                    : []),
+                ]}
+              />
+              {job.status === "failed" && job.error ? <Alert severity="error">{job.error}</Alert> : null}
+              {job.status === "previewed" ? <SheetHint>{c("sheet.apply_hint")}</SheetHint> : null}
               {problems.length > 0 && (job.status === "previewed" || job.status === "cancelled") ? (
-                <div className="cfg-sheet-problems">
-                  <div className="cfg-sheet-title small">{c("sheet.problems_title")}</div>
-                  <ul>
+                <Stack spacing={0.5}>
+                  <SheetSubtitle>{c("sheet.problems_title")}</SheetSubtitle>
+                  <Box component="ul" sx={{ m: 0, pl: 2, display: "flex", flexDirection: "column", gap: 0.5 }}>
                     {problems.map((row) => (
-                      <li key={row.row_no}>
-                        <b>
+                      <Typography component="li" variant="body2" key={row.row_no}>
+                        <Box component="b" sx={{ fontWeight: "fontWeightSemiBold" }}>
                           {c("sheet.problem_row")} {row.row_no}
-                        </b>
+                        </Box>
                         : {row.errors.map((error) => (error.field && error.field !== "row" ? `${error.field}: ${error.message}` : error.message)).join(" · ")}
-                      </li>
+                      </Typography>
                     ))}
-                  </ul>
-                </div>
+                  </Box>
+                </Stack>
               ) : null}
-              <div className="cfg-sheet-actions">
+              <SheetActions>
                 {job.status === "previewed" && job.valid_rows > 0 ? (
-                  <button type="button" className="btn sm b" onClick={() => void act("apply")} data-testid="sheet-apply">
+                  <Button type="button" size="small" variant="contained" color="primary" onClick={() => void act("apply")} data-testid="sheet-apply">
                     {c("sheet.apply")} ({job.valid_rows})
-                  </button>
+                  </Button>
                 ) : null}
                 {job.invalid_rows > 0 || job.failed_rows > 0 ? (
-                  <a className="btn sm ghost" href={`${jobHref(job.id, "errors")}?format=csv`} download data-testid="sheet-errors">
+                  <Button component="a" size="small" variant="text" color="inherit" href={`${jobHref(job.id, "errors")}?format=csv`} download data-testid="sheet-errors">
                     {c("sheet.download_errors")}
-                  </a>
+                  </Button>
                 ) : null}
                 {inFlight(job) || job.status === "previewed" ? (
-                  <button type="button" className="btn sm ghost" onClick={() => void act("cancel")} data-testid="sheet-cancel">
+                  <Button type="button" size="small" variant="text" color="inherit" onClick={() => void act("cancel")} data-testid="sheet-cancel">
                     {c("sheet.cancel")}
-                  </button>
+                  </Button>
                 ) : null}
-              </div>
-            </div>
+              </SheetActions>
+            </SheetJobCard>
           ) : null}
           {phase === "error" && message ? (
-            <div className="note bad" role="alert">
+            <Alert severity="error" role="alert">
               {message}
-            </div>
+            </Alert>
           ) : null}
 
           {recent.length > 0 ? (
-            <div className="cfg-sheet-recent">
-              <div className="cfg-sheet-title small">{c("sheet.recent")}</div>
-              <ul>
-                {recent.slice(0, 5).map((item) => (
-                  <li key={item.id}>
-                    <span className="cfg-sheet-file-name">{item.file_name}</span>
-                    <span className="muted small cfg-sheet-recent-meta">
-                      {item.total_rows} · {statusLabel(item.status)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <SheetRecent
+              title={c("sheet.recent")}
+              items={recent.slice(0, 5).map((item) => ({ id: item.id, fileName: item.file_name, meta: `${item.total_rows} · ${statusLabel(item.status)}` }))}
+            />
           ) : null}
-        </section>
+        </SheetSection>
       ) : null}
-    </div>
+    </SheetDrawerBody>
   );
 }

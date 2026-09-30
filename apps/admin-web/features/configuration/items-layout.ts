@@ -10,3 +10,5 @@ export const ITEMS_TOOLBAR_FIELDS: (number | "search")[] = [200, "search"];
 export const ITEMS_RAIL_GROUPS = [4, 4, 4, 4, 4];
 /** Placeholder table columns while the register's own columns are unknown. */
 export const ITEMS_COLUMNS = 6;
+/** The page root: the frame's page column (header, then blocks 24px apart), as sx instead of `.screen`. */
+export const CONFIG_PAGE_SX = { display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: "var(--sp-3)", alignContent: "start", minWidth: 0 } as const;

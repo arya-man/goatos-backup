@@ -2192,35 +2192,6 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
    drawer (MinimalDrawer 480); only the panel's own grid-card chrome is reset here. */
 .ltd-drawer .ltd-panel{flex:none;border:0;border-radius:0;background:transparent;overflow:visible}
 
-/* Configuration -> Items and settings (2026-09-18): the prototype's two-column register page --
-   a rail of registers with counts on the left, the selected register's table on the right. Phone
-   width stacks the rail above the table. */
-.cfg-row-link{color:inherit;text-decoration:none}
-.cfg-row-link:hover b{color:var(--brand-d)}
-/* The row's own actions (maintainer instruction 2026-09-22): Edit beside a menu holding Make
-   inactive / Remove (template row-action popover). The cell is the last column, right-aligned. */
-.cfg-rowacts{position:relative;display:inline-flex;gap:6px;align-items:center;justify-content:flex-end}
-.cfg-ferr{font-size:12px;color:var(--danger)}
-/* Items & categories: the prototype's three columns -- rail, Lists panel, items table. */
-
-/* Configuration -> Items and settings: the bulk sheet drawer (download / upload). */
-.cfg-sheet { display: flex; flex-direction: column; gap: 18px; }
-.cfg-sheet-section { display: flex; flex-direction: column; gap: 8px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
-.cfg-sheet-section:last-child { border-bottom: 0; }
-.cfg-sheet-title { display: flex; align-items: center; gap: 6px; font-weight: 600; }
-.cfg-sheet-title.small { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
-.cfg-sheet-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.cfg-sheet-job { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2, transparent); }
-.cfg-sheet-job-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
-.cfg-sheet-file-name { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
-.cfg-sheet-counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 6px; margin: 0; }
-.cfg-sheet-counts div { display: flex; flex-direction: column; }
-.cfg-sheet-counts dt { font-size: 11px; color: var(--muted); }
-.cfg-sheet-counts dd { margin: 0; font-size: 18px; font-weight: 600; }
-.cfg-sheet-problems ul, .cfg-sheet-recent ul { margin: 0; padding-left: 16px; font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
-.cfg-sheet-recent li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; min-width: 0; list-style: none; margin-left: -16px; }
-.cfg-sheet-recent-meta { flex: 0 0 auto; }
-
 /* Phone (< 768px): the feed-by-weight-band rows render as stacked cards instead of the
    twelve-column table (maintainer, 2026-09-19), so Feed given and Breed read in full and the
    page never scrolls sideways. The table stays for laptops; both come from the same rows. */

@@ -1,5 +1,5 @@
 // A GET form through next/form: Apply is a soft navigation (the page stays on screen), not a document reload.
-import { ITEMS_RAIL_SIZE, ITEMS_REGISTER_SIZE } from "./items-layout";
+import { CONFIG_PAGE_SX, ITEMS_RAIL_SIZE, ITEMS_REGISTER_SIZE } from "./items-layout";
 import { ItemsRegisterSkeleton } from "./items-skeleton";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
@@ -452,7 +452,7 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
   ];
 
   return (
-    <div className="screen on">
+    <Box sx={CONFIG_PAGE_SX}>
       <PageHeader
         title={pageContract.title}
         crumbs={[{ label: c("crumb") }, { label: pageContract.title }]}
@@ -641,10 +641,10 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
                     );
                   })}
                 search={<Box sx={orderToolbarSearchSx}><Form action={ITEMS_PATH} prefetch={false} role="search">
-                    <input type="hidden" name={PARAM_REGISTER} value={params.register} />
-                    {params.status !== "active" ? <input type="hidden" name={PARAM_STATUS} value={params.status} /> : null}
+                    <Box component="input" type="hidden" name={PARAM_REGISTER} value={params.register} />
+                    {params.status !== "active" ? <Box component="input" type="hidden" name={PARAM_STATUS} value={params.status} /> : null}
                     {Object.entries(params.filters).map(([key, value]) => (
-                      <input key={key} type="hidden" name={FILTER_PREFIX + key} value={value} />
+                      <Box component="input" key={key} type="hidden" name={FILTER_PREFIX + key} value={value} />
                     ))}
                     <TextField
                       key={`${params.register}:${params.q ?? ""}`}
@@ -687,8 +687,8 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
                         {rows.map((row) => (
                           <TableRow key={row.id} hover>
                             {/* Phone: the row link is a 44px tap target, not a 16px inline word. */}
-                            <TableCell sx={{ "& .cfg-row-link": { display: { xs: "flex", md: "inline" }, alignItems: "center", minHeight: { xs: TAP_MIN, md: 0 }, color: "inherit", textDecoration: "none" } }}>
-                              <LocalOverlayLink href={editHref(row.id)} scroll={false} className="cfg-row-link">
+                            <TableCell sx={{ "& .config-row-link": { display: { xs: "flex", md: "inline" }, alignItems: "center", minHeight: { xs: TAP_MIN, md: 0 }, color: "inherit", textDecoration: "none" } }}>
+                              <LocalOverlayLink href={editHref(row.id)} scroll={false} className="config-row-link">
                                 <Typography component="span" variant="subtitle2">
                                   {row.display}
                                 </Typography>
@@ -771,7 +771,7 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
       </Stack>
 
       <LocalOverlayDrawer items={drawerItems} selectionKey={PARAM_EDIT} initialSelectedId={one(sp, PARAM_EDIT)} closeHref={listHref} ariaLabel={register?.label ?? c("crumb")} closeLabel={c("action.close")} />
-    </div>
+    </Box>
   );
 }
 

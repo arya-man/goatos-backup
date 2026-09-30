@@ -6,6 +6,8 @@ import MenuItem from "@mui/material/MenuItem";
 import TextField from "@mui/material/TextField";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
+import Box from "@mui/material/Box";
+import Alert from "@mui/material/Alert";
 
 import { currentHistoryEntryIsLocalOverlay, replaceLocalOverlayUrl } from "@/components/local-overlay-link";
 import { Tag } from "@/components/ui-primitives";
@@ -157,18 +159,18 @@ export function RowDrawerForm({
   return (
     <>
       <Stack component="form" action={formAction} aria-busy={pending} className="cfg-form" spacing={3}>
-        <input type="hidden" name="register" value={register.key} />
-        {row ? <input type="hidden" name="row_id" value={row.id} /> : null}
-        {row ? <input type="hidden" name="row_version" value={row.row_version} /> : null}
-        <input type="hidden" name="fields_json" value={fieldsJson} />
+        <Box component="input" type="hidden" name="register" value={register.key} />
+        {row ? <Box component="input" type="hidden" name="row_id" value={row.id} /> : null}
+        {row ? <Box component="input" type="hidden" name="row_version" value={row.row_version} /> : null}
+        <Box component="input" type="hidden" name="fields_json" value={fieldsJson} />
 
-        {row?.is_builtin ? <div className="note">{c("drawer.builtin_hint")}</div> : null}
+        {row?.is_builtin ? <Alert severity="info">{c("drawer.builtin_hint")}</Alert> : null}
         {editElsewhere ? (
-          <div className="note">
-            <a href={editElsewhere.href} className="btn sm">
+          <Box>
+            <Button href={editElsewhere.href} size="small" variant="outlined" color="inherit">
               {editElsewhere.label}
-            </a>
-          </div>
+            </Button>
+          </Box>
         ) : null}
         {row && row.status === "archived" ? (
           <div>
@@ -187,7 +189,7 @@ export function RowDrawerForm({
           switch (column.type) {
             case "bool":
               control = (
-                <FormControlLabel className="pen-routine-check" disabled={disabled} control={<Checkbox id={id} checked={value === true} onChange={(e) => update(column.key, e.target.checked)} disabled={disabled} sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<><span>{column.label}</span></>} />
+                <FormControlLabel disabled={disabled} control={<Checkbox id={id} checked={value === true} onChange={(e) => update(column.key, e.target.checked)} disabled={disabled} sx={{ p: { xs: 1.5, sm: 1 } }} />} label={column.label} />
               );
               break;
             case "enum":
@@ -302,7 +304,7 @@ export function RowDrawerForm({
                 </Typography>
               ) : null}
               {error ? (
-                <Typography variant="caption" className="cfg-ferr" sx={{ color: "error.main", px: 1.75 }}>
+                <Typography variant="caption" sx={{ color: "error.main", px: 1.75 }}>
                   {error}
                 </Typography>
               ) : null}
@@ -311,41 +313,41 @@ export function RowDrawerForm({
         })}
 
         {message ? (
-          <div className={state.status === "error" ? "cfg-ferr" : "note"} role="status" aria-live="polite" key={`m-${state.ticket}`}>
+          <Alert severity={state.status === "error" ? "error" : "success"} role="status" aria-live="polite" key={`m-${state.ticket}`}>
             {message}
-          </div>
+          </Alert>
         ) : null}
 
         {canEdit ? (
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
             <Button type="submit" variant="contained" color="primary" loading={pending}>
               {c("action.save")}
             </Button>
             <Button type="button" variant="outlined" onClick={() => closeOverlay(listHref)} disabled={pending}>
               {c("action.cancel")}
             </Button>
-          </div>
+          </Stack>
         ) : null}
       </Stack>
 
       {row && (canSetStatus || canDelete) ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 18, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
+        <Stack spacing={1.25} sx={{ mt: 2.25, pt: 1.75, borderTop: (theme) => `1px solid ${theme.vars.palette.divider}` }}>
           {row.counts && Object.values(row.counts).some((n) => n > 0) ? (
-            <div className="muted small">
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>
               {c("drawer.usage_title")}:{" "}
               {Object.entries(row.counts)
                 .filter(([, n]) => n > 0)
                 .map(([noun, n]) => `${n} ${noun.replace(/_/g, " ")}`)
                 .join(", ")}
-            </div>
+            </Typography>
           ) : null}
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <Stack direction="row" sx={{ gap: 1, flexWrap: "wrap", alignItems: "center" }}>
             {canSetStatus && !row.is_builtin ? (
               <form action={statusFormAction} aria-busy={statusPending}>
-                <input type="hidden" name="register" value={register.key} />
-                <input type="hidden" name="row_id" value={row.id} />
-                <input type="hidden" name="row_version" value={row.row_version} />
-                <input type="hidden" name="status" value={row.status === "archived" ? "active" : "archived"} />
+                <Box component="input" type="hidden" name="register" value={register.key} />
+                <Box component="input" type="hidden" name="row_id" value={row.id} />
+                <Box component="input" type="hidden" name="row_version" value={row.row_version} />
+                <Box component="input" type="hidden" name="status" value={row.status === "archived" ? "active" : "archived"} />
                 <Button type="submit" size="small" variant="outlined" loading={statusPending} title={c("drawer.archive_hint")}>
                   {row.status === "archived" ? c("action.restore") : c("action.archive")}
                 </Button>
@@ -353,36 +355,36 @@ export function RowDrawerForm({
             ) : null}
             {canDelete && !row.is_builtin ? (
               confirmDelete ? (
-                <form action={deleteFormAction} aria-busy={deletePending} style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
-                  <input type="hidden" name="register" value={register.key} />
-                  <input type="hidden" name="row_id" value={row.id} />
-                  <input type="hidden" name="row_version" value={row.row_version} />
-                  <span className="small">{c("drawer.delete_confirm")}</span>
+                <Stack component="form" direction="row" action={deleteFormAction} aria-busy={deletePending} sx={{ display: "inline-flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
+                  <Box component="input" type="hidden" name="register" value={register.key} />
+                  <Box component="input" type="hidden" name="row_id" value={row.id} />
+                  <Box component="input" type="hidden" name="row_version" value={row.row_version} />
+                  <Typography component="span" variant="body2">{c("drawer.delete_confirm")}</Typography>
                   <Button type="submit" size="small" variant="outlined" color="error" loading={deletePending}>
                     {c("action.delete")}
                   </Button>
                   <Button type="button" size="small" variant="text" onClick={() => setConfirmDelete(false)}>
                     {c("action.cancel")}
                   </Button>
-                </form>
+                </Stack>
               ) : (
                 <Button type="button" size="small" variant="text" color="error" onClick={() => setConfirmDelete(true)}>
                   {c("action.delete")}
                 </Button>
               )
             ) : null}
-          </div>
+          </Stack>
           {statusMessage ? (
-            <div className={statusState.status === "error" ? "cfg-ferr" : "note"} role="status" aria-live="polite" key={`s-${statusState.ticket}`}>
+            <Alert severity={statusState.status === "error" ? "error" : "success"} role="status" aria-live="polite" key={`s-${statusState.ticket}`}>
               {statusMessage}
-            </div>
+            </Alert>
           ) : null}
           {deleteMessage ? (
-            <div className={deleteState.status === "error" ? "cfg-ferr" : "note"} role="status" aria-live="polite" key={`d-${deleteState.ticket}`}>
+            <Alert severity={deleteState.status === "error" ? "error" : "success"} role="status" aria-live="polite" key={`d-${deleteState.ticket}`}>
               {deleteMessage}
-            </div>
+            </Alert>
           ) : null}
-        </div>
+        </Stack>
       ) : null}
     </>
   );
