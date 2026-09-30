@@ -56,6 +56,10 @@
 #     tools/ci/admin-web-push-gate.sh --certify origin/main
 # GOATOS_PUSH_RECEIPT_PUBLISH=0 keeps the receipt local (tests); GOATOS_PUSH_RECEIPT_DIR moves it.
 set -euo pipefail
+# NEVER `producer | grep -q` on a change list here: with pipefail, grep -q exits at the first match,
+# the producer dies of SIGPIPE once the list outgrows the pipe buffer (~64 KB, ~2000 paths) and the
+# pipeline FAILS, so a big push scored "not applicable" and ran no lane (FIXJ8, 2026-09-30:
+# 1371 admin-web paths from origin/main). Match with `grep -q RE <<<"$list"`.
 
 LANES=(design-guard typecheck unit-tests next-build visual-gate storybook-build)
 STORYBOOK_INPUTS='^(apps/admin-web/(stories/|\.storybook/|components/|theme/|package\.json$)|package-lock\.json$)'
@@ -159,11 +163,11 @@ if [ "$mode" = "--pre-push" ]; then
         changed="<no-merge-base>" # unrelated history: treat as touching everything
       fi
     fi
-    if [ "$changed" = "<no-merge-base>" ] || [ "$changed" = "<diff-failed>" ] || printf '%s\n' "$changed" | grep -Eq "$ADMIN_WEB_INPUTS"; then
+    if [ "$changed" = "<no-merge-base>" ] || [ "$changed" = "<diff-failed>" ] || grep -Eq "$ADMIN_WEB_INPUTS" <<<"$changed"; then
       echo "admin-web-push-gate: ${rref:-?} changes admin-web inputs -> lanes: ${LANES[*]}"
       [ "$lsha" = "$head_sha" ] || block "the push sends ${lsha:0:12} to ${rref:-?} but this work tree's HEAD is ${head_sha:0:12}. The lanes judge the work tree: push from the worktree whose HEAD is the pushed commit."
       needs=1
-      if [ "$changed" = "<no-merge-base>" ] || [ "$changed" = "<diff-failed>" ] || printf '%s\n' "$changed" | grep -Eq "$STORYBOOK_INPUTS"; then storybook_needed=1; fi
+      if [ "$changed" = "<no-merge-base>" ] || [ "$changed" = "<diff-failed>" ] || grep -Eq "$STORYBOOK_INPUTS" <<<"$changed"; then storybook_needed=1; fi
     fi
   done <"$payload"
   if [ "$needs" = "0" ]; then
@@ -182,7 +186,7 @@ else
   else
     want_lanes=("${LANES[@]}")
     sb_base="$(git merge-base HEAD origin/main 2>/dev/null || true)"
-    if [ -z "$sb_base" ] || git diff --name-only "$sb_base" HEAD 2>/dev/null | grep -Eq "$STORYBOOK_INPUTS"; then storybook_needed=1; else storybook_needed=0; fi
+    if [ -z "$sb_base" ] || grep -Eq "$STORYBOOK_INPUTS" <<<"$(git diff --name-only "$sb_base" HEAD 2>/dev/null)"; then storybook_needed=1; else storybook_needed=0; fi
   fi
   for l in "${want_lanes[@]}"; do
     case " ${LANES[*]} " in *" $l "*) ;; *) echo "unknown lane: $l (lanes: ${LANES[*]})" >&2; exit 2 ;; esac

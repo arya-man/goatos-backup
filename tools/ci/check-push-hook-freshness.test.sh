@@ -8,8 +8,10 @@
 #   (d) repo source missing          (f) no pre-push hook           (g) branch hook stops calling the evidence guard
 #   (i) branch hook stops calling the admin-web push gate           (j) push gate drops a lane
 #   (s) legacy snapshot missing      (t) installer: shim installed, foreign hook chained, old copies removed
+#   (u) an older branch's installer chains the shim instead of overwriting it (no marker words)
 #   (k) visual-gate skip flag without GOATOS_SKIP_REASON is refused; with one it is ledgered
 #   (l) a feature push that changes no admin-web input is "not applicable" AND leaves a receipt
+#   (l3) a push whose change list outgrows the pipe buffer is still gated (SIGPIPE under pipefail)
 #   (m) a feature push that changes admin-web input from a tree without the app is BLOCKED
 #   (n) GOATOS_ADMIN_WEB_BASE_URL without a reason is refused
 #   (r) receipts: a skipped lane needs a reason; check-range refuses an uncovered commit, accepts a
@@ -116,6 +118,26 @@ expect_log "(j) names the missing lane" "MISSING LANE 'unit-tests'"
 cp "$sandbox/gate.intact" tools/ci/admin-web-push-gate.sh
 fresh; check "(a2) restored install passes again" 0 $?
 
+# (u) an OLDER installer (origin/main's: keeps a hook matching its markers, chains anything else)
+#     must CHAIN the shim, not overwrite it; the guard names that state; a push still runs the shim
+udir="$sandbox/hooks-u"; mkdir -p "$udir"; install_all "$udir"
+if grep -qE 'GOATOS_PUSH_GUARDS|GOATOS_STG_PROMOTION_GUARD' "$udir/pre-push"; then
+  echo "FAIL  (u) the shim contains an old installer marker: it would be overwritten" >&2; fails=$((fails + 1))
+else
+  mv "$udir/pre-push" "$udir/pre-push.before-goatos-stg-guard"   # what the old installer does to a foreign hook
+  printf '#!/usr/bin/env bash\n# GOATOS_PUSH_GUARDS\nprior="$(dirname "$0")/pre-push.before-goatos-stg-guard"\npayload="$(cat)"\n[ -x "$prior" ] && printf "%%s\\n" "$payload" | "$prior" "$@"\n' > "$udir/pre-push"; chmod +x "$udir/pre-push"
+  echo "ok    (u) the shim carries no old installer marker (an old installer chains it)"
+  git config core.hooksPath "$udir"
+  fresh; check "(u) old copied hook in front of the chained shim REJECTED" 1 $?
+  expect_log "(u) names the chained shim" 'put its copied hook in front of the shim'
+  git config core.hooksPath "$sandbox/hooks"
+fi
+sed -i.bak 's/^# GOATOS_PUSH_SHIM v1$/# GOATOS_PUSH_SHIM v1 GOATOS_PUSH_GUARDS/' tools/agent-hooks/pre-push.shim && rm -f tools/agent-hooks/pre-push.shim.bak
+install_all "$sandbox/hooks"
+fresh; check "(u) a shim that spells an old installer marker REJECTED" 1 $?
+cp "$repo/tools/agent-hooks/pre-push.shim" tools/agent-hooks/pre-push.shim
+install_all "$sandbox/hooks"
+
 # (t) the installer: installs the shim, chains a foreign hook once, removes pre-shim copies; and a
 #     shim that an older installer chained as ITS prior is dropped when the shim goes back in front
 tdir="$sandbox/hooks-t"; mkdir -p "$tdir"
@@ -171,6 +193,17 @@ grep -q 'not applicable' "$sandbox/l.log" && echo "ok    (l) says not applicable
   || { echo "FAIL  (l) no receipt for the not-applicable push" >&2; fails=$((fails + 1)); }
 node tools/ci/admin-web-push-receipt.mjs check-range --base "$head~1" --head "$head" >/dev/null 2>&1
 check "(r) check-range accepts a commit a push covered" 0 $?
+
+# (l3) a BIG push (change list larger than the pipe buffer) must still count as admin-web input.
+#      `printf "$changed" | grep -q` under pipefail died of SIGPIPE and scored it "not applicable".
+mkdir -p apps/admin-web/big && for i in $(seq 1 3000); do : > "apps/admin-web/big/a-long-generated-file-name-$i.tsx"; done
+git add -A >/dev/null && git commit -qm big && big="$(git rev-parse HEAD)"
+printf 'refs/heads/feature %s refs/heads/feature %s\n' "$big" "$(git rev-parse HEAD~1)" \
+  | GOATOS_SKIP_LEDGER="$ledger" bash tools/ci/admin-web-push-gate.sh --pre-push >"$sandbox/l3.log" 2>&1
+check "(l3) a 3000-file admin-web push is gated (BLOCKED here: no app), never 'not applicable'" 1 $?
+grep -q 'changes admin-web inputs' "$sandbox/l3.log" && echo "ok    (l3) says it changes admin-web inputs" \
+  || { echo "FAIL  (l3) big push not seen as admin-web" >&2; fails=$((fails + 1)); }
+git rm -rq apps/admin-web/big && git commit -qm unbig
 
 # (m) a feature push that changes admin-web input without the app present is BLOCKED (fail closed)
 mkdir -p apps/admin-web && echo 'export const x = 1;' > apps/admin-web/x.tsx && git add -A >/dev/null && git commit -qm aw

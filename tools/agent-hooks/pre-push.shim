@@ -19,9 +19,12 @@
 # legacy stg/main guard: its own tools/ci/check-stg-promotion.mjs + check-local-ci-evidence.mjs,
 # else the snapshots the installer left beside this file. Nothing found = the push is REFUSED.
 #
-# The shim deliberately does NOT carry the GOATOS_PUSH_GUARDS / GOATOS_STG_PROMOTION_GUARD markers:
-# an older branch's installer then treats it as a foreign hook, preserves it as
+# The shim deliberately carries NEITHER of the two marker words older installers grep for (the
+# push-guards marker and the stg-promotion-guard marker; this file must never spell them out, not
+# even in a comment: on 2026-09-30 a comment naming them made an old installer overwrite the shim).
+# An older branch's installer then treats the shim as a foreign hook, preserves it as
 # pre-push.before-goatos-stg-guard and CHAINS to it, so a downgrade-by-install still runs this shim.
+# check-push-hook-freshness.sh fails if either marker appears here.
 #
 # Probe: GOATOS_PUSH_SHIM_WHICH=1 .git/hooks/pre-push  -> prints what it would run, exits 0.
 # Guard: tools/ci/check-push-hook-freshness.sh (installed copy == this file, real test pushes).

@@ -87,6 +87,19 @@ for f in $shim_src $BUNDLE_FILES; do
   [ -f "$f" ] || { echo "!! push-hook-freshness: repo source missing: $f" >&2; fail=1; }
 done
 
+# ── 0. the shim must survive an OLDER branch's installer ─────────────────────
+# Older installers keep a hook that greps for their markers and replace it; anything else they
+# preserve as pre-push.before-goatos-stg-guard and chain to. The shim must therefore never contain
+# those markers (2026-09-30: a comment naming them let origin/main's installer overwrite the shim).
+if [ -f "$shim_src" ] && grep -qE 'GOATOS_PUSH_GUARDS|GOATOS_STG_PROMOTION_GUARD' "$shim_src"; then
+  echo "!! push-hook-freshness: $shim_src contains an older installer's marker word; that installer would OVERWRITE the shim instead of chaining it" >&2
+  fail=1
+fi
+if [ -f "$hook" ] && [ -f "$hooks_dir/pre-push.before-goatos-stg-guard" ] && grep -q 'GOATOS_PUSH_SHIM' "$hooks_dir/pre-push.before-goatos-stg-guard"; then
+  echo "!! push-hook-freshness: an older branch's installer put its copied hook in front of the shim (the shim is chained as pre-push.before-goatos-stg-guard). Pushes still run the shim; restore it in front: make push-hooks-install" >&2
+  fail=1
+fi
+
 # ── 1. the installed pre-push IS the shim ────────────────────────────────────
 if [ ! -f "$hook" ]; then
   echo "!! push-hook-freshness: no pre-push hook installed at $hook" >&2
