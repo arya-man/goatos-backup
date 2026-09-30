@@ -30,6 +30,7 @@ import {
   Sun,
   TowerControl,
   Truck,
+  Users,
   Wheat,
   Workflow,
   Zap,
@@ -103,6 +104,9 @@ const iconByToken: Record<string, ElementType> = {
   stethoscope: Stethoscope,
   "tower-control": TowerControl,
   truck: Truck,
+  // HRMS (2026-09-30): People / HRMS left Others for a module group of its own. Registered here
+  // for the same reason as every token above: an unregistered one falls back to Control Tower.
+  users: Users,
   // `wheat` is the Feed vertical's declared icon in the backend nav contract and was missing
   // here, so Feed silently fell back to the Control Tower icon.
   wheat: Wheat,

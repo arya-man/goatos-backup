@@ -321,9 +321,12 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     { name: "operations-dlq-discarded", path: "/operations/dlq?scope_mode=company&status=discarded" },
     { name: "people", path: "/people?scope_mode=company" },
     // Vaccination operators are per-park; with no park the tab is only a park picker.
-    { name: "people-vaccination", path: `/people?scope_mode=company&tab=vaccination&park=${encodeURIComponent(vaccinationParkId)}` },
-    { name: "people-clock", path: "/people?scope_mode=company&tab=clock" },
-    { name: "people-notifications", path: "/people?scope_mode=company&tab=notifications" },
+    { name: "people-vaccination", path: `/people/vaccination?scope_mode=company&park=${encodeURIComponent(vaccinationParkId)}` },
+    { name: "people-clock", path: "/people/clock?scope_mode=company" },
+    // HRMS Timetable (2026-09-30): the default park, and the "Not assigned" filter.
+    { name: "people-timetable", path: "/people/timetable?scope_mode=company" },
+    { name: "people-timetable-unassigned", path: "/people/timetable?scope_mode=company&shift=unassigned" },
+    { name: "people-notifications", path: "/people/notifications?scope_mode=company" },
     { name: "routines", path: "/routines?scope_mode=company" },
     { name: "leave", path: "/leave?scope_mode=company" },
     { name: "leave-approved", path: "/leave?scope_mode=company&status=approved" },

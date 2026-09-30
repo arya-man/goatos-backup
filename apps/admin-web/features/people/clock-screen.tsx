@@ -40,7 +40,8 @@ function hrefWithQuery(pathname: string, sp: RouteSearchParams, patch: Record<st
 }
 
 /**
- * The Clock In / Out tab of /people (maintainer decisions 2026-08-27/28): one
+ * People / HRMS > Clock In / Out, /people/clock (maintainer decisions 2026-08-27/28; its own page
+ * since 2026-09-30): one
  * row per active person for the selected IST day — clock-in, clock-out,
  * backend-owned hours, location, device, and honesty flags. Whole-filter
  * summary tiles come from the backend, never page math. Server component; the
@@ -53,7 +54,7 @@ export async function ClockScreen({
   searchParams: RouteSearchParams;
   pageContract: AdminUiPageContract;
 }) {
-  const pathname = "/people";
+  const pathname = "/people/clock";
   const sp = searchParams;
 
   const date = one(sp, "date") ?? "";
@@ -119,10 +120,8 @@ export async function ClockScreen({
         ))}
       </div>
 
-      {/* Native GET form: filters round-trip through the URL. tab=clock is
-          preserved so submitting stays on this tab. */}
+      {/* Native GET form: filters round-trip through the URL of this page. */}
       <form method="get" action={pathname} className="card" style={{ padding: 12, marginBottom: 14 }}>
-        <input type="hidden" name="tab" value="clock" />
         {bucket ? <input type="hidden" name="bucket" value={bucket} /> : null}
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
           <div className="fld">

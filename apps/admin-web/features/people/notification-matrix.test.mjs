@@ -5,7 +5,7 @@
 // 2. The write is capability-gated through the compiled `edit_notifications` control -- never a
 //    role-string conditional -- and every visible word is a backend copy key or matrix payload.
 // 3. The save goes through a Server Action with the row_version the screen loaded, and the tab
-//    is mounted by the People shell under the backend-owned `notifications` tab key.
+//    is mounted by its own HRMS page, /people/notifications (a /people tab until 2026-09-30).
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -93,9 +93,12 @@ test("every visible word is a backend copy key or the matrix payload", () => {
   assert.doesNotMatch(stripComments(source), />[^<{]*\b(backend|API|payload|debug)\b[^<{]*</);
 });
 
-test("save carries the loaded row_version through the Server Action and the shell mounts the tab", () => {
+test("save carries the loaded row_version through the Server Action and its own HRMS page mounts the screen", () => {
   assert.match(source, /row_version:\s*row\.alert\.row_version/);
   assert.match(actions, /^"use server";/);
   assert.match(actions, /saveNotificationAudience\(alertKey, body\)/);
-  assert.match(shell, /active === "notifications"/);
+  // Its own page since 2026-09-30 (it was a /people tab): the page renders the screen, and the
+  // save revalidates that page, not /people.
+  assert.match(shell, /export function PeopleNotificationsPage[\s\S]*<NotificationsScreen /);
+  assert.match(actions, /const PEOPLE_PATH = "\/people\/notifications";/);
 });

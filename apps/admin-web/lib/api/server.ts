@@ -2244,6 +2244,64 @@ export async function setLeaveApprovalConfig(body: {
   );
 }
 
+// HRMS Timetable (maintainer request 2026-09-30): one park's shifts, their hours, and who works
+// which shift. Read on workforce.timetable.read; both writes on workforce.timetable.write (HR and
+// the CEO/CXO). Every label is backend-composed.
+export type WorkforceTimetable = AdminApiComponents["schemas"]["WorkforceTimetable"];
+export type TimetableShift = AdminApiComponents["schemas"]["TimetableShift"];
+export type TimetablePerson = AdminApiComponents["schemas"]["TimetablePerson"];
+export type ShiftTimingResult = AdminApiComponents["schemas"]["ShiftTimingResponse"];
+export type MemberShiftResult = AdminApiComponents["schemas"]["MemberShiftResponse"];
+
+export async function getWorkforceTimetable(params: {
+  parkId?: string;
+  shift?: string;
+  cursor?: string;
+  limit?: number;
+}): Promise<ApiResult<WorkforceTimetable>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<WorkforceTimetable>("/admin/workforce/timetable", {
+      cache: "no-store",
+      query: compactQuery({ park_id: params.parkId, shift: params.shift, cursor: params.cursor, limit: params.limit }),
+    }),
+  );
+}
+
+export async function setWorkforceParkShiftTiming(
+  parkId: string,
+  shiftCode: string,
+  body: { start_minute: number | null; end_minute: number | null; row_version: number },
+): Promise<ApiResult<ShiftTimingResult>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<ShiftTimingResult>(
+      `/admin/workforce/timetable/parks/${encodeURIComponent(parkId)}/shifts/${encodeURIComponent(shiftCode)}` as keyof AdminApiPaths & string,
+      { method: "PUT", cache: "no-store", body },
+    ),
+  );
+}
+
+export async function setWorkforceMemberShift(
+  personId: string,
+  body: { shift_code: string; row_version: number },
+): Promise<ApiResult<MemberShiftResult>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<MemberShiftResult>(`/admin/workforce/timetable/people/${encodeURIComponent(personId)}/shift` as keyof AdminApiPaths & string, {
+      method: "PUT",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
 /** One clocking in full — both punches with location, device and integrity capture. */
 export async function getAdminClockEntry(
   clockEntryId: string,

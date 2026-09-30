@@ -12,7 +12,8 @@ import {
   type SaveNotificationAudienceRequest,
 } from "@/lib/api/server";
 
-const PEOPLE_PATH = "/people";
+// Notifications is its own HRMS page since 2026-09-30.
+const PEOPLE_PATH = "/people/notifications";
 
 export type SaveAudienceResult =
   | { ok: true; row: NotificationAudienceAlertRow }
