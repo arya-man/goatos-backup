@@ -4,7 +4,9 @@
 // also"). New births open theirs from goat.created; this covers the ones born before the rule.
 //
 // A candidate is a recorded, non-rejected litter with a LIVE kid still on a stage before the last
-// shift target (K0 or K1 by default) and no litter workflow yet. Each is opened through the SAME
+// shift target (K0 or K1 by default) -- or a live FEMALE kid on a stage before the female-only
+// step's target (Non-Pregnant by default, maintainer instruction 2026-10-01) -- and no litter
+// workflow yet. Each is opened through the SAME
 // service path a new birth uses, anchored on the kid's recorded birth moment, then judged against
 // the herd register at once -- so a litter already on K1 gets its K1 step completed at the day the
 // kids reached K1 and its K2 step due seven days after that. Kid and mother tracks are never
