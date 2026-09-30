@@ -49,6 +49,7 @@ import { drawerTagLines, drawerTemplateFindings, onlyTemplateDrawerWidths } from
 import { urlKeyedPanelFindings } from "./lib/url-keyed-panel.mjs";
 import { templateHash, templateVerbatimFindings } from "./lib/template-verbatim.mjs";
 import { anatomy as templateAnatomy, templateDerivedFindings } from "./lib/template-derived.mjs";
+import { legacyFreeZoneFindings } from "./lib/legacy-free-zones.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const appDir = resolve(scriptDir, "..");
@@ -211,6 +212,7 @@ const CHECKS = {
   "section-client-boundary": { tier: "p0", why: "a template section under components/minimal/sections/ that uses hooks or a function sx/theme callback must start with 'use client'; a server page rendering it would otherwise pass a function to a client component and crash at render (typecheck cannot see it)" },
   "page-template-no-pastel": { tier: "p0", why: "a page listed in docs/design/page-template-map.md must not use KpiCard variant tint/gradient or AnalyticsWidgetSummary (pastel in dark); KPI rows are the template Ecommerce/Course/Banking widget summaries" },
   "page-template-legacy-card": { tier: "p0", why: "a page listed in docs/design/page-template-map.md must not render the legacy hand-made card markup (className \"card\"/\"wchart\"/\"wtable\"/\"kpi\", <h2 className=\"h\">); every block is a template section card (Card + CardHeader) fed our data" },
+  "legacy-free-zone": { tier: "p0", why: "a file listed in scripts/legacy-free-zones.json (converted onto the template) has no legacy stylesheet class, no style={} prop, no native button/input/select/textarea/table, no lucide-react icon, no .css import and no hex/rgb colour literal: template/MUI components, Iconify and theme sx only (J1 P0-1/P0-2/P1-1..3/P1-5; zones only grow)" },
   "shell-nav-template": { tier: "p0", why: "the sidebar is the template NavSectionVertical/NavSectionMini inside layouts/app/dashboard nav-vertical/nav-mobile (whole nav in the template Scrollbar, template 288px mobile drawer over the template backdrop); no custom footer (navBottom / msh-foot / navigation.footer), no default-open subtrees, no full-width/opaque phone menu or extra close button" },
   "unsourced-minimal-file": { tier: "p0", why: "components/minimal/ holds template-derived code only; every file needs an entry in docs/design/template-sources.json mapping it to a Minimal template source path" },
   "template-derived-anatomy": { tier: "p0", why: "a template-derived section (docs/design/template-derived.json: demo wiring turned into props, lives in components/app/sections) keeps the template's markup and styles: its JSX element sequence and sx keys equal the template source's (recorded in the manifest; refresh with node scripts/refresh-template-derived.mjs). Only data / props may differ" },
@@ -513,6 +515,9 @@ function runGuard(root, { themeDiff }) {
   // section cards replaced (R3: "the cards are hand-made"). Styling them lives in frame.css /
   // mesha-theme.css, which is exactly the legacy CSS a mapped page must stop depending on.
   for (const hit of pageTemplateLegacyCardFindings(root)) findings.push(finding("page-template-legacy-card", hit.file, hit.line, hit.snippet));
+
+  // J1: files moved onto the template stay there (scripts/lib/legacy-free-zones.mjs).
+  for (const hit of legacyFreeZoneFindings(root)) findings.push(finding("legacy-free-zone", hit.file, hit.line, hit.snippet));
 
   // A URL-driven control over data rendered straight into the tree holds the old page on screen for
   // the whole round trip (the "tab transition HANGS" report): see scripts/lib/url-keyed-panel.mjs.
@@ -1115,6 +1120,8 @@ async function selfTest() {
   put("features/dim-bad.tsx", 'export const X = ({ isPending }) => <Box sx={{ opacity: isPending ? 0.6 : 1 }} />;\n');
   put("features/dim-attr.tsx", 'export const Z = (el) => el.setAttribute("data-nav-pending", "true");\n');
   put("features/dim-wfbusy.tsx", 'export const W = ({ busy }) => <div className={`tblwrap${busy ? " wfbusy" : ""}`} />;\n');
+  put("scripts/legacy-free-zones.json", JSON.stringify({ zones: ["features/zone-bad.tsx"] }));
+  put("features/zone-bad.tsx", 'export const Q = () => <div style={{ padding: 3 }}><button>x</button></div>;\n');
   put("features/dim-ok.tsx", 'export const Y = ({ flashing }) => <Box sx={{ opacity: flashing ? 1 : 0 }} />;\n');
   put("app/dim-bad.css", '.wrap[data-nav-pending]>*{filter:opacity(.6)}\n.x-busy tbody{opacity:.6}\n');
   put("features/ok-drawer.tsx", [
