@@ -10,6 +10,7 @@
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, join, relative, sep } from "node:path";
+import { SHRINK_RATCHET_CHECKS } from "./shrink-ratchets.mjs";
 
 export const TOKENS_FILE = "app/minimal-tokens.css";
 // Colour/theme token files own literal values; they are checked by the P0 palette rules.
@@ -268,6 +269,7 @@ export function evaluateRatchet(ratchetFindings, allowances, { seed = process.en
 }
 
 function legacyReason(check) {
+  if (SHRINK_RATCHET_CHECKS[check]) return `baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: ${SHRINK_RATCHET_CHECKS[check]}`;
   return `pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: ${RATCHET_CHECKS[check]}`;
 }
 
