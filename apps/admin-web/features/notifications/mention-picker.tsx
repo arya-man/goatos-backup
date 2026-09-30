@@ -28,6 +28,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { MentionComposerCopy } from "./notification-copy";
+import Box from "@mui/material/Box";
 import MenuItem from "@mui/material/MenuItem";
 import MenuList from "@mui/material/MenuList";
 import Typography from "@mui/material/Typography";
@@ -175,16 +176,17 @@ export default function MentionPicker({
         // The popup. Absolute inside the textarea's wrapper (never fixed), full wrapper width so
         // it cannot overflow a 390px viewport.
         //
-        // `.mention-pop` carries the geometry (and the `vh`-then-`dvh` cap: React emits a single
-        // `max-height` declaration, so an inline `40dvh` gave an engine without `dvh` NO cap and
-        // an unbounded list). `data-mention-popup` is the hook the detail card's
-        // `:has([data-mention-popup])` rule keys off to lift its own `overflow:hidden` -- and the
-        // generic `.card .bd` overflow -- for exactly as long as this popup exists. Absolute
-        // positioning alone did NOT save it: measured in Chromium, one of eight rows was
-        // reachable at every width until those two ancestors stopped clipping.
+        // The sx carries the geometry (and the `vh` cap, lifted to `dvh` under `@supports`: an engine
+        // without `dvh` keeps the `vh` cap). `data-mention-popup` is the hook a host card keys
+        // off (`&:has([data-mention-popup])`) to lift its own `overflow: hidden` for exactly as long
+        // as this popup exists: absolute positioning alone did NOT save it, measured in Chromium,
+        // one of eight rows was reachable at every width until the clipping ancestor let go.
         // Template dropdown paper IN PLACE (never a portalled Popover: its focus trap would take the
         // caret out of the textarea while the reader is still typing the name).
-        <DropdownPaper className="mention-pop" data-mention-popup>
+        <DropdownPaper
+          data-mention-popup
+          sx={{ position: "absolute", left: 0, right: 0, top: "100%", zIndex: 60, mt: 0.5, maxHeight: "40vh", "@supports (height: 1dvh)": { maxHeight: "40dvh" }, overflowY: "auto", overscrollBehavior: "contain" }}
+        >
           <MenuList id={listId} role="listbox" aria-label={composerCopy.peopleLabel}>
             {matches.map((candidate, index) => (
               <MenuItem
@@ -202,7 +204,7 @@ export default function MentionPicker({
                 }}
                 onMouseEnter={() => setMarker({ query, index })}
               >
-                <span style={{ minWidth: 0 }}>
+                <Box component="span" sx={{ minWidth: 0 }}>
                   <Typography variant="subtitle2" component="span" sx={{ display: "block" }}>
                     {candidate.name}
                   </Typography>
@@ -211,7 +213,7 @@ export default function MentionPicker({
                       {candidate.title}
                     </Typography>
                   ) : null}
-                </span>
+                </Box>
               </MenuItem>
             ))}
           </MenuList>

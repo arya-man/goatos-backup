@@ -25,7 +25,7 @@ test("guard: kanban-template-card -- empty columns are the bare template list", 
   for (const [name, src] of [["work-board", board], ["tasks", tasks]]) {
     assert.doesNotMatch(src, /borderStyle: "dashed", borderColor: "divider"|borderStyle: "dashed",\s*borderColor: "divider"/, `${name}: no dashed empty-column box`);
   }
-  assert.match(tasks, /className="ltb-colempty sr-only"/);
+  assert.match(tasks, /className="ltb-colempty" sx=\{visuallyHidden\}/);
   assert.match(board, /className="sr-only">\{copy\(pageContract, "lane\.empty"\)\}/);
 });
 

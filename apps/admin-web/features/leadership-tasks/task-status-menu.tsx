@@ -167,7 +167,7 @@ export function TaskStatusMenu({
         size="small"
         variant="soft"
         color={STATUS_COLOR[task.status] ?? "inherit"}
-        className={`ltd-status${open ? " on" : ""}`}
+        className="ltd-status"
         data-ltd-status="control"
         aria-haspopup="menu"
         aria-expanded={open}

@@ -1,7 +1,11 @@
 "use client";
 
-import { Iconify } from "@/components/minimal/iconify";
 import { useOptimistic, useRef, useState, useTransition } from "react";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Typography from "@mui/material/Typography";
+
+import { Iconify } from "@/components/minimal/iconify";
 import { publishTaskRow, runTaskWrite } from "./task-row-store";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -14,7 +18,7 @@ import {
 
 import type { CommentPostResult } from "./actions";
 import { loadLeadershipTaskActivityAction } from "./actions";
-import { PENDING_ACTIVITY_PREFIX, TaskActivityFeed } from "./task-activity-feed";
+import { ActivityAvatar, PENDING_ACTIVITY_PREFIX, TaskActivityFeed } from "./task-activity-feed";
 import { refusalSentence } from "./task-feedback-copy";
 import type { TaskRow } from "./task-row";
 
@@ -40,7 +44,7 @@ import type { TaskRow } from "./task-row";
  *  4. A refusal drops the optimistic row too; its sentence renders UNDER the field and the text
  *     (and the picked mention ids) come back into the composer, so nothing typed is lost.
  *
- * The page is never navigated and `.ltd-panel` is never remounted; the Playwright proof in the
+ * The page is never navigated and the task panel is never remounted; the Playwright proof in the
  * PR asserts one request, zero document navigations, an unchanged scrollY and the same DOM node.
  *
  * WITHOUT JAVASCRIPT the form still posts: `<form action={action}>` is server-rendered, and
@@ -236,11 +240,13 @@ export function TaskActivityComposer({
   };
 
   const composer = task.canComment ? (
-    <div className="ltd-composer" data-testid="ltd-composer">
-      <span className="ltd-av ltd-av-sm ltd-av-me" aria-hidden="true">
-        <Iconify icon="solar:chat-round-dots-bold" />
-      </span>
-      <form
+    <Box
+      data-testid="ltd-composer"
+      sx={{ display: "flex", gap: 2, minWidth: 0, pb: 2.5, mb: 2.5, borderBottom: (theme) => `dashed 1px ${theme.vars.palette.divider}` }}
+    >
+      <ActivityAvatar pending />
+      <Box
+        component="form"
         ref={formRef}
         // The SERVER ACTION REFERENCE itself, not a closure around it: Next serialises the
         // reference into the server-rendered form (the hidden `$ACTION_ID` fields), which is what
@@ -248,8 +254,8 @@ export function TaskActivityComposer({
         // returns is only read by `submit` above, so the wider signature is cast, not wrapped.
         action={action as unknown as (formData: FormData) => void | Promise<void>}
         onSubmit={submit}
-        className="lt-comment-form"
         data-testid="ltd-comment-form"
+        sx={{ flex: 1, minWidth: 0, display: "grid", gap: 1.5 }}
       >
         <input type="hidden" name="idempotency_key" value={initialIdempotencyKey} readOnly />
         <input type="hidden" name="return_to" value={returnTo} />
@@ -260,51 +266,64 @@ export function TaskActivityComposer({
         {retained && retained.ids.length ? (
           <input type="hidden" name="mention_user_ids" value={retained.ids.join(",")} readOnly />
         ) : null}
-        <label className="fld">
-          <span>{copy(pageContract, "note.label")}</span>
-          <MentionTextarea
-            key={composerKey}
-            name="comment"
-            mentionsName="mention_user_ids"
-            candidates={mentionCandidates}
-            composerCopy={resolveMentionComposerCopy(pageContract.copy)}
-            defaultValue={retained?.text ?? ""}
-            rows={3}
-            maxLength={2000}
-            required
-            placeholder={copy(pageContract, "note.placeholder")}
-          />
-        </label>
+        <MentionTextarea
+          key={composerKey}
+          name="comment"
+          mentionsName="mention_user_ids"
+          label={copy(pageContract, "note.label")}
+          candidates={mentionCandidates}
+          composerCopy={resolveMentionComposerCopy(pageContract.copy)}
+          defaultValue={retained?.text ?? ""}
+          rows={3}
+          maxLength={2000}
+          required
+          placeholder={copy(pageContract, "note.placeholder")}
+        />
         {error ? (
-          <p className="ltd-composer-error" role="alert" data-testid="ltd-composer-error">
+          <Typography variant="body2" role="alert" data-testid="ltd-composer-error" sx={{ color: "error.main" }}>
             {error}
-          </p>
+          </Typography>
         ) : null}
-        <button
+        <Button
           type="submit"
-          className="btn p"
+          variant="contained"
+          color="primary"
           disabled={isPending}
           aria-busy={isPending}
           data-testid="ltd-comment-send"
+          startIcon={<Iconify icon="custom:send-fill" aria-hidden="true" />}
+          sx={{ justifySelf: "start", minHeight: { xs: 44, sm: 36 } }}
         >
-          <Iconify icon="solar:chat-round-dots-bold" />
           {isPending
             ? copy(pageContract, "note.sending", "Sending…")
             : copy(pageContract, "note.send")}
-        </button>
-      </form>
-    </div>
+        </Button>
+      </Box>
+    </Box>
   ) : null;
 
   const olderControl = older.hasMore ? (
-    <div className="ltd-older">
-      <button type="button" className="btn ghost sm" onClick={loadOlder} disabled={olderPending} aria-busy={olderPending || undefined}>
+    <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 0.75, pt: 1.25 }}>
+      <Button
+        type="button"
+        variant="text"
+        color="inherit"
+        size="small"
+        onClick={loadOlder}
+        disabled={olderPending}
+        aria-busy={olderPending || undefined}
+        sx={{ minHeight: { xs: 44, sm: 30 } }}
+      >
         {olderPending
           ? copy(pageContract, "activity.older_loading", "Loading older…")
           : copy(pageContract, "activity.older", "Show older activity")}
-      </button>
-      {olderError ? <p className="ltd-status-refusal" role="alert">{olderError}</p> : null}
-    </div>
+      </Button>
+      {olderError ? (
+        <Typography variant="caption" role="alert" sx={{ color: "error.main" }}>
+          {olderError}
+        </Typography>
+      ) : null}
+    </Box>
   ) : null;
 
   // The newest window (replaced whole by each post) and the older pages, merged by id and kept
