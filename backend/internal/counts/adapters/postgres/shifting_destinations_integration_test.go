@@ -828,4 +828,3 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'Part 1', 'seed') ON CONFLICT DO NOTHING`,
 		t.Fatalf("page=%+v, want exactly the two requested animals", page)
 	}
 }
-
