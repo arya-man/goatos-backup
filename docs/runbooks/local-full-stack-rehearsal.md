@@ -69,6 +69,19 @@ Do not use this runbook to revive `rfid-import`, `rfid-apply`,
 `bq-reconcile`, Import Review, Data Quality, Legacy Sync, old generic Counts
 dashboards/reconciliation, mortality, or old dashboard parity workflows.
 
+## Preview data for admin-web review
+
+`make seed-preview-data` (`tools/dev/seed-preview-data.mjs`) fills every admin-web feature with
+current, date-relative rows against a running LOCAL API (loopback only, `GOATOS_ENV=local|dev|test`):
+leadership tasks, people access, feed packing + milk preparation captures and verdicts (Verify),
+birth/death/shifting requests (Approvals, Work Board, Alerts), alert rules, vendors, sales deals,
+feed purchases, market survey prices, leave, health diseases/protocols/cases, pen routines and
+tomorrow's weighing plan. Every write goes through the API (domain write path + audit + outbox);
+it reads the local DB only to pick real ids. Idempotent per day; run it daily for fresh "today"
+rows (`--only=tasks,verdicts` narrows it). Needs `GOATOS_API_BASE_URL`,
+`GOATOS_AUTH_HS256_SECRET`, `GOATOS_TENANT_ID` and `DATABASE_URL` for the local stack. Outbox
+consequences (workflows, obligations) appear once the local outbox relay has run.
+
 ## Stale local API/admin-web processes
 
 Use `make dev-local-service-restart` as the recovery button whenever a local
