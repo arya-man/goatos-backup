@@ -56,4 +56,4 @@ export const SHED_BOARD_TOOLBAR = { fields: [280, 72], statusPills: 7, capacityP
  * SegmentTabs (`monthTabs`: previous / current / next), then the seven-column operator-day table
  * (`tableMinWidth`) in the template Scrollbar; `rows` rows drawn while loading.
  */
-export const FULL_SCHEDULE = { columns: 7, rows: 5, monthTabs: 3, summaryCells: 4, stripMinHeight: 108, tableMinWidth: 1120 } as const;
+export const FULL_SCHEDULE = { columns: 7, rows: 5, monthTabs: 3, summaryCells: 4, stripMinHeight: 108, tableMinWidth: 1000 } as const;
