@@ -50,6 +50,7 @@ import { urlKeyedPanelFindings } from "./lib/url-keyed-panel.mjs";
 import { templateHash, templateVerbatimFindings } from "./lib/template-verbatim.mjs";
 import { anatomy as templateAnatomy, templateDerivedFindings } from "./lib/template-derived.mjs";
 import { legacyFreeZoneFindings } from "./lib/legacy-free-zones.mjs";
+import { SHRINK_RATCHET_CHECKS, shrinkRatchetFindings } from "./lib/shrink-ratchets.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const appDir = resolve(scriptDir, "..");
@@ -234,6 +235,9 @@ const CHECKS = {
   // MUI Minimal kit + token enforcement (scripts/lib/design-kit-ratchet.mjs). Ratchet tier:
   // counted per check|file against an explicit allowance that may only shrink.
   ...Object.fromEntries(Object.entries(RATCHET_CHECKS).map(([check, why]) => [check, { tier: "ratchet", why }])),
+  // J1 CI gaps (FIXJ-CI): legacy class use, reachable card shells, whole-file native controls, style
+  // props, lucide icons, raw px/hex, stylesheet rule counts. Same ratchet: shrink-only per file.
+  ...Object.fromEntries(Object.entries(SHRINK_RATCHET_CHECKS).map(([check, why]) => [check, { tier: "ratchet", why }])),
 };
 
 // guard: client-api-without-use-client (2026-09-27: a re-export of next/link's useLinkStatus in a
@@ -516,6 +520,22 @@ function runGuard(root, { themeDiff }) {
   // section cards replaced (R3: "the cards are hand-made"). Styling them lives in frame.css /
   // mesha-theme.css, which is exactly the legacy CSS a mapped page must stop depending on.
   for (const hit of pageTemplateLegacyCardFindings(root)) findings.push(finding("page-template-legacy-card", hit.file, hit.line, hit.snippet));
+
+  // J1 CI gaps: shrink-only per-file counts over every file (scripts/lib/shrink-ratchets.mjs). The
+  // verbatim template (components/minimal, components/app/sections, layouts mapped in
+  // docs/design/template-sources.json or template-derived.json) is exempt.
+  {
+    const docs = existsSync(join(root, "docs", "design", "template-sources.json")) ? join(root, "docs", "design") : resolve(root, "../../docs/design");
+    const mapped = new Set();
+    for (const name of ["template-sources.json", "template-derived.json"]) {
+      try {
+        const j = JSON.parse(readFileSync(join(docs, name), "utf8"));
+        for (const k of Object.keys(j.sources ?? j.files ?? {})) mapped.add(k);
+      } catch {}
+    }
+    const isExempt = (rel) => isTemplateCode(rel) || (rel.startsWith("layouts/") && mapped.has(rel));
+    for (const hit of shrinkRatchetFindings(root, { isExempt })) findings.push(finding(hit.check, hit.file, hit.line, hit.snippet));
+  }
 
   // J1: files moved onto the template stay there (scripts/lib/legacy-free-zones.mjs).
   for (const hit of legacyFreeZoneFindings(root)) findings.push(finding("legacy-free-zone", hit.file, hit.line, hit.snippet));
@@ -894,7 +914,7 @@ function finish({ findings, notes, scanned }) {
           updated_at: new Date().toISOString(),
           // Shrink only (FIXJ-CI): keep a waiver that is still listed AND still found; a NEW finding is
           // never waived by --update-baseline (it used to be, which silently grew the list).
-          waived: [...new Set(waivable.filter((f) => waived.has(f.key)).map((f) => f.key))].sort(),
+          waived: nextWaivers(waivable, waived),
           reasons: Object.fromEntries(Object.entries(reasons).filter(([key]) => waivable.some((f) => f.key === key))),
           ratchet: ratchet.nextBaseline,
         },
@@ -950,6 +970,11 @@ function finish({ findings, notes, scanned }) {
     console.error(`  - [ratchet] ${o.key}: ${o.count} found, ${o.allowed} allowed (new instance e.g. line ${o.sample.line})\n      ${o.sample.snippet}\n      -> ${CHECKS[o.sample.check].why}`);
   }
   process.exit(1);
+}
+
+/** --update-baseline waiver list: still listed AND still found. Never adds a key (shrink only). */
+function nextWaivers(waivable, waived) {
+  return [...new Set(waivable.filter((f) => waived.has(f.key)).map((f) => f.key))].sort();
 }
 
 function finding(check, file, line, snippet) {
@@ -1317,7 +1342,48 @@ async function selfTest() {
       "components/minimal/tpl-edited.tsx": sha(mine.replace("last week", "custom")),
     } }));
   }
+  // Shrink-only ratchets (FIXJ-CI, J1 CI gaps): a legacy class, a card shell reached from a page
+  // through a feature file NOT in page-template-map (and an orphan one that is not flagged), lucide
+  // icons, a `<select` that ends its line, style props, raw px/hex, stylesheet rules.
+  put("features/legacy-class.tsx", 'export const L = () => <div className="wrap fld">x</div>;\n');
+  put("app/(admin)/cardy/page.tsx", 'import { Panel } from "@/features/cardy";\nexport default function Page() { return <Panel />; }\n');
+  put("app/(admin)/cardy/loading.tsx", "export default function L() { return null; }\n");
+  put("features/cardy/index.ts", 'export { Panel } from "./panel";\n');
+  put("features/cardy/panel.tsx", 'export const Panel = () => (\n  <section className="card">\n    <div className={`hd ${x}`} />\n  </section>\n);\n');
+  put("features/orphan-card.tsx", 'export const O = () => <section className="card" />;\n');
+  put("features/icons.tsx", 'import { Check, X as Close } from "lucide-react";\nexport const I = () => <Check />;\n');
+  put("features/multiline-select.tsx", 'export const S = () => (\n  <select\n    value={v}\n  />\n);\nexport const T = () => <div style={{ width: "12px", color: "#abcdef" }} />;\n');
   const { findings } = runGuard(root, { themeDiff: false });
+  {
+    const hits = (check, file) => findings.filter((f) => f.check === check && f.file === file).length;
+    const problems = [];
+    if (hits("legacy-class-use", "features/legacy-class.tsx") !== 2) problems.push(`legacy-class-use wrap+fld=${hits("legacy-class-use", "features/legacy-class.tsx")} (want 2)`);
+    if (hits("legacy-card-reachable", "features/cardy/panel.tsx") !== 2) problems.push(`legacy-card-reachable panel=${hits("legacy-card-reachable", "features/cardy/panel.tsx")} (want 2: card + hd through the barrel)`);
+    if (hits("legacy-card-reachable", "features/orphan-card.tsx") !== 0) problems.push("legacy-card-reachable flagged a file no page imports");
+    if (hits("lucide-import", "features/icons.tsx") !== 2) problems.push(`lucide-import=${hits("lucide-import", "features/icons.tsx")} (want 2)`);
+    if (hits("native-control", "features/multiline-select.tsx") !== 1) problems.push("native-control missed a <select that ends its line");
+    if (hits("inline-style-prop", "features/multiline-select.tsx") !== 1) problems.push("inline-style-prop missed style={{");
+    if (hits("raw-px-hex-literal", "features/multiline-select.tsx") !== 2) problems.push(`raw-px-hex-literal=${hits("raw-px-hex-literal", "features/multiline-select.tsx")} (want 2)`);
+    if (hits("legacy-css-rules", "components/bad.css") < 5) problems.push(`legacy-css-rules components/bad.css=${hits("legacy-css-rules", "components/bad.css")} (want >= 5 rules, @media children counted)`);
+    // Ratchet semantics: over fails, slack (incl. a file with no finding left) is reported, a new file has 0.
+    const r = evaluateRatchet(
+      [{ check: "inline-style-prop", file: "a.tsx" }, { check: "inline-style-prop", file: "a.tsx" }, { check: "inline-style-prop", file: "b.tsx" }, { check: "inline-style-prop", file: "new.tsx" }],
+      { "inline-style-prop|a.tsx": { allowed: 1 }, "inline-style-prop|b.tsx": { allowed: 3 }, "inline-style-prop|gone.tsx": { allowed: 2 } },
+      { seed: false },
+    );
+    const over = r.over.map((o) => o.key).sort().join(",");
+    const slack = r.shrinkable.map((o) => o.key).sort().join(",");
+    if (over !== "inline-style-prop|a.tsx,inline-style-prop|new.tsx") problems.push(`ratchet over=${over}`);
+    if (slack !== "inline-style-prop|b.tsx,inline-style-prop|gone.tsx") problems.push(`ratchet slack=${slack}`);
+    if (r.nextBaseline["inline-style-prop|gone.tsx"] || r.nextBaseline["inline-style-prop|new.tsx"] || r.nextBaseline["inline-style-prop|b.tsx"]?.allowed !== 1) problems.push("ratchet next baseline must drop zero-finding files, never seed a new file, and lower b.tsx to 1");
+    // --update-baseline never adds a waiver.
+    const nw = nextWaivers([{ key: "a" }, { key: "new" }], new Set(["a", "stale"]));
+    if (nw.join(",") !== "a") problems.push(`update-baseline waivers=${nw.join(",")} (want a: keep listed+found, drop stale, never add new)`);
+    if (problems.length) {
+      console.error(`design_system_self_test=FAIL shrink ratchets: ${problems.join("; ")}`);
+      process.exit(1);
+    }
+  }
   const got = new Set(findings.map((f) => f.check));
   const expected = Object.keys(CHECKS).filter((c) => c !== "theme-token-drift" && c !== "brand-lock");
   const missing = expected.filter((c) => !got.has(c));
