@@ -3,6 +3,7 @@ import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
 import { TableHeadCustom } from "@/components/app/table";
 import TableBody from "@mui/material/TableBody";
+import TableContainer from "@mui/material/TableContainer";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import { byParkThen, parksInArrivalOrder } from "@/lib/park-order";
@@ -242,7 +243,7 @@ export function FeedCompletionTable({
               {fc("completion.empty_filtered")}
             </Typography>
           ) : (
-            <Box sx={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={fc("completion.title")}>
+            <TableContainer tabIndex={0} role="group" aria-label={fc("completion.title")}>
               <Table>
                 <TableHeadCustom
                   headCells={[
@@ -285,7 +286,7 @@ export function FeedCompletionTable({
                   })}
                 </TableBody>
               </Table>
-            </Box>
+            </TableContainer>
           )}
 
           {rows.length > 0 ? (
@@ -359,7 +360,7 @@ function drawerItem(row: CompletionRow, pageContract: AdminUiPageContract): Loca
         <Typography variant="subtitle2" component="h4" sx={{ m: 0 }}>
           {fc("drawer.completion.videos")}
         </Typography>
-        <Box sx={{ overflowX: "auto" }}>
+        <TableContainer>
           <Table size="small">
             <TableHeadCustom
               headCells={[
@@ -389,7 +390,7 @@ function drawerItem(row: CompletionRow, pageContract: AdminUiPageContract): Loca
               })}
             </TableBody>
           </Table>
-        </Box>
+        </TableContainer>
       </>
     ),
   };
