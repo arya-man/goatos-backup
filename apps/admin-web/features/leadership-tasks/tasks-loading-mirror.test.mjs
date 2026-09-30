@@ -31,3 +31,18 @@ test("the tasks toolbar reads the same widths as its skeleton (REVIEW-49 O79)", 
   assert.match(read("./tasks-layout.ts"), /TASK_TOOLBAR_FIELDS[^=]*= \[TASK_SCOPE_WIDTH, PEOPLE_DROPDOWN_WIDTH, PEOPLE_DROPDOWN_WIDTH, TASK_SORT_WIDTH, "search"\]/);
   assert.match(read("../../app/(admin)/tasks/loading.tsx"), /<TabsSkeleton count=\{TASK_STATUS_TAB_COUNT\} counts \/>/);
 });
+
+// guard: tasks-loading-mirror (FIXJ5, LAND3 P1). At 390 the header's action slot is the board / list
+// toggle and, with no assignable people, the "No one can be given a task" note on its own full row;
+// the loading twin drew a right-aligned toggle + 108px button, so the page jumped when it landed.
+// The note's row and 44px line come from tasks-layout, read by both the note and the skeleton.
+test("the tasks header skeleton reserves the toggle and the no-assignees note row", () => {
+  const layout = read("./tasks-layout.ts");
+  assert.match(layout, /TASK_NO_ASSIGNEES_NOTE_BASIS = \{ xs: "100%", md: "auto" \}/);
+  assert.match(layout, /TASK_NO_ASSIGNEES_NOTE_SKELETON_WIDTH = \{ xs: "calc\(100vw - var\(--sp-4\)\)", sm: "calc\(100vw - var\(--sp-6\)\)", md: 661 \}/);
+  assert.match(layout, /TASK_HEADER_ACTION_WIDTHS = \[\{ xs: 101, md: 73 \}, TASK_NO_ASSIGNEES_NOTE_SKELETON_WIDTH\]/);
+  assert.match(layout, /TASK_HEADER_ACTION_HEIGHTS = \[\{ xs: 54, md: 40 \}, TASK_NO_ASSIGNEES_NOTE_HEIGHT\]/);
+  const modal = read("./new-task-modal.tsx");
+  assert.match(modal, /role="note"[\s\S]*minHeight: TASK_NO_ASSIGNEES_NOTE_HEIGHT, flexBasis: TASK_NO_ASSIGNEES_NOTE_BASIS/);
+  assert.match(read("../../components/app/skeletons/blocks.tsx"), /sx=\{\{ width: w, maxWidth: 1, height: actionHeights\?\.\[i\] \?\? tapHeight\(36\) \}\}/);
+});
