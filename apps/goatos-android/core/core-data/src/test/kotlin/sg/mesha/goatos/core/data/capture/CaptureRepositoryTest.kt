@@ -3958,7 +3958,7 @@ class CaptureRepositoryTest {
 
             // Simulate offline failure: drive the outbox item to FAILED state
             sync.seedConflict(outboxItemId, "network timeout")
-            advanceUntilIdle()
+            db.proofCaptureDao().updateStatus(proofId, CaptureSyncStatus.FAILED.name, null, "network timeout")
 
             // Retry the upload. A manual retry of an already-registered proof re-arms the SAME
             // outbox item (SyncRepository.retry -> OutboxDao.markRetryReady): it does not mint a
