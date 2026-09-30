@@ -21,13 +21,16 @@
 #   --fast             pre-push lane (~2-3 min): 5 shell routes + the routes the change touched
 #                      (import graph of the changed files vs the upstream base), scan + interactions,
 #                      and the skeleton twin check (1440 + 390 dark) on every touched route
-#   --pre-push         --fast, with the touched files taken from the pre-push payload on stdin; skipped
-#                      when the pushed commits do not touch admin-web UI
+#   --pre-push         --fast, with the touched files taken from the pre-push payload on stdin; not
+#                      applicable when the pushed commits do not touch admin-web UI (a ref with no
+#                      merge base counts as touching every UI file). Called by admin-web-push-gate.sh
 #   any further args   passed to r2-visual-audit.mjs (e.g. --routes /verify,/approvals  --only sales)
 #
 # Env:
-#   GOATOS_SKIP_ADMIN_WEB_VISUAL_GATE=1  explicit opt-out (printed loudly; say why in the PR)
-#   GOATOS_ADMIN_WEB_BASE_URL            audit this running app instead of building one
+#   GOATOS_SKIP_ADMIN_WEB_VISUAL_GATE=1  explicit opt-out: REFUSED unless GOATOS_SKIP_REASON="..." is set;
+#                                        the skip is written to the skip ledger (tools/ci/goatos-skip-ledger.sh)
+#   GOATOS_ADMIN_WEB_BASE_URL            audit this running app instead of a build of HEAD: it may be stale,
+#                                        so it also needs GOATOS_SKIP_REASON and is recorded in the ledger
 #   GOATOS_WEB_ENV_FILE                  env file sourced FIRST (API URL, local auth; on Ravi's laptop
 #                                        ~/mesha/goatos-wt-manual/.manual-logs/web-env.sh)
 #   GOATOS_API_BASE_URL                  local API for the built app (default http://127.0.0.1:8080)
@@ -47,13 +50,23 @@ repo="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 web="$repo/apps/admin-web"
 audit="$web/scripts/r2-visual-audit.mjs"
 
-skip() { echo "admin-web-visual-gate: $*"; exit 0; }
+# Not-applicable exits (the push touches no admin-web UI) print why; they are scoping, not skips.
+not_applicable() { echo "admin-web-visual-gate: $*"; exit 0; }
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$here/goatos-skip-ledger.sh" ]; then
+  # shellcheck source=tools/ci/goatos-skip-ledger.sh
+  . "$here/goatos-skip-ledger.sh"
+else
+  echo "!! admin-web-visual-gate: FAIL — $here/goatos-skip-ledger.sh is missing (run make ai-setup)" >&2
+  exit 1
+fi
 
 if [ "${GOATOS_SKIP_ADMIN_WEB_VISUAL_GATE:-}" = "1" ]; then
-  echo "!! admin-web-visual-gate: SKIPPED by GOATOS_SKIP_ADMIN_WEB_VISUAL_GATE=1 — state why in the PR/handoff" >&2
+  goatos_require_skip_reason GOATOS_SKIP_ADMIN_WEB_VISUAL_GATE admin-web-visual-gate || exit 1
   exit 0
 fi
-[ -f "$audit" ] || skip "no $audit in this checkout; nothing to gate"
+# A missing audit script is a broken gate, never "nothing to gate" (J1 CI gap 1).
+[ -f "$audit" ] || { echo "!! admin-web-visual-gate: FAIL — $audit is missing in this checkout; the gate cannot run" >&2; exit 1; }
 if [ -n "${GOATOS_WEB_ENV_FILE:-}" ]; then
   # shellcheck disable=SC1090
   . "$GOATOS_WEB_ENV_FILE"
@@ -83,13 +96,17 @@ if [ "$mode" = "--pre-push" ]; then
       range="$rsha..$lsha"
     else
       base="$(git merge-base "$lsha" origin/main 2>/dev/null || true)"
-      [ -n "$base" ] || continue
+      if [ -z "$base" ]; then
+        # no merge base: every UI file of the pushed commit counts as touched (never skip the ref)
+        git ls-tree -r --name-only "$lsha" -- "${UI_PATHS[@]}" >>"$touched_file"
+        continue
+      fi
       range="$base..$lsha"
     fi
     ui_files "$range" >>"$touched_file"
   done
-  [ -s "$touched_file" ] || skip "push does not touch admin-web UI; skipped"
-  echo "admin-web-visual-gate: push touches admin-web UI ($(sort -u "$touched_file" | wc -l | tr -d ' ') files) -> fast visual gate (opt out: GOATOS_SKIP_ADMIN_WEB_VISUAL_GATE=1)"
+  [ -s "$touched_file" ] || not_applicable "push does not touch admin-web UI; visual gate not applicable"
+  echo "admin-web-visual-gate: push touches admin-web UI ($(sort -u "$touched_file" | wc -l | tr -d ' ') files) -> fast visual gate (a skip needs GOATOS_SKIP_ADMIN_WEB_VISUAL_GATE=1 + GOATOS_SKIP_REASON)"
   mode="--fast"
 elif [ "$mode" = "--fast" ]; then
   base_ref="${GOATOS_VISUAL_GATE_BASE:-}"
@@ -111,7 +128,9 @@ elif [ "$mode" = "--fast" ]; then
     { ui_files "$mb..HEAD"; git diff --name-only HEAD -- "${UI_PATHS[@]}"; } >>"$touched_file"
     echo "admin-web-visual-gate: --fast vs $base_ref ($(git rev-list --count "$mb..HEAD") commits, $(sort -u "$touched_file" | grep -c . || true) UI files touched)"
   else
-    echo "admin-web-visual-gate: --fast without a base ref: shell routes only"
+    # no base ref: every UI file counts as touched, so every route is audited (never shell-only)
+    git ls-files -- "${UI_PATHS[@]}" >>"$touched_file"
+    echo "admin-web-visual-gate: --fast without a base ref: auditing every route (set GOATOS_VISUAL_GATE_BASE to scope it)"
   fi
 fi
 
@@ -127,6 +146,8 @@ extra=(${GOATOS_VISUAL_GATE_ARGS:-})
 extra+=("${passthrough[@]+"${passthrough[@]}"}")
 
 if [ -n "${GOATOS_ADMIN_WEB_BASE_URL:-}" ]; then
+  # A running app may be stale (not a build of HEAD): allowed only with a written reason.
+  goatos_require_skip_reason GOATOS_ADMIN_WEB_BASE_URL "admin-web-visual-gate: build of HEAD (auditing $GOATOS_ADMIN_WEB_BASE_URL instead)" || exit 1
   echo "admin-web-visual-gate: auditing running app $GOATOS_ADMIN_WEB_BASE_URL"
   node "$audit" --base "$GOATOS_ADMIN_WEB_BASE_URL" --template "$tpl" "${gate_args[@]}" "${extra[@]+"${extra[@]}"}"
   exit $?

@@ -67,7 +67,13 @@ tools/ci/check-local-ci-evidence.mjs:goatos-check-local-ci-evidence.mjs
 tools/ci/check-stg-promotion.mjs:goatos-check-stg-promotion.mjs
 tools/ci/step-input-digest.mjs:step-input-digest.mjs
 tools/ci/admin-web-visual-gate.sh:goatos-admin-web-visual-gate.sh
+tools/ci/admin-web-push-gate.sh:goatos-admin-web-push-gate.sh
+tools/ci/goatos-skip-ledger.sh:goatos-skip-ledger.sh
+tools/agent-hooks/pre-push.hook:pre-push
 "
+# Lanes the installed admin-web push gate must run on every push (Ravi 2026-09-30, J1 P0-4).
+# Dropping one from tools/ci/admin-web-push-gate.sh fails this guard even after make ai-setup.
+REQUIRED_LANES="design-guard typecheck unit-tests next-build visual-gate"
 
 fail=0
 checked=0
@@ -165,7 +171,8 @@ else
       cp "$hook" hooks/pre-push || exit 97
       # step-input-digest.mjs is IMPORTED by the evidence guard: without it the hook crashes, and a
       # crash exits non-zero exactly like a refusal, so the probe would read a broken gate as proven.
-      for f in goatos-check-local-ci-evidence.mjs goatos-check-stg-promotion.mjs step-input-digest.mjs; do
+      for f in goatos-check-local-ci-evidence.mjs goatos-check-stg-promotion.mjs step-input-digest.mjs \
+        goatos-admin-web-push-gate.sh goatos-admin-web-visual-gate.sh goatos-skip-ledger.sh; do
         [ -f "$hooks_dir/$f" ] && { cp "$hooks_dir/$f" "hooks/$f" || exit 97; }
       done
       chmod +x hooks/* 2>/dev/null
@@ -193,8 +200,71 @@ else
   [ -n "$hook_sandbox" ] && [ -d "$hook_sandbox" ] && rm -rf "$hook_sandbox"
 fi
 
+# ── every admin-web lane is present in the INSTALLED push gate ────────────────
+installed_gate="$hooks_dir/goatos-admin-web-push-gate.sh"
+if [ -f "$installed_gate" ]; then
+  lanes="$(bash "$installed_gate" --list-lanes 2>/dev/null | tr '\n' ' ')"
+  for lane in $REQUIRED_LANES; do
+    case " $lanes " in
+      *" $lane "*) ;;
+      *)
+        echo "!! push-hook-freshness: the installed admin-web push gate is MISSING LANE '$lane' (has: ${lanes:-none})" >&2
+        echo "!! Fix: restore the lane in tools/ci/admin-web-push-gate.sh, then make ai-setup" >&2
+        fail=1
+        ;;
+    esac
+  done
+fi
+
+# ── the hook gates a FEATURE-branch push too, proven BY EXECUTION ─────────────
+# J1 P0-4: the old hook only gated refs/heads/main, so PR-branch pushes ran no design:guard,
+# npm test or visual gate. A throwaway repo with the vgoats origin commits an admin-web file (no
+# package.json, no node_modules) and pushes refs/heads/probe-feature: the installed hook must
+# refuse it through the admin-web push gate ("admin-web-push-gate: BLOCKED"), not by a crash.
+if [ -f "$hook" ]; then
+  feature_sandbox="$(mktemp -d "${TMPDIR:-/tmp}/goatos-hookexec-feature.XXXXXX" 2>/dev/null || true)"
+  if [ -z "$feature_sandbox" ] || [ ! -d "$feature_sandbox" ]; then
+    echo "!! push-hook-freshness: could not create the feature-branch probe sandbox; refusing to pass" >&2
+    fail=1
+  else
+    feature_out="$(
+      cd "$feature_sandbox" || exit 97
+      [ "$(pwd -P)" = "$(cd "$feature_sandbox" && pwd -P)" ] || exit 97
+      export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+      git init -q -b probe-feature . >/dev/null 2>&1 || exit 97
+      git config user.email guard@local && git config user.name guard && git config commit.gpgsign false || exit 97
+      git remote add origin git@github.com:vgoats/goatos.git || exit 97
+      mkdir -p hooks apps/admin-web || exit 97
+      cp "$hook" hooks/pre-push || exit 97
+      for f in goatos-check-local-ci-evidence.mjs goatos-check-stg-promotion.mjs step-input-digest.mjs \
+        goatos-admin-web-push-gate.sh goatos-admin-web-visual-gate.sh goatos-skip-ledger.sh; do
+        [ -f "$hooks_dir/$f" ] && { cp "$hooks_dir/$f" "hooks/$f" || exit 97; }
+      done
+      chmod +x hooks/* 2>/dev/null
+      echo 'export const probe = 1;' >apps/admin-web/probe.tsx || exit 97
+      git add -A >/dev/null && git commit -qm probe || exit 97
+      head="$(git rev-parse HEAD)" || exit 97
+      printf 'refs/heads/probe-feature %s refs/heads/probe-feature 0000000000000000000000000000000000000000\n' "$head" \
+        | GOATOS_SKIP_LEDGER="$feature_sandbox/ledger.tsv" bash hooks/pre-push origin git@github.com:vgoats/goatos.git 2>&1
+      echo "PROBE_EXIT=$?"
+    )"
+    probe_rc=$?
+    if [ "$probe_rc" = "97" ]; then
+      echo "!! push-hook-freshness: the feature-branch probe could not build its sandbox — GUARD FAILURE, not a pass." >&2
+      fail=1
+    elif printf '%s\n' "$feature_out" | grep -q '^PROBE_EXIT=0$' || ! printf '%s\n' "$feature_out" | grep -q 'admin-web-push-gate: BLOCKED'; then
+      echo "!! push-hook-freshness: THE INSTALLED pre-push HOOK DOES NOT RUN THE ADMIN-WEB LANES ON A FEATURE-BRANCH PUSH" >&2
+      echo "!!   an admin-web change pushed to refs/heads/probe-feature was not refused by the admin-web push gate:" >&2
+      printf '%s\n' "$feature_out" | tail -8 | sed 's/^/!!     /' >&2
+      echo "!! Fix: make ai-setup" >&2
+      fail=1
+    fi
+    rm -rf "$feature_sandbox"
+  fi
+fi
+
 if [ "$fail" -eq 0 ]; then
-  echo "push-hook-freshness: ${checked} installed push guard(s) match their repo source; installed pre-push hook proven to gate main"
+  echo "push-hook-freshness: ${checked} installed push guard(s) match their repo source; installed pre-push hook proven to gate main AND to run the admin-web lanes (${REQUIRED_LANES}) on a feature-branch push"
 fi
 
 exit "$fail"

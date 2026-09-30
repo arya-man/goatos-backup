@@ -22,7 +22,12 @@
 #   tools/ci/run-local-ci.sh guardrails  # compatibility: common + backend + mobile static guards
 #   GOATOS_RUN_POSTGRES_TESTS=1 tools/ci/run-local-ci.sh  # explicit DB/Docker opt-in
 #   GOATOS_SQLC_PLAN_ADMIN_DSN=... tools/ci/run-local-ci.sh query-plans
-#   GOATOS_FAST_LOCAL_CI=1 tools/ci/run-local-ci.sh android  # faster developer loop; no landing receipt
+#   GOATOS_FAST_LOCAL_CI=1 GOATOS_SKIP_REASON="..." tools/ci/run-local-ci.sh android  # faster loop; no receipt
+#
+# Skips (Ravi 2026-09-30, "enforce local CI/CD strictly"): GOATOS_FAST_LOCAL_CI and
+# GOATOS_CI_ONLY_STEP skip lanes, so each needs a written GOATOS_SKIP_REASON="..." or the run is
+# refused (exit 5). Every skipped lane (flag or missing prerequisite) is recorded in the skip ledger
+# (tools/ci/goatos-skip-ledger.sh) and printed loudly in the summary; never an `echo` alone.
 set -uo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -32,6 +37,8 @@ cd "$repo"
 # shellcheck source=tools/ci/node22.sh
 . tools/ci/node22.sh
 node22_export_or_die
+# shellcheck source=tools/ci/goatos-skip-ledger.sh
+. tools/ci/goatos-skip-ledger.sh
 # Per-run plumbing is owned by THIS process. A nested run (a self-test that
 # drives run-local-ci.sh inside a parent ci-local) must never inherit the
 # parent's fail-fast sentinel, step ledger or input digests: a nested failure
@@ -251,7 +258,7 @@ step() { # name, command...
       case " ${FAILED_JOBS[*]:-} " in *" ${current_job} "*) ;; *) FAILED_JOBS+=("$current_job") ;; esac
       record_failure "${name}"
     echo "!! ci-local step FAILED: ${name}"
-    echo "!! re-run just this step: GOATOS_CI_ONLY_STEP='${name}' tools/ci/run-local-ci.sh ${current_job}"
+    echo "!! re-run just this step: GOATOS_SKIP_REASON=\"re-run failed step\" GOATOS_CI_ONLY_STEP='${name}' tools/ci/run-local-ci.sh ${current_job}"
     [ -z "${GOATOS_CI_RERUN_FILE:-}" ] || printf '%s\t%s\n' "$current_job" "$name" >>"$GOATOS_CI_RERUN_FILE" 2>/dev/null || true
     fail_fast_signal "$name"
   fi
@@ -347,13 +354,29 @@ case "$only" in
         echo "!!   at push time, and can hide a skipped Android UI proof." >&2
         echo "!!   Fix the base:   git fetch origin main   (then re-run)" >&2
         echo "!!   Or run it explicitly as a NON-certifying check (writes no receipt):" >&2
-        echo "!!     GOATOS_FAST_LOCAL_CI=1 tools/ci/run-local-ci.sh ${only}" >&2
+        echo "!!     GOATOS_SKIP_REASON=\"<why the base is unavailable>\" GOATOS_FAST_LOCAL_CI=1 tools/ci/run-local-ci.sh ${only}" >&2
         exit 4
       fi
       echo "!! ci-local: continuing on the HEAD~1 fallback because GOATOS_FAST_LOCAL_CI=1 — this run writes NO receipt."
     fi
     ;;
 esac
+
+# A lane-skipping flag needs a written reason (skip ledger). Trace-only probes execute nothing.
+if ! ci_trace_only; then
+  if fast_local_ci_enabled; then
+    goatos_require_skip_reason GOATOS_FAST_LOCAL_CI "run-local-ci ${only}: story visual lanes, benchmark compile, receipt" || exit 5
+  fi
+  if [ -n "${GOATOS_CI_ONLY_STEP:-}" ]; then
+    goatos_require_skip_reason GOATOS_CI_ONLY_STEP "run-local-ci ${only}: every step except '${GOATOS_CI_ONLY_STEP}'" || exit 5
+  fi
+fi
+
+# skip_lane NAME WHY — a lane that cannot run here: a SKIP row in the summary AND a ledger entry.
+skip_lane() {
+  RESULTS+=("SKIP  $1 ($2)")
+  goatos_record_skip "$1" "$2"
+}
 
 changed_since_base() {
   local base_ref="$ci_base_ref"
@@ -884,7 +907,7 @@ run_admin_web() {
   if [ -n "${GOATOS_ADMIN_WEB_BASE_URL:-}" ]; then
     step "admin-web mobile webview (Pixel 5, both themes)" npm --prefix apps/admin-web run smoke:webview
   else
-    echo "-- skipping admin-web mobile webview live sweep: set GOATOS_ADMIN_WEB_BASE_URL to run it"
+    skip_lane "admin-web mobile webview (Pixel 5, both themes)" "GOATOS_ADMIN_WEB_BASE_URL unset: no live app to sweep"
   fi
   # Component-level visual regression (Storybook). Needs no live app or API: it
   # builds storybook-static and diffs every story at 1440x900 AND 390x844 in both
@@ -898,7 +921,7 @@ run_admin_web() {
   # apps/admin-web/visual-baselines/stories/ (pixel diffs when the local PNG baseline exists).
   # GOATOS_STORYBOOK_URL drives an already-running Storybook instead of building.
   if fast_local_ci_enabled; then
-    echo "-- skipping admin-web story visual lanes under GOATOS_FAST_LOCAL_CI (run npm --prefix apps/admin-web run visual:stories before pushing UI)"
+    skip_lane "admin-web story visual lanes" "GOATOS_FAST_LOCAL_CI (reason in the skip ledger); run npm --prefix apps/admin-web run visual:stories before pushing UI"
   else
     step "admin-web story visual (1440 + 390, dark + light)" npm --prefix apps/admin-web run smoke:stories:baseline
     if [ -n "${GOATOS_STORYBOOK_URL:-}" ]; then
@@ -918,11 +941,13 @@ run_admin_web() {
     step "admin-web sales tolerance layout" npm --prefix apps/admin-web run smoke:sales-tolerance-layout:live
     # R2 visual gate (make admin-web-visual-gate): tab/filter flash, dark bright bg, off-palette,
     # drawer clip/backdrop, skeleton IoU, 390 tap targets, sideways scroll — new/grown P0 fails.
-    step "admin-web r2 visual gate" make admin-web-visual-gate
+    # Built from HEAD (not the running app, which may be stale): the gate refuses an unexplained
+    # GOATOS_ADMIN_WEB_BASE_URL, so it is unset for this lane.
+    step "admin-web r2 visual gate" env -u GOATOS_ADMIN_WEB_BASE_URL make admin-web-visual-gate
     ADMIN_WEB_LIGHTHOUSE_URL="${ADMIN_WEB_LIGHTHOUSE_URL:-${GOATOS_ADMIN_WEB_BASE_URL%/}/weighing/analytics?scope_mode=company}" \
       step "admin-web Lighthouse budget" npm --prefix apps/admin-web run perf:lighthouse
   else
-    echo "-- skipping admin-web route visual/Lighthouse sweeps: set GOATOS_ADMIN_WEB_BASE_URL to run them"
+    skip_lane "admin-web route/drawer visual, sales tolerance, r2 visual gate, Lighthouse" "GOATOS_ADMIN_WEB_BASE_URL unset: no live app (the push gate still runs the r2 visual gate on touched routes)"
   fi
   step "admin-web prefetch"      make admin-web-prefetch-guard
   step "admin-web-heavy-client-imports-guard" make admin-web-heavy-client-imports-guard
@@ -1249,6 +1274,7 @@ if [ "${#TIMINGS[@]}" -gt 0 ]; then
   echo "  full per-step timings TSV: ${timings_file}"
   echo "  full per-step timings JSONL: ${timings_jsonl_file}"
 fi
+goatos_print_skip_ledger "$sha"
 if [ "$fail" -eq 0 ]; then
   echo "ci-local: GREEN @ ${sha}"
   # Exact-SHA push evidence: an auto-scoped run records the exact base + selected
@@ -1283,7 +1309,7 @@ else
     if [ -n "${GOATOS_CI_RERUN_FILE:-}" ] && [ -s "$GOATOS_CI_RERUN_FILE" ]; then
       echo "  Re-run each failing step alone (writes no receipt; caches the PASS):"
       while IFS=$'\t' read -r rj rs; do
-        [ -n "$rs" ] && echo "    GOATOS_CI_ONLY_STEP='${rs}' tools/ci/run-local-ci.sh ${rj}"
+        [ -n "$rs" ] && echo "    GOATOS_SKIP_REASON=\"re-run failed step\" GOATOS_CI_ONLY_STEP='${rs}' tools/ci/run-local-ci.sh ${rj}"
       done < <(awk '!seen[$0]++' "$GOATOS_CI_RERUN_FILE")
     else
       echo "  Re-run just the first failure, e.g.:  grep -n '${FAILURES[0]}' tools/ci/run-local-ci.sh"
@@ -1294,7 +1320,7 @@ else
       echo ""
       echo "  Or re-check only the failing JOB (fast, writes NO receipt):"
       for j in "${FAILED_JOBS[@]}"; do
-        echo "    GOATOS_FAST_LOCAL_CI=1 tools/ci/run-local-ci.sh ${j}"
+        echo "    GOATOS_SKIP_REASON=\"re-check the failing ${j} job\" GOATOS_FAST_LOCAL_CI=1 tools/ci/run-local-ci.sh ${j}"
       done
       echo "  Then certify once with the full gate: make ci-local"
     fi
