@@ -443,7 +443,7 @@ export async function VerificationReviewPage({
       {/* Status counts + queue rows swap to their skeleton on a tab / module / date / shed / sort /
           page change (guard: url-keyed-panel); the tabs and the filter toolbar stay on screen. The
           drawer / panel params are not watched: opening one never blanks the queue. */}
-      <UrlSuspense searchParams={sp} watch={QUEUE_WATCH} fallback={<StatStripSkeleton count={STATUS_STRIP_CELLS} />}>
+      <UrlSuspense searchParams={sp} watch={STRIP_WATCH} fallback={<StatStripSkeleton count={STATUS_STRIP_CELLS} />}>
       {queue.ok && statusOptionsWithStatus.length ? (
         <Card>
           <Scrollbar sx={{ minHeight: 108 }}>
@@ -1096,3 +1096,10 @@ function encodeTrail(trail: string[]): string | null {
 
 /** The params the queue read takes (never the drawer / Analytics / Video log / Randomization panels' own). */
 const QUEUE_WATCH = ["status", "category", "nav_module", "shed_id", "park", "scope_mode", DATE_FROM_PARAM, DATE_TO_PARAM, "vi_cursor", "vi_trail", "sort", "toxin"] as const;
+/**
+ * The status strip's counts are the whole-filter aggregate, one per status: the selected status
+ * tab, the rows' cursor and the sort never change them, so those clicks leave the strip on screen
+ * (FIXJ11, J3B N-P1-3 class: a status tab swapped the summary card above the queue to its
+ * skeleton; r2 `interact|Tab|fallback-outside`).
+ */
+const STRIP_WATCH = QUEUE_WATCH.filter((param) => !["status", "vi_cursor", "vi_trail", "sort"].includes(param));

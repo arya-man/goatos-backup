@@ -856,14 +856,14 @@ function r2PageLib() {
     w.maxPagerShift = 0;
     const pagerIndex = pagerRoot ? pagers().indexOf(pagerRoot) : -1;
     const pagerCount = pagerRoot ? pagers().length : 0;
-    // The tapped pager, or once it was swapped out: the one at its index (same pager count), else
-    // the pager nearest to where it was. null while no pager is on the page (the skeleton phase).
+    // The tapped pager, or once it was swapped out and back: the one at its index among the same
+    // number of pagers. null while it is swapped out (the skeleton phase; another table's pager on
+    // the page is never taken for it: /counts/breakdown has a client pager 1258px further down).
     w.pagerTop = () => {
       if (pagerRoot && pagerRoot.isConnected) return pagerRoot.getBoundingClientRect().top;
       const now = pagers();
-      if (!now.length) return null;
-      const el = now.length === pagerCount && now[pagerIndex] ? now[pagerIndex] : now.reduce((a, b) => (Math.abs(docRect(b).top - w.clickPagerDoc) < Math.abs(docRect(a).top - w.clickPagerDoc) ? b : a));
-      return el.getBoundingClientRect().top;
+      const el = now.length === pagerCount ? now[pagerIndex] : null;
+      return el ? el.getBoundingClientRect().top : null;
     };
     // Pager on the page: how far it sits from where it was tapped. Pager swapped out: the page
     // itself must hold still (scroll), so the skeleton's own pager twin is under the thumb.
@@ -886,7 +886,6 @@ function r2PageLib() {
       w.clickTop = target && target.isConnected ? target.getBoundingClientRect().top : null;
       w.clickDocTop = target && target.isConnected ? docRect(target).top : null;
       w.clickPagerTop = w.pager ? w.pagerTop() : null;
-      w.clickPagerDoc = w.clickPagerTop != null ? w.clickPagerTop + scrollY : null;
       setTimeout(() => {
         const r = root();
         const landed = location.href !== w.url0;
@@ -923,7 +922,6 @@ function r2PageLib() {
       // transition, not just after it settles (a skeleton of another height moved the /vaccination
       // pen tabs 60px down and back; a header action on one desk only moved the /people strip).
       if (w.clickDocTop != null && target && target.isConnected) w.maxTargetShift = Math.max(w.maxTargetShift, Math.abs(docRect(target).top - w.clickDocTop));
-      if (w.pager) w.maxPagerShift = Math.max(w.maxPagerShift, w.pagerShift());
       if (w.ownsCard && w.targetCard && w.clickScroll != null && !w.outside) {
         for (const p of root().querySelectorAll("[data-url-panel][data-url-panel-pending]")) {
           if (w.targetCard.contains(p) || p.contains(w.targetCard)) continue;
@@ -935,6 +933,12 @@ function r2PageLib() {
       if (tabs && !tabs.isConnected) w.tabsGone = true;
     };
     w.timer = setInterval(sample, 100);
+    // pager-tap: the pager is measured once per PAINTED frame (a task posted from rAF runs after
+    // that frame's paint), so a same-frame correction before paint is not a jump the thumb saw.
+    if (w.pager) {
+      const painted = () => { if (w.done) return; setTimeout(() => { if (!w.done) w.maxPagerShift = Math.max(w.maxPagerShift, w.pagerShift()); }, 0); requestAnimationFrame(painted); };
+      requestAnimationFrame(painted);
+    }
     try { w.po = new PerformanceObserver((list) => { for (const e of list.getEntries()) w.cls += e.value; }); w.po.observe({ type: "layout-shift", buffered: false }); } catch {}
     window.__r2w = w;
     return { header: header ? sig(header) : null, tabs: tabs ? sig(tabs) : null };
@@ -957,6 +961,7 @@ function r2PageLib() {
     const w = window.__r2w; if (!w) return null;
     const landedBox = w.fallbackPanels && w.fallbackPanels.every((p) => p.isConnected) ? unionBox(w.fallbackPanels) : null;
     if (w.pager) w.maxPagerShift = Math.max(w.maxPagerShift, w.pagerShift());
+    w.done = true;
     if (w.pager && w.clickScroll != null) {
       const maxScroll = document.documentElement.scrollHeight - innerHeight;
       const top = w.pagerTop();

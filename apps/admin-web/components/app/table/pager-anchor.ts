@@ -44,11 +44,17 @@ function holdUnderThumb(el: HTMLElement, anchor: { top: number; at: number }): v
     const delta = anchorDelta(anchor, el.getBoundingClientRect().top, performance.now(), window.innerHeight);
     if (delta) window.scrollBy({ top: delta, behavior: "instant" as ScrollBehavior });
   };
+  // Layout changes above the pager (the rows, the template Scrollbar sizing itself) are corrected
+  // in the frame they happen: ResizeObserver runs after layout and before paint.
+  const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => correct());
   const stop = () => {
     stopped = true;
     for (const type of ["wheel", "touchstart", "keydown"] as const) window.removeEventListener(type, stop);
     window.removeEventListener("scroll", correct);
+    ro?.disconnect();
   };
+  ro?.observe(el.closest(".MuiCard-root") ?? el.parentElement ?? el);
+  ro?.observe(document.body);
   for (const type of ["wheel", "touchstart", "keydown"] as const) window.addEventListener(type, stop, { passive: true });
   // A scroll the page makes by itself during the hold (scroll anchoring over a swapped subtree)
   // is undone in the same frame, before it paints.
