@@ -26,7 +26,9 @@ export const SALES_GRID = {
   valueRows: { xs: 12, md: 6, lg: 7 },
   /** Farm born: the four headline cards and the two breakdown columns. */
   bornKpi: { xs: 12, sm: 6, md: 3 },
-  bornHalf: { xs: 12, md: 6 },
+  // Full width until xl: at 1440 the six-column breakdown tables wrapped every header onto 2-3 lines in
+  // half a column (J2 P2-5; guard: farm-born-headers-one-line).
+  bornHalf: { xs: 12, xl: 6 },
 } as const;
 
 /**

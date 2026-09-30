@@ -212,7 +212,8 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
                 href: hrefWith(sp, { ap_limit: size === DEFAULT_PAGE_SIZE ? null : String(size), ap_cursor: null, ...clearRow }),
               }))}
               labelRowsPerPage={COPY.pager.rowsPerPage}
-              rangeLabel={`${COPY.kpi.rowsInView}: ${items.length}`}
+              // Template range text ("1–5") on the newest page; a later cursor page has no known offset.
+              rangeLabel={items.length === 0 ? "0" : cursor ? `${COPY.kpi.rowsInView}: ${items.length}` : `1–${items.length}`}
               prevHref={cursor ? hrefWith(sp, { ap_cursor: null, ...clearRow }) : null}
               nextHref={nextCursor ? hrefWith(sp, { ap_cursor: nextCursor, ...clearRow }) : null}
               prevLabel={COPY.pager.first}

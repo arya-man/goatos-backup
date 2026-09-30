@@ -29,10 +29,12 @@ test("probe flags a wrapped button label, overlapping axis labels, raw ids and a
       <table><tr><td>cee6e124</td><td>Beetal</td><td>2026</td></tr></table>
       <div class="MuiCardHeader-subheader">goat_identity_events</div>
       <div class="MuiCardHeader-subheader">Identity changes</div>
+      <input style="width:120px;font:14px sans-serif" placeholder="Search animal, RFID, smart tag, BLE MAC, pen, breed or gateway" />
+      <input style="width:220px;font:14px sans-serif" placeholder="Search" />
     </main>`);
     const found = await page.evaluate(probeTextFit);
     const kinds = found.map((f) => f.kind).sort();
-    assert.deepEqual(kinds, ["axis-label-overlap", "button-label-wrap", "dead-primary", "raw-id-text", "raw-id-text"], JSON.stringify(found));
+    assert.deepEqual(kinds, ["axis-label-overlap", "button-label-wrap", "dead-primary", "placeholder-clipped", "raw-id-text", "raw-id-text"], JSON.stringify(found));
     assert.ok(found.some((f) => /Open the draft/.test(f.detail)));
     assert.ok(!found.some((f) => /Keep it/.test(f.detail)));
     assert.ok(found.some((f) => /cee6e124/.test(f.detail)) && found.some((f) => /goat_identity_events/.test(f.detail)));

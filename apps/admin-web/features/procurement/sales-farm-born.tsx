@@ -42,16 +42,15 @@ import { PageRoot } from "@/components/app/page-root";
 // Breakdown table (template analytics table anatomy): the label column keeps a readable floor so
 // words never break per letter; on a laptop the table fits its half-width card, on a phone it
 // scrolls inside the card from a 38.75rem floor.
-// Six columns since main added "Tagged, sale not closed" (cc940b351): cells sit a little tighter
-// and number headers may wrap onto a second line (figures never do), so the table still fits its
-// half-width card on a laptop.
+// Six columns since main added "Tagged, sale not closed" (cc940b351): headers hold one line (template
+// TableHeadCustom); the cards are full width below xl and the table scrolls in its card on a phone.
 const FB_TABLE_SX = {
   width: "100%",
   tableLayout: "auto",
   minWidth: { xs: "38.75rem", sm: 0 },
   "& th, & td": { px: 1 },
   "& th": { lineHeight: 1.2, verticalAlign: "bottom" },
-  "& th.MuiTableCell-alignRight": { whiteSpace: "normal", maxWidth: "12ch" },
+  "& th.MuiTableCell-alignRight": { whiteSpace: "nowrap" },
   "& .MuiTableCell-alignRight": { fontVariantNumeric: "tabular-nums" },
   "& td:first-of-type, & th:first-of-type": { minWidth: "8.75rem", whiteSpace: "normal", overflowWrap: "break-word" },
   "& td.MuiTableCell-alignRight": { whiteSpace: "nowrap" },

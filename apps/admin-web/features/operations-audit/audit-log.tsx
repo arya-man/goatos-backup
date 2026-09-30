@@ -427,12 +427,14 @@ function AuditTableRow({ row, searchParams, pageContract }: { row: OperationsAud
         <Box component="span" sx={{ display: "block", typography: "body2" }}>{operator.primary}</Box>
         <Box component="span" sx={{ display: "block", typography: "caption", color: "text.disabled", mt: 0.5 }}>{operator.secondary}</Box>
       </TableCell>
-      <TableCell sx={{ whiteSpace: "nowrap" }}>
+      {/* Action and target wrap at word breaks (AUDIT_WRAP_CELL_SX), so the table fits the 1440 column
+          and the last header is never cut ("Pr…", J2 P2-4; guard: audit-table-fits). */}
+      <TableCell sx={AUDIT_WRAP_CELL_SX}>
         <Box component={LocalOverlayLink} href={detailHref} scroll={false} sx={{ color: "inherit" }}>
           {humanAction(row.action)}
         </Box>
       </TableCell>
-      <TableCell sx={{ whiteSpace: "nowrap" }}>{target.href ? <Box component={Link} href={target.href} sx={{ color: "inherit" }}>{target.label}</Box> : target.label}</TableCell>
+      <TableCell sx={AUDIT_WRAP_CELL_SX}>{target.href ? <Box component={Link} href={target.href} sx={{ color: "inherit" }}>{target.label}</Box> : target.label}</TableCell>
       <TableCell>
         <Tag tone={row.anomaly ? "dng" : toneForResult(result)} title={row.anomaly ? copy(pageContract, "label.flagged_anomaly") : undefined}>
           {result}
@@ -613,3 +615,6 @@ function preservedHiddenInputs(params: RouteSearchParams, exclude: string[]) {
 
 /** Params that never change the trail: the local record drawer. */
 const PANEL_IGNORE = ["audit_id"] as const;
+
+/** Action / target cells: wrap at word breaks with a readable floor instead of forcing one line. */
+const AUDIT_WRAP_CELL_SX = { minWidth: 150, overflowWrap: "anywhere" } as const;

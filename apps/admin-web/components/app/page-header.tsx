@@ -76,6 +76,9 @@ export type PageHeaderProps = {
  * right), one per page. There is deliberately no description slot — a page explains itself with its
  * labels, fields, tables and buttons.
  */
+/** The back arrow beside a back-title heading: an 8px gap, hung into the gutter from md. */
+export const BACK_ICON_SX = { mr: 1, ml: { xs: 0, md: "-26px" } } as const;
+
 export function PageHeader({ title, crumbs: crumbsIn, actions, backHref, tabs, toolbar, className, id, layout }: PageHeaderProps) {
   const trail = useNavTrail();
   // A trail that only repeats the page title ("Approvals • Approvals") tells the reader nothing.
@@ -90,7 +93,10 @@ export function PageHeader({ title, crumbs: crumbsIn, actions, backHref, tabs, t
         gap: "var(--sp-3)",
         // The template hangs the back arrow into the page gutter; below md the page column clips
         // sideways overflow (WebView rule), so the arrow sits inline there instead of being cut off.
-        [`& .minimal__breadcrumbs__back .${iconifyClasses.root}`]: { ml: { xs: 0, md: "-18px" } },
+        // The arrow keeps an 8px gap to the title ("‹Channapatna" read glued, J2 P2-10) and still hangs
+        // in the gutter at md, so the title stays on the column edge. Twin: PageHeaderSkeleton
+        // (BACK_ICON_SX; guard back-arrow-gap in page-header-back.test.mjs).
+        [`& .minimal__breadcrumbs__back .${iconifyClasses.root}`]: BACK_ICON_SX,
       }}>
       {/* The back arrow is the verbatim template BackLink rendered as the heading (CustomBreadcrumbs
           prints `heading` inside its h1); the in-app trail makes it a history back with its own title. */}

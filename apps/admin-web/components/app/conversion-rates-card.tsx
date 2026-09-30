@@ -108,6 +108,8 @@ export function ConversionRatesCard({ title, subheader, action, empty, chart, sx
     xaxis: {
       categories: chart.categories,
       labels: { formatter: (value: string) => formatBarValue(Number(value), chart.unit, 0) },
+      // Phones: four value ticks, so "200 g" / "250 g" never touch on a 390 plot (guard: axis-label-overlap).
+      ...(phone ? { tickAmount: 4 } : {}),
     },
     ...chart.options,
   };

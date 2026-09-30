@@ -198,14 +198,14 @@ export function WeightsExportControl({
         {copy(pageContract, "export.button")}
       </Button>
 
-      {/* Template temporary drawer (MinimalDrawer: portal, backdrop, focus trap + return). A short
-          options form, so the template settings-drawer width (360). */}
+      {/* Template temporary drawer (MinimalDrawer: portal, backdrop, focus trap + return): a form, so
+          the template form/details width (480; J2 P2-1, guard: weights-export-drawer). */}
       <MinimalDrawer
         open={open}
         onClose={close}
         title={title}
         closeLabel={title}
-        width={360}
+        width={480}
         aria-label={title}
         footer={
           <Button
@@ -248,9 +248,8 @@ export function WeightsExportControl({
             ))}
           </TextField>
 
-          <Stack spacing={1}>
-            <Typography variant="subtitle2">{copy(pageContract, "export.period.label")}</Typography>
-            <DateRangePicker
+          {/* The range field names the period itself: no second "Period" heading above it (J2 P2-1). */}
+          <DateRangePicker
               labels={rangeLabels}
               from={from}
               to={to}
@@ -262,7 +261,6 @@ export function WeightsExportControl({
                 setTo(nextTo);
               }}
             />
-          </Stack>
 
           <TextField
             select

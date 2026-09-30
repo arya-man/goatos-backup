@@ -99,7 +99,8 @@ export function HerdSignalsFilters({
       {isPending ? <CircularProgress size={16} color="inherit" aria-label="Applying filter" /> : null}
       <TextField
         type="search"
-        placeholder="Search animal, RFID, smart tag, BLE MAC, pen, breed or gateway"
+        // The placeholder fits the field (J2 P2-3 was cut at "…gatev"); the full scope stays the aria-label.
+        placeholder="Search animal, tag, pen or gateway"
         value={q}
         onChange={(event) => onSearchChange(event.target.value)}
         autoComplete="off"

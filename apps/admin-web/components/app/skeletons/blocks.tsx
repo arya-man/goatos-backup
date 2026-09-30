@@ -153,7 +153,7 @@ export function PageHeaderSkeleton({
         heading={
           (back ? (
             <Box component="a" aria-hidden="true" tabIndex={-1} className="minimal__breadcrumbs__back" data-skel="back-title" sx={{ display: "inline-flex", alignItems: "center", verticalAlign: "middle", maxWidth: 1 }}>
-              <Skeleton variant="circular" width={18} height={18} sx={{ flexShrink: 0, ml: { xs: 0, md: "-18px" } }} />
+              <Skeleton variant="circular" width={18} height={18} sx={{ flexShrink: 0, mr: 1, ml: { xs: 0, md: "-26px" } }} />
               <Skeleton variant="text" width={titleWidth} sx={{ maxWidth: 1 }} />
             </Box>
           ) : (

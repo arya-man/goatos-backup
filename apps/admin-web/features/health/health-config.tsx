@@ -47,6 +47,7 @@ import { LinkButton } from "@/components/app/link-button";
 import { CATALOG_PAGE_SIZE, HEALTH_CONFIG_HEADER_LAYOUT } from "./health-config-layout";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { PanelSkeleton } from "@/components/app/panel-skeleton";
+import { TablePaginationLinks } from "@/components/app/table";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 
 // Health -> Health Config. The authored treatment rulebook a diagnosis loads from: per disease, per
@@ -490,23 +491,20 @@ export async function HealthConfigPage({
           </Table>
         </TableContainer>
 
-        {/* Template table footer: row count left, keyset Restart / Next right. */}
-        <Stack direction="row" sx={{ px: 2.5, py: 1.5, gap: 1, alignItems: "center", borderTop: 1, borderColor: "divider" }}>
-          <Typography variant="body2" sx={{ mr: "auto", display: "inline-flex", alignItems: "center", gap: 0.75, color: "text.secondary" }}>
-            {rows.length} {copy(pageContract, "pager.rows").toLowerCase()}
-            <InfoHint text={copy(pageContract, "pager.rows_note")} />
-          </Typography>
-          {cursor ? (
-            <LinkButton href={restartHref} variant="outlined" size="small">
-              {copy(pageContract, "pager.restart")}
-            </LinkButton>
-          ) : null}
-          {nextHref ? (
-            <LinkButton href={nextHref} variant="outlined" size="small">
-              {copy(pageContract, "pager.next")}
-            </LinkButton>
-          ) : null}
-        </Stack>
+        {/* Template TablePaginationCustom footer (J2 P2-8: was a bespoke "0 rows ⓘ" line): range
+            readout + arrows; the catalog pages by keyset, so no total (count -1) and "previous"
+            restarts from the first page. The row note rides in the leading slot. */}
+        <TablePaginationLinks
+          page={cursor ? 1 : 0}
+          rowsPerPage={CATALOG_PAGE_SIZE}
+          count={-1}
+          rangeLabel={rows.length === 0 ? "0" : cursor ? `${rows.length} ${copy(pageContract, "pager.rows").toLowerCase()}` : `1–${rows.length}`}
+          prevHref={cursor ? restartHref : null}
+          nextHref={nextHref}
+          prevLabel={copy(pageContract, "pager.restart")}
+          nextLabel={copy(pageContract, "pager.next")}
+          left={<InfoHint text={copy(pageContract, "pager.rows_note")} />}
+        />
       </Card>
       </Stack>
       </UrlSuspense>

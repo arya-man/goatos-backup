@@ -95,7 +95,11 @@ function ModuleSelect({ pageContract, options, selected, none, onChange }: { pag
   const chosen = none ? [] : all ? options.map((o) => o.key) : selected;
   const label = copy(pageContract, "filter.module");
   // "Module · all" already names the field; the outlined label says "Module", so drop the prefix.
-  const bare = (text: string) => text.replace(new RegExp(`^${label}\\s*·\\s*`), "");
+  // What is left starts a field value, so it reads like every other select ("All", not "all"; J2 P2-12).
+  const bare = (text: string) => {
+    const rest = text.replace(new RegExp(`^${label}\\s*·\\s*`), "");
+    return rest.charAt(0).toUpperCase() + rest.slice(1);
+  };
   const stated = all
     ? bare(copy(pageContract, "filter.module.all"))
     : chosen.length === 0

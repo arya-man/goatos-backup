@@ -110,9 +110,8 @@ export function CareCoverageFilters({
           onApply={(pens) => go(hrefForPens(pens))}
         />
 
-        <Typography variant="caption" sx={{ color: "text.disabled", ml: { sm: "auto" }, textAlign: { sm: "right" } }}>
-          {copy(pageContract, "filter.apply_note")}
-        </Typography>
+        {/* No toolbar note naming an "Apply" that is not on screen (J2 P2-9): Apply lives in the pen
+            popover, beside the ticks it applies (guard: care-coverage-no-apply-note). */}
       </Box>
 
       {hasChips ? (

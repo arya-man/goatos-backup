@@ -65,3 +65,11 @@ test("work-board keeps reading summary when every lane cursor is exhausted", () 
   assert.match(pageSource, /pagePlans\.push\(\{ parkKey: park\.key, openLanes, cursors \}\)/);
   assert.doesNotMatch(pageSource, /if \(noneSelected \|\| openLanes\.length\) pagePlans\.push/);
 });
+
+// guard: select-value-sentence-case (J2 P2-12): the Module select shows "All" like every other
+// select, not the lowercase remainder of "Module · all".
+test("guard: select-value-sentence-case - the module select value starts upper case", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("./work-board-board.tsx", import.meta.url), "utf8");
+  assert.match(src, /return rest\.charAt\(0\)\.toUpperCase\(\) \+ rest\.slice\(1\);/);
+});

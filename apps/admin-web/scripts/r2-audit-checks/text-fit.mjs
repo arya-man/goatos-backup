@@ -6,6 +6,7 @@
 //   Sheep" on /weighing/weights at 390). Rotate, trim or shorten them below 600px.
 // - raw-id-text (J2 P1-3/P1-4): a table cell, card header or list line shows a raw id: an 8-hex
 //   hash (`cee6e124`), a UUID, or a snake_case table name (`goat_identity_events`).
+// - placeholder-clipped (J2 P2-3): a text field's placeholder is wider than the field.
 // - dead-primary (J2 P1-1): a disabled contained button in the page header (a dead primary action;
 //   DECIDED no dead controls: render it only when it works, or show the reason as text).
 
@@ -86,6 +87,17 @@ export function probeTextFit() {
     }
   }
 
+  // placeholder-clipped (J2 P2-3): a text field's placeholder wider than the field ("…breed or gatev").
+  const ctx2d = document.createElement("canvas").getContext("2d");
+  for (const input of root.querySelectorAll("input[placeholder]:not([type=hidden])")) {
+    if (!visible(input) || !ctx2d || input.value) continue;
+    const cs = getComputedStyle(input);
+    ctx2d.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+    const room = input.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    const need = ctx2d.measureText(input.placeholder).width;
+    if (room > 0 && need > room + 2) out.push({ kind: "placeholder-clipped", detail: `"${input.placeholder.slice(0, 40)}" needs ${Math.round(need)}px in ${Math.round(room)}px` });
+  }
+
   // dead-primary
   const header = document.querySelector("[data-page-header]");
   if (header) {
@@ -102,6 +114,7 @@ const LABELS = {
   "axis-label-overlap": "Chart axis labels overlap",
   "raw-id-text": "Raw id / table name shown as text",
   "dead-primary": "Disabled primary action in the page header",
+  "placeholder-clipped": "Field placeholder cut by the field edge",
 };
 
 export default {

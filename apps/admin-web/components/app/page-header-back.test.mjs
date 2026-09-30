@@ -17,3 +17,13 @@ test("PageHeader renders the template BackLink with the tap/gutter class and tra
 test("the phone tap rule still targets the back link class", () => {
   assert.match(read("./phone-tap-styles.tsx"), /a\.minimal__breadcrumbs__back/);
 });
+
+// guard: back-arrow-gap (J2 P2-10): the back arrow keeps an 8px gap to the title and hangs 26px into
+// the gutter from md (18px icon + 8px), in the page AND its skeleton twin.
+test("guard: back-arrow-gap - arrow gap in PageHeader and PageHeaderSkeleton", async () => {
+  const { readFileSync } = await import("node:fs");
+  const header = readFileSync(new URL("./page-header.tsx", import.meta.url), "utf8");
+  const blocks = readFileSync(new URL("./skeletons/blocks.tsx", import.meta.url), "utf8");
+  assert.match(header, /BACK_ICON_SX = \{ mr: 1, ml: \{ xs: 0, md: "-26px" \} \}/);
+  assert.match(blocks, /mr: 1, ml: \{ xs: 0, md: "-26px" \}/);
+});
