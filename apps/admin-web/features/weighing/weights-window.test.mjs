@@ -504,10 +504,9 @@ test("chart metric switches are local state, not route reloads", () => {
 
 test("full-width shed chart labels fit without overlapping rows", () => {
   // The bar rows are the MUI Minimal template item (components/app/progress-item), drawn by
-  // the kit BarList that WeightBars renders. The label rules that used to live
+  // WeightBars (the dead kit BarList was deleted, FIXJ-CI). The label rules that used to live
   // on the `.wbar` grid are asserted on that item now.
   const item = readFileSync(new URL("../../components/app/progress-item.tsx", import.meta.url), "utf8");
-  const barList = readFileSync(new URL("../../components/bar-list.tsx", import.meta.url), "utf8");
   // A long pen label wraps to TWO lines and is then cut, never collapsed to "C..": the clamped text
   // carries display:-webkit-box + line-clamp 2, hides overflow and may break anywhere.
   assert.match(item, /className=\{`\$\{hook\}-label-text`\}[\s\S]*?display: "-webkit-box"/);
@@ -530,9 +529,6 @@ test("full-width shed chart labels fit without overlapping rows", () => {
   // Grouped rows at phone width: the value stays beside the label in the header row (it can never
   // clip past the card edge) and the track sits on its own full-width line below.
   assert.match(item, /-head`\}[\s\S]*?display: "flex"[\s\S]*?-value`\}[\s\S]*?track\.kind === "linear"/);
-  // Negative values: drawn from a zero rule in the danger tone, value text red, on the axis track.
-  assert.match(barList, /const axis = lo < 0 \|\| refValue != null;/);
-  assert.match(barList, /row\.color \?\? \(row\.value < 0 \? "var\(--danger\)" : "var\(--brand\)"\)/);
   assert.match(item, /color: negative \? "var\(--danger\)" : undefined/);
   // Fixed boxes from sm up: tall 300 / short 150, scrolling inside; on phone the list grows (no
   // nested scroller, webview rule).

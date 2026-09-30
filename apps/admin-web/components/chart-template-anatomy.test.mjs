@@ -54,9 +54,6 @@ test("a missing grouped value draws no bar and a zero stays a zero", () => {
   assert.doesNotMatch(grouped, /d\.values\[i\] \?\? 0/);
   // A stacked series shares its base's column and the scale covers the column sums.
   assert.match(grouped, /\.\.\.\(hasStack \? \{ group: groupOf\(i\) \} : null\)/);
-  const columns = read("./svg-column-bars.tsx");
-  assert.match(columns, /values: data\.map\(\(d\) => d\.value\)/);
-  assert.doesNotMatch(columns, /Math\.max\(/);
 });
 
 test("a loss draws red, and only zeros and non-finite values are left off a bar list", () => {
@@ -66,7 +63,7 @@ test("a loss draws red, and only zeros and non-finite values are left off a bar 
 });
 
 test("server wrappers hand the client charts only serializable props", () => {
-  for (const file of ["./svg-bars.tsx", "./svg-column-bars.tsx", "./svg-series.tsx"]) {
+  for (const file of ["./svg-bars.tsx", "./svg-series.tsx"]) {
     const src = read(file);
     assert.doesNotMatch(src, /^"use client"/, file);
   }

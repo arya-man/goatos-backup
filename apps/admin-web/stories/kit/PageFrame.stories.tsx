@@ -4,7 +4,6 @@ import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
 import { expect, within } from "storybook/test";
 import Button from "@mui/material/Button";
-import { BarList } from "@/components/bar-list";
 import { KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton, TableSkeleton } from "@/components/app/skeletons";
 import { PageHeader } from "@/components/app/page-header";
 import { KpiGrid } from "@/components/app/kpi-grid";
@@ -39,14 +38,6 @@ const kpis = [
   { label: "Due vaccinations", value: 128, unit: undefined, trend: { value: 4.8, caption: "this week" } },
 ];
 
-const breedMix = [
-  { key: "boer", label: "Boer", value: 812 },
-  { key: "jamnapari", label: "Jamnapari", value: 604 },
-  { key: "sirohi", label: "Sirohi", value: 421 },
-  { key: "beetal", label: "Beetal", value: 265 },
-  { key: "cross", label: "Crossbred", value: 200 },
-];
-
 function TabsDemo() {
   const [value, setValue] = React.useState("summary");
   return (
@@ -79,17 +70,12 @@ export const Default: Story = {
           <KpiWidget key={k.label} title={k.unit ? `${k.label} (${k.unit})` : k.label} total={k.value} />
         ))}
       </KpiGrid>
-      <Card sx={{ p: { xs: 2, sm: 3 } }}>
-        <CardHeader sx={{ p: 0, mb: 2 }} title="Breed mix" />
-        <BarList ariaLabel="Head by breed" valueNoun="head" rows={breedMix} />
-      </Card>
     </div>
   ),
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     await expect(c.getByRole("heading", { level: 1, name: "Herd analytics" })).toBeInTheDocument();
     await expect(c.getByRole("navigation", { name: "breadcrumb" })).toBeInTheDocument();
-    await expect(c.getByRole("img", { name: "Head by breed" })).toBeInTheDocument();
   },
 };
 
@@ -156,28 +142,3 @@ export const Loading: Story = {
   ),
 };
 
-/** Negative values: a centred axis, red fill growing left, legend chips above. */
-export const BarListSigned: Story = {
-  render: () => (
-    <div className="kit-page">
-      <Card sx={{ p: { xs: 2, sm: 3 } }}>
-        <CardHeader sx={{ p: 0, mb: 2 }} title="Weight change by pen (7d)" />
-        <BarList
-          ariaLabel="Weight change by pen"
-          valueNoun="kg"
-          legend={[
-            { label: "Gain", color: "var(--brand)" },
-            { label: "Loss", color: "var(--danger)" },
-          ]}
-          rows={[
-            { key: "s1", label: "Pen 01", value: 42.5, note: "120 head" },
-            { key: "s2", label: "Pen 02", value: 18.2, note: "96 head" },
-            { key: "s3", label: "Pen 03", value: -7.4, note: "88 head" },
-            { key: "s4", label: "Pen 04", value: 31.9, note: "140 head" },
-            { key: "s5", label: "Pen 05", value: -12.1, note: "72 head" },
-          ]}
-        />
-      </Card>
-    </div>
-  ),
-};

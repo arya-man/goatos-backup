@@ -892,7 +892,9 @@ function finish({ findings, notes, scanned }) {
         {
           note: "Accepted design-system debt. Every entry is a KNOWN violation of .agents/skills/design-system/SKILL.md that a future change must not multiply. Shrink this list; never grow it to land a change. P0 checks (foreign-palette, theme-token-drift, google-fonts-link) can never be waived.",
           updated_at: new Date().toISOString(),
-          waived: waivable.filter((f) => f.check !== "technical-copy" || reasons[f.key]).map((f) => f.key).sort(),
+          // Shrink only (FIXJ-CI): keep a waiver that is still listed AND still found; a NEW finding is
+          // never waived by --update-baseline (it used to be, which silently grew the list).
+          waived: [...new Set(waivable.filter((f) => waived.has(f.key)).map((f) => f.key))].sort(),
           reasons: Object.fromEntries(Object.entries(reasons).filter(([key]) => waivable.some((f) => f.key === key))),
           ratchet: ratchet.nextBaseline,
         },
@@ -913,7 +915,9 @@ function finish({ findings, notes, scanned }) {
     ratchet_files_allowed: Object.keys(waiverFile.ratchet ?? {}).length,
     ratchet_over: ratchet.over.length,
     ratchet_shrinkable: ratchet.shrinkable.length,
-    failures: p0.length + unwaived.length + ratchet.over.length,
+    // Stale waivers and ratchet slack FAIL (FIXJ-CI, Ravi 2026-09-30 "a baseline can only go down"):
+    // paid-down debt must leave the baseline in the same change, or the slack lets it grow back.
+    failures: p0.length + unwaived.length + ratchet.over.length + stale.length + ratchet.shrinkable.length,
     by_check: countBy([...p0, ...unwaived, ...ratchet.over.map((o) => o.sample)], (f) => f.check),
     notes,
   };
@@ -926,13 +930,13 @@ function finish({ findings, notes, scanned }) {
   if (args.report) {
     for (const f of findings) console.log(`${waived.has(f.key) ? "waived " : "       "} ${f.check} ${f.file}:${f.line}  ${f.snippet}`);
   }
-  if (stale.length > 0) {
-    console.log(`-- ${stale.length} waiver(s) no longer match a finding (debt paid down — run --update-baseline to shrink the list):`);
-    for (const key of stale.slice(0, 10)) console.log(`   ${key}`);
+  if (stale.length > 0 && !args.updateBaseline) {
+    console.error(`!! ${stale.length} stale waiver(s): debt paid down but still listed. Shrink the list in this change: npm run design:guard:update-baseline`);
+    for (const key of stale.slice(0, 20)) console.error(`   ${key}`);
   }
-  if (ratchet.shrinkable.length > 0) {
-    console.log(`-- ${ratchet.shrinkable.length} ratchet allowance(s) can shrink (debt paid down — run --update-baseline):`);
-    for (const s of ratchet.shrinkable.slice(0, 10)) console.log(`   ${s.key} ${s.allowed} -> ${s.count}`);
+  if (ratchet.shrinkable.length > 0 && !args.updateBaseline) {
+    console.error(`!! ${ratchet.shrinkable.length} ratchet allowance(s) above the current count: lower them in this change (npm run design:guard:update-baseline):`);
+    for (const s of ratchet.shrinkable.slice(0, 20)) console.error(`   ${s.key} ${s.allowed} -> ${s.count}`);
   }
   if (summary.failures === 0 || args.updateBaseline) {
     console.log(`design_system_guard=OK waived=${summary.waived}`);
