@@ -81,7 +81,9 @@ export function ApprovalsQueueTable({
       {renderBody(
       <>
       <Scrollbar sx={{ minHeight: 0 }}>
-        <Table aria-label={COPY.title} sx={{ minWidth: { sm: 860 }, display: { xs: "block", sm: "table" }, "& > tbody": { display: { xs: "block", sm: "table-row-group" } } }}>
+        {/* `&&`: the stacked phone list is never held to AppBaseline's 540px table floor (that made the
+            cards 540px wide in a 358px card, scrolling sideways; r2 table-scroll at 390). */}
+        <Table aria-label={COPY.title} sx={{ "&&": { minWidth: { xs: 0, sm: 860 } }, display: { xs: "block", sm: "table" }, "& > tbody": { display: { xs: "block", sm: "table-row-group" } } }}>
           <TableHeadCustom headCells={HEAD} sx={{ display: { xs: "none", sm: "table-header-group" } }} />
           <TableBody>
             {items.length === 0 ? (

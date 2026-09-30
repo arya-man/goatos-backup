@@ -6,7 +6,7 @@
 // Everything is serializable, so a server page can render it with hrefs it computed.
 import type { Theme, SxProps } from '@mui/material/styles';
 
-import { useTransition } from 'react';
+import { useRef, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 
 import Box from '@mui/material/Box';
@@ -17,6 +17,8 @@ import TablePagination from '@mui/material/TablePagination';
 import Link, { useLinkStatus } from '@/components/no-prefetch-link';
 
 import { Iconify } from '@/components/minimal/iconify';
+
+import { rememberPagerTap, usePagerAnchor } from './pager-anchor';
 
 export type TablePaginationLinksProps = {
   /** 0-based page shown. */
@@ -80,6 +82,9 @@ export function TablePaginationLinks({
 }: TablePaginationLinksProps) {
   const router = useRouter();
   const [, startTransition] = useTransition();
+  // pager-under-thumb: a tapped arrow's pager lands where it was tapped (pager-anchor.ts).
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  usePagerAnchor(rootRef);
   const options = rowsPerPageHrefs?.map((option) => option.value) ?? [];
 
   return (
@@ -89,6 +94,10 @@ export function TablePaginationLinks({
       aria-label={ariaLabel}
       // The table pager hook the smoke / webview lanes find (replaces the legacy pager class).
       data-pager=""
+      ref={rootRef}
+      onClickCapture={(event) => {
+        if ((event.target as Element).closest('a[href]')) rememberPagerTap(event.currentTarget);
+      }}
       // Phone taps: the pager arrows and rows select are 44px through the shell's PhoneTapStyles
       // (IconButton / TablePagination-select floors), not a legacy class.
       sx={[{ position: 'relative' }, ...(Array.isArray(sx) ? sx : [sx])]}

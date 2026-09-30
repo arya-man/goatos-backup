@@ -1,5 +1,5 @@
 import { UrlSuspense } from "@/components/app/url-suspense";
-import { TableSkeleton } from "@/components/app/skeletons";
+import { PeopleDirectorySkeleton } from "./people-skeletons";
 import Form from "next/form";
 import Table from "@mui/material/Table";
 import TableBody from "@mui/material/TableBody";
@@ -239,7 +239,7 @@ export async function PeopleBoard({
 
         {/* The directory rows (guard: url-keyed-panel): a status / filter / search / page change
             swaps them to their skeleton at once; the tabs and toolbar stay on screen. */}
-        <UrlSuspense searchParams={sp} watch={DIRECTORY_WATCH} fallback={<TableSkeleton bare header={false} pager={false} columns={6} rows={limit} />}>
+        <UrlSuspense searchParams={sp} watch={DIRECTORY_WATCH} fallback={<PeopleDirectorySkeleton rows={limit} pager={Boolean(cursor || nextCursor)} />}>
         {people.length === 0 ? (
           <EmptyState title={hasAnyFilter ? copy(pageContract, "empty.people") : copy(pageContract, "empty.people.unset")} />
         ) : (

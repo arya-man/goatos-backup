@@ -9,7 +9,7 @@ export default function Loading() {
       <PageHeaderSkeleton layout={HERD_HEADER_LAYOUT} crumbLink={false} crumbWidths={[...COUNTS_HEADER.herdCrumbWidths]} actionWidths={[...COUNTS_HEADER.herdActionWidths]} />
       <HerdKpiSkeleton />
       {/* Contract table "herd-register": 11 labels, the first three folded into the avatar lead cell. */}
-      <TableSkeleton columns={HERD_TABLE.columns} rows={HERD_TABLE.rows} header={false} tabs={<TabsSkeleton count={HERD_TABLE.statusTabs} counts />} toolbar={<FilterCardSkeleton inCard fields={HERD_TABLE.searchFields} />} />
+      <TableSkeleton columns={HERD_TABLE.columns} rows={HERD_TABLE.rows} lead="avatar" header={false} tabs={<TabsSkeleton count={HERD_TABLE.statusTabs} counts />} toolbar={<FilterCardSkeleton inCard fields={HERD_TABLE.searchFields} />} />
     </PageSkeleton>
   );
 }

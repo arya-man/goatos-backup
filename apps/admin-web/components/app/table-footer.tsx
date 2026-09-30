@@ -1,9 +1,10 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import Box from "@mui/material/Box";
 
 import { TablePaginationCustom } from "@/components/app/table";
+import { useClientPagerAnchor } from "@/components/app/table/pager-anchor";
 
 const n = (v: number) => v.toLocaleString("en-IN");
 
@@ -38,14 +39,20 @@ export function TableFooter({
 }: TableFooterProps) {
   const pages = Math.max(1, Math.ceil(total / Math.max(rowsPerPage, 1)));
   const current = Math.min(Math.max(page, 1), pages);
+  // pager-under-thumb: the pager stays under the thumb when the next page's rows differ in height.
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const rememberTap = useClientPagerAnchor(rootRef, current);
   return (
-    <Box className={className} sx={{ position: "relative" }}>
+    <Box ref={rootRef} className={className} sx={{ position: "relative" }}>
       <TablePaginationCustom
         count={total}
         page={current - 1}
         rowsPerPage={rowsPerPage}
         rowsPerPageOptions={onRowsPerPageChange ? rowsPerPageOptions : [rowsPerPage]}
-        onPageChange={(_event, next) => onPageChange(next + 1)}
+        onPageChange={(_event, next) => {
+          rememberTap();
+          onPageChange(next + 1);
+        }}
         onRowsPerPageChange={(event) => onRowsPerPageChange?.(Number(event.target.value))}
         labelDisplayedRows={({ from, to, count }) => (count === 0 ? "0 of 0" : `${n(from)}–${n(to)} of ${n(count)}`)}
         sx={onRowsPerPageChange ? undefined : { "& .MuiTablePagination-selectLabel, & .MuiTablePagination-input": { display: "none" } }}

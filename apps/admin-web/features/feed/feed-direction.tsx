@@ -479,6 +479,8 @@ export async function FeedDirectionPage({
           offset={offset}
           limit={limit}
           rowCount={rows.length}
+          // items are a page of PENS (a pen's grains never straddle a page): the range counts pens.
+          pageUnits={new Set(rows.map((row) => row.shed_id)).size}
           hasMore={preview?.has_more ?? false}
           noun={copy(pageContract, "table.direction.noun")}
           pageSizeOptions={pageSizeOptions}

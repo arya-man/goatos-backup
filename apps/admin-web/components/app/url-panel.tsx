@@ -128,7 +128,12 @@ export function UrlPanel({
     // Plain link clicks on this page (pagers, chips, tab links) start a navigation too.
     const onClick = (event: MouseEvent) => {
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-      const anchor = (event.target as Element | null)?.closest?.("a[href]");
+      // The anchor from the event PATH, not `target.closest`: a pager arrow swaps its icon for a
+      // spinner inside the Link's own click handler (useLinkStatus), so by the time this bubble
+      // listener runs the tapped <svg> is detached and `closest("a[href]")` finds nothing; the
+      // panel never showed its skeleton and the server's fallback landed late, under the thumb
+      // (FIXJ11, J3B N-P1-2 /people pager). guard: url-panel-click-path (url-panel.test.mjs).
+      const anchor = event.composedPath().find((node): node is HTMLAnchorElement => node instanceof HTMLAnchorElement && node.hasAttribute("href"));
       if (!anchor || anchor.getAttribute("target") === "_blank" || anchor.hasAttribute("download")) return;
       start(anchor.getAttribute("href"));
     };

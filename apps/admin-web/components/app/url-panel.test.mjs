@@ -35,3 +35,13 @@ test("url-panel-click-after-react: link clicks / submits are heard after React, 
   assert.match(src, /window\.addEventListener\("submit", onSubmit\);/);
   assert.doesNotMatch(src, /addEventListener\("(click|submit)", on(Click|Submit), true\)/);
 });
+
+// guard: url-panel-click-path (FIXJ11, J3B N-P1-2). A pager arrow swaps its icon for a spinner in
+// the Link's own click handler, so the tapped <svg> is detached before this window listener runs:
+// `event.target.closest("a[href]")` found nothing and the /people directory never showed its
+// skeleton on a pager tap. The anchor comes from the event path (kept at dispatch time).
+test("url-panel-click-path: the clicked link is read from composedPath, not target.closest", () => {
+  const src = readFileSync(new URL("./url-panel.tsx", import.meta.url), "utf8");
+  assert.match(src, /const anchor = event\.composedPath\(\)\.find\(\(node\): node is HTMLAnchorElement => node instanceof HTMLAnchorElement && node\.hasAttribute\("href"\)\);/);
+  assert.doesNotMatch(src, /event\.target as Element \| null\)\?\.closest\?\.\("a\[href\]"\)/);
+});

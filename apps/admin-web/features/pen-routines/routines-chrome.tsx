@@ -257,8 +257,11 @@ export function RoutinesTableChrome({
         role="group"
         aria-label={tableAriaLabel}
         data-dense={dense ? "true" : undefined}
-        // Dense rows are the template `size="small"` body padding (6px 16px).
-        sx={{ overflow: "auto", maxHeight: "62vh", ...(dense ? { "& .MuiTableCell-body": { py: 0.75 } } : null) }}
+        // Dense rows are the template `size="small"` body padding (6px 16px). The 62vh window (sticky
+        // head) is a laptop affordance: below md it is an inner vertical scroller, a WebView scroll
+        // trap (the first vertical swipe over the table scrolled the table, not the page; r2
+        // `table-scroll|table-scroll-trap`), so phones and tablets scroll the page.
+        sx={{ overflow: "auto", maxHeight: { md: "62vh" }, ...(dense ? { "& .MuiTableCell-body": { py: 0.75 } } : null) }}
       >
         {children}
       </Box>
