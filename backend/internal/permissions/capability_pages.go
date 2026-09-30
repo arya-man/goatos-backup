@@ -176,7 +176,7 @@ var modulePages = []ModulePage{
 	// operators keep the directory's. Leave stays its own module above (leave_approvals) and
 	// only moved group. Timetable is its own module so HR reaches it without the directory.
 	{Key: "people", Module: "people", Label: "People", Href: "/people", Permissions: []string{OperatorsRead}},
-	{Key: "people-clock", Module: "people", Label: "Clock In / Out", Href: "/people/clock", Permissions: []string{OperatorsRead, ClockPresenceRead}},
+	{Key: "people-clock", Module: "people", Label: "Clock in / out", Href: "/people/clock", Permissions: []string{OperatorsRead, ClockPresenceRead}},
 	{Key: "people-timetable", Module: "timetable", Label: "Timetable", Href: "/people/timetable", Permissions: []string{WorkforceTimetableRead}},
 	{Key: "people-notifications", Module: "people", Label: "Notifications", Href: "/people/notifications", Permissions: []string{OperatorsRead}},
 	{Key: "people-vaccination", Module: "people", Label: "Vaccination operators", Href: "/people/vaccination", Permissions: []string{OperatorsRead}},

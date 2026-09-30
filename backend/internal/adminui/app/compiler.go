@@ -1804,7 +1804,7 @@ func compilePeopleControls(controls []domain.Control, input BootstrapInput, copy
 	}
 	return upsertControl(controls, domain.Control{
 		ID:             "view_clock",
-		Label:          controlCopy(copy, "clock.tab.title", "Clock In / Out"),
+		Label:          controlCopy(copy, "clock.tab.title", "Clock in / out"),
 		Kind:           "view",
 		Enabled:        clockAllowed,
 		DisabledReason: clockReason,

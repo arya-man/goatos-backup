@@ -251,7 +251,7 @@ func navigation() domain.NavigationContract {
 				ID: "hrms", Label: "HRMS", Icon: "users", DefaultOpen: false,
 				Leaves: []domain.NavigationItem{
 					navLeafDomain("people", "People", "/people", "admin.people", nil),
-					navLeafDomain("people-clock", "Clock In / Out", "/people/clock", "admin.people", nil),
+					navLeafDomain("people-clock", "Clock in / out", "/people/clock", "admin.people", nil),
 					navLeafDomain("people-timetable", "Timetable", "/people/timetable", "admin.people", nil),
 					// Leave (maintainer decision 2026-09-10): the park head + HR queue for leave
 					// raised from the phone Clock screen, the list of every request, and the
@@ -362,7 +362,7 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/operations/dlq", Label: "DLQ Center", Match: "exact"},
 		{Pattern: "/config", Label: "Config — Protocol Rules", Match: "exact"},
 		{Pattern: "/people", Label: "People", Match: "exact"},
-		{Pattern: "/people/clock", Label: "Clock In / Out", Match: "exact"},
+		{Pattern: "/people/clock", Label: "Clock in / out", Match: "exact"},
 		{Pattern: "/people/timetable", Label: "Timetable", Match: "exact"},
 		{Pattern: "/people/notifications", Label: "Notifications", Match: "exact"},
 		{Pattern: "/people/vaccination", Label: "Vaccination operators", Match: "exact"},
@@ -1105,9 +1105,9 @@ func pages() []domain.PageContract {
 		//
 		// Clock In / Out (maintainer decisions 2026-08-27/28): one row per active person per
 		// selected IST day, not-clocked-in included.
-		page("people-clock", "/people/clock", "/people/clock", "Clock In / Out", "Who clocked in and out on the selected day, with hours, place and device", "authority-screen",
+		page("people-clock", "/people/clock", "/people/clock", "Clock in / out", "Who clocked in and out on the selected day, with hours, place and device", "authority-screen",
 			[]domain.TableContract{
-				table("clock-entries", "Clock In / Out", "/admin/workforce/clock-entries", []string{"person", "park", "designation", "clock_in", "clock_out", "hours", "location", "device", "flags"}, "clock_entry_id"),
+				table("clock-entries", "Clock in / out", "/admin/workforce/clock-entries", []string{"person", "park", "designation", "clock_in", "clock_out", "hours", "location", "device", "flags"}, "clock_entry_id"),
 			}),
 		// Timetable (maintainer request 2026-09-30): one park at a time -- that park's shifts and
 		// their hours, then everyone who works there with their shift. HR and the CEO/CXO edit.
@@ -8856,7 +8856,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// Clock In / Out tab (maintainer decisions 2026-08-27/28). The chip
 			// templates keep composition backend-owned: the client substitutes
 			// the backend-composed time label into %s and nothing else.
-			"clock.tab.title":                     "Clock In / Out",
+			"clock.tab.title":                     "Clock in / out",
 			"clock.summary.working":               "Working now",
 			"clock.summary.worked":                "Worked",
 			"clock.summary.clocked_out":           "Clocked out",
