@@ -198,7 +198,7 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
   const bandTone = summary && summary.critical_count > 0 ? "dng" : summary && summary.warning_count > 0 ? "warn" : "mut";
 
   return (
-    <Box sx={{ minWidth: 0 }}>
+    <Box sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 3, alignContent: "start" }}>
       <PageHeader title={pageContract.title} crumbs={[{ label: pageContract.title }]} />
 
       <Stack spacing={3}>

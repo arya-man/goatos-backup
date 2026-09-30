@@ -119,7 +119,7 @@ export async function AlertsPage({ searchParams, pageContract }: { searchParams?
   const head = labels.map((label, index) => ({ id: `c${index}`, label, sortable: false }));
 
   return (
-    <Box sx={{ minWidth: 0 }}>
+    <Box sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 3, alignContent: "start" }}>
       <PageHeader
         title={t("title")}
         crumbs={[{ label: t("crumb"), href: "/" }, { label: t("title") }]}
