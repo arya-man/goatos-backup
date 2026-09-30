@@ -64,7 +64,7 @@ function readBlocks() {
     return r.width > 1 && r.height > 1 && cs.display !== "none" && cs.visibility !== "hidden";
   };
   let root = [...wrap.children].find((el) => visible(el)) || null;
-  while (root && [...root.children].filter(visible).length === 1 && !root.matches("[data-skel-root], .screen, .kit-page, .pagegrid")) {
+  while (root && [...root.children].filter(visible).length === 1 && !root.matches("[data-skel-root], [data-page-root], .screen, .kit-page, .pagegrid")) {
     root = [...root.children].find(visible);
   }
   if (!root) return { busy: false, blocks: [] };

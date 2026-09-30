@@ -9,6 +9,7 @@
 
 import type { ReactNode } from "react";
 import Box from "@mui/material/Box";
+import { PAGE_ROOT_SX } from "@/components/app/page-root";
 import Card from "@mui/material/Card";
 import Divider from "@mui/material/Divider";
 import CardHeader from "@mui/material/CardHeader";
@@ -61,9 +62,18 @@ const wobble = (i: number, base = 44, span = 36) => `${base + ((i * 37) % span)}
  * The page root while loading: the SAME root the page renders (`.screen.on` by default — the 24px
  * block rhythm of the page column), busy for assistive tech. `root` is the page root's own class list
  * when it is not `screen on` (weights-page, vplan, wb, pagegrid …); `gap` mirrors a root that sets its
- * own gap.
+ * own gap. `root="page-root"` twins the template `PageRoot` (sx grid, no legacy class).
  */
 export function PageSkeleton({ children, root = "screen on", className, gap }: { children: ReactNode; root?: string; className?: string; gap?: number }) {
+  // `root="page-root"`: the twin of `PageRoot` (components/app/page-root.tsx): the same sx grid and
+  // `data-page-root` hook, no legacy class (guard page-root-sx).
+  if (root === "page-root") {
+    return (
+      <Box data-page-root="" aria-busy="true" data-skel-root="" className={className} sx={gap != null ? { ...PAGE_ROOT_SX, gap } : PAGE_ROOT_SX}>
+        {children}
+      </Box>
+    );
+  }
   // The frame.css page gap (`.wrap > .screen` grid, 24px) reaches this root in loading.tsx; the shell's
   // click-time pending skeleton restates it on its wrapper (mesha-shell PENDING_ROOT_SX, guard
   // pending-skeleton-root-gap), so no root needs a gap of its own here.

@@ -1,7 +1,7 @@
 // r2-visual-audit plugin: page rhythm + raw codes (R3OPS).
 // - header-gap: the page header (PageHeader = template CustomBreadcrumbs, [data-page-header]) must
 //   have the page gap (>= 16px) before the first block under it. A page whose root is a fragment
-//   instead of the `screen on` grid glued its summary card to the breadcrumbs (/verify).
+//   instead of the `screen on` grid / PageRoot glued its summary card to the breadcrumbs (/verify).
 // - raw-code-label: a template Label / Chip must never show a snake_case backend code
 //   ("Not_started", "waiting_for_accepted_completion"); run it through humanizeEnum / optionLabel.
 
@@ -23,7 +23,7 @@ export function probePageRhythm() {
     for (let depth = 0; anchor && depth < 4; depth += 1) {
       next = anchor.nextElementSibling;
       while (next && !visible(next)) next = next.nextElementSibling;
-      if (next || !anchor.parentElement || anchor.parentElement.matches("main, body, .screen")) break;
+      if (next || !anchor.parentElement || anchor.parentElement.matches("main, body, .screen, [data-page-root]")) break;
       anchor = anchor.parentElement;
     }
     if (next) {

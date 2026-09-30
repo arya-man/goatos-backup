@@ -49,6 +49,7 @@
     "app/(admin)/workflows/[row_id]/loading.tsx",
     "app/(admin)/workflows/[row_id]/page.tsx",
     "components/app/action-alert.tsx",
+    "components/app/page-root.tsx",
     "features/alerts/",
     "features/approvals/actions.ts",
     "features/approvals/approval-display.ts",
