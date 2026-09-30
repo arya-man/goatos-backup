@@ -114,7 +114,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		// this job. Migration 000454 writes the same row onto every park head already backfilled.
 		one(assign("sale_allocation", SurfaceMobile, LevelDo)),
 		// Fumigation (maintainer instruction 2026-09-30): the park head plans the pen spray for
-		// their park and reads the Preventive Care board it lands on. Migration 000457 writes
+		// their park and reads the Preventive Care board it lands on. Migration 000458 writes
 		// the same rows onto every park head already backfilled.
 		one(assign("pc_care", SurfaceMobile, LevelView)),
 		one(assign("pc_fumigation", SurfaceMobile, LevelView, LevelConfigure)),
@@ -188,7 +188,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		bothSurfaces("pen_routines", LevelView, LevelDo),
 		bothSurfaces("aas_health", LevelConfigure),
 		// Preventive Care access (maintainer instruction 2026-09-30): the board, and fumigation
-		// planning. Migration 000457 writes the same rows onto every health director already
+		// planning. Migration 000458 writes the same rows onto every health director already
 		// backfilled.
 		bothSurfaces("pc_care", LevelView),
 		bothSurfaces("pc_fumigation", LevelView, LevelConfigure),

@@ -11,7 +11,7 @@ import (
 )
 
 // FUMIGATION (maintainer instruction 2026-09-30) against the REAL schema: a pen task with no
-// animals, proved by the pen's own two videos. The category CHECK admits it (000457), a scan or a
+// animals, proved by the pen's own two videos. The category CHECK admits it (000457, a NO TRANSACTION widening), a scan or a
 // per-animal slot write is refused, the submit waits for BOTH pen videos, and the verifier's
 // payload carries them in card order under the fumigation category.
 func TestFumigationIsProvedByThePensTwoVideos(t *testing.T) {

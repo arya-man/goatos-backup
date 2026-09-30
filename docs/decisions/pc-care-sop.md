@@ -187,7 +187,7 @@ Answers ride the submit through the outbox and survive process death.
 `fumigation` joins the document as a sixth category. Its captures are PER PEN (the capture mode
 decides the grain, the document decides what is captured): the seed is a mixing video and a spraying
 video, and the instruction carries the 5 ml per litre dosage. The validator refuses a feed & water
-removal applied to it. Migration `000457` adds the card IN PLACE to every stored `pc_care.tasks`
+removal applied to it. Migration `000458` adds the card IN PLACE to every stored `pc_care.tasks`
 version (the weighing `000315` shape); the day-one document `000386` froze is kept byte for byte as
 `sopseed/pc_care_v1.json`, and `pc_care.json` is the live seed. Pinned by
 `TestMigrationEmbedsTheSeededFumigationCard`. See `docs/decisions/pc-care-fumigation.md`.

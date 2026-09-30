@@ -69,7 +69,7 @@ func TestMigrationEmbedsTheSeededPCCareSOP(t *testing.T) {
 		t.Fatalf("read migration: %v", err)
 	}
 	// 000386 froze the DAY-ONE document; the live seed has since gained the fumigation card
-	// (000457, pinned below). The day-one document is kept byte for byte beside it.
+	// (000458, pinned below). The day-one document is kept byte for byte beside it.
 	v1, err := os.ReadFile(filepath.Join("sopseed", "pc_care_v1.json"))
 	if err != nil {
 		t.Fatalf("read v1 seed: %v", err)
@@ -88,7 +88,7 @@ func TestMigrationEmbedsTheSeededPCCareSOP(t *testing.T) {
 		t.Fatalf("parse: %v", err)
 	}
 	// The day-one document predates fumigation, so it is no longer a complete card set on its
-	// own; the LIVE seed (day one + the 000457 card) is what must validate.
+	// own; the LIVE seed (day one + the 000458 card) is what must validate.
 	if problems := ValidatePCCareSOP(SeededRules().PCCareSOP); len(problems) > 0 {
 		t.Fatalf("live seed invalid: %v", problems)
 	}
@@ -246,10 +246,10 @@ func TestServedRulesFillEveryList(t *testing.T) {
 	}
 }
 
-// TestMigrationEmbedsTheSeededFumigationCard pins migration 000457: the card it adds in place is
+// TestMigrationEmbedsTheSeededFumigationCard pins migration 000458: the card it adds in place is
 // the seeded fumigation card, and the live seed is exactly the day-one document plus that card.
 func TestMigrationEmbedsTheSeededFumigationCard(t *testing.T) {
-	migration, err := os.ReadFile(filepath.Join("..", "..", "..", "migrations", "postgres", "000457_pc_care_fumigation.sql"))
+	migration, err := os.ReadFile(filepath.Join("..", "..", "..", "migrations", "postgres", "000458_pc_care_fumigation.sql"))
 	if err != nil {
 		t.Fatalf("read migration: %v", err)
 	}
@@ -268,7 +268,7 @@ func TestMigrationEmbedsTheSeededFumigationCard(t *testing.T) {
 	got, _ := json.Marshal(embedded)
 	want, _ := json.Marshal(seeded)
 	if string(got) != string(want) {
-		t.Fatalf("000457 card drifted from the seed:\n got %s\nwant %s", got, want)
+		t.Fatalf("000458 card drifted from the seed:\n got %s\nwant %s", got, want)
 	}
 
 	v1, err := os.ReadFile(filepath.Join("sopseed", "pc_care_v1.json"))
@@ -288,7 +288,7 @@ func TestMigrationEmbedsTheSeededFumigationCard(t *testing.T) {
 	a, _ := json.Marshal(day1)
 	b, _ := json.Marshal(live)
 	if string(a) != string(b) {
-		t.Fatal("the live seed is not the day-one document plus the 000457 fumigation card")
+		t.Fatal("the live seed is not the day-one document plus the 000458 fumigation card")
 	}
 }
 
