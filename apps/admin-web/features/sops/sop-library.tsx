@@ -134,6 +134,10 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
   // A filter change starts again at page 1 by dropping the param in place. guard: sop-paging-client-only
   const searchParams = useSearchParams();
   const pathname = usePathname();
+  // Below md the folded toolbar leaves the search ~130px (search + Filters + ⋮ on one row), so the
+  // placeholder is the short search label there; the long hint only fits at md+.
+  // guard: r2 text-fit|placeholder-clipped (P0)
+  const foldedToolbar = useMediaQuery((theme: Theme) => theme.breakpoints.down("md"));
   const requestedPage = Math.max(1, Number(searchParams.get(PAGE_PARAM)) || 1);
   const pageHref = (n: number) => {
     const next = new URLSearchParams(searchParams.toString());
@@ -245,7 +249,7 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
           fold={{ label: copy(pageContract, "action.filters", "Filters"), count: activeChips.filter((chip) => chip.id !== "q").length }}
           search={{
             value: query,
-            placeholder: copy(pageContract, "filter.search_placeholder"),
+            placeholder: copy(pageContract, foldedToolbar ? "filter.search_label" : "filter.search_placeholder"),
             ariaLabel: copy(pageContract, "filter.search_label"),
             onChange: (v) => {
               setQuery(v);
