@@ -247,3 +247,19 @@ test("guard: panel-fallback-twin - fallbackTwinFails flags a jump and a mis-shap
   assert.deepEqual(fallbackTwinFails({ maxTargetShift: 0, fallback: { skeleton: { ...box(300, 390), table: true }, loaded: { ...box(300, 192), table: true } } }), []);
   assert.ok(isP0("interact|Tab|fallback-jump") && isP0("interact|Filter link|fallback-shape") && isP0("interact|Tab|stale-panel"));
 });
+
+// tab-click-still (FIXJ12): a same-route tab click must not move its strip on screen or scroll the
+// page by more than 4px (/herd-signals, /protocol-adherence, /weighing/weights moved; the last two
+// also scrolled). P0 in the push gate visual lane.
+test("guard: tab-click-still - tabClickMoveFails flags a moved strip and a scrolled page after a tab click", async () => {
+  const { tabClickMoveFails, TAB_STILL_PX, isP0 } = await import("./r2-visual-audit.mjs");
+  assert.equal(TAB_STILL_PX, 4);
+  assert.deepEqual(tabClickMoveFails("tab", { tabStill: { stripMove: 4, scrollMove: 0 } }), []);
+  assert.deepEqual(tabClickMoveFails("tab", { tabStill: { stripMove: 5, scrollMove: 0 } }).map((f) => f[0]), ["tab-strip-moved"]);
+  assert.deepEqual(tabClickMoveFails("tab", { tabStill: { stripMove: 0, scrollMove: 12 } }).map((f) => f[0]), ["tab-scroll-moved"]);
+  assert.deepEqual(tabClickMoveFails("tab", { tabStill: { stripMove: 261, scrollMove: 261 } }).map((f) => f[0]), ["tab-strip-moved", "tab-scroll-moved"]);
+  // filters / selects keep the looser scroll-jump / fallback-jump budgets; no strip = nothing to judge
+  assert.deepEqual(tabClickMoveFails("filter-link", { tabStill: { stripMove: 40, scrollMove: 40 } }), []);
+  assert.deepEqual(tabClickMoveFails("tab", { tabStill: null }), []);
+  assert.ok(isP0("interact|Tab|tab-strip-moved") && isP0("interact|Tab|tab-scroll-moved"));
+});

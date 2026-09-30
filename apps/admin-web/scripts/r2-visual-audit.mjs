@@ -27,6 +27,7 @@
 //        [--out <dir>] [--only sales,weighing] [--concurrency 5] [--checks scan,interact,drawers,skeleton,sbs]
 //        [--page-map ~/mesha/mui-page-map.md] [--query scope_mode=company] [--max-interactions 10]
 //        [--skeleton-profiles 1440-dark,390-dark] [--skeleton-nav push|click]
+//        [--read-only]  abort every non-GET request (audits against a shared API)
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -277,6 +278,23 @@ export function fallbackTwinFails(watch) {
   return out;
 }
 
+/**
+ * tab-click-still (FIXJ12, Ravi: "switch at once, no jumps"): after a same-route TAB click the strip
+ * holding the pressed tab must not move on screen and the page must not scroll, by more than
+ * TAB_STILL_PX at any 100ms sample of the transition or after it settles. Stricter than
+ * scroll-jump / fallback-jump (which allow 150px / 8px for filters and selects): a tab strip is
+ * where the finger is. Clamping to a shorter page's bottom is NOT excused: the strip still jumps.
+ */
+export const TAB_STILL_PX = 4;
+export function tabClickMoveFails(kind, watch) {
+  const out = [];
+  if (kind !== "tab" || !watch?.tabStill) return out;
+  const { stripMove, scrollMove } = watch.tabStill;
+  if (stripMove > TAB_STILL_PX) out.push(["tab-strip-moved", `the tab strip moved ${stripMove}px on screen after the tab click`]);
+  if (scrollMove > TAB_STILL_PX) out.push(["tab-scroll-moved", `the page scrolled ${scrollMove}px after the tab click`]);
+  return out;
+}
+
 // P0 = blocks the visual gate (make admin-web-visual-gate / npm run visual:gate).
 export const P0_PATTERNS = [
   /^interact\|[^|]+\|(skeleton-flash|full-reload)$/, // full-page skeleton flash / document reload on a tab / filter change
@@ -289,6 +307,8 @@ export const P0_PATTERNS = [
   // panel-fallback-twin (J3 P1-1/P1-2): the pressed control stays put through the transition and
   // the click-time panel skeleton has the landed panel's shape (1440 dark AND 390 dark).
   /^interact\|[^|]+\|(fallback-jump|fallback-shape)$/,
+  // tab-click-still (FIXJ12): a tab click never moves its strip or scrolls the page (> 4px).
+  /^interact\|Tab\|(tab-strip-moved|tab-scroll-moved)$/,
   /^dark-bright-bg\|/,
   /^off-palette\|/,
   /^chart-black\|/, // a chart series / legend mark whose colour never resolved (paints black)
@@ -819,6 +839,10 @@ function r2PageLib() {
       w.clickScroll = scrollY;
       w.clickTop = target && target.isConnected ? target.getBoundingClientRect().top : null;
       w.clickDocTop = target && target.isConnected ? docRect(target).top : null;
+      // tab-click-still (FIXJ12): the strip the pressed tab sits in, in VIEWPORT coordinates (what
+      // the finger sees: a layout move and a page scroll both count).
+      w.strip = target && target.isConnected ? target.closest("[role=tablist]") : null;
+      if (w.strip) { const sb = w.strip.getBoundingClientRect(); w.clickStrip = { top: sb.top, left: sb.left }; w.maxStripMove = 0; w.maxScrollMove = 0; }
       setTimeout(() => {
         const r = root();
         const landed = location.href !== w.url0;
@@ -856,7 +880,16 @@ function r2PageLib() {
       // pen tabs 60px down and back; a header action on one desk only moved the /people strip).
       if (w.clickDocTop != null && target && target.isConnected) w.maxTargetShift = Math.max(w.maxTargetShift, Math.abs(docRect(target).top - w.clickDocTop));
       if (tabs && !tabs.isConnected) w.tabsGone = true;
+      stripSample();
     };
+    const stripSample = () => {
+      if (!w.clickStrip) return;
+      w.maxScrollMove = Math.max(w.maxScrollMove, Math.abs(scrollY - w.clickScroll));
+      if (!w.strip.isConnected) return;
+      const sb = w.strip.getBoundingClientRect();
+      w.maxStripMove = Math.max(w.maxStripMove, Math.abs(sb.top - w.clickStrip.top), Math.abs(sb.left - w.clickStrip.left));
+    };
+    w.stripSample = stripSample;
     w.timer = setInterval(sample, 100);
     try { w.po = new PerformanceObserver((list) => { for (const e of list.getEntries()) w.cls += e.value; }); w.po.observe({ type: "layout-shift", buffered: false }); } catch {}
     window.__r2w = w;
@@ -879,10 +912,11 @@ function r2PageLib() {
   function readWatch() {
     const w = window.__r2w; if (!w) return null;
     const landedBox = w.fallbackPanels && w.fallbackPanels.every((p) => p.isConnected) ? unionBox(w.fallbackPanels) : null;
+    w.stripSample?.();
     clearInterval(w.timer); try { w.po?.disconnect(); } catch {}
     document.removeEventListener("click", w.onClick, true);
     const shift = (el, r) => { if (!el || !el.isConnected || !r) return 0; const n = docRect(el); return Math.max(Math.abs(n.top - r.top), Math.abs(n.left - r.left)); };
-    return { maxSkel: Math.round(w.maxSkel * 100) / 100, headerGone: w.headerGone || (w.header ? !w.header.isConnected : false), tabsGone: w.tabsGone || (w.tabs ? !w.tabs.isConnected : false), cls: Math.round(w.cls * 1000) / 1000, headerShift: Math.round(shift(w.header, w.headerRect)), tabsShift: Math.round(shift(w.tabs, w.tabsRect)), skelWhileHeaderGone: w.skelWhileHeaderGone, urlChanged: location.href !== w.url0, url: location.href, samples: w.samples, early: w.early.length ? w.early[w.early.length - 1] : null, maxTargetShift: Math.round(w.maxTargetShift || 0), fallback: w.fallbackBox && landedBox ? { skeleton: w.fallbackBox, loaded: landedBox } : null, scroll: w.clickScroll == null ? null : { clickScroll: Math.round(w.clickScroll), nowScroll: Math.round(scrollY), maxScroll: Math.round(document.documentElement.scrollHeight - innerHeight) } };
+    return { maxSkel: Math.round(w.maxSkel * 100) / 100, headerGone: w.headerGone || (w.header ? !w.header.isConnected : false), tabsGone: w.tabsGone || (w.tabs ? !w.tabs.isConnected : false), cls: Math.round(w.cls * 1000) / 1000, headerShift: Math.round(shift(w.header, w.headerRect)), tabsShift: Math.round(shift(w.tabs, w.tabsRect)), skelWhileHeaderGone: w.skelWhileHeaderGone, urlChanged: location.href !== w.url0, url: location.href, samples: w.samples, early: w.early.length ? w.early[w.early.length - 1] : null, maxTargetShift: Math.round(w.maxTargetShift || 0), tabStill: w.clickStrip ? { stripMove: Math.round(w.maxStripMove), scrollMove: Math.round(w.maxScrollMove) } : null, fallback: w.fallbackBox && landedBox ? { skeleton: w.fallbackBox, loaded: landedBox } : null, scroll: w.clickScroll == null ? null : { clickScroll: Math.round(w.clickScroll), nowScroll: Math.round(scrollY), maxScroll: Math.round(document.documentElement.scrollHeight - innerHeight) } };
   }
 
   /** Tab + filter candidates in the content column (marked with data-r2-i). */
@@ -1069,6 +1103,9 @@ async function main() {
     });
     await ctx.addInitScript(([keys, theme]) => { try { for (const k of keys) localStorage.setItem(k, theme); } catch {} }, [forTemplate ? [TEMPLATE_THEME_KEY] : OUR_THEME_KEYS, profile.theme]);
     await ctx.addInitScript(r2PageLib);
+    // --read-only (FIXJ12): abort every non-GET request at the context level, so an audit pointed at
+    // a shared local API can never write (a drag, a server action, a form submit).
+    if (args["read-only"]) await ctx.route("**/*", (r) => (["GET", "HEAD", "OPTIONS"].includes(r.request().method()) ? r.fallback() : r.abort()));
     return ctx;
   };
 
@@ -1435,6 +1472,7 @@ async function main() {
           if (!w.early.landed && !w.early.skel) fails.push(["stale-panel", "150ms after the click the panel still showed the old content without a skeleton (the tab transition hangs)"]);
         }
         if (!reloaded && !routeChange) fails.push(...fallbackTwinFails(w));
+        if (!reloaded && !routeChange) fails.push(...tabClickMoveFails(cur.kind, w));
         let evidence = null;
         if (fails.length) evidence = rel(await contactSheet(frames, join(outDir, "frames", `${slug(route.route)}__${done}_${cur.kind}.jpg`)).catch(() => null));
         for (const [code, msg] of fails) add({ check: "interact", pattern: `interact|${kindLabel}|${code}`, label: `${kindLabel} click → ${msg.replace(/ \(.*\)$| \d+(\.\d+)?px$| [\d.]+$/, "")}`, route: route.route, profile: profile.label, detail: `"${cur.label}" ${cur.href ?? ""} → ${msg}`, evidence });
@@ -1526,7 +1564,7 @@ async function main() {
         const h = r.request().headers();
         const isPrefetch = Object.keys(h).some((k) => /^next-router-(segment-)?prefetch$/.test(k));
         if (hold && h.rsc === "1" && !isPrefetch) await withTimeout(gate, 8000);
-        await r.continue().catch(() => {});
+        await r.fallback().catch(() => {});
       });
       await page.evaluate((u) => window.next?.router?.prefetch?.(u), targetRel).catch(() => {});
       await sleep(1500);

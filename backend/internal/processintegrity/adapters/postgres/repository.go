@@ -267,7 +267,6 @@ func (r *Repository) listRowsCanonical(ctx context.Context, q domain.Query, args
 		counts     []domain.CountByWorkState
 		totalCount int64
 		summary    domain.AdherenceSummary
-		statsErr   error
 	)
 
 	if q.RowID == nil && !q.IncludeAdherenceSummary {
@@ -287,52 +286,31 @@ func (r *Repository) listRowsCanonical(ctx context.Context, q domain.Query, args
 		return domain.ListResult{Rows: out, CountsByWorkState: counts, TotalCount: totalCount, AdherenceSummary: summary, NextCursor: next, Projection: canonicalProjectionMetadata(q)}, nil
 	}
 
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		out, lastCursor, seenExtra, rowErr = r.fetchCanonicalRows(ctx, q, args)
-	}()
-
-	if q.RowID == nil {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if q.IncludeAdherenceSummary {
-				c := countQueryArgs(args)
-				// Arguments are spelled out (not spread) so the bind-contract check proves them
-				// against the constant SQL; countQueryArgs already pins the length at 16.
-				summaryRows := r.pool.QueryRow(ctx, processIntegrityCanonicalAdherenceSummarySQL, pgx.QueryExecModeExec,
-					c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], c[10], c[11], c[12], c[13], c[14], c[15])
-				if err := summaryRows.Scan(
-					&summary.ExpectedCount,
-					&summary.CompletedCount,
-					&summary.OpenGapCount,
-					&summary.DeferredCount,
-					&summary.ProcessIntactCount,
-				); err != nil {
-					statsErr = fmt.Errorf("processintegrity: canonical adherence summary: %w", err)
-					return
-				}
-				if summary.ExpectedCount > 0 {
-					summary.AdherencePercent = float64(summary.CompletedCount) / float64(summary.ExpectedCount) * 100
-				}
-				totalCount = int64(summary.OpenGapCount + summary.ProcessIntactCount)
-				return
+	if q.RowID == nil && q.IncludeAdherenceSummary {
+		// Page + adherence summary in one statement (Protocol Adherence): the canonical CTE is planned
+		// and run once instead of twice in parallel, which kept overrunning the query timeout under load.
+		out, lastCursor, seenExtra, summary, rowErr = r.fetchCanonicalRowsAndSummary(ctx, q, args)
+		if rowErr != nil {
+			return domain.ListResult{}, rowErr
+		}
+		totalCount = int64(summary.OpenGapCount + summary.ProcessIntactCount)
+		var next *string
+		if seenExtra && lastCursor != nil {
+			encoded, err := domain.EncodeCursor(*lastCursor)
+			if err != nil {
+				return domain.ListResult{}, err
 			}
-			counts, totalCount, statsErr = r.countByWorkStateCanonical(ctx, countQueryArgs(args))
-		}()
+			next = &encoded
+		}
+		return domain.ListResult{Rows: out, TotalCount: totalCount, AdherenceSummary: summary, NextCursor: next, Projection: canonicalProjectionMetadata(q)}, nil
 	}
-	wg.Wait()
+
+	// Only a single-row drilldown (RowID set) reaches here: it needs neither counts nor a summary.
+	out, lastCursor, seenExtra, rowErr = r.fetchCanonicalRows(ctx, q, args)
 	if rowErr != nil {
 		return domain.ListResult{}, rowErr
 	}
-	if statsErr != nil {
-		return domain.ListResult{}, statsErr
-	}
-	if q.RowID != nil {
-		totalCount = int64(len(out))
-	}
+	totalCount = int64(len(out))
 
 	var next *string
 	if seenExtra && lastCursor != nil {
@@ -342,7 +320,7 @@ func (r *Repository) listRowsCanonical(ctx context.Context, q domain.Query, args
 		}
 		next = &encoded
 	}
-	return domain.ListResult{Rows: out, CountsByWorkState: counts, TotalCount: totalCount, AdherenceSummary: summary, NextCursor: next, Projection: canonicalProjectionMetadata(q)}, nil
+	return domain.ListResult{Rows: out, TotalCount: totalCount, NextCursor: next, Projection: canonicalProjectionMetadata(q)}, nil
 }
 
 func (r *Repository) fetchCanonicalRows(ctx context.Context, q domain.Query, args []any) ([]domain.Row, *domain.Cursor, bool, error) {
@@ -454,6 +432,62 @@ func (r *Repository) fetchCanonicalRowsAndCounts(ctx context.Context, q domain.Q
 		total += c.Count
 	}
 	return out, lastCursor, seenExtra, counts, total, nil
+}
+
+// fetchCanonicalRowsAndSummary reads the Protocol Adherence page and its selected-scope summary in one
+// statement (processIntegrityCanonicalRowsAndSummarySQL). It returns exactly what fetchCanonicalRows plus
+// the separate processIntegrityCanonicalAdherenceSummarySQL read return, including AdherencePercent.
+func (r *Repository) fetchCanonicalRowsAndSummary(ctx context.Context, q domain.Query, args []any) ([]domain.Row, *domain.Cursor, bool, domain.AdherenceSummary, error) {
+	var summary domain.AdherenceSummary
+	if len(args) != rowsQueryArgCount {
+		return nil, nil, false, summary, fmt.Errorf("processintegrity: list canonical rows+summary: got %d args, want %d", len(args), rowsQueryArgCount)
+	}
+	// Arguments are spelled out (not spread) so the bind-contract check proves them against the
+	// constant SQL.
+	rows, err := r.pool.Query(ctx, processIntegrityCanonicalRowsAndSummarySQL, pgx.QueryExecModeExec,
+		args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9], args[10], args[11], args[12], args[13], args[14], args[15], args[16], args[17], args[18], args[19])
+	if err != nil {
+		return nil, nil, false, summary, fmt.Errorf("processintegrity: list canonical rows+summary: %w", err)
+	}
+	defer rows.Close()
+
+	const prefixCols = 6
+	out := []domain.Row{}
+	var lastCursor *domain.Cursor
+	seenExtra := false
+	summarySeen := false
+	for rows.Next() {
+		var s domain.AdherenceSummary
+		var pageEmpty bool
+		skip := make([]any, len(rows.FieldDescriptions()))
+		skip[0], skip[1], skip[2], skip[3], skip[4], skip[5] = &s.ExpectedCount, &s.CompletedCount, &s.OpenGapCount, &s.DeferredCount, &s.ProcessIntactCount, &pageEmpty
+		if err := rows.Scan(skip...); err != nil {
+			return nil, nil, false, summary, fmt.Errorf("processintegrity: scan canonical rows+summary prefix: %w", err)
+		}
+		if !summarySeen {
+			summary, summarySeen = s, true
+		}
+		if pageEmpty {
+			continue
+		}
+		row, cursor, err := scanRow(prefixedScanner{rows: rows, prefix: make([]any, prefixCols)})
+		if err != nil {
+			return nil, nil, false, summary, err
+		}
+		if len(out) < q.Limit {
+			out = append(out, row)
+			lastCursor = &cursor
+		} else {
+			seenExtra = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, false, summary, fmt.Errorf("processintegrity: iterate canonical rows+summary: %w", err)
+	}
+	if summary.ExpectedCount > 0 {
+		summary.AdherencePercent = float64(summary.CompletedCount) / float64(summary.ExpectedCount) * 100
+	}
+	return out, lastCursor, seenExtra, summary, nil
 }
 
 // canonicalProjectionMetadata reports the live-canonical serving contract on the response envelope. A
@@ -2334,4 +2368,53 @@ SELECT
   COUNT(*) FILTER (WHERE process_intact)::integer AS process_intact_count
 FROM scoped_rows
 WHERE ($14::boolean OR work_state <> 'completed' OR due_at >= $11::timestamptz);
+`
+
+// processIntegrityCanonicalRowsAndSummarySQL is the Protocol Adherence LIST page and its AGGREGATE
+// summary in ONE statement. /vaccination/adherence used to run processIntegrityCanonicalRowsSQL and
+// processIntegrityCanonicalAdherenceSummarySQL in parallel on two pool connections, so the ~1.3k-line
+// canonical CTE was planned and executed twice per request. On a loaded host both halves together ran
+// past the repository query timeout and the tab answered 500 internal_error ("iterate projection rows:
+// timeout: context deadline exceeded"). visible is exactly the summary read's membership ($14/$11 filter
+// over scoped_rows); page is exactly the LIST read's keyset page over it. The summary rides every row;
+// an empty page (e.g. the Blocked tab with no blocked rows) still returns one row (page columns NULL,
+// page_empty true) so the summary is never lost.
+// projection-review: membership=scoped_rows grouped grains filtered by the same $14/$11 closed-history clause as the separate summary read; group_key=none for the summary (single selected-scope row), row keyset for the page; join_cardinality=page LEFT JOINed to a single-row summary aggregate (1:1 per page row, or one NULL page row) so no fan-out; pagination=page keyset on (sort_priority, due_at, row_id) LIMIT $20 while the summary covers the whole visible set independent of the page; scope=all filters applied inside all_rows exactly as the two reads it replaces.
+// scale-guard:ignore: 5k-50k operational-kernel envelope; the same canonical indexed read as processIntegrityCanonicalRowsSQL + processIntegrityCanonicalAdherenceSummarySQL, planned once.
+const processIntegrityCanonicalRowsAndSummarySQL = processIntegrityAllRowsSQL + processIntegrityLatestDriveScopeSQL + `,
+visible AS MATERIALIZED (
+  SELECT *
+  FROM scoped_rows
+  WHERE ($14::boolean OR work_state <> 'completed' OR due_at >= $11::timestamptz)
+),
+visible_summary AS (
+  SELECT
+    COALESCE(SUM(expected_count), 0)::integer AS summary_expected_count,
+    COALESCE(SUM(completed_count), 0)::integer AS summary_completed_count,
+    COUNT(*) FILTER (WHERE NOT process_intact)::integer AS summary_open_gap_count,
+    COALESCE(SUM(CASE WHEN work_state = 'deferred' THEN GREATEST(deferred_count, 1) ELSE 0 END), 0)::integer AS summary_deferred_count,
+    COUNT(*) FILTER (WHERE process_intact)::integer AS summary_process_intact_count
+  FROM visible
+),
+page AS (
+  SELECT
+` + processIntegrityCanonicalRowColumns + `  FROM visible scoped_rows
+  WHERE (
+    $17::int < 0
+    OR (sort_priority, due_at, row_id) > ($17::int, $18::timestamptz, $19::text)
+  )
+  ORDER BY sort_priority ASC, due_at ASC, row_id ASC
+  LIMIT $20
+)
+SELECT
+  visible_summary.summary_expected_count,
+  visible_summary.summary_completed_count,
+  visible_summary.summary_open_gap_count,
+  visible_summary.summary_deferred_count,
+  visible_summary.summary_process_intact_count,
+  page.row_id IS NULL AS page_empty,
+  page.*
+FROM visible_summary
+LEFT JOIN page ON true
+ORDER BY page.sort_priority ASC, page.due_at ASC, page.row_id ASC;
 `

@@ -9,6 +9,6 @@ import platformpostgres "github.com/vgoats/goatos/backend/internal/platform/post
 func ConnWarmups() []platformpostgres.ConnWarmup {
 	return []platformpostgres.ConnWarmup{
 		{Name: "processintegrity.rows_and_counts", SQL: processIntegrityCanonicalRowsAndCountsSQL, Mode: platformpostgres.WarmCustomPlan, Args: platformpostgres.TenantFirst()},
-		{Name: "processintegrity.adherence_summary", SQL: processIntegrityCanonicalAdherenceSummarySQL, Mode: platformpostgres.WarmCustomPlan, Args: platformpostgres.TenantFirst()},
+		{Name: "processintegrity.rows_and_summary", SQL: processIntegrityCanonicalRowsAndSummarySQL, Mode: platformpostgres.WarmCustomPlan, Args: platformpostgres.TenantFirst()},
 	}
 }

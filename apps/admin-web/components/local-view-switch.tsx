@@ -94,11 +94,18 @@ export function LocalViewToggle({
  * One view of a LocalViewToggle. Hidden views stay mounted, so switching back is instant and keeps
  * whatever the reader had open inside them. `display: contents` keeps the pane out of the page's
  * own grid, so wrapping a view does not change its layout.
+ *
+ * `stacked` (FIXJ12, guard: local-view-stacked): the panes share ONE grid cell (wrap them in
+ * LocalViewStack). The hidden pane keeps its box (visibility hidden, inert), so the cell is always
+ * as tall as the tallest view and a toggle pinned to each card's foot sits on the same pixel in every
+ * view: switching never moves the toggle and never scrolls the page (/weighing/weights moved it
+ * 398-725px and scrolled 257px at 390).
  */
 export function LocalViewPane({
   param,
   value,
   current,
+  stacked = false,
   children,
 }: {
   param: string;
@@ -106,13 +113,31 @@ export function LocalViewPane({
   value: string;
   /** The view the server rendered as visible. */
   current: string;
+  /** Overlay the panes in one LocalViewStack cell instead of display none. */
+  stacked?: boolean;
   children: ReactNode;
 }) {
   const [selected] = useLocalView(param, current);
   const visible = selected === value;
+  if (stacked) {
+    return (
+      <Box
+        aria-hidden={visible ? undefined : true}
+        inert={!visible || undefined}
+        sx={{ gridArea: "1 / 1", minWidth: 0, display: "flex", flexDirection: "column", visibility: visible ? "visible" : "hidden" }}
+      >
+        {children}
+      </Box>
+    );
+  }
   return (
     <Box sx={{ display: visible ? "contents" : "none" }} aria-hidden={visible ? undefined : true}>
       {children}
     </Box>
   );
+}
+
+/** The one grid cell `stacked` LocalViewPanes overlay in (height 1: fills a stretched Grid item). */
+export function LocalViewStack({ children }: { children: ReactNode }) {
+  return <Box sx={{ display: "grid", height: 1, gridTemplateColumns: "minmax(0, 1fr)" }}>{children}</Box>;
 }

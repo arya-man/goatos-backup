@@ -1,7 +1,7 @@
 import Table from "@mui/material/Table";
 import TableContainer from "@mui/material/TableContainer";
 import { UrlSuspense } from "@/components/app/url-suspense";
-import { LocalViewPane, LocalViewToggle } from "@/components/local-view-switch";
+import { LocalViewPane, LocalViewStack, LocalViewToggle } from "@/components/local-view-switch";
 import { WeightsKidsPanelSkeleton } from "./weights-skeletons";
 import { KIDS_GRID } from "./weights-analytics-layout";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
@@ -1023,7 +1023,11 @@ export async function WeighingWeightsPage({
             that adds to the denominator (each kid counted once). Chart first; the exact counts are
             one local switch away (LocalViewToggle writes gain_view, so the choice survives a reload). */}
         <Grid size={KIDS_GRID.breedGain}>
-          <LocalViewPane param={GAIN_VIEW_PARAM} value="chart" current={gainThresholdView}>
+          {/* Both views overlay one cell (guard: local-view-stacked): the cell is the taller view's
+              height and each card pins the switch to its foot, so Chart / Table never moves the
+              switch or scrolls the page. */}
+          <LocalViewStack>
+          <LocalViewPane stacked param={GAIN_VIEW_PARAM} value="chart" current={gainThresholdView}>
             <BalanceStatisticsCard
               aria-label={copy(pageContract, "section.gain_thresholds.aria")}
               title={copy(pageContract, "section.gain_thresholds.title")}
@@ -1070,13 +1074,13 @@ export async function WeighingWeightsPage({
                   ],
                 },
               }}
-              sx={{ height: 1 }}
+              sx={GAIN_VIEW_CARD_SX}
             >
-              <Box sx={{ px: 3, pb: 3 }}>{gainViewSwitch}</Box>
+              <Box sx={GAIN_VIEW_FOOT_SX}>{gainViewSwitch}</Box>
             </BalanceStatisticsCard>
           </LocalViewPane>
-          <LocalViewPane param={GAIN_VIEW_PARAM} value="table" current={gainThresholdView}>
-            <Card aria-label={copy(pageContract, "section.gain_thresholds.aria")} sx={{ height: 1 }}>
+          <LocalViewPane stacked param={GAIN_VIEW_PARAM} value="table" current={gainThresholdView}>
+            <Card aria-label={copy(pageContract, "section.gain_thresholds.aria")} sx={GAIN_VIEW_CARD_SX}>
               {/* The view switch sits at the card foot in BOTH panes (as under the chart), so it does
                   not change slot when the view flips (TR2-P2-12; guard: local-view-anchored). */}
               <CardHeader title={copy(pageContract, "section.gain_thresholds.title")} subheader={gainCaption} sx={{ mb: 3 }} />
@@ -1113,9 +1117,10 @@ export async function WeighingWeightsPage({
                   </Table>
                 </TableContainer>
               )}
-              <Box sx={{ p: 3 }}>{gainViewSwitch}</Box>
+              <Box sx={GAIN_VIEW_FOOT_SX}>{gainViewSwitch}</Box>
             </Card>
           </LocalViewPane>
+          </LocalViewStack>
         </Grid>
 
         {/* The true growth charts: same-tag-twice ADG or weight. Breed (the long list) takes half the
@@ -1465,3 +1470,7 @@ export async function WeighingWeightsPage({
 
 /** Params that never change the figures (the export drawer). */
 const PANEL_IGNORE = ["wt_export", GAIN_VIEW_PARAM] as const;
+/** The gain Chart / Table cards fill the shared LocalViewStack cell as a column ... */
+const GAIN_VIEW_CARD_SX = { height: 1, display: "flex", flexDirection: "column" } as const;
+/** ... and pin the view switch to the foot, the same pixel in both views (guard: local-view-stacked). */
+const GAIN_VIEW_FOOT_SX = { p: 3, mt: "auto" } as const;
