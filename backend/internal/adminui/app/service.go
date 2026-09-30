@@ -2381,7 +2381,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"summary.people":           "People",
 			"people.title":             "By person",
 			"people.empty":             "No violations or leave for this filter.",
-			"list.title":               "All violations",
+			"list.title":               "Violations",
 			"list.empty":               "No violations recorded for this filter.",
 			"column.date":              "Date",
 			"column.person":            "Person",

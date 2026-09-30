@@ -85,7 +85,8 @@ var disciplineCopy = map[string]string{
 	"attendance.late":          "Clocked in %s · %s starts %s · %s late",
 	"attendance.minutes":       "%d min",
 	"attendance.hours":         "%d h %d min",
-	"attendance.absent":        "No clock-in · %s starts %s",
+	"attendance.absent":        "No clock-in during the shift · %s starts %s",
+	"fine.pending":             "HR decides",
 	"attendance.close_leave":   "Closed by itself: leave was applied for this day",
 	"attendance.close_holiday": "Closed by itself: this day is a holiday",
 	"attendance.close_weekoff": "Closed by itself: this day is the weekly off",
@@ -795,10 +796,15 @@ func composeViolation(r ports.ViolationRow) domain.Violation {
 	if r.Status == domain.ViolationClosed && r.DecidedByName == "" {
 		statusLabel = disciplineCopy["status.closed_auto"]
 	}
+	// A waiting one has no fine yet -- "No fine" would read as HR's decision before HR made it.
+	fineLabel := domain.FineLabel(r.FineRupees)
+	if r.Status == domain.ViolationPending {
+		fineLabel = disciplineCopy["fine.pending"]
+	}
 	return domain.Violation{
 		ViolationID: r.ViolationID, PersonID: r.PersonID, PersonName: r.PersonName, ParkID: r.ParkID, ParkLabel: r.ParkLabel,
 		Designation: designationLabel(r.DesignationLabel, r.RoleHint, r.DesignationGrade, clockCopyFor("en")),
-		TypeKey:     r.TypeKey, TypeLabel: r.TypeLabel, FineRupees: r.FineRupees, FineLabel: domain.FineLabel(r.FineRupees),
+		TypeKey:     r.TypeKey, TypeLabel: r.TypeLabel, FineRupees: r.FineRupees, FineLabel: fineLabel,
 		OccurredOn: r.OccurredOn.Format("2006-01-02"), OccurredOnLabel: biztime.FarmDateFromBusinessDate(r.OccurredOn.Format("2006-01-02")),
 		Note: r.Note, Source: r.Source, SourceLabel: disciplineCopy["source."+r.Source], EnquiryID: r.EnquiryID,
 		RecordedByName: r.RecordedByName, RecordedAtLabel: farmTimestamp(r.RecordedAt),

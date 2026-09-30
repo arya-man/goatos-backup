@@ -235,7 +235,8 @@ export function HrmsEditor({
               <span className="small muted">{t("hsop.attendance.late")}</span>
               <select className="inp" value={rows.attendance?.lateType ?? ""} onChange={(e) => setAttendance({ lateType: e.target.value })} data-testid="hsop-late-type">
                 <option value="">{t("hsop.attendance.off")}</option>
-                {namedTypes.map((x) => (
+                {/* A switched-off type is offered only while it is the one already chosen. */}
+                {namedTypes.filter((x) => x.active || x.key === rows.attendance?.lateType).map((x) => (
                   <option key={x.key} value={x.key}>
                     {x.title}
                   </option>
@@ -246,7 +247,8 @@ export function HrmsEditor({
               <span className="small muted">{t("hsop.attendance.absent")}</span>
               <select className="inp" value={rows.attendance?.absentType ?? ""} onChange={(e) => setAttendance({ absentType: e.target.value })} data-testid="hsop-absent-type">
                 <option value="">{t("hsop.attendance.off")}</option>
-                {namedTypes.map((x) => (
+                {/* A switched-off type is offered only while it is the one already chosen. */}
+                {namedTypes.filter((x) => x.active || x.key === rows.attendance?.absentType).map((x) => (
                   <option key={x.key} value={x.key}>
                     {x.title}
                   </option>
