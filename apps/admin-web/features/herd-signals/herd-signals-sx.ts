@@ -74,6 +74,9 @@ export function respTableSx({ minWidth, columns }: { minWidth?: number; columns?
       },
     },
     [theme.breakpoints.down("md")]: {
+      // Doubled class: outranks the shell's phone floor for every table (`.main table{min-width:540px}`),
+      // which is right for a table that keeps its columns and wrong for these stacked field rows.
+      "&&": { minWidth: 0, width: 1 },
       "& thead": { display: "none" },
       "& tbody": { display: "grid" },
       "& tbody tr": {

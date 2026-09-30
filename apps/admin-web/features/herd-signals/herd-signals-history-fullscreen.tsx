@@ -392,7 +392,7 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
       }}
       slotProps={{ paper: { "aria-label": "Full movement history" } }}
     >
-      <Box sx={{ minHeight: 1, bgcolor: "background.default", display: "flex", flexDirection: "column" }}>
+      <Box sx={{ height: 1, bgcolor: "background.default", display: "flex", flexDirection: "column" }}>
         <Box
           sx={{
             display: "flex",
@@ -427,7 +427,7 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
           </Button>
         </Box>
 
-        <Stack spacing={2} sx={{ flex: 1, overflow: "auto", overflowX: { xs: "hidden", sm: "auto" }, px: { xs: 1.5, sm: 2.5 }, pt: 2, pb: 5 }}>
+        <Stack spacing={2} sx={{ flex: 1, minHeight: 0, overflow: "auto", overflowX: { xs: "hidden", sm: "auto" }, px: { xs: 1.5, sm: 2.5 }, pt: 2, pb: 5, "& > *": { flexShrink: 0 } }}>
           <Card sx={{ p: { xs: 1.5, sm: 2 } }}>
             <Stack direction={{ xs: "column", md: "row" }} spacing={1.5} sx={{ alignItems: { xs: "stretch", md: "center" }, flexWrap: "wrap", rowGap: 1.5 }}>
               <Typography variant="overline" sx={{ color: "text.secondary" }}>
@@ -486,6 +486,7 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
               <Typography variant="overline" sx={{ color: "text.secondary" }}>
                 Overlay activity
               </Typography>
+              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
               {OVERLAY_KINDS.map((kind) => {
                 const meta = KIND_META[kind];
                 const on = overlaysOn[kind] ?? true;
@@ -511,6 +512,7 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
                   />
                 );
               })}
+              </Box>
               <Box sx={{ flex: 1, display: { xs: "none", md: "block" } }} />
               <Typography variant="caption" sx={{ color: "text.secondary" }}>
                 Overlays are joins onto existing Mesha records — they are context, not cause.
