@@ -27,6 +27,7 @@ import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import { Tag } from "@/components/ui-primitives";
 import type { KitTone } from "@/lib/tone";
 import { PageHeader } from "@/components/app/page-header";
+import { PageRoot } from "@/components/app/page-root";
 import { KpiGrid } from "@/components/app/kpi-grid";
 import { KpiWidget, kpiColor } from "@/components/app/kpi-widget";
 import { TemplateTabs, TabPanel } from "@/components/app/template-tabs";
@@ -199,7 +200,7 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
   const bandTone = summary && summary.critical_count > 0 ? "dng" : summary && summary.warning_count > 0 ? "warn" : "mut";
 
   return (
-    <Box sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: "var(--sp-3)", alignContent: "start" }}>
+    <PageRoot>
       <PageHeader title={pageContract.title} crumbs={[{ label: pageContract.title }]} />
 
       <Stack spacing={3}>
@@ -460,6 +461,6 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
         initialSelectedAlertId={initialSelectedAlertId}
         closeHref={closeDrawerHref}
       />
-    </Box>
+    </PageRoot>
   );
 }
