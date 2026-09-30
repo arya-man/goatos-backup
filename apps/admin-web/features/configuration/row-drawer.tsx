@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useRef, useState } from "react";
+import { useActionState, useEffect, useId, useMemo, useRef, useState } from "react";
 import Button from "@mui/material/Button";
 import MenuItem from "@mui/material/MenuItem";
 import TextField from "@mui/material/TextField";
@@ -11,6 +11,7 @@ import Alert from "@mui/material/Alert";
 
 import { currentHistoryEntryIsLocalOverlay, replaceLocalOverlayUrl } from "@/components/local-overlay-link";
 import { Tag } from "@/components/ui-primitives";
+import { DrawerFooterActions } from "@/components/app/detail-drawer";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ConfigurationColumn, ConfigurationRefOption, ConfigurationRegister, ConfigurationRow } from "@/lib/api/configuration-server";
 import { createRowAction, deleteRowAction, setRowStatusAction, updateRowAction, type ConfigurationActionState } from "./configuration-actions";
@@ -110,6 +111,7 @@ export function RowDrawerForm({
   defaults?: Record<string, string>;
 }) {
   const isEdit = !!row;
+  const formId = `cfg-row-form-${useId().replace(/:/g, "")}`;
   const [draft, setDraft] = useState<Draft>(() => ({ ...draftFrom(register, row), ...(row ? {} : defaults ?? {}) }));
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [state, formAction, pending] = useActionState(isEdit ? updateRowAction : createRowAction, INITIAL_ACTION_STATE);
@@ -158,7 +160,7 @@ export function RowDrawerForm({
 
   return (
     <>
-      <Stack component="form" action={formAction} aria-busy={pending} className="cfg-form" spacing={3}>
+      <Stack component="form" id={formId} action={formAction} aria-busy={pending} className="cfg-form" spacing={3}>
         <Box component="input" type="hidden" name="register" value={register.key} />
         {row ? <Box component="input" type="hidden" name="row_id" value={row.id} /> : null}
         {row ? <Box component="input" type="hidden" name="row_version" value={row.row_version} /> : null}
@@ -318,15 +320,14 @@ export function RowDrawerForm({
           </Alert>
         ) : null}
 
+        {/* Template drawer footer (J2B P2-12): Save sits in the footer row after the drawer's Close
+            (which already closes like Cancel did), naming this form through `form=`. */}
         {canEdit ? (
-          <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-            <Button type="submit" variant="contained" color="primary" loading={pending}>
+          <DrawerFooterActions>
+            <Button type="submit" form={formId} variant="contained" color="primary" loading={pending}>
               {c("action.save")}
             </Button>
-            <Button type="button" variant="outlined" onClick={() => closeOverlay(listHref)} disabled={pending}>
-              {c("action.cancel")}
-            </Button>
-          </Stack>
+          </DrawerFooterActions>
         ) : null}
       </Stack>
 

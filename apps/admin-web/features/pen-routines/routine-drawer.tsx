@@ -1078,7 +1078,14 @@ export function RoutineSaveFooter({ formId, saveLabel, canSave }: { formId: stri
   );
   if (!canSave) return null;
   return (
-    <Stack direction="row" sx={{ alignItems: "center", flexWrap: "wrap", gap: 1.5, width: 1 }}>
+    // Template footer row (J2B P2-12): the outcome sentence, then Save, on the drawer's one action row
+    // beside Close (no full-width row of its own that read as Save in the body).
+    <Stack direction="row" sx={{ alignItems: "center", flexWrap: "wrap", gap: 1.5, justifyContent: "flex-end" }}>
+      {view.message ? (
+        <Typography role="status" variant="body2" sx={{ color: view.tone === "success" ? "success.main" : "error.main" }}>
+          {view.message}
+        </Typography>
+      ) : null}
       <Button
         type="submit"
         form={formId}
@@ -1090,11 +1097,6 @@ export function RoutineSaveFooter({ formId, saveLabel, canSave }: { formId: stri
       >
         {saveLabel}
       </Button>
-      {view.message ? (
-        <Typography role="status" variant="body2" sx={{ color: view.tone === "success" ? "success.main" : "error.main" }}>
-          {view.message}
-        </Typography>
-      ) : null}
     </Stack>
   );
 }

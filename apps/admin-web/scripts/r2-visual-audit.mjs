@@ -32,7 +32,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSy
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { probeDeadControls, probeFieldWidths, probeTextFit } from "./r2-audit-checks/text-fit.mjs";
+import { probeDeadControls, probeDrawerPrimaryPlacement, probeFieldWidths, probeTextFit } from "./r2-audit-checks/text-fit.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const appRoot = resolve(scriptDir, "..");
@@ -297,7 +297,8 @@ export const P0_PATTERNS = [
   /^drawer\|(overflow\|clipped|no-backdrop)/,
   // J2B P1-1 / P2-8: a form field collapsed next to full-width siblings, and a dimmed idle Apply /
   // Save inside a drawer / dialog (DECIDED no dead controls). guard: drawer-field-width, no-dead-controls
-  /^drawer\|(field-collapsed|dead-control)$/,
+  // J2B P2-12: a drawer form's Save in the body while the drawer has a footer row. guard: drawer-primary-in-footer
+  /^drawer\|(field-collapsed|dead-control|primary-in-body)$/,
   /^skeleton\|(mismatch|missing|extra)/, // skeleton vs loaded block IoU < 0.8, block missing / extra
   /^tap\|/,
   /^sideways-scroll\|/,
@@ -1532,6 +1533,7 @@ async function main() {
         if (!o.backdrop) add({ check: "drawers", pattern: `drawer|no-backdrop|${o.kind}`, label: `${o.kind === "drawer" ? "Drawer" : "Dialog"} opens without a backdrop`, route: route.route, profile: profile.label, detail: `${what} (${o.sig})`, evidence });
         for (const ov of o.overflow) add({ check: "drawers", pattern: `drawer|overflow|${ov.soft ? "table-scroll" : "clipped"}`, label: ov.soft ? "Table squeezed into a sideways-scrolling drawer" : "Drawer/dialog content overflows or is clipped", route: route.route, profile: profile.label, detail: `${what}: ${ov.sig} ${ov.detail}`, evidence });
         for (const f of await page.evaluate(probeFieldWidths, "[data-r2-paper]").catch(() => [])) add({ check: "drawers", pattern: "drawer|field-collapsed", label: "Drawer/dialog form field collapsed next to full-width fields", route: route.route, profile: profile.label, detail: `${what}: ${f.detail}`, evidence });
+        for (const f of await page.evaluate(probeDrawerPrimaryPlacement, "[data-r2-paper]").catch(() => [])) add({ check: "drawers", pattern: "drawer|primary-in-body", label: "Drawer form primary in the body, not the footer row", route: route.route, profile: profile.label, detail: `${what}: ${f.detail}`, evidence });
         for (const f of await page.evaluate(probeDeadControls, "[data-r2-paper]").catch(() => [])) add({ check: "drawers", pattern: "drawer|dead-control", label: "Disabled (dead) Apply / Save / primary in a drawer or dialog", route: route.route, profile: profile.label, detail: `${what}: ${f.detail}`, evidence });
         if (checks.has("scan")) {
           const out = await page.evaluate((o2) => window.__r2lib.scan(o2), { theme: "dark", tap: false, scope: "[data-r2-paper]" });
