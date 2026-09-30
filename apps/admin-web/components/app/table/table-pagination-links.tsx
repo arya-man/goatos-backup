@@ -17,6 +17,7 @@ import TablePagination from '@mui/material/TablePagination';
 import Link, { useLinkStatus } from '@/components/no-prefetch-link';
 
 import { Iconify } from '@/components/minimal/iconify';
+import { TAP_MIN } from '@/components/app/tap';
 
 export type TablePaginationLinksProps = {
   /** 0-based page shown. */
@@ -87,7 +88,13 @@ export function TablePaginationLinks({
       className={className}
       role={ariaLabel ? 'navigation' : undefined}
       aria-label={ariaLabel}
-      sx={[{ position: 'relative' }, ...(Array.isArray(sx) ? sx : [sx])]}
+      // The table pager hook the smoke / webview lanes find (replaces the legacy pager class).
+      data-pager=""
+      sx={[
+        // Phone: every pager control is a 44px tap (webview rule), from sx instead of legacy CSS.
+        (theme) => ({ position: 'relative', [theme.breakpoints.down('sm')]: { '& .MuiIconButton-root, & .MuiTablePagination-select': { minWidth: TAP_MIN, minHeight: TAP_MIN } } }),
+        ...(Array.isArray(sx) ? sx : [sx]),
+      ]}
     >
       <TablePagination
         component="div"

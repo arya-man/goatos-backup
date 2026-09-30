@@ -1,4 +1,6 @@
 // guard: lucide-banned (FIXJ4, J1 P1-3).
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
 //
 // THE one lucide-react -> template Iconify mapping table. admin-web draws every icon with
 // `<Iconify icon="..." />` from @/components/minimal/iconify (the Minimal template's icon set; solar
@@ -10,11 +12,13 @@
 // Size: lucide `size={n}` -> Iconify `width={n}`. `strokeWidth`, `className="ic"`, `aria-hidden` drop
 // (Iconify renders aria-hidden). Spinners (Loader2) are MUI `<CircularProgress size={n} />`, not an icon.
 export const LUCIDE_TO_ICONIFY = Object.freeze({
+  Activity: "eva:activity-fill",
   AlertTriangle: "solar:danger-triangle-bold",
   ArrowLeft: "eva:arrow-ios-back-fill",
   ArrowRight: "eva:arrow-forward-fill",
   ArrowUpDown: "carbon:chevron-sort",
   AtSign: "solar:letter-bold",
+  Baby: "eva:smiling-face-fill",
   Bell: "solar:bell-bing-bold",
   BellOff: "solar:bell-off-bold",
   BellRing: "solar:bell-bing-bold-duotone",
@@ -38,6 +42,7 @@ export const LUCIDE_TO_ICONIFY = Object.freeze({
   Compass: "solar:home-angle-bold-duotone",
   Copy: "solar:copy-bold",
   Download: "solar:download-bold",
+  Droplets: "solar:tea-cup-bold",
   ExternalLink: "eva:external-link-fill",
   Eye: "solar:eye-bold",
   FileCheck2: "solar:file-check-bold-duotone",
@@ -86,8 +91,10 @@ export const LUCIDE_TO_ICONIFY = Object.freeze({
   Truck: "carbon:delivery",
   Type: "solar:file-text-bold",
   User: "solar:user-rounded-bold",
+  Users: "solar:users-group-rounded-bold",
   UsersRound: "solar:users-group-rounded-bold",
   Video: "solar:videocamera-record-bold",
+  Warehouse: "solar:home-2-outline",
   Wheat: "custom:fast-food-fill",
   X: "mingcute:close-line",
 });
@@ -97,4 +104,35 @@ export const LUCIDE_SPINNERS = Object.freeze(["Loader2", "LoaderCircle", "Loader
 export function iconifyFor(lucideName) {
   if (LUCIDE_SPINNERS.includes(lucideName)) return "<CircularProgress size={n} /> (MUI)";
   return LUCIDE_TO_ICONIFY[lucideName] ?? null;
+}
+
+// guard: lucide-banned. One finding per file importing lucide-react (naming the Iconify names for
+// what it imports) and one for a lucide-react dependency in the app's package.json.
+export function lucideBannedFindings(root) {
+  const out = [];
+  const walk = (dir) => {
+    let names = [];
+    try { names = readdirSync(dir); } catch { return; }
+    for (const name of names) {
+      if (name === "node_modules" || name.startsWith(".")) continue;
+      const full = join(dir, name);
+      if (statSync(full).isDirectory()) walk(full);
+      else if (/\.(tsx?|jsx?|mjs)$/.test(name) && !/\.test\.mjs$/.test(name)) {
+        const src = readFileSync(full, "utf8");
+        const m = src.match(/import\s+(?:type\s+)?(?:\{([^}]*)\}|\w+)\s*from\s*["']lucide-react(?:\/[^"']*)?["']/);
+        if (!m) continue;
+        const names = (m[1] ?? "").split(",").map((x) => x.trim().split(/\s+as\s+/)[0]).filter(Boolean);
+        const line = src.slice(0, m.index).split("\n").length;
+        out.push({ file: relative(root, full), line, snippet: `lucide-react import -> ${names.map((n) => `${n}: ${iconifyFor(n) ?? "pick a registered Iconify name"}`).join(", ") || "Iconify"}` });
+      }
+    }
+  };
+  for (const dir of ["app", "components", "features", "lib", "layouts", "theme", "stories", "hooks"]) walk(join(root, dir));
+  try {
+    const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+    for (const field of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
+      if (pkg[field]?.["lucide-react"]) out.push({ file: "package.json", line: 1, snippet: `${field}.lucide-react: remove it; icons are the template Iconify set` });
+    }
+  } catch {}
+  return out;
 }

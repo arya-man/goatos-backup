@@ -51,6 +51,7 @@ import { templateHash, templateVerbatimFindings } from "./lib/template-verbatim.
 import { anatomy as templateAnatomy, templateDerivedFindings } from "./lib/template-derived.mjs";
 import { legacyFreeZoneFindings } from "./lib/legacy-free-zones.mjs";
 import { SHRINK_RATCHET_CHECKS, shrinkRatchetFindings } from "./lib/shrink-ratchets.mjs";
+import { lucideBannedFindings } from "./lib/lucide-iconify-map.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const appDir = resolve(scriptDir, "..");
@@ -213,6 +214,7 @@ const CHECKS = {
   "section-client-boundary": { tier: "p0", why: "a template section under components/minimal/sections/ that uses hooks or a function sx/theme callback must start with 'use client'; a server page rendering it would otherwise pass a function to a client component and crash at render (typecheck cannot see it)" },
   "page-template-no-pastel": { tier: "p0", why: "a page listed in docs/design/page-template-map.md must not use KpiCard variant tint/gradient or AnalyticsWidgetSummary (pastel in dark); KPI rows are the template Ecommerce/Course/Banking widget summaries" },
   "page-template-legacy-card": { tier: "p0", why: "a page listed in docs/design/page-template-map.md must not render the legacy hand-made card markup (className \"card\"/\"wchart\"/\"wtable\"/\"kpi\", <h2 className=\"h\">); every block is a template section card (Card + CardHeader) fed our data" },
+  "lucide-banned": { tier: "p0", why: "lucide-react is not a dependency of admin-web: every icon is the template Iconify (`<Iconify icon=\"...\" />`, registered offline set). The one lucide -> Iconify mapping table is scripts/lib/lucide-iconify-map.mjs; the finding names the replacement (FIXJ4, J1 P1-3)" },
   "legacy-free-zone": { tier: "p0", why: "a file listed in scripts/legacy-free-zones.json (converted onto the template) has no legacy stylesheet class, no style={} prop, no native button/input/select/textarea/table, no lucide-react icon, no .css import and no hex/rgb colour literal: template/MUI components, Iconify and theme sx only (J1 P0-1/P0-2/P1-1..3/P1-5; zones only grow)" },
   "shell-nav-template": { tier: "p0", why: "the sidebar is the template NavSectionVertical/NavSectionMini inside layouts/app/dashboard nav-vertical/nav-mobile (whole nav in the template Scrollbar, template 288px mobile drawer over the template backdrop); no custom footer (navBottom / msh-foot / navigation.footer), no default-open subtrees, no full-width/opaque phone menu or extra close button" },
   "unsourced-minimal-file": { tier: "p0", why: "components/minimal/ holds template-derived code only; every file needs an entry in docs/design/template-sources.json mapping it to a Minimal template source path" },
@@ -536,6 +538,10 @@ function runGuard(root, { themeDiff }) {
     const isExempt = (rel) => isTemplateCode(rel) || (rel.startsWith("layouts/") && mapped.has(rel));
     for (const hit of shrinkRatchetFindings(root, { isExempt })) findings.push(finding(hit.check, hit.file, hit.line, hit.snippet));
   }
+
+  // FIXJ4 (J1 P1-3): lucide-react is gone for good. Any import of it (a file) or a dependency entry
+  // (apps/admin-web/package.json) fails p0, naming the template Iconify replacement.
+  for (const hit of lucideBannedFindings(root)) findings.push(finding("lucide-banned", hit.file, hit.line, hit.snippet));
 
   // J1: files moved onto the template stay there (scripts/lib/legacy-free-zones.mjs).
   for (const hit of legacyFreeZoneFindings(root)) findings.push(finding("legacy-free-zone", hit.file, hit.line, hit.snippet));
@@ -1352,6 +1358,7 @@ async function selfTest() {
   put("features/cardy/panel.tsx", 'export const Panel = () => (\n  <section className="card">\n    <div className={`hd ${x}`} />\n  </section>\n);\n');
   put("features/orphan-card.tsx", 'export const O = () => <section className="card" />;\n');
   put("features/icons.tsx", 'import { Check, X as Close } from "lucide-react";\nexport const I = () => <Check />;\n');
+  put("package.json", JSON.stringify({ name: "fixture", dependencies: { "lucide-react": "1.0.0" } }));
   put("features/multiline-select.tsx", 'export const S = () => (\n  <select\n    value={v}\n  />\n);\nexport const T = () => <div style={{ width: "12px", color: "#abcdef" }} />;\n');
   const { findings } = runGuard(root, { themeDiff: false });
   {
@@ -1361,6 +1368,8 @@ async function selfTest() {
     if (hits("legacy-card-reachable", "features/cardy/panel.tsx") !== 2) problems.push(`legacy-card-reachable panel=${hits("legacy-card-reachable", "features/cardy/panel.tsx")} (want 2: card + hd through the barrel)`);
     if (hits("legacy-card-reachable", "features/orphan-card.tsx") !== 0) problems.push("legacy-card-reachable flagged a file no page imports");
     if (hits("lucide-import", "features/icons.tsx") !== 2) problems.push(`lucide-import=${hits("lucide-import", "features/icons.tsx")} (want 2)`);
+    if (hits("lucide-banned", "features/icons.tsx") !== 1) problems.push(`lucide-banned import=${hits("lucide-banned", "features/icons.tsx")} (want 1)`);
+    if (hits("lucide-banned", "package.json") !== 1) problems.push(`lucide-banned dependency=${hits("lucide-banned", "package.json")} (want 1)`);
     if (hits("native-control", "features/multiline-select.tsx") !== 1) problems.push("native-control missed a <select that ends its line");
     if (hits("inline-style-prop", "features/multiline-select.tsx") !== 1) problems.push("inline-style-prop missed style={{");
     if (hits("raw-px-hex-literal", "features/multiline-select.tsx") !== 2) problems.push(`raw-px-hex-literal=${hits("raw-px-hex-literal", "features/multiline-select.tsx")} (want 2)`);

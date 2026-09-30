@@ -34,15 +34,16 @@ export type RowMenuProps = {
  * Product behaviour kept here so no call site re-implements it: an actions array (disabled
  * actions are dropped, danger actions wear error.main) and the menu closes before the action runs.
  * MUI Popover gives the portal, viewport-clamped placement, Escape / outside-click dismissal and
- * focus return to the trigger. `kit-rowmenu-btn` stays on the trigger as the hook the phone table
- * rules use to pin and size the kebab column.
+ * focus return to the trigger. `data-row-menu` on the trigger is the hook the phone table rules use
+ * to pin and size the kebab column (no legacy class).
  */
 export function RowMenu({ actions, ariaLabel = "Row actions", align = "right", className, children }: RowMenuProps) {
   const menu = usePopover();
   return (
     <>
       <IconButton
-        className={className ? `kit-rowmenu-btn ${className}` : "kit-rowmenu-btn"}
+        className={className}
+        data-row-menu
         aria-label={ariaLabel}
         aria-haspopup="menu"
         aria-expanded={menu.open}

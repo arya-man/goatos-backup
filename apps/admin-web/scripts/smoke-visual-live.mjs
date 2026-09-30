@@ -1563,7 +1563,7 @@ async function assertPaginationControls(page, routeName, viewportLabel) {
   const minimum = pagerMinimums.get(routeName);
   if (!minimum) return;
 
-  const pagers = page.locator(".pager2, .table-footer-pager");
+  const pagers = page.locator("[data-pager], .table-footer-pager");
   const count = await pagers.count();
   if (count === 0) {
     const bodyText = (await page.locator("body").innerText().catch(() => "")).replace(/\s+/g, " ");
@@ -1574,7 +1574,7 @@ async function assertPaginationControls(page, routeName, viewportLabel) {
     return;
   }
   if (count < minimum) {
-    throw new Error(`${routeName} ${viewportLabel} expected at least ${minimum} pager2 footer(s) when pagination is rendered, found ${count}`);
+    throw new Error(`${routeName} ${viewportLabel} expected at least ${minimum} pager footer(s) when pagination is rendered, found ${count}`);
   }
   for (let index = 0; index < count; index += 1) {
     const pager = pagers.nth(index);
@@ -1605,7 +1605,7 @@ function renderedAllRows(routeName, bodyText) {
 }
 
 async function exerciseFirstPagerRoundTrip(page, routeName) {
-  const pager = page.locator(".pager2, .table-footer-pager").first();
+  const pager = page.locator("[data-pager], .table-footer-pager").first();
   const initialPagerText = normalizePagerText(await pager.innerText());
   const next = pager.locator("a, button").filter({ hasText: /Next/i }).first();
   if ((await next.count()) !== 1) return;
@@ -1617,7 +1617,7 @@ async function exerciseFirstPagerRoundTrip(page, routeName) {
   await waitForPagerTextChange(page, initialPagerText);
   await waitForPagerControl(page, /Prev(?:ious)?/i, "enabled");
 
-  const previous = page.locator(".pager2, .table-footer-pager").first().locator("a, button").filter({ hasText: /Prev(?:ious)?/i }).first();
+  const previous = page.locator("[data-pager], .table-footer-pager").first().locator("a, button").filter({ hasText: /Prev(?:ious)?/i }).first();
   if ((await previous.count()) !== 1 || (await isDisabledControl(previous))) {
     throw new Error(`${routeName} pager Next did not produce an enabled Previous control`);
   }
@@ -1637,7 +1637,7 @@ async function waitForPagerControl(page, pattern, state) {
   await page.waitForFunction(
     ({ source, flags, state }) => {
       const re = new RegExp(source, flags);
-      const pager = document.querySelector(".pager2, .table-footer-pager");
+      const pager = document.querySelector("[data-pager], .table-footer-pager");
       if (!pager) return false;
       return Array.from(pager.querySelectorAll("a, button")).some((element) => {
         const text = element.textContent ?? "";
@@ -1657,7 +1657,7 @@ async function waitForPagerControl(page, pattern, state) {
 async function waitForPagerTextChange(page, previousText) {
   await page.waitForFunction(
     (previousText) => {
-      const text = (document.querySelector(".pager2, .table-footer-pager")?.textContent ?? "").replace(/\s+/g, " ").trim();
+      const text = (document.querySelector("[data-pager], .table-footer-pager")?.textContent ?? "").replace(/\s+/g, " ").trim();
       return text && text !== previousText;
     },
     previousText,
@@ -1668,7 +1668,7 @@ async function waitForPagerTextChange(page, previousText) {
 async function waitForPagerAtFirstPage(page, routeName) {
   await page.waitForFunction(
     () => {
-      const text = (document.querySelector(".pager2, .table-footer-pager")?.textContent ?? "").replace(/\s+/g, " ").trim();
+      const text = (document.querySelector("[data-pager], .table-footer-pager")?.textContent ?? "").replace(/\s+/g, " ").trim();
       return /^1-\d+ of /.test(text) || /\bPage 1\b/.test(text) || /^0 /.test(text) || /^0 results\b/.test(text);
     },
     { timeout: 5_000 },

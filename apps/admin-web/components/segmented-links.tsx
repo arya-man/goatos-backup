@@ -71,7 +71,6 @@ export function SegmentedLinks({
 
   return (
     <SegmentTabs
-      className={isPending ? "metricseg metricseg-pending" : "metricseg"}
       ariaLabel={ariaLabel}
       busy={isPending}
       value={selected}
@@ -82,7 +81,7 @@ export function SegmentedLinks({
         disabled: option.disabled,
         onClick: (event: React.MouseEvent<HTMLElement>) => {
           restoreTo.current = window.scrollY;
-          // Fires metricseg:navigate (the URL panels swap to their skeletons) and pushes in a transition.
+          // Fires URL_NAV_EVENT (the URL panels swap to their skeletons) and pushes in a transition.
           navigate(event, option.value, option.href);
         },
       }))}

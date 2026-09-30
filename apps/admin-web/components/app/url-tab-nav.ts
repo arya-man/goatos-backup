@@ -1,7 +1,7 @@
 // Pure helpers behind `useUrlTabNav` (kept free of React so they are unit-testable).
 
 /** The window event every URL-driven control fires as it navigates: `UrlPanel` (UrlSuspense) swaps its panel to the skeleton on it. */
-export const URL_NAV_EVENT = "metricseg:navigate";
+export const URL_NAV_EVENT = "url-nav:navigate";
 
 export type UrlNavDetail = { value: string; href: string };
 

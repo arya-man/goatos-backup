@@ -10,9 +10,12 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const appRoot = fileURLToPath(new URL("../..", import.meta.url));
-const registered = new Set(
-  [...readFileSync(join(appRoot, "layouts/template/iconify/icon-sets.ts"), "utf8").matchAll(/^\s*'([a-z0-9-]+:[a-z0-9-]+)'\s*:/gm)].map((m) => m[1]),
-);
+// The verbatim template set plus the extra offline registry (components/app/iconify-extra.ts, the
+// only place a name the template lacks may be added: icon-sets.ts is sha256-pinned template code).
+const registered = new Set([
+  ...[...readFileSync(join(appRoot, "layouts/template/iconify/icon-sets.ts"), "utf8").matchAll(/^\s*'([a-z0-9-]+:[a-z0-9-]+)'\s*:/gm)].map((m) => m[1]),
+  ...[...readFileSync(join(appRoot, "components/app/iconify-extra.ts"), "utf8").matchAll(/^\s*"([a-z0-9-]+:[a-z0-9-]+)"\s*:/gm)].map((m) => m[1]),
+]);
 const ICON_LITERAL = /\bicon(?:=|:\s*)(?:\{\s*)?["']([a-z0-9-]+:[a-z0-9-]+)["']/g;
 
 function walk(dir, out) {
@@ -20,7 +23,7 @@ function walk(dir, out) {
     if (name === "node_modules" || name.startsWith(".")) continue;
     const full = join(dir, name);
     if (statSync(full).isDirectory()) walk(full, out);
-    else if (/\.(tsx|ts)$/.test(name) && !name.endsWith(".d.ts") && !full.endsWith("icon-sets.ts")) out.push(full);
+    else if (/\.(tsx|ts)$/.test(name) && !name.endsWith(".d.ts") && !full.endsWith("icon-sets.ts") && !full.endsWith("iconify-extra.ts")) out.push(full);
   }
   return out;
 }

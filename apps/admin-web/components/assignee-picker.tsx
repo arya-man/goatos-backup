@@ -1,9 +1,10 @@
 "use client";
 
-import { ChevronDown } from "lucide-react";
 import { useMemo, useState } from "react";
 import { usePopover } from "minimal-shared/hooks";
 import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import ButtonBase from "@mui/material/ButtonBase";
 import Checkbox from "@mui/material/Checkbox";
 import InputAdornment from "@mui/material/InputAdornment";
 import MenuItem from "@mui/material/MenuItem";
@@ -20,7 +21,7 @@ import { TAP_MIN } from "@/components/app/tap";
  * THE ASSIGNEE PICKER: the Work Board's avatar stack + "+N" chip + searchable list, lifted out of
  * `features/work-board/work-board-board.tsx` so a second host can use the same control.
  *
- * Two modes, one anatomy: the `.avs` trigger (mesha-theme.css) opens the template menu popover
+ * Two modes, one anatomy: a MUI trigger (outlined Button / avatar ButtonBases) opens the template menu popover
  * (CustomPopover: search TextField + MenuList rows). MUI portals it, keeps it in the viewport,
  * closes it on an outside click and on Escape (its handler stops the press, so a dialog shell on
  * the same document never hears it -- one press, one layer) and returns focus to the trigger.
@@ -71,6 +72,20 @@ export function initials(name?: string): string {
     .join("")
     .slice(0, 2)
     .toUpperCase();
+}
+
+/** One avatar in the multi-mode stack: overlapping circles on a paper ring, 44px phone taps. */
+function stackItem(theme: Theme) {
+  return {
+    ml: -0.75,
+    borderRadius: "50%",
+    border: `2px solid ${theme.vars.palette.background.paper}`,
+    bgcolor: "background.neutral",
+    color: "text.secondary",
+    minWidth: theme.spacing(4.25),
+    height: theme.spacing(4.25),
+    [theme.breakpoints.down("sm")]: { minWidth: TAP_MIN, height: TAP_MIN },
+  };
 }
 
 /** Phone tap floor for popover rows (webview rule: >=44px). */
@@ -145,11 +160,13 @@ export function AssigneePicker({
       close();
     };
     return (
-      <div className="avs avs-single" aria-label={labels.label}>
+      <Box aria-label={labels.label} sx={{ minWidth: 0 }}>
         {name ? <input type="hidden" name={name} value={selected ?? ""} /> : null}
-        <button
-          type="button"
-          className={`avs-trigger${current ? " set" : ""}${open ? " on" : ""}`}
+        <Button
+          fullWidth
+          size="large"
+          variant="outlined"
+          color={invalid ? "error" : "inherit"}
           aria-haspopup="listbox"
           aria-expanded={open}
           aria-controls={listId}
@@ -157,20 +174,21 @@ export function AssigneePicker({
           aria-describedby={describedBy}
           aria-label={`${labels.label}: ${current ? current.name : labels.placeholder ?? ""}`}
           onClick={toggle}
+          endIcon={<Iconify icon="eva:arrow-ios-downward-fill" sx={{ color: "text.secondary" }} />}
+          sx={{ justifyContent: "flex-start", gap: 1, fontWeight: 400, textAlign: "left", "& .MuiButton-endIcon": { ml: "auto" } }}
         >
           {current ? <Avatar name={current.name} initials={initials(current.name)} size={24} decorative /> : null}
-          <span className="avs-value">
+          <Typography component="span" variant="body2" noWrap sx={{ minWidth: 0 }}>
             {current ? (
               <>
-                <b>{current.name}</b>
-                {current.title ? <span className="muted"> — {current.title}</span> : null}
+                <Box component="b" sx={{ fontWeight: 600 }}>{current.name}</Box>
+                {current.title ? <Box component="span" sx={{ color: "text.secondary" }}> — {current.title}</Box> : null}
               </>
             ) : (
-              <span className="muted">{labels.placeholder}</span>
+              <Box component="span" sx={{ color: "text.secondary" }}>{labels.placeholder}</Box>
             )}
-          </span>
-          <ChevronDown className="ic" aria-hidden="true" />
-        </button>
+          </Typography>
+        </Button>
         <CustomPopover
           open={open}
           anchorEl={menu.anchorEl}
@@ -235,8 +253,8 @@ export function AssigneePicker({
                 >
                   <Avatar name={o.name} initials={initials(o.name)} size={24} decorative />
                   <Typography variant="body2" component="span" sx={{ minWidth: 0, overflowWrap: "anywhere", whiteSpace: "normal" }}>
-                    <b className="avs-name">{o.name}</b>
-                    {o.title ? <Box component="span" className="avs-title" sx={{ color: "text.secondary" }}> — {o.title}</Box> : null}
+                    <Box component="b" sx={{ fontWeight: 600 }}>{o.name}</Box>
+                    {o.title ? <Box component="span" sx={{ color: "text.secondary" }}> — {o.title}</Box> : null}
                   </Typography>
                   {on ? <Iconify icon="eva:checkmark-fill" sx={{ ml: "auto", color: "primary.main", flex: "none" }} /> : null}
                 </MenuItem>
@@ -247,7 +265,7 @@ export function AssigneePicker({
             ) : null}
           </MenuList>
         </CustomPopover>
-      </div>
+      </Box>
     );
   }
 
@@ -261,21 +279,28 @@ export function AssigneePicker({
   // A host that passes no `all` word (the Work Board today) keeps its bare label.
   const stateLabel = current ? `${labels.label}: ${current.name}` : labels.all ? `${labels.label}: ${labels.all}` : labels.label;
   return (
-    <div className="avs" aria-label={stateLabel} title={stateLabel} data-picked={current ? "one" : "all"}>
+    <Box component="span" aria-label={stateLabel} title={stateLabel} data-picked={current ? "one" : "all"} sx={{ display: "inline-flex", alignItems: "center", pl: 0.75 }}>
+      {/* Template avatar stack (kanban AvatarGroup anatomy): overlapping 30px avatars on a paper ring. */}
       {visible.map((o) => (
-        <button type="button" key={o.id} className={`av${o.id === selected ? " on" : ""}`} title={current ? o.name : stateLabel} aria-label={current ? stateLabel : `${stateLabel} (${o.name})`} aria-expanded={open} onClick={toggle}>
-          {initials(o.name)}
-        </button>
+        <ButtonBase key={o.id} title={current ? o.name : stateLabel} aria-label={current ? stateLabel : `${stateLabel} (${o.name})`} aria-expanded={open} aria-pressed={o.id === selected} onClick={toggle} sx={stackItem}>
+          <Avatar name={o.name} initials={initials(o.name)} size={30} decorative />
+        </ButtonBase>
       ))}
       {overflow > 0 ? (
-        <button type="button" className={`more${open ? " on" : ""}`} aria-expanded={open} aria-label={stateLabel} title={stateLabel} onClick={toggle}>
-          +{overflow}
-        </button>
+        <ButtonBase aria-expanded={open} aria-label={stateLabel} title={stateLabel} onClick={toggle} sx={stackItem}>
+          <Avatar name={`+${overflow}`} initials={`+${overflow}`} size={30} decorative />
+        </ButtonBase>
       ) : null}
       {owners.length === 0 || current ? (
-        <button type="button" className={`more${owners.length === 0 ? " assignee-empty" : ""}${open ? " on" : ""}`} aria-expanded={open} aria-label={stateLabel} title={stateLabel} onClick={toggle} style={owners.length === 0 ? { width: "auto", minWidth: 104, padding: "0 14px", borderRadius: 999, lineHeight: "1" } : undefined}>
-          {owners.length === 0 ? labels.label : "▾"}
-        </button>
+        owners.length === 0 ? (
+          <Button size="small" variant="outlined" color="inherit" aria-expanded={open} aria-label={stateLabel} title={stateLabel} onClick={toggle} sx={{ ml: 0.5, borderRadius: "var(--r-pill)" }}>
+            {labels.label}
+          </Button>
+        ) : (
+          <ButtonBase aria-expanded={open} aria-label={stateLabel} title={stateLabel} onClick={toggle} sx={stackItem}>
+            <Iconify icon="eva:arrow-ios-downward-fill" width={16} />
+          </ButtonBase>
+        )
       ) : null}
       <CustomPopover open={open} anchorEl={menu.anchorEl} onClose={close} slotProps={{ arrow: { placement: "top-left" }, paper: { sx: { width: 300 } } }}>
         <Box sx={{ p: 1 }}>
@@ -297,7 +322,7 @@ export function AssigneePicker({
           {/* "Select all" is the FIRST row, a checkbox like the rest: ticked while nobody is
               picked (the board shows everyone), and clicking it clears a pick. */}
           {query.trim() === "" ? (
-            <MenuItem role="option" aria-selected={!selected} className="all" onClick={() => { onSelect(undefined); close(); }} sx={tapRow}>
+            <MenuItem role="option" aria-selected={!selected} data-all onClick={() => { onSelect(undefined); close(); }} sx={tapRow}>
               <Checkbox size="small" checked={!selected} disableRipple tabIndex={-1} sx={{ p: 0 }} slotProps={{ input: { "aria-hidden": true } }} />
               {labels.selectAll}
             </MenuItem>
@@ -318,6 +343,6 @@ export function AssigneePicker({
           ) : null}
         </MenuList>
       </CustomPopover>
-    </div>
+    </Box>
   );
 }

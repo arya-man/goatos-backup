@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import Box from "@mui/material/Box";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
 
@@ -34,9 +35,10 @@ export function TimeField({
   const [minute, setMinute] = useState(m0 && MINUTES.includes(m0) ? m0 : m0 ? String(Math.round(Number(m0) / 5) * 5 % 60).padStart(2, "0") : "");
   const value = hour && minute ? `${hour}:${minute}` : "";
   return (
-    <div className="kit-timefield" role="group" aria-label={ariaLabel}>
+    <Box role="group" aria-label={ariaLabel} sx={(theme) => ({ display: "inline-grid", gridTemplateColumns: `repeat(2, ${theme.spacing(11.5)})`, gap: 1.25, alignItems: "end" })}>
       <TextField
         select
+        required={required}
         label={hourLabel}
         value={HOURS.includes(hour) ? hour : ""}
         onChange={(event) => setHour(event.target.value)}
@@ -52,6 +54,7 @@ export function TimeField({
       </TextField>
       <TextField
         select
+        required={required}
         label={minuteLabel}
         value={minute}
         onChange={(event) => setMinute(event.target.value)}
@@ -65,7 +68,7 @@ export function TimeField({
           </MenuItem>
         ))}
       </TextField>
-      <input type="text" name={name} value={value} required={required} aria-hidden="true" tabIndex={-1} className="kit-posted-value" onChange={() => undefined} />
-    </div>
+      <input type="hidden" name={name} value={value} />
+    </Box>
   );
 }

@@ -53,7 +53,6 @@
 .nc-row.nc-unread{background:color-mix(in srgb,var(--primary) 4%,transparent)}
 .nc-row.nc-unread:hover{background:color-mix(in srgb,var(--primary) 8%,transparent)}
 .nc-av{flex:none;display:grid;place-items:center;width:40px;height:40px;border-radius:50%;font-family:var(--font-display);font-size:14px;font-weight:700;letter-spacing:.02em}
-.nc-ic.kit-iconbadge-sm{width:40px;height:40px}
 .nc-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px}
 .nc-text{display:flex;flex-direction:column;gap:3px;width:100%;margin:0;padding:0;border:0;background:none;text-align:left;font:inherit;color:inherit;cursor:default;border-radius:var(--r-sm)}
 button.nc-text{cursor:pointer}

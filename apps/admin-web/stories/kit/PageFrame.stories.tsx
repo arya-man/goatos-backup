@@ -9,7 +9,7 @@ import { PageHeader } from "@/components/app/page-header";
 import { KpiGrid } from "@/components/app/kpi-grid";
 import { KpiWidget } from "@/components/app/kpi-widget";
 import { TemplateTabs } from "@/components/app/template-tabs";
-import { Download } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import { MOBILE } from "../_data";
 
 /**
@@ -125,7 +125,7 @@ export const MobileSingleIconAction: Story = {
       <PageHeader
         title="Herd analytics"
         crumbs={[{ label: "Counts", href: "#" }, { label: "Herd analytics" }]}
-        actions={<Button color="primary" variant="contained" startIcon={<Download size={16} aria-hidden="true" />}>Export</Button>}
+        actions={<Button color="primary" variant="contained" startIcon={<Iconify icon="solar:download-bold" width={16} />}>Export</Button>}
       />
     </div>
   ),

@@ -59,11 +59,7 @@ html.theme-switching *,html.theme-switching *::before,html.theme-switching *::af
 .tag{min-height:22px;padding:0 8px;border-radius:var(--r-sm);font-size:12px;font-weight:700;letter-spacing:0}
 
 /* ---------------- Tabs (segmented links) ---------------- */
-.metricseg a{padding:5px 12px;border-radius:var(--r-sm);font-size:13px;font-weight:600;color:var(--fg-muted);transition:background-color var(--dur) var(--ease),color var(--dur) var(--ease),box-shadow var(--dur) var(--ease)}
-.metricseg a:hover{color:var(--fg)}
 /* Minimal custom (pill) tabs indicator: r8 paper with z1. */
-.metricseg a.on{background:var(--brand);color:var(--on-brand);box-shadow:none;border-radius:var(--r-md)}
-:root:not(.light) .metricseg a.on{background:var(--brand)}
 
 /* ---------------- Tables ---------------- */
 .main .tablewrap{border-radius:var(--r-lg)}
@@ -93,11 +89,6 @@ select option{background:var(--paper);color:var(--fg)}
 /* =====================================================================
    Kit components (components/kit/*)
    ===================================================================== */
-
-.kit-iconbadge{display:grid;place-items:center;flex:none;border-radius:var(--r-lg);transition:transform 220ms var(--ease-spring)}
-.kit-iconbadge svg{width:50%;height:50%}
-.kit-iconbadge-sm{width:36px;height:36px;border-radius:10px}.kit-iconbadge-md{width:48px;height:48px}.kit-iconbadge-lg{width:56px;height:56px;border-radius:14px}
-.kit-iconbadge.kit-round{border-radius:50%}
 
 /* The grey rule is a background layer, not an inset box-shadow: an inset shadow on an overflow-x
    scroller broke at the GPU raster tile seam (~640px in), which read as a gap in the rule. */
@@ -136,7 +127,6 @@ select option{background:var(--paper);color:var(--fg)}
 /* ---------- Filter bar: one row, reset, trailing action right ---------- */
 /* Never nowrap: seven fields (Farm born) clipped "Stage" at the card edge at 1440. Fields keep a
    sane basis and the row wraps to a second line with a 12px gap instead. */
-@media(max-width:640px){.wf-bar>.kit-field-date{flex-basis:100%}}
 
 /* ---------- Tabs as underline strip (left aligned, sliding feel) ---------- */
 
@@ -166,19 +156,12 @@ select option{background:var(--paper);color:var(--fg)}
 [class*="assistant-fab"]{bottom:24px;right:24px}
 
 /* ---------- Work board ---------- */
-.wb .avs{padding-left:8px}
-.wb .avs .more{margin-left:-8px;width:32px;height:32px;border:0;box-shadow:0 0 0 2px var(--paper)}
 .wb .etag{height:24px;display:inline-flex;align-items:center;padding:0 6px;border-radius:6px;font-size:12px;font-weight:700;letter-spacing:0;text-transform:none;background:var(--primary-soft)!important;color:var(--primary-ink)!important}
 
 /* ---------- Counts / KPI mobile ---------- */
 /* Two-up on a phone (reference: KPI cards pair up at 390), single column only under 360. Long figures wrap rather than clip. */
 
 /* ---------- Full-page state (contract error / empty) ---------- */
-.kit-state{width:100%;max-width:480px;display:grid;justify-items:center;gap:12px;padding:40px 32px;text-align:center;border-radius:16px;background:var(--paper);box-shadow:var(--shadow-card);animation:kit-page-in 300ms var(--ease-out) both}
-.kit-state-icon{display:grid;place-items:center;width:48px;height:48px;border-radius:12px;background:var(--warning-soft);color:var(--warning-ink)}
-.kit-state-icon svg{width:24px;height:24px}
-.kit-state-title{margin:8px 0 0;font-size:20px;line-height:30px;font-weight:600}
-.kit-state-body{margin:0;font-size:14px;line-height:22px;color:var(--fg-muted)}
 /* ---- refine round 2 ---- */
 :where(a,button,[role="button"],[role="tab"],[role="menuitem"],.tag,summary){transition:color 200ms var(--ease),background-color 200ms var(--ease),border-color 200ms var(--ease),box-shadow 200ms var(--ease)}
 a:focus-visible,button:focus-visible,[role="button"]:focus-visible,[tabindex="0"]:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid color-mix(in srgb,var(--primary) 80%,transparent);outline-offset:2px}
@@ -187,7 +170,6 @@ a:focus-visible,button:focus-visible,[role="button"]:focus-visible,[tabindex="0"
 /* toolbar + table + footer in one card */
 .kit-tablecard{border-radius:16px;background:var(--paper);box-shadow:var(--shadow-card);overflow:hidden}
 .kit-tablecard .main{box-shadow:none!important;border-radius:0}
-.wf-bar + .main,.wf-bar + .card{border-top-left-radius:0!important;border-top-right-radius:0!important}
 /* drawer */
 
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:1ms!important;transition-duration:1ms!important}}
@@ -296,13 +278,6 @@ a:focus-visible,button:focus-visible,[role="button"]:focus-visible,[tabindex="0"
   /* No vertical scroll box on phones (56b3da919 / 89a0c2f62): a scroll region inside the page
      scroll traps touch in the WhatsApp/Android webview. The table scrolls sideways only. */
   .tablewrap{-webkit-overflow-scrolling:touch}
-  /* identity + action columns stay reachable while the body scrolls x */
-  /* only pin the trailing column when it is the row-action column */
-  .tablewrap:has(.kit-rowmenu-btn) th:last-child,
-  .tablewrap:has(.kit-rowmenu-btn) td:last-child{position:sticky;right:0;background:var(--paper);z-index:2}
-  /* The pinned action column is sized to its kebab; otherwise the table's min-width slack lands
-     in this (headerless) column and the pinned cell covers the data columns scrolling under it. */
-  .tablewrap:has(.kit-rowmenu-btn) :is(th,td):last-child{width:1%;min-width:56px;padding-left:4px;padding-right:4px;white-space:nowrap}
   .tablewrap thead th:last-child{z-index:3}
   /* press feedback: there is no :hover on a touch screen */
   .tablewrap tbody tr:active>td{background:color-mix(in srgb,var(--fg) 8%,transparent)}
@@ -326,14 +301,8 @@ a:focus-visible,button:focus-visible,[role="button"]:focus-visible,[tabindex="0"
 /* -- Table footer: the arrows are a pair and must never wrap away from each other -- */
 
 /* -- Identity cell -- */
-.kit-idcell{display:flex;align-items:center;gap:10px;min-width:0}
-.kit-idcell-lead{flex:none;display:inline-flex;align-items:center}
-.kit-idcell-copy{display:flex;flex-direction:column;min-width:0;line-height:1.3}
-.kit-idcell-primary{font-weight:600;color:var(--fg);overflow:hidden;text-overflow:ellipsis}
-.kit-idcell-secondary{font-size:12px;color:var(--fg-muted);overflow:hidden;text-overflow:ellipsis}
 
 /* -- Selection + action columns -- */
-.kit-actcell{width:52px;text-align:right;white-space:nowrap}
 .main tbody tr[data-selected="true"]{background:var(--primary-soft)}
 
 /* ---------------------------------------------------------------------
@@ -366,23 +335,17 @@ th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}
    to repeat the literal colour. Layout/tint only; the value is the one `th` already uses above. */
 
 /* ---- kit DateTimeField (calendar + hour/minute listboxes) ---- */
-.kit-datetime{display:grid;grid-template-columns:minmax(0,1fr) 92px 92px;gap:10px;align-items:end;position:relative;min-width:0}
-.kit-posted-value{position:absolute;left:0;bottom:0;width:1px;height:1px;opacity:0;pointer-events:none;border:0;padding:0;margin:0}
-@media(max-width:480px){.kit-datetime{grid-template-columns:minmax(0,1fr) 1fr}.kit-datetime-date{grid-column:1/-1}}
 /* ---- tokenised range slider (farm-value error margin) ---- */
-
-.kit-datetime{min-width:280px}
 /* ---- card gutters: content placed directly in a card gets the 24px gutter (BarList, KPI grids,
    tab strips, chip rows); tables and toolbars own their own edges. ---- */
-.wrap .card>.kit-prows,.wrap .card>.grid,.wrap .card>.chips,.wrap .card>.subtabs{margin-left:24px;margin-right:24px;min-width:0;max-width:calc(100% - 48px)}
+.wrap .card>.grid,.wrap .card>.chips,.wrap .card>.subtabs{margin-left:24px;margin-right:24px;min-width:0;max-width:calc(100% - 48px)}
 .wrap .card>.grid:last-child{margin-bottom:24px}
 .wrap .card>.hd+.grid{margin-top:16px}
-@media(max-width:640px){.wrap .card>.kit-prows,.wrap .card>.grid,.wrap .card>.chips,.wrap .card>.subtabs{margin-left:20px;margin-right:20px;max-width:calc(100% - 40px)}}
+@media(max-width:640px){.wrap .card>.grid,.wrap .card>.chips,.wrap .card>.subtabs{margin-left:20px;margin-right:20px;max-width:calc(100% - 40px)}}
 /* Sticky first column keeps the row's hover tint (frame paints it paper). */
 .wrap .card>.tablewrap tbody tr:hover>th:first-child,.wrap .card>.twrap tbody tr:hover>th:first-child,.wrap .kit-tablecard .tablewrap tbody tr:hover>th:first-child,
 .wrap .card>.tablewrap tbody tr:hover>td:first-child,.wrap .card>.twrap tbody tr:hover>td:first-child,.wrap .kit-tablecard .tablewrap tbody tr:hover>td:first-child,.wrap .kit-tablecard .twrap tbody tr:hover>td:first-child{background:color-mix(in srgb,var(--fg) 4%,var(--paper))!important}
 /* Table footer: the rows-per-page floating label needs headroom above the footer's top edge. */
-.kit-timefield{display:inline-grid;grid-template-columns:92px 92px;gap:10px;position:relative;align-items:end}
 /* ---------- Spec pass (shell): Minimal vertical nav metrics ----------
    Sidebar 300px at >=1200px (260px from 881-1199 so content keeps its width), padding 20px 20px.
    Items: 44px min, 8px 12px 8px 16px, 6px radius, 16px icon gap, 24px icon, 14/22 label 500 -> 600
@@ -442,11 +405,6 @@ input[type="radio"],input[type="checkbox"]{accent-color:var(--primary)}
    40px min-size floor was drawing a giant radio circle next to 18px checkboxes. */
 
 /* Kit table metrics (spec §7): 57px head / 72px rows on desktop; Dense keeps the compact rows; phones unchanged. */
-@media (min-width:768px){
-.kit-paged-table thead th{height:var(--table-head-h)}
-.kit-paged-table tbody td{height:var(--table-row-h)}
-.kit-dense .kit-paged-table tbody td,.tablewrap.kit-dense .kit-paged-table tbody td{height:auto}
-}
 
 /* ---------- Calendar inside the date pickers (Minimal DateCalendar / DateRangeCalendar) ----------
    theme/core/components/mui-x-date-picker.tsx + MUI defaults: month title left (subtitle1 600) with

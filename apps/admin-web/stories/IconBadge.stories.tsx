@@ -1,14 +1,14 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { Baby, Droplets, Scale, Syringe, Truck, Users, Warehouse } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import type { KitTone } from "@/lib/tone";
 import Card from "@mui/material/Card";
 import { IconBadge } from "@/components/app/icon-badge";
 import { Canvas, MOBILE, Row, Stack } from "./_data";
 
 const TONES: KitTone[] = ["primary", "info", "success", "warning", "error", "violet", "neutral"];
-const ICONS = [<Baby key="a" />, <Scale key="b" />, <Syringe key="c" />, <Truck key="d" />, <Droplets key="e" />, <Warehouse key="f" />, <Users key="g" />];
+const ICONS = [<Iconify icon="eva:smiling-face-fill" key="a" />, <Iconify icon="solar:dumbbell-large-minimalistic-bold" key="b" />, <Iconify icon="solar:medical-kit-bold" key="c" />, <Iconify icon="carbon:delivery" key="d" />, <Iconify icon="solar:tea-cup-bold" key="e" />, <Iconify icon="solar:home-2-outline" key="f" />, <Iconify icon="solar:users-group-rounded-bold" key="g" />];
 
-const meta: Meta<typeof IconBadge> = { title: "Kit/IconBadge", component: IconBadge, args: { icon: <Scale /> } };
+const meta: Meta<typeof IconBadge> = { title: "Kit/IconBadge", component: IconBadge, args: { icon: <Iconify icon="solar:dumbbell-large-minimalistic-bold" /> } };
 export default meta;
 type Story = StoryObj<typeof meta>;
 
@@ -47,9 +47,9 @@ export const InContext: Story = {
   render: () => (
     <Canvas>
       {[
-        { tone: "primary" as const, icon: <Baby />, title: "Kids weighed today", value: "148 of 164" },
-        { tone: "warning" as const, icon: <Syringe />, title: "CDT boosters overdue", value: "12 kids" },
-        { tone: "info" as const, icon: <Truck />, title: "Loads awaiting verification", value: "3 vendors" },
+        { tone: "primary" as const, icon: <Iconify icon="eva:smiling-face-fill" />, title: "Kids weighed today", value: "148 of 164" },
+        { tone: "warning" as const, icon: <Iconify icon="solar:medical-kit-bold" />, title: "CDT boosters overdue", value: "12 kids" },
+        { tone: "info" as const, icon: <Iconify icon="carbon:delivery" />, title: "Loads awaiting verification", value: "3 vendors" },
       ].map((r) => (
         <Card key={r.title} sx={{ p: 3, display: "flex", gap: 1.75, alignItems: "center", maxWidth: 420 }}>
           <IconBadge tone={r.tone} icon={r.icon} size="lg" />

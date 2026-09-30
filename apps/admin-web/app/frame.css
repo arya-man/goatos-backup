@@ -58,14 +58,8 @@
 /* scroll hint: fade on the right edge while the table can scroll */
 /* Scroll hint: ScrollEdges (components/kit/scroll-edges.tsx) overlays a fade on the edge of any
    table scroller that still holds content in that direction. */
-.kit-scroll-fades{position:fixed;inset:0;pointer-events:none;z-index:5}
-.kit-scroll-fade{position:fixed;width:64px;pointer-events:none}
-.kit-scroll-fade{--fade:var(--paper)}
 /* Fade from the surface colour itself (not transparent black, which read as a grey band) and hold
    solid for the last third so a clipped cell never shows half a word at the edge. */
-.kit-scroll-fade-right{background:linear-gradient(90deg,color-mix(in srgb,var(--fade) 0%,transparent),color-mix(in srgb,var(--fade) 92%,transparent) 65%,var(--fade));box-shadow:inset -1px 0 0 var(--line)}
-.kit-scroll-fade-left{background:linear-gradient(270deg,color-mix(in srgb,var(--fade) 0%,transparent),color-mix(in srgb,var(--fade) 92%,transparent) 65%,var(--fade));box-shadow:inset 1px 0 0 var(--line)}
-.kit-scroll-fade{transition:opacity 200ms cubic-bezier(.4,0,.2,1)}
 /* Sticky first column inside table cards, so the row's identity stays while the rest scrolls. */
 @media(min-width:768px){
   .card>.tablewrap th:first-child,.card>.tablewrap td:first-child,.card>.twrap th:first-child,.card>.twrap td:first-child,.kit-tablecard .tablewrap th:first-child,.kit-tablecard .tablewrap td:first-child,[data-scroll-x] th:first-child,[data-scroll-x] td:first-child{position:sticky;left:0;z-index:2}
@@ -104,8 +98,6 @@
 /* Window chip: the trigger grows to its own text ("01/08/2026 to 19/09/2026") instead of ellipsising it. */
 /* The date field never shrinks below its own text (min 240px) and the bar wraps with a 12px gap, so
    sibling fields cannot overlap at any width (owner shot 35: Period text under the Weighing select). */
-.kit-field-date{width:max-content;min-width:240px;max-width:100%;flex:0 0 auto}
-@media(max-width:640px){.kit-field-date{width:100%}}
 /* Phone overflow fixes (route integrity, 390): card-head actions scroll or wrap instead of pushing past the edge. */
 .wrap:has(.lt-page){overflow-x:visible}
 .main .card .hd h3,.main .card .hd h2,.card>.hd{min-width:0;flex:0 1 auto;white-space:normal;overflow-wrap:anywhere}
@@ -117,7 +109,7 @@
 /* Touch targets on coarse pointers / phone widths (webview guard class 4): every control a thumb can hit is
    ≥44px. `:root .main` carries enough specificity to beat the legacy per-page 40px rules without !important. */
 @media(pointer:coarse),(max-width:640px){
-  :root .main .metricseg a,:root .main .metricseg button,:root .main .subtabs a,:root .main .subtabs button{min-height:44px;display:inline-flex;align-items:center}
+  :root .main .subtabs a,:root .main .subtabs button{min-height:44px;display:inline-flex;align-items:center}
   :root .main .btn{min-height:44px}
   /* Generic floor for every interactive control inside the page (buttons, inputs, summaries, chips, pager
      and calendar links). Inline text links keep their flow; these are all block/flex controls. */
@@ -125,7 +117,6 @@
   :root .main summary,:root .main .chip,:root .main a.more,:root .main .wt-feedband-gone{display:inline-flex;align-items:center;justify-content:center;min-width:44px;box-sizing:border-box}
 
   :root .main .fld>label[for]:not(.MuiFormLabel-root),:root .main label[for]:not(.MuiFormLabel-root){min-height:44px;display:flex;align-items:center}
-  :root .main .pager2 a.btn,:root .main .pager2 .btn,:root .main .pager2 button{min-height:44px;height:44px}
 }
 /* A closed date picker's popover is not rendered at all (it was laid out at opacity 0 behind the page — 42
    invisible 40px day buttons per picker for a screen reader and the touch-target audit). */
@@ -138,8 +129,6 @@
 .tag{align-self:flex-start;justify-self:start;width:max-content;max-width:100%}
 
 /* ---- 404 / error states inside the shell ---- */
-.kit-state-inline{max-width:none;justify-items:center;padding:48px 24px;animation:none}
-.kit-state-inline .kit-state-title{font-family:var(--font-display);font-size:28px;line-height:36px}
 .topbar-ai-slot{display:inline-flex;align-items:center}
 .topbar-ai-slot:empty{display:none}
 
@@ -154,9 +143,6 @@
 /* legacy scrollers scroll like kit ones */
 [data-scroll-x]{overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin;min-width:0;max-width:100%}
 /* segmented link strips share the pending line */
-.metricseg-pending{position:relative}
-.metricseg-pending::after{content:"";position:absolute;left:6px;right:6px;bottom:0;height:2px;border-radius:2px;background:linear-gradient(90deg,transparent,var(--primary),transparent);background-size:40% 100%;background-repeat:no-repeat;animation:kit-tabs-progress 900ms linear infinite;pointer-events:none}
-@media(prefers-reduced-motion:reduce){.metricseg-pending::after{animation:none;background:var(--primary);background-size:100% 100%}}
 
 /* ---- Drawers (legacy aside.drawer) take the kit Sheet anatomy ---- */
 
@@ -169,7 +155,6 @@
 /* Every form label on the kit label anatomy (12px/600 sentence case), whatever the legacy screen styled. */
 .wrap label:not(.kit-check):not(.pen-routine-check):not(.kit-chip):not(.btn):not(.MuiFormLabel-root):not(.MuiFormControlLabel-root){text-transform:none;letter-spacing:0;font-size:12px;font-weight:600;color:var(--fg-muted)}
 /* Legacy `.pager2` table footers take the kit footer anatomy. */
-.wrap .pager2 .btn{min-height:36px}
 /* An empty chart card collapses to its content: no fixed chart-height box around the empty state. */
 
 .btn[aria-disabled="true"]{opacity:.45;pointer-events:none}
@@ -201,19 +186,6 @@
 /* PR #294 visual parity override: phone controls should feel like Minimal Dashboard controls,
    not legacy cards that merely avoided overflow. */
 @media(max-width:640px){
-  .metricseg a,.metricseg button{
-    min-height:38px;
-    padding:0 12px;
-    border-radius:10px;
-    font-size:13px;
-    line-height:18px;
-    justify-content:center;
-  }
-  .metricseg a.on,.metricseg button.on{
-    background:var(--brand);
-    color:var(--on-brand);
-    box-shadow:none;
-  }
   .main input[type="text"],.main input[type="search"],.main input[type="number"],.main input[type="date"],.main select,.main textarea{
     border-radius:12px;
   }
@@ -257,7 +229,7 @@
    (the Alerts "Rule" column, a status) pinning it covered half the viewport and clipped the columns
    scrolling under it. Pin only a last column that actually holds a control. */
 @media(max-width:640px){
-  .tablewrap table:not(:has(td:last-child :is(button,a,[role="button"],.kit-rowmenu-btn))) :is(th,td):last-child{position:static;box-shadow:none}
+  .tablewrap table:not(:has(td:last-child :is(button,a,[role="button"]))) :is(th,td):last-child{position:static;box-shadow:none}
 }
 
 /* Work board park picker, phone: the generic touch floor lifts `.parkpick a` to 44px, but the

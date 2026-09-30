@@ -64,7 +64,7 @@ export function paginateRows<T>(
  *
  * Same anatomy as the kit `TableFooter` (left slot · rows-per-page select · range · arrow icon
  * buttons), but every control is a LINK because these tables page on the SERVER through the URL.
- * Three things the previous hand-rolled `.pager2` got wrong and this one keeps right:
+ * Three things the previous hand-rolled legacy pager got wrong and this one keeps right:
  *  - It returned `null` at `totalPages <= 1`, so most tables in the module had NO footer. The
  *    footer now always renders: the range is information even when there is one page.
  *  - Rows-per-page was a row of link chips (5 10 25 50) which does not fit 390px; it is one
@@ -106,7 +106,6 @@ export function VaccinationTablePager({
 
   return (
     <TablePaginationLinks
-      className="pager2"
       replace
       page={Math.max(0, page - 1)}
       rowsPerPage={pageSize}

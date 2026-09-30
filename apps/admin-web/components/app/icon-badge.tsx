@@ -1,5 +1,8 @@
 import type { ReactNode } from "react";
-import { cx, toneVars, type KitTone } from "@/lib/tone";
+
+import Box from "@mui/material/Box";
+
+import { toneVars, type KitTone } from "@/lib/tone";
 
 export type IconBadgeProps = {
   icon: ReactNode;
@@ -10,15 +13,29 @@ export type IconBadgeProps = {
   className?: string;
 };
 
+// Template icon tile (the widget-summary corner icon): soft tone fill, icon at half the tile.
+const SIDE = { sm: 4.5, md: 6, lg: 7 } as const;
+
 export function IconBadge({ icon, tone = "primary", size = "md", shape = "rounded", className }: IconBadgeProps) {
   const t = toneVars(tone);
   return (
-    <span
+    <Box
+      component="span"
       aria-hidden="true"
-      className={cx("kit-iconbadge", `kit-iconbadge-${size}`, shape === "circle" && "kit-round", className)}
-      style={{ background: t.soft, color: t.ink }}
+      className={className}
+      sx={(theme) => ({
+        display: "grid",
+        placeItems: "center",
+        flex: "none",
+        width: theme.spacing(SIDE[size]),
+        height: theme.spacing(SIDE[size]),
+        borderRadius: shape === "circle" ? "50%" : "var(--r-lg)",
+        bgcolor: t.soft,
+        color: t.ink,
+        "& svg": { width: "50%", height: "50%" },
+      })}
     >
       {icon}
-    </span>
+    </Box>
   );
 }

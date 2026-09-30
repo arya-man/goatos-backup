@@ -53,7 +53,6 @@ export function WorklistPager({
 
   return (
     <TablePaginationLinks
-      className="pager2"
       page={Math.floor(offset / Math.max(limit, 1))}
       rowsPerPage={limit}
       count={-1}

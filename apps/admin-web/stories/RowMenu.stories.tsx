@@ -1,15 +1,15 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import * as React from "react";
 import { expect, userEvent, waitFor, within } from "storybook/test";
-import { Eye, Pencil, Syringe, Trash2 } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import { RowMenu } from "@/components/app/row-menu";
 import { Canvas, MOBILE, PEN_ROWS, Stack } from "./_data";
 
 const ACTIONS = [
-  { label: "View pen", icon: <Eye size={16} />, onSelect: () => {} },
-  { label: "Edit weighing session", icon: <Pencil size={16} />, onSelect: () => {} },
-  { label: "Record CDT booster", icon: <Syringe size={16} />, onSelect: () => {} },
-  { label: "Delete load", icon: <Trash2 size={16} />, danger: true, onSelect: () => {} },
+  { label: "View pen", icon: <Iconify icon="solar:eye-bold" width={16} />, onSelect: () => {} },
+  { label: "Edit weighing session", icon: <Iconify icon="solar:pen-bold" width={16} />, onSelect: () => {} },
+  { label: "Record CDT booster", icon: <Iconify icon="solar:medical-kit-bold" width={16} />, onSelect: () => {} },
+  { label: "Delete load", icon: <Iconify icon="solar:trash-bin-trash-bold" width={16} />, danger: true, onSelect: () => {} },
   { label: "Hidden (disabled)", onSelect: () => {}, disabled: true },
 ];
 

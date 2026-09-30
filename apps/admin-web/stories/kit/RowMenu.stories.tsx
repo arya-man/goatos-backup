@@ -2,18 +2,18 @@ import * as React from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import Card from "@mui/material/Card";
 import { expect, userEvent, waitFor, within } from "storybook/test";
-import { Download, PencilLine, Scale, Syringe, Trash2, Truck } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import { RowMenu, type RowMenuAction } from "@/components/app/row-menu";
 import { Frame, Labelled, mobile } from "../_fixtures/frame";
 import { penRows } from "../_fixtures/goatos";
 
 const actions: RowMenuAction[] = [
-  { label: "Edit pen", onSelect: () => {}, icon: <PencilLine /> },
-  { label: "Record weighing", onSelect: () => {}, icon: <Scale /> },
-  { label: "Record vaccination", onSelect: () => {}, icon: <Syringe /> },
-  { label: "Move to load", onSelect: () => {}, icon: <Truck /> },
-  { label: "Export history", onSelect: () => {}, icon: <Download /> },
-  { label: "Remove from herd", onSelect: () => {}, icon: <Trash2 />, danger: true },
+  { label: "Edit pen", onSelect: () => {}, icon: <Iconify icon="solar:pen-bold" /> },
+  { label: "Record weighing", onSelect: () => {}, icon: <Iconify icon="solar:dumbbell-large-minimalistic-bold" /> },
+  { label: "Record vaccination", onSelect: () => {}, icon: <Iconify icon="solar:medical-kit-bold" /> },
+  { label: "Move to load", onSelect: () => {}, icon: <Iconify icon="carbon:delivery" /> },
+  { label: "Export history", onSelect: () => {}, icon: <Iconify icon="solar:download-bold" /> },
+  { label: "Remove from herd", onSelect: () => {}, icon: <Iconify icon="solar:trash-bin-trash-bold" />, danger: true },
 ];
 
 const meta: Meta<typeof RowMenu> = {
@@ -60,8 +60,8 @@ export const EdgeCases: Story = {
         <RowMenu
           ariaLabel="Long actions"
           actions={[
-            { label: "Export weighing history for Godel 1 - Part 2 (batch 2412)", onSelect: () => {}, icon: <Download /> },
-            { label: "Move every head in this pen to load 2419 — Hosur Farm Supply", onSelect: () => {}, icon: <Truck /> },
+            { label: "Export weighing history for Godel 1 - Part 2 (batch 2412)", onSelect: () => {}, icon: <Iconify icon="solar:download-bold" /> },
+            { label: "Move every head in this pen to load 2419 — Hosur Farm Supply", onSelect: () => {}, icon: <Iconify icon="carbon:delivery" /> },
           ]}
         />
       </Labelled>
@@ -119,10 +119,10 @@ export const MenuBehaviour: Story = {
             <RowMenu
               ariaLabel="Actions for SF-0048"
               actions={[
-                { label: "Edit pen", onSelect: () => setLast("edit"), icon: <PencilLine /> },
-                { label: "Record weighing", onSelect: () => setLast("weigh"), icon: <Scale /> },
+                { label: "Edit pen", onSelect: () => setLast("edit"), icon: <Iconify icon="solar:pen-bold" /> },
+                { label: "Record weighing", onSelect: () => setLast("weigh"), icon: <Iconify icon="solar:dumbbell-large-minimalistic-bold" /> },
                 { label: "Archive pen", onSelect: () => setLast("archive"), disabled: true },
-                { label: "Remove from herd", onSelect: () => setLast("remove"), danger: true, icon: <Trash2 /> },
+                { label: "Remove from herd", onSelect: () => setLast("remove"), danger: true, icon: <Iconify icon="solar:trash-bin-trash-bold" /> },
               ]}
             />
           </div>

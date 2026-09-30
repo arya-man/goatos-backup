@@ -3,7 +3,6 @@
 import { useState, type ReactNode } from "react";
 
 import { DenseToggle } from "@/components/app/dense-toggle";
-import { cx } from "@/lib/tone";
 import Box from "@mui/material/Box";
 import { TablePaginationLinks, type TablePaginationLinksProps } from "@/components/app/table/table-pagination-links";
 
@@ -13,8 +12,8 @@ import { TablePaginationLinks, type TablePaginationLinksProps } from "@/componen
  * The dense switch is the only piece of a table footer that needs client state, and the tables on
  * the Feed and Counts routes are server components whose rows, sort and paging all ride on the URL.
  * Rather than making those pages client components for one toggle, the wrapper takes the finished
- * table as `children` — a server subtree passed as a prop — and owns nothing but the `kit-dense`
- * class it puts on the wrapper. The footer is the template table pagination (TablePaginationLinks)
+ * table as `children` — a server subtree passed as a prop — and owns nothing but the dense row
+ * rhythm it sets on the wrapper (the template `size="small"` cell padding, as theme sx). The footer is the template table pagination (TablePaginationLinks)
  * with the Dense switch in its left slot; a route with no paging passes no `pagination`.
  */
 export function DenseTable({
@@ -33,7 +32,13 @@ export function DenseTable({
   const toggle = <DenseToggle checked={dense} onChange={setDense} label={denseLabel} />;
   return (
     <>
-      <div className={cx("tablewrap", dense && "kit-dense", className)}>{children}</div>
+      <Box
+        className={className}
+        data-dense={dense ? "true" : undefined}
+        sx={{ maxWidth: 1, minWidth: 0, ...(dense ? { "& .MuiTableCell-body": { py: 0.75 } } : null) }}
+      >
+        {children}
+      </Box>
       {pagination ? <TablePaginationLinks {...pagination} left={toggle} /> : <Box sx={{ pl: 2, py: 1.5 }}>{toggle}</Box>}
     </>
   );

@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
 import { expect, userEvent, waitFor, within } from "storybook/test";
-import { Activity, Scale, Syringe, Truck, Users } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import { TrendChart } from "@/components/app/trend-chart";
 import { TableSkeleton } from "@/components/app/skeletons";
 import { TemplateTabs, TabPanel, type TemplateTabItem } from "@/components/app/template-tabs";
@@ -18,10 +18,10 @@ const baseItems: TemplateTabItem[] = [
 ];
 
 const countItems: TemplateTabItem[] = [
-  { value: "due", label: "Due today", count: 128, icon: <Syringe size={16} /> },
-  { value: "overdue", label: "Overdue", count: 14, icon: <Activity size={16} /> },
-  { value: "done", label: "Done", count: "1,204", icon: <Scale size={16} /> },
-  { value: "loads", label: "Loads in", count: 0, icon: <Truck size={16} /> },
+  { value: "due", label: "Due today", count: 128, icon: <Iconify icon="solar:medical-kit-bold" width={16} /> },
+  { value: "overdue", label: "Overdue", count: 14, icon: <Iconify icon="eva:activity-fill" width={16} /> },
+  { value: "done", label: "Done", count: "1,204", icon: <Iconify icon="solar:dumbbell-large-minimalistic-bold" width={16} /> },
+  { value: "loads", label: "Loads in", count: 0, icon: <Iconify icon="carbon:delivery" width={16} /> },
 ];
 
 function Tabs({ items = baseItems, variant = "underline", start = items[0]?.value }: { items?: TemplateTabItem[]; variant?: "underline" | "pill"; start?: string }) {
@@ -65,9 +65,9 @@ export const WithIconsOnly: Story = {
   render: () => (
     <Tabs
       items={[
-        { value: "head", label: "Head", icon: <Users size={16} /> },
-        { value: "weigh", label: "Weighing", icon: <Scale size={16} /> },
-        { value: "vax", label: "Vaccination", icon: <Syringe size={16} /> },
+        { value: "head", label: "Head", icon: <Iconify icon="solar:users-group-rounded-bold" width={16} /> },
+        { value: "weigh", label: "Weighing", icon: <Iconify icon="solar:dumbbell-large-minimalistic-bold" width={16} /> },
+        { value: "vax", label: "Vaccination", icon: <Iconify icon="solar:medical-kit-bold" width={16} /> },
       ]}
     />
   ),

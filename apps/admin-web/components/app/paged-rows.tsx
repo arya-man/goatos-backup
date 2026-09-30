@@ -1,4 +1,5 @@
 "use client";
+import Box from "@mui/material/Box";
 import Table from "@mui/material/Table";
 import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
@@ -48,16 +49,16 @@ export function PagedRows({
   const current = Math.min(page, pages);
   const slice = rows.slice((current - 1) * rowsPerPage, current * rowsPerPage);
   const table = (
-    <Table className={tableClassName ? `kit-paged-table ${tableClassName}` : "kit-paged-table"} aria-label={ariaLabel} sx={tableMinWidth ? { minWidth: tableMinWidth } : undefined}>
+    <Table className={tableClassName} aria-label={ariaLabel} sx={tableMinWidth ? { minWidth: tableMinWidth } : undefined}>
       <TableHead>{head}</TableHead>
       <TableBody>{total === 0 ? empty : slice}</TableBody>
     </Table>
   );
   return (
     <>
-      <div className={wrapClassName || undefined} tabIndex={0} role="group" aria-label={ariaLabel}>
+      <Box className={wrapClassName || undefined} tabIndex={0} role="group" aria-label={ariaLabel}>
         {scrollbar ? <Scrollbar>{table}</Scrollbar> : table}
-      </div>
+      </Box>
       {total > 0 ? (
         <TableFooter
           page={current}

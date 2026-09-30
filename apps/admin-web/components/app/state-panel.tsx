@@ -9,7 +9,7 @@ import Typography from "@mui/material/Typography";
 
 import { varAlpha } from "minimal-shared/utils";
 
-import { Iconify } from "@/components/minimal/iconify";
+import { Iconify, type IconifyName } from "@/components/minimal/iconify";
 
 /**
  * Full-screen (or in-place) error / unavailable state: the template 500-view anatomy (centred h4
@@ -23,6 +23,9 @@ export function StatePanel({
   reference,
   page = true,
   titleComponent = "h1",
+  icon = "solar:danger-triangle-bold",
+  tone = "warning",
+  role = "alert",
 }: {
   title: ReactNode;
   body?: ReactNode;
@@ -31,6 +34,11 @@ export function StatePanel({
   /** true: fills the viewport (shell unavailable); false: sits in the page column (route error). */
   page?: boolean;
   titleComponent?: "h1" | "h2";
+  /** Registered template Iconify name for the tile. */
+  icon?: IconifyName;
+  tone?: "warning" | "primary";
+  /** `alert` for a failure, `status` for a neutral state (404). */
+  role?: "alert" | "status";
 }) {
   return (
     <Box
@@ -45,7 +53,7 @@ export function StatePanel({
       }}
     >
       <Card
-        role="alert"
+        role={role}
         sx={{ width: 1, maxWidth: page ? 480 : 560, px: { xs: 3, sm: 4 }, py: 5, textAlign: "center" }}
       >
         <Stack spacing={1.5} sx={{ alignItems: "center" }}>
@@ -55,11 +63,11 @@ export function StatePanel({
               p: 1.5,
               display: "inline-flex",
               borderRadius: "var(--r-lg)",
-              color: "warning.main",
-              bgcolor: varAlpha(theme.vars.palette.warning.mainChannel, 0.16),
+              color: `${tone}.main`,
+              bgcolor: varAlpha(theme.vars.palette[tone].mainChannel, 0.16),
             })}
           >
-            <Iconify icon="solar:danger-triangle-bold" width={24} />
+            <Iconify icon={icon} width={24} />
           </Box>
           <Typography component={titleComponent} variant="h5" sx={{ pt: 1 }}>
             {title}

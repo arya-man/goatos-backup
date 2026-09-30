@@ -1,15 +1,15 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import * as React from "react";
 import { expect, userEvent, waitFor, within } from "storybook/test";
-import { Baby, Scale, Syringe, Truck } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import { TemplateTabs, TabPanel } from "@/components/app/template-tabs";
 import { Canvas, MOBILE, PEN_ROWS, Stack } from "./_data";
 
 const ITEMS = [
-  { value: "weighing", label: "Weighing", icon: <Scale size={16} />, count: 148 },
-  { value: "vaccination", label: "Vaccination", icon: <Syringe size={16} />, count: 12 },
-  { value: "kids", label: "Kids", icon: <Baby size={16} />, count: 46 },
-  { value: "procurement", label: "Procurement", icon: <Truck size={16} />, disabled: true },
+  { value: "weighing", label: "Weighing", icon: <Iconify icon="solar:dumbbell-large-minimalistic-bold" width={16} />, count: 148 },
+  { value: "vaccination", label: "Vaccination", icon: <Iconify icon="solar:medical-kit-bold" width={16} />, count: 12 },
+  { value: "kids", label: "Kids", icon: <Iconify icon="eva:smiling-face-fill" width={16} />, count: 46 },
+  { value: "procurement", label: "Procurement", icon: <Iconify icon="carbon:delivery" width={16} />, disabled: true },
 ];
 
 const BODY: Record<string, React.ReactNode> = {

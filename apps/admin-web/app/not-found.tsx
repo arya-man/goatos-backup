@@ -1,8 +1,10 @@
-import { Iconify } from "@/components/minimal/iconify";
+import Button from "@mui/material/Button";
 
 import Link from "@/components/no-prefetch-link";
 import { AdminShell } from "@/components/admin-shell";
 import { PageHeader } from "@/components/app/page-header";
+import { PageRoot } from "@/components/app/page-root";
+import { StatePanel } from "@/components/app/state-panel";
 import { shellCopy } from "@/lib/admin-ui-contract";
 import { getAdminWebBootstrap } from "@/lib/api/server";
 
@@ -17,19 +19,23 @@ export default async function RootNotFound() {
   const t = (key: string) => (bootstrap.ok ? shellCopy(bootstrap.data, key) : "");
   return (
     <AdminShell>
-      <div className="kit-page">
+      <PageRoot>
         <PageHeader title={t("not_found.title")} crumbs={[{ label: t("not_found.crumb_home"), href: "/" }, { label: t("not_found.crumb") }]} />
-        <section className="kit-state kit-state-inline" role="status">
-          <span className="kit-state-icon" aria-hidden="true">
-            <Iconify icon="solar:home-angle-bold-duotone" />
-          </span>
-          <h2 className="kit-state-title">404</h2>
-          <p className="kit-state-body">{t("not_found.body")}</p>
-          <Link href="/" className="btn primary">
-            {t("not_found.home")}
-          </Link>
-        </section>
-      </div>
+        <StatePanel
+          page={false}
+          role="status"
+          tone="primary"
+          icon="solar:home-angle-bold-duotone"
+          titleComponent="h2"
+          title="404"
+          body={t("not_found.body")}
+          actions={
+            <Button variant="contained" color="primary" component={Link} href="/">
+              {t("not_found.home")}
+            </Button>
+          }
+        />
+      </PageRoot>
     </AdminShell>
   );
 }

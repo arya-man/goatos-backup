@@ -718,7 +718,7 @@ export function WorklistFilters({
             ))}
           </TextField>
         ) : (
-        <Box key={effectiveField.param} className="kit-field-date" sx={{ position: "relative", display: "inline-flex", flexDirection: "column" }}>
+        <Box key={effectiveField.param} sx={(theme) => ({ position: "relative", display: "inline-flex", flexDirection: "column", width: "max-content", minWidth: theme.spacing(30), maxWidth: 1, flex: "0 0 auto", [theme.breakpoints.down("sm")]: { width: 1, flexBasis: "100%" } })}>
           {/* The calendar button prints its own field name inside it, so it carries no outer label;
               only the plain themed calendar sits in an outlined, labelled TextField. */}
           {effectiveField.kind === "date" && effectiveField.labels && effectiveField.today && !effectiveField.disabledReason ? (
@@ -778,7 +778,7 @@ export function WorklistFilters({
   return (
     <>
     <Card
-      className="wf-bar"
+      data-worklist-filters
       role="group"
       aria-label={barLabel}
       // Announced on the BAR, which is what the reader just acted on. The held-back rows below carry
@@ -1250,7 +1250,7 @@ function WorklistSearchField({
         event.preventDefault();
         onCommit(draft.trim());
       }}
-      sx={{ flex: "1 1 240px", minWidth: { xs: 1, md: 200 } }}
+      sx={(theme) => ({ flex: `1 1 ${theme.spacing(30)}`, minWidth: { xs: 1, md: 200 } })}
       slotProps={{
         htmlInput: { "aria-label": search.ariaLabel ?? search.placeholder ?? copy(pageContract, "a11y.search", "Search") },
         input: {

@@ -11,6 +11,7 @@
 //
 // It renders NO copy of its own: labels arrive already resolved from the page contract.
 import { useEffect, useState, type ReactNode } from "react";
+import Box from "@mui/material/Box";
 import { replaceLocalOverlayUrl } from "@/components/local-overlay-link";
 import { SegmentTabs } from "@/components/app/list/segment-tabs";
 
@@ -54,9 +55,8 @@ export function LocalViewToggle({
   return (
     // The wrapper tags every copy of this toggle (each pane may carry its own) so a switch can
     // re-anchor the page on the copy that becomes visible (TR2-P2-12, guard: local-view-anchored).
-    <div data-local-view-toggle={param} style={{ display: "flex", minWidth: 0 }}>
+    <Box data-local-view-toggle={param} sx={{ display: "flex", minWidth: 0 }}>
     <SegmentTabs
-      className="metricseg"
       ariaLabel={ariaLabel}
       value={selected}
       tabs={options.map((option) => ({
@@ -86,7 +86,7 @@ export function LocalViewToggle({
         },
       }))}
     />
-    </div>
+    </Box>
   );
 }
 
@@ -111,8 +111,8 @@ export function LocalViewPane({
   const [selected] = useLocalView(param, current);
   const visible = selected === value;
   return (
-    <div style={{ display: visible ? "contents" : "none" }} aria-hidden={visible ? undefined : true}>
+    <Box sx={{ display: visible ? "contents" : "none" }} aria-hidden={visible ? undefined : true}>
       {children}
-    </div>
+    </Box>
   );
 }

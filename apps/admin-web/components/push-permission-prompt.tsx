@@ -1,7 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
-import { Bell, BellOff, BellRing, Loader2 } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import CircularProgress from "@mui/material/CircularProgress";
+import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
+import { Iconify } from "@/components/minimal/iconify";
 import {
   detectWebPushSupport,
   disableWebPush,
@@ -53,11 +58,8 @@ import { raceControl } from "@/lib/control-race";
 
 type Busy = "idle" | "enabling" | "disabling" | "refreshing";
 const CONTROL_ACTION_TIMEOUT_MS = 30_000;
-const PENDING_STYLE = {
-  opacity: 1,
-  borderColor: "var(--brand)",
-  color: "var(--brand)",
-} satisfies CSSProperties;
+// A pending press stays readable in the brand colour (never the faded disabled look).
+const PENDING_SX = { "&.Mui-disabled": { color: "primary.main", borderColor: "primary.main" } } as const;
 
 const enableTimedOutState = (): WebPushState => ({ status: "timed_out" });
 export function PushPermissionPrompt({
@@ -150,102 +152,85 @@ export function PushPermissionPrompt({
   const pending = busy !== "idle";
 
   if (state.status === "unsupported" && busy === "refreshing") {
-    // First paint, before the client effect has run.
     return (
-      <div className={className} aria-live="polite">
-        <button type="button" className="btn sm" disabled aria-label={copy("push.checking_label")}>
-          <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-          <span>{copy("push.checking")}</span>
-        </button>
-      </div>
+      <Box className={className} aria-live="polite">
+        <Button size="small" variant="outlined" color="inherit" disabled aria-label={copy("push.checking_label")} startIcon={<CircularProgress size={16} color="inherit" />}>
+          {copy("push.checking")}
+        </Button>
+      </Box>
     );
   }
 
+  const note = (text: React.ReactNode, caption = false) => (
+    <Typography variant={caption ? "caption" : "body2"} component="p" sx={{ mt: 0.5, color: caption ? "text.secondary" : "text.primary" }}>
+      {text}
+    </Typography>
+  );
+
   return (
-    <div className={className} aria-live="polite">
+    <Box className={className} aria-live="polite">
       {state.status === "enabled" ? (
-        <button
-          type="button"
-          className="btn sm"
+        <Button
+          size="small"
+          variant="outlined"
+          color="inherit"
           disabled={pending}
           onClick={onDisable}
           title={copy("push.disable_hint")}
           aria-busy={busy === "disabling"}
-          style={busy === "disabling" ? PENDING_STYLE : undefined}
+          sx={busy === "disabling" ? PENDING_SX : undefined}
+          startIcon={busy === "disabling" ? <CircularProgress size={16} color="inherit" /> : <Iconify icon="solar:bell-bing-bold-duotone" width={16} />}
         >
-          {busy === "disabling" ? (
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-          ) : (
-            <BellRing className="h-4 w-4" aria-hidden="true" />
-          )}
-          <span>{copy(busy === "disabling" ? "push.disabling" : "push.enabled")}</span>
-        </button>
+          {copy(busy === "disabling" ? "push.disabling" : "push.enabled")}
+        </Button>
       ) : null}
 
       {state.status === "prompt" ||
       state.status === "dismissed" ||
       state.status === "timed_out" ||
       state.status === "error" ? (
-        <button
-          type="button"
-          className="btn sm"
+        <Button
+          size="small"
+          variant="outlined"
+          color="inherit"
           disabled={pending}
           onClick={onEnable}
           title={copy("push.enable_hint")}
           aria-busy={busy === "enabling"}
-          style={busy === "enabling" ? PENDING_STYLE : undefined}
+          sx={busy === "enabling" ? PENDING_SX : undefined}
+          startIcon={busy === "enabling" ? <CircularProgress size={16} color="inherit" /> : <Iconify icon="solar:bell-bing-bold" width={16} />}
         >
-          {busy === "enabling" ? (
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-          ) : (
-            <Bell className="h-4 w-4" aria-hidden="true" />
+          {copy(
+            busy === "enabling"
+              ? "push.enabling"
+              : state.status === "timed_out"
+                ? "push.retry"
+                : "push.enable",
           )}
-          <span>
+        </Button>
+      ) : null}
+
+      {state.status === "blocked" ||
+      state.status === "unsupported" ||
+      state.status === "unconfigured" ? (
+        <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+          <Iconify icon="solar:bell-off-bold" width={16} sx={{ flexShrink: 0 }} />
+          <Typography variant="body2" component="span">
             {copy(
-              busy === "enabling"
-                ? "push.enabling"
-                : state.status === "timed_out"
-                  ? "push.retry"
-                  : "push.enable",
+              state.status === "blocked"
+                ? "push.blocked"
+                : state.status === "unconfigured"
+                  ? "push.unconfigured"
+                  : "push.unsupported",
             )}
-          </span>
-        </button>
+          </Typography>
+        </Stack>
       ) : null}
 
-      {state.status === "blocked" ? (
-        // Permission is 'denied'. requestPermission() now resolves 'denied' without showing
-        // anything, so a button here would be a button that cannot work. The only true thing to
-        // say is where the person can undo it themselves.
-        <div className="flex items-center gap-2 text-sm">
-          <BellOff className="h-4 w-4 shrink-0" aria-hidden="true" />
-          <span>{copy("push.blocked")}</span>
-        </div>
-      ) : null}
-
-      {state.status === "unsupported" || state.status === "unconfigured" ? (
-        // NEVER `state.reason` here. That field is the DIAGNOSTIC sentence
-        // (`VAPID_KEY_UNUSABLE_MESSAGE`, "This browser does not support web push") and this
-        // control renders in the top bar on EVERY admin route, so it put implementation
-        // vocabulary in front of a CXO on every page. The reason stays for logs; the reader
-        // gets the business sentence from the contract.
-        <div className="flex items-center gap-2 text-sm">
-          <BellOff className="h-4 w-4 shrink-0" aria-hidden="true" />
-          <span>
-            {copy(
-              state.status === "unconfigured"
-                ? "push.unconfigured"
-                : "push.unsupported",
-            )}
-          </span>
-        </div>
-      ) : null}
-
-      {state.status === "timed_out" ? <p className="mt-1 text-sm">{copy("push.timed_out")}</p> : null}
-      {state.status === "error" ? <p className="mt-1 text-sm">{state.reason}</p> : null}
-      {message ? <p className="mt-1 text-sm">{message}</p> : null}
-      {state.status === "enabled" && !pending ? (
-        <p className="mt-1 text-xs opacity-70">{copy("push.this_browser_only")}</p>
-      ) : null}
-    </div>
+      {state.status === "timed_out" ? note(copy("push.timed_out")) : null}
+      {state.status === "error" ? note(state.reason) : null}
+      {message ? note(message) : null}
+      {state.status === "enabled" && !pending ? note(copy("push.this_browser_only"), true) : null}
+    </Box>
   );
 }

@@ -171,7 +171,8 @@ test("analytics tab changes keep the page and show pending on the strip", () => 
   const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
   assert.doesNotMatch(analyticsSource, /pendingLabel=/);
   assert.doesNotMatch(segmentedLinksSource, /pendingLabel\?: string/);
-  assert.match(segmentedLinksSource, /metricseg metricseg-pending/);
+  // FIXJ4: the pending cue is SegmentTabs `busy` (template Tabs), no legacy .metricseg classes.
+  assert.doesNotMatch(segmentedLinksSource, /className="metricseg|metricseg-pending"/);
   assert.doesNotMatch(segmentedLinksSource, /metricseg-status/);
   assert.match(segmentedLinksSource, /useUrlTabNav\(\)/);
   assert.doesNotMatch(segmentedLinksSource, /router\.prefetch/);
@@ -181,7 +182,6 @@ test("analytics tab changes keep the page and show pending on the strip", () => 
   // one is ready (maintainer P0: a tab click must not flash the page to a shimmer).
   assert.ok(!existsSync(new URL("./weights-analytics-tab-loading.tsx", import.meta.url)));
   assert.doesNotMatch(analyticsSource, /WeightsAnalyticsTabLoading/);
-  assert.match(css, /\.metricseg-pending\{/);
   assert.doesNotMatch(css, /\.wt-tab-switching/);
   assert.doesNotMatch(css, /\.metricseg-status\{/);
 });

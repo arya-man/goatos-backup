@@ -3,10 +3,15 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
+import Box from "@mui/material/Box";
+import { varAlpha } from "minimal-shared/utils";
+
 // Every horizontal scroller in the app: kit wrappers, the legacy per-route ones, and any element
 // that opts in with `data-scroll-x`.
-const SELECTOR = ".tablewrap, .twrap, .tblwrap, .feed-scroll, .kit-scroll-x, [data-scroll-x], .kit-tabs, .metricseg, .subtabs";
+const SELECTOR = ".tablewrap, .twrap, .tblwrap, .feed-scroll, .kit-scroll-x, [data-scroll-x], .kit-tabs, .subtabs";
 const FADE = 64;
+// The template Card radius (theme shape x 2), so a fade stops at the card's rounded corner.
+const CARD_RADIUS = "var(--r-xl)";
 
 type Edge = { key: string; left: number; top: number; height: number; side: "left" | "right"; tone: "paper" | "bg"; radius: string };
 
@@ -66,15 +71,15 @@ export function ScrollEdges() {
         const height = Math.max(0, bottom - top);
         // A tab strip sits on the page background; a table sits on its card. The fade is the
         // colour of what is underneath and stops at the card's rounded corners.
-        const isTabs = el.classList.contains("kit-tabs") || el.classList.contains("metricseg") || el.classList.contains("subtabs");
+        const isTabs = el.classList.contains("kit-tabs") || el.classList.contains("subtabs");
         const card = isTabs ? null : el.closest<HTMLElement>(".card, .MuiCard-root, .kit-tablecard");
         const c = card?.getBoundingClientRect();
         const topCorner = c ? Math.abs(c.top - box.top) < 2 && top === box.top : false;
         const bottomCorner = c ? Math.abs(c.bottom - box.bottom) < 2 && bottom === box.bottom : false;
         const radius = (side: "left" | "right") =>
           side === "right"
-            ? `0 ${topCorner ? "16px" : "0"} ${bottomCorner ? "16px" : "0"} 0`
-            : `${topCorner ? "16px" : "0"} 0 0 ${bottomCorner ? "16px" : "0"}`;
+            ? `0 ${topCorner ? CARD_RADIUS : "0"} ${bottomCorner ? CARD_RADIUS : "0"} 0`
+            : `${topCorner ? CARD_RADIUS : "0"} 0 0 ${bottomCorner ? CARD_RADIUS : "0"}`;
         const tone = isTabs ? "bg" : "paper";
         const id = `${n++}`;
         if (el.scrollLeft + el.clientWidth < el.scrollWidth - 1) next.push({ key: `${id}:r`, left: box.right - FADE, top, height, side: "right", tone, radius: radius("right") });
@@ -103,16 +108,31 @@ export function ScrollEdges() {
 
   if (edges.length === 0 || typeof document === "undefined") return null;
   return createPortal(
-    <div className="kit-scroll-fades" aria-hidden="true">
+    <Box aria-hidden="true" sx={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 5 }}>
       {edges.map((edge) => (
-        <span
+        <Box
           key={edge.key}
-          className={`kit-scroll-fade kit-scroll-fade-${edge.side} kit-scroll-fade-${edge.tone}`}
+          component="span"
           data-visible={edge.height > 0 ? "true" : "false"}
-          style={{ left: edge.left, top: edge.top, height: edge.height, borderRadius: edge.radius }}
+          sx={(theme) => {
+            const fade = edge.tone === "bg" ? theme.vars.palette.background.default : theme.vars.palette.background.paper;
+            const channel = edge.tone === "bg" ? theme.vars.palette.background.defaultChannel : theme.vars.palette.background.paperChannel;
+            return {
+              position: "fixed",
+              width: FADE,
+              pointerEvents: "none",
+              left: edge.left,
+              top: edge.top,
+              height: edge.height,
+              borderRadius: edge.radius,
+              transition: theme.transitions.create("opacity", { duration: theme.transitions.duration.shorter }),
+              background: `linear-gradient(${edge.side === "right" ? 90 : 270}deg, ${varAlpha(channel, 0)}, ${varAlpha(channel, 0.92)} 65%, ${fade})`,
+              boxShadow: `inset ${edge.side === "right" ? -1 : 1}px 0 0 ${theme.vars.palette.divider}`,
+            };
+          }}
         />
       ))}
-    </div>,
+    </Box>,
     document.body,
   );
 }

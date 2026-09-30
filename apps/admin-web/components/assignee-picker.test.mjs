@@ -19,24 +19,26 @@ test("the Work Board hosts the Tasks people dropdown; the shared picker keeps it
   assert.match(board, /setParam\(p, pageContract, PARAM_OWNER, next\.find\(\(id\) => id !== selectedOwner\)\)/);
   // The multi mode stays intact for any other host: ticked-when-all rows, per-owner counts, and
   // "Select all" as the FIRST checkbox row (ticked while nobody is picked); no foot action.
-  assert.match(picker, /className=\{`av\$\{o\.id === selected \? " on" : ""\}`\}/);
-  assert.match(picker, /\+\{overflow\}/);
+  assert.match(picker, /aria-pressed=\{o\.id === selected\}/);
+  // FIXJ4: MUI parts only (Button / ButtonBase avatars, Iconify caret); no legacy .avs / .av classes.
+  assert.doesNotMatch(picker, /className=|lucide-react|style=\{/);
+  assert.match(picker, /initials=\{`\+\$\{overflow\}`\}/);
   assert.match(picker, /const on = selected \? o\.id === selected : true;/);
   assert.match(picker, /\{cardsByOwner\[o\.id\] \?\? 0\} \{labels\.rows\}/);
   assert.doesNotMatch(picker, /className="opt foot"/);
   // The rows are template MenuItems inside the template menu popover (CustomPopover + MenuList).
   assert.match(picker, /<CustomPopover open=\{open\}/);
-  assert.match(picker, /<MenuItem role="option" aria-selected=\{!selected\} className="all"/);
+  assert.match(picker, /<MenuItem role="option" aria-selected=\{!selected\} data-all/);
   assert.match(picker, /\{labels\.selectAll\}/);
-  // Every tick is the lucide Check on the brand box, never a glyph that can inherit the fill colour.
+  // Every tick is the template Checkbox, never a glyph that can inherit the fill colour.
   assert.doesNotMatch(picker, /"✓"/);
 });
 
 test("single mode is a form field: hidden id, Name — Title rows, Enter picks, one Escape layer", () => {
   assert.match(picker, /mode\?: "multi" \| "single"/);
   assert.match(picker, /\{name \? <input type="hidden" name=\{name\} value=\{selected \?\? ""\} \/> : null\}/);
-  assert.match(picker, /<b className="avs-name">\{o\.name\}<\/b>/);
-  assert.match(picker, /avs-title"[^>]*> — \{o\.title\}/);
+  assert.match(picker, /<Box component="b" sx=\{\{ fontWeight: 600 \}\}>\{o\.name\}<\/Box>/);
+  assert.match(picker, /color: "text\.secondary" \}\}> — \{o\.title\}/);
   // Typing matches the title too, only in single mode.
   assert.match(picker, /mode === "single" && \(o\.title \?\? ""\)\.toLowerCase\(\)\.includes\(q\)/);
   assert.match(picker, /if \(e\.key === "Enter"\) \{\s*e\.preventDefault\(\);\s*const row = shown\[highlight\];\s*if \(row\) pick\(row\.id\);/);

@@ -4,7 +4,7 @@ import Button from "@mui/material/Button";
 import Card from "@mui/material/Card";
 import CardHeader, { cardHeaderClasses } from "@mui/material/CardHeader";
 import { expect, userEvent, waitFor, within } from "storybook/test";
-import { AlertTriangle, ListChecks, Pencil, Trash2 } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import { DenseToggle } from "@/components/app/dense-toggle";
 import { RowMenu } from "@/components/app/row-menu";
 import { TableSkeleton } from "@/components/app/skeletons";
@@ -63,9 +63,9 @@ function PenTable({ rows = PENS, dense = false, withMenu = true }: { rows?: type
                   <RowMenu
                     ariaLabel={`Actions for ${r.pen}`}
                     actions={[
-                      { label: "Edit pen", icon: <Pencil size={15} />, onSelect: () => {} },
-                      { label: "Open weighing", icon: <ListChecks size={15} />, onSelect: () => {} },
-                      { label: "Archive pen", icon: <Trash2 size={15} />, danger: true, onSelect: () => {} },
+                      { label: "Edit pen", icon: <Iconify icon="solar:pen-bold" width={15} />, onSelect: () => {} },
+                      { label: "Open weighing", icon: <Iconify icon="solar:bill-list-bold-duotone" width={15} />, onSelect: () => {} },
+                      { label: "Archive pen", icon: <Iconify icon="solar:trash-bin-trash-bold" width={15} />, danger: true, onSelect: () => {} },
                     ]}
                   />
                 </td>
@@ -84,7 +84,7 @@ function Shell({ children, action }: { children: React.ReactNode; action?: React
       <CardHeader
         sx={{ [`& .${cardHeaderClasses.action}`]: { m: 0, flex: { xs: "1 1 100%", sm: "0 0 auto" }, minWidth: 0, maxWidth: "100%" } }}
         style={{ padding: "20px 24px 12px", alignItems: "center", gap: 12, flexWrap: "wrap" }}
-        title={<span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><ListChecks className="ic" style={{ width: 18, color: "var(--primary)" }} aria-hidden="true" />Pen register</span>}
+        title={<span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><Iconify icon="solar:bill-list-bold-duotone" style={{ width: 18, color: "var(--primary)" }} />Pen register</span>}
         subheader="Kranji, Lim Chu Kang, Sungei Tengah and Mandai"
         action={action}
       />
@@ -129,7 +129,7 @@ export const LoadingSkeleton: Story = {
 export const Empty: Story = {
   render: () => (
     <Shell>
-      <EmptyState filled icon={<ListChecks className="ic" />} title="No pens match this filter. Clear the park filter or add a pen." />
+      <EmptyState filled icon={<Iconify icon="solar:bill-list-bold-duotone" />} title="No pens match this filter. Clear the park filter or add a pen." />
       <TableFooter page={1} rowsPerPage={25} total={0} onPageChange={() => {}} onRowsPerPageChange={() => {}} />
     </Shell>
   ),
@@ -139,7 +139,7 @@ export const ErrorState: Story = {
   render: () => (
     <Shell>
       <div style={{ display: "grid", justifyItems: "center", gap: 10, padding: "56px 24px", textAlign: "center" }}>
-        <AlertTriangle className="ic" style={{ color: "var(--error)" }} aria-hidden="true" />
+        <Iconify icon="solar:danger-triangle-bold" style={{ color: "var(--error)" }} />
         <div className="small">Could not load the pen register (weighing service timed out).</div>
         <Button type="button" variant="outlined" color="inherit" size="small">Retry</Button>
       </div>
@@ -216,7 +216,7 @@ export const MobileEmpty: Story = {
   globals: MOBILE,
   render: () => (
     <Shell>
-      <EmptyState filled icon={<ListChecks className="ic" />} title="No pens in Mandai Quarantine today." />
+      <EmptyState filled icon={<Iconify icon="solar:bill-list-bold-duotone" />} title="No pens in Mandai Quarantine today." />
     </Shell>
   ),
 };

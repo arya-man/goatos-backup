@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { ThemedDatePicker } from "@/components/themed-date-picker";
+import Box from "@mui/material/Box";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
 
@@ -12,9 +13,11 @@ const MINUTES = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, "
 /**
  * The kit's answer to the native datetime-local input: the themed calendar for the day plus hour
  * and minute listboxes, posting ONE text input under `name` in the exact
- * `YYYY-MM-DDTHH:MM` shape the native control produced, so every Server Action that reads the
- * field (`optRfc3339` / `requiredRfc3339`) is untouched. `required` rides on that input, so a
- * form with a day but no time is still refused by the browser before it is sent.
+ * `YYYY-MM-DDTHH:MM` shape the native control produced (a hidden input), so every Server Action
+ * that reads the field (`optRfc3339` / `requiredRfc3339`) is untouched. `required` rides on the
+ * parts: the day picker refuses the submit with `invalidDateText`, and the hour / minute MUI
+ * selects are `required` (their native input is browser-validated), so a day with no time is still
+ * refused before it is sent. Layout is theme sx (template form row), no legacy stylesheet.
  * Labels arrive from the caller (backend copy); this component renders none of its own.
  */
 export function DateTimeField({
@@ -49,8 +52,16 @@ export function DateTimeField({
   const [minute, setMinute] = useState(initialTime ? initialTime.slice(3, 5) : "");
   const value = date && hour && minute ? `${date}T${hour}:${minute}` : "";
   return (
-    <div className="kit-datetime">
-      <div className="kit-datetime-date">
+    <Box
+      sx={(theme) => ({
+        display: "grid",
+        gridTemplateColumns: { xs: "minmax(0, 1fr) minmax(0, 1fr)", sm: `minmax(0, 1fr) repeat(2, ${theme.spacing(11.5)})` },
+        gap: 1.25,
+        alignItems: "end",
+        minWidth: 0,
+      })}
+    >
+      <Box sx={{ gridColumn: { xs: "1 / -1", sm: "auto" }, minWidth: 0 }}>
         <ThemedDatePicker
           name={`${name}__day`}
           label={label}
@@ -61,10 +72,12 @@ export function DateTimeField({
           previousMonthLabel={previousMonthLabel}
           nextMonthLabel={nextMonthLabel}
           invalidDateText={invalidDateText}
+          required={required}
         />
-      </div>
+      </Box>
       <TextField
         select
+        required={required}
         label={hourLabel}
         value={HOURS.includes(hour) ? hour : ""}
         onChange={(event) => setHour(event.target.value)}
@@ -80,6 +93,7 @@ export function DateTimeField({
       </TextField>
       <TextField
         select
+        required={required}
         label={minuteLabel}
         value={MINUTES.includes(minute) ? minute : ""}
         onChange={(event) => setMinute(event.target.value)}
@@ -93,7 +107,7 @@ export function DateTimeField({
           </MenuItem>
         ))}
       </TextField>
-      <input type="text" name={name} value={value} required={required} aria-hidden="true" tabIndex={-1} className="kit-posted-value" onChange={() => undefined} />
-    </div>
+      <input type="hidden" name={name} value={value} />
+    </Box>
   );
 }

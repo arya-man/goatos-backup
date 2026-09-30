@@ -5,6 +5,7 @@ import IconButton from "@mui/material/IconButton";
 import { varTap, varHover, transitionTap } from "@/layouts/template/animate";
 import SvgIcon from "@mui/material/SvgIcon";
 import { settingIcons } from "@/layouts/template/settings/drawer/icons";
+import { AppIcon } from "@/components/app/app-icon";
 import { useSyncExternalStore } from "react";
 import { applyTheme, readTheme, type ThemeMode } from "@/lib/theme";
 
@@ -54,8 +55,9 @@ export function ThemeToggle({ labelToLight, labelToDark, className, onChange }: 
           exit={reduce ? undefined : { rotate: 90, opacity: 0, scale: 0.8 }}
           transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
         >
-          {/* Template settings-drawer mode glyphs (verbatim settingIcons): moon = go dark, contrast = go light. */}
-          <SvgIcon fontSize="medium">{isLight ? settingIcons.moon : settingIcons.contrast}</SvgIcon>
+          {/* Moon = go dark: the template settings-drawer glyph (verbatim settingIcons). Sun = go light:
+              solar sun from the extra offline registry (components/app/iconify-extra.ts). */}
+          {isLight ? <SvgIcon fontSize="medium">{settingIcons.moon}</SvgIcon> : <AppIcon icon="solar:sun-bold" width={24} />}
         </m.span>
       </AnimatePresence>
     </IconButton>
