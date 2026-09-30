@@ -5,7 +5,7 @@ import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
-import { ArrowRight } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 
 import { AuthSplitLayout } from "@/layouts/auth-split";
 import { FormHead } from "@/components/auth/form-head";
@@ -80,7 +80,7 @@ export default async function LoginPage({ searchParams }: { searchParams?: Promi
           size="large"
           color="inherit"
           variant="contained"
-          endIcon={<ArrowRight aria-hidden="true" />}
+          endIcon={<Iconify icon="eva:arrow-forward-fill" />}
         >
           Open local dashboard
         </Button>

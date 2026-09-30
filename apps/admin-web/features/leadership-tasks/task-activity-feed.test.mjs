@@ -30,7 +30,10 @@ function load(filename) {
   }).outputText;
   vm.runInThisContext(`(function(require,module,exports){${source}\n})`, { filename })(
     (name) =>
-      name.startsWith("@/")
+      // The template Iconify (offline icon set, @iconify/react) is not what this test pins; stub it.
+      name === "@/components/minimal/iconify"
+        ? { Iconify: ({ icon }) => React.createElement("span", { "data-icon": icon }) }
+        : name.startsWith("@/")
         ? load(path.join(root, name.slice(2)))
         : name.startsWith(".")
           ? load(path.resolve(path.dirname(filename), name))

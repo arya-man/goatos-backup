@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarClock, CheckCircle2, MessageSquareText } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import { useEffect, useId, useRef, useState } from "react";
 
 import TextField from "@mui/material/TextField";
@@ -89,7 +89,7 @@ function StatusForm({
           }
         }}
       >
-        <CheckCircle2 className="ic" aria-hidden="true" />
+        <Iconify icon="solar:check-circle-bold" />
         {/* The button's wording is the backend's own status-option label. */}
         {option.label}
       </button>
@@ -153,7 +153,7 @@ export function TaskCommentForm({
           }
         }}
       >
-        <MessageSquareText className="ic" aria-hidden="true" />
+        <Iconify icon="solar:chat-round-dots-bold" />
         {copy(pageContract, "note.send")}
       </button>
     </form>
@@ -313,7 +313,7 @@ export function TaskDeadlineFields({
         </small>
       ) : null}
       <small id={hintId} className="lt-assignee-hint lt-deadline-hint">
-        <CalendarClock className="ic" aria-hidden="true" />
+        <Iconify icon="solar:sort-by-time-bold-duotone" />
         <span>{hint}</span>
       </small>
     </div>

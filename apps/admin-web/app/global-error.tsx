@@ -9,7 +9,7 @@ import "./minimal-theme.css";
 import "./frame.css";
 import "@/theme/fonts.css";
 
-import { RotateCcw } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Container from "@mui/material/Container";
@@ -73,7 +73,7 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
                 </Box>
               ) : null}
               <Box sx={{ mt: 5 }}>
-                <Button size="large" variant="contained" color="primary" onClick={reset} startIcon={<RotateCcw aria-hidden="true" />}>
+                <Button size="large" variant="contained" color="primary" onClick={reset} startIcon={<Iconify icon="solar:restart-bold" />}>
                   Try again
                 </Button>
               </Box>

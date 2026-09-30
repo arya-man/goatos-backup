@@ -7,15 +7,7 @@ import TableCell from "@mui/material/TableCell";
 
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import Link from "@/components/no-prefetch-link";
-import {
-  ArrowUpDown,
-  Columns3,
-  Copy,
-  Download,
-  ExternalLink,
-  Paperclip,
-  X,
-} from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import Button from "@mui/material/Button";
 import { RowMenu } from "@/components/app/row-menu";
 import { FilterBar } from "@/components/app/filter-bar";
@@ -189,17 +181,17 @@ export function TaskTable({ tasks, selectedId, rowHref, pageSizeOptions, renderC
         }}
         actions={
           <>
-            <Button color="primary" variant="text" size="small" startIcon={<Columns3 size={16} />} onClick={() => setDense((d) => !d)}>
+            <Button color="primary" variant="text" size="small" startIcon={<Iconify icon="ic:round-view-module" width={16} />} onClick={() => setDense((d) => !d)}>
               {copyFor("action.columns", "Columns")}
             </Button>
-            <Button color="primary" variant="text" size="small" startIcon={<Download size={16} />} onClick={exportCsv}>
+            <Button color="primary" variant="text" size="small" startIcon={<Iconify icon="solar:download-bold" width={16} />} onClick={exportCsv}>
               {copyFor("action.export", "Export")}
             </Button>
             <RowMenu
               ariaLabel={copyFor("action.more", "More actions")}
               actions={[
-                { label: copyFor("action.reset_filters", "Reset filters"), icon: <X size={15} />, onSelect: clearAll, disabled: chips.length === 0 },
-                { label: dense ? copyFor("action.comfortable", "Comfortable rows") : copyFor("action.dense", "Dense rows"), icon: <ArrowUpDown size={15} />, onSelect: () => setDense((d) => !d) },
+                { label: copyFor("action.reset_filters", "Reset filters"), icon: <Iconify icon="mingcute:close-line" width={15} />, onSelect: clearAll, disabled: chips.length === 0 },
+                { label: dense ? copyFor("action.comfortable", "Comfortable rows") : copyFor("action.dense", "Dense rows"), icon: <Iconify icon="carbon:chevron-sort" width={15} />, onSelect: () => setDense((d) => !d) },
               ]}
             />
           </>
@@ -211,7 +203,7 @@ export function TaskTable({ tasks, selectedId, rowHref, pageSizeOptions, renderC
               <span key={c.id} className="lt-fchip">
                 {c.label}
                 <button type="button" aria-label={`${copyFor("action.remove_filter", "Remove filter")}: ${c.label}`} onClick={() => { c.clear(); setPage(1); }}>
-                  <X size={12} aria-hidden="true" />
+                  <Iconify icon="mingcute:close-line" width={12} />
                 </button>
               </span>
             ))}
@@ -345,7 +337,7 @@ export function TaskTable({ tasks, selectedId, rowHref, pageSizeOptions, renderC
                 <TableCell>{renderStatus(task)}</TableCell>
                 <TableCell className="lt-evidence-col">
                   <span style={{ display: "inline-flex", alignItems: "center", gap: 7, minWidth: 0 }}>
-                    <Paperclip className="ic" style={{ width: 15, color: "var(--fg-muted)" }} aria-hidden="true" />
+                    <Iconify icon="eva:attach-2-fill" width={15} sx={{ color: "text.secondary" }} />
                     <b>{task.attachments}</b>
                     <span className="muted small">{task.evidence}</span>
                   </span>
@@ -354,10 +346,10 @@ export function TaskTable({ tasks, selectedId, rowHref, pageSizeOptions, renderC
                   <RowMenu
                     ariaLabel={`${copyFor("action.more", "More actions")}: ${task.number}`}
                     actions={[
-                      { label: copyFor("action.open_task", "Open task"), icon: <ExternalLink size={15} />, onSelect: () => { window.location.href = rowHref(task); } },
+                      { label: copyFor("action.open_task", "Open task"), icon: <Iconify icon="eva:external-link-fill" width={15} />, onSelect: () => { window.location.href = rowHref(task); } },
                       {
                         label: copyFor("action.copy_link", "Copy link"),
-                        icon: <Copy size={15} />,
+                        icon: <Iconify icon="solar:copy-bold" width={15} />,
                         onSelect: () => {
                           void navigator.clipboard?.writeText(new URL(rowHref(task), window.location.origin).toString());
                         },

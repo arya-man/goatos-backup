@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText, Image, Mic, Paperclip, Pencil, X } from "lucide-react";
+import { Iconify, type IconifyName } from "@/components/minimal/iconify";
 import { useCallback, useId, useRef, useState } from "react";
 import Dialog from "@mui/material/Dialog";
 import DialogContent from "@mui/material/DialogContent";
@@ -87,14 +87,14 @@ export function EditTaskModal({
   // Template MUI Dialog owns Escape, the scroll lock and the focus trap; Back closes it too.
   useBackCloses(open, closeModal);
 
-  const pickers: Array<{ key: string; label: string; accept: string; icon: typeof Mic }> = [
-    { key: "voice", label: copy(pageContract, "picker.voice"), accept: "audio/*", icon: Mic },
-    { key: "media", label: copy(pageContract, "picker.media"), accept: "image/*,video/*", icon: Image },
+  const pickers: Array<{ key: string; label: string; accept: string; icon: IconifyName }> = [
+    { key: "voice", label: copy(pageContract, "picker.voice"), accept: "audio/*", icon: "solar:microphone-bold" },
+    { key: "media", label: copy(pageContract, "picker.media"), accept: "image/*,video/*", icon: "solar:gallery-wide-bold" },
     {
       key: "file",
       label: copy(pageContract, "picker.file"),
       accept: ".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt",
-      icon: FileText,
+      icon: "solar:file-text-bold",
     },
   ];
 
@@ -112,7 +112,7 @@ export function EditTaskModal({
         aria-haspopup="dialog"
         aria-expanded={open}
       >
-        <Pencil className="ic" aria-hidden="true" />
+        <Iconify icon="solar:pen-bold" />
         {copy(pageContract, "action.edit")}
       </button>
       <Dialog
@@ -132,7 +132,7 @@ export function EditTaskModal({
         }}
       >
             <DialogTitle component="div" className="lt-modal-hd">
-              <Pencil className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
+              <Iconify icon="solar:pen-bold" sx={{ color: "primary.main" }} />
               <Typography variant="h6" component="h3" id={headingId} sx={{ flexGrow: 1 }}>
                 {copy(pageContract, "edit.title")} {task.number}
               </Typography>
@@ -142,7 +142,7 @@ export function EditTaskModal({
                 onClick={closeModal}
                 aria-label={copy(pageContract, "action.close")}
               >
-                <X className="ic" aria-hidden="true" />
+                <Iconify icon="mingcute:close-line" />
               </button>
             </DialogTitle>
             <DialogContent dividers sx={{ pt: 1 }}>
@@ -194,7 +194,7 @@ export function EditTaskModal({
                               ...prev,
                               [attachment.proof_id]: event.target.checked,
                             }))
-                          } sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<><Paperclip className="ic" aria-hidden="true" />
+                          } sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<><Iconify icon="eva:attach-2-fill" />
                         <span>{attachment.file_name || attachmentKindLabel(attachment.kind)}</span>
                         {/* Re-posted as a ref only while it is ticked: the list the server receives
                             IS the new list, so an unticked file is removed by being absent. */}
@@ -214,11 +214,10 @@ export function EditTaskModal({
                 ) : null}
                 <div className="lt-pickers">
                   {pickers.map((picker) => {
-                    const Icon = picker.icon;
                     const count = added[picker.key] ?? 0;
                     return (
                       <label key={picker.key} className="btn lt-picker">
-                        <Icon className="ic" aria-hidden="true" />
+                        <Iconify icon={picker.icon} />
                         <span className="lt-picker-label">{picker.label}</span>
                         {count ? <span className="cbq">{count}</span> : null}
                         <input

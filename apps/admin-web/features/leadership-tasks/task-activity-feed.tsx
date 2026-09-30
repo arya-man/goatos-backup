@@ -1,6 +1,6 @@
 "use client";
 
-import { MessageSquareText } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import { useId, useState } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -128,7 +128,7 @@ export function TaskActivityFeed({
             return (
             <li key={entry.id} className="ltd-act" data-ltd-kind={entry.kind} data-ltd-pending={pending ? "true" : undefined}>
               <span className={`ltd-av ltd-av-sm${pending ? " ltd-av-me" : ""}`} aria-hidden="true">
-                {pending ? <MessageSquareText className="ic" /> : entry.actor_initials || "·"}
+                {pending ? <Iconify icon="solar:chat-round-dots-bold" /> : entry.actor_initials || "·"}
               </span>
               <div className="ltd-act-tx">
                 <div className="ltd-act-line">

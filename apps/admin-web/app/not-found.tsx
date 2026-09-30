@@ -1,4 +1,4 @@
-import { Compass } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 
 import Link from "@/components/no-prefetch-link";
 import { AdminShell } from "@/components/admin-shell";
@@ -21,7 +21,7 @@ export default async function RootNotFound() {
         <PageHeader title={t("not_found.title")} crumbs={[{ label: t("not_found.crumb_home"), href: "/" }, { label: t("not_found.crumb") }]} />
         <section className="kit-state kit-state-inline" role="status">
           <span className="kit-state-icon" aria-hidden="true">
-            <Compass />
+            <Iconify icon="solar:home-angle-bold-duotone" />
           </span>
           <h2 className="kit-state-title">404</h2>
           <p className="kit-state-body">{t("not_found.body")}</p>
