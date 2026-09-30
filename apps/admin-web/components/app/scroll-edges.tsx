@@ -6,9 +6,12 @@ import { createPortal } from "react-dom";
 import Box from "@mui/material/Box";
 import { varAlpha } from "minimal-shared/utils";
 
-// Every horizontal scroller in the app: kit wrappers, the legacy per-route ones, and any element
-// that opts in with `data-scroll-x`.
-const SELECTOR = ".tablewrap, .twrap, .tblwrap, .feed-scroll, .kit-scroll-x, [data-scroll-x], .kit-tabs, .subtabs";
+// Every horizontal scroller that opts in: the TemplateTabs strip (`kit-tabs`, a JS hook with no
+// stylesheet) and any element marked `data-scroll-x`. The legacy per-route wrappers (.tablewrap,
+// .twrap, .tblwrap, .feed-scroll, .kit-scroll-x, .subtabs) rendered nowhere after the template
+// move and are gone (J1B P2-4; guard `stale-hook-selectors`, scripts/stale-hook-selectors.test.mjs).
+export const SCROLL_EDGE_SELECTOR = ".kit-tabs, [data-scroll-x]";
+const SELECTOR = SCROLL_EDGE_SELECTOR;
 const FADE = 64;
 // The template Card radius (theme shape x 2), so a fade stops at the card's rounded corner.
 const CARD_RADIUS = "var(--r-xl)";

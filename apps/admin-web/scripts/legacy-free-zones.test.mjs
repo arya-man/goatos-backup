@@ -78,3 +78,27 @@ test("every listed zone in the app is legacy-free", () => {
   const found = legacyFreeZoneFindings(appDir);
   assert.deepEqual(found.map((f) => `${f.file}:${f.line} ${f.snippet}`), []);
 });
+
+// J1B P2-3 (FIXJ7): app/, components/, features/ and layouts/ are zones as a whole; `exempt` keeps
+// named files / prefixes outside, each with a reason, and a clean exempt file is refused as stale.
+test("root zones cover everything; exemptions carry a reason and only shrink", () => {
+  const root = mkdtempSync(join(tmpdir(), "lfz-exempt-"));
+  const put = (rel, text) => { mkdirSync(dirname(join(root, rel)), { recursive: true }); writeFileSync(join(root, rel), text); };
+  put("features/a/dirty.tsx", 'export const D = () => <div style={{ padding: 1 }} />;\n');
+  put("features/a/kept.tsx", 'export const K = () => <div style={{ padding: 1 }} />;\n');
+  put("features/a/healed.tsx", "export const H = () => null;\n");
+  put("components/minimal/tpl.tsx", 'export const T = () => <div style={{ color: "#fff" }} />;\n');
+  put("scripts/legacy-free-zones.json", JSON.stringify({
+    zones: ["features/", "components/"],
+    exempt: { "components/minimal/": "template", "features/a/kept.tsx": "baselined style prop", "features/a/healed.tsx": "was dirty" },
+  }));
+  const found = legacyFreeZoneFindings(root).map((f) => `${f.file}: ${f.snippet}`);
+  assert.ok(found.some((s) => s.startsWith("features/a/dirty.tsx")), "a new dirty file under a root zone fails");
+  assert.ok(!found.some((s) => s.startsWith("features/a/kept.tsx") || s.startsWith("components/minimal/")), "exempt paths are skipped");
+  assert.ok(found.some((s) => /stale exemption "features\/a\/healed.tsx"/.test(s)), "a clean exempt file is stale");
+});
+
+test("the app zones cover app/, components/, features/ and layouts/", () => {
+  const zones = readZones(appDir);
+  for (const z of ["app/", "components/", "features/", "layouts/"]) assert.ok(zones.includes(z), `${z} is not a zone`);
+});
