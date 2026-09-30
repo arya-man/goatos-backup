@@ -221,6 +221,15 @@ chapters below; do not review from the summary.
   useSearchParams/usePathname/useLinkStatus or wires a JSX `onX={…}` handler starts with
   `"use client"` (a server module that re-exported next/link's useLinkStatus broke `next build`
   on 2026-09-27). Typecheck does not catch this; only `next build` and this guard do.
+- **Root special files render without the root layout (guards: `global-error-prerender-no-providers`,
+  `scripts/global-error-prerender.test.mjs` in npm test; `prerender-repeat`, `npm run check:prerender-repeat`
+  in ci-local).** Next 16 prerenders `/_global-error` from a tree with NO app/layout.tsx but WITH the root
+  `app/loading.tsx` as the Suspense fallback; React draws that fallback only when the page chunk is not
+  ready yet, so a loading tree that reads `theme.vars` failed `next build` intermittently ("Cannot read
+  properties of undefined (reading 'palette')", FIXJ-BUILD on 7e181ce32). A root `loading.tsx` wraps its
+  content in `EnsureAppTheme` (theme/ensure-app-theme.tsx: pass-through under the root layout, the app
+  provider stack otherwise) and `global-error.tsx` mounts `AppThemeProvider` itself. A build that passed
+  once is not proof for a race: the prerender-repeat check runs the prerender step 3x from one compile.
 - **No function crosses the server/client line (guard: `server-function-prop`, design:guard p0).** A
   SERVER module (reached from an app/ page/layout/loading without passing a `"use client"` file)
   never hands an MUI element a function `sx={(theme) => …}` / `sx={[(theme) => …]}`: MUI parts are

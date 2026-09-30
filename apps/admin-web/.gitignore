@@ -17,6 +17,8 @@
 # another port writes here — same reason as .next-e2e above: its own build dir,
 # not covered by .next/, and 80MB+ of webpack output that must never be committed.
 /.next-weights/
+# scripts/check-prerender-repeat.mjs parks an existing .next here while it runs.
+/.next-prerender-saved/
 /out/
 
 # production
