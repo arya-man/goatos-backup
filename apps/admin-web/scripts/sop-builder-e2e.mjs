@@ -17,7 +17,14 @@ async function check(name, fn) {
   }
 }
 const q = (i) => page.locator("[data-testid=sop-question]").nth(i);
-const typeSel = (i) => q(i).locator(".qtype select");
+// The answer type and scan mode are MUI selects (InlineSelect): open the combobox, pick the option.
+const pickMui = async (combo, value) => {
+  await combo.click();
+  await page.locator(`[role=listbox] [role=option][data-value="${value}"]`).first().click();
+  await page.waitForTimeout(80);
+};
+const typeSel = (i) => ({ selectOption: (value) => pickMui(q(i).getByRole("combobox", { name: /Answer type/i }), value) });
+const scanModeSel = () => q(0).getByRole("combobox", { name: /Scan mode/i });
 const gotoBuilder = async (suffix = "") => {
   await page.goto(`${base}/counts/sops?compose=1&scope_mode=company${suffix}`, { waitUntil: "networkidle", timeout: 30000 });
   await page.waitForSelector("[data-testid=sop-question]", { timeout: 15000 });
@@ -94,21 +101,22 @@ try {
   await typeSel(0).selectOption("goat_scan");
   await page.waitForTimeout(200);
   await check("Animal ID scan (multi default) previews a MULTI-SCAN control", async () => (await pf0().locator("[data-testid=pv-scanmulti]").count()) > 0);
-  await check("Animal ID scan builder has a Scan mode select", async () => (await q(0).locator('select[aria-label*="Scan mode"]').count()) > 0);
+  await check("Animal ID scan builder has a Scan mode select", async () => (await scanModeSel().count()) > 0);
   await pf0().locator("[data-testid=pv-scanmulti] button").first().click(); // Scan Animal ID -> add a tag
   await page.waitForTimeout(150);
   await check("multi-scan: adding a scan shows a tag chip", async () => (await pf0().locator("[data-testid=pv-chip]").count()) > 0);
-  await q(0).locator('select[aria-label*="Scan mode"]').selectOption("single");
+  await pickMui(scanModeSel(), "single");
   await page.waitForTimeout(200);
   await check("goat scan (single) previews a DROPDOWN control", async () => (await pf0().locator("[data-testid=pv-selectstub]").count()) > 0);
 
   // ============ 2. TRIGGER CHIPS ============
   await gotoBuilder();
   for (const label of ["Form", "Schedule / cron", "Sensor", "Manual"]) {
-    const chip = page.locator(".buildermain .chipset .chip", { hasText: new RegExp(`^${label.replace(/\//g, "\\/")}$`) }).first();
+    // The trigger is a template pill TemplateTabs strip (role tab, aria-selected), not the legacy .chipset.
+    const chip = page.locator("[data-testid=builder-main] [role=tab]", { hasText: new RegExp(`^${label.replace(/\//g, "\\/")}$`) }).first();
     await chip.click();
     await page.waitForTimeout(120);
-    await check(`trigger chip "${label}" selects`, async () => (await chip.getAttribute("aria-pressed")) === "true");
+    await check(`trigger chip "${label}" selects`, async () => (await chip.getAttribute("aria-selected")) === "true");
   }
 
   // ============ 3. QUESTION BUTTONS: add / duplicate / move / remove ============
@@ -175,14 +183,22 @@ try {
 
   // ============ 7. GATES & PROOF ============
   await gotoBuilder();
-  const proofType = page.locator('select[aria-label="Proof type"]');
-  const minCount = page.locator('input[aria-label="Minimum proof count"]');
-  const subjScope = page.locator('select[aria-label="Subject scope"]');
-  await check("proof type select has video+photo", async () => (await proofType.locator("option").count()) === 2);
+  // Proof type / subject scope are MUI selects (FieldSelect): combobox by label, options in the listbox.
+  const proofTypeCombo = () => page.getByRole("combobox", { name: /^Proof type/ }).first();
+  const proofType = { selectOption: (v) => pickMui(proofTypeCombo(), v) };
+  const minCount = page.getByLabel("Minimum proof count").first();
+  const subjScopeCombo = () => page.getByRole("combobox", { name: /^Subject scope/ }).first();
+  const subjScope = { selectOption: (v) => pickMui(subjScopeCombo(), v) };
+  await check("proof type select has video+photo", async () => {
+    await proofTypeCombo().click();
+    const n = await page.locator("[role=listbox] [role=option]").count();
+    await page.keyboard.press("Escape");
+    return n === 2;
+  });
   await minCount.fill("3");
   await check("min proof count editable", async () => (await minCount.inputValue()) === "3");
   await subjScope.selectOption("batch");
-  await check("subject scope switch to batch", async () => (await subjScope.inputValue()) === "batch");
+  await check("subject scope switch to batch", async () => (await subjScopeCombo().locator("xpath=following-sibling::input").first().inputValue()) === "batch");
   await subjScope.selectOption("goat");
 
   // ============ 8. VALIDATION PERMUTATIONS ============
@@ -190,7 +206,7 @@ try {
   await gotoBuilder();
   await proofType.selectOption("photo");
   await page.waitForTimeout(200);
-  await check("VALIDATION proof-type mismatch -> proof-gap alert", async () => (await page.locator(".alert.warn").count()) > 0);
+  await check("VALIDATION proof-type mismatch -> proof-gap alert", async () => (await page.locator(".MuiAlert-standardWarning, .MuiAlert-colorWarning").count()) > 0);
   await check("VALIDATION proof-type mismatch -> Save disabled", async () => await page.getByRole("button", { name: /Save draft|Re-save/ }).isDisabled());
   await proofType.selectOption("video");
   await page.waitForTimeout(150);
@@ -263,7 +279,7 @@ try {
   await check("edit: URL has edit=", () => /edit=/.test(page.url()));
   await check("edit: title is Edit SOP", async () => /Edit SOP/.test(await page.locator("[data-page-header] h1").innerText()));
   await check("edit: name prefilled from version", async () => (await page.locator("[data-testid=builder-name]").first().inputValue()).includes(sopName));
-  await check("edit: builder-authored SOP not edit-blocked", async () => (await page.locator(".alert.warn").count()) === 0);
+  await check("edit: builder-authored SOP not edit-blocked", async () => (await page.locator(".MuiAlert-standardWarning, .MuiAlert-colorWarning").count()) === 0);
   await check("edit: Save enabled (re-save new version)", async () => await page.getByRole("button", { name: /Save draft|Re-save/ }).isEnabled());
 
   await ctx.close();
