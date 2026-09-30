@@ -1,6 +1,7 @@
 "use client";
 
 import { Iconify } from "@/components/minimal/iconify";
+import { ASSIGNEE_FIELD_SX } from "@/components/app/assignee-field-sx";
 import { useRouter } from "next/navigation";
 import { startTransition, useActionState, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
@@ -442,8 +443,8 @@ export function RoutineDrawerForm({
   // MUI TextFields with their own labels, RadioGroup tiles and FormControlLabel checkbox lists.
   const labelShrink = { inputLabel: { shrink: true } } as const;
   return (
-    // `prt` only scopes the shared AssigneePicker anatomy (:is(.lt-modal,.prt) .avs-*); no own layout rules.
-    <Stack className="prt" spacing={3}>
+    // The shared single-person AssigneePicker is drawn as a template outlined field (ASSIGNEE_FIELD_SX).
+    <Stack spacing={3} sx={ASSIGNEE_FIELD_SX}>
       <form
         id={formId}
         aria-busy={pending}
@@ -565,7 +566,7 @@ export function RoutineDrawerForm({
                       input: {
                         startAdornment: (
                           <InputAdornment position="start">
-                            <Iconify icon="eva:search-fill" />
+                            <Iconify icon="eva:search-fill" aria-hidden="true" sx={{ color: "text.disabled" }} />
                           </InputAdornment>
                         ),
                       },
@@ -777,7 +778,7 @@ export function RoutineDrawerForm({
                       title={label(pageContract, "action.remove_question", "action.close")}
                       onClick={() => removeQuestion(question.key)}
                     >
-                      <Iconify icon="solar:trash-bin-trash-bold" />
+                      <Iconify icon="solar:trash-bin-trash-bold" aria-hidden="true" />
                     </IconButton>
                   </Stack>
                   <TextField
@@ -858,7 +859,7 @@ export function RoutineDrawerForm({
                             title={label(pageContract, "action.remove_option", "action.close")}
                             onClick={() => updateQuestion(question.key, { options: (question.options ?? []).filter((_, i) => i !== optionIndex) })}
                           >
-                            <Iconify icon="solar:trash-bin-trash-bold" />
+                            <Iconify icon="solar:trash-bin-trash-bold" aria-hidden="true" />
                           </IconButton>
                         </Stack>
                       ))}
@@ -869,7 +870,7 @@ export function RoutineDrawerForm({
                             size="small"
                             variant="outlined"
                             color="inherit"
-                            startIcon={<Iconify icon="mingcute:add-line" />}
+                            startIcon={<Iconify icon="mingcute:add-line" aria-hidden="true" />}
                             onClick={() => updateQuestion(question.key, { options: [...(question.options ?? []), { value: "", label: "" }] })}
                           >
                             {label(pageContract, "action.add_option", "field.questions")}
@@ -928,7 +929,7 @@ export function RoutineDrawerForm({
                   {/* The key is what the phone's answer is stored under; it follows the title until
                       edited, so most people never need to touch it (template Accordion, closed). */}
                   <Accordion disableGutters elevation={0} sx={{ bgcolor: "transparent", "&::before": { display: "none" } }}>
-                    <AccordionSummary expandIcon={<Iconify icon="eva:arrow-ios-downward-fill" />} sx={{ px: 0, minHeight: TAP_MIN }}>
+                    <AccordionSummary expandIcon={<Iconify icon="eva:arrow-ios-downward-fill" aria-hidden="true" />} sx={{ px: 0, minHeight: TAP_MIN }}>
                       <Typography variant="body2" sx={{ color: "text.secondary" }}>
                         {label(pageContract, "field.question_id", "field.name")}
                       </Typography>
@@ -949,7 +950,7 @@ export function RoutineDrawerForm({
               ))}
               {draft.questions.length < LIMITS.questionsMax ? (
                 <Box>
-                  <Button type="button" size="small" variant="outlined" color="inherit" startIcon={<Iconify icon="mingcute:add-line" />} onClick={addQuestion}>
+                  <Button type="button" size="small" variant="outlined" color="inherit" startIcon={<Iconify icon="mingcute:add-line" aria-hidden="true" />} onClick={addQuestion}>
                     {label(pageContract, "action.add_question", "field.questions")}
                   </Button>
                 </Box>
@@ -1085,7 +1086,7 @@ export function RoutineSaveFooter({ formId, saveLabel, canSave }: { formId: stri
         color="primary"
         loading={view.pending}
         loadingPosition="start"
-        startIcon={<Iconify icon="eva:checkmark-fill" />}
+        startIcon={<Iconify icon="eva:checkmark-fill" aria-hidden="true" />}
       >
         {saveLabel}
       </Button>
