@@ -2,7 +2,6 @@
 
 // A global error replaces the ROOT layout, so this file must load the stylesheets and the theme
 // provider itself — nothing from app/layout.tsx renders around it.
-import "./globals.css";
 import "./minimal-tokens.css";
 import "@/theme/fonts.css";
 
@@ -27,7 +26,7 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
       </head>
-      <body className="font-sans antialiased" suppressHydrationWarning>
+      <body suppressHydrationWarning>
         <AppThemeProvider>
           <Box
             component="main"

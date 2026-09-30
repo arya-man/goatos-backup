@@ -20,10 +20,7 @@ const config: StorybookConfig = {
   core: { disableTelemetry: true },
   typescript: { reactDocgen: "react-docgen-typescript" },
   async viteFinal(viteConfig) {
-    // Tailwind 4 runs as a Vite plugin here (the app uses @tailwindcss/postcss
-    // under Next). Same `app/globals.css` entry, same `@config` -> tailwind.config.ts.
-    const { default: tailwindcss } = await import("@tailwindcss/vite");
-    viteConfig.plugins = [...(viteConfig.plugins ?? []), tailwindcss()];
+    // No Tailwind (FIXJ7, guard `tailwind-banned`): stories style through the MUI theme stack.
     viteConfig.resolve = {
       ...viteConfig.resolve,
       alias: {
