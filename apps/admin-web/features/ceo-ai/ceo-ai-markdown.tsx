@@ -1,6 +1,17 @@
 "use client";
 import Table from "@mui/material/Table";
+import Box from "@mui/material/Box";
 import ButtonBase from "@mui/material/ButtonBase";
+import {
+  codeActionsSx,
+  codeBlockSx,
+  codeHeadSx,
+  codePreSx,
+  codePreviewToggleSx,
+  htmlPreviewSx,
+  markdownSx,
+  markdownTableSx,
+} from "./ceo-ai-styles";
 
 import { Children, isValidElement, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
@@ -30,30 +41,32 @@ function CodeBlock({ children }: { children?: ReactNode }) {
   const [preview, setPreview] = useState(false);
 
   return (
-    <div className="mzai-code">
-      <div className="mzai-code-head">
+    <Box sx={codeBlockSx}>
+      <Box sx={codeHeadSx}>
         <span>{lang || "text"}</span>
-        <span className="mzai-code-actions">
+        <Box component="span" sx={codeActionsSx}>
           {isHtml ? (
-            <ButtonBase className="mzai-copy" onClick={() => setPreview((p) => !p)}>
+            <ButtonBase sx={codePreviewToggleSx} onClick={() => setPreview((p) => !p)}>
               {preview ? "Code" : "Preview"}
             </ButtonBase>
           ) : null}
-          <CopyButton text={code} label="Copy code" />
-        </span>
-      </div>
+          <CopyButton text={code} label="Copy code" inCode />
+        </Box>
+      </Box>
       {isHtml && preview ? (
-        <iframe className="mzai-html" sandbox="" srcDoc={code} title="HTML preview" />
+        <Box component="iframe" sx={htmlPreviewSx} sandbox="" srcDoc={code} title="HTML preview" />
       ) : (
-        <pre tabIndex={0}>{children}</pre>
+        <Box component="pre" sx={codePreSx} tabIndex={0}>
+          {children}
+        </Box>
       )}
-    </div>
+    </Box>
   );
 }
 
 export function CeoAiMarkdown({ text }: { text: string }) {
   return (
-    <div className="mzai-md">
+    <Box sx={markdownSx}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[[rehypeHighlight, { detect: true, ignoreMissing: true }]]}
@@ -65,14 +78,14 @@ export function CeoAiMarkdown({ text }: { text: string }) {
             </a>
           ),
           table: ({ children }) => (
-            <div className="mzai-table" tabIndex={0}>
+            <Box sx={markdownTableSx} tabIndex={0}>
               <Table>{children}</Table>
-            </div>
+            </Box>
           ),
         }}
       >
         {text}
       </ReactMarkdown>
-    </div>
+    </Box>
   );
 }

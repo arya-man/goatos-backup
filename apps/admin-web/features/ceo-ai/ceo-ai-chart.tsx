@@ -2,7 +2,9 @@
 
 import type { ReactElement } from "react";
 import { chartColor, useChartTheme } from "@/components/app/chart-colors";
+import Box from "@mui/material/Box";
 import { Chart, ChartLegends, useChart } from "@/components/minimal/chart";
+import { chartSx, chartTitleSx } from "./ceo-ai-styles";
 import {
   CHART_PALETTE,
   chartAccessibleLabel,
@@ -67,10 +69,12 @@ export function CeoAiChart({ chart }: { chart: CeoAiChartData | undefined }): Re
   if (!chart || !layout) return null;
   const height = isBar ? Math.max(140, lineCount * 18 + labels.length * series.length * 14 + 40) : 200;
   return (
-    <figure className="mzai-chart" role="img" aria-label={chartAccessibleLabel(chart)}>
-      <figcaption className="mzai-chart-title">{chart.title}</figcaption>
+    <Box component="figure" sx={chartSx} role="img" aria-label={chartAccessibleLabel(chart)}>
+      <Box component="figcaption" sx={chartTitleSx}>
+        {chart.title}
+      </Box>
       {layout.legend.length ? <ChartLegends labels={layout.legend.map((l) => l.name)} colors={colors} sx={{ gap: 1.5, mb: 1 }} /> : null}
       <Chart type={isBar ? "bar" : "line"} series={series} options={chartOptions} sx={{ height }} />
-    </figure>
+    </Box>
   );
 }
