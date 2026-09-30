@@ -25,7 +25,7 @@ import { Tag } from "@/components/ui-primitives";
 import { OpenRegisterDraftButton } from "./health-register-open";
 import Alert from "@mui/material/Alert";
 import { Scrollbar } from "@/components/minimal/scrollbar";
-import { TableHeadCustom } from "@/components/app/table";
+import { STICKY_FIRST_COLUMN_SX, TableHeadCustom } from "@/components/app/table";
 
 // Health Config -> Diagnosis. The other half of the rulebook: the questions asked about a sick
 // animal, the findings each answer produces, and the illnesses those findings point to.
@@ -184,7 +184,7 @@ export async function HealthRegisterSection({
         />
         <Caption>{copy(pageContract, "section.registers.note")}</Caption>
         <Scrollbar tabIndex={0} role="group" aria-label={copy(pageContract, "section.registers.aria")}>
-          <Table aria-label={copy(pageContract, "section.registers.aria")} sx={{ minWidth: 720 }}>
+          <Table aria-label={copy(pageContract, "section.registers.aria")} sx={{ minWidth: 720, ...STICKY_FIRST_COLUMN_SX }}>
             <TableHeadCustom
               headCells={[
                 ...cols.map((col, index) => ({ id: `c${index}`, label: col })),
