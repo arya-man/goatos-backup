@@ -1,6 +1,6 @@
 {
   "note": "Accepted design-system debt. Every entry is a KNOWN violation of .agents/skills/design-system/SKILL.md that a future change must not multiply. Shrink this list; never grow it to land a change. P0 checks (foreign-palette, theme-token-drift, google-fonts-link) can never be waived.",
-  "updated_at": "2026-09-30T08:50:45.150Z",
+  "updated_at": "2026-09-30T09:09:56.065Z",
   "waived": [
     "f2-literal|features/counts/counts-summary-cards.ts|fattening: [\"F2\", \"F2-Male\", \"F2-Female\", \"Fattening\", \"Fattening male\", \"Fattening female\"],",
     "f2-literal|lib/admin-ui-contract.ts|{ key: \"F2\", label: \"Fattening\", title: \"\", tone: \"\", enabled: true, disabled_reason: \"\" },",
@@ -10,7 +10,6 @@
     "missing-loading-tsx|app/(admin)/procurement/page.tsx|no sibling loading.tsx",
     "missing-loading-tsx|app/(admin)/sales/page.tsx|no sibling loading.tsx",
     "missing-loading-tsx|app/(admin)/verification/page.tsx|no sibling loading.tsx",
-    "native-date-input|features/procurement/sales-record-drawer.tsx|type=\"date\"",
     "page-outside-shell|app/(admin)/actions/page.tsx|neither the page nor its feature entry uses PageHeader / .kit-page",
     "page-outside-shell|app/(admin)/procurement/page.tsx|neither the page nor its feature entry uses PageHeader / .kit-page",
     "page-outside-shell|app/(admin)/sales/page.tsx|neither the page nor its feature entry uses PageHeader / .kit-page",
@@ -84,18 +83,6 @@
     "raw-button|components/confirm-submit-button.tsx": {
       "allowed": 1,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
-    },
-    "raw-dialog|features/calendar/calendar-event-drawer.tsx": {
-      "allowed": 2,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled dialog/sheet; use kit Dialog / Sheet / PopSurface"
-    },
-    "raw-dialog|features/preventive-care-vaccination/command-board-view.tsx": {
-      "allowed": 3,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled dialog/sheet; use kit Dialog / Sheet / PopSurface"
-    },
-    "raw-dialog|features/preventive-care-vaccination/full-vaccine-schedule-drawer.tsx": {
-      "allowed": 1,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled dialog/sheet; use kit Dialog / Sheet / PopSurface"
     },
     "raw-input|features/ceo-ai/ceo-ai-panel.tsx": {
       "allowed": 1,
