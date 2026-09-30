@@ -78,7 +78,7 @@ export async function LeavePage({
       <div className="phead">
         <div>
           <div className="crumb">
-            <b>{t("page.title")}</b>
+            <b>{t("crumb")}</b> · {t("page.title")}
           </div>
           <h1>{t("page.title")}</h1>
           <div className="sub">{t("page.subtitle")}</div>
@@ -96,7 +96,7 @@ export async function LeavePage({
 
       {mayDecide ? (
         <section className="card" data-testid="leave-queue" style={{ marginBottom: 16 }}>
-          <div className="chead">
+          <div className="hd">
             <h3>{queueTable.title}</h3>
           </div>
           {queue && !queue.ok ? (
@@ -185,7 +185,7 @@ export async function LeavePage({
 
       {mayList ? (
         <section className="card" data-testid="leave-list">
-          <div className="chead" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <div className="hd" style={{ flexWrap: "wrap" }}>
             <h3 style={{ marginRight: "auto" }}>{listTable.title}</h3>
             <div className="subtabs">
               {STATUS_FILTERS.map((key) => (

@@ -2311,6 +2311,8 @@ func pageSpecificCopy(id string) map[string]string {
 		}
 	case "leave":
 		return map[string]string{
+			// Leave sits in the HRMS group (2026-09-30); its crumb names the group like its siblings.
+			"crumb":                     "HRMS",
 			"queue.title":               "Waiting for you",
 			"queue.empty":               "No leave requests are waiting for your decision.",
 			"list.title":                "All leave requests",

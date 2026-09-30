@@ -46,10 +46,10 @@ export function LeaveConfigPanel({
 
   return (
     <section className="card" data-testid="leave-config" style={{ marginBottom: 16 }}>
-      <div className="chead">
+      <div className="hd">
         <h3>{t("config.title")}</h3>
       </div>
-      <div className="cbody">
+      <div className="bd">
         <p className="small muted" style={{ marginTop: 0 }}>
           {t("config.help")}
         </p>
