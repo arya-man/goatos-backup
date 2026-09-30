@@ -1,0 +1,11 @@
+# pre-push.bundle — the files the shared pre-push shim (tools/agent-hooks/pre-push.shim) stages
+# beside this branch's tools/agent-hooks/pre-push.hook, read from HEAD at push time.
+# Format: <repo-relative source>:<name the hook expects in its own directory>
+# Add a line here when pre-push.hook starts needing a new file; no reinstall is needed.
+tools/ci/check-local-ci-evidence.mjs:goatos-check-local-ci-evidence.mjs
+tools/ci/check-stg-promotion.mjs:goatos-check-stg-promotion.mjs
+tools/ci/step-input-digest.mjs:step-input-digest.mjs
+tools/ci/admin-web-visual-gate.sh:goatos-admin-web-visual-gate.sh
+tools/ci/admin-web-push-gate.sh:goatos-admin-web-push-gate.sh
+tools/ci/goatos-skip-ledger.sh:goatos-skip-ledger.sh
+tools/ci/admin-web-push-receipt.mjs:goatos-admin-web-push-receipt.mjs

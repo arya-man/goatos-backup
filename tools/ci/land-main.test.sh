@@ -13,6 +13,9 @@ trap 'rm -rf "$tmp"' EXIT
 # through GOATOS_LAND_MAIN_LOCK_DIR. Inheriting it made every case "busy".
 unset GOATOS_LAND_VIA_QUEUE GOATOS_WORKSPACE_ROOT GOATOS_LAND_LOCAL
 export GOATOS_LAND_MAIN_LOCK_DIR="$tmp/default.lock"
+# The push-gate receipt check has its own cases at the end; the landing-mechanics cases skip it
+# (honoured in GOATOS_LAND_TEST_MODE only, which never pushes).
+export GOATOS_LAND_TEST_SKIP_GATE_RECEIPTS=1 GOATOS_PUSH_RECEIPT_DIR="$tmp/receipts" GOATOS_PUSH_RECEIPT_PUBLISH=0
 
 git init --bare --initial-branch=main "$tmp/origin.git" >/dev/null
 git init --initial-branch=main "$tmp/seed" >/dev/null
@@ -236,5 +239,31 @@ printf '%s\n' "$out" | grep -q "OVER the -1s (15-min) budget" \
 grep -q $'\tover=yes\t' "$tmp/budget.log" \
   || { echo "land-main self-test: over-budget landing not appended to the budget log" >&2; exit 1; }
 echo "land-main self-test: budget warning passed"
+
+# Push-gate receipts: a commit no receipt covers REFUSES the landing before CI; once a receipt
+# covers it the landing proceeds (and ci-local runs only then).
+git clone "$tmp/origin.git" "$tmp/receipt-candidate" >/dev/null 2>&1
+git -C "$tmp/receipt-candidate" config user.name "GoatOS Test"
+git -C "$tmp/receipt-candidate" config user.email "goatos-test@example.invalid"
+git -C "$tmp/receipt-candidate" switch -c receipt-feature >/dev/null
+printf 'receipt\n' >"$tmp/receipt-candidate/receipt.txt"
+git -C "$tmp/receipt-candidate" add receipt.txt
+git -C "$tmp/receipt-candidate" commit -m receipt-candidate >/dev/null
+rm -f "$tmp/receipt-ci-ran"
+out="$(cd "$tmp/receipt-candidate" && env -u GOATOS_LAND_TEST_SKIP_GATE_RECEIPTS GOATOS_LAND_TEST_MODE=1 \
+  GOATOS_LAND_TEST_CI_COMMAND="$tmp/receipt-ci.sh" GOATOS_LAND_MAIN_LOCK_DIR="$tmp/receipt.lock" bash "$script" 2>&1)" \
+  && { echo "land-main self-test: a commit without a push-gate receipt must be refused" >&2; echo "$out" >&2; exit 1; }
+printf '%s\n' "$out" | grep -q "have NO gate receipt" \
+  || { echo "land-main self-test: receipt refusal must name the uncovered commits" >&2; echo "$out" >&2; exit 1; }
+[ ! -f "$tmp/receipt-ci-ran" ] || { echo "land-main self-test: the receipt check must run before ci-local" >&2; exit 1; }
+( cd "$tmp/receipt-candidate" && node "$repo/tools/ci/admin-web-push-receipt.mjs" write --sha "$(git rev-parse HEAD)" \
+  --ref refs/heads/receipt-feature --base "$(git rev-parse origin/main)" --applicable 0 >/dev/null )
+printf '#!/usr/bin/env bash\ntouch "%s/receipt-ci-ran"\n' "$tmp" >"$tmp/receipt-ci.sh"; chmod +x "$tmp/receipt-ci.sh"
+out="$(cd "$tmp/receipt-candidate" && env -u GOATOS_LAND_TEST_SKIP_GATE_RECEIPTS GOATOS_LAND_TEST_MODE=1 \
+  GOATOS_LAND_TEST_CI_COMMAND="$tmp/receipt-ci.sh" GOATOS_LAND_MAIN_LOCK_DIR="$tmp/receipt.lock" bash "$script" 2>&1)" \
+  || { echo "land-main self-test: a receipt-covered commit must land" >&2; echo "$out" >&2; exit 1; }
+printf '%s\n' "$out" | grep -q "push-gate receipts: all 1 commit(s) covered" \
+  || { echo "land-main self-test: receipt coverage line missing" >&2; echo "$out" >&2; exit 1; }
+echo "land-main self-test: push-gate receipts passed"
 
 bash "$repo/tools/ci/land-route.test.sh"

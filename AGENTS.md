@@ -45,7 +45,7 @@ them away: `docs/architecture/operational-read-model-contract.md`
 - Local stack/ports/local DB/E2E stacks -> `docs/agent-rules/local-stack.md`: canonical ports, one app DB, shared trio on exact origin/main, isolated E2E stacks. (Its UI-proof/phone/retry HARD RULES are in core below.)
 - E2E tests/seeds/migrations/projection closeout -> `docs/agent-rules/e2e-seeds-projections.md`.
 - RBAC/scopes/logins/leadership assistant -> `docs/agent-rules/rbac-seeds-access.md`.
-- CI/push gate/landing/releases -> `docs/agent-rules/ci-landing-release.md`: CI outage never blocks closure, exact-SHA push gate, main landing, `make release-tag`.
+- CI/push gate/landing/releases -> `docs/agent-rules/ci-landing-release.md`: CI outage never blocks closure, exact-SHA push gate, main landing, `make release-tag`. The shared `.git/hooks/pre-push` is a shim (`tools/agent-hooks/pre-push.shim`, `make push-hooks-install`) that runs the pushing worktree's own committed `tools/agent-hooks/pre-push.hook`. Never copy a branch's hook into the shared hooks dir. Every push leaves a gate receipt, which is posted on the PR as `goatos/push-gate`. `make land-main` refuses commits that no receipt covers.
 - Cloud/GCP/Google auth/GitHub/repos -> `docs/agent-rules/cloud-org-github.md`: billing console, account selection, Codex auth, sibling repos. (Org boundaries, token path and commit identity are in core below.)
 - Read-first list/code navigation tools -> `docs/agent-rules/code-navigation-tooling.md`.
 - Defect/audit-ledger closure -> `docs/agent-rules/defect-ledgers.md`.

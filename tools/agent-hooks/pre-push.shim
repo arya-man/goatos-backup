@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# GOATOS_PUSH_SHIM v1
+# Installed verbatim as <git-common-dir>/hooks/pre-push by tools/agent-hooks/install-stg-push-guard.sh
+# (`make ai-setup`, `make push-hooks-install`, and every `make land-main`).
+#
+# WHY A SHIM (J1B P0-2, 2026-09-30): every worktree of a clone shares ONE hooks dir. The old
+# installer COPIED one branch's hook + guards into it, so whichever branch last ran `make ai-setup`
+# decided what every other branch's push ran. The PR #294 hook (admin-web lanes on every branch)
+# was silently replaced by review/pr-307's older stg/main-only hook, and 2d43dee4a reached the PR
+# with no visual-gate pass and no skip-ledger row.
+#
+# This file holds NO gate logic. On every push it runs the pushing worktree's OWN checked-in hook:
+#   <worktree>/tools/agent-hooks/pre-push.hook, read from HEAD (committed content, so an uncommitted
+#   edit cannot change the gate that judges the push), staged in a temp dir together with the
+#   branch's guard files under the names the hook expects (tools/agent-hooks/pre-push.bundle, or
+#   the default list below). Each branch enforces its own rules; installing from any branch never
+#   downgrades another branch.
+# A branch that has no checked-in pre-push.hook (older branches such as review/pr-307) gets the
+# legacy stg/main guard: its own tools/ci/check-stg-promotion.mjs + check-local-ci-evidence.mjs,
+# else the snapshots the installer left beside this file. Nothing found = the push is REFUSED.
+#
+# The shim deliberately does NOT carry the GOATOS_PUSH_GUARDS / GOATOS_STG_PROMOTION_GUARD markers:
+# an older branch's installer then treats it as a foreign hook, preserves it as
+# pre-push.before-goatos-stg-guard and CHAINS to it, so a downgrade-by-install still runs this shim.
+#
+# Probe: GOATOS_PUSH_SHIM_WHICH=1 .git/hooks/pre-push  -> prints what it would run, exits 0.
+# Guard: tools/ci/check-push-hook-freshness.sh (installed copy == this file, real test pushes).
+set -euo pipefail
+
+hooks_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+self="$hooks_dir/$(basename "${BASH_SOURCE[0]}")"
+prior="$hooks_dir/pre-push.before-goatos-stg-guard"
+
+# Chained by an older installer's hook as its "prior" while an outer shim is already running:
+# the outer shim already ran the branch hook for this push.
+if [ "${GOATOS_PUSH_SHIM_ACTIVE:-}" = "1" ]; then exit 0; fi
+export GOATOS_PUSH_SHIM_ACTIVE=1
+
+top="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+default_bundle="tools/ci/check-local-ci-evidence.mjs:goatos-check-local-ci-evidence.mjs
+tools/ci/check-stg-promotion.mjs:goatos-check-stg-promotion.mjs
+tools/ci/step-input-digest.mjs:step-input-digest.mjs
+tools/ci/admin-web-visual-gate.sh:goatos-admin-web-visual-gate.sh
+tools/ci/admin-web-push-gate.sh:goatos-admin-web-push-gate.sh
+tools/ci/goatos-skip-ledger.sh:goatos-skip-ledger.sh
+tools/ci/admin-web-push-receipt.mjs:goatos-admin-web-push-receipt.mjs"
+
+has_branch_hook=0
+if [ -n "$top" ] && git -C "$top" cat-file -e HEAD:tools/agent-hooks/pre-push.hook 2>/dev/null; then
+  has_branch_hook=1
+fi
+
+if [ "${GOATOS_PUSH_SHIM_WHICH:-}" = "1" ]; then
+  if [ "$has_branch_hook" = 1 ]; then
+    echo "branch-hook $top/tools/agent-hooks/pre-push.hook@HEAD"
+  else
+    echo "legacy-guard ${top:-<no work tree>}"
+  fi
+  exit 0
+fi
+
+payload="$(mktemp "${TMPDIR:-/tmp}/goatos-pre-push-shim.XXXXXX")"
+stage=""
+cleanup() { rm -f "$payload"; [ -n "$stage" ] && rm -rf "$stage"; return 0; }
+trap cleanup EXIT
+cat >"$payload"
+
+# A foreign hook preserved by the installer runs first (never our own shim: no recursion).
+if [ -x "$prior" ] && ! grep -q 'GOATOS_PUSH_SHIM' "$prior" 2>/dev/null; then
+  "$prior" "$@" <"$payload"
+fi
+
+if [ "$has_branch_hook" = 1 ]; then
+  stage="$(mktemp -d "${TMPDIR:-/tmp}/goatos-pre-push-stage.XXXXXX")"
+  [ -n "$stage" ] && [ -d "$stage" ] || { echo "!! pre-push: could not create a staging dir; push refused" >&2; exit 1; }
+  git -C "$top" show HEAD:tools/agent-hooks/pre-push.hook >"$stage/pre-push"
+  bundle="$default_bundle"
+  if git -C "$top" cat-file -e HEAD:tools/agent-hooks/pre-push.bundle 2>/dev/null; then
+    bundle="$(git -C "$top" show HEAD:tools/agent-hooks/pre-push.bundle | grep -v '^[[:space:]]*#' | grep ':' || true)"
+  fi
+  while IFS=: read -r src dst; do
+    [ -n "$src" ] && [ -n "$dst" ] || continue
+    # A file the branch does not have is simply absent: the branch hook decides whether that is fatal.
+    if git -C "$top" cat-file -e "HEAD:$src" 2>/dev/null; then
+      git -C "$top" show "HEAD:$src" >"$stage/$dst"
+    fi
+  done <<EOF
+$bundle
+EOF
+  chmod 0755 "$stage"/*
+  echo "pre-push: running this worktree's checked-in hook $top/tools/agent-hooks/pre-push.hook@$(git -C "$top" rev-parse --short=12 HEAD) (shared shim $self)" >&2
+  export GOATOS_PUSH_HOOK_SOURCE="$top/tools/agent-hooks/pre-push.hook@$(git -C "$top" rev-parse HEAD)"
+  export GOATOS_PUSH_SHIM_HOOKS_DIR="$hooks_dir"
+  rc=0
+  bash "$stage/pre-push" "$@" <"$payload" || rc=$?
+  exit "$rc"
+fi
+
+# ── legacy stg/main guard: the branch has no checked-in pre-push.hook ─────────────────────────
+echo "pre-push: ${top:-this checkout} has no tools/agent-hooks/pre-push.hook at HEAD; running the legacy stg/main guard (shared shim $self)" >&2
+origin="$(git remote get-url origin 2>/dev/null || true)"
+case "$origin" in
+  git@github.com:vgoats/goatos.git|ssh://git@github.com/vgoats/goatos.git|https://github.com/vgoats/goatos.git|https://github.com/vgoats/goatos)
+    pick() { # repo-relative source, installed snapshot name
+      if [ -n "$top" ] && [ -f "$top/$1" ]; then echo "$top/$1"; elif [ -f "$hooks_dir/$2" ]; then echo "$hooks_dir/$2"; fi
+    }
+    stg_guard="$(pick tools/ci/check-stg-promotion.mjs goatos-check-stg-promotion.mjs)"
+    evidence_guard="$(pick tools/ci/check-local-ci-evidence.mjs goatos-check-local-ci-evidence.mjs)"
+    if [ -z "$stg_guard" ] || [ -z "$evidence_guard" ]; then
+      echo "!! pre-push: the legacy stg/main guard is missing (no tools/ci/check-*.mjs in the work tree, no snapshot in $hooks_dir); push refused. Fix: make ai-setup" >&2
+      exit 1
+    fi
+    echo "pre-push: legacy guard files: $stg_guard $evidence_guard" >&2
+    node "$stg_guard" --pre-push <"$payload"
+    node "$evidence_guard" --pre-push <"$payload"
+    ;;
+esac
