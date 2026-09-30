@@ -13,7 +13,7 @@ export const STICKY_FIRST_COLUMN_SX = {
 } as const;
 
 /**
- * Phones (the deleted `.tablewrap` rule's 640px breakpoint): the identity column (first) and the
+ * Phones (below the theme `sm` breakpoint; the deleted `.tablewrap` rule used 640px): the identity column (first) and the
  * action column (last, when it holds the row's ⋮ / icon action) of EVERY page-content table stay
  * pinned while the row scrolls sideways, so a
  * reader who swiped to "Sheep Pox" still sees which pen the row is and can still reach its menu
@@ -32,9 +32,13 @@ export const STICKY_FIRST_COLUMN_SX = {
  * would outrank the cell sx a page sets (a `position: relative` overlay cell).
  * guard: sticky-edges-phone (sticky-first-column.test.mjs) + r2 `sticky-identity` (390 scan).
  */
-export const PHONE_STICKY_EDGES_QUERY = "@media (max-width: 640px)";
 /** The row-action hook (components/app/row-menu.tsx trigger). */
 export const ROW_ACTION = "[data-row-menu]";
+
+/** The phone sticky edges for `table` (a selector), inside the theme's below-`sm` media query. */
+export function phoneStickyEdges(table: string, theme: Theme): CSSObject {
+  return { [theme.breakpoints.down("sm")]: phoneStickyEdgeCells(table, theme) };
+}
 
 export function phoneStickyEdgeCells(table: string, theme: Theme): CSSObject {
   const paper = theme.vars?.palette.background.paper ?? theme.palette.background.paper;

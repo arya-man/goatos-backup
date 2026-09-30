@@ -25,8 +25,8 @@ test("guard: sticky-first-column - health tables use it", () => {
 // the page content column (PagedRows, DataTable and raw tables alike). Runtime half: r2 plugin table-scroll
 // (`sticky-identity`, 390 dark, every route).
 const edges = sx;
-test("guard: sticky-edges-phone - pinned first + last cells below 640px, zero specificity, colspan skipped", () => {
-  assert.match(edges, /PHONE_STICKY_EDGES_QUERY = "@media \(max-width: 640px\)"/);
+test("guard: sticky-edges-phone - pinned first + last cells below sm, zero specificity, colspan skipped", () => {
+  assert.match(edges, /\[theme\.breakpoints\.down\("sm"\)\]: phoneStickyEdgeCells\(table, theme\)/);
   assert.match(edges, /:where\(\$\{table\}:not\(\[data-sticky-edges="off"\]\)\$\{edge === "last" \? actions : ""\} > \$\{part\} > tr > :\$\{edge\}-child:not\(\[colspan\]\)\)/);
   assert.match(edges, /position: "sticky", left: 0, zIndex: 2, backgroundColor: paper/);
   assert.match(edges, /position: "sticky", right: 0, zIndex: 2, backgroundColor: paper/);
@@ -38,10 +38,9 @@ test("guard: sticky-edges-phone - pinned first + last cells below 640px, zero sp
 
 test("guard: sticky-edges-phone - one AppBaseline rule covers every page-content table (adapters included)", () => {
   const baseline = read("theme/app-baseline.tsx");
-  assert.match(baseline, /\[PHONE_STICKY_EDGES_QUERY\]: \{\s*\.\.\.phoneStickyEdgeCells\(`\$\{CONTENT\} table`, theme\)/, "AppBaseline covers every content table");
-  assert.equal((baseline.match(/'@media \(max-width: 640px\)'/g) ?? []).length, 0, "one 640px block (a duplicate key would drop the other)");
+  assert.match(baseline, /\.\.\.phoneStickyEdges\(`\$\{CONTENT\} table`, theme\)/, "AppBaseline covers every content table");
   // Never as component sx: emotion prefixes the class onto `:where(&…)` and the rule never matches.
   for (const f of ["components/app/paged-rows.tsx", "components/data-table.tsx", "components/dense-table.tsx"]) {
-    assert.doesNotMatch(read(f), /phoneStickyEdgeCells|PHONE_STICKY_EDGES/, f);
+    assert.doesNotMatch(read(f), /phoneStickyEdge/, f);
   }
 });

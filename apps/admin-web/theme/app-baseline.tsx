@@ -5,7 +5,7 @@ import GlobalStyles from '@mui/material/GlobalStyles';
 import { layoutClasses } from '@/layouts/core/classes';
 
 import { MESHA_TOKENS_DARK, MESHA_TOKENS_LIGHT } from './mesha-tokens';
-import { PHONE_STICKY_EDGES_QUERY, phoneStickyEdgeCells } from '@/components/app/table/sticky-first-column';
+import { phoneStickyEdges } from '@/components/app/table/sticky-first-column';
 
 // ----------------------------------------------------------------------
 
@@ -60,10 +60,7 @@ export function AppBaseline() {
           outline: '2px solid color-mix(in srgb, var(--primary) 80%, transparent)',
           outlineOffset: 2,
         },
-        // One phone block: the sticky table edges share the input rules' 640px query (a second
-        // 640px media key would replace this one).
-        [PHONE_STICKY_EDGES_QUERY]: {
-          ...phoneStickyEdgeCells(`${CONTENT} table`, theme),
+        '@media (max-width: 640px)': {
           'input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select, textarea': { fontSize: 16 },
           '[role="dialog"] input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"])': { minHeight: 'var(--tap-min)' },
         },
@@ -81,6 +78,7 @@ export function AppBaseline() {
         '@media (max-width: 860px)': {
           [`${CONTENT} table`]: { minWidth: 540 },
         },
+        ...phoneStickyEdges(`${CONTENT} table`, theme),
         '[data-dense] .MuiTableCell-body.MuiTableCell-body': { paddingTop: 6, paddingBottom: 6 },
         'html.route-busy, html.route-busy body': { cursor: 'progress' },
         'a[data-route-pending="true"]': { position: 'relative', isolation: 'isolate', cursor: 'progress' },
