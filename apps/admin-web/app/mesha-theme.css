@@ -166,15 +166,9 @@
   .achip b{cursor:pointer;opacity:.65;font-weight:800}
   .achip b:hover{opacity:1}
   .achip.clr{background:transparent;color:var(--muted);cursor:pointer;border:1px dashed var(--line2)}
-  .qgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px}
   .subtabs button .cbq,.subtabs a .cbq{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:16px;padding:0 5px;margin-left:7px;border-radius:999px;background:var(--line2);color:var(--muted);font-size:10.5px;font-weight:800;vertical-align:middle}
   .subtabs button.on .cbq,.subtabs a.on .cbq{background:var(--brand-soft);color:var(--brand-d)}
   .subtabs a.disabled,.subtabs button.disabled,.subtabs button:disabled{opacity:.4;cursor:not-allowed;pointer-events:none}
-  .htl{position:relative;padding-left:6px}
-  .hrow{display:flex;align-items:flex-start;gap:11px;padding:9px 2px;border-bottom:1px solid var(--line2)}
-  .htx{flex:1;min-width:0}.htx b{font-size:12.5px;font-weight:650}
-  .hmeta{color:var(--muted);font-size:11px;margin-top:2px}
-  @media(max-width:820px){.qgrid{grid-template-columns:1fr}}
 
   /* CEO/CXO read-only assistant bubble */
   .ceo-ai{position:fixed;z-index:140;display:grid;justify-items:end;pointer-events:none}
@@ -283,7 +277,6 @@
     .kpi{padding:12px 13px;border-radius:10px}
     .kpi .lab,.kpi .dl,.kpi .muted.small{line-height:1.25}
 
-    .qgrid{grid-template-columns:1fr}
     .charts{column-width:auto;column-count:1}
     .tablewrap,.twrap{
       max-width:100%;
@@ -350,94 +343,19 @@
   .main table.procurement-load-goats-table th,.main table.procurement-load-goats-table td{white-space:nowrap;overflow-wrap:normal;word-break:normal}
   .main table.procurement-load-goats-table th:nth-child(1),.main table.procurement-load-goats-table td:nth-child(1){min-width:240px}
   .main table.procurement-load-goats-table th:nth-child(2),.main table.procurement-load-goats-table td:nth-child(2),.main table.procurement-load-goats-table th:nth-child(3),.main table.procurement-load-goats-table td:nth-child(3),.main table.procurement-load-goats-table th:nth-child(4),.main table.procurement-load-goats-table td:nth-child(4){min-width:160px}
-  /* Feed Direction / Packing / Config tables. Same nowrap contract as the other ledgers
-     (failure mode 4b): the table owns horizontal scrolling, so short business values such as
-     "F2-Male", "0.000", "Dry Masoor Bhusa" or a wall-clock time never wrap mid-value. */
-  .main table.feed-table{min-width:900px}
-  .main table.feed-table th,.main table.feed-table td{white-space:nowrap;overflow-wrap:normal;word-break:normal;vertical-align:top}
-  .main table.feed-table td{padding-top:10px;padding-bottom:10px}
-  /* Numeric columns read down the page as a column of figures, so they are right-aligned and set
-     in tabular numerals — a quantity whose digits do not line up with the one above it cannot be
-     compared at a glance, which is the only reason these columns exist. */
-  .main table.feed-table th.num,.main table.feed-table td.num{text-align:right;font-variant-numeric:tabular-nums}
   .main .tablewrap{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y;scrollbar-gutter:stable}
   /* Feed Analytics "Feed by shed" mix cell: one line per feed item with the
      item's chart colour dot, label left, kg right — a small aligned ledger
      instead of a chip pile. The kg column is tabular so amounts line up. */
-  /* Feed Analytics "Feed by pen" charts: one card per pen of the chosen name, seven
-     day slots, a bar per day at the feed directed per animal. Plain HTML bars so the
-     labels stay legible in a third-width card (an SVG viewBox would shrink them);
-     the track height is fixed so the cards of one name line up bar for bar. */
-  .main .penbars{border:1px solid var(--line2);border-radius:10px;padding:10px 12px 8px;background:var(--panel-2)}
-  .main .penbars-title{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:6px}
-  /* Column chart per pen (feed-pen-columns.tsx): two series per day on one shared axis;
-     figures only on hover, so a card needs no more than ~400px. */
-  .main .penbars-grid{grid-template-columns:repeat(auto-fill,minmax(400px,1fr))}
-  .wrap .card>.penbars-grid,.wrap .card>.penbars-legend{margin-left:24px;margin-right:24px;max-width:calc(100% - 48px)}
-  .wrap .card>.penbars-grid{margin-bottom:24px}
-  .wrap .card>.penbars-legend{margin-top:4px}
-  @media(max-width:640px){.wrap .card>.penbars-grid,.wrap .card>.penbars-legend{margin-left:20px;margin-right:20px;max-width:calc(100% - 40px)}.wrap .card>.penbars-grid{margin-bottom:20px}}
-  @media(max-width:600px){.main .penbars-grid{grid-template-columns:1fr}}
-  .main .penbars-legend{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:14px;margin:0 0 10px;font-size:12px;color:var(--muted);font-weight:600}
-  .main .penbars-legend>span{display:flex;align-items:center;gap:6px}
-  .main .penbars-legend i{width:8px;height:8px;border-radius:2px;display:block;flex:none;background:var(--brand)}
-  .main .penbars-legend i.verified{background:var(--info)}
   /* Sortable column header. The mock has no sortable table, so this is a deliberate, minimal
      addition rather than a ported element: the header keeps its exact resting typography and the
      button is a bare inline trigger, so an unsorted table looks identical to the mock. The
      indicator sits at the mock's muted tone until a sort is active, when it takes the brand colour
      so the ordered column is obvious at a glance. */
-  /* Feed items status chip — editable in place (double-click). A chip that writes must not look
-     identical to the read-only chips elsewhere on the page, so it carries a dashed underline and a
-     text cursor hint; the tone colour still comes from the contract's option group. */
-  .main .feed-item-status{cursor:pointer;min-width:40px;min-height:40px;justify-content:center;border-bottom:1px dashed currentColor}
-  .main .feed-item-status:hover{filter:brightness(.94)}
-  .main .feed-item-status:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
   .kpi{position:relative;overflow:hidden}
   /* A shed's item lines are one visual block: the shed-level cells span them, so the group needs a
      boundary rule rather than a rule between every item line. */
-  .main table.feed-table td:not(.MuiTableCell-root)[rowspan]{border-right:1px solid var(--line2)}
-  .main table.feed-table .tag{margin:0}
   /* An editor opens inline in its cell; keep the row from collapsing the form to one line. */
-  .main table.feed-table form{white-space:normal}
-  /* Nowrap protects SHORT values from being shredded mid-value (failure mode 4b). It was never
-     meant to apply to long multi-word LABELS: on Feed Direction holding "Mesha Concentrate Sheep"
-     on one line inflated the table's min-content past the 1130px card, which pushed
-     "Session total (kg)" — the row's whole output — off the right edge where it rendered as a
-     cut-off "16.". `.feed-wrap` opts a long-label cell back into ordinary WORD wrap (never
-     `anywhere`, so a value is still never broken mid-token). Short/numeric/tag columns keep nowrap.
-
-     THE MIN-WIDTH IS THE OTHER HALF OF THAT FIX, AND IT IS NOT COSMETIC. `white-space:normal` made
-     this the only shrinkable column in an auto-layout table, so the browser dumped the table's
-     whole width deficit onto it and squeezed it to near min-content (142px) — "Mesha Concentrate
-     Sheep" broke into THREE lines and the page grew 4125px -> 6022px (+46%). A floor of 150px
-     holds every current feed-item label to at most TWO lines while the table still measures exactly
-     1130px at a 1440px viewport, so nothing scrolls sideways and nothing is clipped.
-
-     Measured, not guessed (1440px viewport, seeded Channapatna day):
-       floor  table   feed-item col   max lines   page height
-        none  1130px      142px           3         6022px
-        140   1130px      153px           2         5238px
-        150   1130px      158px           2         5238px   <- chosen: clear of both thresholds
-        170   1132px      170px           2         5238px   (starts overflowing the card)
-        200   1162px      200px           1         5238px   (scrolls sideways, NO height gain)
-
-     Note the last row: forcing the label onto ONE line buys nothing. Once the feed item fits in two
-     lines the remaining tall rows are set by the QUANTITY cell, where an authored-zero renders
-     "0.000 kg" plus its "Configured zero" tag — and that pairing is safety copy that must stay
-     exactly as it is (a blocked cell shows a danger tag and NO number; an authored zero shows the
-     number and an info tag). So do not chase the last line by widening this column further: it costs
-     a sideways scroll and returns zero density. 150px is the floor, not a fixed width — the column
-     still grows if a longer feed item is authored. */
-  /* The EXPERIMENT ARM column, for the same reason as `.feed-wrap` and with a cap on top of it.
-     An arm is a free-text trial name and the live data already contains a 55-character one
-     ("Mixed (9 Goat F, 1 Sheep F, 5 Goat M) NEW - warmup 20:80"). Under the table's default nowrap
-     that single value set the whole column's width and pushed "Session total (kg)" off the card —
-     the exact failure `.feed-wrap` was introduced to fix, arriving through a new column. It wraps
-     on WORD boundaries only (never `anywhere`, so a trial name is not broken mid-token), and unlike
-     `.feed-wrap` it also takes a max-width: a feed item must stay readable at any length because it
-     names what to weigh out, whereas an arm is context and may safely run to a few lines. The floor
-     keeps the two-word common case ("Sheep M NEW") on one line. */
   /* The session total is the number the operator came for; it never shrinks below its own value. */
   /* Below the widest layouts the table still scrolls, and on macOS the overlay scrollbar is
      invisible until touched — so a clipped column read as missing rather than as scrollable.
@@ -497,7 +415,7 @@
      40px label hit area (checkbox itself stays native size). */
   .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:4px}
   .legend span{display:inline-flex;align-items:center;gap:6px}
-  .muted{color:var(--muted)} .small{font-size:12px} .b700{font-weight:700}
+  .muted{color:var(--muted)} .small{font-size:12px}
   /* ---------- orchestration tree ---------- */
   /* ---------- calendar / reminders ---------- */
   .rhythm{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
@@ -586,7 +504,7 @@
     .card .bd{overflow-x:auto;-webkit-overflow-scrolling:touch}
     .main table{min-width:540px}
     .metagrid{grid-template-columns:1fr}
-    .qgrid,.charts{grid-template-columns:1fr}
+    .charts{grid-template-columns:1fr}
     html,body{overflow-x:hidden;max-width:100vw}
     .top{max-width:100vw}
     .main{overflow-x:hidden}
@@ -606,54 +524,8 @@
     }
   }
 
-  .followup-summary .htl{margin-bottom:6px}
   /* SOP studio phase 2: the Flow view (features/sops/*-flow.tsx) */
-  .studio-flow{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:14px;align-items:stretch;margin-top:10px} /* phone-viewport:ignore: collapses to one column under 1100px (media query below) */
-  .studio-flow-canvas-wrap{display:flex;flex-direction:column;gap:8px;min-width:0}
-  .studio-flow-toolbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-  .studio-flow-hint{margin-left:auto}
-  .studio-flow-canvas{position:relative;overflow:auto;border:1px solid var(--line);border-radius:12px;background:radial-gradient(circle,var(--line) 1px,transparent 1px) 0 0/22px 22px,var(--bg);min-height:420px;max-height:72vh;padding:12px}
-  .studio-flow-scale{position:relative;transform-origin:0 0}
-  .studio-flow-edges{position:absolute;left:0;top:0;overflow:visible;pointer-events:none}
-  .studio-flow-edge{fill:none;stroke:var(--brand-d);stroke-width:2;opacity:.75}
-  .studio-flow-arrow{fill:var(--brand-d)}
-  .studio-flow-edge-label{position:absolute;transform:translate(-50%,-50%);z-index:2;font-size:11px;color:var(--muted);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:2px 8px;white-space:nowrap;max-width:240px;overflow:hidden;text-overflow:ellipsis}
-  .studio-flow-plus{position:absolute;transform:translate(-50%,-50%) scale(calc(1 / var(--studio-flow-zoom, 1)));z-index:2;width:22px;height:22px;border:0;background:transparent;color:var(--brand-d);font-weight:700;line-height:1;cursor:pointer;font-size:14px;transform-origin:center;display:grid;place-items:center}
-  .studio-flow-plus::before{content:"";position:absolute;width:22px;height:22px;border-radius:50%;border:1px solid var(--brand-d);background:var(--panel);z-index:-1}
-  @media (max-width: 1100px){.studio-flow-plus{width:44px;height:44px}.studio-flow-plus::before{width:24px;height:24px}}
-  .studio-flow-plus:hover{background:var(--brand-d);color:var(--on-brand)}
-  .studio-node{position:absolute;display:flex;flex-direction:column;gap:2px;justify-content:center;padding:8px 12px;border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--ink);text-align:left;font:inherit;box-sizing:border-box;z-index:1}
-  .studio-node b{font-size:13px;line-height:1.2;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-  .toxin-flow .studio-node b{flex-shrink:0;-webkit-line-clamp:2}
-  .toxin-flow .studio-node > .muted.small{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;flex-shrink:0}
-  .studio-node-kind{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);display:flex;align-items:center;gap:4px}
-  .studio-node-step,.studio-node-question{cursor:pointer}
-  .studio-node[role="button"]:focus-visible{outline:2px solid var(--brand-d);outline-offset:2px}
-  .studio-node-step:hover,.studio-node-question:hover{border-color:var(--brand-d)}
-  .studio-node.on{border-color:var(--brand-d);box-shadow:0 0 0 2px color-mix(in srgb,var(--brand-d) 30%,transparent)}
-  .studio-node-question{border-top:3px solid #6ea8fe}
-  .studio-node-decision{border-top:3px solid #e0b252;background:var(--panel-2,var(--panel));justify-content:space-between;flex-direction:row;align-items:center;gap:8px}
-  .studio-node-decision .btn{white-space:nowrap;flex:none}
-  .studio-node-start{border-top:3px solid var(--brand-d)}
-  .studio-node-start b,.studio-node-finish b,.studio-node-fixed b,.studio-node-group b{-webkit-line-clamp:1}
-  .studio-node-fixed{border-style:dashed;opacity:.85}
-  .studio-node-group{border-top:3px solid #a78bfa}
-  .studio-node-owner{align-self:flex-start;font-size:10px;padding:1px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted);background:var(--panel-2,var(--panel));white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
-  .studio-node-actions{display:flex;gap:4px;flex-wrap:wrap}
-  .studio-node-actions .btn{padding:2px 6px;font-size:11px}
-  .studio-node-finish{border-top:3px solid var(--muted)}
-  /* The properties panel is exactly as tall as the canvas column and scrolls INSIDE itself.
-     `height:0` keeps the panel's own content out of the grid row's height (a tall step's fields
-     would otherwise stretch the row and the panel could never scroll), `min-height:100%` then
-     fills the row the canvas sets. Two class names on purpose (see .card.vr-board): the generic
-     `.card{overflow:hidden}` is declared later at equal specificity, so a single-class
-     `overflow:auto` lost and the wheel scrolled the page with the "Only if" field at the bottom
-     of a tall step unreachable. The Herd Operations flow also sits inside a `.card.followup-track`,
-     whose clip cut the panel off at the card edge. */
-  .card.studio-flow-props{height:0;min-height:100%;overflow:auto;box-sizing:border-box}
-  @media (max-width:1100px){.studio-flow{grid-template-columns:1fr}.card.studio-flow-props{height:auto;min-height:0;max-height:60vh}}
   .btn.ghost{background:transparent;border-style:dashed;color:var(--brand-d);font-size:12.5px;padding:6px 10px}
-  .inspection-summary .htl{margin-bottom:6px}
   .btn.ghost:hover{background:var(--brand-soft)}
   /* operator preview (right column) */
 
@@ -872,8 +744,6 @@ select:disabled { opacity: .45 }
 /* Feed Analytics -> Purchased vs consumed: twelve figures per load must fit a 1280 desktop with the
    check column on screen, so the cells sit tighter than the default table, the way the feed-band
    drawer's do. */
-.feed-loads-table table.tbl th,.feed-loads-table table.tbl td{padding-left:7px;padding-right:7px;font-size:12.5px}
-.feed-loads-table table.tbl th{white-space:normal;line-height:1.2}
 /* Sales -> Farm born breakdowns: six columns in a half-width card. Headers WRAP (the long
    "Tagged, sale not closed" label is Load wise's own wording and stays whole) and cells sit a
    little tighter, so the whole table fits at laptop width; a phone still pans inside .twrap. */
@@ -1493,43 +1363,6 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
    and wins on order rather than on specificity.
    --------------------------------------------------------------------- */
 
-/* Feed follow-up (2026-09-22): one flat table, one line per change. It had a
-   verdict strip, a range summary and an expanding pen row; the maintainer asked
-   for the two facts that matter as columns instead, so all of that is gone and
-   only the table's own small touches remain. */
-/* `.card` carries NO padding of its own in this theme -- each card pads its own
-   children -- so this one does it here, and does it the `.wtable` way: every
-   direct child EXCEPT the table wrapper gets the horizontal gutter, because the
-   wrapper owns the horizontal scroll and padding it would scroll the gutter
-   away with the content. The table's outer CELLS carry the same 16px instead,
-   so the pen names and the result chips stay off the card's border at every
-   scroll position. Without this the whole table sat flush on the border. */
-.ffu-card{padding:14px 0 6px}
-.ffu-card > :not(.tablewrap){padding-left:16px;padding-right:16px}
-.ffu-table td{vertical-align:top}
-/* GUTTERS GO ON THE OUTER CELLS, not on the wrapper. The wrapper owns the
-   horizontal scroll, so padding it would scroll the gutter away with the
-   content; putting it on the first and last cells keeps the pen names and the
-   result chips off the card's border at every scroll position. Same trade
-   `.wtable` makes above. */
-.ffu-table th:first-child,.ffu-table td:first-child{padding-left:16px}
-.ffu-table th:last-child,.ffu-table td:last-child{padding-right:16px}
-/* Room to breathe down the rows too: each line carries two stacked lines of
-   text, and at the default row padding they ran together. */
-.ffu-table th{padding-top:12px;padding-bottom:10px}
-.ffu-table td{padding-top:12px;padding-bottom:12px}
-.ffu-card > .tablewrap{margin:4px 0 0}
-.ffu-chips{display:inline-flex;flex-wrap:wrap;gap:5px}
-.ffu-move{display:inline-flex;align-items:baseline;gap:6px;font-variant-numeric:tabular-nums;justify-content:flex-end}
-/* An unchanged pair IS the finding on a red line, so the "from" is never struck
-   through or dimmed into looking superseded when it is not. */
-.ffu-move .ffu-from{color:var(--muted)}
-.ffu-move .ffu-arrow{color:var(--muted);font-size:11px}
-.ffu-move.changed .ffu-to{font-weight:700}
-/* Result then footnote, stacked: side by side they overflowed the table. */
-.ffu-result{white-space:nowrap}
-.ffu-result>.tag{display:inline-block}
-.ffu-result>.tag+.tag{display:block;margin-top:4px}
 
 /* Approvals drawer: the Reject action is the LAST control in the body, directly above the footer.
    Keep a clear gap under it when the body is scrolled to the end, keep a focused/tabbed-to control
