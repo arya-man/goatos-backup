@@ -1,23 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Dialog from "@mui/material/Dialog";
-import ButtonBase from "@mui/material/ButtonBase";
 import Box from "@mui/material/Box";
+import Chip from "@mui/material/Chip";
+import Stack from "@mui/material/Stack";
+import Avatar from "@mui/material/Avatar";
+import Button from "@mui/material/Button";
+import Dialog from "@mui/material/Dialog";
+import IconButton from "@mui/material/IconButton";
+import Typography from "@mui/material/Typography";
 import { Iconify } from "@/components/minimal/iconify";
-import {
-  lightboxBodySx,
-  lightboxCardSx,
-  lightboxCountSx,
-  lightboxNameSx,
-  lightboxNavSx,
-  lightboxPaperSx,
-  lightboxTopSx,
-  thumbNameSx,
-  thumbOpenSx,
-  thumbRemoveSx,
-  thumbSx,
-} from "./ceo-ai-styles";
 
 // A file shown in the composer tray or on a sent message. `url` is an object URL
 // (images/PDFs preview inline); other types show a file card.
@@ -66,44 +58,36 @@ export async function shrinkImage(file: File, maxSide = 2000): Promise<File> {
   return new File([blob], file.name.replace(/\.\w+$/, type === "image/jpeg" ? ".jpg" : ".png"), { type });
 }
 
+/** An attachment on the composer tray or a sent turn: a template Chip (image thumbnail avatar or a
+ *  file icon) that opens the viewer, with a delete action on the tray. */
 export function Thumb({
   file,
   onOpen,
   onRemove,
-  inUserMessage = false,
 }: {
   file: PreviewFile;
   onOpen: () => void;
   onRemove?: () => void;
-  /** On a sent user message the card sits on the paper surface (the bubble is tinted). */
-  inUserMessage?: boolean;
 }) {
   return (
-    <Box component="span" sx={thumbSx}>
-      <ButtonBase sx={thumbOpenSx(isImage(file), inUserMessage)} onClick={onOpen} title={file.name} aria-label={`Preview ${file.name}`}>
-        {isImage(file) ? (
-          // eslint-disable-next-line @next/next/no-img-element -- local object URL preview
-          <img src={file.url} alt={file.name} />
-        ) : (
-          <>
-            <Iconify icon="solar:file-text-bold" width={16} />
-            <Box component="span" sx={thumbNameSx}>{file.name}</Box>
-          </>
-        )}
-      </ButtonBase>
-      {onRemove ? (
-        <ButtonBase sx={thumbRemoveSx} onClick={onRemove} aria-label={`Remove ${file.name}`}>
-          <Iconify icon="mingcute:close-line" width={11} />
-        </ButtonBase>
-      ) : null}
-    </Box>
+    <Chip
+      variant="outlined"
+      label={file.name}
+      title={file.name}
+      aria-label={`Preview ${file.name}`}
+      onClick={onOpen}
+      onDelete={onRemove}
+      avatar={isImage(file) ? <Avatar variant="rounded" alt={file.name} src={file.url} /> : undefined}
+      icon={isImage(file) ? undefined : <Iconify icon="solar:file-text-bold" width={18} />}
+      sx={{ maxWidth: 240 }}
+    />
   );
 }
 
-// Full-screen viewer with prev/next for several files. Arrow keys slide, Esc closes. The template
-// MUI Dialog (fullScreen) portals it out of the chat panel, traps focus and gives it back to the
-// thumbnail that opened it; Escape stays on the capture listener below so it never also reaches
-// the panel's own Escape (which would shrink the panel under the viewer).
+// Full-screen viewer with prev/next for several files. Arrow keys slide, Esc closes. The MUI Dialog
+// (fullScreen) portals it out of the chat panel, traps focus and gives it back to the chip that
+// opened it; Escape stays on the capture listener below so it never also reaches the panel's own
+// Escape (which would shrink the panel under the viewer).
 export function Lightbox({ files, start, onClose }: { files: PreviewFile[]; start: number; onClose: () => void }) {
   const [i, setI] = useState(start);
   const n = files.length;
@@ -132,19 +116,16 @@ export function Lightbox({ files, start, onClose }: { files: PreviewFile[]; star
   }, [n, onClose]);
   const body = useMemo(() => {
     if (!file) return null;
-    if (isImage(file)) {
-      // eslint-disable-next-line @next/next/no-img-element -- local object URL preview
-      return <img src={file.url} alt={file.name} />;
-    }
-    if (isPdf(file)) return <iframe src={file.url} title={file.name} />;
+    if (isImage(file)) return <Box component="img" src={file.url} alt={file.name} sx={{ maxWidth: 1, maxHeight: 1, objectFit: "contain" }} />;
+    if (isPdf(file)) return <Box component="iframe" src={file.url} title={file.name} sx={{ width: 1, height: 1, border: 0, bgcolor: "background.paper" }} />;
     return (
-      <Box sx={lightboxCardSx}>
-        <Iconify icon="solar:file-text-bold" width={40} />
-        <span>{file.name}</span>
-        <a href={file.url} download={file.name}>
+      <Stack spacing={2} sx={{ alignItems: "center" }}>
+        <Iconify icon="solar:file-text-bold" width={48} />
+        <Typography variant="subtitle1">{file.name}</Typography>
+        <Button variant="contained" color="primary" href={file.url} download={file.name}>
           Download
-        </a>
-      </Box>
+        </Button>
+      </Stack>
     );
   }, [file]);
   if (!file) return null;
@@ -157,30 +138,34 @@ export function Lightbox({ files, start, onClose }: { files: PreviewFile[]; star
         if (reason !== "escapeKeyDown") onClose();
       }}
       slotProps={{
-        paper: { sx: lightboxPaperSx, "aria-label": file.name, onClick: onClose } as object,
+        paper: { "aria-label": file.name } as object,
         transition: { onEntered: () => closeRef.current?.focus() },
       }}
     >
-      <Box sx={lightboxTopSx} onClick={(e) => e.stopPropagation()}>
-        <Box component="span" sx={lightboxNameSx}>{file.name}</Box>
-        {n > 1 ? <Box component="span" sx={lightboxCountSx}>{i + 1} / {n}</Box> : null}
-        <ButtonBase ref={closeRef} onClick={onClose} aria-label="Close preview">
-          <Iconify icon="mingcute:close-line" width={18} />
-        </ButtonBase>
-      </Box>
-      <Box sx={lightboxBodySx} onClick={(e) => e.stopPropagation()}>
-        {body}
-      </Box>
-      {n > 1 ? (
-        <>
-          <ButtonBase sx={lightboxNavSx("prev")} aria-label="Previous" onClick={(e) => { e.stopPropagation(); setI((v) => (v - 1 + n) % n); }}>
-            <Iconify icon="eva:arrow-ios-back-fill" width={26} />
-          </ButtonBase>
-          <ButtonBase sx={lightboxNavSx("next")} aria-label="Next" onClick={(e) => { e.stopPropagation(); setI((v) => (v + 1) % n); }}>
-            <Iconify icon="eva:arrow-ios-forward-fill" width={26} />
-          </ButtonBase>
-        </>
-      ) : null}
+      <Stack direction="row" spacing={1} sx={{ alignItems: "center", px: 2.5, py: 1.5, borderBottom: 1, borderColor: "divider" }}>
+        <Typography variant="subtitle1" noWrap sx={{ flexGrow: 1 }}>
+          {file.name}
+        </Typography>
+        {n > 1 ? (
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>
+            {i + 1} / {n}
+          </Typography>
+        ) : null}
+        {n > 1 ? (
+          <>
+            <IconButton aria-label="Previous" onClick={() => setI((v) => (v - 1 + n) % n)}>
+              <Iconify icon="eva:arrow-ios-back-fill" />
+            </IconButton>
+            <IconButton aria-label="Next" onClick={() => setI((v) => (v + 1) % n)}>
+              <Iconify icon="eva:arrow-ios-forward-fill" />
+            </IconButton>
+          </>
+        ) : null}
+        <IconButton ref={closeRef} onClick={onClose} aria-label="Close preview">
+          <Iconify icon="mingcute:close-line" />
+        </IconButton>
+      </Stack>
+      <Box sx={{ flex: "1 1 auto", minHeight: 0, p: 2.5, display: "grid", placeItems: "center" }}>{body}</Box>
     </Dialog>
   );
 }

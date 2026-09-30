@@ -1,8 +1,7 @@
 "use client";
 
 import { lazy, Suspense, type ReactElement } from "react";
-import Box from "@mui/material/Box";
-import { markdownFallbackSx } from "./ceo-ai-styles";
+import Typography from "@mui/material/Typography";
 
 // react-markdown + remark-gfm + rehype-highlight (highlight.js) are only needed once the
 // assistant panel shows an answer. Keeping them behind a lazy boundary removes ~100 KB gzip
@@ -17,7 +16,7 @@ export function preloadCeoAiMarkdown(): void {
 
 export function CeoAiMarkdown({ text }: { text: string }): ReactElement {
   return (
-    <Suspense fallback={<Box sx={markdownFallbackSx}><p>{text}</p></Box>}>
+    <Suspense fallback={<Typography variant="body2" sx={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{text}</Typography>}>
       <LazyMarkdown text={text} />
     </Suspense>
   );

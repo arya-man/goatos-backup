@@ -3,8 +3,8 @@
 import type { ReactElement } from "react";
 import { chartColor, useChartTheme } from "@/components/app/chart-colors";
 import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
 import { Chart, ChartLegends, useChart } from "@/components/minimal/chart";
-import { chartSx, chartTitleSx } from "./ceo-ai-styles";
 import {
   CHART_PALETTE,
   chartAccessibleLabel,
@@ -69,10 +69,10 @@ export function CeoAiChart({ chart }: { chart: CeoAiChartData | undefined }): Re
   if (!chart || !layout) return null;
   const height = isBar ? Math.max(140, lineCount * 18 + labels.length * series.length * 14 + 40) : 200;
   return (
-    <Box component="figure" sx={chartSx} role="img" aria-label={chartAccessibleLabel(chart)}>
-      <Box component="figcaption" sx={chartTitleSx}>
+    <Box component="figure" sx={{ m: 0, mt: 1.5, width: 1, minWidth: 0 }} role="img" aria-label={chartAccessibleLabel(chart)}>
+      <Typography component="figcaption" variant="subtitle2" sx={{ mb: 1 }}>
         {chart.title}
-      </Box>
+      </Typography>
       {layout.legend.length ? <ChartLegends labels={layout.legend.map((l) => l.name)} colors={colors} sx={{ gap: 1.5, mb: 1 }} /> : null}
       <Chart type={isBar ? "bar" : "line"} series={series} options={chartOptions} sx={{ height }} />
     </Box>

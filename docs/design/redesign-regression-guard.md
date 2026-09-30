@@ -98,8 +98,8 @@ Paths are relative to `apps/admin-web/`. "theme" means `app/mesha-theme.css`, "f
 | ae378bc40, 3d1275ec8 | PR | The work board avatar stack shifted, and card meta was clipped. | theme, features/work-board/work-board-minimal.css | The avatar stack has a stable width. Card meta is not clipped. |
 | 4b00278be, 5ad92da71, 2806c227f | PR | Mobile overflow, unwrapped empty-state copy, and clipped select and footer labels. | theme, minimal, kit/select-field.tsx, kit/table-footer.tsx, features/counts/*, features/feed/feed-analytics.tsx | No horizontal overflow. Empty-state copy wraps. Select and footer labels are not clipped. |
 | 99590f73b | PR | Filter fields overlapped each other. | frame | Sibling filter fields never overlap (sibling-overlap check). |
-| be6e7b968, a564dfece | main | The Ask Mesha panel covered the top bar controls, and its launcher sat over bottom toolbars. | features/ceo-ai/ceo-ai-panel.tsx, ceo-ai-styles.tsx | The panel sits below the app top bar and above page content. The launcher clears bottom toolbars. |
-| c1f2d5190 | main | The Ask Mesha panel did not scroll. | ceo-ai-panel.tsx, ceo-ai-styles.tsx | The panel body scrolls independently. |
+| be6e7b968, a564dfece | main | The Ask Mesha panel covered the top bar controls, and its launcher sat over bottom toolbars. | features/ceo-ai/ceo-ai-panel.tsx (template chat, FIXJ9) | The panel sits below the app top bar and above page content. The launcher clears bottom toolbars. |
+| c1f2d5190 | main | The Ask Mesha panel did not scroll. | ceo-ai-panel.tsx, components/app/sections/chat | The panel body scrolls independently. |
 | 7a95905f2 | main | Drawer and process chip rendering broke. | features/process-integrity/*.tsx, theme | Protocol-adherence drawer and chips render intact. |
 
 ## 6. Mobile webview
@@ -114,6 +114,6 @@ Paths are relative to `apps/admin-web/`. "theme" means `app/mesha-theme.css`, "f
 | 7cb68a618 | PR | Feed empty cards rendered blank in the webview. | feed | Empty cards render their EmptyState in the webview. |
 | 7df0f03dd, 236624745, dbd4a220f, 6227d58af | main/PR | The tasks board became a 4500px vertical stack at 390px. The pager and filter chips broke. | theme, frame | The phone board is a horizontal scroll-snap row with each column min(85vw, 100% - 28px). The pager stays on one row. Row links are 44px. |
 | eb0e8ce2f, d0b48bba7, 7e663df70 | main/PR | Tap targets were under 40px. | theme | Every tap target is at least 40px at phone width (44px for date and park pickers). |
-| 424095c53, b56c1b379 | main | Ask Mesha phone layout: the chats list was open, and minimize was missing. | ceo-ai-panel.tsx, ceo-ai-styles.tsx | Chats are closed by default behind a scrim. Minimize is visible and docks the panel as a bottom bar. |
+| 424095c53, b56c1b379 | main | Ask Mesha phone layout: the chats list was open, and minimize was missing. | ceo-ai-panel.tsx, components/app/sections/chat | Chats are closed by default behind a scrim. Minimize is visible and docks the panel as a bottom bar. |
 | 02300791a, 0b86f1e68, 45648feda, 8fa2c2d70 | main/PR | Calendar config, sales loads filters, live tracker filters and people filters were unreadable on phones. | theme, features/procurement/sales-loads.tsx | Filters are compact and readable at 390px. At 640px or narrower they fold into a sheet. |
 | 9e130e776 | main | Webview checks were unpinned. | tools/dashboard-automation | The mobile webview smoke checks stay pinned. |

@@ -1,35 +1,21 @@
 "use client";
+import Box from "@mui/material/Box";
+import Stack from "@mui/material/Stack";
 import Table from "@mui/material/Table";
+import Button from "@mui/material/Button";
+import TableRow from "@mui/material/TableRow";
 import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
-import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
-import ButtonBase from "@mui/material/ButtonBase";
-import Box from "@mui/material/Box";
-import {
-  watchAtSx,
-  watchCountSx,
-  watchDimSx,
-  watchDotSx,
-  watchFeedItemSx,
-  watchFeedSx,
-  watchHeadSx,
-  watchNoteSx,
-  watchPctSx,
-  watchPillSx,
-  watchScrollSx,
-  watchStopSx,
-  watchSubSx,
-  watchSx,
-  watchTableSx,
-  watchTagSx,
-  watchTitleSx,
-} from "./ceo-ai-styles";
+import Typography from "@mui/material/Typography";
+import TableContainer from "@mui/material/TableContainer";
+import { Label, type LabelColor } from "@/components/minimal/label";
 
 // Live BLE ear-tag watch card for Ask Mesha (watch_tags tool). The agent server
 // polls the Herd Signals live table and streams frames; this card shows the live
 // table, the change feed, a countdown and "Stop watching". Vocabulary and tones
-// follow features/herd-signals/format.ts (Live Monitor) so both screens agree.
+// follow features/herd-signals/format.ts (Live Monitor) so both screens agree. Template parts only:
+// an outlined card box, a small MUI Table that scrolls inside it, soft Labels for states and signal.
 
 import { useEffect, useState, type ReactElement } from "react";
 import type { CeoAiWatchFrame } from "@/lib/ceo-ai-stream";
@@ -61,8 +47,9 @@ export function mergeWatch(prev: WatchState | undefined, f: CeoAiWatchFrame): Wa
   };
 }
 
-const STATE_TONE: Record<string, string> = { moving: "ok", low: "teal", quiet: "mut", not_moving: "warn", stale: "dng" };
-const STATUS_TONE: Record<string, string> = { Good: "ok", "Weak signal": "warn", "Low battery": "pur", "Missing signal": "dng" };
+const STATE_TONE: Record<string, LabelColor> = { moving: "success", low: "info", quiet: "default", not_moving: "warning", stale: "error" };
+const STATUS_TONE: Record<string, LabelColor> = { Good: "success", "Weak signal": "warning", "Low battery": "secondary", "Missing signal": "error" };
+const FEED_TONE: Record<string, string> = { ok: "success.main", teal: "info.main", warn: "warning.main", dng: "error.main", pur: "secondary.main", mut: "text.secondary" };
 const REASON: Record<string, string> = {
   time_up: "Time up",
   stopped: "Stopped",
@@ -87,9 +74,9 @@ function ago(s: number | null): string {
 
 function pct(v?: number): ReactElement | null {
   if (v === undefined) return null;
-  const tone = v <= -70 ? "dng" : v >= 150 ? "warn" : "mut";
+  const color = v <= -70 ? "error.main" : v >= 150 ? "warning.main" : "text.secondary";
   return (
-    <Box component="span" sx={watchPctSx(tone)}>
+    <Box component="span" sx={{ color, fontWeight: "fontWeightSemiBold" }}>
       {v > 0 ? `+${v}` : v}%
     </Box>
   );
@@ -114,111 +101,124 @@ export function CeoAiWatchCard(props: { watch: WatchState; onStop?: () => void }
   const showOwn = watch.compare === "self" || watch.compare === "both";
   const showPen = watch.compare === "peers" || watch.compare === "both";
   const feed = [...watch.changes].reverse().slice(0, 30);
+  const dim = (text: string | number | null | undefined) =>
+    text ? (
+      <Typography component="span" variant="caption" sx={{ display: "block", color: "text.secondary" }}>
+        {text}
+      </Typography>
+    ) : null;
   return (
-    <Box component="section" sx={watchSx(live)} aria-label="Live tag watch">
-      <Box component="header" sx={watchHeadSx}>
-        <Box component="span" sx={watchDotSx(live)} aria-hidden="true" />
-        <Box sx={watchTitleSx}>
-          <strong>{live ? "Watching live tags" : `Watch ended · ${reasonLabel(watch.reason)}`}</strong>
-          <Box component="span" sx={watchSubSx}>
+    <Box
+      component="section"
+      aria-label="Live tag watch"
+      sx={{ mb: 1.5, border: 1, borderColor: live ? "success.main" : "divider", borderRadius: "var(--r-md)", overflow: "hidden", bgcolor: "background.paper" }}
+    >
+      <Stack direction="row" spacing={1.5} sx={{ alignItems: "center", px: 2, py: 1.5 }}>
+        <Label variant="soft" color={live ? "success" : "default"}>
+          {live ? "Live" : "Ended"}
+        </Label>
+        <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+          <Typography variant="subtitle2">{live ? "Watching live tags" : `Watch ended · ${reasonLabel(watch.reason)}`}</Typography>
+          <Typography variant="caption" sx={{ color: "text.secondary", overflowWrap: "anywhere" }}>
             {watch.label}
             {watch.intervalS ? ` · every ${watch.intervalS}s` : ""}
             {watch.polls ? ` · ${watch.polls} update${watch.polls === 1 ? "" : "s"}` : ""}
-          </Box>
+          </Typography>
         </Box>
         {live ? (
           <>
-            <Box component="span" sx={watchCountSx} aria-live="off">
+            <Typography variant="caption" sx={{ color: "text.secondary", fontVariantNumeric: "tabular-nums" }} aria-live="off">
               {countdown}
-            </Box>
+            </Typography>
             {onStop ? (
-              <ButtonBase sx={watchStopSx} onClick={onStop}>
+              <Button size="small" variant="outlined" color="error" onClick={onStop}>
                 Stop watching
-              </ButtonBase>
+              </Button>
             ) : null}
           </>
         ) : null}
-      </Box>
-      {watch.error ? <Box component="p" sx={watchNoteSx} role="status">
+      </Stack>
+      {watch.error ? (
+        <Typography variant="body2" role="status" sx={{ px: 2, pb: 1.5, color: "text.secondary" }}>
           {watch.error}
-        </Box> : null}
-      {watch.unmatched?.length ? <Box component="p" sx={watchNoteSx}>
+        </Typography>
+      ) : null}
+      {watch.unmatched?.length ? (
+        <Typography variant="body2" sx={{ px: 2, pb: 1.5, color: "text.secondary" }}>
           No tag matched: {watch.unmatched.join(", ")}
-        </Box> : null}
+        </Typography>
+      ) : null}
       {watch.rows.length ? (
-        <Box sx={watchScrollSx}>
-          <Table sx={watchTableSx}>
+        <TableContainer sx={{ maxHeight: 320 }}>
+          <Table size="small" stickyHeader sx={{ minWidth: 640 }}>
             <TableHead>
               <TableRow>
-                <TableCell component="th">Tag</TableCell>
-                <TableCell component="th">Pen</TableCell>
-                <TableCell component="th">State</TableCell>
-                <TableCell component="th" align="right">Motion</TableCell>
-                {showOwn ? <TableCell component="th" align="right">vs own</TableCell> : null}
-                {showPen ? <TableCell component="th" align="right">vs pen</TableCell> : null}
-                <TableCell component="th">Last seen</TableCell>
-                <TableCell component="th">Signal</TableCell>
+                <TableCell>Tag</TableCell>
+                <TableCell>Pen</TableCell>
+                <TableCell>State</TableCell>
+                <TableCell align="right">Motion</TableCell>
+                {showOwn ? <TableCell align="right">vs own</TableCell> : null}
+                {showPen ? <TableCell align="right">vs pen</TableCell> : null}
+                <TableCell>Last seen</TableCell>
+                <TableCell>Signal</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {watch.rows.map((r) => (
                 <TableRow key={r.tag}>
                   <TableCell>
-                    <Box component="span" sx={watchTagSx}>
+                    <Typography variant="subtitle2" component="span">
                       {r.tag}
-                    </Box>
-                    {r.animal ? <Box component="span" sx={watchDimSx}>{r.animal}</Box> : null}
+                    </Typography>
+                    {dim(r.animal)}
                   </TableCell>
                   <TableCell>
                     {r.pen ?? "Unmapped"}
-                    {r.park ? <Box component="span" sx={watchDimSx}>{r.park}</Box> : null}
+                    {dim(r.park)}
                   </TableCell>
                   <TableCell>
-                    <Box component="span" sx={watchPillSx(STATE_TONE[r.state] ?? "mut")}>
+                    <Label variant="soft" color={STATE_TONE[r.state] ?? "default"}>
                       {r.state_label}
-                    </Box>
-                    {r.live_state === "moving_now" ? <Box component="span" sx={watchDimSx}>moving now</Box> : null}
-                    {r.still_min >= 1 ? <Box component="span" sx={watchDimSx}>still {r.still_min}m</Box> : null}
+                    </Label>
+                    {r.live_state === "moving_now" ? dim("moving now") : null}
+                    {r.still_min >= 1 ? dim(`still ${r.still_min}m`) : null}
                   </TableCell>
                   <TableCell align="right">
                     {r.motion_count ?? "—"}
-                    <Box component="span" sx={watchDimSx}>
-                      {r.delta_since_start !== null ? `+${r.delta_since_start} since start` : ""}
-                    </Box>
+                    {dim(r.delta_since_start !== null ? `+${r.delta_since_start} since start` : "")}
                   </TableCell>
                   {showOwn ? <TableCell align="right">{pct(r.vs_own_pct) ?? "—"}</TableCell> : null}
                   {showPen ? <TableCell align="right">{pct(r.vs_pen_pct) ?? "—"}</TableCell> : null}
                   <TableCell>{ago(r.last_seen_s)}</TableCell>
                   <TableCell>
-                    <Box component="span" sx={watchPillSx(STATUS_TONE[r.status] ?? "mut")}>
+                    <Label variant="soft" color={STATUS_TONE[r.status] ?? "default"}>
                       {r.status}
-                    </Box>
-                    <Box component="span" sx={watchDimSx}>
-                      {r.rssi !== null ? `${r.rssi} dBm` : ""}
-                      {r.battery_mv !== null ? ` · ${(r.battery_mv / 1000).toFixed(2)} V` : ""}
-                    </Box>
+                    </Label>
+                    {dim(
+                      `${r.rssi !== null ? `${r.rssi} dBm` : ""}${r.battery_mv !== null ? ` · ${(r.battery_mv / 1000).toFixed(2)} V` : ""}`,
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
-        </Box>
+        </TableContainer>
       ) : null}
       {feed.length ? (
-        <Box component="ol" sx={watchFeedSx} aria-live="polite">
+        <Stack component="ol" spacing={0.5} aria-live="polite" sx={{ m: 0, px: 2, py: 1.5, listStyle: "none", borderTop: 1, borderColor: "divider", maxHeight: 180, overflowY: "auto" }}>
           {feed.map((c, i) => (
-            <Box component="li" key={`${watch.changes.length - i}`} sx={watchFeedItemSx(c.tone ?? "mut")}>
-              <Box component="span" sx={watchAtSx}>
+            <Stack component="li" key={`${watch.changes.length - i}`} direction="row" spacing={1.5} sx={{ typography: "caption", color: FEED_TONE[c.tone ?? "mut"] ?? "text.secondary" }}>
+              <Box component="span" sx={{ minWidth: 32, color: "text.secondary", fontVariantNumeric: "tabular-nums" }}>
                 {c.at_min !== undefined ? `${c.at_min}m` : ""}
               </Box>
               <span>{c.text}</span>
-            </Box>
+            </Stack>
           ))}
-        </Box>
+        </Stack>
       ) : live && watch.polls > 0 ? (
-        <Box component="p" sx={watchNoteSx}>
+        <Typography variant="body2" sx={{ px: 2, pb: 1.5, color: "text.secondary" }}>
           No changes yet.
-        </Box>
+        </Typography>
       ) : null}
     </Box>
   );

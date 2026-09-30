@@ -184,7 +184,12 @@
     "layouts/template/settings/drawer/nav-layout-option.tsx": "src/components/settings/drawer/nav-layout-option.tsx",
     "layouts/template/settings/drawer/icons.tsx": "src/components/settings/drawer/icons.tsx",
     "layouts/template/settings/drawer/index.ts": "src/components/settings/drawer/index.ts",
-    "layouts/template/settings/drawer/base-option.tsx": "src/components/settings/drawer/base-option.tsx"
+    "layouts/template/settings/drawer/base-option.tsx": "src/components/settings/drawer/base-option.tsx",
+    "components/minimal/sections/chat/layout.tsx": "src/sections/chat/layout.tsx",
+    "components/minimal/sections/chat/styles.tsx": "src/sections/chat/styles.tsx",
+    "components/minimal/sections/chat/hooks/use-collapse-nav.ts": "src/sections/chat/hooks/use-collapse-nav.ts",
+    "components/minimal/markdown/styles.tsx": "src/components/markdown/styles.tsx",
+    "components/minimal/markdown/classes.ts": "src/components/markdown/classes.ts"
   },
   "verbatim": {
     "components/minimal/_shared/format-number.ts": {
@@ -521,6 +526,20 @@
         "@mui/material/LinearProgress"
       ]
     },
+    "components/minimal/markdown/classes.ts": {
+      "sha256": "9c994197809885bce5b5d58055658adad56572a157b48764186f50581be21521",
+      "imports": [
+        "src/theme/create-classes"
+      ]
+    },
+    "components/minimal/markdown/styles.tsx": {
+      "sha256": "8405544635e5524c04edc96bdc16eb6b7b9024c14e0c3b67afafbba06f7118b1",
+      "imports": [
+        "minimal-shared/utils",
+        "@mui/material/styles",
+        "./classes"
+      ]
+    },
     "components/minimal/scrollbar/index.ts": {
       "sha256": "8c5d41305b253475fc728f21f77445bd78eda9385a8a160600a46f898d694b7a",
       "imports": [
@@ -543,6 +562,30 @@
         "@mui/material/Typography",
         "@mui/material/Box",
         "@mui/material/Typography"
+      ]
+    },
+    "components/minimal/sections/chat/hooks/use-collapse-nav.ts": {
+      "sha256": "715cc5c5af01defa9bd10804f27c123045a584c6ec7ac8fbeaa3cdaecdbd84eb",
+      "imports": [
+        "react"
+      ]
+    },
+    "components/minimal/sections/chat/layout.tsx": {
+      "sha256": "56070961fa30fca81b5b48bf6876bb38732f754f0f6c731213424c9afe7f6ad3",
+      "imports": [
+        "@mui/material/styles",
+        "@mui/material/styles"
+      ]
+    },
+    "components/minimal/sections/chat/styles.tsx": {
+      "sha256": "2b60647c5d33149490d238142f015ddabce1d51522b8ae6eb17183292c4787e5",
+      "imports": [
+        "@mui/material/ButtonBase",
+        "@mui/material/ListItemButton",
+        "@mui/material/styles",
+        "@mui/material/ButtonBase",
+        "@mui/material/ListItemButton",
+        "src/components/iconify"
       ]
     },
     "components/minimal/sections/overview/analytics/analytics-conversion-rates.tsx": {

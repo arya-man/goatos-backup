@@ -11,11 +11,37 @@ import {
   toPreview,
 } from "./ceo-ai-attachments";
 import Box from "@mui/material/Box";
-import ButtonBase from "@mui/material/ButtonBase";
-import InputBase from "@mui/material/InputBase";
+import Fab from "@mui/material/Fab";
+import Chip from "@mui/material/Chip";
+import Alert from "@mui/material/Alert";
+import Stack from "@mui/material/Stack";
+import Button from "@mui/material/Button";
+import Dialog from "@mui/material/Dialog";
+import Collapse from "@mui/material/Collapse";
+import MenuItem from "@mui/material/MenuItem";
+import TextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
+import IconButton from "@mui/material/IconButton";
+import DialogTitle from "@mui/material/DialogTitle";
+import DialogActions from "@mui/material/DialogActions";
+import DialogContent from "@mui/material/DialogContent";
+import CircularProgress from "@mui/material/CircularProgress";
+import type { SxProps, Theme } from "@mui/material/styles";
+import { varAlpha } from "minimal-shared/utils";
 import { Iconify } from "@/components/minimal/iconify";
+import { Label } from "@/components/minimal/label";
+import { EmptyContent } from "@/components/minimal/empty-content";
+import { ConfirmDialog } from "@/components/minimal/custom-dialog";
+import { ChatLayout } from "@/components/minimal/sections/chat/layout";
+import { useCollapseNav } from "@/components/minimal/sections/chat/hooks/use-collapse-nav";
+import { ChatNav } from "@/components/app/sections/chat/chat-nav";
+import { ChatNavItem } from "@/components/app/sections/chat/chat-nav-item";
+import { ChatHeaderDetails } from "@/components/app/sections/chat/chat-header-details";
+import { ChatMessageList } from "@/components/app/sections/chat/chat-message-list";
+import { ChatMessageItem } from "@/components/app/sections/chat/chat-message-item";
+import { ChatMessageInput } from "@/components/app/sections/chat/chat-message-input";
+import { fmtDate } from "@/lib/format";
 import {
-  type FormEvent,
   type ReactElement,
   useCallback,
   useEffect,
@@ -30,7 +56,6 @@ import {
 } from "@/lib/ceo-ai-stream";
 import { CeoAiWatchCard, mergeWatch } from "./ceo-ai-watch";
 import { createPortal } from "react-dom";
-import IconButton from "@mui/material/IconButton";
 import {
   createConversation,
   deleteConversation,
@@ -40,65 +65,17 @@ import {
   renameConversation,
 } from "./ceo-ai-client";
 import { CeoAiChart } from "./ceo-ai-chart";
-import { GoatAvatar, MeshaLogo } from "./ceo-ai-styles";
-import {
-  actionsSx,
-  avatarSx,
-  bannerSx,
-  bodySx,
-  bubbleSx,
-  caretSx,
-  citeSx,
-  citesSx,
-  composerSx,
-  confirmSx,
-  dropSx,
-  filesTraySx,
-  footSx,
-  formSx,
-  headButtonsSx,
-  headIconSx,
-  headSx,
-  headTextSx,
-  launcherSx,
-  logSx,
-  mainSx,
-  markSx,
-  modeSx,
-  msgFilesSx,
-  msgSx,
-  msgWrapSx,
-  newChatSx,
-  panelSx,
-  progressLabelSx,
-  progressSx,
-  scrimSx,
-  sendSx,
-  sideEmptySx,
-  sideHeadSx,
-  sideSx,
-  skelDotSx,
-  skelSx,
-  startersSx,
-  stepIconSx,
-  stepSx,
-  stepTextSx,
-  stepsChevSx,
-  stepsHeadSx,
-  stepsListSx,
-  stepsSx,
-  suggestBarSx,
-  threadActSx,
-  threadRenameSx,
-  threadSx,
-  threadTitleSx,
-  threadsSx,
-  toolSx,
-  type View,
-} from "./ceo-ai-styles";
-import type { SxProps, Theme } from "@mui/material/styles";
+import { GoatAvatar, MeshaLogo } from "./ceo-ai-marks";
 import { CeoAiEvents, trackCeoAiError, trackCeoAiEvent } from "./telemetry";
 import type { AssistantCopy, ChatMessage, ConversationSummary } from "./types";
+
+// Ask Mesha is the template chat app (Minimal v7.7.0 sections/chat) in a floating window:
+// ChatLayout (verbatim) with the template-derived ChatNav + ChatNavItem (chat history),
+// ChatHeaderDetails (assistant identity + window controls + Rename / Delete menu),
+// ChatMessageList + ChatMessageItem (turns; an answer carries its steps, live watch card, markdown,
+// chart, sources and Copy) and ChatMessageInput (attach, voice, send / stop). Behaviour (streaming,
+// stop, history, attachments, charts, errors, phone sheet, header launcher) is unchanged.
+// guard: ask-mesha-template-chat (features/ceo-ai/ceo-ai-template-chat.test.mjs)
 
 // Local-literal chrome copy for the leadership-only assistant. No backend page
 // contract exists for the assistant sidebar yet — documented exception
@@ -113,6 +90,16 @@ const CHROME = {
   delete: "Delete",
   save: "Save",
   stop: "Stop generating",
+  sender: "Mesha",
+  moreActions: "Chat actions",
+  renameTitle: "Rename chat",
+  deleteTitle: "Delete this chat?",
+  cancel: "Cancel",
+  suggestions: "Suggestions",
+  drop: "Drop files to attach",
+  attach: "Attach files",
+  inputLabel: "Message Ask Mesha",
+  checkingAnswer: "Checking the answer against the data…",
   degraded: "Assistant temporarily unavailable",
   stoppedEmpty: "_Stopped before an answer._",
   cutOff:
@@ -155,31 +142,72 @@ function progressStatusLabel(progress: {
   }
 }
 
+type View = "normal" | "min" | "max";
+// The template chat header is 72px tall (ChatLayout LayoutHeader); the minimized window is that bar.
+const HEADER_HEIGHT = 72;
 const PANEL_MARGIN = 14;
-const PANEL_WIDTH = 640;
+// Window sizes: the normal window holds the template chat nav (320) beside a 640 thread; the app's
+// top bar stays visible above it on laptops. The phone sheet fills the screen, so it sits above the
+// shell header (appBar 1100/1101) and below MUI drawers (1200: the phone chats drawer) and modals /
+// popovers (1300).
+const PANEL_Z = 1150;
 
-/** The assistant's fixed root: the corner launcher, the docked panel, or the phone sheet. */
-function rootSx(args: { open: boolean; view: View; free: boolean; position: Record<string, string | number | undefined> }): SxProps<Theme> {
-  const { open, view, free, position } = args;
-  const phone = open
-    ? view === "min"
-      ? { inset: "auto 0 0 0", width: "auto", height: "auto" }
-      : { inset: 0, width: "auto", height: "auto" }
-    : free
-      ? {}
-      : { right: 14, bottom: "calc(var(--sp-6) + var(--sp-5) + env(safe-area-inset-bottom))" };
-  return ((theme: Theme) => ({
+/** The open window's fixed frame (placement per view; the phone sheet fills the screen). */
+function frameSx(view: View): SxProps<Theme> {
+  return (theme: Theme) => ({
     position: "fixed",
-    right: 24,
-    bottom: 24,
-    zIndex: open || view === "max" ? 1000 : 80,
-    fontFamily: "inherit",
-    transition: free ? "none" : "all .3s cubic-bezier(.34,.1,.64,.9)",
+    zIndex: PANEL_Z,
+    display: "flex",
+    alignItems: "flex-end",
+    justifyContent: "flex-end",
+    pointerEvents: "none",
     overscrollBehavior: "contain",
-    ...position,
-    [theme.breakpoints.down("sm")]: phone,
-  })) as unknown as SxProps<Theme>;
+    right: PANEL_MARGIN,
+    bottom: PANEL_MARGIN,
+    left: PANEL_MARGIN,
+    // Every size stays below the app top bar (docs/design/redesign-regression-guard.md).
+    top: PANEL_MARGIN + HEADER_HEIGHT,
+    [theme.breakpoints.down("sm")]: { inset: 0 },
+  });
 }
+
+/** ChatLayout size per view (template root card: paper, radius, shadow). */
+function windowSx(view: View): SxProps<Theme> {
+  return (theme: Theme) => ({
+    pointerEvents: "auto",
+    flex: "none",
+    overflow: "hidden",
+    boxShadow: theme.vars.customShadows.dialog,
+    width: view === "max" ? 1 : view === "min" ? 360 : 960,
+    height: view === "max" ? 1 : view === "min" ? HEADER_HEIGHT : 720,
+    maxWidth: 1,
+    maxHeight: 1,
+    [theme.breakpoints.down("sm")]: { width: 1, height: view === "min" ? HEADER_HEIGHT : 1, borderRadius: 0 },
+  });
+}
+
+// An answer fills the thread; the reader's own turn keeps the template 320 bubble.
+const ANSWER_SLOTS = {
+  column: { flex: "1 1 auto", minWidth: 0 },
+  body: { maxWidth: 1, flex: "1 1 auto", minWidth: 0 },
+  actions: { "@media (hover: none)": { opacity: 1 } },
+};
+const ERROR_BODY = { maxWidth: 1, flex: "1 1 auto", minWidth: 0, color: "error.darker", bgcolor: "error.lighter" };
+// A suggested prompt is a whole question: the Chip label wraps; 44px tap floor on phones.
+const STARTER_SX = { height: "auto", minHeight: { xs: 44, sm: 32 }, maxWidth: 1, "& .MuiChip-label": { whiteSpace: "normal", py: 0.75 } };
+// File drag over the window: the template upload drop-zone look (dashed primary over a soft tint).
+const DROP_SX: SxProps<Theme> = (theme: Theme) => ({
+  position: "absolute",
+  inset: 0,
+  zIndex: 10,
+  display: "grid",
+  placeItems: "center",
+  borderRadius: "inherit",
+  color: "primary.main",
+  pointerEvents: "none",
+  border: `dashed 2px ${theme.vars.palette.primary.main}`,
+  bgcolor: varAlpha(theme.vars.palette.primary.mainChannel, 0.08),
+});
 
 // modeLabel is the small footer provenance tag. It is CEO-facing, so it never
 // leaks the planner/route internals ("Planned by Gemini via Vertex AI", "Cube",
@@ -476,44 +504,41 @@ function AgentSteps(props: {
   const took =
     secs >= 60 ? `${Math.floor(secs / 60)}m ${secs % 60}s` : `${secs}s`;
   const expanded = live || open;
+  const shownSteps = live ? steps.slice(-4) : steps;
   return (
-    <Box sx={stepsSx}>
-      <ButtonBase
-        sx={stepsHeadSx(live)}
+    <Box sx={{ mb: 1 }}>
+      <Button
+        size="small"
+        color="inherit"
         onClick={() => !live && setOpen((v) => !v)}
         aria-expanded={expanded}
+        endIcon={live ? <CircularProgress size={12} color="inherit" /> : <Iconify icon={open ? "eva:arrow-ios-downward-fill" : "eva:arrow-ios-forward-fill"} width={16} />}
+        sx={{ color: "text.secondary", px: 0.5 }}
       >
         {live
           ? `Working… ${took}`
           : `Worked for ${took} · ${steps.length} step${steps.length === 1 ? "" : "s"}`}
-        {!live ? (
-          <Box component="span" sx={stepsChevSx}>
-            {open ? "▾" : "›"}
-          </Box>
-        ) : null}
-      </ButtonBase>
-      {expanded ? (
-        <Box component="ol" sx={stepsListSx} aria-live={live ? "polite" : undefined}>
+      </Button>
+      <Collapse in={expanded}>
+        <Stack component="ol" spacing={0.5} aria-live={live ? "polite" : undefined} sx={{ m: 0, mt: 0.5, p: 0, listStyle: "none" }}>
           {live && steps.length > 4 ? (
-            <Box component="li" sx={stepSx("more")}>
+            <Typography component="li" variant="caption" sx={{ color: "text.disabled" }}>
               +{steps.length - 4} earlier
-            </Box>
+            </Typography>
           ) : null}
-          {(live ? steps.slice(-4) : steps).map((s, i, shownSteps) => {
-            const now = live && i === shownSteps.length - 1;
+          {shownSteps.map((s, i) => {
+            const current = live && i === shownSteps.length - 1;
             return (
-              <Box component="li" key={`${i}-${s}`} sx={stepSx(now ? "now" : "done")}>
-                <Box component="span" sx={stepIconSx(now)} aria-hidden>
-                  {now ? null : <Iconify icon="eva:checkmark-fill" width={11} />}
-                </Box>
-                <Box component="span" sx={stepTextSx}>
+              <Stack component="li" key={`${i}-${s}`} direction="row" spacing={1} sx={{ alignItems: "flex-start", typography: "caption", color: current ? "text.primary" : "text.secondary" }}>
+                {current ? <CircularProgress size={12} color="inherit" sx={{ mt: 0.25, flex: "none" }} /> : <Iconify icon="eva:checkmark-fill" width={14} sx={{ mt: 0.25, flex: "none", color: "success.main" }} />}
+                <Box component="span" sx={{ minWidth: 0, overflowWrap: "anywhere" }}>
                   {s}
                 </Box>
-              </Box>
+              </Stack>
             );
           })}
-        </Box>
-      ) : null}
+        </Stack>
+      </Collapse>
     </Box>
   );
 }
@@ -595,13 +620,13 @@ export function CeoAiPanel({
     moved: boolean;
   } | null>(null);
   const suppressClickRef = useRef(false);
-  // Thread list starts open on desktop, closed on phones (it overlays the chat there).
+  // Chat history: the template chat nav (open beside the thread from md, a drawer below md).
   // The panel renders only after the client-side capability probe, so reading the
-  // viewport in the initializers is safe (no server render to mismatch).
+  // viewport in the initializer is safe (no server render to mismatch).
+  const conversationsNav = useCollapseNav();
   const isNarrow = () =>
     typeof window !== "undefined" &&
     window.matchMedia("(max-width:620px)").matches;
-  const [showThreads, setShowThreads] = useState(() => !isNarrow());
   const [narrow, setNarrow] = useState(isNarrow);
   useEffect(() => {
     const mq = window.matchMedia("(max-width:620px)");
@@ -717,11 +742,11 @@ export function CeoAiPanel({
   const [showStarters, setShowStarters] = useState(true);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameText, setRenameText] = useState("");
+  const [threadLoading, setThreadLoading] = useState(false);
 
-  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const resumeSeq = useRef(0);
-  const renamingRef = useRef<string | null>(null);
 
   // Leadership capability probe (server-authoritative; replaces client regex).
   useEffect(() => {
@@ -743,6 +768,16 @@ export function CeoAiPanel({
   useEffect(() => {
     if (pending) stickRef.current = true;
   }, [pending]);
+  // The template Scrollbar scrolls its inner SimpleBar node (the ref): listen there.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return undefined;
+    const onScroll = () => {
+      stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [open, view, threadLoading]);
 
   // Release object URLs for sent-message thumbnails once those messages are
   // gone (new chat / resume / delete) and on unmount.
@@ -1167,13 +1202,9 @@ export function CeoAiPanel({
     [conversationId, copy, refreshThreads, stopGenerating],
   );
 
-  const onSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    void ask(input, files);
-  };
-
   const startNewChat = useCallback(async () => {
     resumeSeq.current += 1;
+    setThreadLoading(false);
     stopGenerating();
     setMessages([]);
     setConversationId(undefined);
@@ -1189,7 +1220,6 @@ export function CeoAiPanel({
 
   const resumeThread = useCallback(
     async (id: string) => {
-      if (isNarrow()) setShowThreads(false);
       if (id === conversationId) return;
       const seq = ++resumeSeq.current;
       stopGenerating();
@@ -1197,9 +1227,11 @@ export function CeoAiPanel({
       setBanner(null);
       setShowStarters(false);
       trackCeoAiEvent(CeoAiEvents.ResumeChat);
+      setThreadLoading(true);
       const stored = await loadConversationMessages(id).catch(() => []);
       // A later click won: drop this stale load.
       if (seq !== resumeSeq.current) return;
+      setThreadLoading(false);
       const restoredMessages: ChatMessage[] = stored.map((m) => {
         const role: ChatMessage["role"] =
           m.role === "user" ? "user" : "assistant";
@@ -1247,10 +1279,6 @@ export function CeoAiPanel({
 
   const commitRename = useCallback(
     async (id: string) => {
-      // Enter/Escape unmount the input and fire blur: commit only once, and
-      // never after Escape cancelled.
-      if (renamingRef.current !== id) return;
-      renamingRef.current = null;
       const title = renameText.trim();
       setRenaming(null);
       if (title) {
@@ -1264,653 +1292,479 @@ export function CeoAiPanel({
   if (allowed !== true) return null;
 
   const startersVisible = showStarters || messages.length === 0;
+  const current = conversations.find((c) => c.id === conversationId);
+  const openPanel = () => {
+    setOpen(true);
+    trackCeoAiEvent(CeoAiEvents.Open);
+  };
 
-  const rootStyle = open
-    ? view === "max"
-      ? {
-          right: PANEL_MARGIN,
-          bottom: PANEL_MARGIN,
-          top: PANEL_MARGIN,
-          left: PANEL_MARGIN,
+  if (!open) {
+    return (
+      <>
+        {/* Closed: the launcher DOCKS into the top bar's slot when the shell offers one, at EVERY
+            width (TR1-#13: the phone's floating bubble covered page content and sat on top of the
+            open phone menu; the template header has no FAB). It is a template header IconButton
+            (transparent, 40px, 44px tap on phones) carrying the goat mark, like the template's
+            language flag. Without a slot (no shell) it stays a draggable floating Fab.
+            guard: ask-mesha-docked (features/ceo-ai/ceo-ai-dock.test.mjs) */}
+        {dockSlot
+          ? createPortal(
+              <IconButton onClick={openPanel} aria-label={copy.open} title={copy.title}>
+                <GoatAvatar size="var(--sp-3)" />
+              </IconButton>,
+              dockSlot,
+            )
+          : (
+          <Fab
+            color="default"
+            sx={{
+              position: "fixed",
+              zIndex: 80,
+              touchAction: "none",
+              ...(bubblePos ? { left: bubblePos.x, top: bubblePos.y } : { right: 24, bottom: 24 }),
+            }}
+            onPointerDown={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              dragRef.current = {
+                id: e.pointerId,
+                dx: e.clientX - r.left,
+                dy: e.clientY - r.top,
+                sx: e.clientX,
+                sy: e.clientY,
+                moved: false,
+              };
+              e.currentTarget.setPointerCapture(e.pointerId);
+            }}
+            onPointerMove={(e) => {
+              const d = dragRef.current;
+              if (!d || d.id !== e.pointerId) return;
+              if (!d.moved && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 6) return;
+              d.moved = true;
+              const size = e.currentTarget.offsetWidth;
+              setBubblePos({
+                x: clamp(e.clientX - d.dx, 4, window.innerWidth - size - 4),
+                y: clamp(e.clientY - d.dy, 4, window.innerHeight - size - 4),
+              });
+            }}
+            onPointerUp={(e) => {
+              const d = dragRef.current;
+              dragRef.current = null;
+              if (!d?.moved) return;
+              suppressClickRef.current = true;
+              const size = e.currentTarget.offsetWidth;
+              const r = e.currentTarget.getBoundingClientRect();
+              const snapped = {
+                x: r.left + size / 2 < window.innerWidth / 2 ? 12 : window.innerWidth - size - 12,
+                y: clamp(r.top, 12, window.innerHeight - size - 12),
+              };
+              setBubblePos(snapped);
+              writeBubblePos(snapped);
+            }}
+            onPointerCancel={() => {
+              dragRef.current = null;
+            }}
+            onClick={() => {
+              if (suppressClickRef.current) {
+                suppressClickRef.current = false;
+                return;
+              }
+              openPanel();
+            }}
+            aria-label={copy.open}
+            title={copy.title}
+          >
+            <GoatAvatar />
+          </Fab>
+            )}
+      </>
+    );
+  }
+
+  const starterChips = (
+    <Stack direction="row" sx={{ flexWrap: "wrap", gap: 1, justifyContent: messages.length ? "flex-start" : "center" }}>
+      {starters.map((question) => (
+        <Chip
+          key={question}
+          label={question}
+          variant="outlined"
+          clickable
+          disabled={pending}
+          onClick={() => {
+            trackCeoAiEvent(CeoAiEvents.StarterClick);
+            void ask(question);
+          }}
+          sx={STARTER_SX}
+        />
+      ))}
+    </Stack>
+  );
+
+  const fileChips = (files: PreviewFile[] | undefined) =>
+    files?.length ? (
+      <Stack direction="row" sx={{ flexWrap: "wrap", gap: 0.75, mt: 1 }}>
+        {files.map((f, i) => (
+          <Thumb key={f.url} file={f} onOpen={() => setLightbox({ files, start: i })} />
+        ))}
+      </Stack>
+    ) : null;
+
+  const renderMessage = (message: ChatMessage) => {
+    const me = message.role === "user";
+    const streaming = message.state === "streaming";
+    const complete = message.state === "complete";
+    if (me) {
+      return (
+        <ChatMessageItem key={message.id} me>
+          <Box component="span" sx={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+            {message.text}
+          </Box>
+          {fileChips(message.files)}
+        </ChatMessageItem>
+      );
+    }
+    const source = formatSource(message.source);
+    return (
+      <ChatMessageItem
+        key={message.id}
+        me={false}
+        info={CHROME.sender}
+        firstName={CHROME.sender}
+        avatar={<MeshaLogo size={32} />}
+        slotProps={message.state === "error" ? { ...ANSWER_SLOTS, body: ERROR_BODY } : ANSWER_SLOTS}
+        actions={
+          complete && message.id !== "hello" && message.text && message.text !== CHROME.stoppedEmpty ? (
+            <CopyButton text={message.text} />
+          ) : undefined
         }
-      : view === "min"
-        ? {
-            right: PANEL_MARGIN,
-            bottom: PANEL_MARGIN,
-            width: `min(360px, calc(100vw - ${PANEL_MARGIN * 2}px))`,
-          }
-        : {
-            right: PANEL_MARGIN,
-            bottom: PANEL_MARGIN,
-            width: `min(${PANEL_WIDTH}px, calc(100vw - ${PANEL_MARGIN * 2}px))`,
-            // Leave room for the app's top bar so the panel's own close/min/max buttons are never covered.
-            height: `min(640px, calc(100dvh - ${PANEL_MARGIN * 2}px - 72px))`,
-          }
-    : bubblePos
-      ? { left: bubblePos.x, top: bubblePos.y, right: "auto", bottom: "auto" }
-      : { right: 24, bottom: 24 };
+      >
+        {message.steps?.length ? (
+          <AgentSteps steps={message.steps} live={streaming} startedAt={message.startedAt} workedMs={message.workedMs} />
+        ) : null}
+        {message.watch ? (
+          <CeoAiWatchCard
+            watch={message.watch}
+            onStop={streaming ? () => sendCeoAiWatchStop(runRequestIdRef.current) : undefined}
+          />
+        ) : null}
+        {message.text ? <CeoAiMarkdown text={message.text} /> : null}
+        {fileChips(message.files)}
+        {/* Chart belongs to the answer: inside its bubble, above its Copy action. */}
+        {complete && message.chart ? <CeoAiChart chart={message.chart} /> : null}
+        {streaming && message.text && message.checking ? (
+          <Typography variant="caption" role="status" aria-live="polite" sx={{ mt: 1, color: "text.secondary" }}>
+            {CHROME.checkingAnswer}
+          </Typography>
+        ) : null}
+        {streaming && !message.text && !message.steps?.length ? (
+          <Stack direction="row" spacing={1} role="status" aria-label={copy.checking} sx={{ alignItems: "center", color: "text.secondary" }}>
+            <CircularProgress size={16} color="inherit" />
+            {message.progress ? (
+              <Typography variant="caption" aria-live="polite">
+                {message.progress}
+              </Typography>
+            ) : null}
+          </Stack>
+        ) : null}
+        {complete && message.citations?.length ? (
+          <Stack direction="row" sx={{ flexWrap: "wrap", gap: 0.75, mt: 1.5 }}>
+            {message.citations.map((cite, i) => {
+              const freshness = formatFreshness(cite.as_of);
+              return (
+                <Label key={`${message.id}-c${i}`} variant="soft" color={cite.tier === "cube" ? "info" : "default"}>
+                  {formatCitationSurface(cite.surface)}
+                  {freshness ? ` · ${freshness}` : ""}
+                </Label>
+              );
+            })}
+          </Stack>
+        ) : null}
+        {complete && message.id !== "hello" && message.mode !== "agent" ? (
+          <Typography variant="caption" sx={{ mt: 1, color: message.mode === "degraded" ? "error.main" : "text.disabled" }}>
+            {source ? `${source} · ` : ""}
+            {modeLabel(message.mode, copy)}
+          </Typography>
+        ) : null}
+      </ChatMessageItem>
+    );
+  };
+
+  const windowAction = (label: string, icon: string, onClick: () => void, extra?: { hideOnPhone?: boolean; expanded?: boolean }) => (
+    <IconButton
+      aria-label={label}
+      title={label}
+      aria-expanded={extra?.expanded}
+      sx={extra?.hideOnPhone ? { display: { xs: "none", sm: "inline-flex" } } : undefined}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+    >
+      <Iconify icon={icon as "mingcute:close-line"} />
+    </IconButton>
+  );
 
   return (
-    <Box
-      sx={rootSx({ open, view, free: !open && Boolean(bubblePos), position: rootStyle })}
-    >
-      {open ? (
-        <Box
-          component="section"
-          sx={panelSx(view)}
-          aria-label={copy.title}
-          onDragEnter={(e) => {
-            if (e.dataTransfer.types.includes("Files")) {
-              e.preventDefault();
-              setDragging(true);
-            }
-          }}
-          onDragOver={(e) => {
-            if (e.dataTransfer.types.includes("Files")) e.preventDefault();
-          }}
-          onDragLeave={(e) => {
-            if (!e.currentTarget.contains(e.relatedTarget as Node | null))
-              setDragging(false);
-          }}
-          onDrop={(e) => {
+    <Box sx={frameSx(view)}>
+      <ChatLayout
+        role="region"
+        aria-label={copy.title}
+        sx={windowSx(view)}
+        // Minimized: the bar restores on a click; otherwise a double click on the header toggles
+        // the full-window size (the header buttons handle their own clicks).
+        onClick={view === "min" ? () => setView("normal") : undefined}
+        onDoubleClick={(e) => {
+          if (view === "min" || (e.target as HTMLElement).closest("button")) return;
+          if (e.clientY - e.currentTarget.getBoundingClientRect().top > HEADER_HEIGHT) return;
+          setView(view === "max" ? "normal" : "max");
+        }}
+        onDragEnter={(e) => {
+          if (e.dataTransfer.types.includes("Files")) {
             e.preventDefault();
-            setDragging(false);
-            addFiles(e.dataTransfer.files);
-            if (view === "min") setView("normal");
-          }}
-        >
-          {dragging ? (
-            <Box sx={dropSx}>Drop files to attach</Box>
-          ) : null}
-          <Box
-            sx={headSx(view)}
-            onClick={view === "min" ? () => setView("normal") : undefined}
-            onDoubleClick={
-              view === "min"
-                ? undefined
-                : () => setView(view === "max" ? "normal" : "max")
-            }
-            role={view === "min" ? "button" : undefined}
-          >
-            {/* The chats list can't show in the minimized bar; don't offer its toggle. */}
-            {view === "min" ? null : (
-              <ButtonBase
-                sx={headIconSx()}
-                aria-pressed={showThreads}
-                onClick={() => setShowThreads((v) => !v)}
-                aria-label={CHROME.toggleThreads}
-                title={CHROME.toggleThreads}
+            setDragging(true);
+          }
+        }}
+        onDragOver={(e) => {
+          if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragging(false);
+          addFiles(e.dataTransfer.files);
+          if (view === "min") setView("normal");
+        }}
+        slots={{
+          nav:
+            view === "min" ? null : (
+              <ChatNav
+                title={<Typography variant="h6">{CHROME.threads}</Typography>}
+                collapseNav={conversationsNav}
+                onCompose={() => void startNewChat()}
+                composeLabel={CHROME.newChat}
+                toggleLabel={CHROME.toggleThreads}
               >
-                <Iconify icon="custom:sidebar-unfold-fill" width={18} />
-              </ButtonBase>
-            )}
-            <Box component="span" sx={markSx}>
-              <MeshaLogo width={32} height={32} />
-            </Box>
-            <Box component="span" sx={headTextSx}>
-              <b>{copy.title}</b>
-              <small>{copy.subtitle}</small>
-            </Box>
-            <Box sx={headButtonsSx} onClick={(e) => e.stopPropagation()}>
-              <ButtonBase
-                sx={headIconSx()}
-                onClick={() => setView(view === "min" ? "normal" : "min")}
-                aria-label={view === "min" ? "Restore panel" : "Minimize"}
-                title={view === "min" ? "Restore panel" : "Minimize"}
-                aria-expanded={view !== "min"}
-              >
-                {view === "min" ? (
-                  <Iconify icon="eva:arrow-ios-upward-fill" width={18} />
-                ) : (
-                  <Iconify icon="mingcute:minimize-line" width={18} />
-                )}
-              </ButtonBase>
-              <ButtonBase
-                sx={headIconSx(true)}
-                onClick={() => setView(view === "max" ? "normal" : "max")}
-                aria-label={view === "max" ? "Restore size" : "Maximize"}
-                title={view === "max" ? "Restore size" : "Maximize"}
-              >
-                {view === "max" ? (
-                  <Iconify icon="solar:quit-full-screen-square-outline" width={18} />
-                ) : (
-                  <Iconify icon="solar:full-screen-square-outline" width={18} />
-                )}
-              </ButtonBase>
-              <ButtonBase
-                sx={headIconSx()}
-                onClick={() => {
-                  setOpen(false);
-                  setView("normal");
-                }}
-                aria-label={copy.close}
-              >
-                <Iconify icon="mingcute:close-line" width={18} />
-              </ButtonBase>
-            </Box>
-          </Box>
-
-          <Box sx={bodySx(view)}>
-            {showThreads ? (
-              <ButtonBase
-                sx={scrimSx}
-                aria-label="Close chats"
-                onClick={() => setShowThreads(false)}
-              />
-            ) : null}
-            <Box component="aside" sx={sideSx(view, showThreads)}>
-              <Box sx={sideHeadSx}>
-                <span>{CHROME.threads}</span>
-                <ButtonBase
-                  sx={newChatSx}
-                  onClick={() => void startNewChat()}
-                >
-                  <Iconify icon="solar:chat-round-dots-bold" width={13} /> {CHROME.newChat}
-                </ButtonBase>
-              </Box>
-              <Box sx={threadsSx}>
                 {conversations.length === 0 ? (
-                  <Box sx={sideEmptySx}>{CHROME.noThreads}</Box>
+                  conversationsNav.collapseDesktop ? null : (
+                    <Typography component="li" variant="body2" sx={{ px: 2.5, py: 1.5, color: "text.secondary" }}>
+                      {CHROME.noThreads}
+                    </Typography>
+                  )
                 ) : (
                   conversations.map((thread) => (
-                    <Box
+                    <ChatNavItem
                       key={thread.id}
-                      sx={threadSx(thread.id === conversationId, confirmDelete === thread.id)}
-                      role="button"
-                      tabIndex={0}
-                      aria-current={
-                        thread.id === conversationId ? "true" : undefined
-                      }
-                      onClick={() =>
-                        confirmDelete !== thread.id &&
-                        renaming !== thread.id &&
-                        void resumeThread(thread.id)
-                      }
-                      onKeyDown={(e) => {
-                        if (e.target !== e.currentTarget) return;
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          void resumeThread(thread.id);
-                        }
-                      }}
-                    >
-                      {confirmDelete === thread.id ? (
-                        <Box
-                          component="span"
-                          sx={confirmSx}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <span>Delete this chat?</span>
-                          <ButtonBase
-                            data-confirm="yes"
-                            autoFocus
-                            onClick={() => {
-                              setConfirmDelete(null);
-                              void removeThread(thread.id);
-                            }}
-                          >
-                            Delete
-                          </ButtonBase>
-                          <ButtonBase
-                            data-confirm="no"
-                            onClick={() => setConfirmDelete(null)}
-                          >
-                            Cancel
-                          </ButtonBase>
-                        </Box>
-                      ) : renaming === thread.id ? (
-                        <InputBase
-                          autoFocus
-                          sx={threadRenameSx}
-                          value={renameText}
-                          onClick={(e) => e.stopPropagation()}
-                          onChange={(e) => setRenameText(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") void commitRename(thread.id);
-                            if (e.key === "Escape") {
-                              e.stopPropagation();
-                              renamingRef.current = null;
-                              setRenaming(null);
-                            }
-                          }}
-                          onBlur={() => void commitRename(thread.id)}
-                        />
-                      ) : (
-                        <Box component="span" sx={threadTitleSx} title={thread.title}>
-                          {thread.title || CHROME.newChat}
-                        </Box>
-                      )}
-                      {confirmDelete === thread.id ? null : (
-                        <>
-                          <ButtonBase
-                            sx={threadActSx}
-                            data-thread-act=""
-                            aria-label={CHROME.rename}
-                            title={CHROME.rename}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              renamingRef.current = thread.id;
-                              setRenaming(thread.id);
-                              setRenameText(thread.title);
-                            }}
-                          >
-                            <Iconify icon="solar:pen-bold" width={13} />
-                          </ButtonBase>
-                          <ButtonBase
-                            sx={threadActSx}
-                            data-thread-act=""
-                            aria-label={CHROME.delete}
-                            title={CHROME.delete}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setConfirmDelete(thread.id);
-                            }}
-                          >
-                            <Iconify icon="solar:trash-bin-trash-bold" width={13} />
-                          </ButtonBase>
-                        </>
-                      )}
-                    </Box>
+                      conversation={{ id: thread.id, unreadCount: 0 }}
+                      selected={thread.id === conversationId}
+                      collapse={conversationsNav.collapseDesktop}
+                      onCloseMobile={conversationsNav.onCloseMobile}
+                      displayName={thread.title || CHROME.newChat}
+                      lastActivity={thread.updated_at ? fmtDate(thread.updated_at) : undefined}
+                      avatar={<Iconify icon="solar:chat-round-dots-bold" width={24} />}
+                      onClickConversation={(id) => void resumeThread(id)}
+                    />
                   ))
                 )}
-              </Box>
-            </Box>
-
-            <Box sx={mainSx}>
-              <Box
-                ref={scrollRef}
-                sx={logSx}
-                onScroll={(e) => {
-                  const el = e.currentTarget;
-                  stickRef.current =
-                    el.scrollHeight - el.scrollTop - el.clientHeight < 48;
-                }}
-              >
-                {shown.map((message) => (
-                  <Box
-                    key={message.id}
-                    sx={msgWrapSx}
-                  >
-                    {message.role === "assistant" && (
-                      <Box sx={avatarSx}>
-                        <MeshaLogo width={32} height={32} />
-                      </Box>
-                    )}
-                    <Box
-                      sx={msgSx(message.role, view)}
-                    >
-                      {message.role === "assistant" && message.steps?.length ? (
-                        <AgentSteps
-                          steps={message.steps}
-                          live={message.state === "streaming"}
-                          startedAt={message.startedAt}
-                          workedMs={message.workedMs}
-                        />
-                      ) : null}
-                      {message.role === "assistant" && message.watch ? (
-                        <CeoAiWatchCard
-                          watch={message.watch}
-                          onStop={
-                            message.state === "streaming"
-                              ? () =>
-                                  sendCeoAiWatchStop(runRequestIdRef.current)
-                              : undefined
-                          }
-                        />
-                      ) : null}
-                      {/* No empty assistant bubble while the agent works; the progress line shows instead. */}
-                      {message.role === "user" || message.text ? (
-                        <Box sx={bubbleSx(message.role, message.state)}>
-                          {message.role === "assistant" ? (
-                            <CeoAiMarkdown text={message.text} />
-                          ) : (
-                            message.text
-                          )}
-                          {message.files?.length ? (
-                            <Box sx={msgFilesSx}>
-                              {message.files.map((f, i) => (
-                                <Thumb
-                                  key={f.url}
-                                  file={f}
-                                  inUserMessage={message.role === "user"}
-                                  onOpen={() =>
-                                    setLightbox({
-                                      files: message.files ?? [],
-                                      start: i,
-                                    })
-                                  }
-                                />
-                              ))}
-                            </Box>
-                          ) : null}
-                          {message.state === "streaming" && message.text ? (
-                            <Box component="span" sx={caretSx} />
-                          ) : null}
-                        </Box>
-                      ) : null}
-                      {/* Chart belongs to the answer: above its Copy action, not after it. */}
-                      {message.role === "assistant" &&
-                      message.state === "complete" &&
-                      message.chart ? (
-                        <CeoAiChart chart={message.chart} />
-                      ) : null}
-                      {message.role === "assistant" &&
-                      message.state === "complete" &&
-                      message.id !== "hello" &&
-                      message.text &&
-                      message.text !== CHROME.stoppedEmpty ? (
-                        <Box sx={actionsSx}>
-                          <CopyButton text={message.text} />
-                        </Box>
-                      ) : null}
-                      {message.state === "streaming" &&
-                      message.text &&
-                      message.checking ? (
-                        <Box sx={progressSx}>
-                          <Box
-                            component="span"
-                            sx={progressLabelSx}
-                            role="status"
-                            aria-live="polite"
-                          >
-                            Checking the answer against the data…
-                          </Box>
-                        </Box>
-                      ) : null}
-                      {message.state === "streaming" &&
-                      !message.text &&
-                      !message.steps?.length ? (
-                        <Box sx={progressSx}>
-                          <Box
-                            sx={skelSx}
-                            role="status"
-                            aria-label={copy.checking}
-                          >
-                            <Box component="span" sx={skelDotSx(0)} />
-                            <Box component="span" sx={skelDotSx(1)} />
-                            <Box component="span" sx={skelDotSx(2)} />
-                          </Box>
-                          {message.progress ? (
-                            <Box
-                              component="span"
-                              sx={progressLabelSx}
-                              aria-live="polite"
-                            >
-                              {message.progress}
-                            </Box>
-                          ) : null}
-                        </Box>
-                      ) : null}
-                      {message.role === "assistant" &&
-                      message.state === "complete" &&
-                      message.citations?.length ? (
-                        <Box sx={citesSx}>
-                          {message.citations.map((cite, i) => {
-                            const freshness = formatFreshness(cite.as_of);
-                            return (
-                              <Box
-                                component="span"
-                                key={`${message.id}-c${i}`}
-                                sx={citeSx(cite.tier === "cube")}
-                              >
-                                <b>{formatCitationSurface(cite.surface)}</b>
-                                {freshness ? ` · ${freshness}` : ""}
-                              </Box>
-                            );
-                          })}
-                        </Box>
-                      ) : null}
-                      {message.role === "assistant" &&
-                      message.state === "complete" &&
-                      message.id !== "hello" &&
-                      message.mode !== "agent" ? (
-                        <Box sx={footSx}>
-                          <Box
-                            component="span"
-                            sx={modeSx(message.mode === "degraded")}
-                          >
-                            {formatSource(message.source)
-                              ? `${formatSource(message.source)} · `
-                              : ""}
-                            {modeLabel(message.mode, copy)}
-                          </Box>
-                        </Box>
-                      ) : null}
-                    </Box>
-                  </Box>
-                ))}
-              </Box>
+              </ChatNav>
+            ),
+          header: (
+            <ChatHeaderDetails
+              name={copy.title}
+              status={copy.subtitle}
+              avatar={<MeshaLogo size={40} />}
+              collapseNav={conversationsNav}
+              toggleLabel={CHROME.toggleThreads}
+              moreLabel={CHROME.moreActions}
+              deleteLabel={CHROME.delete}
+              onDelete={conversationId ? () => setConfirmDelete(conversationId) : undefined}
+              menuActions={(close) => (
+                <MenuItem
+                  onClick={() => {
+                    close();
+                    setRenameText(current?.title ?? "");
+                    setRenaming(conversationId ?? null);
+                  }}
+                >
+                  <Iconify icon="solar:pen-bold" />
+                  {CHROME.rename}
+                </MenuItem>
+              )}
+              actions={
+                <>
+                  {windowAction(view === "min" ? "Restore panel" : "Minimize", view === "min" ? "eva:arrow-ios-upward-fill" : "mingcute:minimize-line", () => setView(view === "min" ? "normal" : "min"), { expanded: view !== "min" })}
+                  {windowAction(view === "max" ? "Restore size" : "Maximize", view === "max" ? "solar:quit-full-screen-square-outline" : "solar:full-screen-square-outline", () => setView(view === "max" ? "normal" : "max"), { hideOnPhone: true })}
+                  {windowAction(copy.close, "mingcute:close-line", () => {
+                    setOpen(false);
+                    setView("normal");
+                  })}
+                </>
+              }
+            />
+          ),
+          main: (
+            <>
+              {dragging ? (
+                <Box sx={DROP_SX}>
+                  <Typography variant="h6">{CHROME.drop}</Typography>
+                </Box>
+              ) : null}
+              <ChatMessageList loading={threadLoading} scrollRef={scrollRef}>
+                {messages.length === 0 ? (
+                  <EmptyContent
+                    title={copy.hello}
+                    description={copy.helloMeta}
+                    action={<Box sx={{ mt: 3 }}>{starterChips}</Box>}
+                  />
+                ) : (
+                  messages.map(renderMessage)
+                )}
+              </ChatMessageList>
 
               {banner ? (
-                <Box sx={bannerSx(banner.kind)}>
+                <Alert severity={banner.kind === "err" ? "error" : "warning"} sx={{ mx: 2, mb: 1.5 }}>
                   {banner.text}
-                </Box>
+                </Alert>
               ) : null}
 
               {messages.length > 0 ? (
-                <Box sx={suggestBarSx}>
-                  <ButtonBase
+                <Box sx={{ px: 2, pb: 1 }}>
+                  <Button
+                    size="small"
+                    color="inherit"
+                    startIcon={<Iconify icon="solar:atom-bold-duotone" />}
                     onClick={() => setShowStarters((v) => !v)}
                     aria-expanded={startersVisible}
                   >
-                    <Iconify icon="solar:atom-bold-duotone" width={14} />
-                    Suggestions
-                  </ButtonBase>
-                </Box>
-              ) : null}
-
-              {startersVisible ? (
-                <Box sx={startersSx}>
-                  {starters.map((question) => (
-                    <ButtonBase
-                      key={question}
-                      disabled={pending}
-                      onClick={() => {
-                        trackCeoAiEvent(CeoAiEvents.StarterClick);
-                        void ask(question);
-                      }}
-                    >
-                      {question}
-                    </ButtonBase>
-                  ))}
+                    {CHROME.suggestions}
+                  </Button>
+                  <Collapse in={startersVisible}>
+                    <Box sx={{ pt: 1 }}>{starterChips}</Box>
+                  </Collapse>
                 </Box>
               ) : null}
 
               {previews.length ? (
-                <Box sx={filesTraySx}>
+                <Stack direction="row" sx={{ flexWrap: "wrap", gap: 1, px: 2, pb: 1.5 }}>
                   {previews.map((f, i) => (
                     <Thumb
                       key={f.url}
                       file={f}
                       onOpen={() => setLightbox({ files: previews, start: i })}
-                      onRemove={() =>
-                        setFiles((prev) => prev.filter((_, j) => j !== i))
-                      }
+                      onRemove={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
                     />
                   ))}
-                </Box>
+                </Stack>
               ) : null}
-              <Box component="form" sx={formSx} onSubmit={onSubmit}>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  hidden
-                  accept="image/png,image/jpeg,image/gif,image/webp,application/pdf,.csv,.tsv,.txt,.md,.json"
-                  onChange={(e) => {
-                    addFiles(e.target.files);
-                    e.target.value = "";
-                  }}
-                />
-                <ButtonBase
-                  sx={toolSx(false)}
-                  onClick={() => fileInputRef.current?.click()}
-                  aria-label="Attach files"
-                  title="Attach files"
-                >
-                  <Iconify icon="eva:attach-2-fill" width={18} />
-                </ButtonBase>
-                <InputBase
-                  multiline
-                  sx={composerSx}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape" && pending) {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      stopGenerating();
-                      return;
-                    }
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      e.currentTarget.form?.requestSubmit();
-                    }
-                  }}
-                  onPaste={(e) => {
-                    if (e.clipboardData.files.length) {
-                      e.preventDefault();
-                      addFiles(e.clipboardData.files);
-                    }
-                  }}
-                  rows={1}
-                  placeholder={
-                    listening
-                      ? "Listening…"
-                      : narrow
-                        ? "Ask Mesha…"
-                        : copy.placeholder
+
+              <ChatMessageInput
+                value={input}
+                disabled={false}
+                placeholder={listening ? "Listening…" : narrow ? "Ask Mesha…" : copy.placeholder}
+                inputLabel={CHROME.inputLabel}
+                attachLabel={CHROME.attach}
+                accept="image/png,image/jpeg,image/gif,image/webp,application/pdf,.csv,.tsv,.txt,.md,.json"
+                onChange={setInput}
+                onAttach={addFiles}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape" && pending) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    stopGenerating();
+                    return;
                   }
-                />
-                {speechSupported ? (
-                  <ButtonBase
-                    sx={toolSx(listening)}
-                    onClick={toggleVoice}
-                    aria-pressed={listening}
-                    aria-label={listening ? "Stop voice input" : "Voice input"}
-                    title={listening ? "Stop voice input" : "Voice input"}
-                  >
-                    {listening ? <Iconify icon="solar:stop-circle-bold" width={18} /> : <Iconify icon="solar:microphone-bold" width={18} />}
-                  </ButtonBase>
-                ) : null}
-                {pending && !input.trim() && !files.length ? (
-                  <ButtonBase
-                    sx={sendSx(true)}
-                    onClick={stopGenerating}
-                    aria-label={CHROME.stop}
-                    title="Stop (Esc)"
-                  >
-                    <Iconify icon="solar:stop-circle-bold" width={14} />
-                  </ButtonBase>
-                ) : (
-                  <ButtonBase
-                    type="submit"
-                    sx={sendSx(false)}
-                    aria-label={copy.send}
-                    disabled={!input.trim() && !files.length}
-                  >
-                    <Iconify icon="custom:send-fill" width={18} />
-                  </ButtonBase>
-                )}
-              </Box>
-            </Box>
-          </Box>
-          {lightbox ? (
-            <Lightbox
-              files={lightbox.files}
-              start={lightbox.start}
-              onClose={() => setLightbox(null)}
-            />
-          ) : null}
-        </Box>
-      ) : (
-        <>
-          {/* Closed: the launcher DOCKS into the top bar's slot when the shell offers one, at EVERY
-              width (TR1-#13: the phone's floating bubble covered page content and sat on top of the
-              open phone menu; the template header has no FAB). It is a template header IconButton
-              (transparent, 40px, 44px tap on phones) carrying the goat mark, like the template's
-              language flag. Without a slot (no shell) it stays the floating bubble.
-              guard: ask-mesha-docked (features/ceo-ai/ceo-ai-dock.test.mjs) */}
-          {dockSlot
-            ? createPortal(
-                <IconButton
-                  onClick={() => {
-                    setOpen(true);
-                    trackCeoAiEvent(CeoAiEvents.Open);
-                  }}
-                  aria-label={copy.open}
-                  title={copy.title}
-                >
-                  <GoatAvatar size="var(--sp-3)" />
-                </IconButton>,
-                dockSlot,
-              )
-            : (
-            <ButtonBase
-              sx={launcherSx}
-              onPointerDown={(e) => {
-                const r = e.currentTarget.getBoundingClientRect();
-                dragRef.current = {
-                  id: e.pointerId,
-                  dx: e.clientX - r.left,
-                  dy: e.clientY - r.top,
-                  sx: e.clientX,
-                  sy: e.clientY,
-                  moved: false,
-                };
-                e.currentTarget.setPointerCapture(e.pointerId);
-              }}
-              onPointerMove={(e) => {
-                const d = dragRef.current;
-                if (!d || d.id !== e.pointerId) return;
-                if (
-                  !d.moved &&
-                  Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 6
-                )
-                  return;
-                d.moved = true;
-                const size = e.currentTarget.offsetWidth;
-                setBubblePos({
-                  x: clamp(e.clientX - d.dx, 4, window.innerWidth - size - 4),
-                  y: clamp(e.clientY - d.dy, 4, window.innerHeight - size - 4),
-                });
-              }}
-              onPointerUp={(e) => {
-                const d = dragRef.current;
-                dragRef.current = null;
-                if (!d?.moved) return;
-                suppressClickRef.current = true;
-                const size = e.currentTarget.offsetWidth;
-                const r = e.currentTarget.getBoundingClientRect();
-                const snapped = {
-                  x:
-                    r.left + size / 2 < window.innerWidth / 2
-                      ? 12
-                      : window.innerWidth - size - 12,
-                  y: clamp(r.top, 12, window.innerHeight - size - 12),
-                };
-                setBubblePos(snapped);
-                writeBubblePos(snapped);
-              }}
-              onPointerCancel={() => {
-                dragRef.current = null;
-              }}
-              onClick={() => {
-                if (suppressClickRef.current) {
-                  suppressClickRef.current = false;
-                  return;
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    void ask(input, files);
+                  }
+                }}
+                onPaste={(e) => {
+                  if (e.clipboardData.files.length) {
+                    e.preventDefault();
+                    addFiles(e.clipboardData.files);
+                  }
+                }}
+                voice={
+                  speechSupported ? (
+                    <IconButton
+                      color={listening ? "error" : "default"}
+                      onClick={toggleVoice}
+                      aria-pressed={listening}
+                      aria-label={listening ? "Stop voice input" : "Voice input"}
+                      title={listening ? "Stop voice input" : "Voice input"}
+                    >
+                      <Iconify icon={listening ? "solar:stop-circle-bold" : "solar:microphone-bold"} />
+                    </IconButton>
+                  ) : undefined
                 }
-                setOpen(true);
-                trackCeoAiEvent(CeoAiEvents.Open);
-              }}
-              aria-label={copy.open}
-              title={copy.title}
-            >
-              <GoatAvatar />
-            </ButtonBase>
-              )}
-        </>
-      )}
+                send={
+                  pending && !input.trim() && !files.length ? (
+                    <IconButton color="error" onClick={stopGenerating} aria-label={CHROME.stop} title="Stop (Esc)">
+                      <Iconify icon="solar:stop-circle-bold" />
+                    </IconButton>
+                  ) : (
+                    <IconButton
+                      color="primary"
+                      onClick={() => void ask(input, files)}
+                      aria-label={copy.send}
+                      disabled={!input.trim() && !files.length}
+                    >
+                      <Iconify icon="custom:send-fill" />
+                    </IconButton>
+                  )
+                }
+              />
+            </>
+          ),
+          details: null,
+        }}
+      />
+
+      {lightbox ? <Lightbox files={lightbox.files} start={lightbox.start} onClose={() => setLightbox(null)} /> : null}
+
+      <Dialog open={renaming !== null} onClose={() => setRenaming(null)} fullWidth maxWidth="xs">
+        <DialogTitle>{CHROME.renameTitle}</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            label={CHROME.rename}
+            value={renameText}
+            onChange={(e) => setRenameText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && renaming) void commitRename(renaming);
+            }}
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button variant="outlined" color="inherit" onClick={() => setRenaming(null)}>
+            {CHROME.cancel}
+          </Button>
+          <Button variant="contained" color="primary" onClick={() => renaming && void commitRename(renaming)}>
+            {CHROME.save}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        onClose={() => setConfirmDelete(null)}
+        title={CHROME.deleteTitle}
+        action={
+          <Button
+            variant="contained"
+            color="error"
+            onClick={() => {
+              const id = confirmDelete;
+              setConfirmDelete(null);
+              if (id) void removeThread(id);
+            }}
+          >
+            {CHROME.delete}
+          </Button>
+        }
+      />
     </Box>
   );
 }

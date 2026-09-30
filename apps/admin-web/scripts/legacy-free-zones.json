@@ -54,6 +54,7 @@
     "components/app/paged-rows.tsx",
     "components/app/row-menu.tsx",
     "components/app/scroll-edges.tsx",
+    "components/app/sections/chat/",
     "components/app/state-panel.tsx",
     "components/app/table/table-pagination-links.tsx",
     "components/app/theme-toggle.tsx",

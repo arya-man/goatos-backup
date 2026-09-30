@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import ButtonBase from "@mui/material/ButtonBase";
+import IconButton from "@mui/material/IconButton";
 import { Iconify } from "@/components/minimal/iconify";
-import { copyIconSx } from "./ceo-ai-styles";
 
-export function CopyButton({ text, label = "Copy", inCode = false }: { text: string; label?: string; inCode?: boolean }) {
+// The answer / code-block Copy: a template small IconButton (the chat message item's action slot).
+
+export function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
   const [done, setDone] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
@@ -34,13 +35,14 @@ export function CopyButton({ text, label = "Copy", inCode = false }: { text: str
     timer.current = setTimeout(() => setDone(false), 1500);
   };
   return (
-    <ButtonBase
-      sx={copyIconSx(inCode)}
+    <IconButton
+      size="small"
+      color="inherit"
       aria-label={done ? "Copied" : label}
       title={done ? "Copied" : label}
       onClick={() => void copy()}
     >
-      {done ? <Iconify icon="eva:checkmark-fill" width={14} /> : <Iconify icon="solar:copy-bold" width={14} />}
-    </ButtonBase>
+      <Iconify icon={done ? "eva:checkmark-fill" : "solar:copy-bold"} width={16} />
+    </IconButton>
   );
 }
