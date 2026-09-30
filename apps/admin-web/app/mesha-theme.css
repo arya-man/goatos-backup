@@ -706,22 +706,18 @@
 	  .subtabs{display:flex;gap:4px;background:var(--bg);border:1px solid var(--line);border-radius:11px;padding:4px;margin-bottom:18px;width:max-content;max-width:100%;overflow:auto}
 	  .subtabs button,.subtabs a{border:0;background:transparent;font:inherit;font-weight:650;color:var(--muted);padding:7px 13px;border-radius:8px;cursor:pointer;white-space:nowrap}
 	  .subtabs button.on,.subtabs a.on{background:var(--panel);color:var(--ink);box-shadow:var(--shadow)}
-	  .calview-tabs{overflow:visible;position:relative}
-	  .calpicker{position:relative}
-	  .calpicker summary{list-style:none;border:0;background:transparent;font:inherit;font-weight:650;color:var(--muted);padding:7px 13px;border-radius:8px;cursor:pointer;white-space:nowrap}
-	  .calpicker summary::-webkit-details-marker{display:none}
-	  .calpicker[open] summary{background:var(--panel);color:var(--ink);box-shadow:var(--shadow)}
-	  .calpicker:not([open]) .calpicker-popover{display:none}
-	  .calpicker-popover{position:absolute;right:0;top:calc(100% + 10px);z-index:85;width:min(372px,calc(100vw - 28px));background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:0 18px 48px rgba(0,0,0,.42);padding:14px}
-	  .calview-tabs .calpicker[open] summary{width:max-content}
-    .calendar-page-head .calview-tabs{width:max-content;max-width:100%;align-items:flex-start;background:transparent;border:0;padding:0;overflow:visible}
-    .calendar-page-head .calview-tabs .calpicker[open]{flex:0 0 auto;order:4;width:auto;margin-top:6px}
-    .calendar-page-head .calview-tabs .calpicker[open] .calpicker-popover{position:static;width:min(372px,100%);margin-top:10px;box-shadow:var(--shadow)}
-    @media(max-width:900px){
-      .calendar-page-head .calview-tabs{width:100%;max-width:100%;flex-wrap:wrap}
-	    .calview-tabs .calpicker[open]{flex:1 0 100%;order:2;width:100%}
-	    .calview-tabs .calpicker[open] .calpicker-popover{position:static;width:min(calc(100vw - 28px),372px);margin-top:10px;box-shadow:var(--shadow)}
-    }
+	  
+	  
+	  
+	  
+	  
+	  
+	  
+	  
+    
+    
+    
+    
 	  .calpicker-head{display:grid;grid-template-columns:40px minmax(0,1fr) 40px;align-items:center;gap:8px;margin-bottom:8px}
 	  .calpicker-note{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:10px;padding-top:9px;border-top:1px solid var(--line2);color:var(--muted);font-size:11px}
 	  .calpicker-note .sp{flex:1}
