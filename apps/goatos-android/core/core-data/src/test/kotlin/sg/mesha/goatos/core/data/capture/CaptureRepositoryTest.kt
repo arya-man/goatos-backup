@@ -870,7 +870,11 @@ class CaptureRepositoryTest {
                 ).value
 
             // Freshly captured: PENDING, nothing synced yet.
-            var row = repo.observeProofs("task-5").first().first { it.id == captured.id }
+            // Wait for the PENDING write: the status update lands asynchronously, and under a
+            // loaded landing the first emission can still be the previous status.
+            var row = repo.observeProofs("task-5")
+                .first { rows -> rows.any { it.id == captured.id && it.syncStatus == CaptureSyncStatus.PENDING } }
+                .first { it.id == captured.id }
             assertEquals(CaptureSyncStatus.PENDING, row.syncStatus)
 
             // R50-029: get the outbox item ID from the row to avoid depending on enqueue call count
@@ -878,14 +882,22 @@ class CaptureRepositoryTest {
             assertTrue("Proof should have an outbox item ID", !itemId.isNullOrBlank())
             sync.emit(itemId!!, SyncItemStatus.IN_FLIGHT, resultJson = null)
             advanceUntilIdle()
-            row = repo.observeProofs("task-5").first().first { it.id == captured.id }
+            // Wait for the IN_FLIGHT write: the status update lands asynchronously, and under a
+            // loaded landing the first emission can still be the previous status.
+            row = repo.observeProofs("task-5")
+                .first { rows -> rows.any { it.id == captured.id && it.syncStatus == CaptureSyncStatus.IN_FLIGHT } }
+                .first { it.id == captured.id }
             assertEquals(CaptureSyncStatus.IN_FLIGHT, row.syncStatus)
 
             val response = ProofUploadResponseDto(proof = ProofReferenceDto(proofId = "server-proof-123"))
             sync.emit(itemId, SyncItemStatus.SUCCEEDED, resultJson = syncJson.encodeToString(response))
             advanceUntilIdle()
             awaitProofStatus(db.proofCaptureDao(), captured.id, CaptureSyncStatus.SYNCED.name)
-            row = repo.observeProofs("task-5").first().first { it.id == captured.id }
+            // Wait for the SYNCED write: the status update lands asynchronously, and under a
+            // loaded landing the first emission can still be the previous status.
+            row = repo.observeProofs("task-5")
+                .first { rows -> rows.any { it.id == captured.id && it.syncStatus == CaptureSyncStatus.SYNCED } }
+                .first { it.id == captured.id }
             assertEquals(CaptureSyncStatus.SYNCED, row.syncStatus)
             assertEquals("server-proof-123", row.serverProofId)
             val completed = awaitTelemetryEvent(telemetryEvents, "proof_upload_completed")
@@ -1049,7 +1061,11 @@ class CaptureRepositoryTest {
             repo.observeProofs("task-corrupt-proof-result").first().first { it.id == captured.id }
             sync.emit(itemId!!, SyncItemStatus.SUCCEEDED, resultJson = """{"proof":{}}""")
 
-            val row = repo.observeProofs("task-corrupt-proof-result").first().first { it.id == captured.id }
+            // Wait for the FAILED write: the status update lands asynchronously, and under a
+            // loaded landing the first emission can still be the previous status.
+            val row = repo.observeProofs("task-corrupt-proof-result")
+                .first { rows -> rows.any { it.id == captured.id && it.syncStatus == CaptureSyncStatus.FAILED } }
+                .first { it.id == captured.id }
             assertEquals(CaptureSyncStatus.FAILED, row.syncStatus)
             assertEquals(null, row.serverProofId)
             assertEquals("Proof upload finished without a server proof id. Retry this saved proof.", row.lastError)
