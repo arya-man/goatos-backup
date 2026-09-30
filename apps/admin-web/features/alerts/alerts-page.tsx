@@ -18,6 +18,7 @@ import { redirect } from "next/navigation";
 import Link from "@/components/no-prefetch-link";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
+import { PageRoot } from "@/components/app/page-root";
 import { LinkSelect } from "@/components/app/link-select";
 import { TableHeadCustom } from "@/components/app/table";
 import { Label, type LabelColor } from "@/components/minimal/label";
@@ -119,7 +120,7 @@ export async function AlertsPage({ searchParams, pageContract }: { searchParams?
   const head = labels.map((label, index) => ({ id: `c${index}`, label, sortable: false }));
 
   return (
-    <Box sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: "var(--sp-3)", alignContent: "start" }}>
+    <PageRoot>
       <PageHeader
         title={t("title")}
         crumbs={[{ label: t("crumb"), href: "/" }, { label: t("title") }]}
@@ -277,6 +278,6 @@ export async function AlertsPage({ searchParams, pageContract }: { searchParams?
           closeHref={closeHref}
         />
       ) : null}
-    </Box>
+    </PageRoot>
   );
 }
