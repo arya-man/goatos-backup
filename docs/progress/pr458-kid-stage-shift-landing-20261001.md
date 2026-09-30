@@ -6,7 +6,7 @@ Land PR #458 (`feat/kid-stage-shift-tasks`) to `main`, then deploy STG backend/a
 
 ## Current SHA
 
-- Candidate: `860cb28b6a225468e2390e32352b607e351edc2a`
+- Candidate: `7938878929660f1738002dc55f0248bd2aee12f2`
 - Branch: `review-pr-458`
 - PR: https://github.com/vgoats/goatos/pull/458
 - GitHub merge state before landing: `BLOCKED`
@@ -43,10 +43,13 @@ Land PR #458 (`feat/kid-stage-shift-tasks`) to `main`, then deploy STG backend/a
 - Fifth `make land-main` attempt failed before push on `scale-guard-plan-proof`.
 - Added tight `scale-guard:plan-proof-exempt` markers on the litter shift SQL constants because the reads are bounded by one litter (<= 3 kids) or a keyset-limited litter page; focused rerun passed:
   - `GOATOS_CI_ONLY_STEP='scale-guard-plan-proof' tools/ci/run-local-ci.sh backend`
+- Sixth `make land-main` attempt failed before push on `agent: boundaries`.
+- Replaced direct `slog.New` in `backend/cmd/backfill-kid-shift-tasks` with `observability.New`; focused rerun passed:
+  - `GOATOS_CI_ONLY_STEP='agent: boundaries' tools/ci/run-local-ci.sh common`
 
 ## Pending
 
-- Commit the scale-guard repair and progress note.
+- Commit the boundary repair and progress note.
 - Rerun full `make land-main` with the OCI query-plan DSNs scoped in the environment and admin-web dependencies installed.
 - Verify local and remote `main` SHA after landing.
 - Run guarded STG deploy:
@@ -60,6 +63,7 @@ Land PR #458 (`feat/kid-stage-shift-tasks`) to `main`, then deploy STG backend/a
 - Third `make land-main` attempt failed before push on code/guard issue: unbounded mutable accumulator in `ShiftingViewModel.preselectKids()`.
 - Fourth `make land-main` attempt failed before push on missing leadership assistant coverage classification for the new kid-stage litter shift workflow functions.
 - Fifth `make land-main` attempt failed before push on missing large-table SQL plan proof classification for bounded litter shift reads.
+- Sixth `make land-main` attempt failed before push on direct logger construction in the kid shift backfill command.
 - A broad accidental admin-web test run outside the focused target failed on missing local dependencies (`typescript`, `@grafana/faro-core`); this is not counted as PR evidence.
 
 ## Deployment State

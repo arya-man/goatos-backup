@@ -18,12 +18,12 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log/slog"
 	"os"
 	"strings"
 	"time"
 
 	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/observability"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 	taskspg "github.com/vgoats/goatos/backend/internal/tasks/adapters/postgres"
 	tasksapp "github.com/vgoats/goatos/backend/internal/tasks/app"
@@ -66,7 +66,7 @@ func run(args []string) error {
 	defer pool.Close()
 
 	repo := taskspg.NewRepository(pool, cfg.QueryTimeout)
-	svc := tasksapp.NewService(repo, slog.New(slog.NewJSONHandler(os.Stderr, nil)))
+	svc := tasksapp.NewService(repo, observability.New(observability.Config{Service: "backfill-kid-shift-tasks"}))
 
 	candidates, opened, after := 0, 0, ""
 	for {
