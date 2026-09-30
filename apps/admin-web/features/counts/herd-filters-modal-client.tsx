@@ -1,13 +1,13 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { ListFilter, Search } from "lucide-react";
 import { useState, useTransition } from "react";
 import TextField from "@mui/material/TextField";
 import Badge from "@mui/material/Badge";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import InputAdornment from "@mui/material/InputAdornment";
+import { Iconify } from "@/components/minimal/iconify";
 import { HerdFiltersModal } from "./herd-filters-modal";
 import type { RouteSearchParams } from "@/lib/search-params";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -87,7 +87,7 @@ export function HerdFiltersModalClient({
               input: {
                 startAdornment: (
                   <InputAdornment position="start">
-                    <Search size={20} aria-hidden="true" />
+                    <Iconify icon="eva:search-fill" aria-hidden="true" sx={{ color: "text.disabled" }} />
                   </InputAdornment>
                 ),
               },
@@ -99,7 +99,7 @@ export function HerdFiltersModalClient({
           onClick={() => setIsOpen(true)}
           startIcon={
             <Badge color="error" variant="dot" invisible={!hasFilters}>
-              <ListFilter size={20} aria-hidden="true" />
+              <Iconify icon="ic:round-filter-list" aria-hidden="true" />
             </Badge>
           }
           aria-label={hasFilters ? `${copy(pageContract, "action.filters")} · ${copy(pageContract, "filter.active_badge")}` : undefined}

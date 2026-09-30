@@ -49,7 +49,7 @@ for (const drawerName of ["BulkImportDrawer", "ShedImportDrawer"]) {
     /spreadsheetArrayBufferToCSV\(\s*await file\.arrayBuffer\(\),\s*copy\(pageContract, "error\.xlsx_empty"\),\s*copy\(pageContract, "error\.xlsx_parse_failed"\),?\s*\)/s,
     `${drawerName} must convert XLSX before preview with backend-owned parse copy`,
   );
-  assert.match(body, /event\.target\.value = ""/, `${drawerName} must allow re-uploading the same file after parse errors`);
+  assert.match(body, /fileInput\.current\.value = ""/, `${drawerName} must clear the upload picker so the same file can be re-uploaded after parse errors`);
   assert.match(body, /const hash = await stableCSVContentHash\(csv\)/, `${drawerName} must bind preview and commit to CSV content hash`);
   assert.match(body, /hash !== previewHash/, `${drawerName} must reject stale commit after CSV edits`);
 }
