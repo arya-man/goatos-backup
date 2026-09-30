@@ -10,8 +10,15 @@
 // - raw-id-text (J2 P1-3/P1-4): a table cell, card header or list line shows a raw id: an 8-hex
 //   hash (`cee6e124`), a UUID, or a snake_case table name (`goat_identity_events`).
 // - placeholder-clipped (J2 P2-3): a text field's placeholder is wider than the field.
-// - dead-primary (J2 P1-1): a disabled contained button in the page header (a dead primary action;
-//   DECIDED no dead controls: render it only when it works, or show the reason as text).
+// - dead-primary (J2 P1-1, widened J2B P2-8): a disabled contained button (or a disabled Apply /
+//   Save / Submit of any variant) ANYWHERE in the page -- header, page body -- and, through the
+//   drawers lane, inside an open drawer / dialog (probeDeadControls). DECIDED no dead controls:
+//   render it only when it works (hide it until something is staged / changed), or show the reason
+//   as text. Pagers and a button showing its loading spinner are not dead.
+// - header-primary-height (J2B P2-10): a header contained action taller than 40px at desktop.
+// - field-collapsed (J2B P1-1, drawers lane): a form field in a drawer / dialog body narrower than
+//   40% of the widest field beside it (the /people Add person Department select at ~60px, label
+//   "Dep…"). Form-column fields share one width, like the template's form TextFields.
 
 /** In-page probe (serialisable). Returns [{ kind, detail }]. */
 export function probeTextFit() {
@@ -103,13 +110,67 @@ export function probeTextFit() {
     if (room > 0 && need > room + 2) out.push({ kind: "placeholder-clipped", detail: `"${input.placeholder.slice(0, 40)}" needs ${Math.round(need)}px in ${Math.round(room)}px` });
   }
 
-  // dead-primary
-  const header = document.querySelector("[data-page-header]");
-  if (header) {
-    for (const btn of header.querySelectorAll(".MuiButton-contained.Mui-disabled, .MuiButton-contained[disabled], .MuiButton-contained[aria-disabled=true]")) {
+  // header-primary-height (J2B P2-10): on desktop a header contained action is the template's 36px
+  // medium button (/people "Add person" stood 44px beside 36px primaries on every other page).
+  const hdr = document.querySelector("[data-page-header]");
+  if (hdr && innerWidth >= 1200 && !matchMedia("(pointer: coarse)").matches) {
+    for (const btn of hdr.querySelectorAll(".MuiButton-contained")) {
       if (!visible(btn)) continue;
-      out.push({ kind: "dead-primary", detail: `"${(btn.innerText || "").trim().slice(0, 40)}" is disabled in the page header` });
+      const h = Math.round(btn.getBoundingClientRect().height);
+      if (h > 40) out.push({ kind: "header-primary-height", detail: `"${(btn.innerText || "").trim().slice(0, 40)}" is ${h}px tall (template header action 36px)` });
     }
+  }
+  return out;
+}
+
+/**
+ * In-page probe (serialisable): dead controls under `scopeSel` (the page content column, or the
+ * open overlay paper `[data-r2-paper]`). Returns [{ kind: "dead-primary", detail }].
+ */
+export function probeDeadControls(scopeSel) {
+  const out = [];
+  const visible = (el) => {
+    const r = el.getBoundingClientRect();
+    const s = getComputedStyle(el);
+    return r.width > 0 && r.height > 0 && s.visibility !== "hidden" && s.display !== "none" && !el.closest(".sr-only, .MuiSkeleton-root");
+  };
+  const ACTION_RE = /^(apply|save|submit|update|confirm|download|export)\b/i;
+  const seen = new Set();
+  for (const scope of document.querySelectorAll(scopeSel)) {
+    for (const btn of scope.querySelectorAll(".MuiButton-root.Mui-disabled, .MuiButton-root[disabled], .MuiButton-root[aria-disabled=true]")) {
+      if (seen.has(btn) || !visible(btn)) continue;
+      seen.add(btn);
+      if (btn.closest(".MuiTablePagination-root, .MuiPagination-root, [data-pager], [aria-busy=true]") || btn.matches(".MuiButton-loading, [aria-busy=true]")) continue;
+      const text = (btn.innerText || btn.getAttribute("aria-label") || "").trim().replace(/\s+/g, " ");
+      if (!btn.classList.contains("MuiButton-contained") && !ACTION_RE.test(text)) continue;
+      const where = btn.closest("[data-page-header]") ? "page header" : btn.closest(".MuiDrawer-paper, .MuiDialog-paper, [role=dialog]") ? "drawer / dialog" : "page body";
+      out.push({ kind: "dead-primary", detail: `"${text.slice(0, 40)}" is disabled in the ${where}` });
+    }
+  }
+  return out;
+}
+
+/**
+ * In-page probe (serialisable): form fields in the overlay paper `scopeSel` narrower than 40% of the
+ * widest form field there (a collapsed select next to full-width siblings). Returns
+ * [{ kind: "field-collapsed", detail }].
+ */
+export function probeFieldWidths(scopeSel) {
+  const out = [];
+  const paper = document.querySelector(scopeSel);
+  if (!paper) return out;
+  const fields = [...paper.querySelectorAll(".MuiTextField-root, .MuiAutocomplete-root")].filter((el) => {
+    const r = el.getBoundingClientRect();
+    const s = getComputedStyle(el);
+    return r.width > 0 && r.height > 0 && s.visibility !== "hidden" && !el.closest("table, .MuiTablePagination-root, [role=toolbar]") && !el.parentElement?.closest(".MuiAutocomplete-root");
+  });
+  if (fields.length < 2) return out;
+  const widest = Math.max(...fields.map((el) => el.getBoundingClientRect().width));
+  for (const el of fields) {
+    const w = el.getBoundingClientRect().width;
+    if (w >= widest * 0.4) continue;
+    const label = (el.querySelector("label")?.innerText || el.querySelector("input")?.getAttribute("name") || "").trim();
+    out.push({ kind: "field-collapsed", detail: `"${label.slice(0, 40)}" is ${Math.round(w)}px wide next to ${Math.round(widest)}px fields` });
   }
   return out;
 }
@@ -118,7 +179,9 @@ const LABELS = {
   "button-label-wrap": "Button label breaks onto several lines",
   "axis-label-overlap": "Chart axis labels overlap",
   "raw-id-text": "Raw id / table name shown as text",
-  "dead-primary": "Disabled primary action in the page header",
+  "dead-primary": "Disabled (dead) primary / Apply / Save action",
+  "field-collapsed": "Drawer form field collapsed next to full-width fields",
+  "header-primary-height": "Header primary action taller than the template 36px",
   "placeholder-clipped": "Field placeholder cut by the field edge",
 };
 
@@ -126,7 +189,7 @@ export default {
   name: "text-fit",
   p0: true,
   async run(page) {
-    const found = await page.evaluate(probeTextFit);
+    const found = [...(await page.evaluate(probeTextFit)), ...(await page.evaluate(probeDeadControls, ".minimal__layout__main__content, main"))];
     return found.map((f) => ({ pattern: f.kind, label: LABELS[f.kind], detail: f.detail }));
   },
 };

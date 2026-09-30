@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
 
-import plugin, { probeTextFit } from "./text-fit.mjs";
+import plugin, { probeDeadControls, probeFieldWidths, probeTextFit } from "./text-fit.mjs";
 
 // guards: button-label-wrap (J3 P1-3), axis-label-overlap (J3 P1-4), raw-id-text (J2 P1-3/P1-4),
 // dead-primary (J2 P1-1). Each probe flags the defect and passes the fixed shape.
@@ -34,7 +34,8 @@ test("probe flags a wrapped button label, overlapping axis labels, raw ids and a
     </main>`);
     const found = await page.evaluate(probeTextFit);
     const kinds = found.map((f) => f.kind).sort();
-    assert.deepEqual(kinds, ["axis-label-overlap", "button-label-wrap", "dead-primary", "placeholder-clipped", "raw-id-text", "raw-id-text"], JSON.stringify(found));
+    assert.deepEqual(kinds, ["axis-label-overlap", "button-label-wrap", "placeholder-clipped", "raw-id-text", "raw-id-text"], JSON.stringify(found));
+    assert.deepEqual((await page.evaluate(probeDeadControls, "main")).map((f) => f.detail), ['"New task" is disabled in the page header']);
     assert.ok(found.some((f) => /Open the draft/.test(f.detail)));
     assert.ok(!found.some((f) => /Keep it/.test(f.detail)));
     assert.ok(found.some((f) => /cee6e124/.test(f.detail)) && found.some((f) => /goat_identity_events/.test(f.detail)));
@@ -83,4 +84,70 @@ test("the full audit runs the chart-label check on every chart route at every pr
   assert.ok(fastRouteSet(chartRoutes.map((route) => ({ route }))).skipped.length > 0);
   const full = new Set(all.map((r) => r.route));
   for (const r of chartRoutes) assert.ok(full.has(r), `${r} is in the full run`);
+});
+
+// guard: no-dead-controls (J2B P2-8, DECIDED no dead controls). A dimmed idle Apply / Save is dead
+// in the page BODY and in drawers too, not only in the page header. Pagers, a loading button and an
+// enabled Apply pass.
+test("probeDeadControls flags a disabled Apply / Save / contained button in the body and in a drawer", async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await page.setContent(`<main style="font:14px sans-serif">
+      <div><button class="MuiButton-root MuiButton-contained Mui-disabled" disabled>Apply filters</button></div>
+      <div><button class="MuiButton-root MuiButton-text Mui-disabled" disabled>Save</button></div>
+      <div><button class="MuiButton-root MuiButton-outlined Mui-disabled" disabled>Clear</button></div>
+      <div><button class="MuiButton-root MuiButton-contained MuiButton-loading Mui-disabled" disabled>Apply</button></div>
+      <div class="MuiTablePagination-root"><button class="MuiButton-root MuiButton-contained Mui-disabled" disabled>Next</button></div>
+      <div><button class="MuiButton-root MuiButton-contained">Apply</button></div>
+      <div style="visibility:hidden"><button class="MuiButton-root MuiButton-contained Mui-disabled" disabled>Apply margin</button></div>
+    </main>
+    <div class="MuiDrawer-paper" data-r2-paper="1"><button class="MuiButton-root MuiButton-contained Mui-disabled" disabled>Save</button></div>`);
+    const body = (await page.evaluate(probeDeadControls, "main")).map((f) => f.detail);
+    assert.deepEqual(body, ['"Apply filters" is disabled in the page body', '"Save" is disabled in the page body'], JSON.stringify(body));
+    const drawer = (await page.evaluate(probeDeadControls, "[data-r2-paper]")).map((f) => f.detail);
+    assert.deepEqual(drawer, ['"Save" is disabled in the drawer / dialog']);
+    const src = (await import("node:fs")).readFileSync(new URL("./text-fit.mjs", import.meta.url), "utf8");
+    assert.match(src, /page\.evaluate\(probeDeadControls, "\.minimal__layout__main__content, main"\)/, "the plugin runs the body probe on every scanned page");
+    const audit = (await import("node:fs")).readFileSync(new URL("../r2-visual-audit.mjs", import.meta.url), "utf8");
+    assert.match(audit, /page\.evaluate\(probeDeadControls, "\[data-r2-paper\]"\)/, "the drawers lane runs it on every opened overlay");
+  } finally {
+    await browser.close();
+  }
+});
+
+// guard: drawer-field-width (J2B P1-1). The /people Add person Department + Designation selects
+// collapsed to ~60px next to full-width Role / Park fields. Form-column fields share one width.
+test("probeFieldWidths flags a collapsed drawer field next to full-width siblings", async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const field = (w, label) => `<div class="MuiTextField-root" style="width:${w}px;height:40px"><label>${label}</label></div>`;
+    await page.setContent(`<div class="MuiDrawer-paper" data-r2-paper="1" style="width:480px">
+      ${field(432, "Role")}${field(432, "Park")}${field(60, "Department (optional)")}${field(210, "From")}${field(210, "To")}
+      <table><tr><td>${field(80, "Cap")}</td></tr></table></div>`);
+    const found = await page.evaluate(probeFieldWidths, "[data-r2-paper]");
+    assert.deepEqual(found.map((f) => f.kind), ["field-collapsed"], JSON.stringify(found));
+    assert.match(found[0].detail, /Department \(optional\).*60px/);
+    await page.setContent(`<div class="MuiDrawer-paper" data-r2-paper="1">${field(432, "Role")}${field(432, "Department")}</div>`);
+    assert.deepEqual(await page.evaluate(probeFieldWidths, "[data-r2-paper]"), []);
+    const { isP0 } = await import("../r2-visual-audit.mjs");
+    assert.ok(isP0("drawer|field-collapsed") && isP0("drawer|dead-control"));
+  } finally {
+    await browser.close();
+  }
+});
+
+test("header-primary-height flags a 44px header primary at desktop, passes 36px", async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await page.setContent(`<main><header data-page-header>
+      <a class="MuiButton-root MuiButton-contained" style="display:inline-block;height:44px">Add person</a>
+      <a class="MuiButton-root MuiButton-contained" style="display:inline-block;height:36px">New task</a></header></main>`);
+    const found = (await page.evaluate(probeTextFit)).filter((f) => f.kind === "header-primary-height");
+    assert.deepEqual(found.map((f) => f.detail), ['"Add person" is 44px tall (template header action 36px)']);
+  } finally {
+    await browser.close();
+  }
 });

@@ -179,22 +179,22 @@ export function VendorFilterBar({
         menuLabel={copy(pageContract, "action.more", "More")}
         trailing={
           <>
-            {/* Disabled with nothing staged, so the control tells the truth about whether pressing it
-                would change anything. */}
-            <Button
-              variant="contained"
-              color="primary"
-              size="large"
-              onClick={() => apply(draft)}
-              disabled={pending || !staged}
-              aria-disabled={pending || !staged}
-              title={staged ? undefined : copy(pageContract, "filter.apply.nothing_staged")}
-              sx={{ flexShrink: 0, minHeight: "var(--input-h)" }}
-            >
-              {pending ? copy(pageContract, "filter.applying") : copy(pageContract, "filter.apply")}
-            </Button>
+            {/* DECIDED "no dead controls" (J2B P2-8): Apply renders only once something is staged and
+                shows its loading state while the filters land; the template toolbar has no idle,
+                dimmed Apply. Medium size, like the template toolbar buttons (no 56px sizeLarge). */}
+            {staged || pending ? (
+              <Button
+                variant="contained"
+                color="primary"
+                onClick={() => apply(draft)}
+                loading={pending}
+                sx={{ flexShrink: 0, alignSelf: "center" }}
+              >
+                {copy(pageContract, "filter.apply")}
+              </Button>
+            ) : null}
             {hasAnyApplied || staged ? (
-              <Button variant="outlined" color="inherit" size="large" onClick={() => apply({})} disabled={pending} sx={{ flexShrink: 0, minHeight: "var(--input-h)" }}>
+              <Button variant="outlined" color="inherit" onClick={() => apply({})} disabled={pending} sx={{ flexShrink: 0, alignSelf: "center" }}>
                 {copy(pageContract, "filter.clear")}
               </Button>
             ) : null}

@@ -39,6 +39,7 @@ function thresholdLabel(lineKg: number, valueG: number): string {
 
 export function SalesReadyToleranceControl({ lineKg, valueG, maxG, label, applyLabel, onApply, pending }: Props) {
   const [draftG, setDraftG] = useState(valueG);
+  const changed = draftG !== valueG || pending;
 
   return (
     // Template list-toolbar anatomy (TR2-P1-3): its own Card on the section row, label + threshold,
@@ -71,15 +72,19 @@ export function SalesReadyToleranceControl({ lineKg, valueG, maxG, label, applyL
             {draftG} g
           </Typography>
         </Stack>
+        {/* DECIDED "no dead controls" (J2B P2-8): no dimmed idle Apply. It keeps its slot (so the
+            slider under the reader's thumb does not resize) but is hidden and out of the tab order
+            until the margin is moved; while the apply runs it shows its spinner. */}
         <Button
           variant="contained"
           color="inherit"
           type="button"
-          disabled={draftG === valueG || pending}
-          aria-disabled={draftG === valueG || pending}
+          disabled={pending}
+          aria-hidden={!changed || undefined}
+          tabIndex={changed ? undefined : -1}
           onClick={() => onApply(draftG)}
           startIcon={pending ? <CircularProgress size={14} color="inherit" aria-hidden="true" /> : undefined}
-          sx={{ flexShrink: 0 }}
+          sx={{ flexShrink: 0, visibility: changed ? "visible" : "hidden" }}
         >
           {applyLabel}
         </Button>

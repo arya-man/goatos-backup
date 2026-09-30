@@ -19,7 +19,10 @@ export function PeopleAddButton({ href, label, overlay = true }: { href: string;
       aria-haspopup="dialog"
       variant="contained" color="primary"
       startIcon={<Iconify icon="mingcute:add-line" />}
-      sx={{ minHeight: "var(--tap-min)", whiteSpace: "nowrap" }}
+      // 36px like every other header primary on desktop (J2B P2-10: it stood 44px); the 44px tap
+      // floor applies where AppBaseline applies it to buttons (phones / coarse pointers) -- this is
+      // an <a>, which that floor does not reach, so it restates it (phone width + coarse pointer).
+      sx={{ whiteSpace: "nowrap", minHeight: { xs: "var(--tap-min)", sm: "auto" }, "@media (pointer: coarse)": { minHeight: "var(--tap-min)" } }}
     >
       {label}
     </Button>
