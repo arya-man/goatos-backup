@@ -44,6 +44,7 @@ var verificationTaskNouns = map[string]string{
 	"pc_ticks_removal":      "Ticks removal",
 	"pc_hoof_trimming":      "Hoof trimming",
 	"pc_hair_trimming":      "Hair trimming",
+	"pc_fumigation":         "Fumigation",
 	"pen_visit":             "Pen visit",
 	"pen_routine":           "Routine check",
 	"inventory_vaccine":     "Vaccine stock",

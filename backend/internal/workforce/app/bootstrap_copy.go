@@ -591,7 +591,10 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			{key: "pc_ticks", labelKey: "nav.pc_ticks", href: "/pc/ticks", shared_key: "", priority: 3},                            //nav-composition:ignore: registry entry
 			{key: "pc_hoof_trimming", labelKey: "nav.pc_hoof_trimming", href: "/pc/hoof-trimming", shared_key: "", priority: 4},    //nav-composition:ignore: registry entry
 			{key: "pc_hair_trimming", labelKey: "nav.pc_hair_trimming", href: "/pc/hair-trimming", shared_key: "", priority: 5},    //nav-composition:ignore: registry entry
-			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},                                      //nav-composition:ignore: registry entry
+			// Fumigation (maintainer instruction 2026-09-30): the pen spray, recorded per pen with
+			// two videos. The sixth tab, one word like its siblings.
+			{key: "pc_fumigation", labelKey: "nav.pc_fumigation", href: "/pc/fumigation", shared_key: "", priority: 6}, //nav-composition:ignore: registry entry
+			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},                          //nav-composition:ignore: registry entry
 		},
 		reviewContributions: []moduleNavContribution{
 			{key: "videos", labelKey: "nav.videos", href: "/verify/pc_care", priority: 1, requiredPermission: permissions.VerificationReview}, //nav-composition:ignore: registry entry
@@ -942,7 +945,7 @@ func renderableModuleKeys(keys []string) []string {
 
 func renderableModuleKey(key string) string {
 	switch key {
-	case "pc_trimming":
+	case "pc_trimming", "pc_fumigation":
 		return "pc_care"
 	case "leave_approvals":
 		// The leave capability module renders as the Leave tab inside Approvals.
@@ -1063,6 +1066,11 @@ func leadershipModuleKeys(grants []domain.GrantSummary) []string {
 	// trimming tasks he plans live on the pc_care board, so that is the module offered. A bare
 	// holder of this role otherwise resolves to an empty nav, the feed/health defect below.
 	if hasRole(grants, permissions.RoleBreedingDirector) {
+		keys = appendMissing(keys, "pc_care")
+	}
+	// Health Director -> Preventive Care (maintainer instruction 2026-09-30): the desk now reads
+	// the PC Care board and plans fumigation, which lives there.
+	if hasRole(grants, permissions.RoleHealthDirector) {
 		keys = appendMissing(keys, "pc_care")
 	}
 	// Feed Director -> Feed, Health Director -> Counts (maintainer decision 2026-08-01, one
@@ -1345,7 +1353,7 @@ func canPlanPCCareFrom(grants []domain.GrantSummary, grantedModules []string, fr
 }
 
 // pcCarePlanCapabilities are the two capabilities that open the plan wizard.
-var pcCarePlanCapabilities = []string{permissions.PCCarePlan, permissions.PCCarePlanTrimming}
+var pcCarePlanCapabilities = []string{permissions.PCCarePlan, permissions.PCCarePlanTrimming, permissions.PCCarePlanFumigation}
 
 // canPlanPCCareScoped is the flag's real implementation: it asks the navScope, which answers
 // from the person's OWN resolved permissions when they have access rows and from the role map
@@ -1357,7 +1365,8 @@ func canPlanPCCareScoped(scope navScope, grantedModules []string, fromTicks bool
 		return false
 	}
 	return canUseModuleFrom(scope.grants, grantedModules, "pc_care", fromTicks) ||
-		canUseModuleFrom(scope.grants, grantedModules, "pc_trimming", fromTicks)
+		canUseModuleFrom(scope.grants, grantedModules, "pc_trimming", fromTicks) ||
+		canUseModuleFrom(scope.grants, grantedModules, "pc_fumigation", fromTicks)
 }
 
 // canWriteSalesScoped says whether the phone may OFFER Sales' write controls -- Record sale, a
@@ -1917,6 +1926,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.pc_ticks":          "Ticks",
 		"nav.pc_hoof_trimming":  "Hoof",
 		"nav.pc_hair_trimming":  "Hair",
+		"nav.pc_fumigation":     "Fumigation",
 		"nav.feed_transport":    "Feed Transport",
 		"nav.birth_death":       "Birth/Death",
 		"nav.approval":          "Approval",
@@ -1986,6 +1996,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.pc_ticks":          "किलनी",
 		"nav.pc_hoof_trimming":  "खुर",
 		"nav.pc_hair_trimming":  "बाल",
+		"nav.pc_fumigation":     "धूमन",
 		"nav.feed_transport":    "फ़ीड परिवहन",
 		"nav.birth_death":       "जन्म/मृत्यु",
 		"nav.approval":          "अनुमोदन",
@@ -2055,6 +2066,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.pc_ticks":          "ಉಣ್ಣಿ",
 		"nav.pc_hoof_trimming":  "ಗೊರಸು",
 		"nav.pc_hair_trimming":  "ಕೂದಲು",
+		"nav.pc_fumigation":     "ಧೂಮೀಕರಣ",
 		"nav.feed_transport":    "ಆಹಾರ ಸಾಗಣೆ",
 		"nav.birth_death":       "ಜನನ/ಮರಣ",
 		"nav.approval":          "ಅನುಮೋದನೆ",
@@ -2124,6 +2136,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.pc_ticks":          "గోమార్లు",
 		"nav.pc_hoof_trimming":  "గిట్టలు",
 		"nav.pc_hair_trimming":  "వెంట్రుకలు",
+		"nav.pc_fumigation":     "ధూమీకరణ",
 		"nav.feed_transport":    "ఫీడ్ రవాణా",
 		"nav.birth_death":       "జననం/మరణం",
 		"nav.approval":          "ఆమోదం",

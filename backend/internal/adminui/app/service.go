@@ -575,14 +575,14 @@ func pages() []domain.PageContract {
 				table("live-combo", "Combo doses", "/vaccination/live-tracker",
 					[]string{"animal", "shed", "proof", "doses"}, "goat_id"),
 			}),
-		// Care Coverage (maintainer request 2026-09-25). The vaccination status matrix's layout for
-		// the five hands-on-the-animal PC Care jobs: one row per pen, one column per job, a tick
+		// Care Coverage (maintainer request 2026-09-25; fumigation 2026-09-30). The vaccination
+		// status matrix's layout for the PC Care jobs: one row per pen, one column per job, a tick
 		// where the job was submitted (approved or waiting for the verifier). Columns come from the read.
 		page("vaccination-care-coverage", "/vaccination/care-coverage", "/vaccination/care-coverage", "Care Coverage",
-			"Every pen that has animals in it against deworming, anti protozoan, ticks removal, hoof trimming and hair trimming — a tick where it is done.",
+			"Every pen that has animals in it against deworming, anti protozoan, ticks removal, hoof trimming, hair trimming and fumigation — a tick where it is done.",
 			"module-surface", []domain.TableContract{
 				tableP("care-coverage", "Pen care status", "/app/pc-care/pen-coverage",
-					[]string{"pen", "deworming", "anti_protozoan", "ticks_removal", "hoof_trimming", "hair_trimming"}, "pen", []int{25, 50, 100}),
+					[]string{"pen", "deworming", "anti_protozoan", "ticks_removal", "hoof_trimming", "hair_trimming", "fumigation"}, "pen", []int{25, 50, 100}),
 			}),
 		page("shed-execution", "/vaccination/execution/sheds/{shed_id}", "/vaccination/execution/sheds/{shed_id}", "Vaccination pen detail", "Pen-wise vaccination detail: planned sessions, per-vaccine breakdown, and the pen's animal roster.", "record-drilldown",
 			[]domain.TableContract{
@@ -1106,7 +1106,7 @@ func pages() []domain.PageContract {
 		// PC CARE SOP (maintainer decision 2026-09-22): what the operator captures and answers
 		// for deworming, anti protozoan, ticks removal and the two trimming jobs, and whether a
 		// tablet-in-feed deworming removes feed & water the evening before.
-		page("pc-care-sops", "/pc-care/sops", "/pc-care/sops", "Preventive Care SOP", "What the operator captures and answers on a deworming, ticks removal or trimming task — and the evening-before feed & water removal.", "module-surface",
+		page("pc-care-sops", "/pc-care/sops", "/pc-care/sops", "Preventive Care SOP", "What the operator captures and answers on a deworming, ticks removal, trimming or fumigation task — and the evening-before feed & water removal.", "module-surface",
 			[]domain.TableContract{table("sop-library", "Preventive Care SOPs", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
 		// SOP studio phase 2 (2026-09-18): general work instructions, the SOP kind tied to no
 		// module. Same library + operator-steps editor shape as the module pages; the code
@@ -12585,6 +12585,7 @@ func pcCareSOPOptionGroups() []domain.OptionGroup {
 				option("ticks_removal", "Ticks Removal", "", ""),
 				option("hoof_trimming", "Hoof Trimming", "", ""),
 				option("hair_trimming", "Hair Trimming", "", ""),
+				option("fumigation", "Fumigation", "", ""),
 			},
 		},
 	}
@@ -12601,7 +12602,7 @@ func pcCareSOPEditorCopy() map[string]string {
 	for k, v := range map[string]string{
 		"action.edit_pc_care":               "Change SOP",
 		"pcsop.title":                       "Preventive Care SOP — what the operator captures",
-		"pcsop.subtitle":                    "Each work category lists the captures the operator records for every animal and the questions they answer when submitting. Add a photo beside a video, replace a video with a photo, drop a capture or ask one more question: the phone renders whatever is published here.",
+		"pcsop.subtitle":                    "Each work category lists the captures the operator records — for every animal, or once for the pen on fumigation — and the questions they answer when submitting. Add a photo beside a video, replace a video with a photo, drop a capture or ask one more question: the phone renders whatever is published here.",
 		"pcsop.notice.pinned":               "A task already planned keeps the card it was planned with; publishing changes the next task planned.",
 		"pcsop.drawer.title":                "What the operator captures",
 		"pcsop.drawer.subtitle":             "Published card, per work category",
@@ -12622,9 +12623,10 @@ func pcCareSOPEditorCopy() map[string]string {
 		"pcsop.removal.questions.empty":     "No questions on the removal card.",
 		"pcsop.removal.off_note":            "The removal is switched off: no task carries it and the planner is never asked.",
 		"pcsop.section.categories":          "The work",
-		"pcsop.section.categories.subtitle": "One card per kind of work. The way the operator reaches an animal — scanning a tag, or tapping it off the pen roster — is fixed by the work itself and is not authored here.",
+		"pcsop.section.categories.subtitle": "One card per kind of work. The way the operator reaches the work — scanning a tag, tapping the animal off the pen roster, or recording the pen itself on fumigation — is fixed by the work and is not authored here.",
 		"pcsop.category.instruction":        "What the operator is told",
 		"pcsop.category.proofs":             "What the operator records, per animal",
+		"pcsop.category.proofs.pen":         "What the operator records, for the pen",
 		"pcsop.category.proofs.subtitle":    "One capture per row. At least one must be compulsory — the work has to be proven by something the verifier can see.",
 		"pcsop.category.add_capture":        "Add a capture",
 		"pcsop.category.at_least_one":       "Keep at least one compulsory capture.",
@@ -12658,7 +12660,7 @@ func pcCareSOPEditorCopy() map[string]string {
 		"fsop.proof.hint":         "Hint for the operator",
 		"fsop.proof.remove":       "Remove this capture",
 		"pcsop.flow.start":        "Task planned",
-		"pcsop.flow.start_hint":   "The CEO picks the work, the pens, the day and the operators.",
+		"pcsop.flow.start_hint":   "The planner picks the work, the pens, the day and the operators.",
 		"pcsop.flow.removal":      "Feed & water removed",
 		"pcsop.flow.removal_hint": "The evening before, pen by pen.",
 		"pcsop.flow.removal_off":  "No feed & water removal",
@@ -12666,6 +12668,7 @@ func pcCareSOPEditorCopy() map[string]string {
 		"pcsop.flow.reach":        "Reach the animal",
 		"pcsop.flow.reach_scan":   "Scan the tag; the recorder opens.",
 		"pcsop.flow.reach_roster": "Tap the animal on the pen roster.",
+		"pcsop.flow.reach_pen":    "Go to the pen; no animal is scanned.",
 		"pcsop.flow.submit":       "Submit the task",
 		"pcsop.flow.submit_hint":  "Every animal carries every compulsory capture.",
 		"pcsop.flow.verify":       "Verifier reviews",

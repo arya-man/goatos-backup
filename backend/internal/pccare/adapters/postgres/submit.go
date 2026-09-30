@@ -162,7 +162,7 @@ WHERE tenant_id = $1::uuid AND task_id = $2::uuid AND required_doses > 0`,
 		}
 		// Every declared slot must carry its proof — for feed_water_removal, BOTH the feed
 		// removal video and the water removal video.
-		mediaRefs, animalCount, err = r.taskProofMediaRefs(ctx, tx, p.TenantID, p.TaskID, category, removalSlotsOrSeeded(p.RemovalSlots))
+		mediaRefs, animalCount, err = r.taskProofMediaRefs(ctx, tx, p.TenantID, p.TaskID, category, taskProofSlotsOrSeeded(category, p.RemovalSlots))
 		if err != nil {
 			return ports.SubmitTaskResult{}, err
 		}
@@ -321,6 +321,19 @@ func removalSlotsOrSeeded(slots []authored.ProofSlot) []authored.ProofSlot {
 		return slots
 	}
 	return domain.SeededRules().RemovalProofs()
+}
+
+// taskProofSlotsOrSeeded is the task-level card a task_proof submit is judged by: the service's
+// pinned slots when it passed them, otherwise the SEEDED card of that task's kind -- the pen card
+// for fumigation, the removal card otherwise -- never a card that demands nothing.
+func taskProofSlotsOrSeeded(category string, slots []authored.ProofSlot) []authored.ProofSlot {
+	if len(slots) > 0 {
+		return slots
+	}
+	if domain.IsPenProofCategory(category) {
+		return domain.SeededRules().Category(category).ProofSlots()
+	}
+	return removalSlotsOrSeeded(nil)
 }
 
 func seededRemovalSlots() []domain.Slot {

@@ -2569,7 +2569,7 @@ export interface paths {
         };
         /**
          * PC Care planner vocabulary (parks, assignable operators, categories).
-         * @description PC Care (maintainer decision 2026-08-21) is the planner-assigned deworming / ticks removal / hoof trimming / hair trimming module, plus the kernel-created inventory_vaccine director stock check. The catalog is the park-grain create-wizard vocabulary: every park the planner may pick, the assignable operator roster, and only human-plannable categories. Kernel-owned inventory_vaccine tasks are visible on monitor/worklist reads, but are not offered by this create wizard. Planning is CEO-only (pc_care.plan, the weighing.plan precedent) with one recorded carve-out (maintainer decision 2026-09-04): the Breeding Director holds pc_care.plan_trimming and plans hoof_trimming and hair_trimming only. The categories list is therefore the CALLER's plannable set -- a trimming planner receives exactly those two -- and clients render it verbatim.
+         * @description PC Care (maintainer decision 2026-08-21) is the planner-assigned deworming / ticks removal / hoof trimming / hair trimming module, plus the kernel-created inventory_vaccine director stock check. The catalog is the park-grain create-wizard vocabulary: every park the planner may pick, the assignable operator roster, and only human-plannable categories. Kernel-owned inventory_vaccine tasks are visible on monitor/worklist reads, but are not offered by this create wizard. Planning is CEO-only (pc_care.plan, the weighing.plan precedent) with one recorded carve-out (maintainer decision 2026-09-04): the Breeding Director holds pc_care.plan_trimming and plans hoof_trimming and hair_trimming only. A second (maintainer instruction 2026-09-30): park heads, the Breeding Director and the Health Director hold pc_care.plan_fumigation and plan fumigation. The categories list is therefore the CALLER's plannable set -- a trimming planner receives exactly those two, a fumigation planner exactly fumigation -- and clients render it verbatim.
          */
         get: operations["appPCCarePlannerCatalog"];
         put?: never;
@@ -2715,7 +2715,7 @@ export interface paths {
         put?: never;
         /**
          * Plan one PC Care task.
-         * @description Creates ONE task per (category, pen, planned business date) with one or MORE assigned operators — multi-operator by design, deliberately unlike weighing's one-operator-per-bucket. A live task already covering that pen-day answers 409 task_already_planned. `pc_care.plan` holders may plan every human-plannable PC Care category; `pc_care.plan_trimming` holders may plan hoof_trimming and hair_trimming only.
+         * @description Creates ONE task per (category, pen, planned business date) with one or MORE assigned operators — multi-operator by design, deliberately unlike weighing's one-operator-per-bucket. A live task already covering that pen-day answers 409 task_already_planned. `pc_care.plan` holders may plan every human-plannable PC Care category; `pc_care.plan_trimming` holders may plan hoof_trimming and hair_trimming only; `pc_care.plan_fumigation` holders may plan fumigation only.
          */
         post: operations["appCreatePCCareTask"];
         delete?: never;
@@ -10180,7 +10180,7 @@ export interface components {
             partition_label: string;
             /** @description The canonical pen display ("Castro 2", "Godel 1 - Part 3"). */
             operational_location_display: string;
-            reasons: ("vaccination" | "deworming" | "anti_protozoan" | "ticks_removal" | "hoof_trimming" | "hair_trimming")[];
+            reasons: ("vaccination" | "deworming" | "anti_protozoan" | "ticks_removal" | "hoof_trimming" | "hair_trimming" | "fumigation")[];
             reason_labels: string[];
             /** @description Backend-composed, e.g. "Vaccination, deworming yesterday". */
             reason_line: string;
@@ -12422,10 +12422,10 @@ export interface components {
             completed_pens: number;
         };
         /**
-         * @description A PC Care work category (maintainer decision 2026-08-21; anti_protozoan added 2026-09-05). `anti_protozoan` is deworming's twin — one dose per animal, scanned free-flow, one live-camera video each — differing only in that it has NO feed & water removal, because that dose does not go in the feed. Sending the removal fields with it is refused (422 feed_removal_not_applicable), as with every non-deworming category.
+         * @description A PC Care work category (maintainer decision 2026-08-21; anti_protozoan added 2026-09-05). `anti_protozoan` is deworming's twin — one dose per animal, scanned free-flow, one live-camera video each — differing only in that it has NO feed & water removal, because that dose does not go in the feed. Sending the removal fields with it is refused (422 feed_removal_not_applicable), as with every non-deworming category. `fumigation` (2026-09-30) is PEN work: the operator mixes Virufix into water and sprays the pen, recorded as the pen's own captures (capture_mode task_proof, the seeded card is a mixing video and a spraying video) with no animal scanned -- a scan or a per-animal slot write on it is refused (422 not_animal_task). No feed & water removal; plannable for today; planned by pc_care.plan or pc_care.plan_fumigation holders.
          * @enum {string}
          */
-        PCCareCategory: "deworming" | "anti_protozoan" | "ticks_removal" | "hoof_trimming" | "hair_trimming" | "inventory_vaccine" | "feed_water_removal";
+        PCCareCategory: "deworming" | "anti_protozoan" | "ticks_removal" | "hoof_trimming" | "hair_trimming" | "fumigation" | "inventory_vaccine" | "feed_water_removal";
         /** @description One expected proof slot for a task's category — the BACKEND-OWNED slot contract. The min_duration_hint_seconds on the trimming "during" clip is recorder guidance, never a client-enforced cap. */
         PCCareSlot: {
             /** @description The slot key. Since the PC CARE SOP (2026-09-22) the per-animal slot list is AUTHORED on /pc-care/sops, so the key is any authored id (a-z, 0-9, _); the seeded keys are video / before_video / during_video / after_video, and the removal card's are feed_video / water_video. inventory_vaccine keeps stock_fridge_photo / stock_fridge_video. */

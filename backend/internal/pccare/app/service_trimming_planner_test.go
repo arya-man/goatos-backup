@@ -218,8 +218,9 @@ func TestPlannerCatalogNarrowsCategoriesToWhatTheCallerMayPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("breeding_director catalog: %v", err)
 	}
-	if len(got.Categories) != 2 || got.Categories[0] != domain.CategoryHoofTrimming || got.Categories[1] != domain.CategoryHairTrimming {
-		t.Fatalf("breeding_director categories = %v, want exactly [hoof_trimming hair_trimming]", got.Categories)
+	// 2026-09-30: the desk also plans fumigation.
+	if len(got.Categories) != 3 || got.Categories[0] != domain.CategoryHoofTrimming || got.Categories[1] != domain.CategoryHairTrimming || got.Categories[2] != domain.CategoryFumigation {
+		t.Fatalf("breeding_director categories = %v, want exactly [hoof_trimming hair_trimming fumigation]", got.Categories)
 	}
 
 	got, err = svc.PlannerCatalog(ctx, ceoActor())

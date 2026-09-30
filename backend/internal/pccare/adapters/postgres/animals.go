@@ -101,8 +101,13 @@ func (r *Repository) ScanAnimal(ctx context.Context, p ports.ScanAnimalParams) (
 		}
 	}()
 
-	if _, err := lockTaskForCapture(ctx, tx, p.TenantID, p.TaskID); err != nil {
+	category, err := lockTaskForCapture(ctx, tx, p.TenantID, p.TaskID)
+	if err != nil {
 		return ports.ScanAnimalResult{}, err
+	}
+	// Pen work (fumigation) has no animals: a scan would add a row nothing reviews.
+	if domain.IsPenProofCategory(category) {
+		return ports.ScanAnimalResult{}, domain.ErrNotAnimalTask
 	}
 
 	fingerprint := requestFingerprint(p.TaskID, domain.PartitionMatchKey(tag))
@@ -214,6 +219,11 @@ func (r *Repository) RegisterSlotProof(ctx context.Context, p ports.RegisterSlot
 	category, slotKeys, err := lockTaskForCaptureWithSlots(ctx, tx, p.TenantID, p.TaskID)
 	if err != nil {
 		return err
+	}
+	// A pen task's captures live on the task (pc_care_task_proofs), never on an animal row, or
+	// its mixing clip would be filed where the submit never looks.
+	if domain.IsPenProofCategory(category) {
+		return domain.ErrNotAnimalTask
 	}
 	if !acceptsSlot(category, slotKeys, p.SlotFieldKey) {
 		return domain.ErrInvalidSlotForCategory

@@ -988,31 +988,31 @@ var protectedRoutes = []Route{
 	// PCCarePlanTrimming (maintainer decision 2026-09-04) rides the planner routes beside
 	// PCCarePlan. The route table cannot see a category, so it only admits the holder; the
 	// service refuses any category outside hoof/hair trimming for that permission.
-	{OperationID: "appPCCarePlannerCatalog", Method: "GET", Pattern: "/app/pc-care/planner/catalog", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming, PCCareMonitor, PCCareOverseeOperators}},
-	{OperationID: "appPCCarePlannerParkSheds", Method: "GET", Pattern: "/app/pc-care/planner/parks/{park_id}/sheds", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming}},
+	{OperationID: "appPCCarePlannerCatalog", Method: "GET", Pattern: "/app/pc-care/planner/catalog", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming, PCCarePlanFumigation, PCCareMonitor, PCCareOverseeOperators}},
+	{OperationID: "appPCCarePlannerParkSheds", Method: "GET", Pattern: "/app/pc-care/planner/parks/{park_id}/sheds", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming, PCCarePlanFumigation}},
 	// A ROUND create is the same act of planning as a task create — several pens instead of
 	// one — so it carries the SAME authority. Splitting it onto its own permission would let a
 	// principal plan four pens they could not plan singly.
-	{OperationID: "appListPCCareRemovalPens", Method: "GET", Pattern: "/app/pc-care/tasks/{task_id}/removal-pens", AnyPermissions: []string{PCCareExecute, PCCarePlan, PCCarePlanTrimming, PCCareMonitor, PCCareOverseeOperators}},
+	{OperationID: "appListPCCareRemovalPens", Method: "GET", Pattern: "/app/pc-care/tasks/{task_id}/removal-pens", AnyPermissions: []string{PCCareExecute, PCCarePlan, PCCarePlanTrimming, PCCarePlanFumigation, PCCareMonitor, PCCareOverseeOperators}},
 	{OperationID: "appPutPCCareRemovalPenProof", Method: "PUT", Pattern: "/app/pc-care/tasks/{task_id}/removal-pens/proofs/{slot}", Permissions: []string{PCCareExecute}},
-	{OperationID: "appCreatePCCareRound", Method: "POST", Pattern: "/app/pc-care/rounds", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming}},
-	{OperationID: "appListPCCareRoundCards", Method: "GET", Pattern: "/app/pc-care/rounds", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming, PCCareMonitor, PCCareOverseeOperators}},
-	{OperationID: "appGetPCCareRound", Method: "GET", Pattern: "/app/pc-care/rounds/{round_id}", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming, PCCareMonitor, PCCareOverseeOperators}},
-	{OperationID: "appCreatePCCareTask", Method: "POST", Pattern: "/app/pc-care/tasks", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming}},
+	{OperationID: "appCreatePCCareRound", Method: "POST", Pattern: "/app/pc-care/rounds", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming, PCCarePlanFumigation}},
+	{OperationID: "appListPCCareRoundCards", Method: "GET", Pattern: "/app/pc-care/rounds", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming, PCCarePlanFumigation, PCCareMonitor, PCCareOverseeOperators}},
+	{OperationID: "appGetPCCareRound", Method: "GET", Pattern: "/app/pc-care/rounds/{round_id}", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming, PCCarePlanFumigation, PCCareMonitor, PCCareOverseeOperators}},
+	{OperationID: "appCreatePCCareTask", Method: "POST", Pattern: "/app/pc-care/tasks", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming, PCCarePlanFumigation}},
 	// CLOSE and REOPEN carry exactly the authority the retired cancel carried: the planner
 	// who could un-plan a task is the planner who can now end or resume one. Changing WHO may
 	// act would be a second decision, and this change is about the VERBS.
-	{OperationID: "appClosePCCareTask", Method: "POST", Pattern: "/app/pc-care/tasks/{task_id}/close", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming}},
-	{OperationID: "appReopenPCCareTask", Method: "POST", Pattern: "/app/pc-care/tasks/{task_id}/reopen", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming}},
-	{OperationID: "appClosePCCareRound", Method: "POST", Pattern: "/app/pc-care/rounds/{round_id}/close", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming}},
-	{OperationID: "appGetPCCarePenCoverage", Method: "GET", Pattern: "/app/pc-care/pen-coverage", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming, PCCareMonitor, PCCareOverseeOperators}},
-	{OperationID: "appListPCCareTasks", Method: "GET", Pattern: "/app/pc-care/tasks", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming, PCCareMonitor, PCCareOverseeOperators}},
+	{OperationID: "appClosePCCareTask", Method: "POST", Pattern: "/app/pc-care/tasks/{task_id}/close", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming, PCCarePlanFumigation}},
+	{OperationID: "appReopenPCCareTask", Method: "POST", Pattern: "/app/pc-care/tasks/{task_id}/reopen", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming, PCCarePlanFumigation}},
+	{OperationID: "appClosePCCareRound", Method: "POST", Pattern: "/app/pc-care/rounds/{round_id}/close", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming, PCCarePlanFumigation}},
+	{OperationID: "appGetPCCarePenCoverage", Method: "GET", Pattern: "/app/pc-care/pen-coverage", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming, PCCarePlanFumigation, PCCareMonitor, PCCareOverseeOperators}},
+	{OperationID: "appListPCCareTasks", Method: "GET", Pattern: "/app/pc-care/tasks", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming, PCCarePlanFumigation, PCCareMonitor, PCCareOverseeOperators}},
 	{OperationID: "appPCCareWorklist", Method: "GET", Pattern: "/app/pc-care/worklist", Permissions: []string{PCCareExecute}},
-	{OperationID: "appGetPCCareTask", Method: "GET", Pattern: "/app/pc-care/tasks/{task_id}", AnyPermissions: []string{PCCareExecute, PCCarePlan, PCCarePlanTrimming, PCCareMonitor, PCCareOverseeOperators}},
+	{OperationID: "appGetPCCareTask", Method: "GET", Pattern: "/app/pc-care/tasks/{task_id}", AnyPermissions: []string{PCCareExecute, PCCarePlan, PCCarePlanTrimming, PCCarePlanFumigation, PCCareMonitor, PCCareOverseeOperators}},
 	// The peer-visibility poll: which animals are scanned and which video slots each already
 	// holds, by ANY assignee. A READ — seeing that a slot is done is not authority to record.
-	{OperationID: "appPCCareTaskCaptures", Method: "GET", Pattern: "/app/pc-care/tasks/{task_id}/captures", AnyPermissions: []string{PCCareExecute, PCCarePlan, PCCarePlanTrimming, PCCareMonitor, PCCareOverseeOperators}},
-	{OperationID: "appPCCareTaskRoster", Method: "GET", Pattern: "/app/pc-care/tasks/{task_id}/roster", AnyPermissions: []string{PCCareExecute, PCCarePlan, PCCarePlanTrimming, PCCareMonitor, PCCareOverseeOperators}},
+	{OperationID: "appPCCareTaskCaptures", Method: "GET", Pattern: "/app/pc-care/tasks/{task_id}/captures", AnyPermissions: []string{PCCareExecute, PCCarePlan, PCCarePlanTrimming, PCCarePlanFumigation, PCCareMonitor, PCCareOverseeOperators}},
+	{OperationID: "appPCCareTaskRoster", Method: "GET", Pattern: "/app/pc-care/tasks/{task_id}/roster", AnyPermissions: []string{PCCareExecute, PCCarePlan, PCCarePlanTrimming, PCCarePlanFumigation, PCCareMonitor, PCCareOverseeOperators}},
 	{OperationID: "appScanPCCareAnimal", Method: "POST", Pattern: "/app/pc-care/tasks/{task_id}/animals", Permissions: []string{PCCareExecute}},
 	{OperationID: "appRegisterPCCareSlotProof", Method: "PUT", Pattern: "/app/pc-care/tasks/{task_id}/animals/{animal_row_id}/proofs/{slot}", Permissions: []string{PCCareExecute}},
 	{OperationID: "appRegisterPCCareTaskProof", Method: "PUT", Pattern: "/app/pc-care/tasks/{task_id}/proofs/{slot}", Permissions: []string{PCCareExecute}},

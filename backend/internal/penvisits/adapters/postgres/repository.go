@@ -48,6 +48,7 @@ var verificationCategoryReasons = map[string]string{
 	"pc_ticks_removal":              domain.ReasonTicksRemoval,
 	"pc_hoof_trimming":              domain.ReasonHoofTrimming,
 	"pc_hair_trimming":              domain.ReasonHairTrimming,
+	"pc_fumigation":                 domain.ReasonFumigation,
 }
 
 // sourceKindForRefType maps a verification item's source ref type to the parent kind the link
@@ -934,7 +935,7 @@ WHERE vi.tenant_id = $1::uuid
   AND vi.park_id IS NOT NULL
   AND vi.created_at >= ($2::date::timestamp AT TIME ZONE 'Asia/Kolkata')
   AND vi.created_at <  (($2::date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata')
-  AND vi.category IN ('vaccination_proof', 'pc_deworming', 'pc_anti_protozoan', 'pc_ticks_removal', 'pc_hoof_trimming', 'pc_hair_trimming')`
+  AND vi.category IN ('vaccination_proof', 'pc_deworming', 'pc_anti_protozoan', 'pc_ticks_removal', 'pc_hoof_trimming', 'pc_hair_trimming', 'pc_fumigation')`
 	// Set-based upsert on the natural key. An existing visit for the same pen and day that
 	// still awaits a recording gains any new reason (second submit, other category); one with
 	// the verifier or already verified is left alone; the (xmax = 0) column says whether the

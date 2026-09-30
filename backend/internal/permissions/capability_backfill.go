@@ -113,6 +113,11 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		// authority alone, phone only. No `sales` row: the ledger, buyers and money stay off
 		// this job. Migration 000454 writes the same row onto every park head already backfilled.
 		one(assign("sale_allocation", SurfaceMobile, LevelDo)),
+		// Fumigation (maintainer instruction 2026-09-30): the park head plans the pen spray for
+		// their park and reads the Preventive Care board it lands on. Migration 000457 writes
+		// the same rows onto every park head already backfilled.
+		one(assign("pc_care", SurfaceMobile, LevelView)),
+		one(assign("pc_fumigation", SurfaceMobile, LevelView, LevelConfigure)),
 		one(assign("config", SurfaceMobile, LevelView)),
 	),
 	// PC Director owns vaccination end to end and executes it too -- unusual for a director,
@@ -182,6 +187,11 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelDo)),
 		bothSurfaces("pen_routines", LevelView, LevelDo),
 		bothSurfaces("aas_health", LevelConfigure),
+		// Preventive Care access (maintainer instruction 2026-09-30): the board, and fumigation
+		// planning. Migration 000457 writes the same rows onto every health director already
+		// backfilled.
+		bothSurfaces("pc_care", LevelView),
+		bothSurfaces("pc_fumigation", LevelView, LevelConfigure),
 		bothSurfaces("people", LevelView, LevelDo, LevelOversee),
 		bothSurfaces("herd_register", LevelView, LevelDo, LevelOversee),
 		one(assign("counts", SurfaceWeb, LevelView)),
@@ -242,6 +252,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		bothSurfaces("pen_routines", LevelView, LevelDo),
 		bothSurfaces("pc_care", LevelView),
 		bothSurfaces("pc_trimming", LevelView, LevelConfigure),
+		bothSurfaces("pc_fumigation", LevelView, LevelConfigure),
 		bothSurfaces("people", LevelView),
 	),
 	// Granted BY NAME alongside a job (maintainer decision 2026-08-05). Carries approval
@@ -292,6 +303,9 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		one(assign("pen_routines", SurfaceWeb, LevelView, LevelConfigure)),
 		one(assign("pen_routines", SurfaceMobile, LevelView, LevelDo)),
 		bothSurfaces("pc_trimming", LevelView, LevelConfigure),
+		// Fumigation (2026-09-30): the CEO floor carries every module; pc_care.plan already
+		// plans fumigation, so this row widens nothing the CEO could not already do.
+		bothSurfaces("pc_fumigation", LevelView, LevelConfigure),
 		// Configuration (2026-09-18): the CEO floor edits every register.
 		one(assign("configuration", SurfaceWeb, LevelView, LevelConfigure)),
 		bothSurfaces("leave_approvals", LevelView, LevelOversee, LevelConfigure),

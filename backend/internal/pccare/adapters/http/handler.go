@@ -1043,6 +1043,8 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "proof_required", Message: "a video is required"}, nil)
 	case errors.Is(err, ports.ErrInvalidProof):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "invalid_proof", Message: "the video could not be verified; record it again"}, nil)
+	case errors.Is(err, domain.ErrNotAnimalTask):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "not_animal_task", Message: "this work is recorded for the pen, not for each animal"}, nil)
 	case errors.Is(err, domain.ErrInvalidSlotForCategory):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "invalid_slot", Message: "this video step does not belong to this work"}, nil)
 	case errors.Is(err, domain.ErrInvalidCategory):
