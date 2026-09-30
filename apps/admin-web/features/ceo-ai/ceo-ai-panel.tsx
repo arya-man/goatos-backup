@@ -763,7 +763,8 @@ export function CeoAiPanel({
   const stickRef = useRef(true);
   useEffect(() => {
     const el = scrollRef.current;
-    if (el && stickRef.current) el.scrollTo({ top: el.scrollHeight });
+    // An empty chat shows the greeting and suggestions from the top (nothing to follow yet).
+    if (el && stickRef.current && messages.length) el.scrollTo({ top: el.scrollHeight });
   }, [messages, open, pending]);
   useEffect(() => {
     if (pending) stickRef.current = true;

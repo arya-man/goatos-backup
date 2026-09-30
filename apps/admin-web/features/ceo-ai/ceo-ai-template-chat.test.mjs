@@ -48,4 +48,5 @@ test("behaviour hooks survive the rebuild", () => {
   assert.match(panel, /<CeoAiChart chart=\{message\.chart\}/, "answer charts");
   assert.match(panel, /<Alert severity=/, "errors show as an Alert");
   assert.match(panel, /breakpoints\.down\("sm"\)\]: \{ inset: 0 \}/, "phone sheet fills the screen");
+  assert.match(panel, /stickRef\.current && messages\.length\) el\.scrollTo/, "an empty chat is not scrolled past its greeting");
 });
