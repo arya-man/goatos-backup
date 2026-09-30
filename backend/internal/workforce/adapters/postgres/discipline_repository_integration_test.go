@@ -312,11 +312,17 @@ func TestViolationStatusMatrix(t *testing.T) {
 	if _, err := f.svc.WithdrawViolation(f.ctx, dsTenant, dsHRUser, a.ViolationID, domain.WithdrawViolationRequest{Reason: "Mistake", RowVersion: 1}, "t"); err != nil {
 		t.Fatal(err)
 	}
-	for status, want := range map[string]int{"": 2, "recorded": 1, "withdrawn": 1} {
+	// The list under "all" shows both; the totals count only what is owed (recorded). Found in
+	// the browser E2E: a withdrawn fine kept inflating the page total after a reload.
+	for status, want := range map[string][2]int{"": {2, 1}, "recorded": {1, 1}, "withdrawn": {1, 1}} {
 		page, err := f.svc.Violations(f.ctx, dsTenant, dsHR, "", "2026-09", status, "", 0, "t")
-		if err != nil || page.Summary.Count != want || len(page.Items) != want {
-			t.Fatalf("status %q = %+v %v", status, page.Summary, err)
+		if err != nil || len(page.Items) != want[0] || page.Summary.Count != want[1] {
+			t.Fatalf("status %q = rows %d, summary %+v %v", status, len(page.Items), page.Summary, err)
 		}
+	}
+	all, _ := f.svc.Violations(f.ctx, dsTenant, dsHR, "", "2026-09", "", "", 0, "t")
+	if all.Summary.FineRupees != 200 || len(all.ByPerson) != 1 || all.ByPerson[0].FineRupees != 200 {
+		t.Fatalf("a withdrawn fine is still counted: %+v %+v", all.Summary, all.ByPerson)
 	}
 	if _, err := f.svc.Violations(f.ctx, dsTenant, dsHR, "", "2026-09", "deleted", "", 0, "t"); !isCode(err, "invalid_filter") {
 		t.Fatalf("unknown status = %v", err)

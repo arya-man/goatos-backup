@@ -8,7 +8,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { followQuestionKey, keyForTitle } from "./weighing-model.ts";
 
-const editors = ["shifting-editor.tsx", "weighing-editor.tsx", "capture-editor.tsx", "inspection-editor.tsx", "feed-editor.tsx", "pc-care-editor.tsx"];
+const editors = ["shifting-editor.tsx", "weighing-editor.tsx", "capture-editor.tsx", "inspection-editor.tsx", "feed-editor.tsx", "pc-care-editor.tsx", "hrms-editor.tsx"];
 
 test("no SOP editor freezes a new key at the title's first keystroke", () => {
   for (const file of editors) {

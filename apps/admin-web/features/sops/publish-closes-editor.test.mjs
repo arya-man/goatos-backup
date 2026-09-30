@@ -8,6 +8,7 @@ const followUp = readFileSync(new URL("./followup-editor.tsx", import.meta.url),
 const inspection = readFileSync(new URL("./inspection-editor.tsx", import.meta.url), "utf8");
 const weighing = readFileSync(new URL("./weighing-editor.tsx", import.meta.url), "utf8");
 const pcCare = readFileSync(new URL("./pc-care-editor.tsx", import.meta.url), "utf8");
+const hrms = readFileSync(new URL("./hrms-editor.tsx", import.meta.url), "utf8");
 const builder = readFileSync(new URL("./sop-builder.tsx", import.meta.url), "utf8");
 const library = readFileSync(new URL("./sop-library.tsx", import.meta.url), "utf8");
 const modulePage = readFileSync(new URL("./module-page.tsx", import.meta.url), "utf8");
@@ -16,7 +17,7 @@ const modulePage = readFileSync(new URL("./module-page.tsx", import.meta.url), "
 // visually, so I can't tell whether my change is reflected". Publish must CLOSE the editor and
 // the library must say which version went live and light up that card.
 test("every SOP editor leaves for the library on a successful publish", () => {
-  for (const [name, src] of [["followup", followUp], ["inspection", inspection], ["builder", builder], ["weighing", weighing], ["pc care", pcCare]]) {
+  for (const [name, src] of [["followup", followUp], ["inspection", inspection], ["builder", builder], ["weighing", weighing], ["pc care", pcCare], ["hrms", hrms]]) {
     assert.match(src, /router\.push\(publishedHref\(basePath, /, `${name}: publish must navigate back to the library`);
   }
   // No editor is left standing after a publish: a refresh alone keeps the editor open.

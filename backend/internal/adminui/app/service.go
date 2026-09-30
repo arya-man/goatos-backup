@@ -2356,6 +2356,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.park_all":          "All parks",
 			"filter.month":             "Month",
 			"filter.status":            "Status",
+			"filter.status.all":        "All",
 			"filter.status.recorded":   "Recorded",
 			"filter.status.withdrawn":  "Withdrawn",
 			"summary.count":            "Violations",
@@ -13052,6 +13053,11 @@ func addHerdOpsCaptureCardCopy(m map[string]string) {
 func hrmsSOPEditorCopy() map[string]string {
 	return map[string]string{
 		"hsop.title":                 "Violations and enquiries",
+		"label.violation_type":       "violation type",
+		"label.enquiry":              "enquiry",
+		"action.edit_hrms":           "Edit violation types and enquiries",
+		"label.violation_types":      "violation types",
+		"label.enquiries":            "enquiries",
 		"hsop.subtitle":              "Every list here is authored: add, rename or retire a violation type, change a fine, change what an enquiry asks. Publishing applies to what is recorded next; what was recorded keeps the version it used.",
 		"hsop.types.title":           "Violation types",
 		"hsop.types.hint":            "The violations a person can be penalised for, and the fine each starts with. The fine can still be changed when one is recorded.",

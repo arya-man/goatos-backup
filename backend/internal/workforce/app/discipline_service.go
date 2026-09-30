@@ -123,11 +123,18 @@ func (s *DisciplineService) Violations(ctx context.Context, tenantID string, cal
 	if err != nil {
 		return nil, err
 	}
-	sum, err := s.repo.ViolationSummary(ctx, f)
+	// The totals are what is OWED: under "all" they count recorded violations only -- a withdrawn
+	// one stays in the list (greyed, with its reason) but no longer fines anybody. Filtering to
+	// "withdrawn" totals the withdrawn ones.
+	totalsFilter := f
+	if totalsFilter.Status == "" {
+		totalsFilter.Status = domain.ViolationRecorded
+	}
+	sum, err := s.repo.ViolationSummary(ctx, totalsFilter)
 	if err != nil {
 		return nil, err
 	}
-	totals, err := s.repo.ViolationTotalsByPerson(ctx, f, violationTotalsSize)
+	totals, err := s.repo.ViolationTotalsByPerson(ctx, totalsFilter, violationTotalsSize)
 	if err != nil {
 		return nil, err
 	}

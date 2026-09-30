@@ -7238,3 +7238,51 @@ aside.drawer.approvals-drawer .df{flex-wrap:wrap}
 .tt-shift-actions{display:flex;gap:6px;flex-wrap:wrap}
 .tt-status{margin-top:4px}
 .tt-status.dng{color:var(--danger)}
+
+/* HRMS SOP editor (2026-09-30): wrapping rows of fields so every row fits a phone. */
+.hsop .card{margin-bottom:16px}
+.hsop-list{display:flex;flex-direction:column;gap:12px}
+.hsop-row{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;min-width:0}
+.hsop-row.retired{opacity:.62}
+.hsop-grow{flex:1 1 220px;min-width:0;display:flex;flex-direction:column;gap:4px}
+.hsop-num{flex:0 1 150px;min-width:110px;display:flex;flex-direction:column;gap:4px}
+.hsop-check{display:inline-flex;align-items:center;gap:8px;padding-bottom:8px}
+.hsop-check input{width:16px;height:16px;accent-color:var(--brand)}
+.hsop-enquiry{border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.hsop-question{padding-left:12px;border-left:2px solid var(--line2)}
+.hsop-sub{margin-top:4px}
+.hsop-actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin:8px 0 24px}
+
+/* HRMS Violations + Enquiries (2026-09-30): tiles, filter rows and forms wrap on a phone. */
+.dsc-filters{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:14px}
+.dsc-filters .subtabs{max-width:100%;overflow-x:auto}
+.dsc-month{display:flex;flex-direction:column;gap:4px;min-width:150px}
+.dsc-tiles{display:flex;flex-wrap:wrap;gap:10px;align-items:stretch;margin-bottom:14px}
+.dsc-tile{padding:10px 16px;min-width:130px;margin-top:0;text-decoration:none;color:inherit}
+.dsc-tile.on{outline:2px solid var(--info)}
+.dsc-tile-value{font-size:22px;font-weight:700}
+.dsc-tiles-action{margin-left:auto;display:flex;align-items:center}
+.dsc-form-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+.dsc-form-grid .fld{display:flex;flex-direction:column;gap:4px;min-width:0}
+.dsc-form-note{grid-column:1/-1}
+.dsc-form-actions{grid-column:1/-1;display:flex;gap:8px;justify-content:flex-end;align-items:center;flex-wrap:wrap}
+.dsc-note{max-width:320px;white-space:normal}
+.dsc-withdraw{display:flex;gap:6px;flex-wrap:wrap;align-items:center;min-width:220px}
+.dsc-withdraw .inp{flex:1 1 140px;min-width:0}
+tr.dsc-withdrawn td{opacity:.6}
+.dsc-overdue{color:var(--danger);font-weight:600}
+.dsc-enquiry{display:flex;flex-direction:column;gap:0}
+.dsc-facts{display:flex;flex-direction:column;gap:6px}
+.dsc-fact-row{display:flex;flex-wrap:wrap;gap:16px}
+.dsc-questions{display:flex;flex-direction:column;gap:14px}
+.dsc-questions .fld{display:flex;flex-direction:column;gap:6px}
+.dsc-q-title{font-weight:600}
+.dsc-answer{white-space:pre-wrap}
+.dsc-yesno{display:flex;gap:16px;flex-wrap:wrap}
+.dsc-radio{display:inline-flex;align-items:center;gap:6px}
+.dsc-radio input{width:16px;height:16px;accent-color:var(--brand)}
+.dsc-penalties{display:flex;flex-direction:column;gap:12px}
+.dsc-penalty{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;padding:10px 12px;border:1px solid var(--line);border-radius:12px;min-width:0}
+.dsc-penalty .fld{display:flex;flex-direction:column;gap:4px;flex:1 1 200px;min-width:0}
+.dsc-penalty .dsc-fine{flex:0 1 120px;min-width:100px}
+.dsc-submit{display:flex;justify-content:flex-end;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0 24px}

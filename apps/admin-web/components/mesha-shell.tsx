@@ -353,6 +353,7 @@ export function MeshaShell({
     "/operations/audit",
     "/operations/dlq",
     "/people",
+    "/people/sops",
     "/procurement/animal-purchases",
     "/procurement/feed-purchases",
     "/procurement/source-entry",

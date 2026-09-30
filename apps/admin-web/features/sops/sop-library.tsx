@@ -240,11 +240,15 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
                       {s.inspectionQuestionCount > 0 ? <span className="tag t-info">{s.inspectionQuestionCount} {copy(pageContract, "label.inspection_questions")}</span> : null}
                       {s.stepCount !== null ? <span className="tag t-ok">{s.stepCount} {copy(pageContract, "label.steps")}</span> : null}
                       {s.followUpStepCount > 0 ? <span className="tag t-info">{s.followUpStepCount} {copy(pageContract, "label.operator_steps")}</span> : null}
+                      {s.hrmsCounts ? <span className="tag t-info">{s.hrmsCounts.types} {copy(pageContract, s.hrmsCounts.types === 1 ? "label.violation_type" : "label.violation_types")}</span> : null}
+                      {s.hrmsCounts ? <span className="tag t-info">{s.hrmsCounts.enquiries} {copy(pageContract, s.hrmsCounts.enquiries === 1 ? "label.enquiry" : "label.enquiries")}</span> : null}
                       <StatusTag view={s} />
                     </div>
-                    <div className="muted small">
-                      {s.gates.length > 0 ? s.gates.slice(0, 3).join(" · ") : s.hasVersion ? copy(pageContract, "label.no_proof_gates") : copy(pageContract, "label.no_published_version")}
-                    </div>
+                    {s.hrmsCounts ? null : (
+                      <div className="muted small">
+                        {s.gates.length > 0 ? s.gates.slice(0, 3).join(" · ") : s.hasVersion ? copy(pageContract, "label.no_proof_gates") : copy(pageContract, "label.no_published_version")}
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -443,7 +447,7 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, onEditCapture, ed
               <NotebookPen className="ic" /> {copy(pageContract, "action.edit_capture_form")}
             </button>
           ) : null}
-          <button type="button" className="btn p" onClick={onEdit} disabled={editPending} aria-busy={editPending}>
+          <button type="button" className="btn p" onClick={onEdit} disabled={editPending} aria-busy={editPending} data-testid="sop-drawer-edit">
             <NotebookPen className="ic" />{" "}
             {editPending
               ? copy(pageContract, "action.opening_editor")
@@ -459,6 +463,8 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, onEditCapture, ed
                     ? copy(pageContract, "action.edit_weighing")
                     : view.pcCareFormDsl
                     ? copy(pageContract, "action.edit_pc_care")
+                    : view.hrmsCounts
+                    ? copy(pageContract, "action.edit_hrms")
                     : copy(pageContract, "action.new_sop_builder")}
           </button>
         </div>

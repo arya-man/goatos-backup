@@ -134,6 +134,10 @@ const MODULE_SURFACE_ROUTE_EXCEPTIONS = new Set([
   // document, not a generic protocol rule, so it is a module-surface beside /feed/sops and
   // /weighing/sops rather than a lens under /config.
   "/pc-care/sops",
+  // HRMS SOP (maintainer instruction 2026-09-30, docs/decisions/hrms-violations-enquiries.md): the
+  // violation types and their fines and the enquiries farm events open -- every HRMS list authored.
+  // An HRMS-owned document, a module-surface beside the other module SOP pages, never a lens.
+  "/people/sops",
 ]);
 
 function isAllowedRoute(route) {

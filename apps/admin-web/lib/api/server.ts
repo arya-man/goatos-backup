@@ -2302,6 +2302,83 @@ export async function setWorkforceMemberShift(
   );
 }
 
+// HRMS violations and enquiries (maintainer decisions 2026-09-30). Read on workforce.violations.read;
+// record / withdraw / submit on workforce.violations.write (HR and the CEO/CXO). Every label is
+// backend-composed; the violation types come from the published HRMS SOP.
+export type ViolationsPage = AdminApiComponents["schemas"]["ViolationsPage"];
+export type Violation = AdminApiComponents["schemas"]["Violation"];
+export type ViolationResult = AdminApiComponents["schemas"]["ViolationResponse"];
+export type EnquiryPage = AdminApiComponents["schemas"]["EnquiryPage"];
+export type EnquiryDetail = AdminApiComponents["schemas"]["EnquiryDetail"];
+export type RecordViolationBody = AdminApiComponents["schemas"]["RecordViolationRequest"];
+export type SubmitEnquiryBody = AdminApiComponents["schemas"]["SubmitEnquiryRequest"];
+
+export async function getWorkforceViolations(params: { parkId?: string; month?: string; status?: string; cursor?: string; limit?: number }): Promise<ApiResult<ViolationsPage>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<ViolationsPage>("/admin/workforce/violations", {
+      cache: "no-store",
+      query: compactQuery({ park_id: params.parkId, month: params.month, status: params.status, cursor: params.cursor, limit: params.limit }),
+    }),
+  );
+}
+
+export async function recordWorkforceViolation(body: RecordViolationBody): Promise<ApiResult<ViolationResult>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() => client.request<ViolationResult>("/admin/workforce/violations", { method: "POST", cache: "no-store", body }));
+}
+
+export async function withdrawWorkforceViolation(violationId: string, body: { reason: string; row_version: number }): Promise<ApiResult<ViolationResult>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<ViolationResult>(`/admin/workforce/violations/${encodeURIComponent(violationId)}/withdraw` as keyof AdminApiPaths & string, {
+      method: "POST",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
+export async function getWorkforceEnquiries(params: { parkId?: string; status?: string; cursor?: string; limit?: number }): Promise<ApiResult<EnquiryPage>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<EnquiryPage>("/admin/workforce/enquiries", {
+      cache: "no-store",
+      query: compactQuery({ park_id: params.parkId, status: params.status, cursor: params.cursor, limit: params.limit }),
+    }),
+  );
+}
+
+export async function getWorkforceEnquiry(enquiryId: string): Promise<ApiResult<EnquiryDetail>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<EnquiryDetail>(`/admin/workforce/enquiries/${encodeURIComponent(enquiryId)}` as keyof AdminApiPaths & string, { cache: "no-store" }),
+  );
+}
+
+export async function submitWorkforceEnquiry(enquiryId: string, body: SubmitEnquiryBody): Promise<ApiResult<EnquiryDetail>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<EnquiryDetail>(`/admin/workforce/enquiries/${encodeURIComponent(enquiryId)}/submit` as keyof AdminApiPaths & string, {
+      method: "POST",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
 /** One clocking in full — both punches with location, device and integrity capture. */
 export async function getAdminClockEntry(
   clockEntryId: string,

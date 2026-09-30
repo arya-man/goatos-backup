@@ -327,6 +327,12 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     { name: "people-timetable", path: "/people/timetable?scope_mode=company" },
     { name: "people-timetable-unassigned", path: "/people/timetable?scope_mode=company&shift=unassigned" },
     { name: "people-notifications", path: "/people/notifications?scope_mode=company" },
+    // HRMS violations + enquiries + the HRMS SOP (2026-09-30).
+    { name: "people-violations", path: "/people/violations?scope_mode=company" },
+    { name: "people-violations-withdrawn", path: "/people/violations?scope_mode=company&status=withdrawn" },
+    { name: "people-enquiries", path: "/people/enquiries?scope_mode=company" },
+    { name: "people-enquiries-overdue", path: "/people/enquiries?scope_mode=company&status=overdue" },
+    { name: "people-sops", path: "/people/sops?scope_mode=company" },
     { name: "routines", path: "/routines?scope_mode=company" },
     { name: "leave", path: "/leave?scope_mode=company" },
     { name: "leave-approved", path: "/leave?scope_mode=company&status=approved" },

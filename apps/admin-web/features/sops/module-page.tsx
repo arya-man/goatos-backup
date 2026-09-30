@@ -14,6 +14,8 @@ import { WeighingEditor } from "./weighing-editor";
 import { ToxinEditor } from "./toxin-editor";
 import { parseToxin } from "./toxin-model";
 import { parseWeighing } from "./weighing-model";
+import { parseHrms } from "./hrms-model";
+import { HrmsEditor } from "./hrms-editor";
 import { FeedEditor } from "./feed-editor";
 import { PcCareEditor } from "./pc-care-editor";
 import { parseFeed } from "./feed-model";
@@ -223,6 +225,22 @@ export async function renderSopModulePage(
               versionLabel={`${version.version_label} · ${version.status}`}
               initial={feed}
               initialView={sp.view === "flow" ? "flow" : "list"}
+            />
+          );
+        }
+        // HRMS SOP (maintainer instruction 2026-09-30): the violation types and enquiries document is
+        // edited through its own lists editor.
+        const hrms = parseHrms(version.form_dsl);
+        if (hrms) {
+          const pageContract = await pageContractPromise;
+          return (
+            <HrmsEditor
+              pageContract={pageContract}
+              basePath={basePath}
+              sopId={editId}
+              sopName={detail.data.sop.name}
+              versionLabel={`${version.version_label} · ${version.status}`}
+              initial={hrms}
             />
           );
         }

@@ -10,7 +10,7 @@ import { revalidatePath } from "next/cache";
 // Every module SOP route the sidebar serves is listed (review finding on PR 267): a route
 // missing here keeps serving the cached library after a publish, so the "Published vN"
 // banner and the lit card would point at a card still reading the old version.
-const SOP_PAGE_PATHS = ["/counts/sops", "/feed/sops", "/milk/sops", "/pc-care/sops", "/procurement/sops", "/sales/sops", "/weighing/sops"];
+const SOP_PAGE_PATHS = ["/counts/sops", "/feed/sops", "/milk/sops", "/pc-care/sops", "/people/sops", "/procurement/sops", "/sales/sops", "/weighing/sops"];
 import {
   createSop,
   createSopVersion,
@@ -317,6 +317,47 @@ export async function publishWeighingVersion(sopId: string, weighing: Record<str
   if (!res.ok) return { ok: false, message: res.error.message ?? "publish failed", code: res.error.code };
   for (const path of SOP_PAGE_PATHS) revalidatePath(path);
   return { ...saved, ok: true, message: `Published v${saved.versionNumber ?? ""}. Weighing tasks planned from now on run on these rules.` };
+}
+
+// HRMS SOP (maintainer instruction 2026-09-30: every list authored): the editor saves a new version =
+// the published version's form_dsl + the emitted `violations` document (violation types, fines,
+// enquiries). The backend validates it (hrmssop contract) and names the problem; publishing makes it
+// the list new violations and new enquiries use -- what was recorded keeps its version.
+export type HrmsSaveResult = InspectionSaveResult;
+
+// No route re-render here (admin-web interaction rule): the editor returns to the library, which renders
+// fresh, and a draft save changes nothing the library shows.
+export async function saveHrmsVersion(sopId: string, violations: Record<string, unknown>, label?: string): Promise<HrmsSaveResult> {
+  if (!sopId) return { ok: false, message: "SOP id is required" };
+  const detail = await getSop(sopId);
+  if (!detail.ok) return { ok: false, message: detail.error.message ?? "SOP could not be read", code: detail.error.code };
+  const base = detail.data.published_version ?? detail.data.latest_version;
+  if (!base) return { ok: false, message: "This SOP has no version to build on." };
+  const formDsl = { ...(base.form_dsl as Record<string, unknown>), violations };
+  const version = await createSopVersion(sopId, {
+    version_label: (label ?? "").trim() || `${detail.data.sop.name} · update`,
+    form_dsl: formDsl,
+    proof_policy: base.proof_policy as CreateSOPVersionRequest["proof_policy"],
+  });
+  if (!version.ok) return { ok: false, message: version.error.message ?? "create SOP version failed", code: version.error.code };
+  const report = version.data.version.validation_report;
+  return {
+    ok: true,
+    message: report?.valid ? "Saved as a draft version." : "Saved — the backend flagged validation issues.",
+    versionId: version.data.version.sop_version_id,
+    rowVersion: version.data.version.row_version,
+    versionNumber: version.data.version.version,
+    report,
+  };
+}
+
+export async function publishHrmsVersion(sopId: string, violations: Record<string, unknown>, label?: string): Promise<HrmsSaveResult> {
+  const saved = await saveHrmsVersion(sopId, violations, label);
+  if (!saved.ok || !saved.versionId || saved.rowVersion === undefined) return saved;
+  if (saved.report && !saved.report.valid) return { ...saved, ok: false, message: saved.report.errors?.[0]?.message ?? "Fix the issues and publish again." };
+  const res = await publishSopVersion(sopId, saved.versionId, saved.rowVersion);
+  if (!res.ok) return { ok: false, message: res.error.message ?? "publish failed", code: res.error.code };
+  return { ...saved, ok: true, message: `Published v${saved.versionNumber ?? ""}. New violations and enquiries use this list from now on.` };
 }
 
 // FEED SOP (maintainer decision 2026-09-16): the feed cards editor saves a new version = the

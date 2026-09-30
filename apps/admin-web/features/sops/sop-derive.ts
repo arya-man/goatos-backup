@@ -76,6 +76,8 @@ export function classifyDomain(code: string, name: string): DomainId | "general"
   // PC CARE SOP (2026-09-22): pc_care.* is preventive care's own prefix; without it the keyword
   // table files the card under "General" and the chip reads nothing about the work it governs.
   if (c.startsWith("pc_care.")) return "pc_care";
+  // HRMS SOP (2026-09-30): hrms.* is People / HRMS's own prefix.
+  if (c.startsWith("hrms.")) return "people";
   const hay = `${code} ${name}`.toLowerCase();
   for (const rule of DOMAIN_KEYWORDS) {
     if (rule.words.some((w) => hay.includes(w))) return rule.id;
@@ -101,6 +103,8 @@ export function sopScopeKey(code: string, name: string): SopScopeDomain {
   // vaccine-adjacent job; preventive care is its own module.
   if (c.startsWith("pc_care.")) return "pc_care";
   if (c.startsWith("procurement.")) return "procurement";
+  // HRMS SOP (2026-09-30): `hrms.` codes are authored on HRMS -> HRMS SOP.
+  if (c.startsWith("hrms.")) return "hrms";
   if (c.startsWith("milk.")) return "milk";
   if (c === "weighing" || c.startsWith("weighing.")) return "weighing";
   if (isVaccinationSop(code, name)) return "vaccination";
@@ -123,6 +127,7 @@ export const SOP_SLICE_LABEL: Record<SopScopeDomain, string> = {
   weighing: "Weighing",
   procurement: "Procurement",
   pc_care: "Preventive Care",
+  hrms: "HRMS",
 };
 export const VACCINATION_SLICE_LABEL = SOP_SLICE_LABEL.vaccination;
 
@@ -357,7 +362,18 @@ export type SopCardView = {
   // PC CARE SOP (maintainer decision 2026-09-22): the form_dsl when it carries a `pc_care` cards
   // section (the removal rules and one capture card per work category); null otherwise.
   pcCareFormDsl: unknown;
+  // HRMS SOP (2026-09-30): how many violation types and enquiries the version authors; null when
+  // it carries no `violations` section.
+  hrmsCounts: { types: number; enquiries: number } | null;
 };
+
+function deriveHrmsCounts(formDsl: unknown): { types: number; enquiries: number } | null {
+  const dsl = formDsl && typeof formDsl === "object" ? (formDsl as Record<string, unknown>) : null;
+  const section = dsl && dsl["violations"] && typeof dsl["violations"] === "object" ? (dsl["violations"] as Record<string, unknown>) : null;
+  if (!section) return null;
+  const count = (v: unknown) => (Array.isArray(v) ? v.length : 0);
+  return { types: count(section["violation_types"]), enquiries: count(section["enquiries"]) };
+}
 
 // toSopView maps the real API rows to the card facets. Everything is derived — no invented inventory.
 export function toSopView(def: SopDefLike, version: SopVersionLike | null): SopCardView {
@@ -373,7 +389,9 @@ export function toSopView(def: SopDefLike, version: SopVersionLike | null): SopC
     domain,
     domainLabel: label,
     trigger: version ? deriveTrigger(version.form_dsl) : null,
-    stepCount: version ? deriveStepCount(version.form_dsl) : null,
+    // The HRMS document has no capture steps; its card counts violation types and enquiries.
+    stepCount: version && !deriveHrmsCounts(version.form_dsl) ? deriveStepCount(version.form_dsl) : null,
+    hrmsCounts: version ? deriveHrmsCounts(version.form_dsl) : null,
     gates: version ? deriveGates(version.form_dsl, version.proof_policy) : [],
     status: def.status,
     versionLabel: version ? version.version_label : null,
@@ -609,7 +627,7 @@ export type SubjectScope = "batch" | "goat";
 
 // The New SOP builder is locked by its mounted module page. The domain is not a free choice inside
 // the builder; each route passes its own slice so new SOPs stay visible on the page that authored them.
-export type SopScopeDomain = "vaccination" | "counts" | "feed" | "milk" | "weighing" | "procurement" | "general" | "sales" | "pc_care";
+export type SopScopeDomain = "vaccination" | "counts" | "feed" | "milk" | "weighing" | "procurement" | "general" | "sales" | "pc_care" | "hrms";
 
 export type SopBuilderInput = {
   name: string;
