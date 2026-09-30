@@ -263,7 +263,7 @@ export function OptionRow({ multi, children, action }: { multi?: boolean; childr
     <Stack direction="row" spacing={1} sx={{ alignItems: "center", minWidth: 0 }}>
       <Box
         aria-hidden
-        sx={{ width: "var(--sp-1h)", height: "var(--sp-1h)", flexShrink: 0, border: 2, borderColor: "text.disabled", borderRadius: multi ? "var(--sp-half)" : "50%" }}
+        sx={{ width: "calc(1.5 * var(--spacing))", height: "calc(1.5 * var(--spacing))", flexShrink: 0, border: 2, borderColor: "text.disabled", borderRadius: multi ? "calc(0.5 * var(--spacing))" : "50%" }}
       />
       <Box sx={{ flex: 1, minWidth: 0 }}>{children}</Box>
       {action}

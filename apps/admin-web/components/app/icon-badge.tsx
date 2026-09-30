@@ -29,7 +29,7 @@ export function IconBadge({ icon, tone = "primary", size = "md", shape = "rounde
         flex: "none",
         width: theme.spacing(SIDE[size]),
         height: theme.spacing(SIDE[size]),
-        borderRadius: shape === "circle" ? "50%" : "var(--r-lg)",
+        borderRadius: shape === "circle" ? "50%" : "calc(1.5 * var(--shape-borderRadius))",
         bgcolor: t.soft,
         color: t.ink,
         "& svg": { width: "50%", height: "50%" },

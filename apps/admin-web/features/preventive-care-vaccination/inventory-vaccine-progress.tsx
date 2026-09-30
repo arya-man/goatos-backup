@@ -104,7 +104,7 @@ function InventoryProgressContent({
   const title = copy(pageContract, "section.inventory_progress.title");
   if (!result.ok) {
     return (
-      <Card id="pc-care-inventory-progress" sx={{ scrollMarginTop: "calc(var(--sp-5) * 2)" }}>
+      <Card id="pc-care-inventory-progress" sx={{ scrollMarginTop: "calc(10 * var(--spacing))" }}>
         <CardHeader title={title} />
         <Alert severity="error" sx={{ m: 3 }}>{copy(pageContract, "inventory_progress.unavailable")}</Alert>
       </Card>
@@ -126,7 +126,7 @@ function InventoryProgressContent({
 
   // Template invoice list card: CardHeader, the InvoiceAnalytic strip, the task table in the Scrollbar.
   return (
-    <Card id="pc-care-inventory-progress" sx={{ scrollMarginTop: "calc(var(--sp-5) * 2)" }}>
+    <Card id="pc-care-inventory-progress" sx={{ scrollMarginTop: "calc(10 * var(--spacing))" }}>
       <CardHeader title={title} subheader={`${copy(pageContract, "inventory_progress.subtitle")} · ${fmtDate(asOf)}`} />
       <Scrollbar sx={{ minHeight: INVENTORY.stripMinHeight }}>
         <DividedStack dividerOrientation="vertical" direction="row" sx={{ py: 2 }}>

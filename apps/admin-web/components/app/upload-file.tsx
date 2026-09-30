@@ -62,7 +62,7 @@ export function UploadFile({ accept, disabled, name, inputRef, title, descriptio
       as="label"
       className={[dragActive ? uploadClasses.state.dragActive : '', disabled ? uploadClasses.state.disabled : ''].filter(Boolean).join(' ')}
       // Drawer-sized (template default is the 280px page dropzone); keyboard focus shows on the area.
-      sx={{ minHeight: 'calc(var(--sp-2) * 10)', '&:focus-within': { outline: 2, outlineStyle: 'solid', outlineColor: 'primary.main', outlineOffset: 2 } }}
+      sx={{ minHeight: 'calc(20 * var(--spacing))', '&:focus-within': { outline: 2, outlineStyle: 'solid', outlineColor: 'primary.main', outlineOffset: 2 } }}
       onDragOver={(event) => {
         event.preventDefault();
         setDragActive(true);

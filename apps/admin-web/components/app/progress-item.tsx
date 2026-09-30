@@ -43,7 +43,7 @@ import { ChartLegends } from "@/components/minimal/chart/components/chart-legend
 
 /** The LinearProgress track (template: height 8, grey-500 16%; theme override: radius 16). */
 const trackSx = (theme: Theme) => ({
-  height: "var(--sp-1)",
+  height: "calc(1 * var(--spacing))",
   borderRadius: 2,
   bgcolor: varAlpha(theme.vars.palette.grey["500Channel"], 0.16),
 });
@@ -223,7 +223,7 @@ export function ProgressItem({
           sx={{ flexGrow: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 0.75, ...(inline ? { [WIDE]: { gridColumn: 1, gridRow: 1 } } : {}) }}
         >
           {dot ? (
-            <Box component="span" aria-hidden sx={{ width: "calc(var(--sp-1) + 2px)", height: "calc(var(--sp-1) + 2px)", flexShrink: 0, borderRadius: "50%", bgcolor: color }} />
+            <Box component="span" aria-hidden sx={{ width: "calc(calc(1 * var(--spacing)) + 2px)", height: "calc(calc(1 * var(--spacing)) + 2px)", flexShrink: 0, borderRadius: "50%", bgcolor: color }} />
           ) : null}
           <Box
             component="span"
@@ -304,7 +304,7 @@ export function ProgressTooltip({ heading, rows }: { heading?: ReactNode; rows: 
       {heading ? <Box sx={{ fontWeight: "fontWeightSemiBold" }}>{heading}</Box> : null}
       {rows.map((row, index) => (
         <Box key={index} sx={{ display: "flex", alignItems: "center", gap: 0.75, whiteSpace: "nowrap" }}>
-          {row.color ? <Box component="span" aria-hidden sx={{ width: "var(--sp-1)", height: "var(--sp-1)", flexShrink: 0, borderRadius: "50%", bgcolor: row.color }} /> : null}
+          {row.color ? <Box component="span" aria-hidden sx={{ width: "calc(1 * var(--spacing))", height: "calc(1 * var(--spacing))", flexShrink: 0, borderRadius: "50%", bgcolor: row.color }} /> : null}
           {row.name ? <Box component="span" sx={{ flexGrow: 1, opacity: 0.8 }}>{row.name}</Box> : null}
           <Box component="span" sx={{ fontWeight: "fontWeightBold", fontVariantNumeric: "tabular-nums" }}>{row.value}</Box>
         </Box>

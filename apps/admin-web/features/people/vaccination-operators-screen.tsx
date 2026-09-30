@@ -1285,7 +1285,7 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
                       <Stack direction="row" spacing={2} sx={{ flexWrap: 'wrap', rowGap: 0.5 }}>
                         {p.ops.map((o) => (
                           <Stack key={o.position_id} direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
-                            <Box component="span" sx={{ width: 'var(--sp-1)', height: 'var(--sp-1)', borderRadius: '50%', flexShrink: 0, bgcolor: `${KIND_COLOR[p.kind]}.main` }} />
+                            <Box component="span" sx={{ width: 'calc(1 * var(--spacing))', height: 'calc(1 * var(--spacing))', borderRadius: '50%', flexShrink: 0, bgcolor: `${KIND_COLOR[p.kind]}.main` }} />
                             <Typography variant="body2">{firstName(o)}</Typography>
                           </Stack>
                         ))}
@@ -1489,8 +1489,8 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
                     <Box
                       component="span"
                       sx={(theme) => ({
-                        width: 'var(--sp-1h)',
-                        height: 'var(--sp-1h)',
+                        width: 'calc(1.5 * var(--spacing))',
+                        height: 'calc(1.5 * var(--spacing))',
                         borderRadius: 0.75,
                         bgcolor: item.solid ? theme.vars.palette[item.color].main : varAlpha(theme.vars.palette[item.color].mainChannel, 0.16),
                         border: item.solid ? 0 : 1,

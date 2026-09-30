@@ -36,7 +36,7 @@ export function BandCell({ band, label, wide = false }: { band: string; label: s
             key={step}
             component="span"
             data-on={index < filled ? "true" : undefined}
-            sx={{ display: "block", flex: 1, height: "calc(var(--sp-1h) / 2)", borderRadius: "calc(var(--r-sm) / 3)", bgcolor: index < filled ? "primary.dark" : "divider" }}
+            sx={{ display: "block", flex: 1, height: "calc(calc(1.5 * var(--spacing)) / 2)", borderRadius: "calc(calc(0.75 * var(--shape-borderRadius)) / 3)", bgcolor: index < filled ? "primary.dark" : "divider" }}
           />
         ))}
       </Box>

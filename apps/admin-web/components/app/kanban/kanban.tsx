@@ -54,14 +54,14 @@ const ColumnRoot = styled('section')(({ theme }) => ({
   display: 'flex',
   flexDirection: 'column',
   gap: 'var(--kanban-item-gap)',
-  width: 'min(var(--kanban-column-width), calc(100vw - var(--sp-3) * 2))',
+  width: 'min(var(--kanban-column-width), calc(100vw - calc(3 * var(--spacing)) * 2))',
   borderRadius: 'var(--kanban-column-radius)',
   backgroundColor: theme.vars.palette.background.neutral,
 }));
 
 const ColumnList = styled('ul')({
   margin: 0,
-  minHeight: 'calc(var(--sp-2) * 5)',
+  minHeight: 'calc(10 * var(--spacing))',
   display: 'flex',
   listStyle: 'none',
   flexDirection: 'column',
@@ -183,7 +183,7 @@ export function KanbanTaskCard({ name, priority, meta, comments = 0, attachments
             </Box>
             <Box component="span" sx={{ flexGrow: 1 }} />
             {assignees.length ? (
-              <AvatarGroup max={3} sx={{ [`& .${avatarGroupClasses.avatar}`]: { width: 'var(--sp-3)', height: 'var(--sp-3)', fontSize: 'var(--fs-caption)' } }}>
+              <AvatarGroup max={3} sx={{ [`& .${avatarGroupClasses.avatar}`]: { width: 'calc(3 * var(--spacing))', height: 'calc(3 * var(--spacing))', fontSize: 'var(--fs-caption)' } }}>
                 {assignees.map((u) => (
                   <Avatar key={u.id} alt={u.name} src={u.avatarUrl}>
                     {u.name.slice(0, 1)}

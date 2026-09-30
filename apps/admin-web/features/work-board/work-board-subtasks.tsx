@@ -71,7 +71,7 @@ function SubtaskRow({ pageContract, sub }: { pageContract: AdminUiPageContract; 
             sx={{ minWidth: 0, m: 0 }}
           />
           {sub.owner?.name ? (
-            <Avatar title={sub.owner.name} sx={{ width: "var(--sp-3)", height: "var(--sp-3)", typography: "caption", flexShrink: 0 }}>
+            <Avatar title={sub.owner.name} sx={{ width: "calc(3 * var(--spacing))", height: "calc(3 * var(--spacing))", typography: "caption", flexShrink: 0 }}>
               {initials(sub.owner.name)}
             </Avatar>
           ) : null}
@@ -82,7 +82,7 @@ function SubtaskRow({ pageContract, sub }: { pageContract: AdminUiPageContract; 
         <List disablePadding sx={{ pl: 5, pb: 1 }}>
           {sub.steps.map((step, i) => (
             <ListItem key={`${step.name}-${i}`} sx={{ gap: 1.5, py: 0.75 }}>
-              <Avatar sx={{ width: "var(--sp-2h)", height: "var(--sp-2h)", typography: "caption", bgcolor: "background.neutral", color: "text.secondary" }}>{i + 1}</Avatar>
+              <Avatar sx={{ width: "calc(2.5 * var(--spacing))", height: "calc(2.5 * var(--spacing))", typography: "caption", bgcolor: "background.neutral", color: "text.secondary" }}>{i + 1}</Avatar>
               <ListItemText
                 primary={step.name}
                 secondary={step.detail || null}

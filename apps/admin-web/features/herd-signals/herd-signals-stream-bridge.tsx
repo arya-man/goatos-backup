@@ -291,7 +291,7 @@ export function HerdSignalsStreamBridge({ generatedAt }: { generatedAt: string }
           onClick={toggleLive}
           aria-pressed={live}
           aria-description={updatedLine}
-          startIcon={<Box component="span" aria-hidden="true" sx={{ width: "var(--sp-1)", height: "var(--sp-1)", borderRadius: "50%", bgcolor: liveColor === "inherit" ? "text.disabled" : `${liveColor}.main` }} />}
+          startIcon={<Box component="span" aria-hidden="true" sx={{ width: "calc(1 * var(--spacing))", height: "calc(1 * var(--spacing))", borderRadius: "50%", bgcolor: liveColor === "inherit" ? "text.disabled" : `${liveColor}.main` }} />}
           sx={{ minHeight: { xs: TAP_MIN, sm: 36 } }}
         >
           {badgeText}

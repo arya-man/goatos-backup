@@ -106,5 +106,5 @@ export const TONE_SWATCH: Record<Tone, string> = {
   info: "var(--palette-info-main)",
   pur: "var(--palette-secondary-main)",
   teal: "var(--teal)",
-  mut: "var(--line2)",
+  mut: "rgba(var(--palette-grey-500Channel) / 0.12)",
 };

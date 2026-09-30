@@ -5,7 +5,7 @@
 // real link (href) or a button, and the caller owns what a click does. A link tab the caller does not
 // handle (no preventDefault) navigates in a transition (useUrlTabNav): the page stays on screen and
 // the pressed tab is drawn selected at once.
-// A standalone strip is rounded like the template BankingOverview Tabs (16px, var(--r-xl): the 8px
+// A standalone strip is rounded like the template BankingOverview Tabs (16px, calc(2 * var(--shape-borderRadius)): the 8px
 // pill plus its 8px inset), never a square grey band (TR1-#32, guard: segment-tabs-rounded).
 import type { Theme, SxProps } from '@mui/material/styles';
 

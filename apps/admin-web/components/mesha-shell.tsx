@@ -295,8 +295,8 @@ const CONTENT_SX = (theme: Theme) => ({
 // slides while a navigation is pending (FIXJ6: was the legacy `.routebar` rules).
 const ROUTE_BAR_SX = (theme: Theme) => ({
   position: "fixed",
-  top: "calc(var(--layout-header-mobile-height, var(--header-h)) - var(--sp-half) / 2)",
-  [theme.breakpoints.up("lg")]: { top: "calc(var(--layout-header-desktop-height, var(--header-h-lg)) - var(--sp-half) / 2)" },
+  top: "calc(var(--layout-header-mobile-height, var(--header-h)) - calc(0.5 * var(--spacing)) / 2)",
+  [theme.breakpoints.up("lg")]: { top: "calc(var(--layout-header-desktop-height, var(--header-h-lg)) - calc(0.5 * var(--spacing)) / 2)" },
   left: 0,
   right: 0,
   height: 2,
@@ -312,7 +312,7 @@ const ROUTE_BAR_SX = (theme: Theme) => ({
     height: 1,
     borderRadius: 999,
     background: "linear-gradient(90deg, var(--palette-primary-main), var(--palette-info-main), var(--palette-primary-main))",
-    boxShadow: "0 0 var(--sp-1h) var(--ring)",
+    boxShadow: "0 0 calc(1.5 * var(--spacing)) var(--ring)",
     transform: "translateX(-105%)",
   },
   "&[data-on] > span": {

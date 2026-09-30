@@ -171,8 +171,8 @@ export function LivePoller({
             component="span"
             aria-hidden="true"
             sx={{
-              width: "var(--sp-1)",
-              height: "var(--sp-1)",
+              width: "calc(1 * var(--spacing))",
+              height: "calc(1 * var(--spacing))",
               borderRadius: "50%",
               bgcolor: "currentColor",
               animation: live ? "lt-pulse 1.6s ease-in-out infinite" : "none",

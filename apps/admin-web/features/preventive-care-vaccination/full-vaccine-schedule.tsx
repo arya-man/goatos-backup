@@ -417,7 +417,7 @@ export async function VaccinationFullSchedule({
   return (
     // Template list card (sections/invoice list view): CardHeader + action, the InvoiceAnalytic summary
     // strip, the month segment tabs, then the operator-day table in the template Scrollbar.
-    <Card id="full-schedule" sx={{ scrollMarginTop: "calc(var(--sp-5) * 2)" }}>
+    <Card id="full-schedule" sx={{ scrollMarginTop: "calc(10 * var(--spacing))" }}>
       <HashSectionScroller id="full-schedule" />
       <CardHeader
         title={copy(pageContract, "section.full_schedule.operator_title")}
@@ -545,7 +545,7 @@ export async function VaccinationFullSchedule({
                               <Typography variant="caption" component="span" sx={{ color: "text.secondary" }}>{copy(pageContract, "schedule.unit.animals")}</Typography>
                               <Typography variant="caption" component="span" sx={{ ml: "auto", color: "text.secondary", whiteSpace: "nowrap" }}>{row.totalDoses} {copy(pageContract, "schedule.unit.doses")}</Typography>
                             </Stack>
-                            <Stack direction="row" spacing={0.125} aria-hidden="true" sx={{ height: "var(--sp-1)", borderRadius: 1, overflow: "hidden", bgcolor: "action.hover" }}>
+                            <Stack direction="row" spacing={0.125} aria-hidden="true" sx={{ height: "calc(1 * var(--spacing))", borderRadius: 1, overflow: "hidden", bgcolor: "action.hover" }}>
                               {visibleBuckets.length > 0 ? visibleBuckets.map((bucket) => (
                                 <Box key={bucket.key} component="span" sx={{ flexBasis: workloadSegmentWidth(bucket, segmentTotal), minWidth: 2, bgcolor: LOAD_TONE_COLOR[bucket.tone] }} />
                               )) : (
@@ -555,7 +555,7 @@ export async function VaccinationFullSchedule({
                             <Stack direction="row" useFlexGap aria-label={copy(pageContract, "schedule.column.workload")} sx={{ flexWrap: "wrap", columnGap: 1.25, rowGap: 0.5 }}>
                               {visibleBuckets.map((bucket) => (
                                 <Stack key={bucket.key} component="span" direction="row" spacing={0.5} sx={{ alignItems: "center", typography: "caption" }}>
-                                  <Box component="span" aria-hidden="true" sx={{ width: "var(--sp-1)", height: "var(--sp-1)", borderRadius: 0.75, flexShrink: 0, bgcolor: LOAD_TONE_COLOR[bucket.tone] }} />
+                                  <Box component="span" aria-hidden="true" sx={{ width: "calc(1 * var(--spacing))", height: "calc(1 * var(--spacing))", borderRadius: 0.75, flexShrink: 0, bgcolor: LOAD_TONE_COLOR[bucket.tone] }} />
                                   <Box component="span" sx={{ fontWeight: "fontWeightSemiBold" }}>{bucket.value}</Box>
                                   <Box component="span" sx={{ color: "text.secondary" }}>{workloadBucketLabel(pageContract, bucket.key)}</Box>
                                 </Stack>

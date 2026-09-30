@@ -26,7 +26,7 @@ export function LiveDot({ color, size = 8 }: { color: LivePaletteColor; size?: n
 export function LiveProgress({ value, color, label }: { value: number; color: "primary" | "warning" | "error"; label: string }) {
   return (
     <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-      <LinearProgress variant="determinate" value={value} color={color} sx={{ flex: 1, height: "var(--sp-1)" }} aria-label={label} />
+      <LinearProgress variant="determinate" value={value} color={color} sx={{ flex: 1, height: "calc(1 * var(--spacing))" }} aria-label={label} />
       <Typography variant="caption" sx={{ minWidth: 36, textAlign: "right", color: "text.secondary" }}>
         {label}
       </Typography>

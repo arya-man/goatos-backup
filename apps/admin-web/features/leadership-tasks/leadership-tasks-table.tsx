@@ -124,7 +124,7 @@ export function LeadershipTasksTable({
     assignee: {
       cell: (task) => (
         <Box sx={{ gap: 1.5, display: "flex", alignItems: "center", minWidth: 0 }}>
-          <Avatar sx={{ width: "var(--sp-4)", height: "var(--sp-4)", typography: "caption" }}>{initials(task.assignee)}</Avatar>
+          <Avatar sx={{ width: "calc(4 * var(--spacing))", height: "calc(4 * var(--spacing))", typography: "caption" }}>{initials(task.assignee)}</Avatar>
           <ListItemText
             primary={task.assignee}
             secondary={task.assigneeRole || (task.isAssignee ? copy(pageContract, "label.assigned_to_me", "Assigned to me") : "")}

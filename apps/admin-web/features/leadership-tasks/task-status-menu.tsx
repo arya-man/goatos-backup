@@ -197,7 +197,7 @@ export function TaskStatusMenu({
               <Box
                 component="span"
                 aria-hidden="true"
-                sx={{ width: "var(--sp-1)", height: "var(--sp-1)", borderRadius: "50%", flex: "none", bgcolor: STATUS_COLOR[option.key as TaskRow["status"]] ? `${STATUS_COLOR[option.key as TaskRow["status"]]}.main` : "text.disabled" }}
+                sx={{ width: "calc(1 * var(--spacing))", height: "calc(1 * var(--spacing))", borderRadius: "50%", flex: "none", bgcolor: STATUS_COLOR[option.key as TaskRow["status"]] ? `${STATUS_COLOR[option.key as TaskRow["status"]]}.main` : "text.disabled" }}
               />
               {/* The item's wording is the backend's own status-option label. */}
               {option.label}

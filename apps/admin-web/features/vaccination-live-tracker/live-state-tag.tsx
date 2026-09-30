@@ -32,7 +32,7 @@ export function LiveStateTag({
   if (tone === "live") {
     // Template Label (soft error) with a leading dot: the running state reads as "live".
     return (
-      <Label variant="soft" color="error" title={title} startIcon={<Box component="span" sx={{ width: "var(--sp-half)", height: "var(--sp-half)", borderRadius: "50%", bgcolor: "currentColor" }} />}>
+      <Label variant="soft" color="error" title={title} startIcon={<Box component="span" sx={{ width: "calc(0.5 * var(--spacing))", height: "calc(0.5 * var(--spacing))", borderRadius: "50%", bgcolor: "currentColor" }} />}>
         {children}
       </Label>
     );

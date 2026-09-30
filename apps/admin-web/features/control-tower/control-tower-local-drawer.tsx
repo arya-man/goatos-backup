@@ -11,9 +11,9 @@ import type { Tone } from "@/features/process-integrity";
 
 const SEVERITY_FILL = {
   broken: { bg: "var(--dangerx)", fg: "var(--palette-error-main)" },
-  at_risk: { bg: "var(--warnx)", fg: "var(--warn)" },
+  at_risk: { bg: "var(--warnx)", fg: "var(--palette-warning-main)" },
   watch: { bg: "var(--infox)", fg: "var(--palette-info-main)" },
-  ok: { bg: "var(--okx)", fg: "var(--brand-d)" },
+  ok: { bg: "var(--okx)", fg: "var(--palette-primary-dark)" },
 } as const;
 
 export type ControlTowerDrawerRecord = {

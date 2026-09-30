@@ -45,7 +45,7 @@ const SEVERITY_COLOR: Record<ProcessIntegritySeverity, "error" | "warning" | "in
   ok: "success",
 };
 
-const bandRowSx = { px: 3, py: 1.5, gap: 2, display: "flex", alignItems: "center", minHeight: "calc(var(--sp-5) + var(--sp-half))" } as const;
+const bandRowSx = { px: 3, py: 1.5, gap: 2, display: "flex", alignItems: "center", minHeight: "calc(5.5 * var(--spacing))" } as const;
 
 function BandIcon({ severity, icon }: { severity: ProcessIntegritySeverity; icon: IconifyName }) {
   const color = SEVERITY_COLOR[severity];
@@ -196,7 +196,7 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
     vaccinationHref: scopeHref("/vaccination", scope),
   }));
 
-  const cellLinkSx = { color: "inherit", display: "block", textDecoration: "none", minHeight: "calc(var(--sp-5) + var(--sp-half))", py: 0.5 } as const;
+  const cellLinkSx = { color: "inherit", display: "block", textDecoration: "none", minHeight: "calc(5.5 * var(--spacing))", py: 0.5 } as const;
   const bandTone = summary && summary.critical_count > 0 ? "dng" : summary && summary.warning_count > 0 ? "warn" : "mut";
 
   return (
@@ -445,7 +445,7 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
             { href: scopeHref("/vaccination", scope), label: copy(pageContract, "link.vaccination_ops") },
             { href: `${scopeHref("/vaccination", scope)}#execution`, label: copy(pageContract, "link.park_shed_execution") },
           ].map((item) => (
-            <MuiLink key={item.href} component={Link} href={item.href} underline="hover" variant="subtitle2" sx={{ minHeight: "calc(var(--sp-5) + var(--sp-half))", display: "inline-flex", alignItems: "center" }}>
+            <MuiLink key={item.href} component={Link} href={item.href} underline="hover" variant="subtitle2" sx={{ minHeight: "calc(5.5 * var(--spacing))", display: "inline-flex", alignItems: "center" }}>
               {item.label}
             </MuiLink>
           ))}

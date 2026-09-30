@@ -590,7 +590,7 @@ export function LeadershipTasksFilters({
         open={datesPopover.open}
         anchorEl={datesPopover.anchorEl}
         onClose={datesPopover.onClose}
-        slotProps={{ arrow: { placement: "top-right" }, paper: { sx: { p: 2, width: (theme) => theme.spacing(45), maxWidth: "calc(100vw - var(--sp-4))" } } }}
+        slotProps={{ arrow: { placement: "top-right" }, paper: { sx: { p: 2, width: (theme) => theme.spacing(45), maxWidth: "calc(100vw - calc(4 * var(--spacing)))" } } }}
       >
         <Box
           ref={rangesRef}

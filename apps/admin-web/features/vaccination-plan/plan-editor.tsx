@@ -610,7 +610,7 @@ export function VaccinationPlanEditor(props: Props) {
 function StripCell({ icon, label, value }: { icon: IconifyName; label: string; value: string }) {
   return (
     <Box sx={{ flex: "1 1 0", px: 3, py: { xs: 1, md: 0 }, display: "flex", alignItems: "center", gap: 2, minWidth: 0 }}>
-      <Avatar sx={{ width: "var(--sp-6)", height: "var(--sp-6)", bgcolor: "background.neutral", color: "primary.main" }}>
+      <Avatar sx={{ width: "calc(6 * var(--spacing))", height: "calc(6 * var(--spacing))", bgcolor: "background.neutral", color: "primary.main" }}>
         <Iconify icon={icon} width={24} />
       </Avatar>
       <Box sx={{ minWidth: 0 }}>
@@ -633,7 +633,7 @@ function RailItem({ selected, initials: text, primary, secondary, muted, onClick
       onClick={onClick}
       sx={{ borderRadius: 0.75, gap: 1.5, py: 1, flexShrink: 0, minWidth: { xs: 220, md: 0 }, opacity: muted ? 0.56 : 1 }}
     >
-      <Avatar variant="rounded" sx={{ width: "calc(var(--sp-4) + var(--sp-half))", height: "calc(var(--sp-4) + var(--sp-half))", typography: "subtitle2", bgcolor: selected ? "primary.main" : "background.neutral", color: selected ? "primary.contrastText" : "text.secondary" }}>
+      <Avatar variant="rounded" sx={{ width: "calc(4.5 * var(--spacing))", height: "calc(4.5 * var(--spacing))", typography: "subtitle2", bgcolor: selected ? "primary.main" : "background.neutral", color: selected ? "primary.contrastText" : "text.secondary" }}>
         {text}
       </Avatar>
       <ListItemText

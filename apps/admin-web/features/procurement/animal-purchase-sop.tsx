@@ -198,8 +198,8 @@ const ATTENTION_ROW_SX = {
 } as const;
 
 const ATTENTION_DOT_SX = {
-  width: "var(--sp-1)",
-  height: "var(--sp-1)",
+  width: "calc(1 * var(--spacing))",
+  height: "calc(1 * var(--spacing))",
   borderRadius: "50%",
   display: "inline-block",
   flex: "0 0 auto",

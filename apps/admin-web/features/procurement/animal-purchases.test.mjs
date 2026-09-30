@@ -92,7 +92,7 @@ test("answers group by served section and an attention row is flagged", () => {
   // dot carrying the backend hint as its accessible name. No legacy .ap-* stylesheet rule.
   assert.match(sop, /sx=\{row\.attention \? ATTENTION_ROW_SX : ANSWER_ROW_SX\}/);
   assert.match(sop, /\{row\.attention \? <Box component="span" data-attention-dot="" title=\{copy\.attentionHint\} role="img" aria-label=\{copy\.attentionHint\}/);
-  assert.match(sop, /const ATTENTION_DOT_SX = \{\s*width: "var\(--sp-1\)",\s*height: "var\(--sp-1\)",\s*borderRadius: "50%",[\s\S]*?bgcolor: "warning\.main",/);
+  assert.match(sop, /const ATTENTION_DOT_SX = \{\s*width: "calc\(1 \* var\(--spacing\)\)",\s*height: "calc\(1 \* var\(--spacing\)\)",\s*borderRadius: "50%",[\s\S]*?bgcolor: "warning\.main",/);
   assert.doesNotMatch(sop, /className=/);
 });
 

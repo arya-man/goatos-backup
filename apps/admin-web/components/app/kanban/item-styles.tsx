@@ -142,8 +142,8 @@ export function ItemInfo({ sx, assignee = [], comments = 0, attachments = 0, chi
             sx={{
               flexShrink: 0,
               [`& .${avatarGroupClasses.avatar}`]: {
-                width: 'var(--sp-3)',
-                height: 'var(--sp-3)',
+                width: 'calc(3 * var(--spacing))',
+                height: 'calc(3 * var(--spacing))',
                 typography: 'caption',
               },
             }}

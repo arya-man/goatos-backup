@@ -19,13 +19,13 @@ export type CeoAiChart = {
 
 // Mock palette(), in order — series colours that exist in both themes.
 export const CHART_PALETTE = [
-  "var(--brand)",
-  "var(--info)",
+  "var(--palette-primary-main)",
+  "var(--palette-info-main)",
   "var(--amber)",
-  "var(--purple)",
+  "var(--palette-secondary-main)",
   "var(--teal)",
-  "var(--danger)",
-  "var(--ok)",
+  "var(--palette-error-main)",
+  "var(--palette-success-main)",
 ] as const;
 
 // Bars render as HTML rows (label above a proportional track) rather than SVG
@@ -190,7 +190,7 @@ function barLayout(labels: string[], series: CeoAiChartSeries[], legend: ChartLe
       // Colour means "which series", never "which row": one series = one colour, so weeks of
       // the same measure never look like different things.
       // Exception: a single-series loss (-18) must not look like a gain the same length.
-      color: !multi && value !== null && value < 0 ? "var(--danger)" : CHART_PALETTE[0],
+      color: !multi && value !== null && value < 0 ? "var(--palette-error-main)" : CHART_PALETTE[0],
     };
     if (multi) {
       bar.parts = series.map((s, k) => ({

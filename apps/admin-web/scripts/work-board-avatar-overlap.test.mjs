@@ -49,7 +49,7 @@ test('work-board assignees are the template kanban AvatarGroup, not the retired 
     assert.doesNotMatch(read(f), /className=["'{][^"'}]*\bavs\b|className=["']av["']/, `${f} renders the retired .avs/.av markup`);
   }
   const item = read('../components/app/kanban/item-styles.tsx');
-  assert.match(item, /<AvatarGroup[\s\S]*?width: 'var\(--sp-3\)',\s*height: 'var\(--sp-3\)',\s*typography: 'caption'/);
+  assert.match(item, /<AvatarGroup[\s\S]*?width: 'calc\(3 \* var\(--spacing\)\)',\s*height: 'calc\(3 \* var\(--spacing\)\)',\s*typography: 'caption'/);
   assert.doesNotMatch(item.slice(item.indexOf('<AvatarGroup')), /<Avatar[^>]*onClick/, 'assignee avatars stay display-only');
 });
 

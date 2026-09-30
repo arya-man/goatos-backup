@@ -36,6 +36,6 @@ export const ASSIGNEE_FIELD_SX: SxProps<Theme> = (theme) => ({
     "&[aria-invalid='true']": { borderColor: "error.main" },
     "& .avs-value": { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
     "& .muted": { color: "text.secondary" },
-    "& svg": { width: "var(--sp-2)", height: "var(--sp-2)", flex: "none", color: "text.secondary" },
+    "& svg": { width: "calc(2 * var(--spacing))", height: "calc(2 * var(--spacing))", flex: "none", color: "text.secondary" },
   },
 });

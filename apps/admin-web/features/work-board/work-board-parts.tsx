@@ -25,7 +25,7 @@ export function WorkProgress({ row, size = "sm" }: { row: WorkBoardRow; size?: "
       sx={{
         display: "flex",
         overflow: "hidden",
-        height: size === "lg" ? "var(--sp-1)" : "var(--sp-half)",
+        height: size === "lg" ? "calc(1 * var(--spacing))" : "calc(0.5 * var(--spacing))",
         borderRadius: 999,
         bgcolor: "action.hover",
       }}

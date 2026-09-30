@@ -127,8 +127,8 @@ export function AnimalPurchaseLightbox({ items, openLabel, closeLabel }: { items
                     sx={{
                       display: "grid",
                       placeItems: "center",
-                      width: "var(--sp-5)",
-                      height: "var(--sp-5)",
+                      width: "calc(5 * var(--spacing))",
+                      height: "calc(5 * var(--spacing))",
                       borderRadius: "50%",
                       color: "common.white",
                       bgcolor: varAlpha(theme.vars.palette.common.blackChannel, 0.45),

@@ -14,7 +14,7 @@ export const SCROLL_EDGE_SELECTOR = ".kit-tabs, [data-scroll-x]";
 const SELECTOR = SCROLL_EDGE_SELECTOR;
 const FADE = 64;
 // The template Card radius (theme shape x 2), so a fade stops at the card's rounded corner.
-const CARD_RADIUS = "var(--r-xl)";
+const CARD_RADIUS = "calc(2 * var(--shape-borderRadius))";
 
 type Edge = { key: string; left: number; top: number; height: number; side: "left" | "right"; tone: "paper" | "bg"; radius: string };
 

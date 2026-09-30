@@ -110,7 +110,7 @@ function defaultWindow(): { from: string; to: string } {
 // Colour follows the SERIES, not its rank: a reader who learns that red is deaths on
 // the flow chart must not meet a red "sold" line on the next one.
 const SERIES_COLOR = {
-  births: "var(--ok)",
+  births: "var(--palette-success-main)",
   deaths: "var(--palette-error-main)",
   sold: "var(--palette-info-main)",
   other_exits: "var(--amber)",

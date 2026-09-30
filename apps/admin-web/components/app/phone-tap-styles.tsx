@@ -49,8 +49,8 @@ export function PhoneTapStyles() {
           ].join(', ')]: { minWidth: TAP, minHeight: TAP },
           // The switch thumb button is 32px (18px small); padding grows it to 44px and `left` keeps the thumb
           // exactly where the template draws it.
-          '.MuiSwitch-switchBase.MuiSwitch-switchBase': { padding: 'calc(var(--sp-2) - 1px)', left: 0 },
-          '.MuiSwitch-sizeSmall .MuiSwitch-switchBase.MuiSwitch-switchBase': { padding: 'calc(var(--sp-2) + 1px)', left: 'calc(var(--sp-1) * -1 + 1px)' },
+          '.MuiSwitch-switchBase.MuiSwitch-switchBase': { padding: 'calc(calc(2 * var(--spacing)) - 1px)', left: 0 },
+          '.MuiSwitch-sizeSmall .MuiSwitch-switchBase.MuiSwitch-switchBase': { padding: 'calc(calc(2 * var(--spacing)) + 1px)', left: 'calc(calc(1 * var(--spacing)) * -1 + 1px)' },
           // The slider thumb is 14px; its ::after is the touch area (MUI's own hit-slop pattern).
           '.MuiSlider-thumb.MuiSlider-thumb::after': { width: TAP, height: TAP },
           '.MuiCheckbox-root input, .MuiRadio-root input': { width: '100%', height: '100%', top: 0, left: 0 },

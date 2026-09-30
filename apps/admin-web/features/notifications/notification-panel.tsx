@@ -86,8 +86,8 @@ function toneCircleSx(tone: NotificationTone) {
   return (theme: Theme) => {
     const key = tone === "neutral" ? null : TONE_PALETTE[tone];
     return {
-      width: "var(--sp-5)",
-      height: "var(--sp-5)",
+      width: "calc(5 * var(--spacing))",
+      height: "calc(5 * var(--spacing))",
       flex: "none",
       display: "flex",
       borderRadius: "50%",
@@ -452,7 +452,7 @@ function NotificationRow({
       <Box sx={{ position: "relative", flex: "none", display: "grid", placeItems: "center", width: "var(--btn-h)", minHeight: "var(--btn-h)", mt: -0.5 }}>
         {read ? null : (
           <>
-            <Box data-row-dot aria-hidden="true" sx={{ width: "var(--sp-1)", height: "var(--sp-1)", borderRadius: "50%", bgcolor: "info.main", transition: "opacity 120ms" }} />
+            <Box data-row-dot aria-hidden="true" sx={{ width: "calc(1 * var(--spacing))", height: "calc(1 * var(--spacing))", borderRadius: "50%", bgcolor: "info.main", transition: "opacity 120ms" }} />
             <Tooltip title={centreCopy.markRead}>
               <IconButton
                 data-row-mark

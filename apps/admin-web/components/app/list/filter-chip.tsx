@@ -24,7 +24,7 @@ export type FilterChipProps = {
 };
 
 export function FilterChip({ label, href, on = false, dot, disabled = false, title, replace, removable = false, className }: FilterChipProps) {
-  const icon = dot ? <Box component="span" sx={{ width: 'var(--sp-1)', height: 'var(--sp-1)', borderRadius: '50%', bgcolor: dot, ml: 1 }} /> : undefined;
+  const icon = dot ? <Box component="span" sx={{ width: 'calc(1 * var(--spacing))', height: 'calc(1 * var(--spacing))', borderRadius: '50%', bgcolor: dot, ml: 1 }} /> : undefined;
   if (!href || disabled) {
     return <Chip label={label} icon={icon} disabled={disabled} title={title} aria-disabled={disabled || undefined} variant={on ? 'filled' : 'outlined'} className={className} />;
   }

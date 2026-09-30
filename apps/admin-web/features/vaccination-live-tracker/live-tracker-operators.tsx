@@ -70,7 +70,7 @@ export function LiveTrackerOperators({
         {/* Template user-list name cell: avatar + name. */}
         <TableCell>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, minWidth: 0 }}>
-            <Avatar aria-hidden="true" sx={{ width: "var(--sp-4)", height: "var(--sp-4)", typography: "caption", fontWeight: "fontWeightBold" }}>
+            <Avatar aria-hidden="true" sx={{ width: "calc(4 * var(--spacing))", height: "calc(4 * var(--spacing))", typography: "caption", fontWeight: "fontWeightBold" }}>
               {initials(row.operator_name)}
             </Avatar>
             <Box sx={{ minWidth: 0, maxWidth: 160, typography: "subtitle2" }}>

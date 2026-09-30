@@ -874,7 +874,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
           {STATUS_KEYS.map((key) => (
             <MenuItem key={key} value={key}>
               <Checkbox disableRipple size="small" checked={statuses.has(key)} slotProps={{ input: { "aria-label": copy(pageContract, `command_board.shed_matrix.state.${key}`) } }} />
-              <Box component="span" aria-hidden sx={{ width: "var(--sp-1)", height: "var(--sp-1)", borderRadius: "50%", bgcolor: `${STATUS_COLOR[key]}.main`, flexShrink: 0, mr: 1 }} />
+              <Box component="span" aria-hidden sx={{ width: "calc(1 * var(--spacing))", height: "calc(1 * var(--spacing))", borderRadius: "50%", bgcolor: `${STATUS_COLOR[key]}.main`, flexShrink: 0, mr: 1 }} />
               {copy(pageContract, `command_board.shed_matrix.state.${key}`)}
             </MenuItem>
           ))}

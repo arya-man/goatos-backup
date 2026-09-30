@@ -25,7 +25,7 @@ export const ColumnWrapper = styled('section')({
   flexShrink: 0,
   display: 'flex',
   flexDirection: 'column',
-  width: 'min(var(--kanban-column-width), calc(100vw - var(--sp-3) * 2))',
+  width: 'min(var(--kanban-column-width), calc(100vw - calc(3 * var(--spacing)) * 2))',
 });
 
 export const ColumnRoot = styled('div')(({ theme }) => {
@@ -81,7 +81,7 @@ export const ColumnRoot = styled('div')(({ theme }) => {
 
 export const ColumnList = styled('ul')({
   margin: 0,
-  minHeight: 'calc(var(--sp-2) * 5)',
+  minHeight: 'calc(10 * var(--spacing))',
   display: 'flex',
   listStyle: 'none',
   overflowAnchor: 'none',

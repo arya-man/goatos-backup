@@ -207,8 +207,8 @@ export function ActivityAvatar({ pending = false, initials }: { pending?: boolea
       aria-hidden="true"
       data-ltd-avatar={pending ? "me" : "actor"}
       sx={(theme) => ({
-        width: "var(--sp-4)",
-        height: "var(--sp-4)",
+        width: "calc(4 * var(--spacing))",
+        height: "calc(4 * var(--spacing))",
         flex: "none",
         typography: "caption",
         fontWeight: "fontWeightBold",

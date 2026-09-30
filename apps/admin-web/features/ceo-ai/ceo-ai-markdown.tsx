@@ -62,7 +62,7 @@ function CodeBlock({ children }: { children?: ReactNode }) {
         <CopyButton text={code} label="Copy code" />
       </Stack>
       {isHtml && preview ? (
-        <Box component="iframe" sandbox="" srcDoc={code} title="HTML preview" sx={{ width: 1, height: "calc(var(--sp-4) * 10)", border: 0, bgcolor: "background.paper" }} />
+        <Box component="iframe" sandbox="" srcDoc={code} title="HTML preview" sx={{ width: 1, height: "calc(40 * var(--spacing))", border: 0, bgcolor: "background.paper" }} />
       ) : (
         <pre tabIndex={0}>{children}</pre>
       )}

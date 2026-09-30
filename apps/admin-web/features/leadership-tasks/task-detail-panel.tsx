@@ -321,7 +321,7 @@ function Person({ name, sub, dash }: { name: string; sub?: string; dash: string 
   if (!name) return <Quiet>{dash}</Quiet>;
   return (
     <Box sx={{ gap: 1.5, display: "flex", alignItems: "center", minWidth: 0 }}>
-      <Avatar alt={name} sx={{ width: "var(--sp-4)", height: "var(--sp-4)", typography: "caption" }}>
+      <Avatar alt={name} sx={{ width: "calc(4 * var(--spacing))", height: "calc(4 * var(--spacing))", typography: "caption" }}>
         {initials(name)}
       </Avatar>
       <ListItemText

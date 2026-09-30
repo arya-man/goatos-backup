@@ -137,7 +137,7 @@ export function WorkBoardModal({ pageContract, rows, initialSelectedRowKey, clos
           {info(
             copy(pageContract, "detail.owner"),
             <>
-              <Avatar sx={{ width: "var(--sp-4)", height: "var(--sp-4)", typography: "caption", ...(stack.names.length ? {} : row.owner_state === "missing" ? { bgcolor: "error.main", color: "error.contrastText" } : {}) }}>
+              <Avatar sx={{ width: "calc(4 * var(--spacing))", height: "calc(4 * var(--spacing))", typography: "caption", ...(stack.names.length ? {} : row.owner_state === "missing" ? { bgcolor: "error.main", color: "error.contrastText" } : {}) }}>
                 {stack.names.length ? initials(stack.names[0]) : row.owner_state === "pool" ? "–" : "!"}
               </Avatar>
               <Box component="span" sx={{ color: stack.names.length ? "text.primary" : "text.secondary" }}>

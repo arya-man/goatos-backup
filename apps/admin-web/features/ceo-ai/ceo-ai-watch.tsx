@@ -111,7 +111,7 @@ export function CeoAiWatchCard(props: { watch: WatchState; onStop?: () => void }
     <Box
       component="section"
       aria-label="Live tag watch"
-      sx={{ mb: 1.5, border: 1, borderColor: live ? "success.main" : "divider", borderRadius: "var(--r-md)", overflow: "hidden", bgcolor: "background.paper" }}
+      sx={{ mb: 1.5, border: 1, borderColor: live ? "success.main" : "divider", borderRadius: "calc(1 * var(--shape-borderRadius))", overflow: "hidden", bgcolor: "background.paper" }}
     >
       <Stack direction="row" spacing={1.5} sx={{ alignItems: "center", px: 2, py: 1.5 }}>
         <Label variant="soft" color={live ? "success" : "default"}>

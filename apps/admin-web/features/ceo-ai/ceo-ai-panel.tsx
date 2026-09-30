@@ -1311,7 +1311,7 @@ export function CeoAiPanel({
         {dockSlot
           ? createPortal(
               <IconButton onClick={openPanel} aria-label={copy.open} title={copy.title}>
-                <GoatAvatar size="var(--sp-3)" />
+                <GoatAvatar size="calc(3 * var(--spacing))" />
               </IconButton>,
               dockSlot,
             )

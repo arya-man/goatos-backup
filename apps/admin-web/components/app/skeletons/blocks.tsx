@@ -378,7 +378,7 @@ export function KpiCardSkeleton({ spark, booking, trend, hint, hintLines = 1, fa
     </Box>
   ) : null;
   const trendRow = (
-    <Box sx={{ gap: 0.5, display: "flex", alignItems: "center", height: "var(--sp-3)" }}>
+    <Box sx={{ gap: 0.5, display: "flex", alignItems: "center", height: "calc(3 * var(--spacing))" }}>
       <Skeleton variant="circular" width={24} height={24} />
       <Skeleton variant="text" width={96} />
     </Box>
@@ -477,7 +477,7 @@ export function StatStripSkeleton({ count, meta = false, card = true, wrapBelowM
         {Array.from({ length: count }, (_, i) => cell(i))}
       </Box>
     ) : (
-      <Box sx={{ minHeight: minHeight ? "calc(var(--sp-6) * 2.25)" : 0, overflow: "hidden" }}>
+      <Box sx={{ minHeight: minHeight ? "calc(13.5 * var(--spacing))" : 0, overflow: "hidden" }}>
         <Stack direction="row" divider={<Divider orientation="vertical" flexItem sx={{ borderStyle: "dashed" }} />} sx={{ py: 2 }}>
           {Array.from({ length: count }, (_, i) => cell(i))}
         </Stack>
@@ -599,7 +599,7 @@ function SkeletonTableBody({ columns, rows, dense, lead }: { columns: number; ro
 /** Pager twin: the template TablePaginationCustom 64px toolbar, range + arrows right-aligned. */
 export function PagerSkeleton() {
   return (
-    <Box aria-hidden="true" sx={{ minHeight: "calc(var(--sp-4) * 2)", px: 2, display: "flex", alignItems: "center", justifyContent: "flex-end", columnGap: 3 }}>
+    <Box aria-hidden="true" sx={{ minHeight: "calc(8 * var(--spacing))", px: 2, display: "flex", alignItems: "center", justifyContent: "flex-end", columnGap: 3 }}>
       <Skeleton variant="text" width={120} sx={{ display: { xs: "none", sm: "block" } }} />
       <Skeleton variant="text" width={72} />
       <Box sx={{ display: "flex", gap: 1 }}>
@@ -850,7 +850,7 @@ export function StackedRowsSkeleton({
     <Box aria-hidden="true" data-skel="rows" sx={{ display: always ? "block" : { xs: "block", sm: "none" }, borderTop: 1, borderColor: "divider" }}>
       {Array.from({ length: rows }, (_, i) => (
         <Box key={i} sx={{ display: "flex", alignItems: "center", gap: 1, pl: 2, pr: 1, py: 1.25, borderBottom: 1, borderColor: "divider" }}>
-          <Stack spacing={0.5} sx={{ flex: "1 1 auto", minWidth: 0, minHeight: "var(--tap-min)", justifyContent: "center" }}>
+          <Stack spacing={0.5} sx={{ flex: "1 1 auto", minWidth: 0, minHeight: TAP_MIN, justifyContent: "center" }}>
             <Stack direction="row" spacing={1} sx={{ alignItems: "center", minWidth: 0 }}>
               <SkeletonLine variant="subtitle2" width={wobble(i, 34, 24)} />
               {headLabel ? <Skeleton variant="rounded" width={56} height={24} sx={{ flexShrink: 0 }} /> : null}
@@ -861,7 +861,7 @@ export function StackedRowsSkeleton({
             {tailLabel ? <Skeleton variant="rounded" width={112} height={24} /> : null}
           </Stack>
           {trailing ? (
-            <Box sx={{ width: "var(--tap-min)", height: "var(--tap-min)", flexShrink: 0, display: "grid", placeItems: "center" }}>
+            <Box sx={{ width: TAP_MIN, height: TAP_MIN, flexShrink: 0, display: "grid", placeItems: "center" }}>
               <Skeleton variant="circular" width={20} height={20} />
             </Box>
           ) : null}
@@ -1004,7 +1004,7 @@ export function KanbanSkeleton({
         borderRadius: 2,
         bgcolor: "background.neutral",
         minWidth: 0,
-        ...(layout === "kanban" ? { width: laneWidth ? capLane(laneWidth) : "min(calc(var(--sp-6) * 7), calc(100vw - var(--sp-6)))" } : {}),
+        ...(layout === "kanban" ? { width: laneWidth ? capLane(laneWidth) : "min(calc(42 * var(--spacing)), calc(100vw - calc(6 * var(--spacing))))" } : {}),
         ...(minHeight ? { minHeight } : {}),
       }}
     >
@@ -1012,7 +1012,7 @@ export function KanbanSkeleton({
         <Skeleton variant="circular" width={24} height={24} />
         <SkeletonLine variant="h6" width="46%" />
       </Box>
-      <Stack spacing={2} sx={{ px: 2, pb: 2, minHeight: "calc(var(--sp-5) * 2)" }}>
+      <Stack spacing={2} sx={{ px: 2, pb: 2, minHeight: "calc(10 * var(--spacing))" }}>
         {Array.from({ length: cards }, (_, c) => (
           <Card key={c} sx={{ p: 2.5, borderRadius: 1.5, boxShadow: "none" }}>
             <SkeletonLine variant="subtitle2" width={wobble(i + c, 56, 30)} />
@@ -1043,7 +1043,7 @@ export function KanbanSkeleton({
 
 /** The template ColumnRoot width rule: the board's column width, never wider than the phone less its gutters. */
 function capLane(width: string | Record<string, string>) {
-  const cap = (v: string) => `min(${v}, calc(100vw - var(--sp-3) * 2))`;
+  const cap = (v: string) => `min(${v}, calc(100vw - calc(3 * var(--spacing)) * 2))`;
   return typeof width === "string" ? cap(width) : Object.fromEntries(Object.entries(width).map(([bp, v]) => [bp, cap(v)]));
 }
 

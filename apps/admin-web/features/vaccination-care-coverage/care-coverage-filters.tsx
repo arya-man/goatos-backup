@@ -219,7 +219,7 @@ function PenMultiSelect({
         open={popover.open}
         anchorEl={popover.anchorEl}
         onClose={popover.onClose}
-        slotProps={{ arrow: { placement: "top-left" }, paper: { sx: { width: 300, maxWidth: "calc(100vw - var(--sp-4))" } } }}
+        slotProps={{ arrow: { placement: "top-left" }, paper: { sx: { width: 300, maxWidth: "calc(100vw - calc(4 * var(--spacing)))" } } }}
       >
         <Box sx={{ p: 1, display: "flex", flexDirection: "column", gap: 1 }}>
           <TextField
