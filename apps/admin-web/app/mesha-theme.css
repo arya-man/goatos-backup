@@ -2412,15 +2412,6 @@ input[type="checkbox"]:not(.lt-people-row input):not(.PrivateSwitchBase-input):d
 input[type=date],input[type=datetime-local],input[type=time],input[type=month],input[type=week]{color-scheme:dark}
 :root.light input[type=date],:root.light input[type=datetime-local],:root.light input[type=time],:root.light input[type=month],:root.light input[type=week]{color-scheme:light}
 
-/* Alerts page (maintainer decision 2026-09-16) -- the page below the Work Board. Scoped under
-   .alerts-page; only the table cells are pinned here. */
-.alerts-page .tbl td{vertical-align:top}
-.alerts-cfg-h{font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:14px 0 8px}
-/* Text columns keep a readable floor and the tablewrap scrolls sideways instead of squeezing
-   the detail to a word per line at phone width. */
-.alerts-page .tbl td:nth-child(2){min-width:220px}
-.alerts-page .tbl td:nth-child(5){min-width:260px}
-
 /* ============================================================================================
    TASK DETAIL PANEL (.ltd-*) — the leadership Tasks desk's issue view, shaped like a modern Jira
    issue view (maintainer decision 2026-09-18; the old "Selected task" rail was an empty card).
@@ -2660,11 +2651,6 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 .ffu-result>.tag{display:inline-block}
 .ffu-result>.tag+.tag{display:block;margin-top:4px}
 
-/* /alerts: the inline "Open" link in the detail cell was a 30x14 tap target on phones/webview.
-   Grow the hit area to 44px without changing the laptop row rhythm. */
-@media (max-width: 900px) {
-  .alerts-open-link { display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; padding: 0 6px; }
-}
 /* Approvals drawer: the Reject action is the LAST control in the body, directly above the footer.
    Keep a clear gap under it when the body is scrolled to the end, keep a focused/tabbed-to control
    out from under the footer edge, and never let the footer shrink into the body. */

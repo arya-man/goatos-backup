@@ -36,6 +36,16 @@ import { AlertsConfigure } from "./alerts-configure";
 import { alertsEmptyState, ALERTS_PATH, PARAM_CONFIGURE } from "./alerts-model";
 
 const PARAM_PARK = "park";
+// The inline "Open" link in the detail cell grows to a 44px hit area on phones / webview without
+// changing the laptop row rhythm.
+const openLinkSx = {
+  fontWeight: "fontWeightSemiBold",
+  display: { xs: "inline-flex", md: "inline" },
+  alignItems: "center",
+  minHeight: { xs: 44, md: 0 },
+  minWidth: { xs: 44, md: 0 },
+  px: { xs: 0.75, md: 0 },
+} as const;
 const PARAM_DATE = "date";
 const PARAM_SEVERITY = "severity";
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -109,7 +119,7 @@ export async function AlertsPage({ searchParams, pageContract }: { searchParams?
   const head = labels.map((label, index) => ({ id: `c${index}`, label, sortable: false }));
 
   return (
-    <Box className="screen on alerts-page">
+    <Box sx={{ minWidth: 0 }}>
       <PageHeader
         title={t("title")}
         crumbs={[{ label: t("crumb"), href: "/" }, { label: t("title") }]}
@@ -239,7 +249,7 @@ export async function AlertsPage({ searchParams, pageContract }: { searchParams?
                           {row.href ? (
                             <>
                               {" "}
-                              <MuiLink component={Link} href={row.href} className="alerts-open-link" underline="hover" sx={{ fontWeight: "fontWeightSemiBold" }}>
+                              <MuiLink component={Link} href={row.href} underline="hover" sx={openLinkSx}>
                                 {t("action.open")}
                               </MuiLink>
                             </>

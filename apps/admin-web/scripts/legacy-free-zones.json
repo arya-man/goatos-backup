@@ -1,8 +1,7 @@
 {
   "//": "Files fully on the MUI Minimal template (guard legacy-free-zone, scripts/lib/legacy-free-zones.mjs). Add a file or a directory prefix (ending in /) once it has no legacy class, style={}, native control, lucide icon, .css import or colour literal. Zones only grow.",
   "zones": [
-    "app/(admin)/alerts/error.tsx",
-    "app/(admin)/alerts/page.tsx",
+    "app/(admin)/alerts/",
     "app/(admin)/approvals/loading.tsx",
     "app/(admin)/approvals/page.tsx",
     "app/(admin)/calendar/(index)/loading.tsx",
@@ -81,9 +80,7 @@
     "app/(admin)/workflows/(index)/page.tsx",
     "app/(admin)/workflows/[row_id]/loading.tsx",
     "app/(admin)/workflows/[row_id]/page.tsx",
-    "features/alerts/actions.ts",
-    "features/alerts/alerts-model.ts",
-    "features/alerts/index.ts",
+    "features/alerts/",
     "features/approvals/actions.ts",
     "features/approvals/approval-display.ts",
     "features/approvals/approvals-date-filter.tsx",

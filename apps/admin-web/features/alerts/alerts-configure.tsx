@@ -1,8 +1,15 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Card from "@mui/material/Card";
 import TextField from "@mui/material/TextField";
-import { Settings2 } from "lucide-react";
+import Typography from "@mui/material/Typography";
+
+import { phoneTapSx } from "@/components/app/tap";
+import { Iconify } from "@/components/minimal/iconify";
+import { Label } from "@/components/minimal/label";
 
 import { LocalOverlayDrawer } from "@/components/local-overlay-drawer";
 import MenuItem from "@mui/material/MenuItem";
@@ -45,38 +52,93 @@ export function AlertsConfigure({
         id: "1",
         eyebrow: t("crumb"),
         title: t("configure.title"),
-        icon: <Settings2 className="ic" aria-hidden="true" />,
+        icon: <Iconify icon="solar:settings-bold" width={18} aria-hidden="true" />,
         body: rules ? (
           <div data-testid="alerts-configure-drawer">
-            <p className="small muted" style={{ marginTop: 0 }}>
+            <Typography variant="body2" sx={{ color: "text.secondary", mb: 1.5 }}>
               {t("configure.intro")}
-            </p>
-            <h4 className="alerts-cfg-h">{t("configure.builtin.title")}</h4>
+            </Typography>
+            <SectionTitle>{t("configure.builtin.title")}</SectionTitle>
             {rules.map((rule) => (
               <RuleRow key={rule.key} rule={rule} pageContract={pageContract} />
             ))}
             <EventRules pageContract={pageContract} initialRules={eventRules} kinds={eventKinds} />
-            <p className="small muted" style={{ marginTop: 14 }}>
+            <Typography variant="body2" sx={{ color: "text.secondary", mt: 2 }}>
               {t("configure.more_rules")}
-            </p>
+            </Typography>
           </div>
         ) : (
-          <div className="small muted">{t("configure.unavailable")}</div>
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>
+            {t("configure.unavailable")}
+          </Typography>
         ),
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps -- t is derived from pageContract
     [pageContract, rules, eventRules, eventKinds],
   );
-  return <LocalOverlayDrawer items={items} selectionKey={PARAM_CONFIGURE} initialSelectedId={initialOpen ? "1" : undefined} closeHref={closeHref} ariaLabel={t("configure.title")} closeLabel={t("configure.close")} />;
+  return (
+    <LocalOverlayDrawer
+      items={items}
+      selectionKey={PARAM_CONFIGURE}
+      initialSelectedId={initialOpen ? "1" : undefined}
+      closeHref={closeHref}
+      ariaLabel={t("configure.title")}
+      closeLabel={t("configure.close")}
+    />
+  );
 }
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <Typography variant="subtitle2" component="h4" sx={{ mt: 2, mb: 1 }}>
+      {children}
+    </Typography>
+  );
+}
+
+function Secondary({ children }: { children: React.ReactNode }) {
+  return (
+    <Typography variant="body2" sx={{ color: "text.secondary" }}>
+      {children}
+    </Typography>
+  );
+}
+
+function StatusMessage({ message }: { message: { tone: "ok" | "dng"; text: string } | null }) {
+  if (!message) return null;
+  return (
+    <Typography variant="body2" role="status" sx={{ color: message.tone === "dng" ? "error.main" : "success.main" }}>
+      {message.text}
+    </Typography>
+  );
+}
+
+function EnabledLabel({ enabled, pageContract }: { enabled: boolean; pageContract: AdminUiPageContract }) {
+  return (
+    <Label variant="soft" color={enabled ? "success" : "default"} sx={{ flexShrink: 0 }}>
+      {enabled ? copy(pageContract, "configure.enabled") : copy(pageContract, "configure.disabled")}
+    </Label>
+  );
+}
+
+const ruleCardSx = { p: 2, mb: 1.5, display: "grid", gap: 1 } as const;
+const actionRowSx = {
+  display: "flex",
+  alignItems: "center",
+  gap: 1,
+  flexWrap: "wrap",
+} as const;
 
 function RuleRow({ rule: initial, pageContract }: { rule: AlertRuleConfig; pageContract: AdminUiPageContract }) {
   const t = (key: string) => copy(pageContract, key);
   const [rule, setRule] = useState(initial);
   const [enabled, setEnabled] = useState(initial.enabled);
   const [threshold, setThreshold] = useState(String(initial.threshold));
-  const [message, setMessage] = useState<{ tone: "ok" | "dng"; text: string } | null>(null);
+  const [message, setMessage] = useState<{
+    tone: "ok" | "dng";
+    text: string;
+  } | null>(null);
   const [pending, startTransition] = useTransition();
   const dirty = enabled !== rule.enabled || threshold.trim() !== String(rule.threshold);
   const inputId = `alert-rule-${rule.key}-threshold`;
@@ -84,7 +146,12 @@ function RuleRow({ rule: initial, pageContract }: { rule: AlertRuleConfig; pageC
   const onSave = () => {
     setMessage(null);
     startTransition(async () => {
-      const result = await saveAlertRuleAction({ ruleKey: rule.key, enabled, threshold, attempt: newAttempt() });
+      const result = await saveAlertRuleAction({
+        ruleKey: rule.key,
+        enabled,
+        threshold,
+        attempt: newAttempt(),
+      });
       if (result.ok) {
         setRule(result.rule);
         setEnabled(result.rule.enabled);
@@ -97,62 +164,67 @@ function RuleRow({ rule: initial, pageContract }: { rule: AlertRuleConfig; pageC
   };
 
   return (
-    <div className="card alerts-rule" style={{ marginBottom: 10 }} data-testid="alerts-rule-row" data-rule={rule.key}>
-      <div className="bd" style={{ display: "grid", gap: 8 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <FormControlLabel
-            className="small"
-            disabled={pending}
-            control={<Checkbox checked={enabled} onChange={(event) => setEnabled(event.target.checked)} sx={{ p: { xs: 1.5, sm: 1 } }} slotProps={{ input: { "data-testid": "alerts-rule-enabled" } as React.InputHTMLAttributes<HTMLInputElement> }} />}
-            label={rule.label}
-          />
-          <span className="sp" style={{ flex: 1 }} />
-          <span className={`tag ${enabled ? "t-ok" : "t-mut"}`}>{enabled ? t("configure.enabled") : t("configure.disabled")}</span>
-        </div>
-        <div className="small muted">{rule.description}</div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <label className="small" htmlFor={inputId}>
-            {rule.threshold_label}
-          </label>
-          <TextField
-            id={inputId}
-            type="number"
-            size="small"
-            value={threshold}
-            disabled={pending}
-            onChange={(event) => setThreshold(event.target.value)}
-            sx={{ width: 96 }}
-            slotProps={{
-              htmlInput: {
-                inputMode: "numeric",
-                min: rule.min_threshold,
-                max: rule.max_threshold,
-                step: 1,
-                "data-testid": "alerts-rule-threshold",
-              },
-            }}
-          />
-          <span className="small muted">{rule.threshold_unit}</span>
-          <span className="small muted">
-            · {t("configure.default")} {rule.default_threshold}
-          </span>
-          <span className="sp" style={{ flex: 1 }} />
-          <button type="button" className="btn primary sm" disabled={pending || !dirty} onClick={onSave} data-testid="alerts-rule-save">
-            {t("configure.save")}
-          </button>
-        </div>
-        {rule.stored && rule.updated_at ? (
-          <div className="small muted">
-            {t("configure.updated_by")} {rule.updated_by || "—"} · {rule.updated_at}
-          </div>
-        ) : null}
-        {message ? (
-          <div className="small" role="status" style={{ color: message.tone === "dng" ? "var(--danger)" : "var(--ok)" }}>
-            {message.text}
-          </div>
-        ) : null}
-      </div>
-    </div>
+    <Card variant="outlined" sx={ruleCardSx} data-testid="alerts-rule-row" data-rule={rule.key}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
+        <FormControlLabel
+          disabled={pending}
+          control={
+            <Checkbox
+              checked={enabled}
+              onChange={(event) => setEnabled(event.target.checked)}
+              sx={{ p: { xs: 1.5, sm: 1 } }}
+              slotProps={{
+                input: {
+                  "data-testid": "alerts-rule-enabled",
+                } as React.InputHTMLAttributes<HTMLInputElement>,
+              }}
+            />
+          }
+          label={rule.label}
+          slotProps={{ typography: { variant: "body2" } }}
+          sx={{ flex: 1, mr: 0 }}
+        />
+        <EnabledLabel enabled={enabled} pageContract={pageContract} />
+      </Box>
+      <Secondary>{rule.description}</Secondary>
+      <Box sx={actionRowSx}>
+        <Typography variant="body2" component="label" htmlFor={inputId}>
+          {rule.threshold_label}
+        </Typography>
+        <TextField
+          id={inputId}
+          type="number"
+          size="small"
+          value={threshold}
+          disabled={pending}
+          onChange={(event) => setThreshold(event.target.value)}
+          sx={{ width: 96 }}
+          slotProps={{
+            htmlInput: {
+              inputMode: "numeric",
+              min: rule.min_threshold,
+              max: rule.max_threshold,
+              step: 1,
+              "data-testid": "alerts-rule-threshold",
+            },
+          }}
+        />
+        <Secondary>{rule.threshold_unit}</Secondary>
+        <Secondary>
+          · {t("configure.default")} {rule.default_threshold}
+        </Secondary>
+        <Box sx={{ flex: 1 }} />
+        <Button variant="contained" size="small" disabled={pending || !dirty} onClick={onSave} data-testid="alerts-rule-save" sx={phoneTapSx}>
+          {t("configure.save")}
+        </Button>
+      </Box>
+      {rule.stored && rule.updated_at ? (
+        <Secondary>
+          {t("configure.updated_by")} {rule.updated_by || "—"} · {rule.updated_at}
+        </Secondary>
+      ) : null}
+      <StatusMessage message={message} />
+    </Card>
   );
 }
 
@@ -164,11 +236,15 @@ function EventRules({ pageContract, initialRules, kinds }: { pageContract: Admin
   const [rules, setRules] = useState(initialRules);
   return (
     <div data-testid="alerts-event-rules">
-      <h4 className="alerts-cfg-h">{t("configure.events.title")}</h4>
-      <p className="small muted" style={{ marginTop: 0 }}>
+      <SectionTitle>{t("configure.events.title")}</SectionTitle>
+      <Typography variant="body2" sx={{ color: "text.secondary", mb: 1.5 }}>
         {t("configure.events.intro")}
-      </p>
-      {rules.length === 0 ? <div className="small muted" style={{ marginBottom: 10 }}>{t("configure.events.empty")}</div> : null}
+      </Typography>
+      {rules.length === 0 ? (
+        <Typography variant="body2" sx={{ color: "text.secondary", mb: 1.5 }}>
+          {t("configure.events.empty")}
+        </Typography>
+      ) : null}
       {rules.map((rule) => (
         <EventRuleRow
           key={rule.id}
@@ -198,19 +274,41 @@ function severityOptions(pageContract: AdminUiPageContract): { key: string; labe
   ];
 }
 
-function EventRuleRow({ rule, kinds, pageContract, onSaved, onRemoved }: { rule: AlertEventRule; kinds: AlertEventKind[]; pageContract: AdminUiPageContract; onSaved: (rule: AlertEventRule) => void; onRemoved: (id: string) => void }) {
+function EventRuleRow({
+  rule,
+  kinds,
+  pageContract,
+  onSaved,
+  onRemoved,
+}: {
+  rule: AlertEventRule;
+  kinds: AlertEventKind[];
+  pageContract: AdminUiPageContract;
+  onSaved: (rule: AlertEventRule) => void;
+  onRemoved: (id: string) => void;
+}) {
   const t = (key: string) => copy(pageContract, key);
   const [label, setLabel] = useState(rule.label);
   const [kind, setKind] = useState(rule.kind);
   const [severity, setSeverity] = useState<string>(rule.severity);
   const [enabled, setEnabled] = useState(rule.enabled);
-  const [message, setMessage] = useState<{ tone: "ok" | "dng"; text: string } | null>(null);
+  const [message, setMessage] = useState<{
+    tone: "ok" | "dng";
+    text: string;
+  } | null>(null);
   const [pending, startTransition] = useTransition();
   const dirty = label.trim() !== rule.label || kind !== rule.kind || severity !== rule.severity || enabled !== rule.enabled;
   const save = () => {
     setMessage(null);
     startTransition(async () => {
-      const result = await saveAlertEventRuleAction({ id: rule.id, label, kind, severity, enabled, attempt: newAttempt() });
+      const result = await saveAlertEventRuleAction({
+        id: rule.id,
+        label,
+        kind,
+        severity,
+        enabled,
+        attempt: newAttempt(),
+      });
       if (result.ok) {
         onSaved(result.rule);
         setMessage({ tone: "ok", text: t("action.config_saved") });
@@ -226,74 +324,106 @@ function EventRuleRow({ rule, kinds, pageContract, onSaved, onRemoved }: { rule:
     });
   };
   return (
-    <div className="card alerts-rule" style={{ marginBottom: 10 }} data-testid="alerts-event-rule" data-rule-id={rule.id}>
-      <div className="bd" style={{ display: "grid", gap: 8 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <FormControlLabel
-            className="small"
+    <Card variant="outlined" sx={ruleCardSx} data-testid="alerts-event-rule" data-rule-id={rule.id}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
+        <FormControlLabel
+          disabled={pending}
+          sx={{ flex: 1, mr: 0, "& .MuiFormControlLabel-label": { flex: 1 } }}
+          control={
+            <Checkbox
+              checked={enabled}
+              onChange={(e) => setEnabled(e.target.checked)}
+              sx={{ p: { xs: 1.5, sm: 1 } }}
+              slotProps={{
+                input: {
+                  "data-testid": "alerts-event-enabled",
+                } as React.InputHTMLAttributes<HTMLInputElement>,
+              }}
+            />
+          }
+          label={
+            <TextField
+              size="small"
+              value={label}
+              disabled={pending}
+              onChange={(e) => setLabel(e.target.value)}
+              sx={{ flex: 1 }}
+              slotProps={{
+                htmlInput: {
+                  maxLength: 80,
+                  "aria-label": t("configure.events.label"),
+                  "data-testid": "alerts-event-label",
+                },
+              }}
+            />
+          }
+        />
+        <EnabledLabel enabled={enabled} pageContract={pageContract} />
+      </Box>
+      <Box sx={actionRowSx}>
+        <Typography variant="body2">{t("configure.events.when")}</Typography>
+        <div data-testid="alerts-event-kind">
+          <TextField
+            select
+            label={t("configure.events.kind")}
+            value={kind}
             disabled={pending}
-            control={<Checkbox checked={enabled} onChange={(e) => setEnabled(e.target.checked)} sx={{ p: { xs: 1.5, sm: 1 } }} slotProps={{ input: { "data-testid": "alerts-event-enabled" } as React.InputHTMLAttributes<HTMLInputElement> }} />}
-            label={<TextField size="small" value={label} disabled={pending} onChange={(e) => setLabel(e.target.value)} sx={{ flex: 1 }} slotProps={{ htmlInput: { maxLength: 80, "aria-label": t("configure.events.label"), "data-testid": "alerts-event-label" } }} />}
-          />
-          <span className={`tag ${enabled ? "t-ok" : "t-mut"}`}>{enabled ? t("configure.enabled") : t("configure.disabled")}</span>
+            onChange={(event) => setKind(event.target.value)}
+            sx={{ minWidth: { xs: 0, sm: 150 }, flexShrink: 0, maxWidth: 1 }}
+            slotProps={{
+              inputLabel: { shrink: true },
+              select: {
+                displayEmpty: true,
+                MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } },
+              },
+            }}
+          >
+            {kinds.map((k) => (
+              <MenuItem key={k.key} value={k.key}>
+                {k.label}
+              </MenuItem>
+            ))}
+          </TextField>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span className="small">{t("configure.events.when")}</span>
-          <div data-testid="alerts-event-kind">
-            <TextField
-              select
-              label={t("configure.events.kind")}
-              value={kind}
-              disabled={pending}
-              onChange={(event) => setKind(event.target.value)}
-              sx={{ minWidth: { xs: 0, sm: 150 }, flexShrink: 0, maxWidth: 1 }}
-              slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
-            >
-              {kinds.map((k) => (
-                <MenuItem key={k.key} value={k.key}>
-                  {k.label}
-                </MenuItem>
-              ))}
-            </TextField>
-          </div>
-          <div data-testid="alerts-event-severity">
-            <TextField
-              select
-              label={t("filter.severity")}
-              value={severity}
-              disabled={pending}
-              onChange={(event) => setSeverity(event.target.value)}
-              sx={{ minWidth: { xs: 0, sm: 150 }, flexShrink: 0, maxWidth: 1 }}
-              slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
-            >
-              {severityOptions(pageContract).map((o) => (
-                <MenuItem key={o.key} value={o.key}>
-                  {o.label}
-                </MenuItem>
-              ))}
-            </TextField>
-          </div>
-          <span className="sp" style={{ flex: 1 }} />
-          <button type="button" className="btn sm" disabled={pending} onClick={remove} data-testid="alerts-event-remove">
-            {t("configure.events.remove")}
-          </button>
-          <button type="button" className="btn primary sm" disabled={pending || !dirty} onClick={save} data-testid="alerts-event-save">
-            {t("configure.save")}
-          </button>
+        <div data-testid="alerts-event-severity">
+          <TextField
+            select
+            label={t("filter.severity")}
+            value={severity}
+            disabled={pending}
+            onChange={(event) => setSeverity(event.target.value)}
+            sx={{ minWidth: { xs: 0, sm: 150 }, flexShrink: 0, maxWidth: 1 }}
+            slotProps={{
+              inputLabel: { shrink: true },
+              select: {
+                displayEmpty: true,
+                MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } },
+              },
+            }}
+          >
+            {severityOptions(pageContract).map((o) => (
+              <MenuItem key={o.key} value={o.key}>
+                {o.label}
+              </MenuItem>
+            ))}
+          </TextField>
         </div>
-        <div className="small muted">{kinds.find((k) => k.key === kind)?.description ?? ""}</div>
-        {rule.updated_at ? (
-          <div className="small muted">
-            {t("configure.updated_by")} {rule.updated_by || "—"} · {rule.updated_at}
-          </div>
-        ) : null}
-        {message ? (
-          <div className="small" role="status" style={{ color: message.tone === "dng" ? "var(--danger)" : "var(--ok)" }}>
-            {message.text}
-          </div>
-        ) : null}
-      </div>
-    </div>
+        <Box sx={{ flex: 1 }} />
+        <Button variant="outlined" color="inherit" size="small" disabled={pending} onClick={remove} data-testid="alerts-event-remove" sx={phoneTapSx}>
+          {t("configure.events.remove")}
+        </Button>
+        <Button variant="contained" size="small" disabled={pending || !dirty} onClick={save} data-testid="alerts-event-save" sx={phoneTapSx}>
+          {t("configure.save")}
+        </Button>
+      </Box>
+      <Secondary>{kinds.find((k) => k.key === kind)?.description ?? ""}</Secondary>
+      {rule.updated_at ? (
+        <Secondary>
+          {t("configure.updated_by")} {rule.updated_by || "—"} · {rule.updated_at}
+        </Secondary>
+      ) : null}
+      <StatusMessage message={message} />
+    </Card>
   );
 }
 
@@ -302,12 +432,21 @@ function NewEventRule({ pageContract, kinds, onCreated }: { pageContract: AdminU
   const [label, setLabel] = useState("");
   const [kind, setKind] = useState(kinds[0]?.key ?? "");
   const [severity, setSeverity] = useState("warning");
-  const [message, setMessage] = useState<{ tone: "ok" | "dng"; text: string } | null>(null);
+  const [message, setMessage] = useState<{
+    tone: "ok" | "dng";
+    text: string;
+  } | null>(null);
   const [pending, startTransition] = useTransition();
   const add = () => {
     setMessage(null);
     startTransition(async () => {
-      const result = await saveAlertEventRuleAction({ label, kind, severity, enabled: true, attempt: newAttempt() });
+      const result = await saveAlertEventRuleAction({
+        label,
+        kind,
+        severity,
+        enabled: true,
+        attempt: newAttempt(),
+      });
       if (result.ok) {
         onCreated(result.rule);
         setLabel("");
@@ -316,58 +455,78 @@ function NewEventRule({ pageContract, kinds, onCreated }: { pageContract: AdminU
     });
   };
   return (
-    <div className="card alerts-rule" style={{ marginBottom: 10, borderStyle: "dashed" }} data-testid="alerts-event-new">
-      <div className="bd" style={{ display: "grid", gap: 8 }}>
-        <b className="small">{t("configure.events.add")}</b>
-        <TextField size="small" fullWidth value={label} placeholder={t("configure.events.label.placeholder")} disabled={pending} onChange={(e) => setLabel(e.target.value)} slotProps={{ htmlInput: { maxLength: 80, "aria-label": t("configure.events.label"), "data-testid": "alerts-event-new-label" } }} />
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span className="small">{t("configure.events.when")}</span>
-          <div data-testid="alerts-event-new-kind">
-            <TextField
-              select
-              label={t("configure.events.kind")}
-              value={kind}
-              disabled={pending}
-              onChange={(event) => setKind(event.target.value)}
-              sx={{ minWidth: { xs: 0, sm: 150 }, flexShrink: 0, maxWidth: 1 }}
-              slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
-            >
-              {kinds.map((k) => (
-                <MenuItem key={k.key} value={k.key}>
-                  {k.label}
-                </MenuItem>
-              ))}
-            </TextField>
-          </div>
-          <div data-testid="alerts-event-new-severity">
-            <TextField
-              select
-              label={t("filter.severity")}
-              value={severity}
-              disabled={pending}
-              onChange={(event) => setSeverity(event.target.value)}
-              sx={{ minWidth: { xs: 0, sm: 150 }, flexShrink: 0, maxWidth: 1 }}
-              slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
-            >
-              {severityOptions(pageContract).map((o) => (
-                <MenuItem key={o.key} value={o.key}>
-                  {o.label}
-                </MenuItem>
-              ))}
-            </TextField>
-          </div>
-          <span className="sp" style={{ flex: 1 }} />
-          <button type="button" className="btn primary sm" disabled={pending || !label.trim() || !kind} onClick={add} data-testid="alerts-event-new-add">
-            {t("configure.events.add_button")}
-          </button>
+    <Card variant="outlined" sx={{ ...ruleCardSx, borderStyle: "dashed" }} data-testid="alerts-event-new">
+      <Typography variant="subtitle2">{t("configure.events.add")}</Typography>
+      <TextField
+        size="small"
+        fullWidth
+        value={label}
+        placeholder={t("configure.events.label.placeholder")}
+        disabled={pending}
+        onChange={(e) => setLabel(e.target.value)}
+        slotProps={{
+          htmlInput: {
+            maxLength: 80,
+            "aria-label": t("configure.events.label"),
+            "data-testid": "alerts-event-new-label",
+          },
+        }}
+      />
+      <Box sx={actionRowSx}>
+        <Typography variant="body2">{t("configure.events.when")}</Typography>
+        <div data-testid="alerts-event-new-kind">
+          <TextField
+            select
+            label={t("configure.events.kind")}
+            value={kind}
+            disabled={pending}
+            onChange={(event) => setKind(event.target.value)}
+            sx={{ minWidth: { xs: 0, sm: 150 }, flexShrink: 0, maxWidth: 1 }}
+            slotProps={{
+              inputLabel: { shrink: true },
+              select: {
+                displayEmpty: true,
+                MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } },
+              },
+            }}
+          >
+            {kinds.map((k) => (
+              <MenuItem key={k.key} value={k.key}>
+                {k.label}
+              </MenuItem>
+            ))}
+          </TextField>
         </div>
-        <div className="small muted">{kinds.find((k) => k.key === kind)?.description ?? ""}</div>
-        {message ? (
-          <div className="small" role="status" style={{ color: message.tone === "dng" ? "var(--danger)" : "var(--ok)" }}>
-            {message.text}
-          </div>
-        ) : null}
-      </div>
-    </div>
+        <div data-testid="alerts-event-new-severity">
+          <TextField
+            select
+            label={t("filter.severity")}
+            value={severity}
+            disabled={pending}
+            onChange={(event) => setSeverity(event.target.value)}
+            sx={{ minWidth: { xs: 0, sm: 150 }, flexShrink: 0, maxWidth: 1 }}
+            slotProps={{
+              inputLabel: { shrink: true },
+              select: {
+                displayEmpty: true,
+                MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } },
+              },
+            }}
+          >
+            {severityOptions(pageContract).map((o) => (
+              <MenuItem key={o.key} value={o.key}>
+                {o.label}
+              </MenuItem>
+            ))}
+          </TextField>
+        </div>
+        <Box sx={{ flex: 1 }} />
+        <Button variant="contained" size="small" disabled={pending || !label.trim() || !kind} onClick={add} data-testid="alerts-event-new-add" sx={phoneTapSx}>
+          {t("configure.events.add_button")}
+        </Button>
+      </Box>
+      <Secondary>{kinds.find((k) => k.key === kind)?.description ?? ""}</Secondary>
+      <StatusMessage message={message} />
+    </Card>
   );
 }
