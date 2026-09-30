@@ -106,3 +106,18 @@ test("fumigation is pen work: its own card, never offered the feed & water remov
   assert.equal(pcCareReachCopyKey("hoof_trimming"), "pcsop.flow.reach_roster");
   assert.equal(pcCareReachCopyKey("deworming"), "pcsop.flow.reach_scan");
 });
+
+test("repeat every N days round-trips, stays absent when blank, and is bounded", async () => {
+  const rows = parsePcCare({ pc_care: seed });
+  assert.equal(rows.categories.fumigation.repeatEveryDays, "");
+  assert.equal("repeat_every_days" in emitPcCare(rows).categories.fumigation, false, "blank writes nothing -- the seed carries no repeat");
+  rows.categories.fumigation.repeatEveryDays = "30";
+  const out = emitPcCare(rows);
+  assert.equal(out.categories.fumigation.repeat_every_days, 30);
+  assert.equal(parsePcCare({ pc_care: out }).categories.fumigation.repeatEveryDays, "30");
+  assert.deepEqual(pcCareProblems(rows, label, REMOVAL), []);
+  for (const bad of ["0.5", "366", "-3"]) {
+    rows.categories.fumigation.repeatEveryDays = bad;
+    assert.ok(pcCareProblems(rows, label, REMOVAL).some((p) => p.includes("repeat every")), `${bad} must be refused`);
+  }
+});

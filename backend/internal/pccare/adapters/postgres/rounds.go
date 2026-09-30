@@ -172,6 +172,25 @@ func (r *Repository) CreateRound(ctx context.Context, p ports.CreateRoundParams)
 		return ports.RoundRow{}, fmt.Errorf("pccare: insert round assignees: %w", err)
 	}
 
+	// A repeat names, per pen, the task it was made from. The partial unique index makes "a task
+	// is repeated at most once" a database fact, so two racing ticks cannot both plan it.
+	if len(p.RepeatOf) > 0 {
+		newIDs := make([]string, 0, len(plans))
+		sourceIDs := make([]string, 0, len(plans))
+		for _, plan := range plans {
+			if src := p.RepeatOf[plan.key]; src != "" {
+				newIDs = append(newIDs, plan.taskID)
+				sourceIDs = append(sourceIDs, src)
+			}
+		}
+		if _, err := tx.Exec(ctx, roundRepeatStampSQL, p.TenantID, newIDs, sourceIDs); err != nil {
+			if isUniqueViolation(err) {
+				return ports.RoundRow{}, domain.ErrTaskAlreadyPlanned
+			}
+			return ports.RoundRow{}, fmt.Errorf("pccare: stamp repeat source: %w", err)
+		}
+	}
+
 	actorType := strings.TrimSpace(p.ActorType)
 	if actorType == "" {
 		actorType = "human"

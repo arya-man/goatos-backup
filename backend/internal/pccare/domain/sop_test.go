@@ -330,3 +330,40 @@ func TestFumigationIsPenWorkWithTwoVideos(t *testing.T) {
 		t.Fatal("a fumigated pen owes the next-day visit (2026-09-30)")
 	}
 }
+
+// Repeat (maintainer instruction 2026-09-30): each card may carry "repeat every N days", 0..365;
+// the seed repeats nothing; an out-of-range value is refused by name; the key is a known key.
+func TestRepeatEveryDaysIsAuthoredPerCardAndBounded(t *testing.T) {
+	seed := SeededRules()
+	for _, c := range SOPCategories {
+		if seed.RepeatEveryDays(c) != 0 {
+			t.Fatalf("seed repeats %s; the seed must repeat nothing", c)
+		}
+	}
+	dsl := seed.PCCareSOP
+	fum := *dsl.Categories[CategoryFumigation]
+	fum.RepeatEveryDays = 30
+	cats := map[string]*CategoryRules{}
+	for k, v := range dsl.Categories {
+		cats[k] = v
+	}
+	cats[CategoryFumigation] = &fum
+	dsl.Categories = cats
+	if problems := ValidatePCCareSOP(dsl); len(problems) > 0 {
+		t.Fatalf("30 days refused: %v", problems)
+	}
+	if got := (Rules{PCCareSOP: dsl}).RepeatEveryDays(CategoryFumigation); got != 30 {
+		t.Fatalf("RepeatEveryDays = %d, want 30", got)
+	}
+	for _, bad := range []int{-1, MaxRepeatEveryDays + 1} {
+		fum.RepeatEveryDays = bad
+		cats[CategoryFumigation] = &fum
+		if problems := ValidatePCCareSOP(dsl); len(problems) == 0 {
+			t.Fatalf("repeat %d accepted", bad)
+		}
+	}
+	unknown := UnknownPCCareSOPKeys(map[string]any{"pc_care": map[string]any{"categories": map[string]any{"fumigation": map[string]any{"repeat_every_days": 30}}}})
+	if len(unknown) != 0 {
+		t.Fatalf("repeat_every_days reported unknown: %v", unknown)
+	}
+}

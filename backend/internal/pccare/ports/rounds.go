@@ -44,7 +44,10 @@ type CreateRoundParams struct {
 	RemovalSlotKeys         []string
 	RemovalRequiredSlotKeys []string
 	IdempotencyKey          string
-	CreatedBy               string
+	// RepeatOf maps a pen (domain.RoundPen.PenKey) to the task it repeats, for a round the
+	// pc-care-repeat stage makes (2026-09-30). Empty for a round a person plans.
+	RepeatOf  map[string]string
+	CreatedBy string
 	ActorID                 string
 	ActorType               string
 	TraceID                 string
@@ -311,4 +314,36 @@ type RoundCardPage struct {
 	// Counts and Pens are whole-filter companions of the page (empty Pens without a window).
 	Counts RoundCardCounts
 	Pens   []RoundPenOption
+}
+
+// RepeatConfig is one work category's repeat interval under the PUBLISHED PC Care SOP.
+type RepeatConfig struct {
+	Category  string
+	EveryDays int
+}
+
+// RepeatCandidate is the LATEST live task of one (category, pen) whose next repeat falls on or
+// before the stage's horizon and that has not been repeated or skipped yet (2026-09-30).
+type RepeatCandidate struct {
+	SourceTaskID           string
+	SourceRoundID          string
+	Category               string
+	ParkID                 string
+	ParkName               string
+	ShedID                 string
+	ShedName               string
+	PartitionLabel         string
+	PlannedBusinessDate    time.Time
+	EveryDays              int
+	CreatedBy              string
+	AssigneeUserIDs        []string
+	HadRemoval             bool
+	RemovalOperatorUserIDs []string
+}
+
+// RepeatStore is the repeat stage's slice of the store.
+type RepeatStore interface {
+	ListRepeatCandidates(ctx context.Context, tenantID string, cfg []RepeatConfig, through time.Time, limit int) ([]RepeatCandidate, error)
+	OperatorsAvailableInPark(ctx context.Context, tenantID, parkID string, userIDs []string) ([]string, error)
+	RecordRepeatSkip(ctx context.Context, tenantID, sourceTaskID, reason string, dueDate time.Time, alertedUser string) (bool, error)
 }

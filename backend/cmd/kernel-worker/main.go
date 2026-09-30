@@ -210,6 +210,10 @@ func run(ctx context.Context, args []string) error {
 			// PC Care roll-forward: an unfinished deworming/ticks/hoof/hair task slides to
 			// today as 'delayed' shortly after the business-day boundary (weighing twin).
 			kernelstages.NewPcCareKernelStage(deps, tenantID),
+			// PC Care repeat (maintainer instruction 2026-09-30): a SOP card's "repeat every N
+			// days" plans the next task for the same pens and operators, two days ahead of the
+			// date; a pen none of whose operators can still do it is skipped and its planner told.
+			kernelstages.NewPcCareRepeatStage(deps, tenantID, logger),
 			// Pen visits (maintainer decision 2026-09-07): the day after vaccination or PC Care work
 			// in a pen, the park head owes it a visit and one video. Materialize yesterday's pens
 			// (idempotent on the natural key), push one digest per park, roll unvisited pens
