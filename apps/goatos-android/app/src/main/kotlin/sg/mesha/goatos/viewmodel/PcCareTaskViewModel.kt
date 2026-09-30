@@ -1036,7 +1036,10 @@ class PcCareTaskViewModel @Inject constructor(
                     ),
                 )
                 val (_, mimeSlotKey) = pcCareSplitRemovalSlotKey(slotFieldKey)
-                if (!pcCareStockSlotMatchesMime(mimeSlotKey, captured.mimeType)) {
+                // Judge the capture against the CARD's own slot kind (the task detail), never a
+                // fixed key list: an authored key such as fumigation's mixing_video is not on it,
+                // and a real video was refused as "wrong proof type" on the phone (2026-09-30).
+                if (!pcCareStockSlotMatchesMime(mimeSlotKey, captured.mimeType, detail)) {
                     analytics.track(
                         AnalyticsEvents.PC_CARE_STOCK_PROOF_ROOM_WRITTEN,
                         pcCareStockProofAnalyticsProps(
@@ -1979,7 +1982,9 @@ class PcCareTaskViewModel @Inject constructor(
      * was silently skipped by the repair below and its registration was never retried.
      */
     private fun pcCareStockSlotMatchesMime(fieldKey: String, mimeType: String, detail: PcCareTaskDto? = null): Boolean {
-        val authored = detail?.expectedSlots?.firstOrNull { it.fieldKey == fieldKey }?.kind?.ifBlank { "video" }
+        // The card's kind when it states one; an older server sends none, and then the known keys
+        // below decide.
+        val authored = detail?.expectedSlots?.firstOrNull { it.fieldKey == fieldKey }?.kind?.takeIf { it.isNotBlank() }
         if (authored != null) {
             return when (authored) {
                 "photo" -> mimeType.startsWith("image/", ignoreCase = true)
@@ -1993,7 +1998,9 @@ class PcCareTaskViewModel @Inject constructor(
             PC_CARE_SLOT_FEED_VIDEO,
             PC_CARE_SLOT_WATER_VIDEO,
             -> mimeType.startsWith("video/", ignoreCase = true)
-            else -> false
+            // Any other key is an authored capture with no stated kind: every seeded capture is
+            // a live-camera video.
+            else -> mimeType.startsWith("video/", ignoreCase = true)
         }
     }
 
@@ -2856,7 +2863,8 @@ private fun pcCareBuildTaskProofSlotChrome(
 ): PcCareSlotChipUi {
     val hint = pcCareSlotHintLabel(slot.minDurationHintSeconds)
     val serverProof = taskProofs.firstOrNull { it.slotKey == slot.fieldKey && it.proofRef.isNotBlank() }
-    val expectedKind = pcCareTaskProofExpectedPreviewKind(slot.fieldKey)
+    // The card's own kind decides the preview; the fixed fridge photo key is the fallback.
+    val expectedKind = if (slot.kind == "photo") PcCareProofPreviewKind.PHOTO else pcCareTaskProofExpectedPreviewKind(slot.fieldKey)
     if (capturingSlotKey == slot.fieldKey) {
         return PcCareSlotChipUi(
             fieldKey = slot.fieldKey,
