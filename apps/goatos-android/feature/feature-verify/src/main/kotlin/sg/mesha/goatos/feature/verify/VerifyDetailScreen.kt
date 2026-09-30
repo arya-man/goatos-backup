@@ -721,6 +721,12 @@ private fun VerifyEntryCard(
         else -> null
     }
 
+    // WHERE the entry box sits follows the act: she reads the number off the PHOTO (feed
+    // distribution's feed-weight photo), so the box goes directly UNDER the first photo proof,
+    // never after the clips that follow it (the water video). An item with no photo (weighing,
+    // packing -- the reading comes off the video) keeps it after every clip, above the verdict row.
+    // Keyed on the backend mime, never on a label or a proof's position in the list.
+    val measurementAnchorIndex = if (correction == null) -1 else entry.media.indexOfFirst { it.kind == VerifyMediaKind.PHOTO }
     // Shown ONLY when the backend attached a correctable measurement to this item. Deliberately NOT
     // hidden once a verdict exists: she may correct before deciding or after, until the bucket closes.
     val measurementCard: @Composable () -> Unit = {
@@ -740,15 +746,12 @@ private fun VerifyEntryCard(
                 showVarianceConfirm = entry.varianceConfirmRequired,
                 varianceAcknowledged = varianceAcknowledged,
                 onVarianceAcknowledgedChange = { varianceAcknowledged = it },
+                // Under the photo only the NUMBER sits with the photo (maintainer 2026-09-30); the
+                // note moves down beside the verdict row.
+                showReasonField = measurementAnchorIndex < 0,
             )
         }
     }
-    // WHERE the entry box sits follows the act: she reads the number off the PHOTO (feed
-    // distribution's feed-weight photo), so the box goes directly UNDER the first photo proof,
-    // never after the clips that follow it (the water video). An item with no photo (weighing,
-    // packing -- the reading comes off the video) keeps it after every clip, above the verdict row.
-    // Keyed on the backend mime, never on a label or a proof's position in the list.
-    val measurementAnchorIndex = if (correction == null) -1 else entry.media.indexOfFirst { it.kind == VerifyMediaKind.PHOTO }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         entry.subjectLabel?.takeIf { it.isNotBlank() }?.let { subject ->
@@ -828,6 +831,14 @@ private fun VerifyEntryCard(
             VerdictNoteCard(reason = reason, tone = entry.statusTone)
         }
         if (measurementAnchorIndex < 0) measurementCard()
+        if (measurementAnchorIndex >= 0 && correction?.showReason == true) {
+            MeasurementNoteField(
+                reasonText = reasonText,
+                onReasonChange = { reasonText = it },
+                enabled = !entry.isSubmitting,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+        }
         if (!isCloseMode) {
             DecisionRow(
                 // A malformed count would be refused by the write path, so it holds Approve here
@@ -886,6 +897,7 @@ private fun MeasurementCard(
     showVarianceConfirm: Boolean = false,
     varianceAcknowledged: Boolean = false,
     onVarianceAcknowledgedChange: (Boolean) -> Unit = {},
+    showReasonField: Boolean = true,
 ) {
     Column(
         modifier = Modifier
@@ -970,15 +982,8 @@ private fun MeasurementCard(
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
             )
         }
-        if (correction.showReason) {
-            OutlinedTextField(
-                value = reasonText,
-                onValueChange = onReasonChange,
-                label = { Text(stringResource(R.string.verify_detail_correction_reason_label)) },
-                singleLine = false,
-                enabled = enabled,
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-            )
+        if (correction.showReason && showReasonField) {
+            MeasurementNoteField(reasonText = reasonText, onReasonChange = onReasonChange, enabled = enabled)
         }
         // An Approve she cannot press has to say why, or the screen reads as broken. Rejecting is
         // still open to her, and is the right move when the number cannot be read at all.
@@ -991,6 +996,26 @@ private fun MeasurementCard(
             )
         }
     }
+}
+
+/** The verifier's optional note on her reading. Its own composable so the screen can place it
+ *  apart from the number: under a photo only the number sits with the photo, and the note waits
+ *  above the verdict row, where she writes it after watching the clips. */
+@Composable
+private fun MeasurementNoteField(
+    reasonText: String,
+    onReasonChange: (String) -> Unit,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    OutlinedTextField(
+        value = reasonText,
+        onValueChange = onReasonChange,
+        label = { Text(stringResource(R.string.verify_detail_correction_reason_label)) },
+        singleLine = false,
+        enabled = enabled,
+        modifier = modifier.fillMaxWidth().padding(top = 8.dp),
+    )
 }
 
 @Composable
