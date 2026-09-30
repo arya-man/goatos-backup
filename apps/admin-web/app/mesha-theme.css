@@ -7293,14 +7293,15 @@ aside.drawer.approvals-drawer .df{flex-wrap:wrap}
 .dsc-decide .inp,.dsc-decide .btn{height:40px;box-sizing:border-box}
 .dsc-decide .tt-status{flex-basis:100%}
 @media (max-width:640px){
-  .twrap .dsc-rtable{min-width:0;width:100%}
+  .main table.people-table.dsc-rtable{min-width:0;width:100%}
+  .main table.people-table.dsc-rtable td,.main table.people-table.dsc-rtable th{min-width:0}
   .dsc-rtable thead{display:none}
   .dsc-rtable,.dsc-rtable tbody,.dsc-rtable tr,.dsc-rtable td{display:block;width:100%;box-sizing:border-box}
   .dsc-rtable tr{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:0 0 10px}
   .dsc-rtable td{border:0;padding:4px 0}
-  .dsc-rtable td[data-label]{display:flex;justify-content:space-between;gap:12px;text-align:right}
-  .dsc-rtable td[data-label]::before{content:attr(data-label);color:var(--muted);font-size:12px;text-align:left;flex:0 0 auto}
-  .dsc-rtable td[data-label] > *{text-align:right}
+  .dsc-rtable td[data-label]{display:grid;grid-template-columns:96px minmax(0,1fr);column-gap:12px;align-items:start;text-align:left;overflow-wrap:anywhere}
+  .dsc-rtable td[data-label]::before{content:attr(data-label);color:var(--muted);font-size:12px;grid-column:1;grid-row:1 / span 6}
+  .dsc-rtable td[data-label] > *{grid-column:2;justify-self:start}
   .dsc-rtable .dsc-rt-actions{padding-top:8px}
   .dsc-rtable .dsc-editor-row{border-style:dashed}
 }
