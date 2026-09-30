@@ -1,5 +1,7 @@
 "use client";
 
+import Typography from "@mui/material/Typography";
+
 import { DataTable, columnsFromContract } from "@/components/data-table";
 import { useUrlSort } from "@/components/use-url-sort";
 import { Tag } from "@/components/ui-primitives";
@@ -77,10 +79,10 @@ export function BuyerTable({
       cell: (row) => (
         <>
           <b>{row.buyer_name}</b>
-          <div className="muted small">
+          <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>
             {[row.category, row.place].filter(Boolean).join(" · ") ||
               labels.none}
-          </div>
+          </Typography>
         </>
       ),
       sortValue: (row) => row.buyer_name.toLocaleLowerCase(),
@@ -93,7 +95,7 @@ export function BuyerTable({
         <>
           <b>{num(row.purchases)}</b>
           {row.product_types.length > 0 ? (
-            <div className="muted small">{row.product_types.join(" · ")}</div>
+            <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{row.product_types.join(" · ")}</Typography>
           ) : null}
         </>
       ),
@@ -109,7 +111,7 @@ export function BuyerTable({
       cell: (row) => (
         <>
           {inr(row.revenue)}
-          <div className="muted small">{num(row.share_pct, 1)}%</div>
+          <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{num(row.share_pct, 1)}%</Typography>
         </>
       ),
       meta: { cellClassName: "num" },
@@ -123,9 +125,9 @@ export function BuyerTable({
           </Tag>
           {/* One meta line, not a stacked sentence: "2 more · every 17 days". */}
           {row.cadence_lines.length ? (
-            <div className="muted small" style={{ whiteSpace: "nowrap" }} title={row.cadence_lines.join(" · ")}>
+            <Typography variant="caption" component="div" sx={{ color: "text.secondary", whiteSpace: "nowrap" }} title={row.cadence_lines.join(" · ")}>
               {row.cadence_lines.join(" · ")}
-            </div>
+            </Typography>
           ) : null}
         </>
       ),
@@ -142,7 +144,7 @@ export function BuyerTable({
         <>
           {humanDate(row.last_sale_date)}
           {row.recency ? (
-            <div className="muted small">{row.recency}</div>
+            <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{row.recency}</Typography>
           ) : null}
         </>
       ),
@@ -153,7 +155,7 @@ export function BuyerTable({
         row.outstanding > 0 ? (
           inr(row.outstanding)
         ) : (
-          <span className="muted">{labels.settled}</span>
+          <Typography component="span" variant="body2" sx={{ color: "text.secondary" }}>{labels.settled}</Typography>
         ),
       meta: { cellClassName: "num" },
       sortValue: (row) => row.outstanding,

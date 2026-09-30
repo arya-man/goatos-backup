@@ -1,3 +1,4 @@
+import Stack from "@mui/material/Stack";
 import Card from "@mui/material/Card";
 import CardHeader, { cardHeaderClasses } from "@mui/material/CardHeader";
 import Grid from "@mui/material/Grid";
@@ -298,7 +299,7 @@ export async function SalesBuyerAnalyticsPage({
   const { parkId, farm, parks } = await readSalesParkScope(sp, pageContract, PAGE_PATH);
 
   return (
-    <div className="screen on sales-buyer-analytics-page">
+    <Stack spacing={3} useFlexGap className="sales-buyer-analytics-page" sx={{ minWidth: 0 }}>
       <SalesPageHeader pageContract={pageContract} />
 
       <SalesFarmToggle
@@ -315,7 +316,7 @@ export async function SalesBuyerAnalyticsPage({
       <UrlSuspense searchParams={sp} watch={BUYERS_WATCH} fallback={<SalesBuyerAnalyticsBodySkeleton limit={buyerLimit(sp, pageContract).limit} />}>
         <BuyerAnalyticsPanel sp={sp} pageContract={pageContract} farm={farm} />
       </UrlSuspense>
-    </div>
+    </Stack>
   );
 }
 

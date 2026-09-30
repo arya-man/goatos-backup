@@ -1,3 +1,4 @@
+import Stack from "@mui/material/Stack";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { SalesFarmValueBodySkeleton } from "./sales-skeletons";
 import { redirect } from "next/navigation";
@@ -243,7 +244,7 @@ export async function SalesFarmValuePage({
   const { parkId, farm, parks } = await readSalesParkScope(sp, pageContract, PAGE_PATH);
 
   return (
-    <div className="screen on">
+    <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
       <SalesPageHeader pageContract={pageContract} />
 
       <SalesFarmToggle
@@ -259,7 +260,7 @@ export async function SalesFarmValuePage({
       <UrlSuspense searchParams={sp} watch={VALUE_WATCH} fallback={<SalesFarmValueBodySkeleton />}>
         <FarmValuePanel sp={sp} pageContract={pageContract} parkId={parkId} farm={farm} />
       </UrlSuspense>
-    </div>
+    </Stack>
   );
 }
 

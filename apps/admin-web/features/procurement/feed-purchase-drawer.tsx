@@ -9,7 +9,8 @@ import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
-import { Pencil, Wheat } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
+import { HiddenField } from "@/components/app/hidden-field";
 import { useCallback, useId, useSyncExternalStore, type ReactNode } from "react";
 
 import {
@@ -190,7 +191,7 @@ export function FeedPurchaseDrawer({
       onClose={close}
       title={isAdding ? title : (purchase?.feed_item ?? title)}
       eyebrow={copy(pageContract, "crumb")}
-      icon={<Wheat aria-hidden="true" />}
+      icon={<Iconify icon="solar:box-minimalistic-bold" aria-hidden="true" />}
       iconColors={{ bg: "var(--brand-soft)", fg: "var(--info)" }}
       subtitle={purchase ? `${fmtDate(purchase.purchase_date)} · ${purchase.farm}` : undefined}
       ariaLabel={title}
@@ -222,7 +223,7 @@ export function FeedPurchaseDrawer({
             type="button"
             variant="outlined"
             color="inherit"
-            startIcon={<Pencil aria-hidden="true" />}
+            startIcon={<Iconify icon="solar:pen-bold" aria-hidden="true" />}
             sx={{ alignSelf: "flex-start" }}
             onClick={() => replaceLocalOverlayUrl(`${detailHref}&edit=1`)}
           >
@@ -232,16 +233,16 @@ export function FeedPurchaseDrawer({
 
         {isAdding ? (
           <Box component="form" id={addFormId} action={recordFeedPurchaseAction} sx={{ display: "contents" }}>
-              <input type="hidden" name="return_to" value={listHref} />
-              <input type="hidden" name="idempotency_key" value={recordIdempotencyKey} />
+              <HiddenField name="return_to" value={listHref} />
+              <HiddenField name="idempotency_key" value={recordIdempotencyKey} />
 
               <DrawerHint>{copy(pageContract, "required.hint")}</DrawerHint>
               {/* The authored form's version and every question it asked: readFormAnswers only maps
                   typed fields onto question ids the drawer declares here (40466370a). */}
               {purchaseForm ? <>
-                <input type="hidden" name="questionnaire_version" value={purchaseForm.version} />
+                <HiddenField name="questionnaire_version" value={purchaseForm.version} />
                 {purchaseForm.pages.flatMap((page) => page.questions).map((question) => (
-                  <input key={question.id} type="hidden" name="questionnaire_question" value={question.id} />
+                  <HiddenField key={question.id} name="questionnaire_question" value={question.id} />
                 ))}
               </> : null}
 
@@ -334,8 +335,8 @@ export function FeedPurchaseDrawer({
           </Box>
         ) : purchase && isEditing ? (
           <Box component="form" id={editFormId} action={editFeedPurchaseAction} sx={{ display: "contents" }}>
-              <input type="hidden" name="return_to" value={detailHref} />
-              <input type="hidden" name="feed_purchase_id" value={purchase.feed_purchase_id} />
+              <HiddenField name="return_to" value={detailHref} />
+              <HiddenField name="feed_purchase_id" value={purchase.feed_purchase_id} />
 
               {/* Identity is read-only by design: farm, feed and batch are the natural key the
                   stock cards group by. The hint says so rather than leaving greyed boxes mute. */}
@@ -424,9 +425,9 @@ export function FeedPurchaseDrawer({
             </DrawerMetaGrid>
             {canRecordDelivery ? (
               <Box component="form" action={recordFeedPurchaseDeliveryAction} sx={FORM_SX}>
-                <input type="hidden" name="return_to" value={detailHref} />
-                <input type="hidden" name="feed_purchase_id" value={purchase.feed_purchase_id} />
-                <input type="hidden" name="was_reached" value={purchase.reached_on ? "1" : "0"} />
+                <HiddenField name="return_to" value={detailHref} />
+                <HiddenField name="feed_purchase_id" value={purchase.feed_purchase_id} />
+                <HiddenField name="was_reached" value={purchase.reached_on ? "1" : "0"} />
                 <Box sx={FIELD_SX}>
                   {/* A load cannot reach before it was bought: the picker's floor is the purchase
                       date, the same rule the backend enforces under the row lock. */}
@@ -500,9 +501,9 @@ export function FeedPurchaseDrawer({
 
             {canRecordPayment ? (
               <Box component="form" action={recordFeedPurchasePaymentAction} sx={FORM_SX}>
-                <input type="hidden" name="return_to" value={detailHref} />
-                <input type="hidden" name="feed_purchase_id" value={purchase.feed_purchase_id} />
-                <input type="hidden" name="idempotency_key" value={paymentIdempotencyKey} />
+                <HiddenField name="return_to" value={detailHref} />
+                <HiddenField name="feed_purchase_id" value={purchase.feed_purchase_id} />
+                <HiddenField name="idempotency_key" value={paymentIdempotencyKey} />
                 <Box sx={FIELD_SX}>
                   {datePicker("paid_on", "paid_on", { required: true })}
                 </Box>
@@ -520,8 +521,8 @@ export function FeedPurchaseDrawer({
 
             {canEditStatus ? (
               <Box component="form" action={setFeedPurchasePaymentStatusAction} sx={FIELD_SX}>
-                <input type="hidden" name="return_to" value={detailHref} />
-                <input type="hidden" name="feed_purchase_id" value={purchase.feed_purchase_id} />
+                <HiddenField name="return_to" value={detailHref} />
+                <HiddenField name="feed_purchase_id" value={purchase.feed_purchase_id} />
                 <Box sx={{ display: "flex", gap: 1, alignItems: "flex-end" }}>
                   <FormSelect
                     label={field("payment_status")}

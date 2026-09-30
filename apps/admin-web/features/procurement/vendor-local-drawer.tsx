@@ -1,6 +1,7 @@
 "use client";
 
-import { Building2 } from "lucide-react";
+import { HiddenField } from "@/components/app/hidden-field";
+import { Iconify } from "@/components/minimal/iconify";
 import { useCallback, useState, useSyncExternalStore } from "react";
 
 import {
@@ -203,9 +204,9 @@ export function VendorLocalDrawer({
       {/* Quick status change, without opening the full form. It posts to the NARROW status
           endpoint, so it cannot clear a field this view did not render. */}
       <Box component="form" action={changeVendorStatusAction} sx={{ display: "flex", gap: 1, alignItems: "center", ml: "auto" }}>
-        <input type="hidden" name="return_to" value={listHref} />
-        <input type="hidden" name="vendor_id" value={vendor.vendor_id} />
-        <input type="hidden" name="row_version" value={vendor.row_version} />
+        <HiddenField name="return_to" value={listHref} />
+        <HiddenField name="vendor_id" value={vendor.vendor_id} />
+        <HiddenField name="row_version" value={vendor.row_version} />
         <FormSelect size="small" label={field("status")} name="status" defaultValue={vendor.status} minWidth={140} options={optionsFor(catalog.statuses, vendor.status)} />
         <Button type="submit" variant="outlined" color="inherit">
           {copy(pageContract, "action.save_status")}
@@ -227,7 +228,7 @@ export function VendorLocalDrawer({
       <Box sx={{ p: 2.5 }}>
         {vendor ? (
           <Stack direction="row" spacing={1.5} sx={{ alignItems: "center", mb: 3 }}>
-            <Building2 className="ic" aria-hidden="true" style={{ color: "var(--info)" }} />
+            <Iconify icon="solar:case-minimalistic-bold" width={20} aria-hidden="true" sx={{ color: "info.main", flexShrink: 0 }} />
             <Typography variant="body2" sx={{ color: "text.secondary" }}>
               {vendor.record_type} · {vendor.location_display}
             </Typography>
@@ -236,12 +237,12 @@ export function VendorLocalDrawer({
 
         {editing ? (
           <form id={formId} action={isAdding ? createVendorAction : updateVendorAction}>
-            <input type="hidden" name="return_to" value={listHref} />
+            <HiddenField name="return_to" value={listHref} />
             {!isAdding && vendor ? (
               <>
-                <input type="hidden" name="vendor_id" value={vendor.vendor_id} />
+                <HiddenField name="vendor_id" value={vendor.vendor_id} />
                 {/* The optimistic fence, carried from the row this form was opened on. */}
-                <input type="hidden" name="row_version" value={vendor.row_version} />
+                <HiddenField name="row_version" value={vendor.row_version} />
               </>
             ) : null}
             <Stack spacing={3}>
@@ -320,7 +321,7 @@ export function VendorLocalDrawer({
                 </Stack>
               )}
               {/* The voice note is recorded on the phone; the web edit carries it through unchanged. */}
-              <input type="hidden" name="voice_note_proof_ref" value={vendor?.voice_note_proof_ref ?? ""} />
+              <HiddenField name="voice_note_proof_ref" value={vendor?.voice_note_proof_ref ?? ""} />
 
               {/* Payment is only editable by a caller who can also READ it. The backend additionally
                   PRESERVES these columns for such a caller, so a blank submit cannot erase a bank

@@ -12,6 +12,7 @@
 // the whole page reloaded"): the action returns its outcome instead of redirecting, the form
 // shows the backend's sentence beside the buttons, and a soft router refresh re-reads the page's
 // server data without moving the scroll position.
+import { HiddenField } from "@/components/app/hidden-field";
 import { useActionState, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Button from "@mui/material/Button";
@@ -62,8 +63,8 @@ export function AnimalPurchaseDecisionForm({
 
   return (
     <Stack component="form" action={formAction} aria-busy={pending} spacing={1}>
-      <input type="hidden" name="candidate_id" value={candidateId} />
-      <input type="hidden" name="row_version" value={String(rowVersion)} />
+      <HiddenField name="candidate_id" value={candidateId} />
+      <HiddenField name="row_version" value={String(rowVersion)} />
       {/* Template form row: a multiline outlined note (the hint wraps instead of clipping on a
           phone, FJ3 P1-24) with Accept / Reject beside it, stacked at xs. */}
       <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ alignItems: { sm: "flex-start" } }}>

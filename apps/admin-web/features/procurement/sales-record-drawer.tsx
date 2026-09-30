@@ -12,7 +12,8 @@ import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import TextField from "@mui/material/TextField";
 
-import { Banknote, Save, Trash2 } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
+import { HiddenField } from "@/components/app/hidden-field";
 import Link from "@/components/no-prefetch-link";
 import { startTransition, useActionState, useCallback, useEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
 
@@ -325,7 +326,7 @@ export function SalesRecordDrawer({
       onClose={close}
       title={isAdding ? title : (deal?.buyer_name ?? title)}
       eyebrow={copy(pageContract, "crumb")}
-      icon={<Banknote aria-hidden="true" />}
+      icon={<Iconify icon="solar:wad-of-money-bold" aria-hidden="true" />}
       iconColors={{ bg: "var(--brand-soft)", fg: "var(--info)" }}
       subtitle={deal ? `${fmtDate(deal.sale_date)} · ${deal.farm}` : undefined}
       ariaLabel={title}
@@ -342,7 +343,7 @@ export function SalesRecordDrawer({
       }
     >
         {isAdding ? (
-          <form onSubmit={async (event) => {
+          <Box component="form" onSubmit={async (event: FormEvent<HTMLFormElement>) => {
             event.preventDefault();
             if (recordPendingRef.current) return;
             recordPendingRef.current = true;
@@ -359,10 +360,10 @@ export function SalesRecordDrawer({
               // the next submit is a new intent with a new key.
               setSaleKey(mintPaymentKey());
             }
-          }} id={recordFormId} style={{ display: "contents" }}>
+          }} id={recordFormId} sx={{ display: "contents" }}>
               {/* Refusals return in place, preserving controlled and native form fields. */}
-              <input type="hidden" name="return_to" value={listHref} />
-              <input type="hidden" name={PAYMENT_IDEMPOTENCY_FIELD} value={saleKey} />
+              <HiddenField name="return_to" value={listHref} />
+              <HiddenField name={PAYMENT_IDEMPOTENCY_FIELD} value={saleKey} />
 
               {recordError && recordError.code !== "feed_stock_confirmation_required" ? <Alert ref={recordAlertRef} role="alert" severity="warning">{recordError.message}</Alert> : null}
               <DrawerHint>{copy(pageContract, "required.hint")}</DrawerHint>
@@ -560,7 +561,7 @@ export function SalesRecordDrawer({
                   slotProps={{ htmlInput: { maxLength: 2000 }, inputLabel: { shrink: true } }}
                 />
               </Box>
-          </form>
+          </Box>
         ) : deal ? (
           <>
             {/* RECORD drawer body: label/value cells, never a flat stack. */}
@@ -693,8 +694,8 @@ export function SalesRecordDrawer({
 
             {canEditStatus && editStatusOptions.length > 0 ? (
               <Box component="form" action={setSalesDealStatusAction} sx={FIELD_SX}>
-                <input type="hidden" name="return_to" value={dealHref} />
-                <input type="hidden" name="deal_id" value={deal.deal_id} />
+                <HiddenField name="return_to" value={dealHref} />
+                <HiddenField name="deal_id" value={deal.deal_id} />
                 <Box sx={{ display: "flex", gap: 1, alignItems: "flex-end" }}>
                   <FormSelect
                     label={field("status")}
@@ -801,9 +802,9 @@ function RecordPaymentForm({
   const { onSubmit, pending, error, key } = usePaymentFormAction(recordSalesDealPaymentAction, outcome);
   return (
     <form onSubmit={onSubmit} aria-busy={pending}>
-      <input type="hidden" name="return_to" value={dealHref} />
-      <input type="hidden" name="deal_id" value={deal.deal_id} />
-      <input type="hidden" name={PAYMENT_IDEMPOTENCY_FIELD} value={key} />
+      <HiddenField name="return_to" value={dealHref} />
+      <HiddenField name="deal_id" value={deal.deal_id} />
+      <HiddenField name={PAYMENT_IDEMPOTENCY_FIELD} value={key} />
       {error ? (
         <Alert role="alert" severity="warning" sx={{ mb: 1.5 }}>
           {paymentErrorText(pageContract, error, "action.payment_record_failed")}
@@ -888,7 +889,7 @@ function PaymentRow({
   return (
     <>
       <TableRow aria-busy={busy}>
-        <TableCell style={{ whiteSpace: "nowrap" }}>
+        <TableCell sx={{ whiteSpace: "nowrap" }}>
           {canUpdate ? (
             <TextField
               size="small"
@@ -907,7 +908,7 @@ function PaymentRow({
             fmtDate(payment.received_on)
           )}
         </TableCell>
-        <TableCell style={{ whiteSpace: "nowrap" }}>
+        <TableCell sx={{ whiteSpace: "nowrap" }}>
           {canUpdate ? (
             <TextField
               size="small"
@@ -947,21 +948,21 @@ function PaymentRow({
           )}
         </TableCell>
         {showActions ? (
-          <TableCell style={{ whiteSpace: "nowrap" }}>
+          <TableCell sx={{ whiteSpace: "nowrap" }}>
             {canUpdate ? (
               <form id={editFormId} onSubmit={edit.onSubmit} hidden>
-                <input type="hidden" name="return_to" value={dealHref} />
-                <input type="hidden" name="deal_id" value={dealId} />
-                <input type="hidden" name="payment_id" value={payment.payment_id} />
-                <input type="hidden" name={PAYMENT_IDEMPOTENCY_FIELD} value={edit.key} />
+                <HiddenField name="return_to" value={dealHref} />
+                <HiddenField name="deal_id" value={dealId} />
+                <HiddenField name="payment_id" value={payment.payment_id} />
+                <HiddenField name={PAYMENT_IDEMPOTENCY_FIELD} value={edit.key} />
               </form>
             ) : null}
             {canDelete ? (
               <form id={deleteFormId} onSubmit={remove.onSubmit} hidden>
-                <input type="hidden" name="return_to" value={dealHref} />
-                <input type="hidden" name="deal_id" value={dealId} />
-                <input type="hidden" name="payment_id" value={payment.payment_id} />
-                <input type="hidden" name={PAYMENT_IDEMPOTENCY_FIELD} value={remove.key} />
+                <HiddenField name="return_to" value={dealHref} />
+                <HiddenField name="deal_id" value={dealId} />
+                <HiddenField name="payment_id" value={payment.payment_id} />
+                <HiddenField name={PAYMENT_IDEMPOTENCY_FIELD} value={remove.key} />
               </form>
             ) : null}
             <Box sx={{ display: "flex", gap: 1, justifyContent: "flex-end" }}>
@@ -975,7 +976,7 @@ function PaymentRow({
                   aria-label={copy(pageContract, "action.update_deal_payment.label")}
                   title={copy(pageContract, "action.update_deal_payment.label")}
                 >
-                  <Save className="ic" aria-hidden="true" />
+                  <Iconify icon="eva:checkmark-fill" width={18} aria-hidden="true" />
                 </IconButton>
               ) : null}
               {canDelete ? (
@@ -988,7 +989,7 @@ function PaymentRow({
                   aria-label={copy(pageContract, "action.delete_deal_payment.label")}
                   title={copy(pageContract, "action.delete_deal_payment.label")}
                 >
-                  <Trash2 className="ic" aria-hidden="true" />
+                  <Iconify icon="solar:trash-bin-trash-bold" width={18} aria-hidden="true" />
                 </IconButton>
               ) : null}
             </Box>

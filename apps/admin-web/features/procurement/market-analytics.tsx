@@ -1,7 +1,7 @@
 import Table from "@mui/material/Table";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { SalesMarketKpisSkeleton, SalesMarketPanelsSkeleton } from "./sales-skeletons";
-import TableHead from "@mui/material/TableHead";
+import { TableHeadCustom } from "@/components/minimal/table";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
@@ -113,7 +113,7 @@ export async function MarketAnalyticsPage({
   const latestDate = analytics.latest.reduce((max, c) => (c.business_date > max ? c.business_date : max), "");
 
   return (
-    <div className="screen on market-analytics-page">
+    <Stack spacing={3} useFlexGap className="market-analytics-page" sx={{ minWidth: 0 }}>
       <SalesPageHeader pageContract={pageContract} />
 
       {!analyticsResult.ok ? (
@@ -181,18 +181,14 @@ export async function MarketAnalyticsPage({
             <Box sx={{ mt: 3 }}>
             <Scrollbar>
             <Box tabIndex={0} role="region" aria-label={copy(pageContract, "section.latest.title")}>
-              <Table className="market-latest-table" sx={{ minWidth: 560 }}>
-                <TableHead>
-                  <TableRow>
-                    <TableCell component="th">{copy(pageContract, "column.city")}</TableCell>
-                    {latestQuestions.map((q) => (
-                      <TableCell component="th" key={q.id} className="num">
-                        {q.label}
-                      </TableCell>
-                    ))}
-                    <TableCell component="th">{copy(pageContract, "column.recorded_on")}</TableCell>
-                  </TableRow>
-                </TableHead>
+              <Table sx={{ minWidth: 560 }}>
+                <TableHeadCustom
+                  headCells={[
+                    { id: "city", label: copy(pageContract, "column.city") },
+                    ...latestQuestions.map((q) => ({ id: `q-${q.id}`, label: q.label, align: "right" as const })),
+                    { id: "recorded_on", label: copy(pageContract, "column.recorded_on") },
+                  ]}
+                />
                 <TableBody>
                   {latestCities.map((city) => {
                     const row = latestByCity.get(city.id);
@@ -206,14 +202,14 @@ export async function MarketAnalyticsPage({
                           const cell = row?.get(q.id);
                           if (!cell) {
                             return (
-                              <TableCell key={q.id} className="num muted" data-label={q.label}>
+                              <TableCell key={q.id} align="right" data-label={q.label} sx={{ color: "text.secondary" }}>
                                 {none}
                               </TableCell>
                             );
                           }
                           const delta = cell.previous_price == null ? null : cell.price - cell.previous_price;
                           return (
-                            <TableCell key={q.id} className="num" data-label={q.label} title={`${copy(pageContract, "column.recorded_on")} ${humanDate(cell.business_date)}`}>
+                            <TableCell key={q.id} align="right" data-label={q.label} title={`${copy(pageContract, "column.recorded_on")} ${humanDate(cell.business_date)}`}>
                               <Box component="span" sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 0.25 }}>
                               <b>{priceWithUnit(cell.price, cell.unit_label)}</b>
                               <Box component="span" sx={{ typography: "caption", color: delta == null ? "text.secondary" : delta > 0 ? "success.main" : delta < 0 ? "error.main" : "text.secondary" }}>
@@ -225,7 +221,7 @@ export async function MarketAnalyticsPage({
                             </TableCell>
                           );
                         })}
-                        <TableCell className="muted small" data-label={copy(pageContract, "column.recorded_on")}>{rowDate ? humanDate(rowDate) : none}</TableCell>
+                        <TableCell data-label={copy(pageContract, "column.recorded_on")} sx={{ color: "text.secondary" }}>{rowDate ? humanDate(rowDate) : none}</TableCell>
                       </TableRow>
                     );
                   })}
@@ -258,7 +254,7 @@ export async function MarketAnalyticsPage({
       )}
       </UrlSuspense>
       </Stack>
-    </div>
+    </Stack>
   );
 }
 

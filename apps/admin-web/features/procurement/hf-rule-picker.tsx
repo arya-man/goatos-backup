@@ -5,6 +5,7 @@ import Grid from "@mui/material/Grid";
 import TextField from "@mui/material/TextField";
 
 import { FormSelect } from "./form-select";
+import { HiddenField } from "@/components/app/hidden-field";
 
 export type HfRuleOption = {
   protocolVersionId: string;
@@ -56,8 +57,8 @@ export function HfRulePicker({
               : options.map((option) => ({ value: `${option.protocolVersionId}|${option.ruleId}`, label: option.label }))
           }
         />
-        <input type="hidden" name="protocol_version_id" value={current?.protocolVersionId ?? ""} />
-        <input type="hidden" name="rule_id" value={current?.ruleId ?? ""} />
+        <HiddenField name="protocol_version_id" value={current?.protocolVersionId ?? ""} />
+        <HiddenField name="rule_id" value={current?.ruleId ?? ""} />
       </Grid>
       <Grid size={{ xs: 12, md: 6 }}>
         <TextField

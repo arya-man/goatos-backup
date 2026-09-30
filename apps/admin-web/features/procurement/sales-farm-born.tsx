@@ -50,9 +50,10 @@ const FB_TABLE_SX = {
   minWidth: { xs: "38.75rem", sm: 0 },
   "& th, & td": { px: 1 },
   "& th": { lineHeight: 1.2, verticalAlign: "bottom" },
-  "& th.num": { whiteSpace: "normal", maxWidth: "12ch" },
+  "& th.MuiTableCell-alignRight": { whiteSpace: "normal", maxWidth: "12ch" },
+  "& .MuiTableCell-alignRight": { fontVariantNumeric: "tabular-nums" },
   "& td:first-of-type, & th:first-of-type": { minWidth: "8.75rem", whiteSpace: "normal", overflowWrap: "break-word" },
-  "& td.num": { whiteSpace: "nowrap" },
+  "& td.MuiTableCell-alignRight": { whiteSpace: "nowrap" },
 } as const;
 const FB_SHARE_CELL_SX = { minWidth: { xs: 0, sm: "7.5rem" } } as const;
 
@@ -143,13 +144,13 @@ function BreakdownCard({
           <TableHead>
             <TableRow>
               <TableCell component="th" />
-              <TableCell component="th" className="num">{copy(pageContract, "column.on_farm")}</TableCell>
-              <TableCell component="th" className="num" title={copy(pageContract, "value.tagged_not_closed.hint")}>
+              <TableCell component="th" align="right">{copy(pageContract, "column.on_farm")}</TableCell>
+              <TableCell component="th" align="right" title={copy(pageContract, "value.tagged_not_closed.hint")}>
                 {copy(pageContract, "column.tagged_not_closed")}
               </TableCell>
-              <TableCell component="th" className="num">{copy(pageContract, "column.sold")}</TableCell>
-              <TableCell component="th" className="num" sx={FB_SHARE_CELL_SX}>{copy(pageContract, "column.share_pct")}</TableCell>
-              <TableCell component="th" className="num">{copy(pageContract, "column.revenue")}</TableCell>
+              <TableCell component="th" align="right">{copy(pageContract, "column.sold")}</TableCell>
+              <TableCell component="th" align="right" sx={FB_SHARE_CELL_SX}>{copy(pageContract, "column.share_pct")}</TableCell>
+              <TableCell component="th" align="right">{copy(pageContract, "column.revenue")}</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -168,12 +169,12 @@ function BreakdownCard({
                     <Typography variant="subtitle2" component="div">{row.label}</Typography>
                     {row.detail ? <Typography variant="caption" component="div" color="text.secondary">{row.detail}</Typography> : null}
                   </TableCell>
-                  <TableCell className="num">{num(row.on_farm)}</TableCell>
-                  <TableCell className="num">{num(row.tagged_not_closed)}</TableCell>
-                  <TableCell className="num">
+                  <TableCell align="right">{num(row.on_farm)}</TableCell>
+                  <TableCell align="right">{num(row.tagged_not_closed)}</TableCell>
+                  <TableCell align="right">
                     <b>{num(row.sold)}</b>
                   </TableCell>
-                  <TableCell className="num" sx={FB_SHARE_CELL_SX}>
+                  <TableCell align="right" sx={FB_SHARE_CELL_SX}>
                     <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 1.25, width: "100%", justifyContent: "flex-end" }}>
                       {/* Inline mini-bar: the row's sold against the largest row, so a breed that
                           sold ten times another reads at a glance; the share text stays the number. */}
@@ -185,7 +186,7 @@ function BreakdownCard({
                       </Box>
                     </Box>
                   </TableCell>
-                  <TableCell className="num">{row.sold_priced > 0 ? inr(row.revenue) : "—"}</TableCell>
+                  <TableCell align="right">{row.sold_priced > 0 ? inr(row.revenue) : "—"}</TableCell>
                 </TableRow>
                 );
               })
@@ -522,7 +523,7 @@ export async function SalesFarmBornPage({
   const penHref = (nextOffset: number) => hrefWith(sp, { [PEN_OFFSET_PARAM]: nextOffset > 0 ? String(nextOffset) : null });
 
   return (
-    <div className="kit-enter screen on sales-farm-born-page">
+    <Stack spacing={3} useFlexGap className="sales-farm-born-page" sx={{ minWidth: 0 }}>
       <SalesPageHeader pageContract={pageContract} subtitle={false} />
 
       {/* A park change drops the pen (a pen belongs to one park) and every page offset. */}
@@ -556,6 +557,6 @@ export async function SalesFarmBornPage({
         )}
         </UrlSuspense>
       </WorklistFilters>
-    </div>
+    </Stack>
   );
 }

@@ -24,6 +24,10 @@ import type { LoadwisePriorOutcome } from "@/lib/api/procurement";
 import { TablePaginationLinks } from "@/components/app/table/table-pagination-links";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
+import Typography from "@mui/material/Typography";
+import { CELL_LINK, cellLinksSx } from "./procurement-sx";
 import { SALES_GRID } from "./sales-layout";
 
 /**
@@ -179,7 +183,7 @@ export function LoadwiseSection({
 
   // Money cells render the recorded fact or the stated absence — never a fabricated zero.
   const moneyCell = (value: number | null | undefined, missingLabel: string): ReactNode =>
-    value == null ? <span className="muted">{missingLabel}</span> : inr(Math.round(value));
+    value == null ? <Box component="span" sx={{ color: "text.secondary" }}>{missingLabel}</Box> : inr(Math.round(value));
 
   // The price every unsold animal is valued at: a soft Label on the register card's header (title =
   // the full backend sentence). Most of the profit figures below are stock, so the rate cannot be
@@ -474,34 +478,37 @@ export function LoadwiseSection({
           <Box
             sx={{
               mt: 3,
-              "& .twrap": { overflowX: "auto", maxWidth: "100%", minWidth: 0, scrollbarGutter: "stable" },
-              "& .twrap table": { minWidth: "100%" },
+              ...cellLinksSx,
+              "& table": { minWidth: "100%" },
+              // Single-line cells: short counts and money never wrap digit by digit.
+              "& th, & td, & td .cell-link": { whiteSpace: "nowrap", overflowWrap: "normal", wordBreak: "normal" },
+              "& td.MuiTableCell-alignRight": { fontVariantNumeric: "tabular-nums" },
             }}
           >
           <PagedRows
-            wrapClassName="twrap"
-            tableClassName="loadwise-table"
+            wrapClassName=""
+            scrollbar
             ariaLabel={copy(pageContract, "section.loadwise.aria")}
             head={
-              <tr>
+              <TableRow>
                 {columns.map((label) => (
-                  <th key={label}>{label}</th>
+                  <TableCell key={label}>{label}</TableCell>
                 ))}
-              </tr>
+              </TableRow>
             }
             rows={loads.map((load) => {
-                  const cell = (value: ReactNode, extra?: string) =>
+                  const cell = (value: ReactNode, extra?: "num") =>
                     canRecordCost ? (
-                      <td className={extra}>
-                        <LocalOverlayLink href={costHref(load.load_id)} className="celllink" scroll={false}>
+                      <TableCell align={extra === "num" ? "right" : undefined}>
+                        <LocalOverlayLink href={costHref(load.load_id)} className={CELL_LINK} scroll={false}>
                           {value}
                         </LocalOverlayLink>
-                      </td>
+                      </TableCell>
                     ) : (
-                      <td className={extra}>{value}</td>
+                      <TableCell align={extra === "num" ? "right" : undefined}>{value}</TableCell>
                     );
                   return (
-                    <tr key={load.load_id}>
+                    <TableRow key={load.load_id} hover>
                       {cell(<b>{loadLabel(load, loadWord, none)}</b>)}
                       {cell(load.farm ? load.farm : none)}
                       {cell(num(load.purchased), "num")}
@@ -553,8 +560,9 @@ export function LoadwiseSection({
                           the difference between two deals. */}
                       {cell(
                         load.landed_price_per_kg == null ? (
-                          <span
-                            className="muted"
+                          <Box
+                            component="span"
+                            sx={{ color: "text.secondary" }}
                             title={copy(
                               pageContract,
                               load.purchase_value == null ? "value.cost_missing" : "value.weight_missing",
@@ -564,7 +572,7 @@ export function LoadwiseSection({
                               pageContract,
                               load.purchase_value == null ? "value.cost_missing" : "value.weight_missing",
                             )}
-                          </span>
+                          </Box>
                         ) : (
                           <span
                             title={`${num(load.purchase_weight_kg ?? 0, 1)} ${copy(pageContract, "value.live_kg")}`}
@@ -576,7 +584,7 @@ export function LoadwiseSection({
                       )}
                       {cell(
                         load.sold === 0 ? (
-                          <span className="muted">{copy(pageContract, "value.not_sold_yet")}</span>
+                          <Box component="span" sx={{ color: "text.secondary" }}>{copy(pageContract, "value.not_sold_yet")}</Box>
                         ) : load.sold > load.sold_priced ? (
                           <span
                             title={`${num(load.sold - load.sold_priced)} ${copy(pageContract, "value.sold_unpriced")}`}
@@ -590,32 +598,33 @@ export function LoadwiseSection({
                       )}
                       {cell(
                         load.profit_loss == null ? (
-                          <span className="muted" title={copy(pageContract, "value.profit_unavailable")}>
+                          <Box component="span" sx={{ color: "text.secondary" }} title={copy(pageContract, "value.profit_unavailable")}>
                             {copy(pageContract, "value.cost_missing")}
-                          </span>
+                          </Box>
                         ) : (
                           <span
                             title={load.assumed_value_basis ? load.assumed_value_basis : undefined}
                           >
-                            <b style={{ color: load.profit_loss < 0 ? "var(--danger)" : "var(--ok)" }}>
+                            <Box component="b" sx={{ color: load.profit_loss < 0 ? "error.main" : "success.main" }}>
                               {signedInr(Math.round(load.profit_loss))}
-                            </b>
+                            </Box>
                             {/* How much of that profit is ASSUMED -- the animals still on farm at
                                 a price nobody has paid -- with the backend's basis on hover. */}
                             {load.assumed_value != null ? (
-                              <span
-                                className="muted"
-                                style={{ display: "block", fontSize: 11 }}
+                              <Typography
+                                variant="caption"
+                                component="span"
+                                sx={{ display: "block", color: "text.secondary" }}
                                 title={load.assumed_value_basis || undefined}
                               >
                                 {copy(pageContract, "loadwise.assumed.label")} {inr(Math.round(load.assumed_value))}
-                              </span>
+                              </Typography>
                             ) : null}
                           </span>
                         ),
                         "num",
                       )}
-                    </tr>
+                    </TableRow>
                   );
                 })}
           />

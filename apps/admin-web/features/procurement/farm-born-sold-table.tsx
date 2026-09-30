@@ -1,5 +1,7 @@
 "use client";
 
+import Typography from "@mui/material/Typography";
+
 import { DataTable, columnsFromContract } from "@/components/data-table";
 import { useUrlSort } from "@/components/use-url-sort";
 import type { AdminUiTableContract } from "@/lib/admin-ui-contract";
@@ -48,13 +50,13 @@ export function FarmBornSoldTable({
     pageParams: ["offset"],
   });
   const orDash = (value: string) =>
-    value ? value : <span className="muted">{labels.notRecorded}</span>;
+    value ? value : <Typography component="span" variant="body2" sx={{ color: "text.secondary" }}>{labels.notRecorded}</Typography>;
   const columns = columnsFromContract<FarmBornSoldRow>(contract, {
     tag: {
       cell: (row) => (
         <>
           <b>{row.tag || row.display_id}</b>
-          {row.tag ? <div className="muted small">{row.display_id}</div> : null}
+          {row.tag ? <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{row.display_id}</Typography> : null}
         </>
       ),
       sortValue: (row) => (row.tag || row.display_id).toLocaleLowerCase(),
@@ -76,7 +78,7 @@ export function FarmBornSoldTable({
       cell: (row) => (
         <>
           {orDash(row.pen)}
-          {row.park_name ? <div className="muted small">{row.park_name}</div> : null}
+          {row.park_name ? <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{row.park_name}</Typography> : null}
         </>
       ),
       sortValue: (row) => `${row.park_name} ${row.pen}`.toLocaleLowerCase(),
@@ -92,7 +94,7 @@ export function FarmBornSoldTable({
     },
     sale_value: {
       cell: (row) =>
-        row.sale_value != null ? inr(row.sale_value) : <span className="muted">{labels.noDeal}</span>,
+        row.sale_value != null ? inr(row.sale_value) : <Typography component="span" variant="body2" sx={{ color: "text.secondary" }}>{labels.noDeal}</Typography>,
       meta: { cellClassName: "num" },
       sortValue: (row) => row.sale_value ?? undefined,
     },
@@ -103,7 +105,6 @@ export function FarmBornSoldTable({
       data={rows}
       getRowId={(row) => row.goat_id}
       ariaLabel={labels.ariaLabel}
-      className="tbl"
       empty={labels.empty}
       serverSort={{ ...serverSort, sortLabel: labels.sortAll }}
     />

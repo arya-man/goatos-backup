@@ -42,7 +42,8 @@ import { fmtDate, fmtDateTime } from "@/lib/format";
 import { num } from "./sales-format";
 import { AnimalPurchaseDecisionForm } from "./animal-purchase-decision-form";
 import { AnimalPurchaseTelemetry } from "./animal-purchase-telemetry";
-import { AnimalPurchaseAnswers, AnimalPurchaseMedia, FieldVerdictChip, type SopCopy } from "./animal-purchase-sop";
+import { AnimalPurchaseAnswers, AnimalPurchaseEmptyTile, AnimalPurchaseMedia, FieldVerdictChip, type SopCopy } from "./animal-purchase-sop";
+import { MEDIA_TILES_SX } from "./animal-purchase-tile-sx";
 import { AnimalPurchaseLightbox } from "./animal-purchase-lightbox";
 import { FormSelect } from "./form-select";
 import { ProcurementTableFooter } from "./table-footer-links";
@@ -50,15 +51,21 @@ import { listOptions } from "./option-utils";
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
 import Box from "@mui/material/Box";
+import Stack from "@mui/material/Stack";
+import { mergeSx } from "@/components/app/merge-sx";
+import { HiddenField } from "@/components/app/hidden-field";
 import Typography from "@mui/material/Typography";
 import Form from "next/form";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import { AnimalCardsSkeleton, AnimalLoadRowsSkeleton } from "./animal-purchases-skeletons";
 import { ANIMAL_CARD_COLUMNS, ANIMAL_KPI_SIZE, ANIMAL_LOADS_DEFAULT_LIMIT } from "./animal-purchases-layout";
-import { phoneLoadCardsSx } from "./procurement-sx";
+import { CELL_LINK, cellLinksSx, phoneLoadCardsSx } from "./procurement-sx";
 
-const LOAD_CARDS_SX = phoneLoadCardsSx("animal-purchase-loads-table", [{ nth: 1, column: "1", row: 1 }, { nth: 3, column: "2", row: 1, alignEnd: true }, { nth: 2, column: "1", row: 2, secondary: true }, { nth: 6, column: "2", row: 2, alignEnd: true }]);
+// Hook class for the phone load-card layout (procurement-sx targets `table.<hook>`); no stylesheet defines it.
+const LOADS_TABLE_HOOK = "ap-loads-table";
+
+const LOAD_CARDS_SX = phoneLoadCardsSx(LOADS_TABLE_HOOK, [{ nth: 1, column: "1", row: 1 }, { nth: 3, column: "2", row: 1, alignEnd: true }, { nth: 2, column: "1", row: 2, secondary: true }, { nth: 6, column: "2", row: 2, alignEnd: true }]);
 
 const PATHNAME = "/procurement/animal-purchases";
 const DEFAULT_DECISION = "pending";
@@ -198,7 +205,7 @@ export async function AnimalPurchasesPage({
   };
 
   return (
-    <div className="screen on">
+    <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
       <AnimalPurchaseTelemetry rows={animals.length} pending={totals?.pending ?? 0} feedback={feedback} />
 
       <PageHeader title={pageContract.title} crumbs={[{ label: copy(pageContract, "crumb"), href: "/procurement/source-entry" }, { label: pageContract.title }]} />
@@ -206,25 +213,25 @@ export async function AnimalPurchasesPage({
       {/* Decision feedback from the Server Action's redirect. Every code resolves to page copy;
           an unknown one falls back to the generic failure line rather than leaking the token. */}
       {feedback.status ? (
-        <Alert severity={feedback.status === "success" ? "info" : "error"} style={{ marginBottom: 14 }} role="status">
+        <Alert severity={feedback.status === "success" ? "info" : "error"} role="status">
           {feedbackText}
         </Alert>
       ) : null}
 
       {!loadsResult.ok ? (
-        <Alert severity="error" style={{ marginBottom: 14 }}>
+        <Alert severity="error">
           {loadsResult.error.message}
         </Alert>
       ) : null}
       {!reviewResult.ok ? (
-        <Alert severity="error" style={{ marginBottom: 14 }}>
+        <Alert severity="error">
           {reviewResult.error.message}
         </Alert>
       ) : null}
 
       {/* Whole-desk figures from the backend counts, never sums over the rendered page. Template
           Ecommerce overview KPI row: EcommerceWidgetSummary cards on a Grid, spacing 3. */}
-      <Grid container spacing={3} sx={{ mb: 3 }}>
+      <Grid container spacing={3}>
         <Grid size={ANIMAL_KPI_SIZE}>
           <KpiWidget
             title={copy(pageContract, "summary.loads")}
@@ -248,7 +255,7 @@ export async function AnimalPurchasesPage({
       {/* Loads: the template order-list card — CardHeader with the load filter pill strip as its
           action, the selected load's record, the Scrollbar table under TableHeadCustom and the
           template table pagination. */}
-      <Card sx={{ mb: 3 }}>
+      <Card>
         <CardHeader
           title={copy(pageContract, "section.loads.title")}
           slotProps={{ title: { component: "h3" } }}
@@ -275,50 +282,39 @@ export async function AnimalPurchasesPage({
             its skeleton at once; the card header and its load strip stay on screen. */}
         <UrlSuspense searchParams={sp} watch={LOADS_WATCH} fallback={<AnimalLoadRowsSkeleton rows={loadsLimit} />}>
         {selectedLoad ? (
-          <div className="ap-load-answers" data-testid="ap-load-detail" aria-label={copy(pageContract, "label.load_answers")}>
-            <span className="muted small b700">{copy(pageContract, "label.load_answers")}</span>
-            <span className="ap-load-answer">
-              <span className="muted small">{copy(pageContract, "column.load_ref")}</span> <b>{selectedLoad.load_ref}</b>
-            </span>
-            <span className="ap-load-answer">
-              <span className="muted small">{copy(pageContract, "column.vendor_name")}</span> <b>{selectedLoad.vendor_name || none}</b>
-            </span>
-            <span className="ap-load-answer">
-              <span className="muted small">{copy(pageContract, "column.farm")}</span> <b>{selectedLoad.farm}</b>
-            </span>
-            <span className="ap-load-answer">
-              <span className="muted small">{copy(pageContract, "column.expected_count")}</span> <b>{num(selectedLoad.expected_count)}</b>
-            </span>
-            <span className="ap-load-answer">
-              <span className="muted small">{copy(pageContract, "label.load.status")}</span>{" "}
-              <b>{copy(pageContract, `status.load.${selectedLoad.status}`, selectedLoad.status)}</b>
-            </span>
+          <Box
+            data-testid="ap-load-detail"
+            role="group"
+            aria-label={copy(pageContract, "label.load_answers")}
+            sx={{ display: "flex", flexWrap: "wrap", columnGap: 2.25, rowGap: 0.75, alignItems: "baseline", px: 1.75, py: 1, borderTop: 1, borderColor: "divider" }}
+          >
+            <Typography component="span" variant="caption" sx={{ color: "text.secondary", fontWeight: "fontWeightBold" }}>
+              {copy(pageContract, "label.load_answers")}
+            </Typography>
+            <LoadFact label={copy(pageContract, "column.load_ref")}>{selectedLoad.load_ref}</LoadFact>
+            <LoadFact label={copy(pageContract, "column.vendor_name")}>{selectedLoad.vendor_name || none}</LoadFact>
+            <LoadFact label={copy(pageContract, "column.farm")}>{selectedLoad.farm}</LoadFact>
+            <LoadFact label={copy(pageContract, "column.expected_count")}>{num(selectedLoad.expected_count)}</LoadFact>
+            <LoadFact label={copy(pageContract, "label.load.status")}>{copy(pageContract, `status.load.${selectedLoad.status}`, selectedLoad.status)}</LoadFact>
             {selectedLoad.recorded_by_name ? (
-              <span className="ap-load-answer">
-                <span className="muted small">{copy(pageContract, "label.load.recorded_by")}</span> <b>{selectedLoad.recorded_by_name}</b>
-              </span>
+              <LoadFact label={copy(pageContract, "label.load.recorded_by")}>{selectedLoad.recorded_by_name}</LoadFact>
             ) : null}
-            <span className="ap-load-answer">
-              <span className="muted small">{copy(pageContract, "label.load.added_on")}</span> <b>{fmtDateTime(selectedLoad.created_at)}</b>
-            </span>
+            <LoadFact label={copy(pageContract, "label.load.added_on")}>{fmtDateTime(selectedLoad.created_at)}</LoadFact>
             {(selectedLoad.answer_rows ?? []).map((row) => (
-              <span key={row.question_id} className="ap-load-answer">
-                <span className="muted small">{row.question}</span> <b>{row.answer}</b>
-              </span>
+              <LoadFact key={row.question_id} label={row.question}>{row.answer}</LoadFact>
             ))}
-            <span className="ap-load-answer ap-load-note">
-              <span className="muted small">{copy(pageContract, "label.load.notes")}</span>{" "}
-              {selectedLoad.notes ? <b>{selectedLoad.notes}</b> : <span className="muted">{copy(pageContract, "label.load.no_notes")}</span>}
-            </span>
-          </div>
+            <LoadFact label={copy(pageContract, "label.load.notes")} note>
+              {selectedLoad.notes ? selectedLoad.notes : <Box component="span" sx={{ color: "text.secondary", fontWeight: "fontWeightRegular" }}>{copy(pageContract, "label.load.no_notes")}</Box>}
+            </LoadFact>
+          </Box>
         ) : null}
 
         {loads.length === 0 ? (
           <EmptyState title={copy(pageContract, "empty.loads")} />
         ) : (
-          <Box id="animal-purchase-loads" tabIndex={0} role="region" aria-label={loadsTable.title} sx={LOAD_CARDS_SX}>
+          <Box id="animal-purchase-loads" tabIndex={0} role="region" aria-label={loadsTable.title} sx={mergeSx(cellLinksSx, LOAD_CARDS_SX)}>
             <Scrollbar>
-              <Table className="animal-purchase-loads-table" aria-label={loadsTable.title} sx={{ minWidth: 960 }}>
+              <Table className={LOADS_TABLE_HOOK} aria-label={loadsTable.title} sx={{ minWidth: 960 }}>
                 {/* Header labels come from the page contract IN ITS ORDER; the body cells below
                     are written in that same order (load_ref, vendor_name, farm, expected_count,
                     total, pending, accepted, rejected, created_at). */}
@@ -333,7 +329,7 @@ export async function AnimalPurchasesPage({
                       ap_code: null,
                     });
                     const cellLink = (content: ReactNode) => (
-                      <Link href={filterHref} className="celllink" scroll={false} aria-current={selected ? "true" : undefined}>
+                      <Link href={filterHref} className={CELL_LINK} scroll={false} aria-current={selected ? "true" : undefined}>
                         {content}
                       </Link>
                     );
@@ -383,7 +379,7 @@ export async function AnimalPurchasesPage({
 
       {/* Animals: the template job list — a Card holding the decision Tabs (Label counts) and the
           filter toolbar, then the job-item card grid with centred MUI Pagination. */}
-      <Card sx={{ mb: 3 }}>
+      <Card>
         <CardHeader title={copy(pageContract, "section.animals.title")} slotProps={{ title: { component: "h3" } }} sx={{ mb: 1 }} />
 
         {/* Decision chips are the response's own filters: label and WHOLE-FILTER count verbatim,
@@ -412,7 +408,7 @@ export async function AnimalPurchasesPage({
             fields sit in the template OrderTableToolbar row. */}
         <Form action={PATHNAME} scroll={false} role="search" aria-label={copy(pageContract, "filter.load")}>
         <Box>
-          {decision !== DEFAULT_DECISION ? <input type="hidden" name="decision" value={decision} /> : null}
+          {decision !== DEFAULT_DECISION ? <HiddenField name="decision" value={decision} /> : null}
           <OrderTableToolbar
             filters={
               <Box sx={orderToolbarFilterSx}>
@@ -550,7 +546,7 @@ export async function AnimalPurchasesPage({
                   avatar={<Iconify icon="solar:videocamera-record-bold" />}
                   sx={{ height: 1 }}
                   media={
-                    <Box sx={{ mt: 2 }} className="ap-tiles">
+                    <Box sx={{ mt: 2, ...MEDIA_TILES_SX }}>
                       {animal.media_url ? (
                         <AnimalPurchaseLightbox
                           items={[{ proofRef: animal.video_proof_ref || animal.candidate_id, url: animal.media_url, kind: "video", title: copy(pageContract, "video.title") }]}
@@ -558,10 +554,7 @@ export async function AnimalPurchasesPage({
                           closeLabel={sopCopy.close}
                         />
                       ) : (
-                        <figure className="ap-tile">
-                          <div className="ap-tile-btn empty muted small">{copy(pageContract, "video.empty")}</div>
-                          <figcaption className="muted small">{copy(pageContract, "video.title")}</figcaption>
-                        </figure>
+                        <AnimalPurchaseEmptyTile text={copy(pageContract, "video.empty")} caption={copy(pageContract, "video.title")} />
                       )}
                     </Box>
                   }
@@ -588,7 +581,7 @@ export async function AnimalPurchasesPage({
         </JobList>
       )}
       </UrlSuspense>
-    </div>
+    </Stack>
   );
 }
 
@@ -596,3 +589,20 @@ export async function AnimalPurchasesPage({
 const LOADS_WATCH = ["load_id", "ld_cursor", "ld_limit", "ld_offset"] as const;
 /** Params that never change the animals: the loads pager and the decision feedback. */
 const ANIMALS_IGNORE = ["ld_cursor", "ld_limit", "ld_offset", "ap_status", "ap_code"] as const;
+
+/** One typed fact of the selected load: the caption label, then the value in the subtitle weight. */
+function LoadFact({ label, note, children }: { label: string; note?: boolean; children: ReactNode }) {
+  return (
+    <Box
+      component="span"
+      sx={{ display: "inline-flex", gap: 0.75, alignItems: "baseline", typography: "body2", ...(note ? { flexBasis: "100%", whiteSpace: "pre-wrap", overflowWrap: "anywhere" } : {}) }}
+    >
+      <Typography component="span" variant="caption" sx={{ color: "text.secondary" }}>
+        {label}
+      </Typography>{" "}
+      <Box component="span" sx={{ fontWeight: "fontWeightSemiBold" }}>
+        {children}
+      </Box>
+    </Box>
+  );
+}

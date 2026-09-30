@@ -1,6 +1,10 @@
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
+import { varAlpha } from "minimal-shared/utils";
 import type { AnimalPurchaseAnimal } from "@/lib/api/procurement";
 import { Tag } from "@/components/ui-primitives";
 import { AnimalPurchaseLightbox } from "./animal-purchase-lightbox";
+import { MEDIA_TILE_CAPTION_SX, MEDIA_TILE_EMPTY_SX, MEDIA_TILE_FIGURE_SX, MEDIA_TILES_SX } from "./animal-purchase-tile-sx";
 
 /**
  * The questionnaire half of an animal purchase card: the captures per media slot and the
@@ -82,17 +86,26 @@ export function AnimalPurchaseMedia({ slots, copy }: { slots: MediaSlot[]; copy:
   const missing = slots.flatMap((slot) => slot.items.filter((item) => !(item.media_url && (isImage(item) || isVideo(item)))).map((item) => ({ item, slot })));
   if (items.length === 0 && missing.length === 0) return null;
   return (
-    <div className="ap-sop-media">
-      <div className="ap-tiles">
-        <AnimalPurchaseLightbox items={items} openLabel={copy.photoOpen} closeLabel={copy.close} />
-        {missing.map(({ item, slot }) => (
-          <figure key={item.proof_ref} className="ap-tile">
-            <div className="ap-tile-btn empty muted small">{copy.mediaEmpty}</div>
-            <figcaption className="muted small">{slot.title}</figcaption>
-          </figure>
-        ))}
-      </div>
-    </div>
+    <Box sx={MEDIA_TILES_SX}>
+      <AnimalPurchaseLightbox items={items} openLabel={copy.photoOpen} closeLabel={copy.close} />
+      {missing.map(({ item, slot }) => (
+        <AnimalPurchaseEmptyTile key={item.proof_ref} text={copy.mediaEmpty} caption={slot.title} />
+      ))}
+    </Box>
+  );
+}
+
+/** A capture with no playable proof: an outlined placeholder tile saying so, captioned like a real one. */
+export function AnimalPurchaseEmptyTile({ text, caption }: { text: string; caption: string }) {
+  return (
+    <Box component="figure" sx={MEDIA_TILE_FIGURE_SX}>
+      <Typography component="div" variant="caption" sx={MEDIA_TILE_EMPTY_SX}>
+        {text}
+      </Typography>
+      <Typography component="figcaption" variant="caption" sx={MEDIA_TILE_CAPTION_SX}>
+        {caption}
+      </Typography>
+    </Box>
   );
 }
 
@@ -122,29 +135,74 @@ export function AnimalPurchaseAnswers({ rows, copy }: { rows: AnswerRow[]; copy:
     else sections.push({ section, rows: [row] });
   }
   return (
-    <div className="ap-sop-answers">
-      <div className="ap-sop-sections">
-        {sections.map((group, index) => (
-          <section key={`${index}-${group.section}`} className="ap-sop-section">
-            {group.section ? <h4 className="ap-sop-section-title">{group.section}</h4> : null}
-            <dl className="ap-sop-rows">
-              {group.rows.map((row) => (
-                <div
-                  key={row.question_id}
-                  className={row.attention ? "ap-sop-row attention" : "ap-sop-row"}
-                  data-question={row.question_id}
-                >
-                  <dt>
-                    {row.attention ? <span className="ap-attention-dot" title={copy.attentionHint} role="img" aria-label={copy.attentionHint} /> : null}
-                    {row.question}
-                  </dt>
-                  <dd>{row.answer}</dd>
-                </div>
-              ))}
-            </dl>
-          </section>
-        ))}
-      </div>
-    </div>
+    <Box
+      sx={{
+        minWidth: 0,
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fill, minmax(min(300px, 100%), 1fr))",
+        columnGap: 3,
+        rowGap: 0.75,
+        alignItems: "start",
+      }}
+    >
+      {sections.map((group, index) => (
+        <Box component="section" key={`${index}-${group.section}`} sx={{ breakInside: "avoid", mb: 0.75, minWidth: 0 }}>
+          {group.section ? <Typography component="h4" variant="overline" sx={SECTION_TITLE_SX}>{group.section}</Typography> : null}
+          <Box component="dl" sx={{ m: 0, display: "flex", flexDirection: "column" }}>
+            {group.rows.map((row) => (
+              <Box key={row.question_id} data-question={row.question_id} data-attention={row.attention ? "" : undefined} sx={row.attention ? ATTENTION_ROW_SX : ANSWER_ROW_SX}>
+                <Box component="dt" sx={{ color: row.attention ? "warning.main" : "text.secondary", display: "flex", gap: 0.875, alignItems: "baseline", minWidth: 0 }}>
+                  {row.attention ? <Box component="span" data-attention-dot="" title={copy.attentionHint} role="img" aria-label={copy.attentionHint} sx={ATTENTION_DOT_SX} /> : null}
+                  {row.question}
+                </Box>
+                <Box component="dd" sx={{ m: 0, fontWeight: "fontWeightSemiBold", textAlign: "right", overflowWrap: "anywhere", color: row.attention ? "warning.main" : undefined }}>{row.answer}</Box>
+              </Box>
+            ))}
+          </Box>
+        </Box>
+      ))}
+    </Box>
   );
 }
+
+const SECTION_TITLE_SX = {
+  display: "block",
+  m: 0,
+  mb: 0.375,
+  px: 0.625,
+  pb: 0.5,
+  color: "text.secondary",
+  borderBottom: 1,
+  borderColor: "divider",
+} as const;
+
+// One answer: the question left, the answer right, a hairline under every row but the last.
+const ANSWER_ROW_SX = {
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr) minmax(72px, auto)",
+  gap: 1.25,
+  alignItems: "baseline",
+  px: 0.625,
+  py: 0.5,
+  typography: "body2",
+  borderBottom: 1,
+  borderColor: "divider",
+  "&:last-of-type": { borderBottom: 0 },
+} as const;
+
+// The reject signal: the row on a soft warning tint, its text in the warning colour.
+const ATTENTION_ROW_SX = {
+  ...ANSWER_ROW_SX,
+  bgcolor: varAlpha("var(--palette-warning-mainChannel)", 0.09),
+  borderRadius: 0.75,
+} as const;
+
+const ATTENTION_DOT_SX = {
+  width: 9,
+  height: 9,
+  borderRadius: "50%",
+  display: "inline-block",
+  flex: "0 0 9px",
+  alignSelf: "center",
+  bgcolor: "warning.main",
+} as const;

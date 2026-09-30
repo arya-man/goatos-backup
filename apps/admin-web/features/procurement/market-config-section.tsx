@@ -1,3 +1,4 @@
+import { HiddenField } from "@/components/app/hidden-field";
 import Button from "@mui/material/Button";
 import { DividedStack } from "@/components/app/divided-stack";
 import TextField from "@mui/material/TextField";
@@ -235,7 +236,7 @@ function CityRow({
   const flipped = city.status === "active" ? "retired" : "active";
   return (
     <MarketConfigForm action={updateMarketCityAction} outcomes={outcomes} data-market-city={city.id}>
-      <input type="hidden" name="city_id" value={city.id} />
+      <HiddenField name="city_id" value={city.id} />
       <TextField
         size="small"
         name="name"
@@ -278,7 +279,7 @@ function QuestionRow({
   const flipped = question.status === "active" ? "retired" : "active";
   return (
     <MarketConfigForm action={updateMarketQuestionAction} outcomes={outcomes} data-market-question={question.id}>
-      <input type="hidden" name="question_id" value={question.id} />
+      <HiddenField name="question_id" value={question.id} />
       <TextField
         size="small"
         name="label"

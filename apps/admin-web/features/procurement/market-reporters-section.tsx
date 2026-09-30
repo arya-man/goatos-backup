@@ -1,3 +1,4 @@
+import { HiddenField } from "@/components/app/hidden-field";
 import { listOrEmpty } from "@/lib/list-or-empty";
 import { DividedStack } from "@/components/app/divided-stack";
 
@@ -109,8 +110,8 @@ function ReporterRow({
   }
   return (
     <MarketConfigForm action={setMarketReporterAction} outcomes={outcomes} data-market-reporter={person.person_id}>
-      <input type="hidden" name="person_id" value={person.person_id} />
-      <input type="hidden" name="enabled" value={person.reporter ? "false" : "true"} />
+      <HiddenField name="person_id" value={person.person_id} />
+      <HiddenField name="enabled" value={person.reporter ? "false" : "true"} />
       <ListItemText primary={person.display_name} secondary={line || undefined} sx={{ flex: "1 1 160px", minWidth: 0, m: 0 }} />
       {person.reporter ? <Label variant="soft" color="success">{copy(pageContract, "market.reporters.tag")}</Label> : null}
       <Button type="submit" variant="outlined" color={person.reporter ? "inherit" : "primary"}>

@@ -178,7 +178,7 @@ export async function FeedPurchasesPage({
   };
 
   return (
-    <div className="screen on">
+    <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
       <PageHeader
         title={pageContract.title}
         crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
@@ -201,19 +201,19 @@ export async function FeedPurchasesPage({
       {/* Write feedback. Without this the operator saves a load and the drawer simply closes, which
           is indistinguishable from the save being dropped. */}
       {actionStatus ? (
-        <Alert severity={actionStatus === "success" ? "success" : "error"} sx={{ mb: 3 }}>
+        <Alert severity={actionStatus === "success" ? "success" : "error"}>
           {actionFeedbackCopy(pageContract, actionStatus, actionKey)}
         </Alert>
       ) : null}
 
       {!result.ok ? (
-        <Alert severity="error" sx={{ mb: 3 }}>
+        <Alert severity="error">
           {result.error.message || copy(pageContract, "error.load")}
         </Alert>
       ) : null}
 
       {!optionsResult.ok ? (
-        <Alert severity="error" sx={{ mb: 3 }}>
+        <Alert severity="error">
           {optionsResult.error.message || copy(pageContract, "error.options")}
         </Alert>
       ) : null}
@@ -392,7 +392,7 @@ export async function FeedPurchasesPage({
         listHref={listHref}
         canRecord={canOpenRecordDrawer}
       />
-    </div>
+    </Stack>
   );
 }
 

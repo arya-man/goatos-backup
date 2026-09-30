@@ -68,7 +68,7 @@ export function ProcurementTableFooter({
 
   return (
     <TablePaginationLinks
-      className="pager2"
+      className="table-footer-pager"
       page={Math.max(0, page - 1)}
       rowsPerPage={rowsValue ?? 0}
       count={-1}

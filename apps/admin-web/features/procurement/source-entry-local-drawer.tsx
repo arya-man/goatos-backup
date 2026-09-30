@@ -8,7 +8,7 @@ import {
   LOCAL_OVERLAY_URL_CHANGE_EVENT,
   replaceLocalOverlayUrl,
 } from "@/components/local-overlay-link";
-import { PackageSearch } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Tag, type Tone } from "@/components/ui-primitives";
@@ -254,7 +254,7 @@ export function SourceEntryLocalDrawer({
       onClose={closeDrawer}
       title={`${copy(pageContract, "drawer.load.title_prefix")} — ${displayedItem.sourceLocation}`}
       eyebrow={copy(pageContract, "drawer.load.eyebrow")}
-      icon={<PackageSearch aria-hidden="true" />}
+      icon={<Iconify icon="solar:box-minimalistic-bold" aria-hidden="true" />}
       iconColors={{ bg: "var(--brand-soft)", fg: "var(--info)" }}
       subtitle={`${displayedItem.sourceParty} · ${displayedItem.purpose}`}
       ariaLabel={copy(pageContract, "drawer.load.aria")}

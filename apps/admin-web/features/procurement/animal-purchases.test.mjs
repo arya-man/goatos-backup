@@ -52,15 +52,20 @@ test("media slots render byte-free tiles that open one selected proof by mime, n
   assert.match(lightbox, /closest\("\.ap-animal"\)/);
   assert.match(lightbox, /previewsEnabled && item\.thumbnailUrl/);
   assert.match(lightbox, /key=\{`\$\{item\.proofRef\}-\$\{index\}`\}/);
-  assert.match(styles, /\.ap-lightbox-strip\{display:contents\}/);
-  assert.match(lightbox, /<img src=\{item\.thumbnailUrl\} alt="" className="ap-tile-preview" loading="lazy" decoding="async" \/>/);
+  // The strip is a `display: contents` box so its tiles sit in the caller's tile row (sx, no stylesheet).
+  assert.match(lightbox, /<Box ref=\{stripRef\} sx=\{\{ display: "contents" \}\}>/);
+  assert.match(lightbox, /<img src=\{item\.thumbnailUrl\} alt="" data-tile-preview="" loading="lazy" decoding="async"/);
   assert.doesNotMatch(lightbox, /<img src=\{item\.url\}/);
   assert.doesNotMatch(lightbox, /<video src=\{item\.url\}/);
   assert.doesNotMatch(lightbox, /<video src=\{item\.thumbnailUrl\}/);
-  assert.match(lightbox, /admin-proof-media-egress:ignore[\s\S]*?<img src=\{open\.url\} alt="" className="ap-lightbox-media" \/>/);
+  assert.match(lightbox, /admin-proof-media-egress:ignore[\s\S]*?<img src=\{open\.url\} alt="" data-lightbox-media="" \/>/);
   assert.match(lightbox, /<video src=\{open\.url\} controls autoPlay playsInline/);
-  assert.match(lightbox, /role="dialog"[\s\S]*?aria-modal="true"/);
-  assert.match(lightbox, /event\.key === "Escape"/);
+  // The lightbox is the template MUI Dialog: portalled, modal (Escape / backdrop close through
+  // onClose, focus restored to the tile), full screen on a phone, an IconButton X with its label.
+  assert.match(lightbox, /<Dialog\s[\s\S]*?open=\{open !== null\}[\s\S]*?onClose=\{close\}[\s\S]*?fullScreen=\{fullScreen\}/);
+  assert.match(lightbox, /useMediaQuery\(theme\.breakpoints\.down\("sm"\)\)/);
+  assert.match(lightbox, /<IconButton aria-label=\{closeLabel\}/);
+  assert.doesNotMatch(lightbox, /className=|lucide-react|<button/);
   assert.doesNotMatch(lightbox, /useRouter|router\.push|href=/);
   // Anything else says so with backend copy rather than rendering a broken tag.
   assert.match(sop, /\{copy\.mediaEmpty\}/);
@@ -81,14 +86,14 @@ test("answers group by served section and an attention row is flagged", () => {
   // Web reading order: breed directly under the goat id; the verdict section named as the director's.
   assert.match(sop, /row\.question_id === "goat_id"\) ordered\.push\(\{ \.\.\.breed, section: row\.section \}\)/);
   assert.match(sop, /copy\.verdictSection/);
-  assert.match(sop, /\{group\.section \? <h4 className="ap-sop-section-title">\{group\.section\}<\/h4> : null\}/);
-  assert.match(sop, /<dt>[\s\S]*?\{row\.question\}[\s\S]*?<\/dt>\s*<dd>\{row\.answer\}<\/dd>/);
-  // The reject signal: a class the stylesheet colours warn, plus a local inline marker with the backend hint.
-  assert.match(sop, /className=\{row\.attention \? "ap-sop-row attention" : "ap-sop-row"\}/);
-  assert.match(sop, /\{row\.attention \? <span className="ap-attention-dot" title=\{copy\.attentionHint\}/);
-  assert.match(styles, /\.ap-attention-dot\{width:9px;height:9px;border-radius:50%;display:inline-block;flex:0 0 9px;align-self:center;background:var\(--warn\)\}/);
-  assert.doesNotMatch(styles, /\.ap-sop-row dt \.dot/);
-  assert.doesNotMatch(sop, /className="dot l"/);
+  assert.match(sop, /\{group\.section \? <Typography component="h4" variant="overline" sx=\{SECTION_TITLE_SX\}>\{group\.section\}<\/Typography> : null\}/);
+  assert.match(sop, /<Box component="dt"[\s\S]*?\{row\.question\}[\s\S]*?<\/Box>\s*<Box component="dd"[^>]*>\{row\.answer\}<\/Box>/);
+  // The reject signal: the row on a warning tint with warning text (theme sx), plus a 9px warning
+  // dot carrying the backend hint as its accessible name. No legacy .ap-* stylesheet rule.
+  assert.match(sop, /sx=\{row\.attention \? ATTENTION_ROW_SX : ANSWER_ROW_SX\}/);
+  assert.match(sop, /\{row\.attention \? <Box component="span" data-attention-dot="" title=\{copy\.attentionHint\} role="img" aria-label=\{copy\.attentionHint\}/);
+  assert.match(sop, /const ATTENTION_DOT_SX = \{\s*width: 9,\s*height: 9,\s*borderRadius: "50%",[\s\S]*?bgcolor: "warning\.main",/);
+  assert.doesNotMatch(sop, /className=/);
 });
 
 test("the field verdict chip renders from the backend label with the tone of the verdict", () => {
@@ -148,11 +153,11 @@ test("selecting a load shows what the buying desk entered for it, not only its e
   // EMPTY, so nothing about the load ever appeared. The panel is now gated on the SELECTION and
   // carries the typed fields, the recorder and the time, with the extra answers after them.
   const panel = page.slice(page.indexOf('data-testid="ap-load-detail"'), page.indexOf("{loads.length === 0 ? ("));
-  assert.match(page, /\{selectedLoad \? \(\s*<div className="ap-load-answers" data-testid="ap-load-detail"/);
+  assert.match(page, /\{selectedLoad \? \(\s*<Box\s+data-testid="ap-load-detail"\s+role="group"/);
   for (const key of ["column.load_ref", "column.vendor_name", "column.farm", "column.expected_count", "label.load.status", "label.load.recorded_by", "label.load.added_on", "label.load.notes", "label.load.no_notes"]) {
     assert.match(panel, new RegExp(`copy\\(pageContract, "${key.replace(/\./g, "\\.")}"`), key);
   }
-  assert.match(panel, /selectedLoad\.notes \? <b>\{selectedLoad\.notes\}<\/b>/);
+  assert.match(panel, /selectedLoad\.notes \? selectedLoad\.notes : /);
   assert.match(panel, /fmtDateTime\(selectedLoad\.created_at\)/);
   assert.match(panel, /\(selectedLoad\.answer_rows \?\? \[\]\)\.map/);
   // The recorder is the backend-resolved roster NAME, dropped when unresolvable; the id never renders.

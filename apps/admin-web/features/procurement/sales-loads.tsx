@@ -1,3 +1,4 @@
+import Stack from "@mui/material/Stack";
 import { listOrEmpty } from "@/lib/list-or-empty";
 import { redirect } from "next/navigation";
 
@@ -67,11 +68,9 @@ export async function SalesLoadsPage({
   const { parkId, parks } = await readSalesParkScope(sp, pageContract, PAGE_PATH);
 
   return (
-    // `sales-loads-page` is not decoration: the global `.crumb` rule uppercases every breadcrumb,
-    // which rendered this page's own name as "PURCHASE AND BORN". A load is bought or born -- those
-    // are ordinary words, not a code -- so the page scopes the transform off (maintainer,
-    // 2026-09-02).
-    <div className="screen on sales-loads-page">
+    // The template CustomBreadcrumbs (PageHeader) keeps the crumb in sentence case ("Purchase and
+    // born"), so the old `.sales-loads-page` scope that undid the legacy uppercase `.crumb` is gone.
+    <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
       {/* The toggle is CENTRED and lifted onto the title line rather than sharing the subtitle's
           row. Measured: the subtitle needs 596px unwrapped, while a centred toggle leaves only
           533px beside it at 1600px -- so on one row the subtitle is forced to wrap. Lifting the
@@ -110,7 +109,7 @@ export async function SalesLoadsPage({
       <UrlSuspense searchParams={sp} watch={PANEL_WATCH} fallback={<SalesLoadsBodySkeleton />}>
         <SalesLoadsPanel sp={sp} pageContract={pageContract} view={view} parkId={parkId} />
       </UrlSuspense>
-    </div>
+    </Stack>
   );
 }
 

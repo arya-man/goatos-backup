@@ -45,6 +45,10 @@ import { actionFeedbackCopy, copy, optionLabel, optionTitle, optionTone, optiona
 import { Tag, TONE_COLOR } from "@/components/ui-primitives";
 import type { Tone } from "@/components/ui-primitives";
 import { LoadWriteActions } from "./load-forms";
+
+// Template order details view: a plain block root; the OrderDetailsToolbar's own bottom margin
+// spaces it from the grid (the loading twin uses the same root: PageSkeleton root="").
+const LOAD_DETAIL_ROOT_SX = { minWidth: 0 } as const;
 import type { HfRuleOption } from "./hf-rule-picker";
 import type { ProcurementLocationOption, ProcurementLocations } from "./location-selects";
 import {
@@ -525,7 +529,7 @@ export async function ProcurementLoadDetailPage({
 
   if (!result.ok) {
     return (
-      <div className="screen on">
+      <Box sx={LOAD_DETAIL_ROOT_SX}>
         <OrderDetailsToolbar title={pageContract.title || copy(pageContract, "fallback.title")} backHref={backHref} backLabel={backLabel} />
         <Alert severity="error" sx={{ mb: 3 }}>
           {result.error.message}
@@ -533,7 +537,7 @@ export async function ProcurementLoadDetailPage({
         <Button component={Link} href={backHref} color="inherit" variant="outlined" startIcon={<Iconify icon="eva:arrow-ios-back-fill" />}>
           {backLabel}
         </Button>
-      </div>
+      </Box>
     );
   }
 
@@ -560,7 +564,7 @@ export async function ProcurementLoadDetailPage({
   const plannedDispatch = fmtDate(load.planned_dispatch_at ?? undefined) || placeholder;
 
   return (
-    <div className="screen on">
+    <Box sx={LOAD_DETAIL_ROOT_SX}>
       {/* Template order details (sections/order/view/order-details-view): toolbar with back arrow,
           heading + status Label and the date line; Grid md 8 / 4 with the record cards and the
           History timeline on the left and the Customer / Delivery rail on the right. */}
@@ -650,6 +654,6 @@ export async function ProcurementLoadDetailPage({
           </Card>
         </Grid>
       </Grid>
-    </div>
+    </Box>
   );
 }

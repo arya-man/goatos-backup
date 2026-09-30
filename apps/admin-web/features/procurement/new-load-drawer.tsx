@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { Plus } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import Button from "@mui/material/Button";
 import TextField from "@mui/material/TextField";
 import Autocomplete from "@mui/material/Autocomplete";
 
 import { MinimalDrawer } from "@/components/app/drawer";
 import { useBackCloses } from "@/components/use-back-closes";
+import { HiddenField } from "@/components/app/hidden-field";
 
 /**
  * Source entry's header "New load" primary and the template right drawer it opens (portal,
@@ -25,7 +26,7 @@ export function NewLoadDrawer({ label, closeLabel, children }: { label: string; 
         type="button"
         variant="contained"
         color="primary"
-        startIcon={<Plus className="ic" aria-hidden="true" />}
+        startIcon={<Iconify icon="mingcute:add-line" aria-hidden="true" />}
         onClick={() => setOpen(true)}
         data-testid="new-load-open"
       >
@@ -71,7 +72,7 @@ export function SupplierField({ label, placeholder, options }: { label: string; 
           />
         )}
       />
-      <input type="hidden" name="source_party_id" value={submitted} />
+      <HiddenField name="source_party_id" value={submitted} />
     </>
   );
 }

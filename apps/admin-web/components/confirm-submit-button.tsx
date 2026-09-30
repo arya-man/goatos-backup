@@ -24,6 +24,7 @@ export function ConfirmSubmitButton({
   children,
   message,
   className,
+  variant = "contained",
   disabled = false,
   title,
   confirmLabel,
@@ -33,6 +34,8 @@ export function ConfirmSubmitButton({
   children: React.ReactNode;
   message: string;
   className?: string;
+  /** Template button variant of the visible trigger (contained primary for the main action). */
+  variant?: "contained" | "outlined";
   disabled?: boolean;
   title?: string;
   /** Backend copy from the caller's page contract. */
@@ -50,17 +53,20 @@ export function ConfirmSubmitButton({
 
   return (
     <>
-      <button
+      <Button
         type="button"
+        variant={variant}
+        color="primary"
         className={className}
         disabled={disabled}
         title={title}
+        sx={{ alignSelf: "flex-start" }}
         onClick={() => {
           if (!disabled) setOpen(true);
         }}
       >
         {children}
-      </button>
+      </Button>
       <button ref={submitter} type="submit" hidden aria-hidden="true" tabIndex={-1} />
       <Dialog fullWidth maxWidth="xs" open={open} onClose={() => setOpen(false)} slotProps={{ paper: { "aria-label": dialogTitle } }}>
           <DialogTitle sx={{ pb: 2 }}>{dialogTitle}</DialogTitle>

@@ -1,5 +1,6 @@
 "use client";
 
+import { HiddenField } from "@/components/app/hidden-field";
 // VENDOR FORM IS AUTHORED (maintainer instruction 2026-09-19, docs/decisions/sales-sop.md -> "The
 // vendor form"). The add / edit vendor body rendered from the published sales.vendor form: one
 // section per page, one control per question, by kind. Typed questions (the register's own
@@ -78,11 +79,11 @@ export function VendorFormFields({ form, vendor, pageContract }: { form: Procure
   return (
     <Stack spacing={3}>
       <Alert severity="info">{copy(pageContract, "required.hint.form")}</Alert>
-      <input type="hidden" name="questionnaire_version" value={form.version} />
-      <input type="hidden" name="questionnaire_sop_code" value={form.sop_code ?? "sales.vendor"} />
-      <input type="hidden" name="form_question_ids" value={[...visibleIds].join(",")} />
+      <HiddenField name="questionnaire_version" value={form.version} />
+      <HiddenField name="questionnaire_sop_code" value={form.sop_code ?? "sales.vendor"} />
+      <HiddenField name="form_question_ids" value={[...visibleIds].join(",")} />
       {vendor
-        ? TYPED_CARRY.filter(([id]) => !asked.has(id)).map(([id, read]) => <input key={id} type="hidden" name={id} value={read(vendor)} />)
+        ? TYPED_CARRY.filter(([id]) => !asked.has(id)).map(([id, read]) => <HiddenField key={id} name={id} value={read(vendor)} />)
         : null}
       {form.pages.map((page, pi) => (
         // Template product create/edit section: a subtitle, then a Stack of outlined fields.
