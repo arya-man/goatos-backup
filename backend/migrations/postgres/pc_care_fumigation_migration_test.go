@@ -74,7 +74,7 @@ VALUES ($1::uuid, $2::uuid, 'mobile', 'pc_care', ARRAY[$3]::text[])`, tenant, id
 		}
 	}
 
-	// The tenant's root Consumables list, where Virufix is filed.
+	// The tenant's root Consumables list: the new Fumigation list sits beside it, never under it.
 	exec(`INSERT INTO item_categories (tenant_id, name, normalized_name, item_kind, status) VALUES ($1::uuid, 'Consumables', 'consumables', 'consumable', 'active')`, tenant)
 
 	raw, err := os.ReadFile("000458_pc_care_fumigation.sql")
@@ -131,17 +131,28 @@ WHERE v.tenant_id = $1::uuid AND d.code = 'pc_care.tasks'`, tenant).Scan(&versio
 		assertCaps(stage, "health-director", "mobile", "pc_care", "view")
 		assertCaps(stage, "breeding-director", "web", "pc_fumigation", "view,configure")
 		assertCaps(stage, "pc-director", "mobile", "pc_fumigation", "<none>") // plans nothing
-		// Virufix, once, in the Consumables list, in ml.
-		var items int
-		var unit, notes string
+		// One top-level Fumigation list (kind consumable) holding Virufix (ml) and the Fumigator (piece).
+		var lists int
 		if err := pool.QueryRow(ctx, `
-SELECT count(*), min(i.base_unit), min(i.context ->> 'notes')
-FROM inventory_items i JOIN item_categories c ON c.tenant_id = i.tenant_id AND c.category_id = i.category_id
-WHERE i.tenant_id = $1::uuid AND i.name = 'Virufix' AND c.item_kind = 'consumable'`, tenant).Scan(&items, &unit, &notes); err != nil {
-			t.Fatalf("%s: read Virufix: %v", stage, err)
+SELECT count(*) FROM item_categories
+WHERE tenant_id = $1::uuid AND parent_category_id IS NULL AND name = 'Fumigation' AND item_kind = 'consumable'`, tenant).Scan(&lists); err != nil || lists != 1 {
+			t.Fatalf("%s: top-level Fumigation lists = %d (err %v), want 1", stage, lists, err)
 		}
-		if items != 1 || unit != "ml" || !strings.Contains(notes, "5 ml per litre") {
-			t.Fatalf("%s: Virufix items=%d unit=%q notes=%q, want one ml item carrying the dosage", stage, items, unit, notes)
+		for _, want := range []struct{ name, unit, note string }{
+			{"Virufix", "ml", "5 ml per litre"},
+			{"Fumigator", "piece", "Spray machine"},
+		} {
+			var items int
+			var unit, notes string
+			if err := pool.QueryRow(ctx, `
+SELECT count(*), coalesce(min(i.base_unit), ''), coalesce(min(i.context ->> 'notes'), '')
+FROM inventory_items i JOIN item_categories c ON c.tenant_id = i.tenant_id AND c.category_id = i.category_id
+WHERE i.tenant_id = $1::uuid AND i.name = $2 AND c.name = 'Fumigation' AND c.parent_category_id IS NULL`, tenant, want.name).Scan(&items, &unit, &notes); err != nil {
+				t.Fatalf("%s: read %s: %v", stage, want.name, err)
+			}
+			if items != 1 || unit != want.unit || !strings.Contains(notes, want.note) {
+				t.Fatalf("%s: %s items=%d unit=%q notes=%q, want one %s item in the Fumigation list", stage, want.name, items, unit, notes, want.unit)
+			}
 		}
 	}
 	check("after up")
@@ -168,10 +179,11 @@ WHERE i.tenant_id = $1::uuid AND i.name = 'Virufix' AND c.item_kind = 'consumabl
 	assertCaps("after down", "park-head", "mobile", "pc_fumigation", "<none>")
 	assertCaps("after down", "park-head", "mobile", "pc_care", "<none>")
 	assertCaps("after down", "park-head-already-doing", "mobile", "pc_care", "do")
-	var virufix int
-	_ = pool.QueryRow(ctx, `SELECT count(*) FROM inventory_items WHERE tenant_id = $1::uuid AND name = 'Virufix'`, tenant).Scan(&virufix)
-	if virufix != 0 {
-		t.Fatalf("after down: %d Virufix items, want 0", virufix)
+	var leftItems, leftLists int
+	_ = pool.QueryRow(ctx, `SELECT count(*) FROM inventory_items WHERE tenant_id = $1::uuid AND name IN ('Virufix', 'Fumigator')`, tenant).Scan(&leftItems)
+	_ = pool.QueryRow(ctx, `SELECT count(*) FROM item_categories WHERE tenant_id = $1::uuid AND name = 'Fumigation'`, tenant).Scan(&leftLists)
+	if leftItems != 0 || leftLists != 0 {
+		t.Fatalf("after down: %d fumigation items and %d Fumigation lists, want 0 and 0", leftItems, leftLists)
 	}
 	var hasCard bool
 	if err := pool.QueryRow(ctx, `

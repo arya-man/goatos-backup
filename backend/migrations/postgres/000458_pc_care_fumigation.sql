@@ -20,7 +20,8 @@
 --      published version would lean on the Go seed fallback for the new card. The card is
 --      embedded verbatim and pinned by TestMigrationEmbedsTheSeededFumigationCard.
 --   3. / 4. The planners' per-person ticks and job defaults (below), additive and ledgered.
---   5. Virufix in Configuration › Items & categories (Consumables, ml), ledgered.
+--   5. A top-level Fumigation list in Configuration › Items & categories holding Virufix (ml)
+--      and the Fumigator (piece), ledgered.
 --
 -- seed-fixture-guard:ignore: adds an operational PC Care work category and its seeded SOP card;
 -- no vaccination / HRMS / goats schema moves.
@@ -144,11 +145,35 @@ INSERT INTO public.designation_module_defaults_fumigation_backfill (designation_
 SELECT designation_code, surface, module_key FROM inserted
 ON CONFLICT DO NOTHING;
 
--- 5. VIRUFIX IN THE ITEM CATALOGUE. Configuration › Items & categories is where the farm keeps the
---    things its work uses; fumigation's disinfectant belongs there beside the medicines and
---    vaccines. Filed under each tenant's root Consumables list, measured in ml, with the dosage in
---    its notes. The code is the one the screen itself makes from the name (ITM-VIRUFIX), so the row
---    edits like any hand-added item; an existing item named Virufix is left alone. Ledgered.
+-- 5. A FUMIGATION LIST IN THE ITEM CATALOGUE (maintainer decision 2026-09-30). Configuration ›
+--    Items & categories gets its own top-level "Fumigation" list, beside Medicines, Vaccines and
+--    Consumables, holding what the work uses: Virufix (the disinfectant, ml, the dose in its
+--    notes) and the Fumigator (the spray machine, counted in pieces). A list's whole subtree is
+--    one kind, so the list is CONSUMABLE -- not Medicine, which would put Virufix in the Health
+--    treatment medicine picker and file a machine as a medicine. The item codes are the ones the
+--    screen makes from the names (ITM-VIRUFIX, ITM-FUMIGATOR), so every row edits like a
+--    hand-made one. A tenant that already has a top-level Fumigation list keeps it and the items
+--    go into it; an item that already exists by name or code is left where it is. Ledgered.
+CREATE TABLE IF NOT EXISTS public.item_categories_fumigation_backfill (
+  tenant_id   uuid NOT NULL,
+  category_id uuid NOT NULL,
+  PRIMARY KEY (tenant_id, category_id)
+);
+
+WITH inserted AS (
+  INSERT INTO public.item_categories (tenant_id, name, normalized_name, item_kind, sort_order)
+  SELECT t.tenant_id, 'Fumigation', 'fumigation', 'consumable', 65
+  FROM public.tenants t
+  WHERE NOT EXISTS (
+    SELECT 1 FROM public.item_categories c
+    WHERE c.tenant_id = t.tenant_id AND c.parent_category_id IS NULL AND c.normalized_name = 'fumigation'
+  )
+  RETURNING tenant_id, category_id
+)
+INSERT INTO public.item_categories_fumigation_backfill (tenant_id, category_id)
+SELECT tenant_id, category_id FROM inserted
+ON CONFLICT DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS public.inventory_items_fumigation_backfill (
   tenant_id uuid NOT NULL,
   item_id   uuid NOT NULL,
@@ -157,15 +182,19 @@ CREATE TABLE IF NOT EXISTS public.inventory_items_fumigation_backfill (
 
 WITH inserted AS (
   INSERT INTO public.inventory_items (tenant_id, item_code, name, category, base_unit, category_id, context)
-  SELECT c.tenant_id, 'ITM-VIRUFIX', 'Virufix', 'consumable', 'ml', c.category_id,
-         jsonb_build_object('notes', 'Pen disinfectant for Preventive Care fumigation: 5 ml per litre of water, sprayed across the pen.')
+  SELECT c.tenant_id, v.code, v.name, 'consumable', v.unit, c.category_id, jsonb_build_object('notes', v.notes)
   FROM public.item_categories c
+  CROSS JOIN (VALUES
+    ('ITM-VIRUFIX',   'Virufix',   'ml',    'Pen disinfectant for Preventive Care fumigation: 5 ml per litre of water, sprayed across the pen.'),
+    ('ITM-FUMIGATOR', 'Fumigator', 'piece', 'Spray machine for Preventive Care fumigation of a pen.')
+  ) AS v(code, name, unit, notes)
   WHERE c.parent_category_id IS NULL
+    AND c.normalized_name = 'fumigation'
     AND c.item_kind = 'consumable'
     AND c.status = 'active'
     AND NOT EXISTS (
       SELECT 1 FROM public.inventory_items i
-      WHERE i.tenant_id = c.tenant_id AND (lower(i.name) = 'virufix' OR i.item_code = 'ITM-VIRUFIX')
+      WHERE i.tenant_id = c.tenant_id AND (lower(i.name) = lower(v.name) OR i.item_code = v.code)
     )
   ON CONFLICT (tenant_id, item_code) DO NOTHING
   RETURNING tenant_id, item_id
@@ -179,6 +208,12 @@ DELETE FROM public.inventory_items i
 USING public.inventory_items_fumigation_backfill b
 WHERE i.tenant_id = b.tenant_id AND i.item_id = b.item_id;
 DROP TABLE IF EXISTS public.inventory_items_fumigation_backfill;
+DELETE FROM public.item_categories c
+USING public.item_categories_fumigation_backfill b
+WHERE c.tenant_id = b.tenant_id AND c.category_id = b.category_id
+  AND NOT EXISTS (SELECT 1 FROM public.inventory_items i WHERE i.tenant_id = c.tenant_id AND i.category_id = c.category_id)
+  AND NOT EXISTS (SELECT 1 FROM public.item_categories x WHERE x.tenant_id = c.tenant_id AND x.parent_category_id = c.category_id);
+DROP TABLE IF EXISTS public.item_categories_fumigation_backfill;
 
 DELETE FROM public.designation_module_defaults d
 USING public.designation_module_defaults_fumigation_backfill b
