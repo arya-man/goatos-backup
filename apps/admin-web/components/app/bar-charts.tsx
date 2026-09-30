@@ -3,7 +3,7 @@
 // Bar charts on the licensed MUI Minimal template's ApexCharts `Chart` + `useChart`, with the base
 // options untouched: no data labels (figures live in the tooltip and on the value axis), no
 // hover-state override, the template tooltip, palette colours (components/app/chart-colors). The
-// server wrappers in components/svg-bars.tsx and components/svg-column-bars.tsx precompute every
+// server wrappers in components/svg-bars.tsx precompute every
 // visible string and hand these charts only serializable props; the formatters here only look
 // those strings up by dataPointIndex / seriesIndex.
 //

@@ -259,6 +259,11 @@ export function evaluateRatchet(ratchetFindings, allowances, { seed = process.en
     if (entry) nextBaseline[key] = { allowed: Math.min(allowed, list.length), reason: entry.reason };
     else if (seed) nextBaseline[key] = { allowed: list.length, reason: legacyReason(list[0].check) };
   }
+  // An allowance whose file has NO finding left is slack too (FIXJ-CI: 241 such entries had piled
+  // up unseen, because only files with findings were compared). It is dropped from the baseline.
+  for (const [key, entry] of Object.entries(allowances)) {
+    if (!groups.has(key) && (entry?.allowed ?? 0) > 0) shrinkable.push({ key, count: 0, allowed: entry.allowed });
+  }
   return { over, shrinkable, nextBaseline: Object.fromEntries(Object.entries(nextBaseline).sort(([a], [b]) => a.localeCompare(b))) };
 }
 

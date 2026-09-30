@@ -10,10 +10,10 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 
 const CEILING = {
-  "app/mesha-theme.css": 2221,
-  "app/frame.css": 357,
-  "app/minimal-theme.css": 609,
-  "app/globals.css": 132,
+  "app/mesha-theme.css": 1826,
+  "app/frame.css": 315,
+  "app/minimal-theme.css": 474,
+  "app/globals.css": 101,
 };
 
 const lines = (rel) => readFileSync(new URL(`../${rel}`, import.meta.url), "utf8").split("\n").length - 1;
