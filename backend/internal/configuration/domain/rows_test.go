@@ -75,13 +75,25 @@ func TestValidateWriteCreateRequiresAndCoerces(t *testing.T) {
 	}
 
 	clean, err := ValidateWrite(reg, map[string]any{
-		"park_id": "11111111-1111-4111-8111-111111111111", "name": " Castro ", "capacity": "120", "notes": "",
+		"park_id": "11111111-1111-4111-8111-111111111111", "name": " Castro ", "notes": "",
 	}, nil, "")
 	if err != nil {
 		t.Fatalf("unexpected: %v", err)
 	}
-	if clean["name"] != "Castro" || clean["capacity"] != int64(120) {
+	if clean["name"] != "Castro" {
 		t.Fatalf("clean = %#v", clean)
+	}
+	// Capacity is set per partition, never on the building (maintainer instruction 2026-09-30).
+	if _, err := ValidateWrite(reg, map[string]any{
+		"park_id": "11111111-1111-4111-8111-111111111111", "name": "Castro", "capacity": "120",
+	}, nil, ""); fieldCodes(t, err)["capacity"] != "unknown" {
+		t.Fatalf("capacity must be unknown on a pen now, got %v", fieldCodes(t, err))
+	}
+	part, err := ValidateWrite(mustRegister(t, RegPartitions), map[string]any{
+		"park_id": "11111111-1111-4111-8111-111111111111", "pen_id": "22222222-2222-4222-8222-222222222222", "label": " Part 3 ", "capacity": "120",
+	}, nil, "")
+	if err != nil || part["capacity"] != int64(120) || part["label"] != "Part 3" {
+		t.Fatalf("partition capacity must coerce: %v %#v", err, part)
 	}
 	// A pen is a building in a park (maintainer instruction 2026-09-22): what is KEPT in it is not
 	// a setting, so the register no longer carries stage, gender or ICU and a write naming one is
@@ -97,9 +109,9 @@ func TestValidateWriteCreateRequiresAndCoerces(t *testing.T) {
 }
 
 func TestValidateWriteRefusesUnknownEnumNumberAndKey(t *testing.T) {
-	reg := mustRegister(t, RegPens)
+	reg := mustRegister(t, RegPartitions)
 	_, err := ValidateWrite(reg, map[string]any{
-		"park_id": "x", "name": "A", "capacity": "-3", "bogus": 1,
+		"park_id": "x", "pen_id": "y", "label": "A", "capacity": "-3", "bogus": 1,
 	}, nil, "")
 	codes := fieldCodes(t, err)
 	if codes["capacity"] != "invalid" || codes["bogus"] != "unknown" {
@@ -111,7 +123,7 @@ func TestValidateWriteRefusesUnknownEnumNumberAndKey(t *testing.T) {
 	if fieldCodes(t, err)["answer_kind"] != "invalid" {
 		t.Fatalf("an unknown enum choice must be refused, got %v", fieldCodes(t, err))
 	}
-	_, err = ValidateWrite(reg, map[string]any{"park_id": "x", "name": "A", "capacity": "12.5"}, nil, "")
+	_, err = ValidateWrite(reg, map[string]any{"park_id": "x", "pen_id": "y", "label": "A", "capacity": "12.5"}, nil, "")
 	if fieldCodes(t, err)["capacity"] != "invalid" {
 		t.Fatalf("a fractional integer must be refused")
 	}
@@ -138,14 +150,14 @@ func TestValidateWriteCodeIsShapedAndImmutable(t *testing.T) {
 }
 
 func TestValidateWriteUpdateOnlyChecksSentFields(t *testing.T) {
-	reg := mustRegister(t, RegPens)
-	existing := &Row{Fields: map[string]any{"park_id": "p", "name": "Castro"}}
+	reg := mustRegister(t, RegPartitions)
+	existing := &Row{Fields: map[string]any{"park_id": "p", "pen_id": "s", "label": "3"}}
 	clean, err := ValidateWrite(reg, map[string]any{"capacity": 40}, existing, "")
 	if err != nil || clean["capacity"] != int64(40) || len(clean) != 1 {
 		t.Fatalf("update: %v %#v", err, clean)
 	}
-	_, err = ValidateWrite(reg, map[string]any{"name": ""}, existing, "")
-	if fieldCodes(t, err)["name"] != "required" {
+	_, err = ValidateWrite(reg, map[string]any{"label": ""}, existing, "")
+	if fieldCodes(t, err)["label"] != "required" {
 		t.Fatalf("blanking a required field on update must be refused")
 	}
 }

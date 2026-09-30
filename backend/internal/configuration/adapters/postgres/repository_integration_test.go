@@ -116,11 +116,11 @@ func TestConfigurationRegistersLifecyclePostgresPaths(t *testing.T) {
 	}
 
 	// --- create a pen under the park; its code follows the park's; a duplicate name is refused ---
-	pen, err := repo.Create(ctx, write("pen-1"), domain.RegPens, map[string]any{"park_id": cfgParkCBE, "name": "Gandhi", "capacity": int64(120)})
+	pen, err := repo.Create(ctx, write("pen-1"), domain.RegPens, map[string]any{"park_id": cfgParkCBE, "name": "Gandhi", "notes": "Near the gate"})
 	if err != nil {
 		t.Fatalf("create pen: %v", err)
 	}
-	if pen.Display != "Gandhi" || pen.Fields["capacity"] != float64(120) || pen.RowVersion != 1 {
+	if pen.Display != "Gandhi" || pen.Fields["notes"] != "Near the gate" || pen.RowVersion != 1 {
 		t.Fatalf("pen = %+v", pen)
 	}
 	var code string
@@ -128,7 +128,7 @@ func TestConfigurationRegistersLifecyclePostgresPaths(t *testing.T) {
 		t.Fatalf("pen code = %q %v", code, err)
 	}
 	// Exact replay returns the same row without a second insert; a different payload is refused.
-	again, err := repo.Create(ctx, write("pen-1"), domain.RegPens, map[string]any{"park_id": cfgParkCBE, "name": "Gandhi", "capacity": int64(120)})
+	again, err := repo.Create(ctx, write("pen-1"), domain.RegPens, map[string]any{"park_id": cfgParkCBE, "name": "Gandhi", "notes": "Near the gate"})
 	if err != nil || again.ID != pen.ID {
 		t.Fatalf("replay: %v %+v", err, again)
 	}
@@ -146,11 +146,11 @@ func TestConfigurationRegistersLifecyclePostgresPaths(t *testing.T) {
 	}
 
 	// --- update, fenced on row_version ---
-	if _, err := repo.Update(ctx, write("pen-up-stale"), domain.RegPens, pen.ID, map[string]any{"capacity": int64(90)}, 7); !errors.Is(err, ports.ErrVersionConflict) {
+	if _, err := repo.Update(ctx, write("pen-up-stale"), domain.RegPens, pen.ID, map[string]any{"notes": "Back row"}, 7); !errors.Is(err, ports.ErrVersionConflict) {
 		t.Fatalf("stale fence: %v", err)
 	}
-	pen2, err := repo.Update(ctx, write("pen-up"), domain.RegPens, pen.ID, map[string]any{"name": "Gandhi North", "capacity": int64(90), "notes": nil}, pen.RowVersion)
-	if err != nil || pen2.Display != "Gandhi North" || pen2.Fields["capacity"] != float64(90) || pen2.RowVersion != 2 {
+	pen2, err := repo.Update(ctx, write("pen-up"), domain.RegPens, pen.ID, map[string]any{"name": "Gandhi North", "notes": nil}, pen.RowVersion)
+	if err != nil || pen2.Display != "Gandhi North" || pen2.Fields["notes"] != nil || pen2.RowVersion != 2 {
 		t.Fatalf("update pen: %v %+v", err, pen2)
 	}
 	if err := pool.QueryRow(ctx, `SELECT location_code FROM locations WHERE location_id = $1::uuid`, pen.ID).Scan(&code); err != nil || code != "CBE_SHED_GANDHI_NORTH" {
@@ -158,9 +158,26 @@ func TestConfigurationRegistersLifecyclePostgresPaths(t *testing.T) {
 	}
 
 	// --- partitions on the new pen: add, rename within the same key, refuse a duplicate ---
-	part, err := repo.Create(ctx, write("part-1"), domain.RegPartitions, map[string]any{"park_id": cfgParkCBE, "pen_id": pen.ID, "label": "Part 3", "sort_order": int64(3)})
-	if err != nil || part.Display != "Gandhi North - Part 3" || part.ID != pen.ID+":3" {
+	part, err := repo.Create(ctx, write("part-1"), domain.RegPartitions, map[string]any{"park_id": cfgParkCBE, "pen_id": pen.ID, "label": "Part 3", "sort_order": int64(3), "capacity": int64(60)})
+	if err != nil || part.Display != "Gandhi North - Part 3" || part.ID != pen.ID+":3" || part.Fields["capacity"] != float64(60) {
 		t.Fatalf("create partition: %v %+v", err, part)
+	}
+	// Capacity is per partition (maintainer instruction 2026-09-30): it is stored on the pen the
+	// farm works, and an edit changes that pen alone.
+	if got, err := repo.Update(ctx, write("part-cap"), domain.RegPartitions, part.ID, map[string]any{"capacity": int64(45)}, 0); err != nil || got.Fields["capacity"] != float64(45) {
+		t.Fatalf("partition capacity update: %v %+v", err, got)
+	}
+	if got, err := repo.Update(ctx, write("part-cap-clear"), domain.RegPartitions, part.ID, map[string]any{"capacity": nil}, 0); err != nil {
+		t.Fatalf("clear partition capacity: %v", err)
+	} else if got.Fields["capacity"] != nil {
+		t.Fatalf("a cleared capacity must read back blank, got %+v", got.Fields)
+	}
+	if _, err := repo.Update(ctx, write("part-cap-2"), domain.RegPartitions, part.ID, map[string]any{"capacity": int64(45)}, 0); err != nil {
+		t.Fatal(err)
+	}
+	var stored int
+	if err := pool.QueryRow(ctx, `SELECT capacity FROM shed_partitions WHERE tenant_id = $1 AND shed_id = $2::uuid AND normalized_label = '3'`, cfgTenant, pen.ID).Scan(&stored); err != nil || stored != 45 {
+		t.Fatalf("stored partition capacity = %d %v", stored, err)
 	}
 	if _, err := repo.Create(ctx, write("part-dup"), domain.RegPartitions, map[string]any{"park_id": cfgParkCBE, "pen_id": pen.ID, "label": "3"}); !errors.As(err, &dup) || dup.Field != "label" {
 		t.Fatalf("'3' and 'Part 3' are one partition: %v", err)

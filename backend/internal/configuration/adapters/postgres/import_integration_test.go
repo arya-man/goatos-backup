@@ -59,17 +59,18 @@ func TestConfigurationBulkSheetsPostgresPaths(t *testing.T) {
 	}
 
 	// 1. Create sheet: a good row (park by LABEL), a good row (park by CODE), an unknown park, a
-	//    duplicate name, a bad number.
-	job := stage(domain.RegPens, "pens.csv", "park_id,name,capacity,sex\nCoimbatore,Sheet A,40,female\nCBE,Sheet B,20,mixed\nNowhere,Sheet C,10,\nCoimbatore,Sheet A,5,\nCBE,Sheet D,abc,\n")
+	//    duplicate name. (The bad-number case lives on the Partitions sheet in step 5: capacity is
+	//    per partition since 2026-09-30 and a pen carries no number any more.)
+	job := stage(domain.RegPens, "pens.csv", "park_id,name,sex\nCoimbatore,Sheet A,female\nCBE,Sheet B,mixed\nNowhere,Sheet C,\nCoimbatore,Sheet A,\n")
 	job = waitFor(job.ID, domain.ImportPreviewed, domain.ImportFailed)
-	if job.Status != domain.ImportPreviewed || job.TotalRows != 5 || job.ValidRows != 2 || job.InvalidRows != 3 {
+	if job.Status != domain.ImportPreviewed || job.TotalRows != 4 || job.ValidRows != 2 || job.InvalidRows != 2 {
 		t.Fatalf("preview = %+v", job)
 	}
 	invalid, err := repo.ImportRows(ctx, cfgTenant, job.ID, ports.ImportRowsParams{State: domain.ImportRowInvalid, Limit: 10})
-	if err != nil || len(invalid) != 3 {
+	if err != nil || len(invalid) != 2 {
 		t.Fatalf("invalid rows: %v %d", err, len(invalid))
 	}
-	want := map[int]string{4: "park_id", 5: "name", 6: "capacity"}
+	want := map[int]string{4: "park_id", 5: "name"}
 	for _, row := range invalid {
 		if len(row.Errors) == 0 || row.Errors[0].Field != want[row.RowNo] {
 			t.Fatalf("row %d errors = %+v, want field %s", row.RowNo, row.Errors, want[row.RowNo])
@@ -103,20 +104,20 @@ func TestConfigurationBulkSheetsPostgresPaths(t *testing.T) {
 		t.Fatalf("an applied job must not re-enter applying")
 	}
 
-	// 2. Download, then upload the download back with one capacity changed: an UPDATE by id,
+	// 2. Download, then upload the download back with one note changed: an UPDATE by id,
 	//    and every other row unchanged (the same fields resend as no-ops).
 	var buf bytes.Buffer
 	if err := svc.Export(ctx, cfgTenant, domain.RegPens, "all", domain.FormatCSV, &buf); err != nil {
 		t.Fatalf("export: %v", err)
 	}
 	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
-	if !strings.HasPrefix(lines[0], "id,row_version,park_id,name,capacity,notes") {
+	if !strings.HasPrefix(lines[0], "id,row_version,park_id,name,notes") {
 		t.Fatalf("export header = %q", lines[0])
 	}
 	edited := make([]string, 0, len(lines))
 	for _, line := range lines {
-		if strings.Contains(line, ",Sheet A,40,") {
-			line = strings.Replace(line, ",Sheet A,40,", ",Sheet A,77,", 1)
+		if strings.Contains(line, ",Sheet A,,") {
+			line = strings.Replace(line, ",Sheet A,,", ",Sheet A,Near the gate,", 1)
 		}
 		edited = append(edited, line)
 	}
@@ -139,13 +140,13 @@ func TestConfigurationBulkSheetsPostgresPaths(t *testing.T) {
 	if len(page.Rows) != 1 {
 		t.Fatalf("Sheet A rows = %d", len(page.Rows))
 	}
-	if cap, _ := domain.FieldInt(page.Rows[0].Fields, "capacity"); cap != 77 {
-		t.Fatalf("capacity after update = %d, want 77", cap)
+	if note := domain.FieldString(page.Rows[0].Fields, "notes"); note != "Near the gate" {
+		t.Fatalf("notes after update = %q, want Near the gate", note)
 	}
 
 	// 3. An update-only sheet (id + row_version + one column) is accepted without the required
 	//    columns.
-	job3 := stage(domain.RegPens, "cap.csv", "id,row_version,capacity\n"+page.Rows[0].ID+","+strconv.Itoa(page.Rows[0].RowVersion)+",88\n")
+	job3 := stage(domain.RegPens, "note.csv", "id,row_version,notes\n"+page.Rows[0].ID+","+strconv.Itoa(page.Rows[0].RowVersion)+",Back row\n")
 	job3 = waitFor(job3.ID, domain.ImportPreviewed, domain.ImportFailed)
 	if job3.ValidRows != 1 {
 		t.Fatalf("update-only preview = %+v", job3)
@@ -164,8 +165,31 @@ func TestConfigurationBulkSheetsPostgresPaths(t *testing.T) {
 		t.Fatalf("open xlsx: %v", err)
 	}
 	header, err := reader.Next()
-	if err != nil || strings.Join(header, ",") != "id,row_version,park_id,name,capacity,notes" {
+	if err != nil || strings.Join(header, ",") != "id,row_version,park_id,name,notes" {
 		t.Fatalf("xlsx header = %v %v", header, err)
+	}
+
+	// 3b. Capacity is per partition (maintainer instruction 2026-09-30): a Partitions sheet carries
+	//     it, a bad number is refused per row, and the good row lands on that pen alone.
+	sheetA := page.Rows[0].ID
+	jobP := stage(domain.RegPartitions, "parts.csv", "park_id,pen_id,label,capacity\nCBE,Sheet A,1,40\nCBE,Sheet A,2,abc\n")
+	jobP = waitFor(jobP.ID, domain.ImportPreviewed, domain.ImportFailed)
+	if jobP.Status != domain.ImportPreviewed || jobP.ValidRows != 1 || jobP.InvalidRows != 1 {
+		t.Fatalf("partition preview = %+v", jobP)
+	}
+	badP, err := repo.ImportRows(ctx, cfgTenant, jobP.ID, ports.ImportRowsParams{State: domain.ImportRowInvalid, Limit: 10})
+	if err != nil || len(badP) != 1 || len(badP[0].Errors) == 0 || badP[0].Errors[0].Field != "capacity" {
+		t.Fatalf("bad capacity row = %v %+v", err, badP)
+	}
+	if _, ok, err := repo.RequestImportApply(ctx, cfgTenant, jobP.ID, cfgActor); err != nil || !ok {
+		t.Fatalf("request partition apply: %v %v", err, ok)
+	}
+	if err := importer.Process(ctx, cfgTenant, jobP.ID); err != nil {
+		t.Fatalf("apply partitions: %v", err)
+	}
+	waitFor(jobP.ID, domain.ImportApplied, domain.ImportFailed)
+	if got, err := repo.Get(ctx, cfgTenant, domain.RegPartitions, sheetA+":1"); err != nil || got.Fields["capacity"] != float64(40) {
+		t.Fatalf("imported partition = %v %+v, want capacity 40", err, got)
 	}
 
 	// 4. Cancel fences: cancel a previewed job, then a stale phase end must NOT flip it back.
@@ -244,8 +268,8 @@ func TestConfigurationBulkSheetsPostgresPaths(t *testing.T) {
 	if err := svc.ErrorSheet(ctx, repo, cfgTenant, job.ID, domain.FormatCSV, &ebuf); err != nil {
 		t.Fatalf("error sheet: %v", err)
 	}
-	if n := len(strings.Split(strings.TrimSpace(ebuf.String()), "\n")); n != 4 {
-		t.Fatalf("error sheet lines = %d, want header + 3:\n%s", n, ebuf.String())
+	if n := len(strings.Split(strings.TrimSpace(ebuf.String()), "\n")); n != 3 {
+		t.Fatalf("error sheet lines = %d, want header + 2:\n%s", n, ebuf.String())
 	}
 	importer.Wait()
 }

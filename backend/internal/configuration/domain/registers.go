@@ -315,7 +315,8 @@ var Registers = []Register{
 		Columns: []Column{
 			{Key: "park_id", Label: "Park", Type: TypeRef, Ref: RegParks, Required: true},
 			{Key: "name", Label: "Name", Type: TypeText, Required: true},
-			{Key: "capacity", Label: "Capacity", Type: TypeNumber, Min: zero(), Integer: true, Hint: "How many animals the building holds, when it is worth recording."},
+			// CAPACITY MOVED TO THE PARTITION (maintainer instruction 2026-09-30, migration 000457):
+			// how many animals a pen holds is set on each partition, never on the building.
 			{Key: "notes", Label: "Notes", Type: TypeNotes, ListHidden: true},
 		},
 	},
@@ -339,6 +340,11 @@ var Registers = []Register{
 			// The choices are the Pen types register (migration 000437), never a list typed here.
 			{Key: "shed_type", Label: "Pen type", Type: TypeRef, Ref: RegPenTypes,
 				Hint: "Weighing and Health Analytics compare pens by type. Left blank, this pen is reported as unclassified rather than counted into any type."},
+			// CAPACITY IS SET PER PARTITION (maintainer instruction 2026-09-30: "it should be per
+			// partition capacity, it won't be per pen"). Castro 1 and Castro 2 hold different numbers
+			// of animals; one figure on the building could not say so. Migration 000457 moved it here.
+			{Key: "capacity", Label: "Capacity", Type: TypeNumber, Min: zero(), Integer: true,
+				Hint: "How many animals this partition holds. A pen's capacity is the total of its partitions."},
 			{Key: "sort_order", Label: "Order", Type: TypeNumber, Min: zero(), Integer: true},
 		},
 	},

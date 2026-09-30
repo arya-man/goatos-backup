@@ -63,10 +63,10 @@ func TestConfigurationWorkbookLoad(t *testing.T) {
 
 	const parksN, pensPerPark = 2, 100
 	parks := [][]string{{"name", "code", "capacity"}, {"Load park A", "LPA", "5000"}, {"Load park B", "LPB", "5000"}}
-	pens := [][]string{{"park_id", "name", "capacity", "sex"}}
+	pens := [][]string{{"park_id", "name"}}
 	for n := 1; n <= pensPerPark; n++ {
-		pens = append(pens, []string{"LPA", "Load pen " + strconv.Itoa(n), "50", "mixed"})
-		pens = append(pens, []string{"Load park B", "Load pen " + strconv.Itoa(n), "50", "mixed"})
+		pens = append(pens, []string{"LPA", "Load pen " + strconv.Itoa(n)})
+		pens = append(pens, []string{"Load park B", "Load pen " + strconv.Itoa(n)})
 	}
 	lists := [][]string{{"name", "parent_id", "kind"}, {"Load medicines", "", "medicine"}, {"Load antibiotics", "Load medicines", ""}, {"Load feeds", "", "feed"}}
 	items := [][]string{{"name", "category_id", "unit", "route", "strength", "withdrawal_days"}}

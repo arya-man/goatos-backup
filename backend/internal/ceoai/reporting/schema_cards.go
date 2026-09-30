@@ -498,7 +498,7 @@ var schemaCards = []SchemaCard{
 	},
 	{
 		Name:                "shed_capacity_current",
-		Purpose:             "Occupancy vs capacity per shed/pen right now, with variance, status and owner/backup.",
+		Purpose:             "Occupancy vs capacity per shed/pen right now, with variance, status and owner/backup. Capacity is set per pen (partition); a shed row (partition_label empty) carries the total of its pens, so never add shed and pen rows together.",
 		Grain:               "one row per shed per pen (current state)",
 		ParkColumn:          "park_label",
 		TenantScopedColumns: []string{"tenant_id"},

@@ -135,7 +135,7 @@ SELECT l.location_id::text AS id,
        ` + locationStatusSQL + ` AS status,
        l.row_version,
        false AS is_builtin,
-       jsonb_build_object('park_id', l.parent_location_id::text, 'name', l.name, 'capacity', sp.capacity,
+       jsonb_build_object('park_id', l.parent_location_id::text, 'name', l.name,
                           'notes', NULLIF(sp.notes, '')) AS fields,
        jsonb_strip_nulls(jsonb_build_object('park_id', p.name)) AS labels,
        jsonb_build_object(
@@ -187,7 +187,7 @@ func (penStore) insert(ctx context.Context, tx pgx.Tx, t string, f map[string]an
 	if err := tx.QueryRow(ctx, sqlPlaces6, t, penCode(parkCode, name), name, parkID).Scan(&id); err != nil {
 		return "", locationWriteError(err, "pen")
 	}
-	if _, err := tx.Exec(ctx, sqlPlaces7, id, t, nullInt(f, "capacity"), nullText(f, "notes")); err != nil {
+	if _, err := tx.Exec(ctx, sqlPlaces7, id, t, nullText(f, "notes")); err != nil {
 		return "", err
 	}
 	return id, nil
@@ -240,7 +240,6 @@ func (penStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[strin
 		return "", err
 	}
 	set, args := setClause(f, []colBind{
-		{"capacity", "capacity", intArg("capacity")},
 		{"notes", "notes", textOrEmpty("notes")},
 	}, 3)
 	if set == "" {
@@ -278,7 +277,7 @@ SELECT concat_ws(':', x.shed_id::text, x.normalized_label) AS id,
        replace(x.status, 'retired', 'archived') AS status,
        0 AS row_version,
        false AS is_builtin,
-       jsonb_build_object('park_id', s.parent_location_id::text, 'pen_id', x.shed_id::text, 'label', x.partition_label, 'sort_order', x.display_order, 'shed_name', s.name, 'shed_type', x.shed_type) AS fields,
+       jsonb_build_object('park_id', s.parent_location_id::text, 'pen_id', x.shed_id::text, 'label', x.partition_label, 'sort_order', x.display_order, 'shed_name', s.name, 'shed_type', x.shed_type, 'capacity', x.capacity) AS fields,
        -- The pen type's NAME from the Pen types register (000437), so a rename shows at once.
        jsonb_strip_nulls(jsonb_build_object('park_id', p.name, 'pen_id', s.name, 'shed_type', pt.name)) AS labels,
        jsonb_build_object(
@@ -351,7 +350,7 @@ func (partitionStore) insert(ctx context.Context, tx pgx.Tx, t string, f map[str
 	if err := requirePenType(ctx, tx, t, domain.FieldString(f, "shed_type"), ""); err != nil {
 		return "", err
 	}
-	if _, err := tx.Exec(ctx, sqlPlaces9, t, penID, label, normalized, nullInt(f, "sort_order"), nullText(f, "shed_type")); err != nil {
+	if _, err := tx.Exec(ctx, sqlPlaces9, t, penID, label, normalized, nullInt(f, "sort_order"), nullText(f, "shed_type"), nullInt(f, "capacity")); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return "", &ports.DuplicateError{Field: "label", Message: "This pen already has that partition."}
@@ -402,6 +401,11 @@ func (partitionStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map
 	}
 	if sent(f, "sort_order") {
 		if _, err := tx.Exec(ctx, `UPDATE shed_partitions SET display_order = $4, updated_at = now() WHERE tenant_id = $1 AND shed_id = $2::uuid AND normalized_label = $3`, t, shedID, normalized, nullInt(f, "sort_order")); err != nil {
+			return "", err
+		}
+	}
+	if sent(f, "capacity") {
+		if _, err := tx.Exec(ctx, sqlPlacesPartitionCapacity, t, shedID, normalized, nullInt(f, "capacity")); err != nil {
 			return "", err
 		}
 	}
@@ -631,16 +635,16 @@ INSERT INTO locations (tenant_id, location_type, location_code, name, parent_loc
 VALUES ($1, 'shed', $2, $3, $4::uuid, 'active')
 RETURNING location_id::text`
 	sqlPlaces7 = `
-INSERT INTO shed_profiles (location_id, tenant_id, capacity, notes)
-VALUES ($1::uuid, $2, $3, COALESCE($4, ''))`
+INSERT INTO shed_profiles (location_id, tenant_id, notes)
+VALUES ($1::uuid, $2, COALESCE($3, ''))`
 	sqlPlaces8 = `
 SELECT count(*) FROM goat_shed_partitions gp
 JOIN goats g ON g.tenant_id = gp.tenant_id AND g.goat_id = gp.goat_id
 WHERE gp.tenant_id = $1 AND gp.shed_id = $2::uuid AND g.lifecycle_status = 'alive'
   AND regexp_replace(lower(btrim(gp.partition_label)), '^part[[:space:]]+', '') = $3`
 	sqlPlaces9 = `
-INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, display_order, source, shed_type)
-VALUES ($1, $2::uuid, $3, $4, 'active', $5, 'manual', $6)`
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, display_order, source, shed_type, capacity)
+VALUES ($1, $2::uuid, $3, $4, 'active', $5, 'manual', $6, $7)`
 	// The pen type a partition carries now, so an edit that leaves it alone is not refused
 	// merely because that type has since been archived.
 	sqlPlacesPenTypeOf = `
@@ -648,6 +652,9 @@ SELECT COALESCE(shed_type, '') FROM shed_partitions
 WHERE tenant_id = $1 AND shed_id = $2::uuid AND normalized_label = $3`
 	sqlPlacesPenTypeActive = `
 SELECT status FROM pen_types WHERE tenant_id = $1 AND pen_type_key = $2`
+	sqlPlacesPartitionCapacity = `
+UPDATE shed_partitions SET capacity = $4, updated_at = now()
+WHERE tenant_id = $1 AND shed_id = $2::uuid AND normalized_label = $3`
 	sqlPlaces11 = `
 UPDATE shed_partitions SET shed_type = $4, updated_at = now()
 WHERE tenant_id = $1 AND shed_id = $2::uuid AND normalized_label = $3`

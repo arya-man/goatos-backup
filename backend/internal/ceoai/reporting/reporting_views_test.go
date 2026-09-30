@@ -8,6 +8,7 @@ package reporting
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
@@ -64,13 +65,27 @@ func shed(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenant, parkID,
 	}
 	if capacity != nil {
 		if _, err := pool.Exec(ctx,
-			`INSERT INTO shed_profiles (location_id, tenant_id, capacity, has_icu, notes, context, row_version)
-			 VALUES ($1, $2, $3, false, '', '{}'::jsonb, 1)`,
-			id, tenant, *capacity); err != nil {
+			`INSERT INTO shed_profiles (location_id, tenant_id, has_icu, notes, context, row_version)
+			 VALUES ($1, $2, false, '', '{}'::jsonb, 1)`,
+			id, tenant); err != nil {
 			t.Fatalf("insert shed_profile: %v", err)
 		}
+		// Capacity is per partition since migration 000457: an undivided pen is one catalogued
+		// partition carrying the whole figure.
+		catalogPartition(t, ctx, pool, tenant, id, "1", capacity)
 	}
 	return id
+}
+
+// catalogPartition adds one pen to the partition catalog with its own capacity (nil = unset).
+func catalogPartition(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenant, shedID, label string, capacity *int) {
+	t.Helper()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source, capacity)
+		 VALUES ($1, $2, $3, regexp_replace(lower(btrim($3)), '^part[[:space:]]+', ''), 'active', 'manual', $4)`,
+		tenant, shedID, label, capacity); err != nil {
+		t.Fatalf("insert shed_partitions: %v", err)
+	}
 }
 
 // goat inserts one animal. originBirth stamps origin_type='birth' with entry_date;
@@ -365,17 +380,20 @@ func TestAnimalCurrentScopePartitionLabel(t *testing.T) {
 	}
 }
 
-// TestShedCapacityCurrentPartitionRows proves ceo_ai.shed_capacity_current
-// (migration 000110) adds distinct rows per partition of a shed WITHOUT
-// changing the pre-existing bare-shed row: Castro has 5 animals total across
-// two partitions (2 in "1", 3 in "2"); the bare row still reports 5 (whole-shed,
-// unchanged from before this migration) and two new rows report 2 and 3.
+// TestShedCapacityCurrentPartitionRows proves ceo_ai.shed_capacity_current adds distinct rows per
+// partition of a shed WITHOUT changing the bare-shed row's occupancy (Castro has 5 animals across
+// two partitions: 2 in "1", 3 in "2"), and -- since migration 000457 moved capacity to the
+// partition -- that each partition row carries ITS OWN capacity while the bare row carries the
+// total of its pens. A building with one pen still unset reports unknown rather than a total that
+// quietly leaves that pen out.
 func TestShedCapacityCurrentPartitionRows(t *testing.T) {
 	ctx := context.Background()
 	pool, tenant := newDB(t, ctx)
-	cap10 := 10
+	cap4, cap6, cap5 := 4, 6, 5
 	pk := park(t, ctx, pool, tenant, "Park Q")
-	sh := shed(t, ctx, pool, tenant, pk, "Castro", &cap10)
+	sh := shed(t, ctx, pool, tenant, pk, "Castro", nil)
+	catalogPartition(t, ctx, pool, tenant, sh, "1", &cap4)
+	catalogPartition(t, ctx, pool, tenant, sh, "2", &cap6)
 
 	for i := 0; i < 2; i++ {
 		g := goatWithID(t, ctx, pool, tenant, pk, sh, "goat", "alive", nil, nil)
@@ -385,40 +403,217 @@ func TestShedCapacityCurrentPartitionRows(t *testing.T) {
 		g := goatWithID(t, ctx, pool, tenant, pk, sh, "goat", "alive", nil, nil)
 		partition(t, ctx, pool, tenant, g, sh, "2", "Castro 2")
 	}
+	// Godel: Part 1 has a capacity, Part 2 does not.
+	godel := shed(t, ctx, pool, tenant, pk, "Godel", nil)
+	catalogPartition(t, ctx, pool, tenant, godel, "Part 1", &cap5)
+	catalogPartition(t, ctx, pool, tenant, godel, "Part 2", nil)
+	g := goatWithID(t, ctx, pool, tenant, pk, godel, "goat", "alive", nil, nil)
+	partition(t, ctx, pool, tenant, g, godel, "Part 1", "Godel - Part 1")
 
+	type row struct {
+		animals  int64
+		capacity *int64
+		status   string
+	}
+	read := func(shedLabel string) map[string]row {
+		t.Helper()
+		rows, err := pool.Query(ctx,
+			`SELECT COALESCE(partition_label, ''), animals, capacity, status FROM ceo_ai.shed_capacity_current
+			 WHERE tenant_id=$1 AND shed_label=$2`, tenant, shedLabel)
+		if err != nil {
+			t.Fatalf("query: %v", err)
+		}
+		defer rows.Close()
+		got := map[string]row{}
+		for rows.Next() {
+			var label string
+			var r row
+			if err := rows.Scan(&label, &r.animals, &r.capacity, &r.status); err != nil {
+				t.Fatalf("scan: %v", err)
+			}
+			got[label] = r
+		}
+		return got
+	}
+	capOf := func(r row) int64 {
+		if r.capacity == nil {
+			return -1
+		}
+		return *r.capacity
+	}
+
+	castro := read("Castro")
+	if len(castro) != 3 {
+		t.Fatalf("expected 3 Castro rows (bare + 2 partitions), got %+v", castro)
+	}
+	want := map[string]struct {
+		animals, capacity int64
+		status            string
+	}{
+		"":  {5, 10, "under_capacity"}, // the building: the total of its two pens
+		"1": {2, 4, "under_capacity"},
+		"2": {3, 6, "under_capacity"},
+	}
+	for label, w := range want {
+		r := castro[label]
+		if r.animals != w.animals || capOf(r) != w.capacity || r.status != w.status {
+			t.Errorf("Castro %q = animals %d capacity %d status %s, want %d / %d / %s", label, r.animals, capOf(r), r.status, w.animals, w.capacity, w.status)
+		}
+	}
+
+	gd := read("Godel")
+	if r := gd[""]; r.capacity != nil || r.status != "unknown_capacity" {
+		t.Errorf("Godel building with an unset pen = capacity %d status %s, want unknown", capOf(r), r.status)
+	}
+	if r := gd["Part 1"]; capOf(r) != 5 || r.animals != 1 || r.status != "under_capacity" {
+		t.Errorf("Godel Part 1 = %+v, want its own capacity 5", r)
+	}
+}
+
+// capacityRows reads ceo_ai.shed_capacity_current for one park + shed label, keyed by partition
+// label ("" = the building row).
+func capacityRows(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenant, parkLabel, shedLabel string) map[string][3]any {
+	t.Helper()
 	rows, err := pool.Query(ctx,
-		`SELECT COALESCE(partition_label, ''), animals, capacity FROM ceo_ai.shed_capacity_current
-		 WHERE tenant_id=$1 AND shed_label='Castro' ORDER BY COALESCE(partition_label, '')`, tenant)
+		`SELECT COALESCE(partition_label, ''), animals, capacity, status FROM ceo_ai.shed_capacity_current
+		 WHERE tenant_id=$1 AND park_label=$2 AND shed_label=$3`, tenant, parkLabel, shedLabel)
 	if err != nil {
 		t.Fatalf("query: %v", err)
 	}
 	defer rows.Close()
-	type row struct {
-		label    string
-		animals  int64
-		capacity int64
-	}
-	var got []row
+	got := map[string][3]any{}
 	for rows.Next() {
-		var r row
-		if err := rows.Scan(&r.label, &r.animals, &r.capacity); err != nil {
+		var label, status string
+		var animals int64
+		var capacity *int64
+		if err := rows.Scan(&label, &animals, &capacity, &status); err != nil {
 			t.Fatalf("scan: %v", err)
 		}
-		got = append(got, r)
+		c := int64(-1)
+		if capacity != nil {
+			c = *capacity
+		}
+		got[label] = [3]any{animals, c, status}
 	}
+	return got
+}
+
+// TestShedCapacityOneToManyGoatsNeverMultiplyPenCapacity: many animals sit in each catalogued pen
+// and a building has several pens -- the building's capacity is the sum of its ACTIVE pens once,
+// never pens x animals, and a retired pen's figure is not counted.
+func TestShedCapacityOneToManyGoatsNeverMultiplyPenCapacity(t *testing.T) {
+	ctx := context.Background()
+	pool, tenant := newDB(t, ctx)
+	c4, c6, c99 := 4, 6, 99
+	pk := park(t, ctx, pool, tenant, "Park M")
+	sh := shed(t, ctx, pool, tenant, pk, "Mandela", nil)
+	catalogPartition(t, ctx, pool, tenant, sh, "Part 1", &c4)
+	catalogPartition(t, ctx, pool, tenant, sh, "Part 2", &c6)
+	catalogPartition(t, ctx, pool, tenant, sh, "Part 9", &c99)
+	if _, err := pool.Exec(ctx, `UPDATE shed_partitions SET status = 'retired' WHERE tenant_id = $1 AND shed_id = $2 AND normalized_label = '9'`, tenant, sh); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		g := goatWithID(t, ctx, pool, tenant, pk, sh, "goat", "alive", nil, nil)
+		partition(t, ctx, pool, tenant, g, sh, "Part 1", "Mandela - Part 1")
+	}
+	for i := 0; i < 4; i++ {
+		g := goatWithID(t, ctx, pool, tenant, pk, sh, "goat", "alive", nil, nil)
+		partition(t, ctx, pool, tenant, g, sh, "Part 2", "Mandela - Part 2")
+	}
+	got := capacityRows(t, ctx, pool, tenant, "Park M", "Mandela")
 	if len(got) != 3 {
-		t.Fatalf("expected 3 rows (bare + 2 partitions), got %d: %+v", len(got), got)
+		t.Fatalf("rows = %+v, want the building + 2 pens", got)
 	}
-	want := map[string]int64{"": 5, "1": 2, "2": 3}
-	for _, r := range got {
-		if r.animals != want[r.label] {
-			t.Errorf("partition %q animals=%d want %d", r.label, r.animals, want[r.label])
+	if b := got[""]; b[0] != int64(7) || b[1] != int64(10) || b[2] != "under_capacity" {
+		t.Fatalf("building = %+v, want 7 animals / capacity 10 (4+6, retired pen excluded) / under", b)
+	}
+	if p := got["Part 1"]; p[1] != int64(4) || p[2] != "under_capacity" {
+		t.Fatalf("Part 1 = %+v, want its own 4", p)
+	}
+	if p := got["Part 2"]; p[1] != int64(6) || p[2] != "under_capacity" {
+		t.Fatalf("Part 2 = %+v, want its own 6", p)
+	}
+}
+
+// TestShedCapacityParkScopeKeepsSameNamedPensApart: "Castro" exists in two parks with different
+// pen capacities; each park's rows carry only their own pens' figures.
+func TestShedCapacityParkScopeKeepsSameNamedPensApart(t *testing.T) {
+	ctx := context.Background()
+	pool, tenant := newDB(t, ctx)
+	c3, c8 := 3, 8
+	cbe := park(t, ctx, pool, tenant, "Coimbatore")
+	cpt := park(t, ctx, pool, tenant, "Channapatna")
+	a := shed(t, ctx, pool, tenant, cbe, "Castro", nil)
+	b := shed(t, ctx, pool, tenant, cpt, "Castro", nil)
+	catalogPartition(t, ctx, pool, tenant, a, "1", &c3)
+	catalogPartition(t, ctx, pool, tenant, b, "1", &c8)
+	ga := goatWithID(t, ctx, pool, tenant, cbe, a, "goat", "alive", nil, nil)
+	partition(t, ctx, pool, tenant, ga, a, "1", "Castro 1")
+	gb := goatWithID(t, ctx, pool, tenant, cpt, b, "goat", "alive", nil, nil)
+	partition(t, ctx, pool, tenant, gb, b, "1", "Castro 1")
+
+	for parkLabel, want := range map[string]int64{"Coimbatore": 3, "Channapatna": 8} {
+		got := capacityRows(t, ctx, pool, tenant, parkLabel, "Castro")
+		if got[""][1] != want || got["1"][1] != want {
+			t.Fatalf("%s Castro = %+v, want capacity %d on the building and its pen", parkLabel, got, want)
 		}
-		// no per-partition capacity column exists anywhere in the schema, so
-		// every row -- bare or partitioned -- carries the SAME shed-level cap.
-		if r.capacity != 10 {
-			t.Errorf("partition %q capacity=%d want 10 (shed-level, not per-partition)", r.label, r.capacity)
+	}
+}
+
+// TestShedCapacityStatusMatrixPerPartition: every status bucket is judged per pen against that
+// pen's own capacity -- over, at, under and unknown in one building -- and the building itself is
+// unknown because one of its pens has no capacity.
+func TestShedCapacityStatusMatrixPerPartition(t *testing.T) {
+	ctx := context.Background()
+	pool, tenant := newDB(t, ctx)
+	c1, c2, c5 := 1, 2, 5
+	pk := park(t, ctx, pool, tenant, "Park S")
+	sh := shed(t, ctx, pool, tenant, pk, "Gandhi", nil)
+	pens := map[string]*int{"1": &c1, "2": &c2, "3": &c5, "4": nil}
+	animals := map[string]int{"1": 2, "2": 2, "3": 1, "4": 1}
+	for label, capacity := range pens {
+		catalogPartition(t, ctx, pool, tenant, sh, label, capacity)
+		for i := 0; i < animals[label]; i++ {
+			g := goatWithID(t, ctx, pool, tenant, pk, sh, "goat", "alive", nil, nil)
+			partition(t, ctx, pool, tenant, g, sh, label, "Gandhi "+label)
 		}
+	}
+	got := capacityRows(t, ctx, pool, tenant, "Park S", "Gandhi")
+	want := map[string]string{"1": "over_capacity", "2": "at_capacity", "3": "under_capacity", "4": "unknown_capacity", "": "unknown_capacity"}
+	for label, status := range want {
+		if got[label][2] != status {
+			t.Errorf("Gandhi %q status = %v, want %s (row %+v)", label, got[label][2], status, got[label])
+		}
+	}
+	if got[""][0] != int64(6) {
+		t.Errorf("building animals = %v, want 6 = the sum of every pen bucket", got[""][0])
+	}
+}
+
+// TestShedCapacityBuildingTotalSurvivesPageBoundary: a caller reading only the first row (the
+// building) still gets the total of EVERY pen, including pens that would sort onto a later page.
+func TestShedCapacityBuildingTotalSurvivesPageBoundary(t *testing.T) {
+	ctx := context.Background()
+	pool, tenant := newDB(t, ctx)
+	pk := park(t, ctx, pool, tenant, "Park P")
+	sh := shed(t, ctx, pool, tenant, pk, "Yashoda", nil)
+	total := 0
+	for n := 1; n <= 12; n++ {
+		c := n
+		total += c
+		catalogPartition(t, ctx, pool, tenant, sh, strconv.Itoa(n), &c)
+		g := goatWithID(t, ctx, pool, tenant, pk, sh, "goat", "alive", nil, nil)
+		partition(t, ctx, pool, tenant, g, sh, strconv.Itoa(n), "Yashoda "+strconv.Itoa(n))
+	}
+	var capacity int64
+	if err := pool.QueryRow(ctx,
+		`SELECT capacity FROM ceo_ai.shed_capacity_current WHERE tenant_id=$1 AND shed_label='Yashoda'
+		 ORDER BY partition_label NULLS FIRST LIMIT 1`, tenant).Scan(&capacity); err != nil {
+		t.Fatal(err)
+	}
+	if capacity != int64(total) {
+		t.Fatalf("building capacity on page one = %d, want %d (all 12 pens)", capacity, total)
 	}
 }
 

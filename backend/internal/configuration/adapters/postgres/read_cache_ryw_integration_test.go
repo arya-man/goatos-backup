@@ -30,7 +30,7 @@ func TestRegisterWritesEvictTheSharedReadCacheOnBothInstances(t *testing.T) {
 	var pen domain.Row
 	pair.Check(t, ctx, "configuration Create pen (stores_places)", cfgTenant, parks, true, func(t *testing.T) {
 		var err error
-		if pen, err = repo.Create(ctx, write("ryw-pen"), domain.RegPens, map[string]any{"park_id": cfgParkCBE, "name": "Ryw Pen", "capacity": int64(50)}); err != nil {
+		if pen, err = repo.Create(ctx, write("ryw-pen"), domain.RegPens, map[string]any{"park_id": cfgParkCBE, "name": "Ryw Pen"}); err != nil {
 			t.Fatalf("create pen: %v", err)
 		}
 	})
@@ -40,7 +40,7 @@ func TestRegisterWritesEvictTheSharedReadCacheOnBothInstances(t *testing.T) {
 		}
 	})
 	pair.Check(t, ctx, "configuration Create partition (stores_places)", cfgTenant, parks, true, func(t *testing.T) {
-		if _, err := repo.Create(ctx, write("ryw-part"), domain.RegPartitions, map[string]any{"park_id": cfgParkCBE, "pen_id": pen.ID, "label": "Part 7", "sort_order": int64(7)}); err != nil {
+		if _, err := repo.Create(ctx, write("ryw-part"), domain.RegPartitions, map[string]any{"park_id": cfgParkCBE, "pen_id": pen.ID, "label": "Part 7", "sort_order": int64(7), "capacity": int64(50)}); err != nil {
 			t.Fatalf("create partition: %v", err)
 		}
 	})

@@ -202,15 +202,16 @@ func TestConfigurationWorkbookPostgresPaths(t *testing.T) {
 			[]string{"Chennai", "CHN", "500"},
 			[]string{"", "NON", "10"}). // name missing: invalid
 		// A pen is a building in a park: stage and gender left the register on 2026-09-22.
-		tab("Pens", []string{"park_id", "name", "capacity"},
-			[]string{"Chennai", "Nehru", "40"},  // pending park
-			[]string{"CBE", "Castro", "20"},     // the park already has Castro: fails at apply
-			[]string{"Nowhere", "Orphan", "10"}, // unknown park: invalid
-			[]string{"NON", "Ghost", "10"}).     // names the INVALID parks row: invalid
-		tab("Partitions", []string{"park_id", "pen_id", "label", "sort_order"},
-			[]string{"Chennai", "Nehru", "Part 1", "1"}, // pending park + pending pen
-			[]string{"Chennai", "Nehru", "Part 2", "2"},
-			[]string{"CBE", "Castro", "1", "1"}). // resolves to the STORED Castro; label 1 exists: fails at apply
+		// Capacity is per partition since 2026-09-30, so it rides the Partitions tab.
+		tab("Pens", []string{"park_id", "name"},
+			[]string{"Chennai", "Nehru"},  // pending park
+			[]string{"CBE", "Castro"},     // the park already has Castro: fails at apply
+			[]string{"Nowhere", "Orphan"}, // unknown park: invalid
+			[]string{"NON", "Ghost"}).     // names the INVALID parks row: invalid
+		tab("Partitions", []string{"park_id", "pen_id", "label", "sort_order", "capacity"},
+			[]string{"Chennai", "Nehru", "Part 1", "1", "40"}, // pending park + pending pen
+			[]string{"Chennai", "Nehru", "Part 2", "2", "25"},
+			[]string{"CBE", "Castro", "1", "1", "20"}). // resolves to the STORED Castro; label 1 exists: fails at apply
 		tab("Lists", []string{"name", "parent_id", "kind", "sort_order"},
 			[]string{"Dewormers", "", "dewormer", "50"},
 			[]string{"Oral dewormers", "Dewormers", "", "1"}, // parent on this very tab
@@ -407,6 +408,14 @@ func TestConfigurationWorkbookPostgresPaths(t *testing.T) {
 	if camelShed != nehru.ID || camelSpecies != "camel" || camelPartition != "Part 1" {
 		t.Fatalf("camel = shed %s species %s partition %q, want Nehru / camel / Part 1", camelShed, camelSpecies, camelPartition)
 	}
+	// Each partition keeps its own capacity (per partition since 2026-09-30).
+	var cap1, cap2 int
+	if err := pool.QueryRow(ctx, `SELECT
+		  (SELECT capacity FROM shed_partitions WHERE tenant_id = $1 AND shed_id = $2::uuid AND normalized_label = '1'),
+		  (SELECT capacity FROM shed_partitions WHERE tenant_id = $1 AND shed_id = $2::uuid AND normalized_label = '2')`,
+		cfgTenant, nehru.ID).Scan(&cap1, &cap2); err != nil || cap1 != 40 || cap2 != 25 {
+		t.Fatalf("Nehru partition capacities = %d / %d (%v), want 40 / 25", cap1, cap2, err)
+	}
 	if n := h.countRows(domain.RegPens, "Castro"); n != 1 {
 		t.Fatalf("Castro pens = %d, want the stored one only", n)
 	}
@@ -488,7 +497,7 @@ func TestConfigurationWorkbookPostgresPaths(t *testing.T) {
 	if _, err := h.importer.StageWorkbook(ctx, h.w, "dup.xlsx", bytes.NewReader(dup)); err == nil || app.HTTPError(err).Code != "duplicate_sheet" {
 		t.Fatalf("duplicate tabs: %v", err)
 	}
-	bad := (&workbook{}).tab("Parks", []string{"name", "code"}, []string{"Ok", "OK"}).tab("Pens", []string{"capacity"}, []string{"3"}).bytes(t)
+	bad := (&workbook{}).tab("Parks", []string{"name", "code"}, []string{"Ok", "OK"}).tab("Pens", []string{"notes"}, []string{"3"}).bytes(t)
 	if _, err := h.importer.StageWorkbook(ctx, h.w, "bad.xlsx", bytes.NewReader(bad)); err == nil || app.HTTPError(err).Code != "missing_columns" || !strings.HasPrefix(app.HTTPError(err).Message, "Pens: ") {
 		t.Fatalf("missing columns: %v", err)
 	}
@@ -551,10 +560,10 @@ func TestConfigurationWorkbookResumesAfterAWorkerDies(t *testing.T) {
 
 	const pensPerPark = 450 // more than two apply chunks
 	parks := [][]string{{"name", "code"}, {"Alpha", "ALP"}, {"Beta", "BET"}}
-	pens := [][]string{{"park_id", "name", "capacity"}}
+	pens := [][]string{{"park_id", "name"}}
 	for n := 1; n <= pensPerPark; n++ {
-		pens = append(pens, []string{"ALP", "Pen " + strconv.Itoa(n), "10"})
-		pens = append(pens, []string{"Beta", "Pen " + strconv.Itoa(n), "10"}) // the same name in the other park
+		pens = append(pens, []string{"ALP", "Pen " + strconv.Itoa(n)})
+		pens = append(pens, []string{"Beta", "Pen " + strconv.Itoa(n)}) // the same name in the other park
 	}
 	file := (&workbook{}).tab("Parks", parks...).tab("Pens", pens...).bytes(t)
 

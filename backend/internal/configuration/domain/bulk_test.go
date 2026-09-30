@@ -36,17 +36,17 @@ func TestProductWideRegistersStayReadOnly(t *testing.T) {
 }
 
 func TestMatchHeaderAcceptsKeysAndLabelsAndReportsGaps(t *testing.T) {
-	reg := mustRegister(t, RegPens)
-	keys, unknown, missing := MatchHeader(reg, []string{"Park", "name", " Capacity ", "Notes", "colour", ""})
-	if strings.Join(keys, ",") != "park_id,name,capacity,notes,," {
+	reg := mustRegister(t, RegPartitions)
+	keys, unknown, missing := MatchHeader(reg, []string{"Park", "pen_id", "Label", " Capacity ", "colour", ""})
+	if strings.Join(keys, ",") != "park_id,pen_id,label,capacity,," {
 		t.Fatalf("keys = %v", keys)
 	}
 	if len(unknown) != 1 || unknown[0] != "colour" || len(missing) != 0 {
 		t.Fatalf("unknown = %v missing = %v", unknown, missing)
 	}
-	_, _, missing = MatchHeader(reg, []string{"name"})
-	if strings.Join(missing, ",") != "park_id" {
-		t.Fatalf("a create sheet without the park must report it: %v", missing)
+	_, _, missing = MatchHeader(reg, []string{"label"})
+	if strings.Join(missing, ",") != "park_id,pen_id" {
+		t.Fatalf("a create sheet without the park and pen must report them: %v", missing)
 	}
 	_, _, missing = MatchHeader(reg, []string{"id", "capacity"})
 	if len(missing) != 0 {
@@ -56,9 +56,13 @@ func TestMatchHeaderAcceptsKeysAndLabelsAndReportsGaps(t *testing.T) {
 	if len(missing) == 0 {
 		t.Fatalf("a create-only register still needs its required columns")
 	}
-	keys, _, _ = MatchHeader(reg, []string{"name", "Name"})
+	keys, _, _ = MatchHeader(reg, []string{"label", "Label"})
 	if keys[1] != "" {
 		t.Fatalf("a repeated header is matched once: %v", keys)
+	}
+	// Capacity is per partition (2026-09-30): a Pens sheet carrying it names an unknown column.
+	if _, unknown, _ := MatchHeader(mustRegister(t, RegPens), []string{"park_id", "name", "capacity"}); len(unknown) != 1 || unknown[0] != "capacity" {
+		t.Fatalf("a pen sheet must not accept a capacity column any more: %v", unknown)
 	}
 }
 
@@ -73,8 +77,8 @@ func TestSheetRowDropsBlankCells(t *testing.T) {
 }
 
 func TestSheetCellRendersLabelsBoolsAndNumbers(t *testing.T) {
-	row := Row{ID: "r1", Status: "active", Fields: map[string]any{"park_id": "p1", "capacity": float64(40), "name": "Castro"}, Labels: map[string]string{"park_id": "Coimbatore"}}
-	reg := mustRegister(t, RegPens)
+	row := Row{ID: "r1", Status: "active", Fields: map[string]any{"park_id": "p1", "pen_id": "s1", "capacity": float64(40), "label": "Part 3"}, Labels: map[string]string{"park_id": "Coimbatore", "pen_id": "Castro"}}
+	reg := mustRegister(t, RegPartitions)
 	get := func(key string) string {
 		for _, c := range SheetColumns(reg) {
 			if c.Key == key {
@@ -85,8 +89,8 @@ func TestSheetCellRendersLabelsBoolsAndNumbers(t *testing.T) {
 		return ""
 	}
 	row.RowVersion = 7
-	if get("id") != "r1" || get("row_version") != "7" || get("status") != "active" || get("park_id") != "Coimbatore" || get("capacity") != "40" || get("name") != "Castro" || get("notes") != "" {
-		t.Fatalf("cells: %s %s %s %s", get("park_id"), get("capacity"), get("name"), get("notes"))
+	if get("id") != "r1" || get("row_version") != "7" || get("status") != "active" || get("park_id") != "Coimbatore" || get("pen_id") != "Castro" || get("capacity") != "40" || get("label") != "Part 3" || get("shed_type") != "" {
+		t.Fatalf("cells: %s %s %s %s %s", get("park_id"), get("pen_id"), get("capacity"), get("label"), get("shed_type"))
 	}
 	// No register carries a bool column today (Pens lost ICU on 2026-09-22), so the bool rendering
 	// is proved against the column type directly rather than dropped: the sheet writer still has to
