@@ -53,6 +53,30 @@ The maintainer answered three questions on 2026-09-30:
 - **The step** lists the kids still waiting ("A1024 · K0 · Castro 1") and a **Raise shifting for these kids** button. The button opens Raise shifting with Growth chosen and those kids selected. They are resolved through the same tag lookup and eligibility checks a scanned tag uses.
 - **Shifting itself is unchanged.** Park Head approval comes first, then the completion video and the atomic apply. The step completes when the apply moves the kids' stage.
 
+## One raise per group the server accepts (maintainer decision 2026-09-30, after the phone E2E)
+
+A shifting's count impact is keyed on (destination pen, breed), and the animals on one key must
+agree on stage, kid/adult band and sex -- counts refuses a mixed set with `missing_impacts` rather
+than invent one stage or sex for it. Mixed-sex twins could therefore never be raised in ONE
+shifting (true on main before this feature, and from any screen). The maintainer chose to fix it in
+the task, not in counts: the step serves `shift_groups` -- its waiting kids split by breed, sex,
+stage and band (`domain.ShiftGroups`) -- and the phone shows one **"Raise shifting · 1 female kid"**
+button per group. Mixed-sex twins are two taps; nothing about how counts works changed.
+
+Waiting kids and groups are served only on a step whose earlier steps are done: a K2 step behind an
+unfinished K1 step lists no kids and reads "Finish the earlier steps first." Once K1 is done the K2
+step does offer its buttons before its deadline -- moving early is allowed and simply completes it.
+
+**The raise result shows on the task.** The raise form queues the write and closes; the litter
+screen follows that outbox item and shows "Shifting sent for approval…" or the server's refusal
+verbatim, in red. Before this, a refused raise was silent to the park head, who has no Shifting list.
+
+**Untagged newborns can be found.** `/goats/search` sends `"animal_identifier_1": null` for a kid
+still on its birth tag, and the phone's `GoatSearchItemDto` declared it non-null, so the WHOLE page
+failed to decode and the kid could not be selected at all (a bug on main, from any screen). The field
+now decodes null as blank (`NullAsEmptyStringSerializer`), pinned by `GoatSearchDtoDecodeTest`
+(mutation-tested). The litter read also shows a kid's birth tag (CBE-38085) before its internal id.
+
 ## Authoring on the web
 
 On `/counts/sops` → Birth → **Litter** track, a `shift_kids_stage` step shows a **Move the kids to** select. Its choices come from `sop_shift_target_stages`. Which task types carry a hook comes from `sop_task_type_hooks`. Both are compiled by the backend.
@@ -75,6 +99,13 @@ Migration `000462`:
 A tenant on the seeded document gets the same track from `sopseed.FollowUpTrackAddenda`. The base `counts_birth.json` stays byte-identical to `000308`. Workflows already open are untouched. A Birth SOP published *without* the litter track opens no litter workflow.
 
 ## Not done (recorded)
+
+- **Duplicate raises are possible.** The server accepts a second growth shifting for kids that
+  already have one pending (a shifting does not check other open shiftings of the same animals).
+  Pre-existing shifting behaviour; the task cannot see a shifting's animals without reading counts'
+  approval payloads, so it is left to a shifting-side rule.
+- **The board row reads "Open to the team"** for a park-head task: a board row's owner can only be a
+  person, so naming a designation needs a board contract change.
 
 - **No push when a step falls due.** Nothing in the engine pushes on a workflow step's due time; colostrum rounds do not either. A due-time push is a new notification pipeline: an audience catalog row, specificity copy and FCM routing. That needs its own maintainer decision.
 - **The backfill is a one-shot command**, not a sweep: after deploy, run `backfill-kid-shift-tasks -tenant-id <id>` (dry-run) and then with `-apply`. It opens ONLY the litter workflow (never the old kid/mother tracks), anchored on the kid's recorded birth, and is idempotent. Kids with no `goat_births` litter row (bought animals, animals imported without a recorded birth) have no litter to key on and get no task.

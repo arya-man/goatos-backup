@@ -246,3 +246,31 @@ func TestLitterShiftCountsFromWhenTheKidsReallyReachedTheStage(t *testing.T) {
 		t.Fatalf("with unknown history, completed at %v, want %v", actions[0].CompletedAt, thursday)
 	}
 }
+
+// Mixed-sex twins cannot share one growth shifting (counts refuses missing_impacts), so the task
+// offers one raise per sex; same-sex twins stay one raise; a dead twin is never offered.
+func TestShiftGroupsSplitWhatOneShiftingCannotCarry(t *testing.T) {
+	kid := func(id, sex, breed string, alive bool) LitterKidView {
+		return LitterKidView{GoatID: id, Tag: "T-" + id, Stage: "K0", Alive: alive, Sex: sex, Breed: breed, AgeBand: "kid"}
+	}
+	mixed := ShiftGroups([]LitterKidView{kid("a", "female", "Sirohi", true), kid("b", "male", "Sirohi", true)}, "K1")
+	if len(mixed) != 2 || mixed[0].Label != "1 female kid" || mixed[1].Label != "1 male kid" {
+		t.Fatalf("mixed-sex twins: %+v", mixed)
+	}
+	same := ShiftGroups([]LitterKidView{kid("a", "female", "Sirohi", true), kid("b", "female", "Sirohi", true)}, "K1")
+	if len(same) != 1 || same[0].Label != "2 female kids" || len(same[0].Kids) != 2 {
+		t.Fatalf("same-sex twins: %+v", same)
+	}
+	dead := ShiftGroups([]LitterKidView{kid("a", "female", "Sirohi", false), kid("b", "male", "Sirohi", true)}, "K1")
+	if len(dead) != 1 || dead[0].Label != "1 male kid" {
+		t.Fatalf("dead twin: %+v", dead)
+	}
+	breeds := ShiftGroups([]LitterKidView{kid("a", "female", "Sirohi", true), kid("b", "female", "Jamunapari", true)}, "K1")
+	if len(breeds) != 2 || breeds[0].Label != "1 female Sirohi kid" {
+		t.Fatalf("two breeds: %+v", breeds)
+	}
+	moved := ShiftGroups([]LitterKidView{{GoatID: "a", Stage: "K1", Alive: true, Sex: "female"}}, "K1")
+	if len(moved) != 0 {
+		t.Fatalf("a kid already on the target is offered: %+v", moved)
+	}
+}

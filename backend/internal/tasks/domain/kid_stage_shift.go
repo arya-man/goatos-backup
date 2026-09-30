@@ -2,6 +2,7 @@ package domain
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -231,4 +232,80 @@ func appendOrReplace(list []WorkflowAction, a WorkflowAction) []WorkflowAction {
 		}
 	}
 	return append(list, a)
+}
+
+// ShiftGroup is one set of waiting kids a SINGLE growth shifting can carry, with the backend's
+// words for it ("2 female kids").
+type ShiftGroup struct {
+	Key   string
+	Label string
+	Kids  []LitterKidView
+}
+
+// ShiftGroups splits a step's waiting kids into the groups one growth shifting can carry
+// (maintainer decision 2026-09-30, "the task splits waiting kids into groups the server accepts").
+//
+// Why: a shifting's count impact is keyed on (destination pen, breed), and animals on one key must
+// agree on stage, kid/adult band and sex -- counts refuses a mixed set with missing_impacts rather
+// than invent one stage or sex for it. Twins of different sex therefore need two raises. The groups
+// use exactly that descriptor, in birth order of each group's first kid, so the phone offers one
+// button per raise the server will accept and never a raise it will refuse.
+func ShiftGroups(kids []LitterKidView, target string) []ShiftGroup {
+	judge := make([]LitterKid, 0, len(kids))
+	for _, k := range kids {
+		judge = append(judge, LitterKid{GoatID: k.GoatID, Stage: k.Stage, Alive: k.Alive})
+	}
+	waiting := map[string]bool{}
+	for _, k := range KidsWaitingForShift(judge, target) {
+		waiting[k.GoatID] = true
+	}
+	var out []ShiftGroup
+	index := map[string]int{}
+	breeds, stages := map[string]bool{}, map[string]bool{}
+	for _, k := range kids {
+		if !waiting[k.GoatID] {
+			continue
+		}
+		key := strings.ToLower(strings.Join([]string{strings.TrimSpace(k.Breed), strings.TrimSpace(k.Sex), strings.TrimSpace(k.Stage), strings.TrimSpace(k.AgeBand)}, "|"))
+		breeds[strings.ToLower(strings.TrimSpace(k.Breed))] = true
+		stages[strings.ToLower(strings.TrimSpace(k.Stage))] = true
+		if i, ok := index[key]; ok {
+			out[i].Kids = append(out[i].Kids, k)
+			continue
+		}
+		index[key] = len(out)
+		out = append(out, ShiftGroup{Key: key, Kids: []LitterKidView{k}})
+	}
+	for i := range out {
+		out[i].Label = shiftGroupLabel(out[i].Kids, len(breeds) > 1, len(stages) > 1)
+	}
+	return out
+}
+
+// shiftGroupLabel is "1 female kid", "2 male kids"; the breed and stage are named only when the
+// litter's waiting kids differ on them, so a plain litter reads plainly.
+func shiftGroupLabel(kids []LitterKidView, withBreed, withStage bool) string {
+	first := kids[0]
+	parts := []string{fmt.Sprintf("%d", len(kids))}
+	if sex := strings.ToLower(strings.TrimSpace(first.Sex)); sex == "male" || sex == "female" {
+		parts = append(parts, sex)
+	}
+	if withBreed && strings.TrimSpace(first.Breed) != "" {
+		parts = append(parts, strings.TrimSpace(first.Breed))
+	}
+	noun := "kids"
+	if len(kids) == 1 {
+		noun = "kid"
+	}
+	label := strings.Join(append(parts, noun), " ")
+	if withStage && strings.TrimSpace(first.Stage) != "" {
+		label += " · " + strings.TrimSpace(first.Stage)
+	}
+	return label
+}
+
+// StepPrerequisitesComplete reports whether every step a step requires is completed -- the moment
+// its waiting kids become work anyone can act on.
+func StepPrerequisitesComplete(a WorkflowAction, actions []WorkflowAction) bool {
+	return prerequisitesComplete(a, actions)
 }

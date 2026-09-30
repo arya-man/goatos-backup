@@ -20017,8 +20017,17 @@ export interface components {
             owner_label?: string;
             /** @description KID STAGE SHIFT TASKS (docs/decisions/kid-stage-shift-tasks.md): on a litter shift step (task_type shift_kids_stage), the growth stage the kids move to ("K1"). The step is engine-completed when every live kid of the litter has reached it; a by-hand completion is refused 409 kid_shift_pending. Absent on every other step. */
             target_stage?: string;
-            /** @description On a PENDING litter shift step, the live kids still on a stage before target_stage -- the animals to open Raise shifting (growth) with. Absent otherwise. */
+            /** @description On a PENDING litter shift step whose earlier steps are done, the live kids still on a stage before target_stage. Absent otherwise. See shift_groups for how they are raised. */
             waiting_kids?: components["schemas"]["WorkflowLitterKid"][];
+            /** @description waiting_kids split into the groups ONE growth shifting can carry: same breed, sex, stage and kid/adult band (counts refuses a mixed set with missing_impacts). The phone offers one "Raise shifting" per group. Present only on a pending step whose earlier steps are done -- a K2 step behind an unfinished K1 step carries neither this nor waiting_kids. */
+            shift_groups?: components["schemas"]["WorkflowShiftGroup"][];
+        };
+        WorkflowShiftGroup: {
+            /** @description Stable identity of the group within the step. */
+            key: string;
+            /** @description Backend-composed words for the group ("2 female kids"). Render verbatim. */
+            label: string;
+            kids: components["schemas"]["WorkflowLitterKid"][];
         };
         WorkflowLitterKid: {
             /** Format: uuid */

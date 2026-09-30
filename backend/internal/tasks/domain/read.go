@@ -180,6 +180,12 @@ type LitterKidView struct {
 	Stage    string
 	PenLabel string
 	Alive    bool
+	// Sex, Breed and AgeBand are the cohort the shifting raise judges a group on: one growth
+	// shifting may carry only animals that agree on them (counts' DeriveShiftingImpacts), so the
+	// step offers one raise per agreeing group (ShiftGroups).
+	Sex     string
+	Breed   string
+	AgeBand string
 }
 
 // RoleLabelForTemplate is the operator-facing subject role on the card.

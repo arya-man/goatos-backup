@@ -274,4 +274,5 @@
     <string name="counts_capture_choose_pen_first">ವರದಿಯ ಫೋಟೋ ಮತ್ತು ವೀಡಿಯೊ ದಾಖಲಿಸಲು ಮೊದಲು ಕೊಟ್ಟಿಗೆಯನ್ನು ಆಯ್ಕೆಮಾಡಿ.</string>
     <string name="counts_capture_choose_animal_first">ವರದಿಯ ಫೋಟೋ ಮತ್ತು ವೀಡಿಯೊ ದಾಖಲಿಸಲು ಮೊದಲು ಪ್ರಾಣಿಯನ್ನು ಆಯ್ಕೆಮಾಡಿ.</string>
     <string name="counts_workflow_raise_kid_shift">ಈ ಮರಿಗಳ ಸ್ಥಳಾಂತರ ದಾಖಲಿಸಿ</string>
+    <string name="counts_workflow_raise_kid_shift_group_fmt">ಸ್ಥಳಾಂತರ ದಾಖಲಿಸಿ · %1$s</string>
 </resources>

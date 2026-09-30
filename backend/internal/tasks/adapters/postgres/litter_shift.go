@@ -51,14 +51,17 @@ SELECT gb.child_goat_id::text,
        COALESCE(rfid.identifier_value, g.display_id, ''),
        COALESCE(g.management_stage, ''),
        COALESCE(shed.name, ''), COALESCE(gsp.partition_label, ''),
-       (g.lifecycle_status = 'alive' AND g.merged_into_goat_id IS NULL)
+       (g.lifecycle_status = 'alive' AND g.merged_into_goat_id IS NULL),
+       COALESCE(g.sex, ''), COALESCE(g.breed, ''), COALESCE(g.age_band, '')
 FROM goat_births gb
 JOIN goats g ON g.tenant_id = gb.tenant_id AND g.goat_id = gb.child_goat_id
+-- The tag the farm can READ on the kid: its permanent RFID, else the provisional birth tag
+-- (CBE-38085) a kid wears until "Tag the kid", and only then the internal display id.
 LEFT JOIN LATERAL (
   SELECT gi.identifier_value FROM goat_identifiers gi
   WHERE gi.tenant_id = g.tenant_id AND gi.goat_id = g.goat_id AND gi.status = 'active'
-    AND gi.identifier_type IN ('animal_identifier_1', 'animal_identifier_2')
-  ORDER BY CASE gi.identifier_type WHEN 'animal_identifier_1' THEN 0 ELSE 1 END
+    AND gi.identifier_type IN ('animal_identifier_1', 'animal_identifier_2', 'temporary_tag')
+  ORDER BY CASE gi.identifier_type WHEN 'animal_identifier_1' THEN 0 WHEN 'animal_identifier_2' THEN 1 ELSE 2 END
   LIMIT 1
 ) rfid ON true
 LEFT JOIN locations shed ON shed.tenant_id = g.tenant_id AND shed.location_id = g.shed_id
@@ -79,7 +82,7 @@ func (r *Repository) litterKidViews(ctx context.Context, tenantID, birthEventID 
 	for rows.Next() {
 		var k domain.LitterKidView
 		var shed, partition string
-		if err := rows.Scan(&k.GoatID, &k.Tag, &k.Stage, &shed, &partition, &k.Alive); err != nil {
+		if err := rows.Scan(&k.GoatID, &k.Tag, &k.Stage, &shed, &partition, &k.Alive, &k.Sex, &k.Breed, &k.AgeBand); err != nil {
 			return nil, err
 		}
 		k.PenLabel = cardPenLabel(shed, partition)

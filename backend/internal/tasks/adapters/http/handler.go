@@ -166,6 +166,18 @@ type workflowActionDTO struct {
 	// Blank / empty on every other step. The step completes on its own (engine-completed).
 	TargetStage string         `json:"target_stage,omitempty"`
 	WaitingKids []litterKidDTO `json:"waiting_kids,omitempty"`
+	// ShiftGroups splits WaitingKids into the groups ONE growth shifting can carry (same breed,
+	// sex, stage and kid/adult band -- a mixed set is refused missing_impacts). The phone offers
+	// one "Raise shifting" per group, labelled verbatim.
+	ShiftGroups []shiftGroupDTO `json:"shift_groups,omitempty"`
+}
+
+// shiftGroupDTO is one raisable group of waiting kids: a stable key, the backend's label for it
+// ("2 female kids") and the kids.
+type shiftGroupDTO struct {
+	Key   string         `json:"key"`
+	Label string         `json:"label"`
+	Kids  []litterKidDTO `json:"kids"`
 }
 
 // litterKidDTO is one kid of a litter: its id (the shifting raise names animals by id), its tag,
@@ -413,8 +425,17 @@ func (h *Handler) writeDetail(w http.ResponseWriter, detail domain.WorkflowDetai
 		dto := actionDTO(detail.Card.TemplateKey, a, detail.Actions, now, roles)
 		if a.HasHook(domain.EngineHookShiftKidsStage) {
 			dto.TargetStage = a.TargetStage
-			if a.Status == domain.ActionStatusPending {
+			// Kids are "waiting" for a step only once it can be worked: a K2 step behind an unfinished
+			// K1 step has no kids to raise yet, and listing K0 kids under it read as K2 work.
+			if a.Status == domain.ActionStatusPending && domain.StepPrerequisitesComplete(a, detail.Actions) {
 				dto.WaitingKids = waitingKidsDTO(detail.LitterKids, a.TargetStage)
+				for _, g := range domain.ShiftGroups(detail.LitterKids, a.TargetStage) {
+					kids := make([]litterKidDTO, 0, len(g.Kids))
+					for _, k := range g.Kids {
+						kids = append(kids, litterKidDTO{GoatID: k.GoatID, Tag: k.Tag, Stage: k.Stage, PenLabel: k.PenLabel})
+					}
+					dto.ShiftGroups = append(dto.ShiftGroups, shiftGroupDTO{Key: g.Key, Label: g.Label, Kids: kids})
+				}
 			}
 		}
 		actions = append(actions, dto)

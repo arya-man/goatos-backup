@@ -2926,6 +2926,14 @@ fun AppNavHost(
             ) {
                 val vm: WorkflowDetailViewModel = hiltViewModel()
                 val state by vm.state.collectAsStateWithLifecycle()
+                // A kid shift raised from this litter hands its queued write back here (the same
+                // two keys the Shifting list reads), so its outcome -- including a refusal -- shows
+                // on the task that raised it.
+                val kidShiftNotice = remember(it) { it.savedStateHandle.remove<String>(Routes.COUNTS_SHIFTING_SUBMISSION_NOTICE) }
+                val kidShiftOutboxId = remember(it) { it.savedStateHandle.remove<String>(Routes.COUNTS_SHIFTING_SUBMISSION_OUTBOX_ID) }
+                LaunchedEffect(kidShiftOutboxId) {
+                    if (kidShiftOutboxId != null) vm.followKidShiftRaise(kidShiftOutboxId, kidShiftNotice)
+                }
                 val onEvent: (WorkflowDetailEvent) -> Unit = { event ->
                     when (event) {
                         WorkflowDetailEvent.Back -> navController.popBackStack()

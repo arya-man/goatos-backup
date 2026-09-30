@@ -1,6 +1,11 @@
 package sg.mesha.goatos.core.network.dto
 
 import kotlinx.serialization.SerialName
+import kotlinx.serialization.json.JsonTransformingSerializer
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.Serializable
 
 /**
@@ -47,6 +52,13 @@ data class GoatLocationPathDto(
 data class GoatSearchItemDto(
     @SerialName("goat_id") val goatId: String = "",
     @SerialName("display_id") val displayId: String = "",
+    /**
+     * The permanent RFID, BLANK for a kid still on its provisional birth tag. The backend sends an
+     * explicit `null` for such a kid, and the app's Json does not coerce nulls, so a plain String
+     * made the WHOLE search page fail to decode: an untagged newborn could not be found on Raise
+     * shifting at all (Realme E2E 2026-09-30, kid stage shift tasks). Null reads as "".
+     */
+    @Serializable(with = NullAsEmptyStringSerializer::class)
     @SerialName("animal_identifier_1") val animalIdentifier1: String = "",
     @SerialName("animal_identifier_2") val animalIdentifier2: String? = null,
     @SerialName("breed") val breed: String? = null,
@@ -69,3 +81,10 @@ data class GoatSearchResponseDto(
     @SerialName("items") val items: List<GoatSearchItemDto> = emptyList(),
     @SerialName("next_cursor") val nextCursor: String? = null,
 )
+
+/** Decodes a JSON `null` string as "" so one absent value never fails a whole response. */
+internal object NullAsEmptyStringSerializer : JsonTransformingSerializer<String>(String.serializer()) {
+    override fun transformDeserialize(element: JsonElement): JsonElement =
+        if (element is JsonNull) JsonPrimitive("") else element
+}
+

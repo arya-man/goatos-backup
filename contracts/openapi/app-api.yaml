@@ -46149,8 +46149,35 @@ components:
           type: string
         waiting_kids:
           description: >-
-            On a PENDING litter shift step, the live kids still on a stage before target_stage --
-            the animals to open Raise shifting (growth) with. Absent otherwise.
+            On a PENDING litter shift step whose earlier steps are done, the live kids still on a
+            stage before target_stage. Absent otherwise. See shift_groups for how they are raised.
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowLitterKid"
+        shift_groups:
+          description: >-
+            waiting_kids split into the groups ONE growth shifting can carry: same breed, sex, stage
+            and kid/adult band (counts refuses a mixed set with missing_impacts). The phone offers
+            one "Raise shifting" per group. Present only on a pending step whose earlier steps are
+            done -- a K2 step behind an unfinished K1 step carries neither this nor waiting_kids.
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowShiftGroup"
+    WorkflowShiftGroup:
+      type: object
+      additionalProperties: false
+      required:
+        - key
+        - label
+        - kids
+      properties:
+        key:
+          description: Stable identity of the group within the step.
+          type: string
+        label:
+          description: Backend-composed words for the group ("2 female kids"). Render verbatim.
+          type: string
+        kids:
           type: array
           items:
             $ref: "#/components/schemas/WorkflowLitterKid"

@@ -867,6 +867,15 @@ WHERE wi.tenant_id = $1::uuid AND wi.workflow_id = $2::uuid`, tenantID, workflow
 		detail.LitterKids = kids
 		card.SubjectLabel = litterSubjectLabel(kids)
 		detail.Card.SubjectLabel = card.SubjectLabel
+		// The litter's pen is where its LIVE kids stand NOW, not where the birth was recorded: a
+		// K1 litter moved into Milk Drinking must not read "Pen: Nursery".
+		if pens := litterPens(kids); pens != "" {
+			for i := range facts {
+				if facts[i].Label == "Pen" {
+					facts[i].Value = pens
+				}
+			}
+		}
 		if tags := litterTags(kids); tags != "" {
 			facts = append(facts, domain.WorkflowFact{Label: "Kids", Value: tags})
 		}
@@ -875,16 +884,32 @@ WHERE wi.tenant_id = $1::uuid AND wi.workflow_id = $2::uuid`, tenantID, workflow
 	return detail, nil
 }
 
-// litterSubjectLabel is the litter workflow's headline: "Litter of 2 · Castro 1" (the pen of the
-// first live kid), or just "Litter of 2" when no pen is known.
+// litterSubjectLabel is the litter workflow's headline: how many of its kids are still on the farm
+// ("Litter · 2 kids"). The pen is a fact of its own (litterPens), so the two cannot disagree.
 func litterSubjectLabel(kids []domain.LitterKidView) string {
-	label := fmt.Sprintf("Litter of %d", len(kids))
+	live := 0
 	for _, k := range kids {
-		if k.Alive && k.PenLabel != "" {
-			return label + " · " + k.PenLabel
+		if k.Alive {
+			live++
 		}
 	}
-	return label
+	if live == 1 {
+		return "Litter · 1 kid"
+	}
+	return fmt.Sprintf("Litter · %d kids", live)
+}
+
+// litterPens is the distinct current pens of the litter's live kids, in birth order.
+func litterPens(kids []domain.LitterKidView) string {
+	seen := map[string]bool{}
+	var out []string
+	for _, k := range kids {
+		if k.Alive && k.PenLabel != "" && !seen[k.PenLabel] {
+			seen[k.PenLabel] = true
+			out = append(out, k.PenLabel)
+		}
+	}
+	return strings.Join(out, ", ")
 }
 
 // litterTags is the litter's kids as one fact line: "A1024 (K0), A1025 (K1)".

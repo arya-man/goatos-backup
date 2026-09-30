@@ -183,6 +183,8 @@ object AnalyticsEvents {
     const val COUNTS_KID_SHIFT_OPENED = "counts_kid_shift_opened"
     /** Raise shifting opened with a litter's kids preselected; outcome = selected | partial | failed. */
     const val COUNTS_KID_SHIFT_PRESELECT = "counts_kid_shift_preselect"
+    /** A shifting raised from a litter's task reached its outcome; outcome = synced | failed. */
+    const val COUNTS_KID_SHIFT_RAISE_OUTCOME = "counts_kid_shift_raise_outcome"
 
     /** The operator pressed "Promote to permanent RFID": the promote (retag) write was queued. */
     const val COUNTS_RFID_PROMOTE_SUBMITTED = "counts_rfid_promote_submitted"

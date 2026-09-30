@@ -159,6 +159,16 @@ data class WorkflowActionDto(
      */
     @SerialName("target_stage") val targetStage: String = "",
     @SerialName("waiting_kids") val waitingKids: List<WorkflowLitterKidDto> = emptyList(),
+    /** [waitingKids] split into the groups ONE growth shifting can carry; one raise per group. */
+    @SerialName("shift_groups") val shiftGroups: List<WorkflowShiftGroupDto> = emptyList(),
+)
+
+/** One raisable group of waiting kids: its key, the backend's label ("2 female kids") and kids. */
+@Serializable
+data class WorkflowShiftGroupDto(
+    @SerialName("key") val key: String = "",
+    @SerialName("label") val label: String = "",
+    @SerialName("kids") val kids: List<WorkflowLitterKidDto> = emptyList(),
 )
 
 /** One kid of a litter still waiting for a shift: its id, tag, stage and pen, all verbatim. */

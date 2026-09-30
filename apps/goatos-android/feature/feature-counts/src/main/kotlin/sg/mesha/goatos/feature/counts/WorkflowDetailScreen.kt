@@ -105,6 +105,11 @@ data class WorkflowActionUi(
     val opensKidShift: Boolean = false,
     /** The kids still waiting for this shift, as "tag · stage · pen" lines, in birth order. */
     val kidShiftKids: List<WorkflowKidShiftKidUi> = emptyList(),
+    /**
+     * [kidShiftKids] split into the groups ONE shifting can carry (same breed, sex, stage): one
+     * "Raise shifting" button per group, labelled with the backend's words ("1 female kid").
+     */
+    val kidShiftGroups: List<WorkflowKidShiftGroupUi> = emptyList(),
     /** The designation the SOP names for this step ("Park Head"), VERBATIM; blank when anyone. */
     val ownerLabel: String = "",
     /** Footer line with backend-owned completion attribution; blank hides it. */
@@ -155,6 +160,12 @@ data class WorkflowDetailUiState(
     val isSale: Boolean = false,
     /** The sale this workflow is keyed on (its `subject_ref_id`), threaded to the tagging route. */
     val saleDealId: String = "",
+    /**
+     * The outcome of a kid shift raised from this litter (KID STAGE SHIFT TASKS): queued, sent, or
+     * the server's refusal VERBATIM. The raise form closes as soon as the write is queued, so this
+     * is the only place the person who raised it learns that it was refused.
+     */
+    val kidShiftNotice: CountsWriteResultUi = CountsWriteResultUi(),
     val displayId: String = "",
     val roleLabel: String = "",
     /** "Birth · WF-0521"-style template line, VM-built from backend fields. */
@@ -296,6 +307,9 @@ fun WorkflowDetailScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item(key = "context") { WorkflowContextCard(state) }
+            if (state.kidShiftNotice.status != CountsWriteStatus.IDLE) {
+                item(key = "kid-shift-notice") { CountsResultBanner(state.kidShiftNotice) }
+            }
             bannerMessage?.let { message ->
                 item(key = "message") {
                     Text(
@@ -492,8 +506,9 @@ private fun WorkflowActionRow(
             .clickable(enabled = hasDetail || action.opensPromote || action.opensSaleTagging || action.opensKidShift) {
                 if (action.opensSaleTagging && state.saleDealId.isNotBlank()) {
                     onEvent(WorkflowDetailEvent.OpenSaleTagging(state.saleDealId))
-                } else if (action.opensKidShift && action.kidShiftKids.isNotEmpty()) {
-                    onEvent(WorkflowDetailEvent.OpenKidShift(action.actionId, action.kidShiftKids))
+                } else if (action.opensKidShift && action.kidShiftGroups.size == 1) {
+                    // A tap on the card raises its only group; with several, the buttons choose.
+                    onEvent(WorkflowDetailEvent.OpenKidShift(action.actionId, action.kidShiftGroups.first().kids))
                 } else if (action.opensPromote && state.subjectGoatId.isNotBlank() && state.subjectGoatRowVersion > 0) {
                     onEvent(
                         WorkflowDetailEvent.OpenPromote(
@@ -588,19 +603,23 @@ private fun WorkflowActionRow(
                 Text(text = kid.line, color = MeshaColors.Ink, style = MeshaType.cardSubtitle)
             }
             if (action.opensKidShift) {
-                Text(
-                    text = stringResource(R.string.counts_workflow_raise_kid_shift),
-                    color = MeshaColors.OnBrand,
-                    style = MeshaType.pillStrong,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(MeshaColors.Brand)
-                        .clickable { onEvent(WorkflowDetailEvent.OpenKidShift(action.actionId, action.kidShiftKids)) }
-                        .minimumInteractiveComponentSize()
-                        .padding(vertical = 10.dp),
-                )
+                // One button per group ONE shifting can carry: mixed-sex twins cannot move in a
+                // single shifting, so they get one raise per sex rather than a raise that fails.
+                action.kidShiftGroups.forEach { group ->
+                    Text(
+                        text = stringResource(R.string.counts_workflow_raise_kid_shift_group_fmt, group.label),
+                        color = MeshaColors.OnBrand,
+                        style = MeshaType.pillStrong,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(MeshaColors.Brand)
+                            .clickable { onEvent(WorkflowDetailEvent.OpenKidShift(action.actionId, group.kids)) }
+                            .minimumInteractiveComponentSize()
+                            .padding(vertical = 10.dp),
+                    )
+                }
             }
         }
         if (action.canAnswer && action.options.isNotEmpty() && action.answerKind != "multiselect") {
@@ -908,3 +927,10 @@ data class WorkflowKidShiftKidUi(
     val tag: String,
     val line: String,
 )
+
+/** One group of waiting kids ONE shifting can carry; [label] is the backend's ("1 female kid"). */
+data class WorkflowKidShiftGroupUi(
+    val label: String,
+    val kids: List<WorkflowKidShiftKidUi>,
+)
+

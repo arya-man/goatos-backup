@@ -46,12 +46,17 @@ import sg.mesha.goatos.core.data.sync.WorkflowProofOutboxRef
 import sg.mesha.goatos.core.network.dto.CountsDestinationParkDto
 import sg.mesha.goatos.core.network.dto.WorkflowActionDto
 import sg.mesha.goatos.core.network.dto.WorkflowDetailResponseDto
+import sg.mesha.goatos.feature.counts.CountsWriteResultUi
+import sg.mesha.goatos.feature.counts.CountsWriteStatus
+import kotlinx.coroutines.Job
 import sg.mesha.goatos.feature.counts.WorkflowActionSection
 import sg.mesha.goatos.feature.counts.WorkflowActionUi
 import sg.mesha.goatos.feature.counts.WorkflowAnswerOptionUi
 import sg.mesha.goatos.feature.counts.WorkflowDetailEvent
 import sg.mesha.goatos.feature.counts.WorkflowProofSavedKind
 import sg.mesha.goatos.feature.counts.WorkflowDetailUiState
+import sg.mesha.goatos.core.network.dto.WorkflowLitterKidDto
+import sg.mesha.goatos.feature.counts.WorkflowKidShiftGroupUi
 import sg.mesha.goatos.feature.counts.WorkflowKidShiftKidUi
 import sg.mesha.goatos.feature.counts.WorkflowProofUi
 import sg.mesha.goatos.feature.counts.WorkflowStatusTone
@@ -1072,10 +1077,13 @@ class WorkflowDetailViewModel @Inject constructor(
                 templateKey == TEMPLATE_KEY_BIRTH_MOTHER || module == MODULE_DEATH -> subject.tag.ifBlank { subject.displayId }
                 else -> subject.displayId.ifBlank { subject.tag }
             },
-            roleLabel = subject.roleLabel,
+            // A litter's headline already says "Litter · 2 kids", and its kids move pens as they
+            // grow: the role and the birth pen would repeat or contradict it (the Pen fact is
+            // the kids' pen now).
+            roleLabel = if (templateKey == TEMPLATE_KEY_BIRTH_LITTER) "" else subject.roleLabel,
             templateLine = listOf(
                 templateLabel.ifBlank { if (module == MODULE_DEATH) TEMPLATE_DEATH else TEMPLATE_BIRTH },
-                shedLabel,
+                if (templateKey == TEMPLATE_KEY_BIRTH_LITTER) "" else shedLabel,
             ).filter { it.isNotBlank() }.joinToString(" · "),
             facts = facts.map { it.label to it.value },
             // `in_review` is finished from the operator's perspective: verification is internal
@@ -1095,7 +1103,8 @@ class WorkflowDetailViewModel @Inject constructor(
                     operatorFinishedWorkflowStatus(previous.status) || previous.actionId in draftedActionIds
                 }
                 val blocked = workflowBlockedForOperator(action, isDeathModule, predecessorsReady)
-                val ui = action.toActionUi(now, blocked, locallyRecorded, this.parkLabel, module)
+                // A litter's steps are not "birth steps for this kid": its blocked note is the generic one.
+                val ui = action.toActionUi(now, blocked, locallyRecorded, this.parkLabel, if (templateKey == TEMPLATE_KEY_BIRTH_LITTER) TEMPLATE_KEY_BIRTH_LITTER else module)
                 // A one-video step keeps its legacy control (a question records its video through
                 // Yes/No); a SOP step with photos or several videos captures each proof explicitly.
                 val multiProof = ui.proofMinPhotos > 0 || ui.proofMinVideos > 1
@@ -1276,15 +1285,14 @@ class WorkflowDetailViewModel @Inject constructor(
             uploadedProofs = if (status == STATUS_COMPLETED || status == STATUS_IN_REVIEW || status == STATUS_REWORK) uploaded else emptyList(),
             opensPromote = opensPromote && actionable,
             opensSaleTagging = opensSaleTagging && actionable,
-            opensKidShift = opensKidShift && actionable && waitingKids.isNotEmpty(),
+            opensKidShift = opensKidShift && actionable && shiftGroups.isNotEmpty(),
             kidShiftKids = if (opensKidShift && status == STATUS_PENDING) {
-                waitingKids.filter { it.goatId.isNotBlank() }.map { kid ->
-                    WorkflowKidShiftKidUi(
-                        goatId = kid.goatId,
-                        tag = kid.tag,
-                        line = listOf(kid.tag, kid.stage, kid.penLabel).filter { it.isNotBlank() }.joinToString(" · "),
-                    )
-                }
+                waitingKids.filter { it.goatId.isNotBlank() }.map { it.toKidShiftKidUi() }
+            } else emptyList(),
+            kidShiftGroups = if (opensKidShift && status == STATUS_PENDING) {
+                shiftGroups.map { group ->
+                    WorkflowKidShiftGroupUi(label = group.label, kids = group.kids.filter { it.goatId.isNotBlank() }.map { it.toKidShiftKidUi() })
+                }.filter { it.kids.isNotEmpty() }
             } else emptyList(),
             ownerLabel = ownerLabel,
             // A blocked row must say WHY. On the Colostrum lens the prerequisite is not even on
@@ -1296,6 +1304,39 @@ class WorkflowDetailViewModel @Inject constructor(
             answerValue = answerValue,
         )
     }
+
+    private var kidShiftJob: Job? = null
+
+    /**
+     * Follows the shifting this litter's task just raised (KID STAGE SHIFT TASKS). The raise form
+     * queues the write and closes; the result lands here -- sent, or the server's own refusal --
+     * so a raise the server turns down is never silent. A sent raise refreshes the litter.
+     */
+    fun followKidShiftRaise(outboxItemId: String, queuedMessage: String?) {
+        kidShiftJob?.cancel()
+        kidShiftJob = viewModelScope.launch {
+            var reported = false
+            syncRepository.observeStatus().collect { status ->
+                val item = status.items.firstOrNull { it.id == outboxItemId }
+                val result = item?.toWriteResult(queuedMessage ?: KID_SHIFT_QUEUED, KID_SHIFT_SENT)
+                    ?: CountsWriteResultUi(CountsWriteStatus.QUEUED, queuedMessage ?: KID_SHIFT_QUEUED)
+                _state.update { it.copy(kidShiftNotice = result) }
+                if (!reported && (result.status == CountsWriteStatus.SYNCED || result.status == CountsWriteStatus.FAILED)) {
+                    reported = true
+                    analytics.track(
+                        AnalyticsEvents.COUNTS_KID_SHIFT_RAISE_OUTCOME,
+                        mapOf(AnalyticsEvents.Params.OUTCOME to if (result.status == CountsWriteStatus.SYNCED) "synced" else "failed"),
+                    )
+                }
+            }
+        }
+    }
+
+    private fun WorkflowLitterKidDto.toKidShiftKidUi() = WorkflowKidShiftKidUi(
+        goatId = goatId,
+        tag = tag,
+        line = listOf(tag, stage, penLabel).filter { it.isNotBlank() }.joinToString(" · "),
+    )
 
     private fun lateLabel(due: Instant, now: Instant): String {
         val late = Duration.between(due, now)
@@ -1330,6 +1371,8 @@ class WorkflowDetailViewModel @Inject constructor(
         private const val ENGINE_HOOK_SHIFT_KIDS_STAGE = "shift_kids_stage"
         private const val TEMPLATE_KEY_BIRTH_MOTHER = "birth_mother"
         private const val TEMPLATE_KEY_BIRTH_LITTER = "birth_litter"
+        private const val KID_SHIFT_QUEUED = "Shifting saved on this phone. It will be sent for approval."
+        private const val KID_SHIFT_SENT = "Shifting sent for approval. This task closes once the kids are moved."
         private const val TYPE_QUESTION = "question"
         private const val TYPE_QUESTION_SELECT = "question_select"
         private const val TYPE_ACTION = "action"
