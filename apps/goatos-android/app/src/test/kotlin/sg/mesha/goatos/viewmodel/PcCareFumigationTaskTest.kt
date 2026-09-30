@@ -16,6 +16,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import sg.mesha.goatos.core.network.dto.PcCareSlotDto
+import sg.mesha.goatos.core.network.dto.PcCareSopCategoryDto
+import sg.mesha.goatos.core.network.dto.PcCareSopDto
 import sg.mesha.goatos.feature.pccare.PcCarePlanOption
 
 /**
@@ -41,7 +43,13 @@ class PcCareFumigationTaskTest {
         detailFlow.value = pcCareTaskDtoFixture(
             category = "fumigation",
             expectedSlots = listOf(mixing, spraying),
-        ).copy(captureMode = "task_proof")
+        ).copy(
+            captureMode = "task_proof",
+            sop = PcCareSopDto(
+                version = 1,
+                categories = mapOf("fumigation" to PcCareSopCategoryDto(instruction = "Mix 5 ml of Virufix liquid into every litre of water and spray the whole pen.")),
+            ),
+        )
     }
 
     @Test
@@ -57,6 +65,10 @@ class PcCareFumigationTaskTest {
         assertNull("no fridge photo on a pen spray", state.taskProofPhotoSlot)
         assertNull("no fridge video on a pen spray", state.taskProofVideoSlot)
         assertEquals("Fumigation", state.title)
+        // The pinned card's instruction -- the dosage -- is on the screen, verbatim.
+        assertEquals("Mix 5 ml of Virufix liquid into every litre of water and spray the whole pen.", state.instruction)
+        // The farm-wide DD/MM/YYYY date rule; the wire date stays ISO.
+        assertEquals("21/08/2026", state.dateLabel)
         collectJob.cancel()
     }
 

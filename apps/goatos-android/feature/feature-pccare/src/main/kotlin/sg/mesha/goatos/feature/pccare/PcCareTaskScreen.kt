@@ -104,6 +104,9 @@ fun PcCareTaskScreen(
                     )
                 }
             }
+            if (state.instruction.isNotBlank()) {
+                item(key = "sop_instruction") { PcCareBanner(text = state.instruction, danger = false) }
+            }
             if (state.assigneeLine.isNotBlank()) {
                 item(key = "assignees") {
                     Text(
