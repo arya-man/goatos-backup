@@ -858,12 +858,12 @@ async function assertRouteLoadedSignal(page, routeName, visibleText) {
     await page.getByTestId("flow-view").waitFor({ state: "visible", timeout: 10000 });
     await page.getByTestId("flow-node-toxin-step-1").click();
     await page.getByTestId("flow-props").getByTestId("toxin-step-1").waitFor({ state: "visible", timeout: 10000 });
-    const clippedTitles = await page.locator(".toxin-flow .studio-node b").evaluateAll((elements) => elements.filter((element) => {
+    const clippedTitles = await page.locator('[data-testid="flow-view"] [data-testid^="flow-node-"] b').evaluateAll((elements) => elements.filter((element) => {
       const range = document.createRange();
       range.selectNodeContents(element);
       const text = range.getBoundingClientRect();
       const box = element.getBoundingClientRect();
-      const card = element.closest(".studio-node").getBoundingClientRect();
+      const card = element.closest('[data-testid^="flow-node-"]').getBoundingClientRect();
       return text.top < box.top - 1 || text.bottom > box.bottom + 1 || element.scrollWidth > element.clientWidth + 1
         || box.top < card.top || box.bottom > card.bottom;
     }).map((element) => element.textContent));
@@ -871,7 +871,7 @@ async function assertRouteLoadedSignal(page, routeName, visibleText) {
     return { toxin_editor: "flow", node_titles_unclipped: true };
   }
   if (routeName in SOP_FLOW_CODES) {
-    // features/sops/{followup,weighing,feed}-flow.tsx all render <div className="studio-flow" data-testid="flow-view">.
+    // features/sops/*-flow.tsx all render the shared FlowStudio (data-testid="flow-view").
     await page.getByTestId("flow-view").waitFor({ state: "visible", timeout: 10000 });
     return { sop_editor: "flow", code: SOP_FLOW_CODES[routeName].code };
   }

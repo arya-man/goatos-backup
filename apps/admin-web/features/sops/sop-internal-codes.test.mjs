@@ -47,7 +47,7 @@ test("SOP editor text fields carry their own MUI label and escape the legacy .qc
 test("SOP flow canvas keeps a 70% floor on a phone and centres the scaled flow", () => {
   const canvas = read("./flow-canvas.tsx");
   assert.match(canvas, /el\.clientWidth < 600 \? 0\.7 : 0\.35/);
-  assert.match(canvas, /width: layout\.width \* zoom, height: layout\.height \* zoom, margin: "0 auto"/);
+  assert.match(canvas, /width: layout\.width \* zoom, height: layout\.height \* zoom, mx: "auto"/);
 });
 
 // guard: sop-editor-template-fields (FJ3 P1-16, second half). No label-above field anatomy left in the

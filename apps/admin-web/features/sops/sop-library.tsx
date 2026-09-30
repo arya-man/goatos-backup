@@ -4,7 +4,9 @@ import { Tag } from "@/components/ui-primitives";
 
 import { useCallback, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Iconify, type IconifyName } from "@/components/minimal/iconify";
 import { type SopCardView } from "./sop-derive";
+import { SummaryEmpty, SummaryList, SummaryMeta, SummaryRow, SummaryTitle } from "./sop-summary";
 import { FollowUpStepsSummary } from "./followup-summary";
 import { InspectionSummary } from "./inspection-summary";
 import { PcCareSummary } from "./pc-care-summary";
@@ -16,7 +18,6 @@ import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
 import DialogActions from "@mui/material/DialogActions";
 import IconButton from "@mui/material/IconButton";
-import { Iconify, type IconifyName } from "@/components/minimal/iconify";
 import { RowMenu } from "@/components/app/row-menu";
 import { FilterBar } from "@/components/app/filter-bar";
 import Link from "@mui/material/Link";
@@ -36,6 +37,7 @@ import { PageHeader } from "@/components/app/page-header";
 import Switch from "@mui/material/Switch";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import Alert from "@mui/material/Alert";
+import Avatar from "@mui/material/Avatar";
 import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
 import useMediaQuery from "@mui/material/useMediaQuery";
@@ -48,13 +50,13 @@ import { CARDS_PER_PAGE, SOP_HEADER_LAYOUT } from "./sop-library-layout";
 // route as the module page (never a nested /new page). Legacy `?new=1` deep-links resolve to it too.
 
 const FIELD_ICON: Record<string, IconifyName> = {
-  text: "solar:file-text-bold",
+  text: "solar:pen-bold",
   number: "solar:tag-horizontal-bold-duotone",
   date_time: "solar:calendar-date-bold",
   select: "solar:list-bold",
-  multiselect: "solar:bill-list-bold-duotone",
-  goat_lookup: "carbon:center-to-fit",
-  animal_id_scan: "carbon:center-to-fit",
+  multiselect: "eva:done-all-fill",
+  goat_lookup: "solar:user-id-bold",
+  animal_id_scan: "solar:user-id-bold",
   location_picker: "mingcute:location-fill",
   photo_proof: "solar:camera-add-bold",
   video_proof: "solar:videocamera-record-bold",
@@ -228,7 +230,7 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
         actions={
           <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1, flexWrap: "wrap", "& .wt-assumptions-control": { display: "contents" } }}>
             {extraNode}
-            <Button variant="contained" color="primary" startIcon={<Iconify icon="mingcute:add-line" width={18} />} onClick={openBuilder}>
+            <Button variant="contained" color="primary" startIcon={<Iconify icon="mingcute:add-line" />} onClick={openBuilder}>
               {copy(pageContract, "action.new_sop")}
             </Button>
           </Box>
@@ -256,9 +258,9 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
               <RowMenu
                 ariaLabel={copy(pageContract, "action.more")}
                 actions={[
-                  { label: copy(pageContract, "action.columns"), icon: <Iconify icon="ic:round-view-module" width={15} />, onSelect: () => setColumnsOpen(true) },
-                  { label: copy(pageContract, "action.export", "Export"), icon: <Iconify icon="solar:download-bold" width={15} />, onSelect: exportCsv },
-                  { label: copy(pageContract, "action.reset_filters", "Reset filters"), icon: <Iconify icon="mingcute:close-line" width={15} />, onSelect: clearAll, disabled: activeChips.length === 0 },
+                  { label: copy(pageContract, "action.columns"), icon: <Iconify icon="ic:round-view-module" width={16} />, onSelect: () => setColumnsOpen(true) },
+                  { label: copy(pageContract, "action.export", "Export"), icon: <Iconify icon="solar:download-bold" width={16} />, onSelect: exportCsv },
+                  { label: copy(pageContract, "action.reset_filters", "Reset filters"), icon: <Iconify icon="mingcute:close-line" width={16} />, onSelect: clearAll, disabled: activeChips.length === 0 },
                 ]}
               />
             </>
@@ -366,7 +368,7 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
           title={copy(pageContract, "empty.title")}
           description={copy(pageContract, "empty.body")}
           action={
-            <Button variant="contained" color="primary" startIcon={<Iconify icon="mingcute:add-line" width={18} />} sx={{ mt: 2 }} onClick={openBuilder}>
+            <Button variant="contained" color="primary" startIcon={<Iconify icon="mingcute:add-line" />} sx={{ mt: 2 }} onClick={openBuilder}>
               {copy(pageContract, "action.new_sop")}
             </Button>
           }
@@ -394,7 +396,7 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
       {/* Columns: which facet rows the cards carry. Presentation only. */}
       <Dialog fullWidth maxWidth="xs" open={columnsOpen} onClose={() => setColumnsOpen(false)} slotProps={{ paper: { "aria-label": copy(pageContract, "action.columns") } }}>
         <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-          <Iconify icon="ic:round-view-module" />
+          <Iconify icon="ic:round-view-module" aria-hidden="true" />
           {copy(pageContract, "action.columns")}
         </DialogTitle>
         <DialogContent sx={DLG_BODY_SX}>
@@ -490,6 +492,15 @@ function humanizeKey(key: string): string {
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : key;
 }
 
+/** The field-type glyph beside a published field row (template soft avatar). */
+function FieldGlyph({ icon }: { icon: IconifyName }) {
+  return (
+    <Avatar variant="rounded" aria-hidden="true" sx={{ width: 24, height: 24, bgcolor: "background.neutral", color: "text.secondary" }}>
+      <Iconify icon={icon} width={13} />
+    </Avatar>
+  );
+}
+
 function SopDetailModal({ view, pageContract, onClose, onEdit, onEditCapture, editPending = false }: { view: SopCardView; pageContract: AdminUiPageContract; onClose: () => void; onEdit: () => void; onEditCapture?: () => void; editPending?: boolean }) {
   // MUI Dialog (template dialog pattern) owns the portal, Escape, the backdrop and the focus trap.
   // Full screen on a phone: at 390/412 the md dialog clipped its right column and gate chips
@@ -498,14 +509,16 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, onEditCapture, ed
   return (
       <Dialog fullWidth fullScreen={fullScreen} maxWidth="md" open onClose={onClose} slotProps={{ paper: { "aria-label": `${copy(pageContract, "modal.detail.aria")} ${view.name}` } }}>
         <DialogTitle component="div" sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-          <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand)", width: 32, height: 32, borderRadius: 9 }}>
-            <Iconify icon="solar:notebook-bold-duotone" />
-          </span>
+          <Avatar variant="rounded" aria-hidden="true" sx={{ width: 32, height: 32, bgcolor: "primary.lighter", color: "primary.dark" }}>
+            <Iconify icon="solar:notebook-bold-duotone" width={18} />
+          </Avatar>
           <div>
-            <div className="mono muted" style={{ fontSize: 11 }}>
+            <Typography variant="caption" component="div" sx={{ color: "text.secondary", fontFamily: "monospace" }}>
               SOP · {view.domainLabel.toUpperCase()}
-            </div>
-            <div className="b700">{view.name}</div>
+            </Typography>
+            <Typography variant="subtitle1" component="div">
+              {view.name}
+            </Typography>
           </div>
           <IconButton onClick={onClose} aria-label={copy(pageContract, "modal.detail.close_label")} sx={{ ml: "auto" }}>
             <Iconify icon="mingcute:close-line" />
@@ -516,10 +529,10 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, onEditCapture, ed
           {/* Spec §8 meta card: a titled block with an edit affordance, not a bare k/v grid. */}
           <Paper variant="outlined" sx={{ overflow: "hidden", mb: 1.5, "& .metagrid": { p: 1.75 } }}>
             <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 1.75, py: 1.25, bgcolor: "background.neutral", borderBottom: 1, borderColor: "divider", typography: "subtitle2" }}>
-              <Iconify icon="solar:notebook-bold-duotone" width={14} />
+              <Iconify icon="solar:notebook-bold-duotone" width={14} aria-hidden="true" />
               <span>{copy(pageContract, "label.details")}</span>
               <Box sx={{ flex: 1 }} />
-              <Button color="primary" variant="text" size="small" startIcon={<Iconify icon="solar:notes-bold-duotone" width={14} />} onClick={onEdit} disabled={editPending}>
+              <Button color="primary" variant="text" size="small" startIcon={<Iconify icon="solar:pen-bold" width={14} />} onClick={onEdit} disabled={editPending}>
                 {copy(pageContract, "action.edit", "Edit")}
               </Button>
             </Box>
@@ -553,9 +566,9 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, onEditCapture, ed
           </Paper>
 
           {view.description ? (
-            <div className="muted small" style={{ margin: "10px 0" }}>
+            <Typography variant="body2" sx={{ color: "text.secondary", my: 1.25 }}>
               {view.description}
-            </div>
+            </Typography>
           ) : null}
 
           {/* An inspection SOP lists its load form and pages below; the generic field list would repeat the load form. */}
@@ -563,35 +576,26 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, onEditCapture, ed
               capture section (and its "no form_dsl fields" note) is not the thing to show (PR 308 review). */}
           {view.inspectionFormDsl || view.vendorFormDsl || view.pcCareFormDsl || (view.fields.length === 0 && view.followUpStepCount > 0) ? null : (
             <>
-          <div className="b700" style={{ margin: "8px 0" }}>
+          <Typography variant="subtitle2" component="div" sx={{ my: 1 }}>
             {copy(pageContract, "label.steps_questions")}{" "}
             <Tag tone="mut">{view.fields.length}</Tag>
-          </div>
+          </Typography>
           {view.fields.length > 0 ? (
-            <div className="htl">
-              {view.fields.map((f, i) => {
-                return (
-                  <div className="hrow" key={`${f.label}-${i}`}>
-                    <span className="fic" style={{ width: 24, height: 24, background: "var(--bg)", color: "var(--muted)" }}>
-                      <Iconify icon={FIELD_ICON[f.type] ?? "eva:checkmark-fill"} width={13} />
-                    </span>
-                    <div className="htx">
-                      <b>
-                        {i + 1}. {f.label}
-                      </b>
-                      <div className="hmeta muted small">
-                        {copy(pageContract, "label.type")}: {copy(pageContract, `field_type.${f.type}`, humanizeKey(f.type))}
-                        {f.required ? ` · ${copy(pageContract, "label.required")}` : ""}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            <SummaryList>
+              {view.fields.map((f, i) => (
+                <SummaryRow key={`${f.label}-${i}`} lead={<FieldGlyph icon={FIELD_ICON[f.type] ?? "eva:checkmark-fill"} />}>
+                  <SummaryTitle>
+                    {i + 1}. {f.label}
+                  </SummaryTitle>
+                  <SummaryMeta>
+                    {copy(pageContract, "label.type")}: {copy(pageContract, `field_type.${f.type}`, humanizeKey(f.type))}
+                    {f.required ? ` · ${copy(pageContract, "label.required")}` : ""}
+                  </SummaryMeta>
+                </SummaryRow>
+              ))}
+            </SummaryList>
           ) : (
-            <div className="note">
-              {copy(pageContract, "empty.no_published_fields")}
-            </div>
+            <SummaryEmpty>{copy(pageContract, "empty.no_published_fields")}</SummaryEmpty>
           )}
             </>
           )}
@@ -609,13 +613,13 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, onEditCapture, ed
           <Button color="primary" variant="outlined" onClick={onClose}>
             {copy(pageContract, "action.close")}
           </Button>
-          <div className="sp" style={{ flex: 1 }} />
+          <Box sx={{ flex: 1 }} />
           {isCaptureCardCode(view.code) && view.hasVersion && onEditCapture ? (
-            <Button color="primary" variant="outlined" startIcon={<Iconify icon="solar:notes-bold-duotone" width={16} />} onClick={onEditCapture} disabled={editPending}>
+            <Button color="primary" variant="outlined" startIcon={<Iconify icon="solar:pen-bold" width={16} />} onClick={onEditCapture} disabled={editPending}>
               {copy(pageContract, "action.edit_capture_form")}
             </Button>
           ) : null}
-          <Button variant="contained" color="primary" startIcon={<Iconify icon="solar:notes-bold-duotone" width={16} />} onClick={onEdit} disabled={editPending} loading={editPending}>
+          <Button variant="contained" color="primary" startIcon={<Iconify icon="solar:pen-bold" width={16} />} onClick={onEdit} disabled={editPending} loading={editPending}>
             {editPending
               ? copy(pageContract, "action.opening_editor")
               : view.followUpStepCount > 0

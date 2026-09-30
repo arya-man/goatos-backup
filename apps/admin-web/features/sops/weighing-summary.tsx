@@ -4,6 +4,7 @@
 // drawer so the whole rule set is visible without opening the editor.
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { CAPTURE_DEFAULTS_COPY_KEY, parseCaptureDefaults, parseWeighing, type WeighingQuestionRow } from "./weighing-model";
+import { SummaryRoot, SummaryHeading, SummarySub, SummaryGroup, SummaryList, SummaryRow, SummaryTitle, SummaryMeta, SummaryNote } from "./sop-summary";
 
 function fill(template: string, vars: Record<string, string | number>): string {
   return Object.entries(vars).reduce((s, [k, v]) => s.split(`{${k}}`).join(String(v)), template);
@@ -26,77 +27,65 @@ export function WeighingSummary({ pageContract: pc, formDsl }: { pageContract: A
   const lumpTotal = rows.lumpSumProofs.reduce((sum, p) => sum + (Number(p.max) || 0), 0);
   const titleByKey = Object.fromEntries(rows.removalQuestions.map((q) => [q.key, q.title]));
   return (
-    <div className="inspection-summary">
-      <div className="b700" style={{ margin: "14px 0 8px" }}>
-        {copy(pc, "wsop.drawer.title")} <span className="muted small">— {copy(pc, "wsop.drawer.subtitle")}</span>
-      </div>
-      <div className="htl">
-        <div className="hrow">
-          <div className="htx">
-            <b>{copy(pc, "wsop.section.planning")}</b>
-            <div className="hmeta muted small">
-              {rows.modes.map((m) => copy(pc, `wsop.planning.mode.${m}`)).join(" · ")} · {copy(pc, "wsop.planning.default_cap")}: {rows.defaultCapPerDay}
-            </div>
-          </div>
-        </div>
-        <div className="hrow">
-          <div className="htx">
-            <b>{copy(pc, "wsop.section.removal")}</b>
-            <div className="hmeta muted small">
-              {copy(pc, `wsop.removal.mode.${rows.removalMode}`)}
-              {rows.removalMode !== "off"
-                ? ` · ${rows.removalProofs.map((p) => `${p.title} (${copy(pc, `wsop.proof.kind.${p.kind}`)}${p.required ? "" : `, ${copy(pc, "inspection.summary.optional")}`})`).join(" + ")}`
-                : ""}
-            </div>
-            {rows.removalMode !== "off" && rows.removalInstruction ? <div className="muted small">{rows.removalInstruction}</div> : null}
-            {rows.removalMode !== "off" ? (
-              <div className="muted small">
-                {copy(pc, "wsop.removal.cutoff")}: {rows.removalCutoffTime || copy(pc, "wsop.removal.cutoff.farm")}
-              </div>
-            ) : null}
-          </div>
-        </div>
-        <div className="hrow">
-          <div className="htx">
-            <b>{copy(pc, "wsop.section.capture")}</b>
-            {/* Two sections, never one shared list (maintainer decision 2026-09-16). */}
-            <div className="hmeta muted small">
-              <b>{copy(pc, "wsop.capture.individual.title")}</b> ·{" "}
-              {fill(copy(pc, "wsop.summary.individual_captures"), { n: rows.individualProofs.length, required: rows.individualProofs.filter((p) => p.required).length })} ·{" "}
-              {rows.individualProofs.map((p) => `${p.title} (${copy(pc, `wsop.proof.kind.${p.kind}`)}${p.required ? "" : `, ${copy(pc, "inspection.summary.optional")}`})`).join(" + ")} ·{" "}
-              {questionsCount(rows.individualQuestions.length)}
-            </div>
-            <div className="hmeta muted small">
-              <b>{copy(pc, "wsop.capture.lump_sum.title")}</b> ·{" "}
-              {fill(copy(pc, "wsop.summary.lump_sum_captures"), { n: rows.lumpSumProofs.length, max: lumpTotal })} ·{" "}
-              {rows.lumpSumProofs.map((p) => `${p.title} (${copy(pc, `wsop.proof.kind.${p.kind}`)} ${p.min}–${p.max})`).join(" + ")} ·{" "}
-              {questionsCount(rows.lumpSumQuestions.length)}
-            </div>
-          </div>
-        </div>
-      </div>
+    <SummaryRoot>
+      <SummaryHeading>
+        {copy(pc, "wsop.drawer.title")} <SummarySub>— {copy(pc, "wsop.drawer.subtitle")}</SummarySub>
+      </SummaryHeading>
+      <SummaryList>
+        <SummaryRow>
+          <SummaryTitle>{copy(pc, "wsop.section.planning")}</SummaryTitle>
+          <SummaryMeta>
+            {rows.modes.map((m) => copy(pc, `wsop.planning.mode.${m}`)).join(" · ")} · {copy(pc, "wsop.planning.default_cap")}: {rows.defaultCapPerDay}
+          </SummaryMeta>
+        </SummaryRow>
+        <SummaryRow>
+          <SummaryTitle>{copy(pc, "wsop.section.removal")}</SummaryTitle>
+          <SummaryMeta>
+            {copy(pc, `wsop.removal.mode.${rows.removalMode}`)}
+            {rows.removalMode !== "off"
+              ? ` · ${rows.removalProofs.map((p) => `${p.title} (${copy(pc, `wsop.proof.kind.${p.kind}`)}${p.required ? "" : `, ${copy(pc, "inspection.summary.optional")}`})`).join(" + ")}`
+              : ""}
+          </SummaryMeta>
+          {rows.removalMode !== "off" && rows.removalInstruction ? <SummaryNote>{rows.removalInstruction}</SummaryNote> : null}
+          {rows.removalMode !== "off" ? (
+            <SummaryNote>
+              {copy(pc, "wsop.removal.cutoff")}: {rows.removalCutoffTime || copy(pc, "wsop.removal.cutoff.farm")}
+            </SummaryNote>
+          ) : null}
+        </SummaryRow>
+        <SummaryRow>
+          <SummaryTitle>{copy(pc, "wsop.section.capture")}</SummaryTitle>
+          {/* Two sections, never one shared list (maintainer decision 2026-09-16). */}
+          <SummaryMeta>
+            <b>{copy(pc, "wsop.capture.individual.title")}</b> ·{" "}
+            {fill(copy(pc, "wsop.summary.individual_captures"), { n: rows.individualProofs.length, required: rows.individualProofs.filter((p) => p.required).length })} ·{" "}
+            {rows.individualProofs.map((p) => `${p.title} (${copy(pc, `wsop.proof.kind.${p.kind}`)}${p.required ? "" : `, ${copy(pc, "inspection.summary.optional")}`})`).join(" + ")} ·{" "}
+            {questionsCount(rows.individualQuestions.length)}
+          </SummaryMeta>
+          <SummaryMeta>
+            <b>{copy(pc, "wsop.capture.lump_sum.title")}</b> · {fill(copy(pc, "wsop.summary.lump_sum_captures"), { n: rows.lumpSumProofs.length, max: lumpTotal })} ·{" "}
+            {rows.lumpSumProofs.map((p) => `${p.title} (${copy(pc, `wsop.proof.kind.${p.kind}`)} ${p.min}–${p.max})`).join(" + ")} · {questionsCount(rows.lumpSumQuestions.length)}
+          </SummaryMeta>
+        </SummaryRow>
+      </SummaryList>
       {rows.removalMode !== "off" && rows.removalQuestions.length > 0 ? (
         <div>
-          <div className="muted small b700" style={{ margin: "8px 0 4px" }}>
-            {copy(pc, "wsop.removal.questions")}
-          </div>
-          <div className="htl">
+          <SummaryGroup>{copy(pc, "wsop.removal.questions")}</SummaryGroup>
+          <SummaryList>
             {rows.removalQuestions.map((q, qi) => (
-              <div className="hrow" key={q.id}>
-                <div className="htx">
-                  <b>
-                    {qi + 1}. {q.title}
-                  </b>
-                  <div className="hmeta muted small">{questionMeta(pc, q, titleByKey)}</div>
-                </div>
-              </div>
+              <SummaryRow key={q.id}>
+                <SummaryTitle>
+                  {qi + 1}. {q.title}
+                </SummaryTitle>
+                <SummaryMeta>{questionMeta(pc, q, titleByKey)}</SummaryMeta>
+              </SummaryRow>
             ))}
-          </div>
+          </SummaryList>
         </div>
       ) : null}
       {rows.individualQuestions.length > 0 ? questionBlock(pc, "wsop.capture.individual.questions", rows.individualQuestions) : null}
       {rows.lumpSumQuestions.length > 0 ? questionBlock(pc, "wsop.capture.lump_sum.questions", rows.lumpSumQuestions) : null}
-    </div>
+    </SummaryRoot>
   );
 }
 
@@ -104,21 +93,17 @@ function questionBlock(pc: AdminUiPageContract, titleKey: string, questions: Wei
   const titleByKey = Object.fromEntries(questions.map((q) => [q.key, q.title]));
   return (
     <div>
-      <div className="muted small b700" style={{ margin: "8px 0 4px" }}>
-        {copy(pc, titleKey)}
-      </div>
-      <div className="htl">
+      <SummaryGroup>{copy(pc, titleKey)}</SummaryGroup>
+      <SummaryList>
         {questions.map((q, qi) => (
-          <div className="hrow" key={q.id}>
-            <div className="htx">
-              <b>
-                {qi + 1}. {q.title}
-              </b>
-              <div className="hmeta muted small">{questionMeta(pc, q, titleByKey)}</div>
-            </div>
-          </div>
+          <SummaryRow key={q.id}>
+            <SummaryTitle>
+              {qi + 1}. {q.title}
+            </SummaryTitle>
+            <SummaryMeta>{questionMeta(pc, q, titleByKey)}</SummaryMeta>
+          </SummaryRow>
         ))}
-      </div>
+      </SummaryList>
     </div>
   );
 }
