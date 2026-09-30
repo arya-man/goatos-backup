@@ -125,18 +125,6 @@ export type DataTableColumnMeta = {
   spanned?: boolean;
   /** Applied to both the header cell and every body cell in this column. */
   align?: "left" | "right";
-  /** Extra className for this column's body cells. */
-  cellClassName?: string;
-  /**
-   * Extra className for this column's HEADER cell.
-   *
-   * Separate from the body-cell className on purpose: most callers only want a body modifier such
-   * as `num`, which would be wrong on a `<th>`. But a column that is HIDDEN at some viewport has
-   * to hide its header with its body -- a `display:none` that reaches only the `<td>`s leaves the
-   * header row one cell longer than every body row, so the labels after it sit over the wrong
-   * column (found 2026-09-18 on /tasks at phone width, where the urgency column is dropped).
-   */
-  headerClassName?: string;
   /** Extra style for this column's body cells (applied as the cell's sx). */
   cellStyle?: React.CSSProperties;
 };
@@ -274,7 +262,6 @@ export function DataTable<Row>({
         sortable: header.column.getCanSort(),
         sortLabel: `${String(header.column.columnDef.header)} — ${serverSort ? serverSort.sortLabel : "sort this page"}`,
         align: meta?.align,
-        className: meta?.headerClassName,
       } satisfies TableHeadCellProps;
     }),
     ...(rowActions ? [{ id: "__actions", label: rowActionsHeader ?? <Box component="span" sx={visuallyHidden}>Actions</Box>, sortable: false, align: "right" as const, width: 52 }] : []),
@@ -344,7 +331,7 @@ export function DataTable<Row>({
                       const meta = cell.column.columnDef.meta as DataTableColumnMeta | undefined;
                       if (meta?.spanned) return null;
                       return (
-                        <TableCell key={cell.id} className={meta?.cellClassName} colSpan={meta?.colSpan} align={meta?.align} sx={meta?.cellStyle}>
+                        <TableCell key={cell.id} colSpan={meta?.colSpan} align={meta?.align} sx={meta?.cellStyle}>
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </TableCell>
                       );

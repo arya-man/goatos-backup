@@ -99,12 +99,12 @@ export function BuyerTable({
           ) : null}
         </>
       ),
-      meta: { cellClassName: "num" },
+      meta: { align: "right", cellStyle: { fontVariantNumeric: "tabular-nums" } },
       sortValue: (row) => row.purchases,
     },
     animals: {
       cell: (row) => num(row.animals),
-      meta: { cellClassName: "num" },
+      meta: { align: "right", cellStyle: { fontVariantNumeric: "tabular-nums" } },
       sortValue: (row) => row.animals,
     },
     revenue: {
@@ -114,7 +114,7 @@ export function BuyerTable({
           <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{num(row.share_pct, 1)}%</Typography>
         </>
       ),
-      meta: { cellClassName: "num" },
+      meta: { align: "right", cellStyle: { fontVariantNumeric: "tabular-nums" } },
       sortValue: (row) => row.revenue,
     },
     repeat: {
@@ -157,7 +157,7 @@ export function BuyerTable({
         ) : (
           <Typography component="span" variant="body2" sx={{ color: "text.secondary" }}>{labels.settled}</Typography>
         ),
-      meta: { cellClassName: "num" },
+      meta: { align: "right", cellStyle: { fontVariantNumeric: "tabular-nums" } },
       sortValue: (row) => row.outstanding,
     },
   });

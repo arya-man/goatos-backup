@@ -104,21 +104,18 @@ export function LeadershipTasksTable({
   const clockCell = (task: TaskRow) => <DeadlineClock task={task} compact />;
 
   const columns = columnsFromContract<TaskRow>(contract, {
-    task: { cell: taskCell, meta: { cellClassName: "lt-task-col", headerClassName: "lt-task-col" }, sortValue: (task) => task.title },
+    task: { cell: taskCell, sortValue: (task) => task.title },
     // Both spellings of the urgency column; see the note above.
     priority: {
       cell: clockCell,
-      meta: { cellClassName: "lt-days-col", headerClassName: "lt-days-col" },
       sortValue: (task) => task.daysLeft ?? undefined,
     },
     days_left: {
       cell: clockCell,
-      meta: { cellClassName: "lt-days-col", headerClassName: "lt-days-col" },
       sortValue: (task) => task.daysLeft ?? undefined,
     },
     deadline: {
       cell: clockCell,
-      meta: { cellClassName: "lt-days-col", headerClassName: "lt-days-col" },
       sortValue: (task) => task.daysLeft ?? undefined,
     },
     assignee: {
@@ -133,13 +130,11 @@ export function LeadershipTasksTable({
           />
         </Box>
       ),
-      meta: { cellClassName: "lt-people-col lt-wide-col", headerClassName: "lt-people-col lt-wide-col" },
       sortValue: (task) => task.assignee,
     },
-    raised_by: { cell: (task) => task.raisedBy, meta: { cellClassName: "lt-people-col lt-wide-col", headerClassName: "lt-people-col lt-wide-col" }, sortValue: (task) => task.raisedBy },
+    raised_by: { cell: (task) => task.raisedBy, sortValue: (task) => task.raisedBy },
     status: {
       cell: (task) => <Label variant="soft" color={statusColor(task.status)}>{task.statusLabel}</Label>,
-      meta: { cellClassName: "lt-wide-col", headerClassName: "lt-wide-col" },
       sortValue: (task) => task.status,
     },
     evidence: {
@@ -150,7 +145,6 @@ export function LeadershipTasksTable({
           <Box component="span" sx={{ color: "text.secondary", typography: "caption" }}>{task.evidence}</Box>
         </Box>
       ),
-      meta: { cellClassName: "lt-wide-col", headerClassName: "lt-wide-col" },
       sortValue: (task) => task.attachments,
     },
   });
