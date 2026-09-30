@@ -22,6 +22,9 @@ export const BD_FILTER_FIELDS = [FILTER_SELECT_MIN, FILTER_SELECT_MIN, FILTER_SE
 export const HA_KPI_CAPTIONS = [0, 1, 0, 0, 0, 0];
 export const BD_KPI_CAPTIONS = [0, 1, 1, 1, 1, 1];
 export const MORTALITY_KPI_CAPTIONS: (number | { xs: number; sm: number })[] = [0, { xs: 2, sm: 1 }, 1, 1, 0, 1];
+/** Mortality cards that carry the complete-month trend (Deaths, Kids, Adults): KpiWidget draws them as
+ *  BookingWidgetSummary with a trend row, so their twin is the booking card with a trend line. */
+export const MORTALITY_KPI_TRENDS = [true, false, true, true, false, false] as const;
 export const HERD_KPI_COUNT = 3;
 /** The window field's height: the medium outlined field, 44px below md (tap floor). */
 export const COUNTS_WINDOW_HEIGHT = { xs: 44, md: 56 } as const;

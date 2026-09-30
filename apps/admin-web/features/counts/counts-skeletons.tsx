@@ -21,6 +21,7 @@ import {
   HERD_KPI_COUNT,
   HERD_KPI_SIZE,
   MORTALITY_KPI_CAPTIONS,
+  MORTALITY_KPI_TRENDS,
   MORTALITY_PLOT,
   MORTALITY_RATE_SIZE,
   MORTALITY_RATE_TABLE,
@@ -98,7 +99,7 @@ export function HerdKpiSkeleton() {
 export function MortalityPanelSkeleton() {
   return (
     <StackSkeleton spacing={3}>
-      <KpiRowSkeleton count={MORTALITY_KPI_CAPTIONS.length} shapes={kpiShapes(MORTALITY_KPI_CAPTIONS)} />
+      <KpiRowSkeleton count={MORTALITY_KPI_CAPTIONS.length} shapes={kpiShapes(MORTALITY_KPI_CAPTIONS).map((shape, i) => (MORTALITY_KPI_TRENDS[i] ? { ...shape, booking: true, trend: true } : shape))} />
       <ChartCardSkeleton height={MORTALITY_PLOT.monthly} />
       <GridSkeleton
         items={Array.from({ length: MORTALITY_RATE_TABLE.cards }, () => ({
