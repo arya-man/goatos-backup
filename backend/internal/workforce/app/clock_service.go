@@ -107,8 +107,13 @@ func (s *ClockService) Punch(ctx context.Context, tenantID, actorID, eventType s
 	effective := now
 	networkType := "online"
 	if req.Offline {
-		effective = capturedAt
 		networkType = "offline_queued"
+		// A tap time AHEAD of the server is a wrong phone clock, never a real punch: it would open
+		// tomorrow's entry today. Such a punch lands at arrival instead of being refused, because a
+		// refusal would strand a real clock-in in the phone's queue.
+		if !capturedAt.After(now) {
+			effective = capturedAt
+		}
 	}
 	skewMs := now.Sub(capturedAt).Milliseconds()
 

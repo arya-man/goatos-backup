@@ -148,8 +148,9 @@ func (s *DisciplineService) Violations(ctx context.Context, tenantID string, cal
 		to = from.AddDate(1, 0, 0)
 		periodLabel = from.Format("2006")
 	case domain.PeriodAll:
-		from = time.Date(2000, 1, 1, 0, 0, 0, 0, from.Location())
-		to = time.Date(2100, 1, 1, 0, 0, 0, 0, from.Location())
+		// Truly all: a violation dated before 2000 (recording allows any past day) still counts.
+		from = time.Date(1, 1, 1, 0, 0, 0, 0, from.Location())
+		to = time.Date(9999, 12, 31, 0, 0, 0, 0, from.Location())
 		periodLabel = disciplineCopy["period.all_label"]
 	default:
 		return nil, &Error{Code: "invalid_period", Message: disciplineCopy["error.period"], HTTPStatus: 400}

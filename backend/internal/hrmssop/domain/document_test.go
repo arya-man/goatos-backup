@@ -109,6 +109,33 @@ func TestAttendanceNamesTypesFromTheList(t *testing.T) {
 	}
 }
 
+// E2E 2026-09-30: a cleared grace saved as null (decoded 0 = no grace at all, a rule nobody typed)
+// and an impossible start date passed, which would have failed every run of the check.
+func TestAttendanceRefusesABlankGraceAndAnImpossibleDate(t *testing.T) {
+	section := func(att map[string]any) map[string]any {
+		return map[string]any{
+			"schema_version": SchemaVersion,
+			"violation_types": []any{map[string]any{"key": "late_clock_in", "title": "Late clock-in", "active": true}},
+			"enquiries":       []any{},
+			"attendance":      att,
+		}
+	}
+	for name, att := range map[string]map[string]any{
+		"null grace":    {"grace_minutes": nil, "late_type": "late_clock_in", "absent_type": ""},
+		"missing grace": {"late_type": "late_clock_in", "absent_type": ""},
+		"month 13":      {"grace_minutes": 15, "late_type": "late_clock_in", "absent_type": "", "starts_on": "2026-13-45"},
+		"30 February":   {"grace_minutes": 15, "late_type": "late_clock_in", "absent_type": "", "starts_on": "2026-02-30"},
+	} {
+		if _, p := Parse(section(att)); len(p) == 0 {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	ok := map[string]any{"grace_minutes": 0, "late_type": "late_clock_in", "absent_type": "", "starts_on": "2026-10-01"}
+	if _, p := Parse(section(ok)); len(p) > 0 {
+		t.Fatalf("a typed 0 grace and a real date must pass: %v", p)
+	}
+}
+
 // Migration 000472 adds the clock-in check to every published HRMS SOP in place; its patch must
 // itself be a valid document part.
 func TestMigrationAddsAValidClockInCheck(t *testing.T) {

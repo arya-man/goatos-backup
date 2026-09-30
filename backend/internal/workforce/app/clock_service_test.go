@@ -166,6 +166,33 @@ func TestOfflinePunchAnchorsOnDeviceCapturedAt(t *testing.T) {
 	}
 }
 
+// E2E 2026-09-30: an offline punch stamped TOMORROW (a wrong phone clock) opened tomorrow's entry
+// today and later raised a violation for a day not yet lived. It now lands at arrival.
+func TestOfflinePunchAheadOfTheServerLandsAtArrival(t *testing.T) {
+	repo := &fakeClockRepo{punchEntry: ports.ClockEntryRow{ClockEntryID: "e1", WorkforceMemberID: "member-1", Status: "open", ClockInAt: time.Now()}}
+	svc := newClockServiceForTest(repo)
+	lat, lng := 12.65, 77.21
+	captured := time.Now().Add(20 * time.Hour)
+	if _, err := svc.Punch(context.Background(), "t1", "u1", "clock_in", domain.ClockPunchRequest{
+		IdempotencyKey: "k-future",
+		CapturedAt:     captured.Format(time.RFC3339),
+		Offline:        true,
+		Location:       domain.ClockLocation{Status: "captured", Latitude: &lat, Longitude: &lng},
+	}, httpmiddleware.ClientInfo{}, "en", "trace"); err != nil {
+		t.Fatalf("Punch() error=%v", err)
+	}
+	got := repo.lastPunch
+	if got.EffectiveAt.After(time.Now()) {
+		t.Fatalf("a future tap time must not become the punch time: %v", got.EffectiveAt)
+	}
+	if got.BusinessDate == biztime.BusinessDate(captured) && biztime.BusinessDate(captured) != biztime.BusinessDate(time.Now()) {
+		t.Fatalf("the punch must not open tomorrow's day: %s", got.BusinessDate)
+	}
+	if !got.CapturedAt.Equal(captured.Truncate(time.Second)) {
+		t.Fatalf("the device time is still kept for the record")
+	}
+}
+
 // Punch-order and duplicate refusals surface as farm-worded 409s.
 func TestPunchMapsRepositoryRefusals(t *testing.T) {
 	cases := []struct {

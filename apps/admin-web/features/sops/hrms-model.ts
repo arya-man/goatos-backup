@@ -87,7 +87,7 @@ export function parseHrms(formDsl: unknown): HrmsRows | null {
   });
   const a = obj(section["attendance"]);
   const attendance: HrmsAttendanceRow | null = a
-    ? { graceMinutes: typeof a["grace_minutes"] === "number" ? String(a["grace_minutes"]) : "15", lateType: str(a["late_type"]), absentType: str(a["absent_type"]), startsOn: str(a["starts_on"]) }
+    ? { graceMinutes: typeof a["grace_minutes"] === "number" ? String(a["grace_minutes"]) : "", lateType: str(a["late_type"]), absentType: str(a["absent_type"]), startsOn: str(a["starts_on"]) }
     : null;
   return { types, enquiries, attendance };
 }

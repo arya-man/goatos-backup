@@ -73,7 +73,7 @@ cand AS (
   ) e ON true
   WHERE (e.clock_in_at IS NULL AND $6::boolean AND $3::timestamptz >= b.ends_at)
      OR (e.clock_in_at IS NOT NULL AND $5::boolean
-         AND e.clock_in_at > b.starts_at + make_interval(mins => $4::int))
+         AND date_trunc('minute', e.clock_in_at) > b.starts_at + make_interval(mins => $4::int))
 )
 SELECT c.workforce_member_id::text, c.park_id::text, c.shift_code, c.shift_label, c.d, c.kind,
        c.start_minute, c.clock_in_at

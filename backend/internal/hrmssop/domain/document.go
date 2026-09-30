@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 )
 
 const (
@@ -188,7 +189,28 @@ func Parse(section any) (Document, []string) {
 	if doc.Enquiries == nil {
 		doc.Enquiries = []Enquiry{}
 	}
-	return doc, Validate(doc)
+	problems := Validate(doc)
+	// A blank grace decodes as 0 -- a rule nobody typed -- so the key must be there with a number.
+	if doc.Attendance != nil && !graceGiven(raw) {
+		problems = append(problems, "clock-in check: give the grace in minutes (0 to 240)")
+	}
+	return doc, problems
+}
+
+// graceGiven reports whether the attendance section names grace_minutes as a number.
+func graceGiven(raw []byte) bool {
+	var probe struct {
+		Attendance map[string]json.RawMessage `json:"attendance"`
+	}
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return false
+	}
+	v, ok := probe.Attendance["grace_minutes"]
+	if !ok {
+		return false
+	}
+	var n json.Number
+	return json.Unmarshal(v, &n) == nil && n != ""
 }
 
 // Validate returns every problem with a document, in farm words.
@@ -224,8 +246,11 @@ func Validate(doc Document) []string {
 		if a.GraceMinutes < 0 || a.GraceMinutes > MaxGraceMinutes {
 			add("clock-in check: the grace must be between 0 and %d minutes", MaxGraceMinutes)
 		}
-		if a.StartsOn != "" && !datePattern.MatchString(a.StartsOn) {
-			add("clock-in check: the start date must be YYYY-MM-DD")
+		if a.StartsOn != "" {
+			// The shape AND a real calendar day: 2026-13-45 would stop the check for everyone.
+			if _, err := time.Parse("2006-01-02", a.StartsOn); err != nil || !datePattern.MatchString(a.StartsOn) {
+				add("clock-in check: the start date must be a real date, YYYY-MM-DD")
+			}
 		}
 		for _, k := range []string{a.LateType, a.AbsentType} {
 			if k != "" && !seenKey[k] {
