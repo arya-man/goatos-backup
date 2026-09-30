@@ -71,6 +71,7 @@ var disciplineCopy = map[string]string{
 	"status.withdrawn":         "Withdrawn",
 	"status.pending":           "Waiting for HR",
 	"status.closed":            "Closed by HR",
+	"status.closed_auto":       "Closed",
 	"source.manual":            "Recorded by hand",
 	"source.enquiry":           "From an enquiry",
 	"source.attendance":        "Clock-in check",
@@ -787,6 +788,12 @@ func farmTimestamp(t time.Time) string {
 }
 
 func composeViolation(r ports.ViolationRow) domain.Violation {
+	statusLabel := disciplineCopy["status."+r.Status]
+	// One the check closed ITSELF (leave, a holiday, the weekly off) was not closed by HR; its note
+	// says why.
+	if r.Status == domain.ViolationClosed && r.DecidedByName == "" {
+		statusLabel = disciplineCopy["status.closed_auto"]
+	}
 	return domain.Violation{
 		ViolationID: r.ViolationID, PersonID: r.PersonID, PersonName: r.PersonName, ParkID: r.ParkID, ParkLabel: r.ParkLabel,
 		Designation: designationLabel(r.DesignationLabel, r.RoleHint, r.DesignationGrade, clockCopyFor("en")),
@@ -794,7 +801,7 @@ func composeViolation(r ports.ViolationRow) domain.Violation {
 		OccurredOn: r.OccurredOn.Format("2006-01-02"), OccurredOnLabel: biztime.FarmDateFromBusinessDate(r.OccurredOn.Format("2006-01-02")),
 		Note: r.Note, Source: r.Source, SourceLabel: disciplineCopy["source."+r.Source], EnquiryID: r.EnquiryID,
 		RecordedByName: r.RecordedByName, RecordedAtLabel: farmTimestamp(r.RecordedAt),
-		Status: r.Status, StatusLabel: disciplineCopy["status."+r.Status], WithdrawReason: r.WithdrawReason,
+		Status: r.Status, StatusLabel: statusLabel, WithdrawReason: r.WithdrawReason,
 		AttendanceKind: r.AttendanceKind, Detail: r.Detail, DecidedByName: r.DecidedByName, DecisionNote: r.DecisionNote,
 		DecidedAtLabel: optionalFarmTimestamp(r.DecidedAt),
 		SOPVersion:     r.SOPVersion, RowVersion: r.RowVersion,

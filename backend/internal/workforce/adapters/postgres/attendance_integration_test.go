@@ -264,6 +264,10 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, '2026-09-29', '2026-09-29', 'Sick', 'pendi
 	if status != "closed" || !strings.Contains(note, "leave") {
 		t.Fatalf("Chetan after leave = %s / %q, want closed by itself for leave", status, note)
 	}
+	page, err := svc.Violations(f.ctx, dsTenant, dsHR, "", "2026-09", "", "closed", "", 0, "t")
+	if err != nil || len(page.Items) != 1 || page.Items[0].StatusLabel != "Closed" {
+		t.Fatalf("a violation closed by itself must not read 'Closed by HR': %+v %v", page.Items, err)
+	}
 
 	// 30/09 is a CPT holiday: the next morning nobody at CPT is owed anything for it.
 	f.exec(`INSERT INTO workforce_holidays (tenant_id, holiday_on, park_id, label, created_by) VALUES ($1::uuid, '2026-09-30', $2::uuid, 'Festival', $3::uuid)`,
