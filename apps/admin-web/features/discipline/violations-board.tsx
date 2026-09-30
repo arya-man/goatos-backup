@@ -242,8 +242,8 @@ function ViolationRow({
       </td>
       <td>
         {v.type_label}
-        <div className="small muted">{v.source_label}</div>
-        {v.detail ? <div className="small dsc-detail">{v.detail}</div> : null}
+        {/* An automatic one says what happened; "Clock-in check" already reads in Recorded by. */}
+        {v.detail ? <div className="small dsc-detail">{v.detail}</div> : <div className="small muted">{v.source_label}</div>}
       </td>
       <td>
         <b>{v.fine_label}</b>

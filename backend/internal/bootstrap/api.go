@@ -631,7 +631,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		// VENDOR FORM (2026-09-19): the sales.vendor version's `vendor_form` -- the questions
 		// the Add / Edit vendor screens ask -- is validated by the register that runs it.
 		WithFormDSLContract(procurementapp.VendorFormSOPContract).
-		// HRMS SOP (2026-09-30): the violation types, their fines and the enquiries, validated by
+		// HRMS SOP (2026-09-30): the violation types, the clock-in check and the enquiries, validated by
 		// the module that runs them.
 		WithFormDSLContract(hrmssopapp.SOPContract).
 		// THE FEED PURCHASE FORM IS AUTHORED (2026-09-20): the procurement.feed_purchase_form

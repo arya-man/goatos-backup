@@ -74,6 +74,11 @@ FROM public.sop_definitions sd
 WHERE sd.sop_id = sv.sop_id AND sd.code = 'hrms.violations'
   AND sv.form_dsl ? 'violations' AND NOT (sv.form_dsl->'violations' ? 'attendance');
 
+-- The SOP's description said "their fines"; a type carries none (2026-09-30).
+UPDATE public.sop_definitions
+SET description = 'The violation types, the clock-in check, and the enquiries farm events open: who fills them, their questions and deadline.'
+WHERE code = 'hrms.violations';
+
 -- +goose Down
 UPDATE public.sop_versions sv
 SET form_dsl = jsonb_set(sv.form_dsl #- '{violations,attendance}', '{violations,violation_types}',

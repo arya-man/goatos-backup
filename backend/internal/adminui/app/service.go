@@ -268,7 +268,7 @@ func navigation() domain.NavigationContract {
 					navLeafDomain("people-notifications", "Notifications", "/people/notifications", "admin.people", nil),
 					navLeafDomain("people-vaccination", "Vaccination operators", "/people/vaccination", "admin.people", nil),
 					// HRMS SOP (maintainer instruction 2026-09-30: "every violation type, everything is
-					// SOP driven"): the violation types, their fines and each enquiry's questions and
+					// SOP driven"): the violation types, the clock-in check and each enquiry's questions and
 					// deadline. HR authors it (hrms.sop.author) -- this SOP and no other.
 					navLeafDomain("people-sops", "HRMS SOP", "/people/sops", "admin.people", nil),
 				},
@@ -1184,7 +1184,7 @@ func pages() []domain.PageContract {
 		// does each, authored here and run by the tasks engine as one workflow per sale.
 		// HRMS SOP (2026-09-30): the violation types and enquiries document, scoped to the hrms.
 		// code prefix. Same sop-library contract as every module SOP page.
-		page("people-sops", "/people/sops", "/people/sops", "HRMS SOP", "The violation types and their fines, and the enquiries farm events open.", "module-surface",
+		page("people-sops", "/people/sops", "/people/sops", "HRMS SOP", "The violation types, the clock-in check, and the enquiries farm events open.", "module-surface",
 			[]domain.TableContract{table("sop-library", "HRMS SOPs", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
 		page("sales-sops", "/sales/sops", "/sales/sops", "Sales SOP", "What happens after a sale is recorded (tagging, loading, the money) and who does each step.", "module-surface",
 			[]domain.TableContract{table("sop-library", "Sales SOPs", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),

@@ -81,7 +81,9 @@ var disciplineCopy = map[string]string{
 	"leave.day":               "1 day",
 	"leave.days":              "%d days",
 	"leave.applied":           "%s applied",
-	"attendance.late":         "Clocked in %s · %s starts %s · %d min late",
+	"attendance.late":         "Clocked in %s · %s starts %s · %s late",
+	"attendance.minutes":      "%d min",
+	"attendance.hours":        "%d h %d min",
 	"attendance.absent":       "No clock-in · %s starts %s",
 	"error.decide_conflict":   "This violation was already decided, or someone changed it just now. The latest is shown.",
 	"error.close_reason":      "Say why it is closed (up to 500 letters).",
@@ -315,6 +317,14 @@ func (s *DisciplineService) RaiseAttendanceViolations(ctx context.Context, tenan
 	return s.repo.InsertAttendanceViolations(ctx, tenantID, rules.Version, items)
 }
 
+// lateByLabel reads "40 min" under an hour and "8 h 17 min" from an hour on.
+func lateByLabel(minutes int) string {
+	if minutes < 60 {
+		return fmt.Sprintf(disciplineCopy["attendance.minutes"], minutes)
+	}
+	return fmt.Sprintf(disciplineCopy["attendance.hours"], minutes/60, minutes%60)
+}
+
 // attendanceViolation composes one waiting violation's words ("Clocked in 7:42 am · Morning shift
 // starts 7:00 am · 42 min late").
 func attendanceViolation(c ports.AttendanceCandidate, late, absent hrmsdomain.ViolationType) ports.NewAttendanceViolation {
@@ -325,7 +335,7 @@ func attendanceViolation(c ports.AttendanceCandidate, late, absent hrmsdomain.Vi
 		dayStart := time.Date(c.Day.Year(), c.Day.Month(), c.Day.Day(), 0, 0, 0, 0, biztime.DefaultLocation())
 		minutesLate := int(in.Sub(dayStart.Add(time.Duration(c.StartMinute) * time.Minute)).Minutes())
 		v.TypeKey, v.TypeLabel = late.Key, late.Title
-		v.Detail = fmt.Sprintf(disciplineCopy["attendance.late"], ClockTimeLabel(in.Hour()*60+in.Minute()), c.ShiftLabel, starts, minutesLate)
+		v.Detail = fmt.Sprintf(disciplineCopy["attendance.late"], ClockTimeLabel(in.Hour()*60+in.Minute()), c.ShiftLabel, starts, lateByLabel(minutesLate))
 		return v
 	}
 	v.TypeKey, v.TypeLabel = absent.Key, absent.Title

@@ -604,7 +604,7 @@ const (
 	WorkforceViolationsWrite = "workforce.violations.write"
 	// HRMSSOPAuthor lets its holder read, save and publish the HRMS SOPs -- and ONLY those
 	// (code prefix "hrms.", enforced in the SOP HTTP adapter, not just the UI). HR authors the
-	// violation types, their fines and the enquiry questions (maintainer answer 2026-09-30)
+	// violation types, the clock-in check and the enquiry questions (maintainer answer 2026-09-30)
 	// without being handed every other module's SOP through sop.write / sop.publish.
 	HRMSSOPAuthor = "hrms.sop.author"
 	// EnquiryFill lets a park head see and fill the enquiries of the parks they head, from the

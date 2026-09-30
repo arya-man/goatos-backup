@@ -16,7 +16,7 @@ const PATHNAME = "/people/violations";
  * People / HRMS > Violations (maintainer decisions 2026-09-30): one park (or all) and one month --
  * the whole-filter totals, each person's total, and every violation recorded, from a hand record
  * or an enquiry. HR and the CEO/CXO record one here and withdraw a mistaken one; the violation
- * types and their fines are the published HRMS SOP. Every word is backend copy or a
+ * types are the published HRMS SOP (a type carries no fine). Every word is backend copy or a
  * backend-composed field; one page of violations is fetched, never the whole history.
  */
 export async function ViolationsPage({ searchParams, pageContract }: { searchParams: RouteSearchParams; pageContract: AdminUiPageContract }) {

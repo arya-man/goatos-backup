@@ -12,7 +12,7 @@ import (
 )
 
 // HRMS SOP authoring (maintainer answer 2026-09-30): HR edits and publishes the HRMS SOP -- the
-// violation types, their fines and the enquiry questions -- and NO other SOP. The route table
+// violation types, the clock-in check and the enquiry questions -- and NO other SOP. The route table
 // admits permissions.HRMSSOPAuthor beside the full sop.* permission on the read / save / publish
 // routes; THIS file is the other half: a caller admitted ONLY by HRMSSOPAuthor is narrowed to
 // the "hrms." codes on every one of those routes. A non-HRMS SOP answers not-found rather than

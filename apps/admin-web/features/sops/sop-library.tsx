@@ -1,5 +1,6 @@
 "use client";
 
+import { parseHrms } from "./hrms-model";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -389,7 +390,7 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, onEditCapture, ed
           {/* An inspection SOP lists its load form and pages below; the generic field list would repeat the load form. */}
           {/* A general SOP has no capture form: its whole content is the operator steps below, so the
               capture section (and its "no form_dsl fields" note) is not the thing to show (PR 308 review). */}
-          {view.inspectionFormDsl || view.vendorFormDsl || view.pcCareFormDsl || (view.fields.length === 0 && view.followUpStepCount > 0) ? null : (
+          {view.inspectionFormDsl || view.vendorFormDsl || view.pcCareFormDsl || view.hrmsCounts || (view.fields.length === 0 && view.followUpStepCount > 0) ? null : (
             <>
           <div className="b700" style={{ margin: "8px 0" }}>
             {copy(pageContract, "label.steps_questions")}{" "}
@@ -426,6 +427,7 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, onEditCapture, ed
           )}
             </>
           )}
+          {view.hrmsCounts ? <HrmsSummary pageContract={pageContract} formDsl={view.followUpFormDsl} /> : null}
           {view.followUpStepCount > 0 ? <FollowUpStepsSummary pageContract={pageContract} formDsl={view.followUpFormDsl} /> : null}
           {view.inspectionFormDsl ? <InspectionSummary pageContract={pageContract} formDsl={view.inspectionFormDsl} /> : null}
           {view.vendorFormDsl ? <InspectionSummary pageContract={pageContract} formDsl={view.vendorFormDsl} profile="vendor_form" /> : null}
@@ -470,5 +472,38 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, onEditCapture, ed
         </div>
       </div>
     </>
+  );
+}
+
+/** The HRMS SOP's drawer body: its violation types, its enquiries and its clock-in check. */
+function HrmsSummary({ pageContract, formDsl }: { pageContract: AdminUiPageContract; formDsl: unknown }) {
+  const rows = parseHrms(formDsl);
+  if (!rows) return null;
+  const t = (key: string) => copy(pageContract, key);
+  const title = (key: string) => rows.types.find((x) => x.key === key)?.title ?? "";
+  const a = rows.attendance;
+  return (
+    <div className="hsop-summary" data-testid="hsop-summary">
+      <div className="b700" style={{ margin: "8px 0" }}>
+        {t("hsop.types.title")} <span className="muted small">({rows.types.filter((x) => x.active).length})</span>
+      </div>
+      <div className="small">{rows.types.filter((x) => x.active).map((x) => x.title).join(" · ") || t("hsop.types.empty")}</div>
+      <div className="b700" style={{ margin: "12px 0 8px" }}>
+        {t("hsop.enquiries.title")} <span className="muted small">({rows.enquiries.length})</span>
+      </div>
+      {rows.enquiries.map((e) => (
+        <div className="small" key={e.trigger}>
+          <b>{e.title}</b> · {e.questions.length} · {e.dueHours} h
+        </div>
+      ))}
+      <div className="b700" style={{ margin: "12px 0 8px" }}>
+        {t("hsop.attendance.title")}
+      </div>
+      <div className="small">
+        {a && (a.lateType || a.absentType)
+          ? `${t("hsop.attendance.grace")}: ${a.graceMinutes} · ${t("hsop.attendance.late")}: ${title(a.lateType) || t("hsop.attendance.off")} · ${t("hsop.attendance.absent")}: ${title(a.absentType) || t("hsop.attendance.off")}`
+          : t("hsop.attendance.off")}
+      </div>
+    </div>
   );
 }
