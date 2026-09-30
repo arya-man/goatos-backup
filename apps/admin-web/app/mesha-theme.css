@@ -177,9 +177,6 @@
   @media(max-width:620px){.ceo-ai{right:12px!important;bottom:12px!important;left:12px!important;width:auto!important;height:min(560px,calc(100dvh - 24px))!important}}
   .dot{position:absolute;top:-5px;right:-5px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;background:var(--danger);color:#fff;font-size:10px;font-weight:700;display:grid;place-items:center;border:2px solid var(--panel)}
   .me{display:flex;align-items:center;gap:9px;padding:4px 6px 4px 4px;border-radius:30px;border:1px solid var(--line);background:var(--panel);cursor:pointer}
-  .userpick{position:relative;flex:none}
-  .userpick .me{color:var(--ink);font:inherit;min-width:0}
-  .userpick .me:hover{border-color:var(--brand);color:var(--brand)}
   /* user / role-switcher menu — stack name over description, no cramped wrap */
   #userMenu{width:310px;z-index:140;background:#101812;box-shadow:0 18px 48px rgba(0,0,0,.62)}
   /* config rule editor */
@@ -265,7 +262,6 @@
     .brand{min-width:0;flex:1 1 auto}
     .brand b{font-size:15px}
     .search{order:3;flex:1 0 100%;max-width:none;padding:7px 10px}
-    .userpick .me{max-width:148px}
     .layout{display:block;min-height:0}
     .main{overflow:visible;width:100%;max-width:100%}
     .wrap{width:100%;max-width:100%;padding:14px 10px 48px}

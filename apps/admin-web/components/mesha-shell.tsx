@@ -946,7 +946,7 @@ export function MeshaShell({
     <>
       {/* Dock for the CEO assistant launcher (features/ceo-ai): a slot in the bar, so the closed bubble
           never floats over a table's last column or a footer pager. */}
-      <span id="topbar-ai-slot" className="topbar-ai-slot" />
+      <Box component="span" id="topbar-ai-slot" sx={{ display: "inline-flex", alignItems: "center", "&:empty": { display: "none" } }} />
       {/* The in-app notification centre (owns its popover, reads and failures). Browser web push rides
           the same bell; the permission ask is an explicit click inside the panel. */}
       <NotificationBell
@@ -967,7 +967,7 @@ export function MeshaShell({
       <PushRegistrationSync />
       <PushReceiptSync />
       {/* Account: the Minimal header AccountButton (animated border avatar); name and role read inside its menu. */}
-      <div className="userpick">
+      <Box sx={{ position: "relative", flex: "none" }}>
         <AccountButton
           className="msh-account"
           photoURL=""
@@ -1001,7 +1001,7 @@ export function MeshaShell({
             <SignOutButton />
           </Box>
         </CustomPopover>
-      </div>
+      </Box>
     </>
   );
 
@@ -1036,9 +1036,9 @@ export function MeshaShell({
           <div className="wrap msh-wrap" data-route-skeleton={pendingHref ? "" : undefined}>
             {alertDisplayRules.map((rule) =>
               degradedRuleIds.has(rule.id) ? (
-                <p key={rule.id} className="note msh-degraded" role="status">
+                <Alert key={rule.id} severity="info" role="status" className="msh-degraded">
                   {rule.summary}
-                </p>
+                </Alert>
               ) : (
                 <Alert key={rule.id} severity="warning" role="alert" className="msh-alert">
                   {rule.summary}

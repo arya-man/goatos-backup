@@ -350,10 +350,10 @@ export function GoogleLogin({
       <Box aria-live="polite" sx={showSsoSlot ? { width: 1, display: "flex", alignItems: "center" } : undefined}>
         {googleAvailable && showSignInControls ? (
           <>
-            <div
+            <Box
               ref={buttonContainerRef}
               aria-hidden={status !== "ready"}
-              style={{ display: status === "ready" ? "block" : "none" }}
+              sx={{ display: status === "ready" ? "block" : "none" }}
             />
             {status === "loading" ? <BlockSkeleton card={false} height={44} /> : null}
           </>

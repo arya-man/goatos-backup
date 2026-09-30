@@ -99,7 +99,6 @@ select option{background:var(--paper);color:var(--fg)}
   .top{flex-wrap:nowrap!important;gap:6px;padding:0 12px}
   .top>*{flex-shrink:0}
   .top .brand{min-width:0;flex-shrink:1}
-  .top .userpick{margin-left:0}
 }
 @media(max-width:430px){.top .brand b{display:none}}
 

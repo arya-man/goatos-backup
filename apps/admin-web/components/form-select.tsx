@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import Box from "@mui/material/Box";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
 
@@ -60,7 +61,7 @@ export function FormSelect({
   const controlled = value !== undefined;
   const current = controlled ? value : own;
   return (
-    <div className={className} style={{ minWidth: 0 }} aria-required={required || undefined}>
+    <Box className={className} sx={{ minWidth: 0 }} aria-required={required || undefined}>
       {name ? <input type="hidden" name={name} value={current} /> : null}
       <TextField
         select
@@ -83,6 +84,6 @@ export function FormSelect({
           </MenuItem>
         ))}
       </TextField>
-    </div>
+    </Box>
   );
 }

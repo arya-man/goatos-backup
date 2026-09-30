@@ -1,5 +1,6 @@
 "use client";
 
+import Box from "@mui/material/Box";
 import { animate, useInView, useReducedMotion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 
@@ -63,8 +64,8 @@ export function CountUp({ value, format, digits = 0, duration = 900, className }
   }, [inView, value, reduce, duration]);
 
   return (
-    <span ref={ref} className={className} style={{ fontVariantNumeric: "tabular-nums" }}>
+    <Box component="span" ref={ref} className={className} sx={{ fontVariantNumeric: "tabular-nums" }}>
       {valid && Number.isFinite(shown) ? fmt(shown) : "\u2014"}
-    </span>
+    </Box>
   );
 }
