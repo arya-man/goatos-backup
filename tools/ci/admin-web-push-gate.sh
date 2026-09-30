@@ -39,11 +39,21 @@
 # The lanes judge the WORKING TREE, so the pushed commit must be HEAD and the admin-web inputs
 # must be clean (commit or stash first). There is no skip flag for these lanes; the visual gate's
 # own GOATOS_SKIP_ADMIN_WEB_VISUAL_GATE needs GOATOS_SKIP_REASON and lands in the skip ledger.
+#
+# RECEIPT (J1B P0-2 / CI gap 2): every --pre-push run, applicable or not, writes a gate receipt per
+# pushed ref (tools/ci/admin-web-push-receipt.mjs: lanes, pass / reused-pass / skip + reason, SHA,
+# digest, skip-ledger rows, the commits the push covers) and publishes it on the PR in the
+# background as the goatos/push-gate commit status (red with the reason when a lane was skipped).
+# `make land-main` refuses a range with a commit no receipt covers. To cover commits that never went
+# through this gate (pushed elsewhere, or before the gate existed), run every lane on HEAD and record
+# a receipt for base..HEAD:
+#     tools/ci/admin-web-push-gate.sh --certify origin/main
+# GOATOS_PUSH_RECEIPT_PUBLISH=0 keeps the receipt local (tests); GOATOS_PUSH_RECEIPT_DIR moves it.
 set -euo pipefail
 
 LANES=(design-guard typecheck unit-tests next-build visual-gate)
 ADMIN_WEB_INPUTS='^(apps/admin-web/|docs/design/|package\.json$|package-lock\.json$|tools/ci/admin-web-|tools/ci/goatos-skip-ledger\.sh$|backend/internal/adminui/)'
-INPUT_PATHS=(apps/admin-web docs/design package.json package-lock.json tools/ci/admin-web-visual-gate.sh tools/ci/admin-web-push-gate.sh tools/ci/goatos-skip-ledger.sh backend/internal/adminui)
+INPUT_PATHS=(apps/admin-web docs/design package.json package-lock.json tools/ci/admin-web-visual-gate.sh tools/ci/admin-web-push-gate.sh tools/ci/admin-web-push-receipt.mjs tools/ci/goatos-skip-ledger.sh backend/internal/adminui)
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=tools/ci/goatos-skip-ledger.sh
@@ -56,13 +66,22 @@ block() {
   echo "admin-web-push-gate: BLOCKED — $*" >&2
   exit 1
 }
+# The receipt writer beside this file: the staged hook-bundle copy, else the repo source.
+receipt_tool="$here/goatos-admin-web-push-receipt.mjs"
+[ -f "$receipt_tool" ] || receipt_tool="$here/admin-web-push-receipt.mjs"
+[ -f "$receipt_tool" ] || block "the push-gate receipt writer is missing ($here/goatos-admin-web-push-receipt.mjs / admin-web-push-receipt.mjs)"
 
 mode="${1:-}"
 [ -n "$mode" ] && shift || true
 case "$mode" in
   --list-lanes) printf '%s\n' "${LANES[@]}"; exit 0 ;;
   --pre-push|--run) ;;
-  *) echo "usage: $0 --pre-push (payload on stdin) | --run [lane...] | --list-lanes" >&2; exit 2 ;;
+  --certify)
+    certify_base="${1:-}"
+    [ -n "$certify_base" ] || { echo "usage: $0 --certify <base-rev>   (e.g. origin/main)" >&2; exit 2; }
+    shift
+    ;;
+  *) echo "usage: $0 --pre-push [remote url] (payload on stdin) | --run [lane...] | --certify <base> | --list-lanes" >&2; exit 2 ;;
 esac
 
 repo="$(git rev-parse --show-toplevel 2>/dev/null)" || block "not inside a git work tree"
@@ -74,14 +93,47 @@ visual_gate="$here/goatos-admin-web-visual-gate.sh"
 
 zero="0000000000000000000000000000000000000000"
 payload="$(mktemp "${TMPDIR:-/tmp}/admin-web-push-gate.XXXXXX")"
+results="$(mktemp "${TMPDIR:-/tmp}/admin-web-push-gate-results.XXXXXX")"
+push_remote="${2:-${1:-origin}}" # pre-push hook args: <remote name> <remote url>
 slot=""
 cleanup() {
   [ -n "$slot" ] && { rm -f "$slot/owner"; rmdir "$slot" 2>/dev/null || true; }
-  rm -f "$payload"
+  rm -f "$payload" "$results"
 }
 trap cleanup EXIT
 
 head_sha="$(git rev-parse HEAD)"
+
+# write_receipts APPLICABLE — one receipt per pushed ref (pre-push) or for base..HEAD (certify).
+# Fail closed: a push whose receipt cannot be written is refused (land-main would refuse it later).
+write_receipts() {
+  local applicable="$1" out rc
+  local ledger; ledger="$(goatos_skip_ledger_path)"
+  if [ "$mode" = "--certify" ]; then
+    out="$(node "$receipt_tool" write --kind certify --sha "$head_sha" --ref certify --base "$certify_base" \
+      --digest "${digest:-}" --results "$results" --ledger "$ledger" --applicable "$applicable")" || block "could not write the gate receipt"
+    echo "admin-web-push-gate: receipt $out"
+    return 0
+  fi
+  while read -r _lref lsha rref rsha; do
+    [ -n "${lsha:-}" ] || continue
+    [ "$lsha" = "$zero" ] && continue
+    local app="$applicable" dg="${digest:-}"
+    [ "$lsha" = "$head_sha" ] || { app=0; dg=""; } # a non-admin-web ref pushed from another commit
+    rc=0
+    out="$(node "$receipt_tool" write --kind pre-push --sha "$lsha" --ref "$rref" --remote-sha "${rsha:-$zero}" \
+      --remote "$push_remote" --digest "$dg" --results "$([ "$app" = 1 ] && echo "$results" || echo /dev/null)" \
+      --ledger "$ledger" --applicable "$app")" || rc=$?
+    [ "$rc" = 0 ] || block "could not write the gate receipt for ${rref} (see above); the push is refused"
+    echo "admin-web-push-gate: receipt $out"
+    if [ "${GOATOS_PUSH_RECEIPT_PUBLISH:-1}" != "0" ]; then
+      local log; log="$(dirname "$out")/publish.log"
+      nohup node "$receipt_tool" publish --receipt "$out" --remote "$push_remote" >>"$log" 2>&1 </dev/null &
+      echo "admin-web-push-gate: publishing it on the PR as the goatos/push-gate status once ${lsha:0:12} is on ${rref} (log: $log)"
+    fi
+  done <"$payload"
+}
+
 declare -a want_lanes=()
 if [ "$mode" = "--pre-push" ]; then
   cat >"$payload"
@@ -107,8 +159,12 @@ if [ "$mode" = "--pre-push" ]; then
   done <"$payload"
   if [ "$needs" = "0" ]; then
     echo "admin-web-push-gate: the pushed commits change no admin-web input; admin-web lanes not applicable"
+    write_receipts 0
     exit 0
   fi
+  want_lanes=("${LANES[@]}")
+elif [ "$mode" = "--certify" ]; then
+  git rev-parse --verify -q "$certify_base^{commit}" >/dev/null || block "--certify base '$certify_base' is not a commit"
   want_lanes=("${LANES[@]}")
 else
   if [ "$#" -gt 0 ]; then want_lanes=("$@"); else want_lanes=("${LANES[@]}"); fi
@@ -174,6 +230,7 @@ echo "admin-web-push-gate: ${head_sha:0:12} input tree ${digest:0:12} -> ${want_
 for lane in "${want_lanes[@]}"; do
   if [ -f "$markers/$lane.pass" ]; then
     echo "admin-web-push-gate: ${lane} — reused PASS (same admin-web input tree, $(cut -f1 "$markers/$lane.pass"))"
+    printf '%s\treused-pass\t0\t\n' "$lane" >>"$results"
     continue
   fi
   echo "── admin-web-push-gate: ${lane}"
@@ -181,7 +238,8 @@ for lane in "${want_lanes[@]}"; do
   rc=0
   run_lane "$lane" || rc=$?
   if [ "$rc" = "99" ]; then
-    echo "admin-web-push-gate: ${lane} — SKIPPED with a recorded reason (not a pass)"
+    echo "admin-web-push-gate: ${lane} — SKIPPED with a recorded reason (not a pass; the receipt and the PR status carry the reason)"
+    printf '%s\tskip\t%s\t%s\n' "$lane" "$((SECONDS - t0))" "$(printf '%s' "${GOATOS_SKIP_REASON:-}" | tr '\t\n' '  ')" >>"$results"
     continue
   fi
   if [ "$rc" != "0" ]; then
@@ -189,7 +247,9 @@ for lane in "${want_lanes[@]}"; do
     block "lane ${lane} failed (exit ${rc}). Fix it, then re-run just this lane: tools/ci/admin-web-push-gate.sh --run ${lane}"
   fi
   printf '%s\t%s\t%ss\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$head_sha" "$((SECONDS - t0))" >"$markers/$lane.pass"
+  printf '%s\tpass\t%s\t\n' "$lane" "$((SECONDS - t0))" >>"$results"
   echo "admin-web-push-gate: ${lane} — PASS ($((SECONDS - t0))s)"
 done
 goatos_print_skip_ledger "$head_sha"
+if [ "$mode" != "--run" ]; then write_receipts 1; fi
 echo "admin-web-push-gate: OK ${head_sha:0:12} (${want_lanes[*]})"
