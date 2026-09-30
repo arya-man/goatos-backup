@@ -9,7 +9,7 @@ import { TASK_BOARD_SKELETON_LANES, TASK_HEADER_ACTION_HEIGHTS, TASK_HEADER_ACTI
  */
 export default function Loading() {
   return (
-    <PageSkeleton className="lt-page">
+    <PageSkeleton>
       <PageHeaderSkeleton crumbLink={false} titleWidth={80} actionWidths={TASK_HEADER_ACTION_WIDTHS} actionHeights={TASK_HEADER_ACTION_HEIGHTS} />
       <ControlsCardSkeleton tabs={<TabsSkeleton count={TASK_STATUS_TAB_COUNT} counts />} toolbar={<FilterCardSkeleton inCard fold fields={TASK_TOOLBAR_FIELDS} actionWidths={[TASK_DATES_BUTTON_WIDTH]} />} />
       <KanbanSkeleton lanes={TASK_BOARD_SKELETON_LANES} laneWidth={FOUR_LANE_COLUMN_WIDTH} />

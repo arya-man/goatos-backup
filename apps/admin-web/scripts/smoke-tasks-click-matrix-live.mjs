@@ -232,10 +232,10 @@ function stages(viewport, task) {
     { name: "dates-open", url: base, open: openInBar(phone, DATES_TRIGGER) },
     { name: "dates-calendar-open", url: base, open: [...openInBar(phone, DATES_TRIGGER), ".lt-fdrop-from .move-date-button"] },
     { name: "detail-status-menu-open", url: detailUrl, open: [STATUS_TRIGGER] },
-    { name: "new-task-modal-open", url: base, open: [".lt-page .btn.p:has-text('New task')"] },
+    { name: "new-task-modal-open", url: base, open: ["button[aria-haspopup="dialog"]:has-text('New task')"] },
     // The New task deadline calendar: its month arrows and day buttons only exist once the
     // `<details>` is open, so this stage opens it via its own `.move-date-button`.
-    { name: "new-task-calendar-open", url: base, open: [".lt-page .btn.p:has-text('New task')", ".lt-modal .lt-deadline-date .move-date-button"] },
+    { name: "new-task-calendar-open", url: base, open: ["button[aria-haspopup="dialog"]:has-text('New task')", ".lt-modal .lt-deadline-date .move-date-button"] },
     { name: "bell-panel-open", url: base, open: ['.top button[aria-haspopup="dialog"]'] },
   ].filter(Boolean);
 }
@@ -1015,7 +1015,7 @@ async function scriptedChecks(page, viewport, task) {
 
   await check(page, viewport, "New task modal opens, empty Create is refused by the browser, Close dismisses it", async () => {
     await loadStage(page, { url: base });
-    await page.locator(".lt-page .btn.p:has-text('New task')").first().click();
+    await page.locator("button[aria-haspopup="dialog"]:has-text('New task')").first().click();
     const modal = page.locator(".lt-modal[role=dialog]").first();
     await modal.waitFor({ state: "visible", timeout: 5_000 });
     const before = requestCount;
@@ -1030,7 +1030,7 @@ async function scriptedChecks(page, viewport, task) {
   });
 
   await check(page, viewport, "New task calendar: opens from its button, month arrows move, a day lands in the hidden field", async () => {
-    await loadStage(page, { url: base, open: [".lt-page .btn.p:has-text('New task')"] });
+    await loadStage(page, { url: base, open: ["button[aria-haspopup="dialog"]:has-text('New task')"] });
     const field = page.locator(".lt-modal .lt-deadline-date").first();
     await field.locator(".move-date-button").click();
     const popover = field.locator(".move-date-popover");

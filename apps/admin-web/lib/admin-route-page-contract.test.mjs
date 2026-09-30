@@ -151,8 +151,10 @@ test("production Tasks page uses live backend data and never renders fixture row
     /name="idempotency_key"/,
     "web create must submit a rendered stable idempotency key",
   );
+  // The pickers are template upload Buttons over a hidden file input (task-form-parts.tsx).
+  assert.match(newTaskModal, /<TaskAttachmentPickers\b/, "web create renders the attachment pickers");
   assert.match(
-    newTaskModal,
+    readFileSync(new URL("../features/leadership-tasks/task-form-parts.tsx", import.meta.url), "utf8"),
     /type="file"[\s\S]*name="attachment_file"[\s\S]*multiple/,
     "web create must provide a real file/audio upload control",
   );
