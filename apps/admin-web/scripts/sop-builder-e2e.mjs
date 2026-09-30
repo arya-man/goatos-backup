@@ -17,7 +17,14 @@ async function check(name, fn) {
   }
 }
 const q = (i) => page.locator("[data-testid=sop-question]").nth(i);
-const typeSel = (i) => q(i).locator(".qtype select");
+// The answer type and scan mode are MUI selects (InlineSelect): open the combobox, pick the option.
+const pickMui = async (combo, value) => {
+  await combo.click();
+  await page.locator(`[role=listbox] [role=option][data-value="${value}"]`).first().click();
+  await page.waitForTimeout(80);
+};
+const typeSel = (i) => ({ selectOption: (value) => pickMui(q(i).getByRole("combobox", { name: /Answer type/i }), value) });
+const scanModeSel = () => q(0).getByRole("combobox", { name: /Scan mode/i });
 const gotoBuilder = async (suffix = "") => {
   await page.goto(`${base}/counts/sops?compose=1&scope_mode=company${suffix}`, { waitUntil: "networkidle", timeout: 30000 });
   await page.waitForSelector("[data-testid=sop-question]", { timeout: 15000 });
@@ -94,21 +101,22 @@ try {
   await typeSel(0).selectOption("goat_scan");
   await page.waitForTimeout(200);
   await check("Animal ID scan (multi default) previews a MULTI-SCAN control", async () => (await pf0().locator("[data-testid=pv-scanmulti]").count()) > 0);
-  await check("Animal ID scan builder has a Scan mode select", async () => (await q(0).locator('select[aria-label*="Scan mode"]').count()) > 0);
+  await check("Animal ID scan builder has a Scan mode select", async () => (await scanModeSel().count()) > 0);
   await pf0().locator("[data-testid=pv-scanmulti] button").first().click(); // Scan Animal ID -> add a tag
   await page.waitForTimeout(150);
   await check("multi-scan: adding a scan shows a tag chip", async () => (await pf0().locator("[data-testid=pv-chip]").count()) > 0);
-  await q(0).locator('select[aria-label*="Scan mode"]').selectOption("single");
+  await pickMui(scanModeSel(), "single");
   await page.waitForTimeout(200);
   await check("goat scan (single) previews a DROPDOWN control", async () => (await pf0().locator("[data-testid=pv-selectstub]").count()) > 0);
 
   // ============ 2. TRIGGER CHIPS ============
   await gotoBuilder();
   for (const label of ["Form", "Schedule / cron", "Sensor", "Manual"]) {
-    const chip = page.locator(".buildermain .chipset .chip", { hasText: new RegExp(`^${label.replace(/\//g, "\\/")}$`) }).first();
+    // The trigger is a template pill TemplateTabs strip (role tab, aria-selected), not the legacy chip set.
+    const chip = page.locator("[data-testid=builder-main] [role=tab]", { hasText: new RegExp(`^${label.replace(/\//g, "\\/")}$`) }).first();
     await chip.click();
     await page.waitForTimeout(120);
-    await check(`trigger chip "${label}" selects`, async () => (await chip.getAttribute("aria-pressed")) === "true");
+    await check(`trigger chip "${label}" selects`, async () => (await chip.getAttribute("aria-selected")) === "true");
   }
 
   // ============ 3. QUESTION BUTTONS: add / duplicate / move / remove ============
@@ -147,27 +155,28 @@ try {
   // ============ 5. CONDITIONAL LOGIC: first-question guard + every operator + remove ============
   await gotoBuilder();
   await check("Q1 has NO conditional control (first-question guard)", async () =>
-    (await q(0).locator(".cond-note").count()) > 0 && (await q(0).locator(".condrow, .btn.ghost:has-text('Only show')").count()) === 0,
+    (await q(0).locator("[data-testid=sop-cond-note]").count()) > 0 && (await q(0).locator("[data-testid=sop-cond]").count()) === 0 && (await q(0).getByRole("button", { name: /Only show/ }).count()) === 0,
   );
-  await q(1).locator(".btn.ghost").filter({ hasText: /Only show/ }).first().click();
+  await q(1).getByRole("button", { name: /Only show/ }).first().click();
   await page.waitForTimeout(150);
-  await check("Q2 add condition shows condrow", async () => (await q(1).locator(".condrow").count()) > 0);
-  const opSelect = q(1).locator(".condrow select").nth(1);
+  const cond = () => q(1).locator("[data-testid=sop-cond]");
+  await check("Q2 add condition shows condrow", async () => (await cond().count()) > 0);
+  const opSelect = { selectOption: (op) => pickMui(cond().getByRole("combobox").nth(1), op) };
   for (const op of ["answered", "not_answered", "equals", "not_equals", "is_one_of", "gt", "gte", "lt", "lte"]) {
     await opSelect.selectOption(op);
     await page.waitForTimeout(80);
     const needsVal = !["answered", "not_answered"].includes(op);
     await check(`condition operator "${op}" (value input ${needsVal ? "shown" : "hidden"})`, async () =>
-      (await q(1).locator(".condrow .condval").count()) === (needsVal ? 1 : 0),
+      (await cond().locator("[data-testid=sop-cond-value]").count()) === (needsVal ? 1 : 0),
     );
   }
-  await q(1).locator(".condrow .ia.del").click();
+  await cond().getByRole("button").last().click();
   await page.waitForTimeout(120);
-  await check("remove condition clears condrow", async () => (await q(1).locator(".condrow").count()) === 0);
+  await check("remove condition clears condrow", async () => (await cond().count()) === 0);
 
   // ============ 6. REQUIRED TOGGLE ============
   await gotoBuilder();
-  const reqBox = q(0).locator('.qfoot input[type=checkbox]').first();
+  const reqBox = q(0).getByRole("checkbox", { name: /^Required/ }).first();
   await reqBox.check();
   await check("required toggle checks", async () => await reqBox.isChecked());
   await reqBox.uncheck();
@@ -175,14 +184,22 @@ try {
 
   // ============ 7. GATES & PROOF ============
   await gotoBuilder();
-  const proofType = page.locator('select[aria-label="Proof type"]');
-  const minCount = page.locator('input[aria-label="Minimum proof count"]');
-  const subjScope = page.locator('select[aria-label="Subject scope"]');
-  await check("proof type select has video+photo", async () => (await proofType.locator("option").count()) === 2);
+  // Proof type / subject scope are MUI selects (FieldSelect): combobox by label, options in the listbox.
+  const proofTypeCombo = () => page.getByRole("combobox", { name: /^Proof type/ }).first();
+  const proofType = { selectOption: (v) => pickMui(proofTypeCombo(), v) };
+  const minCount = page.getByLabel("Minimum proof count").first();
+  const subjScopeCombo = () => page.getByRole("combobox", { name: /^Subject scope/ }).first();
+  const subjScope = { selectOption: (v) => pickMui(subjScopeCombo(), v) };
+  await check("proof type select has video+photo", async () => {
+    await proofTypeCombo().click();
+    const n = await page.locator("[role=listbox] [role=option]").count();
+    await page.keyboard.press("Escape");
+    return n === 2;
+  });
   await minCount.fill("3");
   await check("min proof count editable", async () => (await minCount.inputValue()) === "3");
   await subjScope.selectOption("batch");
-  await check("subject scope switch to batch", async () => (await subjScope.inputValue()) === "batch");
+  await check("subject scope switch to batch", async () => (await subjScopeCombo().locator("xpath=following-sibling::input").first().inputValue()) === "batch");
   await subjScope.selectOption("goat");
 
   // ============ 8. VALIDATION PERMUTATIONS ============
@@ -190,7 +207,7 @@ try {
   await gotoBuilder();
   await proofType.selectOption("photo");
   await page.waitForTimeout(200);
-  await check("VALIDATION proof-type mismatch -> proof-gap alert", async () => (await page.locator(".alert.warn").count()) > 0);
+  await check("VALIDATION proof-type mismatch -> proof-gap alert", async () => (await page.locator(".MuiAlert-standardWarning, .MuiAlert-colorWarning").count()) > 0);
   await check("VALIDATION proof-type mismatch -> Save disabled", async () => await page.getByRole("button", { name: /Save draft|Re-save/ }).isDisabled());
   await proofType.selectOption("video");
   await page.waitForTimeout(150);
@@ -209,16 +226,16 @@ try {
   await setName("");
   await page.getByRole("button", { name: /Save draft|Re-save/ }).click();
   await page.waitForTimeout(1200);
-  await check("VALIDATION empty name -> error notice", async () => /name is required/i.test(await page.locator(".screen").innerText()));
+  await check("VALIDATION empty name -> error notice", async () => /name is required/i.test(await page.locator("main").innerText()));
 
   // ============ 9. INTERACTIVE PREVIEW: conditional show/hide + reset + Dry-run gating ============
   await gotoBuilder();
   await check("Dry-run disabled before save", async () => await page.getByRole("button", { name: /Dry-run/ }).isDisabled());
   await check("Publish disabled before save", async () => await page.getByRole("button", { name: /Publish/ }).isDisabled());
-  await q(2).locator(".btn.ghost").filter({ hasText: /Only show/ }).first().click(); // Q3 shows when Q2 answered
+  await q(2).getByRole("button", { name: /Only show/ }).first().click(); // Q3 shows when Q2 answered
   await page.waitForTimeout(200);
   const pvBefore = await page.locator("[data-testid=pv-form] [data-testid=pv-field]").count();
-  await page.locator("[data-testid=pv-form] [data-testid=pv-field]").nth(1).locator(".chip").first().click(); // answer Q2 Yes
+  await page.locator("[data-testid=pv-form] [data-testid=pv-field]").nth(1).locator("[data-testid=pv-radio], [data-testid=pv-check]").first().click(); // answer Q2 Yes
   await page.waitForTimeout(200);
   await check("preview: answering trigger reveals conditional question", async () => (await page.locator("[data-testid=pv-form] [data-testid=pv-field]").count()) === pvBefore + 1);
   await page.getByRole("button", { name: /Reset/ }).click();
@@ -227,10 +244,10 @@ try {
   // Preview BUTTON opens the fillable form in a focused modal.
   await page.getByRole("button", { name: /Preview form/ }).click();
   await page.waitForTimeout(250);
-  await check("Preview button opens modal with the form", async () => (await page.locator(".cfgmodal.on .pvform .pvfield").count()) > 0);
-  await page.locator(".cfgmodal.on .x").click();
+  await check("Preview button opens modal with the form", async () => (await page.locator("[role=dialog] [data-testid=pv-field]").count()) > 0);
+  await page.keyboard.press("Escape");
   await page.waitForTimeout(200);
-  await check("Preview modal closes", async () => (await page.locator(".cfgmodal.on").count()) === 0);
+  await check("Preview modal closes", async () => (await page.locator("[role=dialog]").count()) === 0);
 
   // ============ 10. FULL HAPPY PATH: save -> dry-run -> publish -> library card ============
   await gotoBuilder();
@@ -247,15 +264,15 @@ try {
   await page.getByRole("button", { name: /Publish/ }).click();
   await page.waitForURL(/\/sops(\?|$)/, { timeout: 15000 }).catch(() => {});
   await page.waitForTimeout(2000);
-  await page.locator(".tsearch input").first().fill(sopName);
+  await page.locator("input[type=search]").first().fill(sopName);
   await page.waitForTimeout(700);
-  const cardText = await page.locator("#sopCards").innerText().catch(() => "");
+  const cardText = await page.locator("[data-testid=sop-cards]").innerText().catch(() => "");
   await check("published SOP appears in library card", () => cardText.includes(sopName));
   await check("library card shows Vaccination + published v1", () => /Vaccination/.test(cardText) && /published · v1/.test(cardText));
   await check("library card shows step count + proof gate", () => /\d+\s*steps/.test(cardText) && /proof/i.test(cardText));
 
   // ============ 11. EDIT ROUND-TRIP (faithful, not blocked) ============
-  await page.locator("#sopCards .MuiCard-root").first().getByRole("button").last().click();
+  await page.locator("[data-testid=sop-cards] .MuiCard-root").first().getByRole("button").last().click();
   await page.waitForTimeout(400);
   await page.getByRole("button", { name: /New SOP in builder/ }).click();
   await page.waitForURL(/edit=/, { timeout: 15000 }).catch(() => {});
@@ -263,7 +280,7 @@ try {
   await check("edit: URL has edit=", () => /edit=/.test(page.url()));
   await check("edit: title is Edit SOP", async () => /Edit SOP/.test(await page.locator("[data-page-header] h1").innerText()));
   await check("edit: name prefilled from version", async () => (await page.locator("[data-testid=builder-name]").first().inputValue()).includes(sopName));
-  await check("edit: builder-authored SOP not edit-blocked", async () => (await page.locator(".alert.warn").count()) === 0);
+  await check("edit: builder-authored SOP not edit-blocked", async () => (await page.locator(".MuiAlert-standardWarning, .MuiAlert-colorWarning").count()) === 0);
   await check("edit: Save enabled (re-save new version)", async () => await page.getByRole("button", { name: /Save draft|Re-save/ }).isEnabled());
 
   await ctx.close();

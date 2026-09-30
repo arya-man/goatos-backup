@@ -9,6 +9,7 @@ import { useState, type ReactNode } from "react";
 
 import { TableFooter } from "@/components/app/table-footer";
 import { Scrollbar } from "@/components/minimal/scrollbar";
+import { TableHeadCustom, type TableHeadCellProps } from "@/components/app/table/table-head-custom";
 
 /**
  * Client-side paging over rows a SERVER component already rendered: the caller hands over the
@@ -19,6 +20,7 @@ import { Scrollbar } from "@/components/minimal/scrollbar";
 export function PagedRows({
   rows,
   head,
+  headCells,
   wrapClassName = "tablewrap",
   tableClassName,
   ariaLabel,
@@ -29,7 +31,10 @@ export function PagedRows({
   tableMinWidth,
 }: {
   rows: ReactNode[];
-  head: ReactNode;
+  /** Raw header row (older callers). Prefer `headCells`. */
+  head?: ReactNode;
+  /** Template TableHeadCustom cells (the template list header: one line, sort-ready, head padding). */
+  headCells?: TableHeadCellProps[];
   wrapClassName?: string;
   tableClassName?: string;
   ariaLabel: string;
@@ -50,7 +55,7 @@ export function PagedRows({
   const slice = rows.slice((current - 1) * rowsPerPage, current * rowsPerPage);
   const table = (
     <Table className={tableClassName} aria-label={ariaLabel} sx={tableMinWidth ? { minWidth: tableMinWidth } : undefined}>
-      <TableHead>{head}</TableHead>
+      {headCells ? <TableHeadCustom headCells={headCells.map((cell) => ({ sortable: false, ...cell }))} /> : <TableHead>{head}</TableHead>}
       <TableBody>{total === 0 ? empty : slice}</TableBody>
     </Table>
   );

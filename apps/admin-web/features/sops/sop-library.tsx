@@ -382,6 +382,8 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
         <EmptyContent filled title={copy(pageContract, "empty.no_match")} sx={{ py: 10 }} />
       ) : (
         // Template sections/job/job-list: the 1/2/3-column JobItem grid with the centred pagination.
+        // data-testid="sop-cards" is the e2e hook (scripts/sop-builder-e2e.mjs; the old #sopCards id is gone).
+        <Box data-testid="sop-cards" sx={{ display: "contents" }}>
         <JobList pagination={{ page, hrefs: Array.from({ length: totalPages }, (_, i) => pageHref(i + 1)), onSelect: setRequestedPage }}>
           {pagedList.map((s) => (
             <SopItem
@@ -395,6 +397,7 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
             />
           ))}
         </JobList>
+        </Box>
       )}
 
       {/* Columns: which facet rows the cards carry. Presentation only. */}
