@@ -8,7 +8,7 @@ import { SalesFarmBornBodySkeleton, SalesFarmTabsSkeleton } from "@/features/pro
  */
 export default function Loading() {
   return (
-    <PageSkeleton className="kit-enter sales-farm-born-page">
+    <PageSkeleton className="sales-farm-born-page">
       <PageHeaderSkeleton />
       <SalesFarmTabsSkeleton />
       <FilterCardSkeleton fields={[260, 160, 160, 160, 160, 160, 88]} fold />

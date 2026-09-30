@@ -3,8 +3,11 @@ import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
+import TableContainer from "@mui/material/TableContainer";
+import Box from "@mui/material/Box";
 import { randomUUID } from "node:crypto";
-import { ChevronDown, Flag, HeartPulse, PackageCheck, Plus, Truck } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
+import { HiddenField } from "@/components/app/hidden-field";
 import Accordion from "@mui/material/Accordion";
 import AccordionSummary from "@mui/material/AccordionSummary";
 import AccordionDetails from "@mui/material/AccordionDetails";
@@ -63,7 +66,7 @@ function Disclosure({
 }) {
   return (
     <Accordion id={id} defaultExpanded={defaultOpen} disableGutters sx={{ scrollMarginTop: 82 }}>
-      <AccordionSummary expandIcon={<ChevronDown className="ic" aria-hidden="true" />}>
+      <AccordionSummary expandIcon={<Iconify icon="eva:arrow-ios-downward-fill" width={20} aria-hidden="true" />}>
         <Stack direction="row" spacing={1.5} sx={{ alignItems: "center", minWidth: 0 }}>
           {icon}
           <Typography variant="subtitle1" component="h3">
@@ -126,7 +129,7 @@ function SubmitButton({ children, disabled, title }: { children: React.ReactNode
 // result instead of writing twice (e.g. no duplicate source animal); a fresh render = a new key = a new
 // logical request. The server action reads this via formIdempotencyKey rather than minting per call.
 function IdempotencyKeyField() {
-  return <input type="hidden" name="idempotency_key" value={randomUUID()} />;
+  return <HiddenField name="idempotency_key" value={randomUUID()} />;
 }
 
 
@@ -156,7 +159,7 @@ export function NewLoadForm({
     >
       <form action={createLoadAction}>
         <IdempotencyKeyField />
-        <input type="hidden" name="return_to" value={returnTo} />
+        <HiddenField name="return_to" value={returnTo} />
         <Stack spacing={3} sx={{ p: 2.5 }}>
           <SupplierField
             label={copy(pageContract, "field.source_party_id")}
@@ -251,11 +254,11 @@ export function LoadWriteActions({
           {locationBlockReason}
         </Alert>
       ) : null}
-      <Disclosure icon={<Plus className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />} title={copy(pageContract, "form.add_goat.title")}>
+      <Disclosure icon={<Iconify icon="mingcute:add-line" width={20} sx={{ color: "primary.main", flexShrink: 0 }} aria-hidden="true" />} title={copy(pageContract, "form.add_goat.title")}>
         <form action={addSourceGoatAction}>
           <IdempotencyKeyField />
-          <input type="hidden" name="return_to" value={returnTo} />
-          <input type="hidden" name="load_id" value={loadId} />
+          <HiddenField name="return_to" value={returnTo} />
+          <HiddenField name="load_id" value={loadId} />
           <Stack spacing={2}>
             <Grid container spacing={2}>
               <Grid size={{ xs: 12, sm: 6 }}>
@@ -324,7 +327,7 @@ export function LoadWriteActions({
       <Disclosure
         id="hf-evidence"
         defaultOpen
-        icon={<HeartPulse className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />}
+        icon={<Iconify icon="solar:heart-bold" width={20} sx={{ color: "primary.main", flexShrink: 0 }} aria-hidden="true" />}
         title={copy(pageContract, "form.hf_evidence.title")}
       >
         {goats.length === 0 ? (
@@ -335,8 +338,8 @@ export function LoadWriteActions({
           <Stack spacing={3}>
             <form action={recordHFVaccinationEvidenceAction}>
               <IdempotencyKeyField />
-              <input type="hidden" name="return_to" value={returnTo} />
-              <input type="hidden" name="load_id" value={loadId} />
+              <HiddenField name="return_to" value={returnTo} />
+              <HiddenField name="load_id" value={loadId} />
               <Stack spacing={2}>
                 <Grid container spacing={2}>
                   <Grid size={12}>
@@ -386,7 +389,7 @@ export function LoadWriteActions({
             {hfEvidence.length === 0 ? (
               <Alert severity="info">{copy(pageContract, "empty.hf_evidence")}</Alert>
             ) : (
-              <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "table.hf_evidence.aria")}>
+              <TableContainer tabIndex={0} role="group" aria-label={copy(pageContract, "table.hf_evidence.aria")}>
                 <Table>
                   <TableHead>
                     <TableRow>
@@ -403,26 +406,26 @@ export function LoadWriteActions({
                       return (
                         <TableRow key={evidence.evidence_id}>
                           <TableCell>
-                            <span className="gid">{goat ? goatLabel(goat) : evidence.goat_id.slice(0, 8)}</span>
+                            <Box component="span" sx={{ fontFamily: "monospace", typography: "caption", fontWeight: 600, color: "primary.dark", bgcolor: "action.hover", px: 0.75, py: 0.25, borderRadius: "var(--r-sm)" }}>{goat ? goatLabel(goat) : evidence.goat_id.slice(0, 8)}</Box>
                           </TableCell>
                           <TableCell>
                             <b>{evidence.dose_code}</b>
-                            <div className="muted small">{evidence.vaccine_name || copy(pageContract, "label.vaccine_name_not_set")}</div>
+                            <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{evidence.vaccine_name || copy(pageContract, "label.vaccine_name_not_set")}</Typography>
                           </TableCell>
-                          <TableCell className="muted">{fmtDate(evidence.administered_at)}</TableCell>
-                          <TableCell className="muted small">
+                          <TableCell sx={{ color: "text.secondary" }}>{fmtDate(evidence.administered_at)}</TableCell>
+                          <TableCell sx={{ color: "text.secondary", typography: "caption" }}>
                             {evidence.proof_ref_id ? copy(pageContract, "label.proof") : copy(pageContract, "label.proof_ref_not_set")}
                           </TableCell>
                           <TableCell>
                             {evidence.review_status === "trusted" ? (
-                              <span className="muted small">{copy(pageContract, "label.trusted_locked")}</span>
+                              <Typography variant="caption" sx={{ color: "text.secondary" }}>{copy(pageContract, "label.trusted_locked")}</Typography>
                             ) : (
                               <form action={reviewHFVaccinationEvidenceAction}>
                                 <IdempotencyKeyField />
-                                <input type="hidden" name="return_to" value={returnTo} />
-                                <input type="hidden" name="load_id" value={loadId} />
-                                <input type="hidden" name="evidence_id" value={evidence.evidence_id} />
-                                <input type="hidden" name="expected_row_version" value={evidence.row_version} />
+                                <HiddenField name="return_to" value={returnTo} />
+                                <HiddenField name="load_id" value={loadId} />
+                                <HiddenField name="evidence_id" value={evidence.evidence_id} />
+                                <HiddenField name="expected_row_version" value={evidence.row_version} />
                                 <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap", rowGap: 1 }}>
                                   <FormSelect
                                     size="small"
@@ -443,14 +446,14 @@ export function LoadWriteActions({
                     })}
                   </TableBody>
                 </Table>
-              </div>
+              </TableContainer>
             )}
           </Stack>
         )}
       </Disclosure>
 
       {/* Pre-dispatch section — per-goat source health + accept/reject-before-truck/defer/block. */}
-      <Disclosure icon={<Flag className="ic" style={{ color: "var(--amber)" }} aria-hidden="true" />} title={copy(pageContract, "form.pre_dispatch.title")}>
+      <Disclosure icon={<Iconify icon="solar:flag-bold" width={20} sx={{ color: "warning.main", flexShrink: 0 }} aria-hidden="true" />} title={copy(pageContract, "form.pre_dispatch.title")}>
         {actionableGoats.length === 0 ? (
           <Typography variant="body2" sx={{ color: "text.secondary" }}>
             {copy(pageContract, "empty.pre_dispatch")}
@@ -460,15 +463,15 @@ export function LoadWriteActions({
             {actionableGoats.map((goat) => (
               <Stack key={goat.load_goat_id} spacing={2} sx={{ border: 1, borderColor: "divider", borderRadius: 1.5, p: 2 }}>
                 <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-                  <HeartPulse className="ic" style={{ color: "var(--brand-d)" }} aria-hidden="true" />
+                  <Iconify icon="solar:heart-bold" width={20} sx={{ color: "primary.dark", flexShrink: 0 }} aria-hidden="true" />
                   <Typography variant="subtitle2">{goatLabel(goat)}</Typography>
                 </Stack>
                 {/* Source health */}
                 <form action={recordSourceHealthAction}>
                   <IdempotencyKeyField />
-                  <input type="hidden" name="return_to" value={returnTo} />
-                  <input type="hidden" name="load_id" value={loadId} />
-                  <input type="hidden" name="goat_id" value={goat.goat_id} />
+                  <HiddenField name="return_to" value={returnTo} />
+                  <HiddenField name="load_id" value={loadId} />
+                  <HiddenField name="goat_id" value={goat.goat_id} />
                   <Grid container spacing={2} sx={{ alignItems: "center" }}>
                     <Grid size={{ xs: 12, sm: 4 }}>
                       <FormSelect size="small" fullWidth label={copy(pageContract, "field.source_health")} name="health_state" defaultValue="passed" options={contractOptions(pageContract, "proc_health_state")} />
@@ -484,9 +487,9 @@ export function LoadWriteActions({
                 {/* Pre-dispatch decision */}
                 <form action={preDispatchDecisionAction}>
                   <IdempotencyKeyField />
-                  <input type="hidden" name="return_to" value={returnTo} />
-                  <input type="hidden" name="load_id" value={loadId} />
-                  <input type="hidden" name="goat_id" value={goat.goat_id} />
+                  <HiddenField name="return_to" value={returnTo} />
+                  <HiddenField name="load_id" value={loadId} />
+                  <HiddenField name="goat_id" value={goat.goat_id} />
                   <Grid container spacing={2} sx={{ alignItems: "center" }}>
                     <Grid size={{ xs: 12, sm: 4 }}>
                       <FormSelect size="small" fullWidth label={copy(pageContract, "field.pre_dispatch")} name="decision_type" defaultValue="accepted" options={contractOptions(pageContract, "proc_decision_type")} />
@@ -495,7 +498,7 @@ export function LoadWriteActions({
                       <Field label={copy(pageContract, "field.reason")} name="reason" placeholder={copy(pageContract, "placeholder.optional")} />
                     </Grid>
                     <Grid size={{ xs: 12, sm: 3 }}>
-                      <ConfirmSubmitButton confirmLabel={copy(pageContract, "confirm.ok", "Confirm")} cancelLabel={copy(pageContract, "action.cancel")} dialogTitle={copy(pageContract, "confirm.title", "Please confirm")} className="btn sm" message={`${copy(pageContract, "confirm.pre_dispatch.prefix")} ${goatLabel(goat)}? ${copy(pageContract, "confirm.pre_dispatch.suffix")}`}>
+                      <ConfirmSubmitButton confirmLabel={copy(pageContract, "confirm.ok", "Confirm")} cancelLabel={copy(pageContract, "action.cancel")} dialogTitle={copy(pageContract, "confirm.title", "Please confirm")} variant="outlined" message={`${copy(pageContract, "confirm.pre_dispatch.prefix")} ${goatLabel(goat)}? ${copy(pageContract, "confirm.pre_dispatch.suffix")}`}>
                         {copy(pageContract, "action.record_decision")}
                       </ConfirmSubmitButton>
                     </Grid>
@@ -508,11 +511,11 @@ export function LoadWriteActions({
       </Disclosure>
 
       {/* Dispatch / transit */}
-      <Disclosure icon={<Truck className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />} title={copy(pageContract, "form.dispatch.title")}>
+      <Disclosure icon={<Iconify icon="carbon:delivery" width={20} sx={{ color: "info.main", flexShrink: 0 }} aria-hidden="true" />} title={copy(pageContract, "form.dispatch.title")}>
         <form action={dispatchLoadAction}>
           <IdempotencyKeyField />
-          <input type="hidden" name="return_to" value={returnTo} />
-          <input type="hidden" name="load_id" value={loadId} />
+          <HiddenField name="return_to" value={returnTo} />
+          <HiddenField name="load_id" value={loadId} />
           <Stack spacing={2}>
             <Grid container spacing={2}>
               <Grid size={{ xs: 12, sm: 6 }}>
@@ -545,11 +548,11 @@ export function LoadWriteActions({
       </Disclosure>
 
       {/* Arrival gate review */}
-      <Disclosure icon={<Flag className="ic" style={{ color: "var(--purple)" }} aria-hidden="true" />} title={copy(pageContract, "form.arrival_review.title")}>
+      <Disclosure icon={<Iconify icon="solar:flag-bold" width={20} sx={{ color: "secondary.main", flexShrink: 0 }} aria-hidden="true" />} title={copy(pageContract, "form.arrival_review.title")}>
         <form action={arrivalReviewAction}>
           <IdempotencyKeyField />
-          <input type="hidden" name="return_to" value={returnTo} />
-          <input type="hidden" name="load_id" value={loadId} />
+          <HiddenField name="return_to" value={returnTo} />
+          <HiddenField name="load_id" value={loadId} />
           <Stack spacing={2}>
             <Grid container spacing={2}>
               <Grid size={{ xs: 12, sm: 6 }}>
@@ -576,11 +579,11 @@ export function LoadWriteActions({
       </Disclosure>
 
       {/* Accept intake (load-level) */}
-      <Disclosure icon={<PackageCheck className="ic" style={{ color: "var(--brand-d)" }} aria-hidden="true" />} title={copy(pageContract, "form.accept_intake.title")}>
+      <Disclosure icon={<Iconify icon="solar:box-minimalistic-bold" width={20} sx={{ color: "primary.dark", flexShrink: 0 }} aria-hidden="true" />} title={copy(pageContract, "form.accept_intake.title")}>
         <form action={acceptIntakeAction}>
           <IdempotencyKeyField />
-          <input type="hidden" name="return_to" value={returnTo} />
-          <input type="hidden" name="load_id" value={loadId} />
+          <HiddenField name="return_to" value={returnTo} />
+          <HiddenField name="load_id" value={loadId} />
           <Stack spacing={2}>
             <Grid container spacing={2}>
               <Grid size={12}>
@@ -603,7 +606,7 @@ export function LoadWriteActions({
             <Typography variant="caption" sx={{ color: "text.secondary" }}>
               {copy(pageContract, "label.pc_handoff_note")}
             </Typography>
-            <ConfirmSubmitButton confirmLabel={copy(pageContract, "confirm.ok", "Confirm")} cancelLabel={copy(pageContract, "action.cancel")} dialogTitle={copy(pageContract, "confirm.title", "Please confirm")} className="btn p" message={copy(pageContract, "confirm.accept_intake")} disabled={intakeDisabled} title={intakeBlockReason || undefined}>
+            <ConfirmSubmitButton confirmLabel={copy(pageContract, "confirm.ok", "Confirm")} cancelLabel={copy(pageContract, "action.cancel")} dialogTitle={copy(pageContract, "confirm.title", "Please confirm")} variant="contained" message={copy(pageContract, "confirm.accept_intake")} disabled={intakeDisabled} title={intakeBlockReason || undefined}>
               {copy(pageContract, "action.accept_intake")}
             </ConfirmSubmitButton>
           </Stack>

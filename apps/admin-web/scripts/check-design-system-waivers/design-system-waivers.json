@@ -32,8 +32,6 @@
     "missing-loading-tsx|app/(admin)/sales/page.tsx|no sibling loading.tsx",
     "missing-loading-tsx|app/(admin)/verification/page.tsx|no sibling loading.tsx",
     "native-date-input|features/procurement/sales-record-drawer.tsx|type=\"date\"",
-    "native-select|features/procurement/sellable-products-section.tsx|<select id={`sp-species-${id}`} name=\"species_code\" required defaultValue={product?.species_code ?? \"\"} disabled={!canWrite}>",
-    "native-select|features/procurement/sellable-products-section.tsx|<select id={`sp-unit-${id}`} name=\"unit\" required defaultValue={product?.unit ?? page.units[0]?.key} disabled={!canWrite}>",
     "native-select|features/weighing/weights-export.tsx|<select id=\"wt-export-sex\" value={sex} onChange={(event) => setSex(event.target.value)} disabled={pending}>",
     "page-outside-shell|app/(admin)/actions/page.tsx|neither the page nor its feature entry uses PageHeader / .kit-page",
     "page-outside-shell|app/(admin)/procurement/page.tsx|neither the page nor its feature entry uses PageHeader / .kit-page",

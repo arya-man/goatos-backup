@@ -19,7 +19,7 @@ import TableCell from "@mui/material/TableCell";
 // NO VERDICT IS COMPUTED HERE. `sellable`, `blocker` and `blocked_reason` all arrive from the
 // backend and are rendered verbatim. The component never decides an animal is fine to sell.
 
-import { PackageCheck } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
 import Paper from "@mui/material/Paper";
@@ -266,7 +266,7 @@ export function SaleAllocationDrawer({
       open={open}
       onClose={close}
       title={title}
-      icon={<PackageCheck aria-hidden />}
+      icon={<Iconify icon="solar:box-minimalistic-bold" aria-hidden />}
       ariaLabel={title}
       closeLabel={copy(pageContract, "action.close")}
       paperTestId="sale-allocation-drawer"

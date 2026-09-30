@@ -205,7 +205,7 @@ export async function VendorBoardPage({
   ];
 
   return (
-    <div className="screen on">
+    <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
       <PageHeader
         title={pageContract.title}
         crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
@@ -355,7 +355,7 @@ export async function VendorBoardPage({
         pageContract={pageContract}
         listHref={hrefWithQuery(pathname, sp, { vendor: null })}
       />
-    </div>
+    </Stack>
   );
 }
 

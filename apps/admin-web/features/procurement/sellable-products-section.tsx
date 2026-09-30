@@ -1,5 +1,6 @@
 "use client";
 
+import { HiddenField } from "@/components/app/hidden-field";
 // WHAT THE FARM SELLS, authored on Sales Config (maintainer instruction 2026-09-23).
 //
 // "In future i will sell tags of sheep also so it should be configurable in sales config -- i will
@@ -118,7 +119,7 @@ function ProductRow({
       >
         {/* The code is the row's identity: present on an edit, absent when adding. It is what
             makes a rename an EDIT rather than a second item. */}
-        {product ? <input type="hidden" name="code" value={product.code} /> : null}
+        {product ? <HiddenField name="code" value={product.code} /> : null}
         <TextField
           id={`sp-name-${id}`}
           size="small"
@@ -172,7 +173,7 @@ function ProductRow({
         {/* There is no Order field: the maintainer asked for it gone. An item keeps the place it
             already has, and a new one is appended by the backend, so the list stays stable
             without anybody being asked to number it. */}
-        {product ? <input type="hidden" name="sort_order" value={product.sort_order} /> : null}
+        {product ? <HiddenField name="sort_order" value={product.sort_order} /> : null}
         {/* The console's own checkbox line -- NOT inside a .fld, whose label styling turned this
             into a small-caps field header with a bare box beside it. */}
         <FormControlLabel
@@ -222,7 +223,7 @@ function ProductRow({
             ))}
           </TextField>
         ) : product?.species_code ? (
-          <input type="hidden" name="species_code" value={product.species_code} />
+          <HiddenField name="species_code" value={product.species_code} />
         ) : null}
         <Stack direction="row" className="sellable-product-actions" sx={{ gap: 1, flexWrap: "wrap", justifyContent: { sm: "flex-end" } }}>
           <Button type="submit" variant="contained" color="primary" disabled={!canWrite || pending} startIcon={adding ? <Iconify icon="mingcute:add-line" /> : undefined}>

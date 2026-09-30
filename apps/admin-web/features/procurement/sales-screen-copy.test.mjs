@@ -36,7 +36,7 @@ test("Sales dates render DD/MM/YYYY, never the ISO wire value", () => {
 test("a load that has sold nothing shows no sold value, never ₹0", () => {
   const section = read("./loadwise-section.tsx");
   assert.match(section, /load\.sold === 0 \? copy\(pageContract, "value\.not_sold_yet"\) : inrCompact\(load\.sold_value\)/);
-  assert.match(section, /load\.sold === 0 \? \(\s*<span className="muted">\{copy\(pageContract, "value\.not_sold_yet"\)\}<\/span>/);
+  assert.match(section, /load\.sold === 0 \? \(\s*<Box component="span" sx=\{\{ color: "text\.secondary" \}\}>\{copy\(pageContract, "value\.not_sold_yet"\)\}<\/Box>/);
 });
 
 test("a failed Sales read shows farm words and no empty state beneath it (API down, 2026-09-25)", () => {

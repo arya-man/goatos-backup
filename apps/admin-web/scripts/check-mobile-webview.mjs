@@ -478,7 +478,7 @@ const PROBE = (options) => {
   }
 
   // ── Pagination must be fully reachable ───────────────────────────────────
-  for (const pager of document.querySelectorAll(".pager2,.pager,[data-pager]")) {
+  for (const pager of document.querySelectorAll(".pager2,.table-footer-pager,.pager,[data-pager]")) {
     if (!visible(pager)) continue;
     const pr = pager.getBoundingClientRect();
     if (pr.right > vw + 1 || pr.left < -1) {

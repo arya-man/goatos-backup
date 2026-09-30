@@ -1,3 +1,4 @@
+import Stack from "@mui/material/Stack";
 import Table from "@mui/material/Table";
 import TableContainer from "@mui/material/TableContainer";
 import TableBody from "@mui/material/TableBody";
@@ -19,6 +20,7 @@ import ListItemText from "@mui/material/ListItemText";
 import type { ReactNode } from "react";
 
 import { LocalOverlayLink } from "@/components/local-overlay-link";
+import { CELL_LINK, cellLinksSx } from "./procurement-sx";
 import { redirect } from "next/navigation";
 
 import {
@@ -375,6 +377,7 @@ const SCOPE_PARAMS = ["park", "scope_mode", "farm"] as const;
 const OVERVIEW_WATCH = [...SCOPE_PARAMS, "buyers_page"];
 const LEDGER_WATCH = [...SCOPE_PARAMS, "limit", "offset"];
 
+
 export async function SalesSoldPage({
   searchParams,
   pageContract,
@@ -391,7 +394,7 @@ export async function SalesSoldPage({
   const { parkId, farm, parks } = await readSalesParkScope(sp, pageContract, PAGE_PATH);
 
   return (
-    <div className="screen on">
+    <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
       <SalesPageHeader pageContract={pageContract} />
 
       <SalesFarmToggle
@@ -410,7 +413,7 @@ export async function SalesSoldPage({
       <UrlSuspense searchParams={sp} watch={LEDGER_WATCH} fallback={<SalesSoldLedgerSkeleton limit={ledgerLimit(sp, pageContract).limit} />}>
         <SoldLedgerPanel sp={sp} farm={farm} pageContract={pageContract} />
       </UrlSuspense>
-    </div>
+    </Stack>
   );
 }
 
@@ -520,13 +523,16 @@ async function SoldLedgerPanel({ sp, farm, pageContract }: { sp: RouteSearchPara
             <Table
               className="sales-deals-table"
               aria-label={copy(pageContract, "section.ledger.aria")}
-              sx={{
-                minWidth: 960,
-                // Single-line ledger cells: the global .celllink overflow-wrap:anywhere otherwise splits
-                // "2026-08-11" and "CPT" mid-token.
-                "&& td, && td .celllink": { whiteSpace: "nowrap", overflowWrap: "normal", wordBreak: "normal" },
-                "&& td .celllink": { maxWidth: "none", minWidth: "max-content", color: "inherit", textDecoration: "none" },
-              }}
+              sx={[
+                cellLinksSx,
+                {
+                  minWidth: 960,
+                  // Single-line ledger cells: the cell link's overflow-wrap:anywhere otherwise splits
+                  // "2026-08-11" and "CPT" mid-token.
+                  [`&& td, && td .${CELL_LINK}`]: { whiteSpace: "nowrap", overflowWrap: "normal", wordBreak: "normal" },
+                  [`&& td .${CELL_LINK}`]: { maxWidth: "none", minWidth: "max-content" },
+                },
+              ]}
             >
               <TableHeadCustom
                 headCells={dealColumns.map((label, index) => ({
@@ -540,7 +546,7 @@ async function SoldLedgerPanel({ sp, farm, pageContract }: { sp: RouteSearchPara
                   const drawerHref = hrefWithQuery(PAGE_PATH, sp, { deal_id: deal.deal_id });
                   const dealCell = (value: ReactNode, align?: "right") => (
                     <TableCell align={align}>
-                      <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
+                      <LocalOverlayLink href={drawerHref} className={CELL_LINK} scroll={false}>
                         {value}
                       </LocalOverlayLink>
                     </TableCell>

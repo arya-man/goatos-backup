@@ -13,6 +13,30 @@ import type { SxProps, Theme } from "@mui/material/styles";
 export const PHONE = "@media (max-width:599.95px)";
 
 
+/**
+ * Hook class for a whole-cell link (a row cell that opens the row's drawer / detail). No stylesheet
+ * defines it (guard `legacy-free-zone`): the look is `cellLinksSx` on the table, the template
+ * table cell with the link filling it as a >= 44px tap box.
+ */
+export const CELL_LINK = "cell-link";
+
+/** Table-level sx for `CELL_LINK` cells: link fills the cell padding, inherits the cell colour, 44px tap floor. */
+export const cellLinksSx = {
+  [`& td .${CELL_LINK}`]: {
+    display: "block",
+    boxSizing: "border-box",
+    m: -1.5,
+    p: 1.5,
+    minHeight: "var(--tap-min)",
+    minWidth: 0,
+    maxWidth: "100%",
+    color: "inherit",
+    textDecoration: "none",
+    overflowWrap: "anywhere",
+    wordBreak: "break-word",
+  },
+} as const;
+
 /** Wide table inside a card: scrolls sideways inside the card, never past its edge (template Scrollbar box). */
 export const cardTableScrollSx: SxProps<Theme> = {
   overflowX: "auto",
@@ -44,7 +68,7 @@ export function phoneLoadCardsSx(
       ...(slot.alignEnd ? { justifySelf: "end", textAlign: "right" } : {}),
     };
     if (slot.alignEnd) {
-      placed[`${t} td:nth-of-type(${slot.nth}) .celllink`] = { display: "flex !important", alignItems: "center", justifyContent: "flex-end", gap: 1 };
+      placed[`${t} td:nth-of-type(${slot.nth}) .${CELL_LINK}`] = { display: "flex !important", alignItems: "center", justifyContent: "flex-end", gap: 1 };
     }
   }
   return {
@@ -76,7 +100,7 @@ export function phoneLoadCardsSx(
         border: 0,
         whiteSpace: "normal !important",
       },
-      [`${t} td .celllink`]: {
+      [`${t} td .${CELL_LINK}`]: {
         display: "block",
         textAlign: "inherit",
         minWidth: "0 !important",
@@ -87,7 +111,7 @@ export function phoneLoadCardsSx(
         position: "static !important",
         whiteSpace: "normal !important",
       },
-      [`${t} td:first-of-type .celllink::after`]: { content: '""', position: "absolute", inset: 0 },
+      [`${t} td:first-of-type .${CELL_LINK}::after`]: { content: '""', position: "absolute", inset: 0 },
       ...placed,
     },
   };

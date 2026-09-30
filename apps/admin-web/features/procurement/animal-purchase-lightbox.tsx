@@ -1,8 +1,19 @@
 "use client";
 
-import { X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { faro } from "@grafana/faro-web-sdk";
+import Box from "@mui/material/Box";
+import ButtonBase from "@mui/material/ButtonBase";
+import Dialog from "@mui/material/Dialog";
+import DialogContent from "@mui/material/DialogContent";
+import DialogTitle from "@mui/material/DialogTitle";
+import IconButton from "@mui/material/IconButton";
+import Typography from "@mui/material/Typography";
+import useMediaQuery from "@mui/material/useMediaQuery";
+import { useTheme } from "@mui/material/styles";
+import { varAlpha } from "minimal-shared/utils";
+import { Iconify } from "@/components/minimal/iconify";
+import { MEDIA_TILE_CAPTION_SX, MEDIA_TILE_FIGURE_SX, MEDIA_TILE_SIZE } from "./animal-purchase-tile-sx";
 
 export type LightboxItem = {
   proofRef: string;
@@ -16,27 +27,27 @@ export type LightboxItem = {
 /**
  * An animal's captures as a strip of uniform tiles, each opening big in a client-local lightbox
  * (maintainer ask 2026-09-14: every photo and video visible on the card, a click shows it big).
- * Open/close is purely local state: no navigation, no query parameter, no request. Escape, the
- * scrim, and the X all close it and focus returns to the tile that opened it. The strip never
- * loads original video bytes by itself; bounded photo/poster previews attach only when the tile is
- * in or just ahead of the viewport, and full media fetches only after the reviewer opens one.
+ * Open/close is purely local state: no navigation, no query parameter, no request. The lightbox is
+ * the template MUI Dialog (portalled, full screen on phones): Escape, the backdrop and the X all
+ * close it and focus returns to the tile that opened it. The strip never loads original video
+ * bytes by itself; bounded photo/poster previews attach only when the tile is in or just ahead of
+ * the viewport, and full media fetches only after the reviewer opens one.
  */
 export function AnimalPurchaseLightbox({ items, openLabel, closeLabel }: { items: LightboxItem[]; openLabel: string; closeLabel: string }) {
   const [openRef, setOpenRef] = useState<string | null>(null);
   const [previewsEnabled, setPreviewsEnabled] = useState(false);
-  const openerRef = useRef<HTMLElement | null>(null);
+  // A thumbnail that fails to load (expired signed URL, missing poster) shows the titled
+  // placeholder tile instead of the browser's broken-image glyph.
+  const [broken, setBroken] = useState<ReadonlySet<string>>(() => new Set());
   const stripRef = useRef<HTMLDivElement | null>(null);
-  const closeRef = useRef<HTMLButtonElement | null>(null);
   const open = items.find((item) => item.proofRef === openRef) ?? null;
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
 
-  const close = useCallback(() => {
-    setOpenRef(null);
-    openerRef.current?.focus();
-  }, []);
+  const close = useCallback(() => setOpenRef(null), []);
 
   useEffect(() => {
     if (!open) return;
-    closeRef.current?.focus();
     try {
       faro.api?.pushEvent("animal_purchase_proof_media_opened", {
         proof_ref: open.proofRef,
@@ -45,12 +56,7 @@ export function AnimalPurchaseLightbox({ items, openLabel, closeLabel }: { items
     } catch {
       // Faro must never break proof review.
     }
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, close]);
+  }, [open]);
 
   useEffect(() => {
     if (!items.some((item) => item.thumbnailUrl)) return;
@@ -70,78 +76,120 @@ export function AnimalPurchaseLightbox({ items, openLabel, closeLabel }: { items
     return () => observer.disconnect();
   }, [items]);
 
-  // A thumbnail that fails to load (expired signed URL, missing poster) shows the titled
-  // placeholder tile instead of the browser's broken-image glyph. Error events do not bubble, so
-  // the strip listens in the capture phase rather than each tile carrying a handler.
-  useEffect(() => {
-    const strip = stripRef.current;
-    if (!strip) return;
-    const onError = (event: Event) => {
-      const img = event.target;
-      if (!(img instanceof HTMLImageElement) || !img.classList.contains("ap-tile-preview")) return;
-      img.style.display = "none";
-      img.closest(".ap-tile")?.classList.add("ap-tile-broken");
-    };
-    strip.addEventListener("error", onError, true);
-    return () => strip.removeEventListener("error", onError, true);
-  }, []);
-
   return (
-    <div ref={stripRef} className="ap-lightbox-strip">
+    // `display: contents`: the tiles sit in the caller's tile row beside its placeholder tiles.
+    <Box ref={stripRef} sx={{ display: "contents" }}>
       {items.map((item, index) => {
-        const shouldLoadPreview = previewsEnabled && item.thumbnailUrl;
+        const shouldLoadPreview = previewsEnabled && item.thumbnailUrl && !broken.has(item.proofRef);
         return (
-          <figure key={`${item.proofRef}-${index}`} className="ap-tile">
-            <button
-              type="button"
-              className={item.kind === "photo" ? "ap-tile-btn" : "ap-tile-btn video"}
+          <Box component="figure" key={`${item.proofRef}-${index}`} sx={MEDIA_TILE_FIGURE_SX}>
+            <ButtonBase
               aria-label={`${openLabel}: ${item.title}`}
               title={openLabel}
-              onClick={(event) => {
-                openerRef.current = event.currentTarget;
-                setOpenRef(item.proofRef);
+              onClick={() => setOpenRef(item.proofRef)}
+              sx={{
+                position: "relative",
+                display: "block",
+                width: MEDIA_TILE_SIZE,
+                height: MEDIA_TILE_SIZE,
+                border: 1,
+                borderColor: "divider",
+                borderRadius: "var(--r-lg)",
+                overflow: "hidden",
+                bgcolor: "background.neutral",
+                cursor: "zoom-in",
+                "&:hover, &.Mui-focusVisible": {
+                  borderColor: "primary.light",
+                  boxShadow: `0 0 0 2px ${varAlpha(theme.vars.palette.primary.mainChannel, 0.35)}`,
+                },
+                "& img": { display: "block", width: 1, height: 1, objectFit: "cover", pointerEvents: "none", bgcolor: "grey.900" },
               }}
             >
               {shouldLoadPreview ? (
                 // admin-proof-media-egress:ignore bounded animal-purchase tile preview: IntersectionObserver attaches only visible/lookahead photo or backend poster URLs; original video URLs are never used here.
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={item.thumbnailUrl} alt="" className="ap-tile-preview" loading="lazy" decoding="async" />
+                <img src={item.thumbnailUrl} alt="" data-tile-preview="" loading="lazy" decoding="async" onError={() => setBroken((prev) => new Set(prev).add(item.proofRef))} />
               ) : (
-                <span className="ap-tile-placeholder" aria-hidden="true">
+                <Typography
+                  component="span"
+                  variant="caption"
+                  aria-hidden="true"
+                  sx={{ display: "grid", placeItems: "center", width: 1, height: 1, p: 1, color: "text.secondary", textAlign: "center", lineHeight: 1.2 }}
+                >
                   {item.title}
-                </span>
+                </Typography>
               )}
               {item.kind === "video" ? (
-                <span className="ap-tile-play" aria-hidden="true">
-                  ▶
-                </span>
+                <Box component="span" aria-hidden="true" sx={{ position: "absolute", inset: 0, zIndex: 1, display: "grid", placeItems: "center" }}>
+                  <Box
+                    component="span"
+                    sx={{
+                      display: "grid",
+                      placeItems: "center",
+                      width: "var(--sp-5)",
+                      height: "var(--sp-5)",
+                      borderRadius: "50%",
+                      color: "common.white",
+                      bgcolor: varAlpha(theme.vars.palette.common.blackChannel, 0.45),
+                      border: `1px solid ${varAlpha(theme.vars.palette.common.whiteChannel, 0.35)}`,
+                    }}
+                  >
+                    <Iconify icon="solar:play-circle-bold" width={24} />
+                  </Box>
+                </Box>
               ) : null}
-            </button>
-            <figcaption className="muted small">{item.title}</figcaption>
-          </figure>
+            </ButtonBase>
+            <Typography component="figcaption" variant="caption" sx={MEDIA_TILE_CAPTION_SX}>
+              {item.title}
+            </Typography>
+          </Box>
         );
       })}
-      {open ? (
-        <div className="ap-lightbox" role="dialog" aria-modal="true" aria-label={open.title}>
-          <button type="button" className="ap-lightbox-scrim" aria-label={closeLabel} onClick={close} />
-          <div className="ap-lightbox-body">
-            <div className="ap-lightbox-head">
-              <b>{open.title}</b>
-              <button ref={closeRef} type="button" className="iconbtn" aria-label={closeLabel} title={closeLabel} onClick={close}>
-                <X size={16} />
-              </button>
-            </div>
-            {open.kind === "photo" ? (
-              // admin-proof-media-egress:ignore reviewer explicitly opened this one animal-purchase proof; telemetry above attributes the selected proofRef/kind and no list tile loads bytes.
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={open.url} alt="" className="ap-lightbox-media" />
-            ) : (
-              // admin-proof-media-egress:ignore reviewer explicitly opened this one animal-purchase proof; telemetry above attributes the selected proofRef/kind and no list tile loads bytes.
-              <video src={open.url} controls autoPlay playsInline className="ap-lightbox-media" />
-            )}
-          </div>
-        </div>
-      ) : null}
-    </div>
+      <Dialog
+        open={open !== null}
+        onClose={close}
+        fullScreen={fullScreen}
+        maxWidth="lg"
+        aria-label={open?.title}
+        slotProps={{ paper: { sx: { bgcolor: "background.paper" } } }}
+      >
+        {open ? (
+          <>
+            <DialogTitle sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1.5, py: 1.5, pr: 1.5 }}>
+              <Typography component="span" variant="subtitle1" sx={{ minWidth: 0, overflowWrap: "anywhere" }}>
+                {open.title}
+              </Typography>
+              <IconButton aria-label={closeLabel} title={closeLabel} onClick={close} sx={{ width: "var(--tap-min)", height: "var(--tap-min)", flexShrink: 0 }}>
+                <Iconify icon="mingcute:close-line" />
+              </IconButton>
+            </DialogTitle>
+            <DialogContent
+              sx={{
+                display: "grid",
+                placeItems: "center",
+                pb: 2,
+                "& img, & video": {
+                  display: "block",
+                  maxWidth: 1,
+                  maxHeight: fullScreen ? "calc(100dvh - 96px)" : "calc(94dvh - 96px)",
+                  objectFit: "contain",
+                  borderRadius: "var(--r-md)",
+                  bgcolor: "common.black",
+                },
+              }}
+            >
+              {open.kind === "photo" ? (
+                // admin-proof-media-egress:ignore reviewer explicitly opened this one animal-purchase proof; telemetry above attributes the selected proofRef/kind and no list tile loads bytes.
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={open.url} alt="" data-lightbox-media="" />
+              ) : (
+                // admin-proof-media-egress:ignore reviewer explicitly opened this one animal-purchase proof; telemetry above attributes the selected proofRef/kind and no list tile loads bytes.
+                <video src={open.url} controls autoPlay playsInline data-lightbox-media="" />
+              )}
+            </DialogContent>
+          </>
+        ) : null}
+      </Dialog>
+    </Box>
   );
 }

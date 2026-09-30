@@ -54,6 +54,8 @@ import { salesErrorText } from "./sales-error";
 import { DEFAULT_LIMIT, SALES_CONFIG_TABS, type SalesConfigTab } from "./sales-config-layout";
 
 const PAGE_PATH = "/sales/config";
+/** A whole-cell drawer link: fills the template cell padding so the full cell is the 44px tap target. */
+const CELL_LINK_SX = { display: "flex", alignItems: "center", minHeight: 44, m: -2, p: 2, color: "inherit", textDecoration: "none" } as const;
 
 function hrefWithQuery(sp: RouteSearchParams, patch: Record<string, string | null>): string {
   const query = new URLSearchParams();
@@ -189,7 +191,7 @@ export async function SalesConfigPage({
   ];
 
   return (
-    <div className="screen on">
+    <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
       <SalesPageHeader
         pageContract={pageContract}
         actions={
@@ -293,10 +295,10 @@ export async function SalesConfigPage({
               aria-label={copy(pageContract, "section.sales_entry.title")}
               sx={{
                 minWidth: 960,
-                // Single-line ledger cells: the global .celllink overflow-wrap:anywhere otherwise splits
+                // Single-line ledger cells: a wrapping cell link otherwise splits
                 // "2026-08-11" and "CPT" mid-token.
-                "&& td, && td .celllink": { whiteSpace: "nowrap", overflowWrap: "normal", wordBreak: "normal" },
-                "&& td .celllink": { maxWidth: "none", minWidth: "max-content" },
+                "&& td, && td a": { whiteSpace: "nowrap", overflowWrap: "normal", wordBreak: "normal" },
+                "&& td a": { maxWidth: "none", minWidth: "max-content" },
                 "&& th": { whiteSpace: "normal", overflowWrap: "normal", wordBreak: "normal" },
               }}
             >
@@ -306,9 +308,9 @@ export async function SalesConfigPage({
                   const drawerHref = hrefWithQuery(sp, { deal_id: deal.deal_id });
                   const dealCell = (value: ReactNode, align?: "right") => (
                     <TableCell align={align}>
-                      <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
+                      <Box component={LocalOverlayLink} href={drawerHref} scroll={false} sx={CELL_LINK_SX}>
                         {value}
-                      </LocalOverlayLink>
+                      </Box>
                     </TableCell>
                   );
                   return (
@@ -376,8 +378,8 @@ export async function SalesConfigPage({
               // the table pans instead of shredding "L-12" or a farm name across lines.
               sx={{
                 minWidth: 720,
-                "& th, & td, & td .celllink": { whiteSpace: "nowrap", overflowWrap: "normal", wordBreak: "normal" },
-                "& td .celllink": { maxWidth: "none", minWidth: "max-content" },
+                "& th, & td, & td a": { whiteSpace: "nowrap", overflowWrap: "normal", wordBreak: "normal" },
+                "& td a": { maxWidth: "none", minWidth: "max-content" },
               }}
             >
               <TableHeadCustom headCells={loadHead} />
@@ -386,9 +388,9 @@ export async function SalesConfigPage({
                   const costHref = hrefWithQuery(sp, { cost_load: load.load_id });
                   const costCell = (value: ReactNode, align?: "right") => (
                     <TableCell align={align}>
-                      <LocalOverlayLink href={costHref} className="celllink" scroll={false}>
+                      <Box component={LocalOverlayLink} href={costHref} scroll={false} sx={CELL_LINK_SX}>
                         {value}
-                      </LocalOverlayLink>
+                      </Box>
                     </TableCell>
                   );
                   return (
@@ -490,7 +492,7 @@ export async function SalesConfigPage({
         listHref={listHref}
         canRecordCost={canRecordCost}
       />
-    </div>
+    </Stack>
   );
 }
 

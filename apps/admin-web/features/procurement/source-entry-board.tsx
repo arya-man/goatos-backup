@@ -32,7 +32,8 @@ import { TableHeadCustom } from "@/components/app/table";
 import { OrderTableToolbar } from "@/components/app/sections/order/order-table-toolbar";
 import { orderToolbarFilterSx, orderToolbarSearchSx } from "@/components/app/order-toolbar-filter";
 import { LinkFiltersResult, type LinkFilterChip } from "@/components/app/link-filters-result";
-import { phoneLoadCardsSx } from "./procurement-sx";
+import { CELL_LINK, cellLinksSx, phoneLoadCardsSx } from "./procurement-sx";
+import Stack from "@mui/material/Stack";
 import { LinkSelect } from "@/components/app/link-select";
 import { SOURCE_LOAD_TAB_STATES } from "./source-entry-layout";
 
@@ -257,7 +258,7 @@ export async function SourceEntryBoardPage({
       : [{ id: "status", label: `${loadLabels[loadLabels.length - 1]}:`, value: optionLabel(pageContract, "source_load_status", statusFilter), href: statusHref("all") }];
 
   return (
-    <div className="screen on">
+    <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
       <PageHeader
         title={pageContract.title}
         crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
@@ -364,7 +365,7 @@ export async function SourceEntryBoardPage({
                     return (
                       <TableRow key={load.load_id} hover>
                         <TableCell>
-                          <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
+                          <LocalOverlayLink href={drawerHref} className={CELL_LINK} scroll={false}>
                             <Box sx={{ gap: 2, display: "flex", alignItems: "center" }}>
                               <Avatar alt={sourcePartyLabel(load)}>{sourcePartyLabel(load).slice(0, 1).toUpperCase()}</Avatar>
                               <ListItemText
@@ -376,22 +377,22 @@ export async function SourceEntryBoardPage({
                           </LocalOverlayLink>
                         </TableCell>
                         <TableCell>
-                          <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
+                          <LocalOverlayLink href={drawerHref} className={CELL_LINK} scroll={false}>
                             {sourceLocationLabel(load, pageContract)}
                           </LocalOverlayLink>
                         </TableCell>
                         <TableCell>
-                          <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
+                          <LocalOverlayLink href={drawerHref} className={CELL_LINK} scroll={false}>
                             {purpose === placeholder ? null : <Tag tone={purpose === optionLabel(pageContract, "proc_purpose", "fattening") ? "mut" : "ok"}>{purpose}</Tag>}
                           </LocalOverlayLink>
                         </TableCell>
                         <TableCell align="center">
-                          <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
+                          <LocalOverlayLink href={drawerHref} className={CELL_LINK} scroll={false}>
                             {load.expected_count}
                           </LocalOverlayLink>
                         </TableCell>
                         <TableCell>
-                          <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
+                          <LocalOverlayLink href={drawerHref} className={CELL_LINK} scroll={false}>
                             <ListItemText
                               primary={warmup.label === placeholder ? null : <Tag tone={warmup.tone}>{warmup.label}</Tag>}
                               secondary={load.purchase_date ? `${copy(pageContract, "label.from_date_prefix")} ${fmtDate(load.purchase_date)}` : copy(pageContract, "label.purchase_date_missing")}
@@ -401,22 +402,22 @@ export async function SourceEntryBoardPage({
                           </LocalOverlayLink>
                         </TableCell>
                         <TableCell>
-                          <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
+                          <LocalOverlayLink href={drawerHref} className={CELL_LINK} scroll={false}>
                             {tagging === placeholder ? null : <Tag tone="mut">{tagging}</Tag>}
                           </LocalOverlayLink>
                         </TableCell>
                         <TableCell>
-                          <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
+                          <LocalOverlayLink href={drawerHref} className={CELL_LINK} scroll={false}>
                             {hfVaccination.label === placeholder ? null : <Tag tone={hfVaccination.tone}>{hfVaccination.label}</Tag>}
                           </LocalOverlayLink>
                         </TableCell>
                         <TableCell>
-                          <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
+                          <LocalOverlayLink href={drawerHref} className={CELL_LINK} scroll={false}>
                             <Tag tone={healthSelection.tone}>{healthSelection.label}</Tag>
                           </LocalOverlayLink>
                         </TableCell>
                         <TableCell>
-                          <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
+                          <LocalOverlayLink href={drawerHref} className={CELL_LINK} scroll={false}>
                             <Tag tone={contractTone(pageContract, "source_load_status", load.status)}>{optionLabel(pageContract, "source_load_status", load.status)}</Tag>
                           </LocalOverlayLink>
                         </TableCell>
@@ -449,7 +450,7 @@ export async function SourceEntryBoardPage({
         loadLabels={loadLabels}
         pageContract={pageContract}
       />
-    </div>
+    </Stack>
   );
 }
 
@@ -474,8 +475,9 @@ const SOURCE_STATUS_SELECT_SX = { ...orderToolbarFilterSx, display: "flex", "& >
  */
 const SOURCE_LOADS_TABLE_SX = {
   minWidth: 960,
-  "& tbody td .celllink, & tbody td .MuiListItemText-root": { whiteSpace: "nowrap" },
+  ...cellLinksSx,
+  "& tbody td .cell-link, & tbody td .MuiListItemText-root": { whiteSpace: "nowrap" },
   "& tbody td:first-of-type .MuiListItemText-primary": { whiteSpace: "normal", minWidth: 120 },
-  "& tbody td:nth-of-type(2) .celllink": { whiteSpace: "normal", display: "block", minWidth: 88 },
+  "& tbody td:nth-of-type(2) .cell-link": { whiteSpace: "normal", display: "block", minWidth: 88 },
   "& .minimal__label__root, & .MuiChip-root": { whiteSpace: "nowrap" },
 } as const;

@@ -29,7 +29,6 @@ export function MarketConfigForm({
   action,
   outcomes,
   className,
-  style,
   children,
   ...rest
 }: {
@@ -37,7 +36,6 @@ export function MarketConfigForm({
   /** Backend sentences by outcome code (`action.<code>`), resolved by the section. */
   outcomes: MarketActionOutcomes;
   className?: string;
-  style?: React.CSSProperties;
   children: ReactNode;
 } & Record<`data-${string}`, string | undefined>) {
   const [state, formAction, pending] = useActionState(action, INITIAL);
@@ -50,7 +48,6 @@ export function MarketConfigForm({
         component="form"
         action={formAction}
         aria-busy={pending}
-        style={style}
         sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 1.5, minWidth: 0 }}
         {...rest}
       >

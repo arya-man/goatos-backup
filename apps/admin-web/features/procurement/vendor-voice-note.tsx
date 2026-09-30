@@ -1,6 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Typography from "@mui/material/Typography";
 
 import { resolveVendorVoiceNoteUrl } from "./vendor-actions";
 
@@ -41,15 +44,21 @@ export function VendorVoiceNote({
 
   if (src) {
     return (
-      <audio controls preload="metadata" src={src} style={{ width: "100%" }} onError={() => setState("failed")}>
+      <Box component="audio" controls preload="metadata" src={src} sx={{ width: 1 }} onError={() => setState("failed")}>
         {unavailableCopy}
-      </audio>
+      </Box>
     );
   }
-  if (state === "failed") return <div className="note">{unavailableCopy}</div>;
+  if (state === "failed") {
+    return (
+      <Typography variant="body2" sx={{ color: "text.secondary" }}>
+        {unavailableCopy}
+      </Typography>
+    );
+  }
   return (
-    <button type="button" className="btn" disabled={state === "loading"} onClick={load}>
+    <Button type="button" variant="outlined" color="inherit" loading={state === "loading"} onClick={load} sx={{ alignSelf: "flex-start" }}>
       {loadLabel}
-    </button>
+    </Button>
   );
 }

@@ -4,7 +4,7 @@ import { SalesFarmTabsSkeleton, SalesLoadsBodySkeleton } from "@/features/procur
 /** /sales/loads: header, farm tabs, then the load-wise panel's own twin (also its UrlSuspense fallback). */
 export default function Loading() {
   return (
-    <PageSkeleton className="sales-loads-page">
+    <PageSkeleton>
       <PageHeaderSkeleton />
       <SalesFarmTabsSkeleton />
       <SalesLoadsBodySkeleton />

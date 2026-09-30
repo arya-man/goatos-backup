@@ -3,7 +3,7 @@ import { DetailCardSkeleton, GridSkeleton, OrderDetailsToolbarSkeleton, PageSkel
 /** /procurement/source-entry/loads/[load_id]: the OrderDetailsToolbar (back arrow, title + status Label, date line), then the 8/4 grid: goats table + action cards beside the load facts card. */
 export default function Loading() {
   return (
-    <PageSkeleton>
+    <PageSkeleton root="">
       <OrderDetailsToolbarSkeleton />
       <GridSkeleton
         items={[

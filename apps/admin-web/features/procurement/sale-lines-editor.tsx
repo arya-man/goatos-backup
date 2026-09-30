@@ -8,7 +8,8 @@ import TextField from "@mui/material/TextField";
 import IconButton from "@mui/material/IconButton";
 import Typography from "@mui/material/Typography";
 import FormHelperText from "@mui/material/FormHelperText";
-import { Plus, Trash2 } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
+import { HiddenField } from "@/components/app/hidden-field";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { SalesProductOption } from "@/lib/api/procurement";
@@ -108,7 +109,7 @@ export function SaleLinesEditor({
                     title={copy(pageContract, "action.remove_line")}
                     sx={{ minWidth: { xs: "var(--tap-min)", sm: 0 }, minHeight: { xs: "var(--tap-min)", sm: 0 } }}
                   >
-                    <Trash2 size={18} aria-hidden="true" />
+                    <Iconify icon="solar:trash-bin-trash-bold" width={18} aria-hidden="true" />
                   </IconButton>
                 ) : null}
               </Box>
@@ -137,7 +138,7 @@ export function SaleLinesEditor({
                   options={listOptions(products, (option) => option.name, (option) => option.name)}
                 />
                 {variantIsItself ? (
-                  <input type="hidden" name={`line_breed_${index}`} value={line.product} />
+                  <HiddenField name={`line_breed_${index}`} value={line.product} />
                 ) : (
                   <FormSelect
                     label={copy(pageContract, isFeed ? "field.line_feed_item" : "field.breed")}
@@ -233,7 +234,7 @@ export function SaleLinesEditor({
           variant="outlined"
           color="inherit"
           size="small"
-          startIcon={<Plus size={16} aria-hidden="true" />}
+          startIcon={<Iconify icon="mingcute:add-line" width={16} aria-hidden="true" />}
           onClick={add}
           disabled={!canAdd}
           aria-disabled={!canAdd}

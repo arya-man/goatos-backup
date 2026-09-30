@@ -6,6 +6,7 @@ import { operationalLocationLabel } from "@/lib/operational-location";
 import Grid from "@mui/material/Grid";
 import { FormSelect } from "./form-select";
 import { listOptions } from "./option-utils";
+import { HiddenField } from "@/components/app/hidden-field";
 
 export type ProcurementLocationOption = {
   id: string;
@@ -157,8 +158,8 @@ export function ParkShedLocationSelects({
         />
       </Grid>
       <Grid size={{ xs: 12, sm: 6 }}>
-        <input type="hidden" name="shed_location_id" value={selectedShed?.id ?? ""} />
-        <input type="hidden" name="partition_label" value={selectedShed?.partitionLabel ?? ""} />
+        <HiddenField name="shed_location_id" value={selectedShed?.id ?? ""} />
+        <HiddenField name="partition_label" value={selectedShed?.partitionLabel ?? ""} />
         <FormSelect
           size="small"
           fullWidth

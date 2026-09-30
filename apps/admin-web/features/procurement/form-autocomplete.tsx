@@ -5,6 +5,7 @@ import TextField from "@mui/material/TextField";
 import Autocomplete from "@mui/material/Autocomplete";
 
 import type { FormSelectOption } from "./option-utils";
+import { HiddenField } from "@/components/app/hidden-field";
 
 /**
  * The template `Field.Autocomplete multiple` (components/hook-form/rhf-autocomplete: soft small
@@ -73,9 +74,9 @@ export function FormAutocomplete({
       />
       {name ? (
         submit === "csv" ? (
-          <input type="hidden" name={name} value={current.join(",")} />
+          <HiddenField name={name} value={current.join(",")} />
         ) : (
-          current.map((picked) => <input key={picked} type="hidden" name={name} value={picked} />)
+          current.map((picked) => <HiddenField key={picked} name={name} value={picked} />)
         )
       ) : null}
     </>

@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-// Sales Config's Load wise table makes every cell a .celllink, which defaults to
-// overflow-wrap:anywhere. At 390px that shredded "136 · 16/09/2026" and "CBE" one character per
+// Sales Config's Load wise table makes every cell a drawer link (template Box link, the legacy
+// .celllink defaulted to overflow-wrap:anywhere). At 390px that shredded "136 · 16/09/2026" and "CBE" one character per
 // line (responsive guard C-cell-mid-word-wrap, 2026-09-25). The table owns horizontal scroll, so
 // its cells must not wrap (AGENTS.md admin-web failure mode 4b).
 const tsx = readFileSync(new URL("./sales-config.tsx", import.meta.url), "utf8");
@@ -15,8 +15,10 @@ test("the Load wise entry table carries its no-wrap rule", () => {
 });
 
 test("the no-wrap rule covers the table's th, td and linked cells", () => {
-  assert.match(tsx, /"& th, & td, & td \.celllink": \{ whiteSpace: "nowrap", overflowWrap: "normal", wordBreak: "normal" \}/);
-  assert.match(tsx, /"& td \.celllink": \{ maxWidth: "none", minWidth: "max-content" \}/);
+  assert.match(tsx, /"& th, & td, & td a": \{ whiteSpace: "nowrap", overflowWrap: "normal", wordBreak: "normal" \}/);
+  assert.match(tsx, /"& td a": \{ maxWidth: "none", minWidth: "max-content" \}/);
+  // Legacy-free: the linked cells are template Box links on theme sx, never the .celllink class.
+  assert.doesNotMatch(tsx, /className="celllink"/);
 });
 
 // The market price chart's axis text rendered at ~5px on a 390px phone (responsive guard

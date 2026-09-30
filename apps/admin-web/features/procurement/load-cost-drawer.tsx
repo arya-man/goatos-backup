@@ -7,7 +7,7 @@ import TableCell from "@mui/material/TableCell";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import TextField from "@mui/material/TextField";
-import { Boxes } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import { useCallback, useId, useSyncExternalStore } from "react";
 
 import {
@@ -22,6 +22,7 @@ import type { LoadwiseLoad } from "@/lib/api/procurement";
 import { humanDate, inr, num } from "./sales-format";
 import { recordLoadCostAction } from "./sales-actions";
 import Typography from "@mui/material/Typography";
+import { HiddenField } from "@/components/app/hidden-field";
 
 /** Reads the selected load from the address bar. "" means the drawer is closed. */
 function readCostLoadParam(): string {
@@ -114,7 +115,7 @@ export function LoadCostDrawer({
       onClose={close}
       title={heading}
       eyebrow={copy(pageContract, "crumb")}
-      icon={<Boxes aria-hidden="true" />}
+      icon={<Iconify icon="solar:box-minimalistic-bold" aria-hidden="true" />}
       iconColors={{ bg: "var(--brand-soft)", fg: "var(--info)" }}
       subtitle={load?.purchase_date ? `${humanDate(load.purchase_date)}${load.farm ? ` · ${load.farm}` : ""}` : undefined}
       ariaLabel={title}
@@ -133,8 +134,8 @@ export function LoadCostDrawer({
     >
       {load ? (
         <Box component="form" id={formId} action={recordLoadCostAction} key={load.load_id} sx={{ display: "contents" }}>
-          <input type="hidden" name="return_to" value={listHref} />
-          <input type="hidden" name="load_id" value={load.load_id} />
+          <HiddenField name="return_to" value={listHref} />
+          <HiddenField name="load_id" value={load.load_id} />
 
           {/* The reconciliation the cost is being recorded against, read-only. */}
           <DrawerMetaGrid>

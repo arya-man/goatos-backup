@@ -1,4 +1,5 @@
 "use client";
+import { HiddenField } from "@/components/app/hidden-field";
 import Table from "@mui/material/Table";
 import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
@@ -142,9 +143,8 @@ export function ValuationSection({
         <form action={formAction} aria-busy={pending}>
           <Stack spacing={3}>
           {!canEdit ? <Alert severity="info">{disabledReason}</Alert> : null}
-          <input type="hidden" name="row_version" value={v.row_version} />
-          <input
-            type="hidden"
+          <HiddenField name="row_version" value={v.row_version} />
+          <HiddenField
             name="stages"
             // `field_key` is what the weight/price inputs on this row are NAMED after, and it stays
             // the row's id so the name does not change under the cursor while a stage is being
