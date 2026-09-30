@@ -1,9 +1,9 @@
 "use client";
 
+import { Iconify } from "@/components/minimal/iconify";
 import { useRouter } from "next/navigation";
 import { LT_BLOCK_MB, LT_FILTER_MIN } from "./live-tracker-layout";
 import { useTransition, type ReactNode } from "react";
-import { X } from "lucide-react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Card from "@mui/material/Card";
@@ -107,7 +107,7 @@ export function LiveTrackerFilters({
                 size="small"
                 label={choice?.label ?? copy(pageContract, "filter.unlisted_selection")}
                 onDelete={() => go(filter.clearHref)}
-                deleteIcon={<X aria-label={`${copy(pageContract, "filter.remove_one")} — ${filter.label}`} role="button" />}
+                deleteIcon={<Iconify icon="solar:close-circle-bold" aria-label={`${copy(pageContract, "filter.remove_one")} — ${filter.label}`} role="button" />}
               />
             );
           })}

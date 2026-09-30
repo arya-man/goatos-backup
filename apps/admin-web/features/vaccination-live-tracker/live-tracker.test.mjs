@@ -93,7 +93,7 @@ test("the three unbacked attention affordances name the missing capability, in v
     );
     assert.ok(railCode.includes(`"${key}"`), `${key} must still reach the screen`);
   }
-  assert.match(rail, /lt-truncnote/, "the reasons render as visible text, not as tooltips");
+  assert.match(rail, /data-truncnote/, "the reasons render as visible text, not as tooltips");
 });
 
 test("the board reports obligation CLOSURE, not just proof arrival", () => {
@@ -417,14 +417,13 @@ test("PAUSED survives the Suspense remount every filter change triggers", () => 
 
 // guard: live-tracker-template-anatomy. The board is template Cards / Tables / Alerts / Buttons; the
 // legacy mock markup (card / hd / bd / note / btn / chip classes, lt-* layout classes, raw <section>
-// and <div> wrappers) must not come back. `lt-truncnote` survives only as the visible-reason marker.
+// and <div> wrappers) must not come back. The visible-reason marker is the `data-truncnote` attribute (no class).
 test("live tracker renders template anatomy, not the legacy mock classes", () => {
   const files = ["live-tracker-board.tsx", "live-tracker-operators.tsx", "live-tracker-sheds.tsx", "live-tracker-combo.tsx", "live-tracker-rail.tsx", "live-tracker-kpis.tsx", "live-poller.tsx", "live-tick.tsx", "live-state-tag.tsx", "live-ui.tsx"];
   for (const name of files) {
     const source = code(readFileSync(new URL(`./${name}`, import.meta.url), "utf8"));
     const classes = [...source.matchAll(/className=\{?[`"]([^`"]*)[`"]/g)].flatMap((m) => m[1].split(/\s+/)).filter(Boolean);
-    const legacy = classes.filter((c) => c !== "lt-truncnote");
-    assert.deepEqual(legacy, [], `${name} uses legacy classes`);
+    assert.deepEqual(classes, [], `${name} uses legacy classes`);
     assert.ok(!/<section\b/.test(source), `${name} must use a template Card, not a raw <section>`);
   }
 });

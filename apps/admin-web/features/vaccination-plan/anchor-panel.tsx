@@ -1,11 +1,11 @@
 "use client";
+import { Iconify } from "@/components/minimal/iconify";
 import Table from "@mui/material/Table";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 
 import { Fragment, useMemo, useState } from "react";
-import { Pencil, Plus } from "lucide-react";
 
 import { fmtDate, todayIso } from "@/lib/format";
 import type { AnchorConfig } from "./editor-model";
@@ -99,7 +99,7 @@ export function VaccinationAnchorPanel({ catalog = [], rows: providedRows, ancho
                       title={anchorDate ? "Edit anchor" : "Add anchor"}
                       onClick={() => openEditor(row)}
                     >
-                      {anchorDate ? <Pencil size={18} strokeWidth={2.4} aria-hidden /> : <Plus size={18} strokeWidth={2.4} aria-hidden />}
+                      <Iconify icon={anchorDate ? "solar:pen-bold" : "mingcute:add-line"} width={18} />
                     </IconButton>
                   </TableCell>
                 </TableRow>

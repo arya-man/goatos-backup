@@ -609,7 +609,7 @@ export function VaccinationPlanEditor(props: Props) {
 function StripCell({ icon, label, value }: { icon: IconifyName; label: string; value: string }) {
   return (
     <Box sx={{ flex: "1 1 0", px: 3, py: { xs: 1, md: 0 }, display: "flex", alignItems: "center", gap: 2, minWidth: 0 }}>
-      <Avatar sx={{ width: 48, height: 48, bgcolor: "background.neutral", color: "primary.main" }}>
+      <Avatar sx={{ width: "var(--sp-6)", height: "var(--sp-6)", bgcolor: "background.neutral", color: "primary.main" }}>
         <Iconify icon={icon} width={24} />
       </Avatar>
       <Box sx={{ minWidth: 0 }}>
@@ -632,7 +632,7 @@ function RailItem({ selected, initials: text, primary, secondary, muted, onClick
       onClick={onClick}
       sx={{ borderRadius: "var(--r-sm)", gap: 1.5, py: 1, flexShrink: 0, minWidth: { xs: 220, md: 0 }, opacity: muted ? 0.56 : 1 }}
     >
-      <Avatar variant="rounded" sx={{ width: 36, height: 36, typography: "subtitle2", bgcolor: selected ? "primary.main" : "background.neutral", color: selected ? "primary.contrastText" : "text.secondary" }}>
+      <Avatar variant="rounded" sx={{ width: "calc(var(--sp-4) + var(--sp-half))", height: "calc(var(--sp-4) + var(--sp-half))", typography: "subtitle2", bgcolor: selected ? "primary.main" : "background.neutral", color: selected ? "primary.contrastText" : "text.secondary" }}>
         {text}
       </Avatar>
       <ListItemText
@@ -719,7 +719,7 @@ function AddVaccineModal({ open, onSave, onCancel }: { open: boolean; onSave: (i
   const selectProps = { inputLabel: { shrink: true }, select: { MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } } as const;
 
   return (
-    <Dialog open={open} onClose={onCancel} fullWidth maxWidth="md" className="vp-add-vaccine" slotProps={{ paper: { "aria-label": "Add a vaccine to this plan" } }}>
+    <Dialog open={open} onClose={onCancel} fullWidth maxWidth="md" data-testid="vp-add-vaccine" slotProps={{ paper: { "aria-label": "Add a vaccine to this plan" } }}>
       <DialogTitle sx={{ pr: 7 }}>
         <Typography variant="overline" component="div" sx={{ color: "text.secondary" }}>
           New vaccine

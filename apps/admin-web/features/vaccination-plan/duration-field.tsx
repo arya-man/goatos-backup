@@ -103,7 +103,7 @@ export function DurationField({ days, onChange, title, plain, disabled }: Props)
         slotProps={{ arrow: { placement: "bottom-left" }, paper: { role: "dialog", "aria-label": title, sx: { p: 1.5, width: 280 } } }}
       >
           <Typography variant="overline" component="span" sx={{ display: "block", color: "text.disabled", mb: 1 }}>{title}</Typography>
-          <Box sx={{ display: "grid", gridTemplateColumns: "minmax(72px, 1fr) minmax(104px, 1fr)", gap: 1, alignItems: "stretch" }}>
+          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 1, alignItems: "stretch" }}>
             <TextField
               size="small"
               type="number"
@@ -122,7 +122,6 @@ export function DurationField({ days, onChange, title, plain, disabled }: Props)
               select
               label="Unit"
               value={unit}
-              className="durunit"
               onChange={({ target: { value: raw } }) => {
                 const next = raw as Unit;
                 setUnit(next);

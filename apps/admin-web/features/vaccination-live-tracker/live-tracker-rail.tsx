@@ -216,7 +216,7 @@ function AttentionCard({
       />
       <Stack spacing={2} sx={{ p: 3 }}>
         {truncated ? (
-          <Typography variant="caption" className="lt-truncnote" role="status" sx={{ color: "text.secondary" }}>
+          <Typography variant="caption" data-truncnote="" role="status" sx={{ color: "text.secondary" }}>
             <b>
               {attention.length}/{total}
             </b>{" "}
@@ -253,7 +253,7 @@ function AttentionCard({
                 <Chip size="small" variant="outlined" disabled aria-disabled="true" label={copy(pageContract, "section.attention.escalate_label")} />
                 <Chip size="small" variant="outlined" disabled aria-disabled="true" label={copy(pageContract, "section.attention.pace_label")} />
               </Box>
-              <Typography variant="caption" component="div" className="lt-truncnote" sx={{ mt: 1, color: "text.disabled" }}>
+              <Typography variant="caption" component="div" data-truncnote="" sx={{ mt: 1, color: "text.disabled" }}>
                 {copy(pageContract, "section.attention.nudge")} {copy(pageContract, "section.attention.escalation")}{" "}
                 {copy(pageContract, "section.attention.pace")}
               </Typography>

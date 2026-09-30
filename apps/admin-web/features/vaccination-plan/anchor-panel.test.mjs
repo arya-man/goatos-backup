@@ -17,8 +17,10 @@ test("anchor panel defaults all safety flags to true", () => {
 test("anchor panel is a simple draft rule setting", () => {
   assert.match(panel, /Anchor\/base date/);
   assert.match(panel, /No anchor/);
-  assert.match(panel, /Plus/);
-  assert.match(panel, /Pencil/);
+  // Template Iconify add / pen glyphs (no lucide-react).
+  assert.match(panel, /mingcute:add-line/);
+  assert.match(panel, /solar:pen-bold/);
+  assert.doesNotMatch(panel, /lucide-react/);
   assert.match(panel, /aria-label=\{anchorDate \? "Edit anchor" : "Add anchor"\}/);
   assert.doesNotMatch(panel, /CircleSlash/);
   assert.doesNotMatch(panel, /aria-label="Skip anchor"/);

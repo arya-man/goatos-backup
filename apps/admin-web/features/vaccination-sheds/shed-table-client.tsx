@@ -2,10 +2,10 @@
 
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ClipboardCopy, ExternalLink, MapPin } from "lucide-react";
 
 import { RowMenu } from "@/components/app/row-menu";
 import Checkbox from "@mui/material/Checkbox";
+import { Iconify } from "@/components/minimal/iconify";
 
 /**
  * Client islands for the (server-rendered) shed summary table.
@@ -96,11 +96,11 @@ export function ShedRowActions({
     <RowMenu
       ariaLabel={labels.menu}
       actions={[
-        { label: labels.open, icon: <ExternalLink aria-hidden="true" />, onSelect: () => router.push(detailHref, { scroll: false }) },
-        { label: labels.park, icon: <MapPin aria-hidden="true" />, onSelect: () => router.push(parkHref, { scroll: false }) },
+        { label: labels.open, icon: <Iconify icon="eva:external-link-fill" />, onSelect: () => router.push(detailHref, { scroll: false }) },
+        { label: labels.park, icon: <Iconify icon="mingcute:location-fill" />, onSelect: () => router.push(parkHref, { scroll: false }) },
         {
           label: labels.copy,
-          icon: <ClipboardCopy aria-hidden="true" />,
+          icon: <Iconify icon="solar:copy-bold" />,
           onSelect: () => {
             void navigator.clipboard?.writeText(shedId);
           },

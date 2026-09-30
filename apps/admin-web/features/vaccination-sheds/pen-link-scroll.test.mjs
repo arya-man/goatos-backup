@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 // header off screen. Only same-page URL-state links (reset, paging) keep the scroll position.
 test("the pen board's row link to the pen detail page does not keep the scroll offset", () => {
   const src = readFileSync(new URL("./shed-board.tsx", import.meta.url), "utf8");
-  const rowLink = src.match(/<Link\s+href=\{href\}\s+className="shed-summary-row-link"[\s\S]*?\/>/)?.[0];
+  const rowLink = src.match(/<Box\s+component=\{Link\}\s+href=\{href\}[\s\S]*?data-pen-row-link[\s\S]*?\/>/)?.[0];
   assert.ok(rowLink, "row link found");
   assert.doesNotMatch(rowLink, /scroll=\{false\}/);
 });

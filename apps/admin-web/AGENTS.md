@@ -336,7 +336,7 @@ Spec: `docs/design/mui-minimal-spec.md`. Tokens: `app/minimal-tokens.css`. Gate:
   Operators / pens / combo are template table Cards (CardHeader, Scrollbar, PagedRows pager,
   LinearProgress closure cells), the rail is Card lists, error / empty states are Alerts, header
   controls are MUI Buttons. No legacy card / hd / bd / note / btn / lt-* classes and no raw
-  `<section>` come back; `lt-truncnote` is only the visible-reason marker. The drive day, parks running and the live poller sit in the template AppWelcome row (template-derived, no demo image); the header carries only Full Schedule + Command Board; an empty day is welcome text with Reset, never an info Alert banner (guard `live-tracker-app-overview`, TR1-#31).
+  `<section>` come back; the visible-reason marker is the `data-truncnote` attribute, not a class. The drive day, parks running and the live poller sit in the template AppWelcome row (template-derived, no demo image); the header carries only Full Schedule + Command Board; an empty day is welcome text with Reset, never an info Alert banner (guard `live-tracker-app-overview`, TR1-#31).
 - **Every info "i" is the shared InfoTip (guard: `info-tip-tap`, npm test).** No local
   `function InfoTip` / `InfoTooltip`, no `.ihelp` / `.tipwrap` button inside a hover Tooltip: those open
   on hover only, so a tap in the Android WebView does nothing (/herd-signals column help, REVIEW-15
