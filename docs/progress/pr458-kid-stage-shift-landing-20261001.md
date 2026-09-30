@@ -6,7 +6,7 @@ Land PR #458 (`feat/kid-stage-shift-tasks`) to `main`, then deploy STG backend/a
 
 ## Current SHA
 
-- Candidate: `9dde1543adef4bb2023152c531c656c4affddbbc`
+- Candidate: `d38e7e523d9ea45d9fdedfbed0f4e8c10e1b0fc2`
 - Branch: `review-pr-458`
 - PR: https://github.com/vgoats/goatos/pull/458
 - GitHub merge state before landing: `BLOCKED`
@@ -32,9 +32,14 @@ Land PR #458 (`feat/kid-stage-shift-tasks`) to `main`, then deploy STG backend/a
   - `npm --prefix apps/admin-web ci`
 - Focused failing step rerun passed:
   - `GOATOS_CI_ONLY_STEP='admin-web lint' tools/ci/run-local-ci.sh admin-web`
+- Third `make land-main` attempt failed before push on `android-bounded-memory-guard`.
+- Fixed `ShiftingViewModel.preselectKids()` to use a bounded `mapNotNull` result over the already-parsed kid list instead of an unbounded mutable accumulator.
+- Focused failing step rerun passed:
+  - `GOATOS_CI_ONLY_STEP='android-bounded-memory-guard' tools/ci/run-local-ci.sh android`
 
 ## Pending
 
+- Commit the Android bounded-memory fix.
 - Rerun full `make land-main` with the OCI query-plan DSNs scoped in the environment and admin-web dependencies installed.
 - Verify local and remote `main` SHA after landing.
 - Run guarded STG deploy:
@@ -45,6 +50,7 @@ Land PR #458 (`feat/kid-stage-shift-tasks`) to `main`, then deploy STG backend/a
 
 - First `make land-main` attempt failed before push on infrastructure only: `127.0.0.1:15432` refused the query-plan connection.
 - Second `make land-main` attempt failed before push on local dependency setup only: missing admin-web `node_modules` caused `eslint`/`tsc` to be unavailable.
+- Third `make land-main` attempt failed before push on code/guard issue: unbounded mutable accumulator in `ShiftingViewModel.preselectKids()`.
 - A broad accidental admin-web test run outside the focused target failed on missing local dependencies (`typescript`, `@grafana/faro-core`); this is not counted as PR evidence.
 
 ## Deployment State

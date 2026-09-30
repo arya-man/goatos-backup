@@ -199,11 +199,14 @@ class ShiftingViewModel @Inject constructor(
         if (wanted.isEmpty()) return
         _state.update { it.copy(category = SHIFTING_CATEGORY_GROWTH) }
         viewModelScope.launch {
-            val found = mutableListOf<GoatSearchItemDto>()
-            for ((goatId, tag) in wanted) {
-                countsRepository.lookupAnimals(query = tag)
-                    .onSuccess { matches -> matches.firstOrNull { it.goatId == goatId && it.isEligibleForShifting() }?.let(found::add) }
-                    .onFailure { error -> crashReporter.recordException(error, "counts shifting kid preselect lookup failed") }
+            val found = wanted.mapNotNull { (goatId, tag) ->
+                countsRepository.lookupAnimals(query = tag).fold(
+                    onSuccess = { matches -> matches.firstOrNull { it.goatId == goatId && it.isEligibleForShifting() } },
+                    onFailure = { error ->
+                        crashReporter.recordException(error, "counts shifting kid preselect lookup failed")
+                        null
+                    },
+                )
             }
             val animals = found.toDistinctShiftingAnimalUi()
             _state.update { current ->
