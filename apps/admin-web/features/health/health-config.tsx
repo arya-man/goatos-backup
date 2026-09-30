@@ -47,7 +47,7 @@ import { LinkButton } from "@/components/app/link-button";
 import { CATALOG_PAGE_SIZE, HEALTH_CONFIG_HEADER_LAYOUT } from "./health-config-layout";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { PanelSkeleton } from "@/components/app/panel-skeleton";
-import { TablePaginationLinks } from "@/components/app/table";
+import { STICKY_FIRST_COLUMN_SX, TablePaginationLinks } from "@/components/app/table";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 
 // Health -> Health Config. The authored treatment rulebook a diagnosis loads from: per disease, per
@@ -425,7 +425,7 @@ export async function HealthConfigPage({
           role="group"
           aria-label={copy(pageContract, "section.catalog.aria")}
         >
-          <Table sx={{ minWidth: 960 }} aria-label={copy(pageContract, "section.catalog.aria")}>
+          <Table sx={{ minWidth: 960, ...STICKY_FIRST_COLUMN_SX }} aria-label={copy(pageContract, "section.catalog.aria")}>
             <TableHead>
               <TableRow>
                 {catalogCols.map((col) => (

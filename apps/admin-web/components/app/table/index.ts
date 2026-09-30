@@ -10,3 +10,4 @@ export * from "./table-head-custom";
 export * from "./table-pagination-custom";
 export * from "./table-pagination-links";
 export * from "./url-sort-head";
+export * from "./sticky-first-column";

@@ -21,7 +21,7 @@ import {
 } from "./health-types-controls";
 import Alert from "@mui/material/Alert";
 import { Scrollbar } from "@/components/minimal/scrollbar";
-import { TableHeadCustom } from "@/components/app/table";
+import { STICKY_FIRST_COLUMN_SX, TableHeadCustom } from "@/components/app/table";
 
 /** A section's standing note under its CardHeader (template body2 secondary, card gutter). */
 function SectionNote({ children }: { children: React.ReactNode }) {
@@ -91,7 +91,7 @@ export async function HealthTypesSection({
           />
           <SectionNote>{copy(pageContract, "section.gaps.note")}</SectionNote>
           <Scrollbar tabIndex={0} role="group" aria-label={copy(pageContract, "table.gaps.aria")}>
-            <Table aria-label={copy(pageContract, "table.gaps.aria")} sx={{ minWidth: 640 }}>
+            <Table aria-label={copy(pageContract, "table.gaps.aria")} sx={{ minWidth: 640, ...STICKY_FIRST_COLUMN_SX }}>
               <TableHeadCustom
                 headCells={[
                   ...gapCols.map((c, index) => ({ id: `c${index}`, label: c })),
@@ -140,7 +140,7 @@ export async function HealthTypesSection({
         />
         <SectionNote>{copy(pageContract, "section.types.note")}</SectionNote>
         <Scrollbar tabIndex={0} role="group" aria-label={copy(pageContract, "table.types.aria")}>
-          <Table aria-label={copy(pageContract, "table.types.aria")} sx={{ minWidth: 720 }}>
+          <Table aria-label={copy(pageContract, "table.types.aria")} sx={{ minWidth: 720, ...STICKY_FIRST_COLUMN_SX }}>
             <TableHeadCustom
               headCells={[
                 ...typeCols.map((c, index) => ({ id: `c${index}`, label: c })),
