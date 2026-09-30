@@ -96,9 +96,9 @@ function LeaveToolbar({ value, parkOptions, designationOptions, basePath, curren
           <RowMenu
             ariaLabel={copyFor("action.more")}
             actions={[
-              { label: copyFor("action.export"), icon: <Iconify icon="solar:download-bold" width={15} />, onSelect: exportCsv },
+              { label: copyFor("action.export"), icon: <Iconify icon="solar:download-bold" width={16} />, onSelect: exportCsv },
               { label: copyFor("action.apply_search"), onSelect: () => patch({ q: q.trim() || null }) },
-              { label: copyFor("action.reset_filters"), icon: <Iconify icon="mingcute:close-line" width={15} />, onSelect: clearAll, disabled: chips.length === 0 },
+              { label: copyFor("action.reset_filters"), icon: <Iconify icon="mingcute:close-line" width={16} />, onSelect: clearAll, disabled: chips.length === 0 },
             ]}
           />
         </>
@@ -115,7 +115,7 @@ function LeaveToolbar({ value, parkOptions, designationOptions, basePath, curren
               variant="soft"
               label={c.label}
               onDelete={c.clear}
-              deleteIcon={<Iconify icon="mingcute:close-line" aria-label={`${copyFor("action.remove_filter")}: ${c.label}`} role="button" />}
+              deleteIcon={<Iconify icon="solar:close-circle-bold" aria-label={`${copyFor("action.remove_filter")}: ${c.label}`} role="button" />}
             />
           ))}
           {chips.length ? <Button color="primary" variant="text" size="small" onClick={clearAll}>{copyFor("action.clear_all")}</Button> : null}
@@ -123,15 +123,6 @@ function LeaveToolbar({ value, parkOptions, designationOptions, basePath, curren
         ) : null
       }
     >
-      <form
-        style={{ display: "contents" }}
-        onSubmit={(e) => {
-          e.preventDefault();
-          patch({ q: q.trim() || null });
-        }}
-      >
-        <button type="submit" className="sr-only" aria-label={copyFor("action.apply_search")} />
-      </form>
       <TextField
         select
         label={copyFor("filter.park")}
@@ -276,7 +267,14 @@ export function LeaveTableChrome({ children, footer, tableAriaLabel }: LeaveTabl
   const { dense, setDense } = useContext(DenseContext);
   return (
     <>
-      <Box className={`tablewrap${dense ? " kit-dense" : ""}`} tabIndex={0} role="group" aria-label={tableAriaLabel} sx={{ overflow: "auto" }}>
+      <Box
+        tabIndex={0}
+        role="group"
+        aria-label={tableAriaLabel}
+        data-dense={dense ? "true" : undefined}
+        // Dense rows are the template `size="small"` body padding (6px 16px).
+        sx={{ overflow: "auto", ...(dense ? { "& .MuiTableCell-body": { py: 0.75 } } : null) }}
+      >
         {children}
       </Box>
       <LeaveCursorFooter {...footer} dense={dense} onDenseChange={setDense} />
