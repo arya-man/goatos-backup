@@ -26,7 +26,7 @@ test("guard: kanban-template-card -- empty columns are the bare template list", 
     assert.doesNotMatch(src, /borderStyle: "dashed", borderColor: "divider"|borderStyle: "dashed",\s*borderColor: "divider"/, `${name}: no dashed empty-column box`);
   }
   assert.match(tasks, /className="ltb-colempty" sx=\{visuallyHidden\}/);
-  assert.match(board, /className="sr-only">\{copy\(pageContract, "lane\.empty"\)\}/);
+  assert.match(board, /sx=\{visuallyHidden\}>\{copy\(pageContract, "lane\.empty"\)\}/);
 });
 
 test("guard: tasks-new-task-reason -- no dead New task: without assignees the slot shows the reason as text", () => {
