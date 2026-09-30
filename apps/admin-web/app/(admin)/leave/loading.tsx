@@ -9,7 +9,7 @@ import { DEFAULT_PAGE_SIZE, LEAVE_LIST_HEADER_SX, LEAVE_QUEUE_HEADER_SX, LEAVE_T
 export default function Loading() {
   const toolbar = <FilterCardSkeleton inCard fields={LEAVE_TOOLBAR_FIELDS} actionWidths={[36]} />;
   return (
-    <PageSkeleton className="leave-page">
+    <PageSkeleton root="page-root">
       <PageHeaderSkeleton titleWidth={80} crumbLink={false} />
       <StackSkeleton>
         <KpiRowSkeleton count={4} size={LEAVE_TILE_SIZE} />

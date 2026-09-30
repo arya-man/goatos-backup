@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Typography from "@mui/material/Typography";
 import { Iconify } from "@/components/minimal/iconify";
 import Box from "@mui/material/Box";
 
@@ -56,10 +57,10 @@ export function LeaveConfigPanel({
       <CardHeader
         sx={{ p: 0, mb: 2, alignItems: "center" }}
         title={
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-            <Iconify icon="solar:users-group-rounded-bold" width={18} sx={{ color: "primary.main" }} />
+          <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 1 }}>
+            <Iconify icon="solar:users-group-rounded-bold" width={18} aria-hidden="true" sx={{ color: "primary.main" }} />
             {t("config.title")}
-          </span>
+          </Box>
         }
         subheader={t("config.help")}
       />
@@ -98,18 +99,19 @@ export function LeaveConfigPanel({
         ) : null}
       </Box>
       {!canEdit && disabledReason ? (
-        <div className="small muted" style={{ marginTop: 10 }}>
+        <Typography variant="caption" component="div" sx={{ mt: 1.25, color: "text.secondary" }}>
           {disabledReason}
-        </div>
+        </Typography>
       ) : null}
       {message ? (
-        <div
+        <Typography
+          variant="caption"
+          component="div"
           role="status"
-          className="small"
-          style={{ marginTop: 10, color: message.tone === "ok" ? "var(--success-ink)" : "var(--error-ink)" }}
+          sx={{ mt: 1.25, color: message.tone === "ok" ? "success.main" : "error.main" }}
         >
           {message.text}
-        </div>
+        </Typography>
       ) : null}
     </Card>
   );
