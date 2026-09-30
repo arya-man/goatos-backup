@@ -17,7 +17,6 @@ import TablePagination from '@mui/material/TablePagination';
 import Link, { useLinkStatus } from '@/components/no-prefetch-link';
 
 import { Iconify } from '@/components/minimal/iconify';
-import { TAP_MIN } from '@/components/app/tap';
 
 export type TablePaginationLinksProps = {
   /** 0-based page shown. */
@@ -90,11 +89,9 @@ export function TablePaginationLinks({
       aria-label={ariaLabel}
       // The table pager hook the smoke / webview lanes find (replaces the legacy pager class).
       data-pager=""
-      sx={[
-        // Phone: every pager control is a 44px tap (webview rule), from sx instead of legacy CSS.
-        (theme) => ({ position: 'relative', [theme.breakpoints.down('sm')]: { '& .MuiIconButton-root, & .MuiTablePagination-select': { minWidth: TAP_MIN, minHeight: TAP_MIN } } }),
-        ...(Array.isArray(sx) ? sx : [sx]),
-      ]}
+      // Phone taps: the pager arrows and rows select are 44px through the shell's PhoneTapStyles
+      // (IconButton / TablePagination-select floors), not a legacy class.
+      sx={[{ position: 'relative' }, ...(Array.isArray(sx) ? sx : [sx])]}
     >
       <TablePagination
         component="div"
