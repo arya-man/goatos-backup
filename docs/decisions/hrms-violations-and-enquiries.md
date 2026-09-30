@@ -55,6 +55,40 @@ Maintainer decisions, 2026-09-30. Migrations 000471 and 000472.
 - **Which types.** The SOP names the types the check raises. HR may rename them (the key stays),
   pick other types, or choose **Off** for either half.
 
+## Days the check never checks
+
+These are the maintainer's decisions of 2026-09-30 (migration 000473).
+
+- **Weekly off.** Each person has a **fixed weekly off**: one or more weekdays, ticked beside
+  their shift on the Timetable. HR must set a shift first, because the weekly off belongs to it.
+  Changing someone's weekly off does not count as a new shift.
+- **Holidays.** HR enters a date on the Timetable's **Holidays** card, for **every park** or for
+  **one park**. There are none today because the farm runs every day, so an empty card is normal.
+- **No app login.** A person without a login cannot clock in, so they are never checked.
+- **Before the start date.** The SOP's `starts_on` is the first day checked. It is set to the day
+  after go-live, so switching the check on does not raise a flood of old days. HR can change it
+  on the Clock-in check card.
+- **Closes itself.** A waiting violation whose day later becomes leave the person applied for, a
+  holiday, or their weekly off **closes itself**. It then reads "Closed", with the reason, e.g.
+  "Closed by itself: this day is the weekly off". A violation HR already **kept** is never
+  touched.
+
+**Which clock-in counts for a shift.** It is the first clock-in **inside the shift's window**:
+from 6 hours before the start up to the end. It is matched by time, not by the day the punch was
+dated, so a night shift's 00:30 punch is late for the shift that began the evening before. A
+clock-in only after the shift ended counts as **no clock-in**.
+
+## Who can act on themselves
+
+The maintainer's answer was "allow it as today". Chandrakant is HR, a park head and a director
+at once. He can:
+- sign both lines of a Channapatna leave;
+- decide his own leave;
+- keep or close his own automatic violation;
+- record a violation against himself.
+
+Nothing blocks any of this.
+
 ## Totals: "how much each person has"
 
 - The Violations page switches between **Month**, **Year** (the year of the chosen month) and
@@ -67,11 +101,14 @@ Maintainer decisions, 2026-09-30. Migrations 000471 and 000472.
   - Someone with leave and no violation is listed too.
 - Violations and leave are **pre-aggregated separately** and joined on the person, so one never
   multiplies the other. A test pins this.
-- The page tiles (Violations, Fines, People) count **recorded** violations. **Waiting for HR** is
-  its own tile.
+- The page tiles (Violations, Fines, People) **always** count **recorded** violations, whatever
+  status tab is open; the tab narrows only the list. **Waiting for HR** is its own tile.
+- Hand-recorded violations and enquiry penalties can **never** use the clock-in check's own types.
+  Those types are left out of both forms' lists, and the server refuses them.
 
 ## Not done / next
 
 - No push notification to HR when a violation starts waiting. HR sees it on the page.
 - The check never looks further back than yesterday. A leave rejected days later does not
-  retroactively raise a violation.
+  retroactively raise a violation, and if the worker is down for more than a day, those days are
+  never checked. Nothing alerts on that yet.
