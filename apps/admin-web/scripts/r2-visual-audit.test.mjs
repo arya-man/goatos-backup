@@ -243,5 +243,7 @@ test("guard: panel-fallback-twin - fallbackTwinFails flags a jump and a mis-shap
   assert.deepEqual(fallbackTwinFails({ maxTargetShift: 3, fallback: { skeleton: box(300, 600), loaded: box(300, 620) } }), []);
   assert.deepEqual(fallbackTwinFails({ maxTargetShift: 60, fallback: null }).map((f) => f[0]), ["fallback-jump"]);
   assert.deepEqual(fallbackTwinFails({ maxTargetShift: 0, fallback: { skeleton: box(240, 300), loaded: box(300, 900) } }).map((f) => f[0]), ["fallback-shape"]);
+  // rows are data: a table panel with fewer rows than its skeleton is not a shape mismatch
+  assert.deepEqual(fallbackTwinFails({ maxTargetShift: 0, fallback: { skeleton: { ...box(300, 390), table: true }, loaded: { ...box(300, 192), table: true } } }), []);
   assert.ok(isP0("interact|Tab|fallback-jump") && isP0("interact|Filter link|fallback-shape") && isP0("interact|Tab|stale-panel"));
 });

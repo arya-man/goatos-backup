@@ -259,7 +259,19 @@ export function fallbackTwinFails(watch) {
   const out = [];
   if (watch?.maxTargetShift > FALLBACK_JUMP_PX) out.push(["fallback-jump", `the pressed control moved ${watch.maxTargetShift}px during the transition (skeleton or header of another height)`]);
   if (watch?.fallback) {
-    const iou = boxIou(watch.fallback.skeleton, watch.fallback.loaded);
+    // A table panel's height is its row count (data), as in the skeleton IoU check's table rule:
+    // compare it on the shorter of the two heights (position and width still count).
+    let { skeleton, loaded } = watch.fallback;
+    // Shape, not position: a block OUTSIDE the panel that changed height moves both boxes (that is a
+    // different defect), so the boxes are compared from a common top. Both cut by the viewport
+    // bottom = equally tall as far as the reader can see.
+    loaded = { ...loaded, y: skeleton.y };
+    if (skeleton.table || loaded.table || (skeleton.clipped && loaded.clipped)) {
+      const h = Math.min(skeleton.h, loaded.h);
+      skeleton = { ...skeleton, h };
+      loaded = { ...loaded, h };
+    }
+    const iou = boxIou(skeleton, loaded);
     if (iou < FALLBACK_TWIN_IOU) out.push(["fallback-shape", `the click-time panel skeleton does not match the landed panel (IoU ${iou.toFixed(2)}: ${watch.fallback.skeleton.w}x${watch.fallback.skeleton.h} vs ${watch.fallback.loaded.w}x${watch.fallback.loaded.h})`]);
   }
   return out;
@@ -852,15 +864,17 @@ function r2PageLib() {
   }
   /** Union box (doc coords, clipped to the visible viewport: what the thumb sees) of the visible children of `display: contents` panels. */
   function unionBox(panels) {
-    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, clipped = false;
     const flat = (c) => (getComputedStyle(c).display === "contents" ? [...c.children].flatMap(flat) : [c]);
     for (const p of panels) for (const c of [...p.children].flatMap(flat)) {
       const b = c.getBoundingClientRect();
       if (b.width < 4 || b.height < 4) continue;
       if (b.top >= innerHeight || b.bottom <= 0) continue;
+      if (b.bottom > innerHeight) clipped = true;
       x0 = Math.min(x0, b.left); y0 = Math.min(y0, Math.max(b.top, 0) + scrollY); x1 = Math.max(x1, b.right); y1 = Math.max(y1, Math.min(b.bottom, innerHeight) + scrollY);
     }
-    return x1 > x0 && y1 > y0 ? { x: Math.round(x0), y: Math.round(y0), w: Math.round(x1 - x0), h: Math.round(y1 - y0) } : null;
+    const table = panels.some((p) => p.querySelector("table, [role=grid], [data-skel=table]"));
+    return x1 > x0 && y1 > y0 ? { x: Math.round(x0), y: Math.round(y0), w: Math.round(x1 - x0), h: Math.round(y1 - y0), table, clipped } : null;
   }
   function readWatch() {
     const w = window.__r2w; if (!w) return null;
