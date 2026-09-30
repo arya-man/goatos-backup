@@ -4,6 +4,7 @@ import { useCallback, useId, useMemo, useState, useSyncExternalStore, type React
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
+import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 
@@ -15,7 +16,7 @@ import {
   replaceLocalOverlayUrl,
 } from "@/components/local-overlay-link";
 import MenuItem from "@mui/material/MenuItem";
-import { Tag, type Tone } from "@/components/ui-primitives";
+import { Label, type LabelColor } from "@/components/minimal/label";
 import { PeopleFormSelect } from "./people-form-select";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { WorkforcePeopleCatalog, WorkforcePerson } from "@/lib/api/server";
@@ -35,18 +36,18 @@ function subscribeToOverlayUrl(onChange: () => void): () => void {
   };
 }
 
-function statusTone(status: string): Tone {
+function statusColor(status: string): LabelColor {
   switch (status) {
     case "active":
-      return "ok";
+      return "success";
     case "candidate":
       return "info";
     case "suspended":
-      return "warn";
+      return "warning";
     case "left":
-      return "dng";
+      return "error";
     default:
-      return "mut";
+      return "default";
   }
 }
 
@@ -151,7 +152,7 @@ export function PersonAddDrawer({
     </>
   ) : person ? (
     confirmingStatus ? (
-      <form action={changePersonStatusAction} style={{ display: "contents" }}>
+      <Box component="form" action={changePersonStatusAction} sx={{ display: "contents" }}>
         <input type="hidden" name="return_to" value={listHref} />
         <input type="hidden" name="person_id" value={person.person_id} />
         <input type="hidden" name="row_version" value={person.row_version} />
@@ -162,7 +163,7 @@ export function PersonAddDrawer({
         <Button type="button" variant="outlined" onClick={() => setConfirmingStatus(false)}>
           {copy(pageContract, "action.cancel")}
         </Button>
-      </form>
+      </Box>
     ) : (
       <Button
         type="button"
@@ -201,14 +202,12 @@ export function PersonAddDrawer({
           ) : null}
         </Box>
         {isAdding ? (
-          <form id={addFormId} action={createPersonAction} style={{ display: "contents" }}>
+          <Box component="form" id={addFormId} action={createPersonAction} sx={{ display: "contents" }}>
             <Box sx={{ display: "flex", flexDirection: "column", gap: 2.5 }}>
               <input type="hidden" name="return_to" value={listHref} />
               <input type="hidden" name="idempotency_key" value={idempotencyKey} />
 
               <Typography variant="body2" sx={{ color: "text.secondary" }}>{copy(pageContract, "required.hint")}</Typography>
-
-              <div className="fld">
                 <TextField
                   fullWidth
                   id="p-first_name"
@@ -217,8 +216,6 @@ export function PersonAddDrawer({
                   required
                   slotProps={{ htmlInput: { maxLength: 120 }, inputLabel: { shrink: true } }}
                 />
-              </div>
-              <div className="fld">
                 <TextField
                   fullWidth
                   id="p-last_name"
@@ -226,8 +223,6 @@ export function PersonAddDrawer({
                   label={`${field("last_name")} (${field("optional")})`}
                   slotProps={{ htmlInput: { maxLength: 120 }, inputLabel: { shrink: true } }}
                 />
-              </div>
-              <div className="fld">
                 <TextField
                   fullWidth
                   id="p-email"
@@ -237,12 +232,10 @@ export function PersonAddDrawer({
                   required
                   slotProps={{ htmlInput: { maxLength: 254 }, inputLabel: { shrink: true } }}
                 />
-              </div>
               {/* Role and Park were `required` native selects. A hidden input is barred from
                   constraint validation, so the required-ness now lives on the Save button
                   (`incomplete` below) -- the same "you cannot submit without these" rule, stated
                   in the control the operator actually clicks. The server action is unchanged. */}
-              <div className="fld">
                 <input type="hidden" name="role" value={role} />
                 <TextField
                   select
@@ -259,8 +252,6 @@ export function PersonAddDrawer({
                     </MenuItem>
                   ))}
                 </TextField>
-              </div>
-              <div className="fld">
                 <input type="hidden" name="park_id" value={parkID} />
                 <TextField
                   select
@@ -277,16 +268,13 @@ export function PersonAddDrawer({
                     </MenuItem>
                   ))}
                 </TextField>
-              </div>
               <PeopleFormSelect
-                className="fld"
                 name="department_id"
                 minWidth={0}
                 label={`${field("department")} (${field("optional")})`}
                 options={[{ value: "", label: "—" }, ...catalog.departments.map((department) => ({ value: department.id, label: department.label }))]}
               />
               <PeopleFormSelect
-                className="fld"
                 name="designation_grade"
                 minWidth={0}
                 label={`${field("designation")} (${field("optional")})`}
@@ -295,7 +283,7 @@ export function PersonAddDrawer({
 
               <Typography variant="body2" sx={{ color: "text.secondary" }}>{copy(pageContract, "password.note")}</Typography>
             </Box>
-          </form>
+          </Box>
         ) : person ? (
           <>
             <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
@@ -308,7 +296,7 @@ export function PersonAddDrawer({
                 {cell(copy(pageContract, "column.designation"), person.designation_label ?? person.designation_grade?.replace(/_/g, " "))}
                 {cell(copy(pageContract, "column.title"), person.title)}
                 <MetaCell label={copy(pageContract, "column.status")}>
-                  <Tag tone={statusTone(person.status)}>{person.status}</Tag>
+                  <Label color={statusColor(person.status)}>{person.status}</Label>
                 </MetaCell>
               </Box>
 
@@ -318,7 +306,7 @@ export function PersonAddDrawer({
                 <input type="hidden" name="return_to" value={listHref} />
                 <input type="hidden" name="person_id" value={person.person_id} />
                 <input type="hidden" name="row_version" value={person.row_version} />
-                <div style={{ display: "flex", gap: 8 }}>
+                <Stack direction="row" spacing={1}>
                   <TextField
                     id="p-title"
                     name="title"
@@ -331,7 +319,7 @@ export function PersonAddDrawer({
                   <Button type="submit" variant="outlined">
                     {copy(pageContract, "action.save_title")}
                   </Button>
-                </div>
+                </Stack>
                 <Typography variant="caption" component="div" sx={{ color: "text.secondary", mt: 0.5 }}>
                   {copy(pageContract, "title.hint")}
                 </Typography>
@@ -358,9 +346,9 @@ export function PersonAddDrawer({
                       {person.proof_rejection_pct === null || person.proof_rejection_pct === undefined ? (
                         <Box component="span" sx={{ color: "text.secondary" }}>{copy(pageContract, "stats.no_reviews")}</Box>
                       ) : (
-                        <Tag tone={person.proof_rejection_pct >= 20 ? "dng" : person.proof_rejection_pct > 0 ? "warn" : "ok"}>
+                        <Label color={person.proof_rejection_pct >= 20 ? "error" : person.proof_rejection_pct > 0 ? "warning" : "success"}>
                           {person.proof_rejection_pct}%
-                        </Tag>
+                        </Label>
                       )}
                   </MetaCell>
                 </Box>

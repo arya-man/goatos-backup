@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { flushSync } from "react-dom";
 
+import Box from "@mui/material/Box";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
 
@@ -21,7 +22,6 @@ export function PeopleFormSelect({
   required,
   disabled,
   minWidth = 180,
-  className,
   form,
   autoSubmit,
 }: {
@@ -32,7 +32,6 @@ export function PeopleFormSelect({
   required?: boolean;
   disabled?: boolean;
   minWidth?: number;
-  className?: string;
   /** Owning form id, so the value still submits when the field is rendered in a portal. */
   form?: string;
   /**
@@ -44,7 +43,7 @@ export function PeopleFormSelect({
   const [value, setValue] = useState(defaultValue ?? "");
   const labelMinWidth = Math.min(260, Math.max(minWidth, label.length * 7 + 24));
   return (
-    <div className={className} style={{ minWidth: labelMinWidth }}>
+    <Box sx={{ minWidth: labelMinWidth }}>
       <input type="hidden" name={name} value={value} required={required} form={form} />
       <TextField
         select
@@ -65,6 +64,6 @@ export function PeopleFormSelect({
           </MenuItem>
         ))}
       </TextField>
-    </div>
+    </Box>
   );
 }

@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Alert from "@mui/material/Alert";
 
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError, getNotificationAudienceMatrix } from "@/lib/api/server";
@@ -18,9 +19,9 @@ export async function NotificationsScreen({ pageContract }: { pageContract: Admi
 
   if (!result.ok) {
     return (
-      <div className="callout dng" role="alert" style={{ marginTop: 12 }}>
+      <Alert severity="error" role="alert">
         <b>{result.error.code ?? result.error.kind}</b>&nbsp;{copy(pageContract, "notifications.error.load")}
-      </div>
+      </Alert>
     );
   }
 

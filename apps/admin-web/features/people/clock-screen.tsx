@@ -17,6 +17,7 @@ import { listOrEmpty } from "@/lib/list-or-empty";
 import { redirect } from "next/navigation";
 import { PeopleFormSelect } from "./people-form-select";
 import Link from "@/components/no-prefetch-link";
+import MuiLink from "@mui/material/Link";
 import { EmptyState } from "@/components/app/empty-state";
 import { Label, type LabelColor } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
@@ -130,11 +131,14 @@ export async function ClockScreen({
           const selected = bucket === tile.key;
           return (
             <Grid key={tile.key} size={{ xs: 6, md: 3 }}>
-              <Link
+              <MuiLink
+                component={Link}
                 href={hrefWithQuery(pathname, sp, { bucket: selected ? null : tile.key, cursor: null })}
                 scroll={false}
                 aria-pressed={selected}
-                style={{ display: "block", height: "100%", color: "inherit", textDecoration: "none" }}
+                color="inherit"
+                underline="none"
+                sx={{ display: "block", height: 1 }}
               >
                 <CourseWidgetSummary
                   title={tile.label}
@@ -143,7 +147,7 @@ export async function ClockScreen({
                   icon={tile.icon}
                   sx={selected ? { height: 1, outline: 2, outlineColor: `${tile.color}.main` } : { height: 1 }}
                 />
-              </Link>
+              </MuiLink>
             </Grid>
           );
         })}
@@ -214,7 +218,7 @@ export async function ClockScreen({
               },
             }}
           />
-          <Button type="submit" variant="outlined" color="inherit" size="large" sx={{ minHeight: 56, flexShrink: 0 }}>
+          <Button type="submit" variant="outlined" color="inherit" size="large" sx={{ minHeight: "var(--input-h)", flexShrink: 0 }}>
             {copy(pageContract, "filter.apply", "Apply")}
           </Button>
         </Box>
@@ -247,9 +251,9 @@ export async function ClockScreen({
                     : "";
                   const cell = (content: React.ReactNode) =>
                     drawerHref ? (
-                      <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
+                      <MuiLink component={LocalOverlayLink} href={drawerHref} scroll={false} color="inherit" underline="none" sx={{ display: "flex", alignItems: "center", minHeight: "var(--tap-min)" }}>
                         {content}
-                      </LocalOverlayLink>
+                      </MuiLink>
                     ) : (
                       content
                     );

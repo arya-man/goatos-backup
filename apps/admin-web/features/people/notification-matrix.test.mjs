@@ -106,7 +106,7 @@ test("guard: notification-matrix-header-floor -- designation headers never crush
   // card, alert column pinned) and the header is one line with ellipsis + a Tooltip for the rest.
   const src = readFileSync(fileURLToPath(new URL("./notification-matrix.tsx", import.meta.url)), "utf8");
   assert.match(src, /minWidth: 270 \+ 96 \* matrix\.designations\.length/);
-  assert.match(src, /<col key=\{d\.code\} style=\{\{ width: 96 \}\} \/>/);
+  assert.match(src, /<Box component="col" key=\{d\.code\} sx=\{\{ width: 96 \}\} \/>/);
   assert.match(src, /whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"/);
   assert.match(src, /<Tooltip title=\{d\.grade \? `\$\{d\.label\} · \$\{d\.grade\}` : d\.label\}>/);
   assert.doesNotMatch(src, /fontSize: 10\.5/);

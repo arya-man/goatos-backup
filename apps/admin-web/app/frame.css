@@ -219,10 +219,6 @@ details.top-date-picker:not([open])>.top-date-popover,details.move-date-picker:n
 
 .btn[aria-disabled="true"]{opacity:.45;pointer-events:none}
 /* Section bar: a title with its hint on the left, ONE primary on the right; sticks under the top bar while its table scrolls. */
-.kit-section-bar{position:sticky;top:0;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;background:var(--bg)}
-.kit-section-bar-title{display:inline-flex;align-items:center;gap:8px;font-family:var(--font-display);font-size:18px;font-weight:700}
-.kit-count{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:color-mix(in srgb,currentColor 18%,transparent);font-size:12px;font-weight:700;line-height:1;margin-left:6px}
-.card .kit-section-bar{background:var(--paper)}
 /* Editable status chip (feed items): a normal tag with a dashed underline, not a 40px dashed button per row. */
 .main .feed-item-status{min-width:0;min-height:22px;border-bottom:0;text-decoration:underline dashed;text-underline-offset:3px;text-decoration-color:color-mix(in srgb,currentColor 55%,transparent)}
 .main .feed-item-status:hover{filter:none;text-decoration-color:currentColor}

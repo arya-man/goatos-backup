@@ -8,7 +8,6 @@ import Button from "@mui/material/Button";
 import { MinimalDrawer } from "@/components/app/drawer";
 import { Iconify } from "@/components/minimal/iconify";
 import { useBackCloses } from "@/components/use-back-closes";
-import pf from "./people-filter-fold.module.css";
 
 /**
  * People filter row. Desktop: search + selects + Apply on one line, unchanged. Phone: only the
@@ -36,12 +35,14 @@ export function PeopleFilterFold({
 
   return (
     <>
-      <div className={pf.searchRow}>
+      {/* Desktop: the wrappers vanish (display: contents) and the controls sit in the one-row
+          filter grid. Phone: search + Filters button on one row; the rest opens in the drawer. */}
+      <Box sx={{ display: { xs: "grid", sm: "contents" }, gridTemplateColumns: "minmax(0, 1fr) auto", alignItems: "center", gap: 1.25, width: 1 }}>
         {search}
         <Button
           variant="outlined"
           color="inherit"
-          className={pf.open}
+          sx={{ display: { xs: "inline-flex", sm: "none" } }}
           aria-expanded={open}
           onClick={() => setOpen(true)}
           startIcon={
@@ -53,11 +54,11 @@ export function PeopleFilterFold({
           {filtersLabel}
           {activeCount > 0 ? ` (${activeCount})` : null}
         </Button>
-      </div>
+      </Box>
       <MinimalDrawer open={open} onClose={close} title={filtersLabel} aria-label={filtersLabel} closeLabel={closeLabel}>
         <Box sx={{ p: 2.5, display: "flex", flexDirection: "column", gap: 2.5, "& > *": { width: 1, minWidth: "0 !important" } }}>{children}</Box>
       </MinimalDrawer>
-      {open ? null : <div className={pf.rest}>{children}</div>}
+      {open ? null : <Box sx={{ display: { xs: "none", sm: "contents" } }}>{children}</Box>}
     </>
   );
 }

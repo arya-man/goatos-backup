@@ -12,7 +12,7 @@ import {
   LOCAL_OVERLAY_URL_CHANGE_EVENT,
   replaceLocalOverlayUrl,
 } from "@/components/local-overlay-link";
-import { Tag, type Tone } from "@/components/ui-primitives";
+import { Label, type LabelColor } from "@/components/minimal/label";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ClockEntryDetail, ClockEventDetail } from "@/lib/api/server";
 import { fmtDate, fmtDateTime } from "@/lib/format";
@@ -33,16 +33,16 @@ function subscribeToOverlayUrl(onChange: () => void): () => void {
   };
 }
 
-function flagTone(key: string): Tone {
+function flagColor(key: string): LabelColor {
   switch (key) {
     case "offline":
       return "info";
     case "no_location":
-      return "warn";
+      return "warning";
     case "not_clocked_out":
-      return "dng";
+      return "error";
     default:
-      return "mut";
+      return "default";
   }
 }
 
@@ -210,9 +210,9 @@ export function ClockEntryDrawer({
             {entry.flags.length > 0 ? (
               <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap" }}>
                 {entry.flags.map((flag) => (
-                  <Tag key={flag.key} tone={flagTone(flag.key)}>
+                  <Label key={flag.key} color={flagColor(flag.key)}>
                     {flag.label}
-                  </Tag>
+                  </Label>
                 ))}
               </Box>
             ) : null}

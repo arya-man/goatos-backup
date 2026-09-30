@@ -1,6 +1,6 @@
 "use client";
 
-import { KeyRound, X } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import { useCallback, useState, useTransition } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -77,7 +77,7 @@ export function PersonAccessLauncher({
           aria-label={`${copy(pageContract, "access.open")} — ${personName}`}
           sx={{ width: "var(--tap-min)", height: "var(--tap-min)", flexShrink: 0 }}
         >
-          <KeyRound size={18} aria-hidden />
+          <Iconify icon="solar:shield-keyhole-bold-duotone" width={20} />
         </IconButton>
       ) : (
         <Button
@@ -86,7 +86,7 @@ export function PersonAccessLauncher({
           onClick={openEditor}
           title={copy(pageContract, "access.open_hint")}
           aria-label={`${copy(pageContract, "access.open")} — ${personName}`}
-          startIcon={<KeyRound size={14} aria-hidden />}
+          startIcon={<Iconify icon="solar:shield-keyhole-bold-duotone" width={18} />}
           sx={{ whiteSpace: "nowrap" }}
         >
           {copy(pageContract, "access.open")}
@@ -112,7 +112,7 @@ export function PersonAccessLauncher({
           <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1, pr: 1.5 }}>
             <Box component="span" sx={{ flexGrow: 1, minWidth: 0 }}>{personName}</Box>
             <IconButton onClick={close} aria-label={copy(pageContract, "action.close")} sx={{ width: "var(--tap-min)", height: "var(--tap-min)" }}>
-              <X size={18} aria-hidden />
+              <Iconify icon="mingcute:close-line" />
             </IconButton>
           </DialogTitle>
           <DialogContent>

@@ -10,8 +10,8 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 
 const CEILING = {
-  "app/mesha-theme.css": 2616,
-  "app/frame.css": 363,
+  "app/mesha-theme.css": 2568,
+  "app/frame.css": 359,
   "app/minimal-theme.css": 610,
   "app/globals.css": 132,
 };

@@ -545,15 +545,6 @@
   .main .twrap{min-width:0;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-gutter:stable}
   /* People/HRMS directory: same nowrap rule — names, emails, and park labels must never
      character-wrap inside a clickable cell; the twrap owns horizontal scrolling. */
-  .main table.people-table{min-width:1120px}
-  .main table.people-table th,.main table.people-table td,.main table.people-table td .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}
-  .main table.people-table th:nth-child(1),.main table.people-table td:nth-child(1){min-width:160px}
-  .main table.people-table th:nth-child(2),.main table.people-table td:nth-child(2){min-width:120px}
-  .main table.people-table th:nth-child(4),.main table.people-table td:nth-child(4){min-width:130px}
-  .main table.people-table th:nth-child(5),.main table.people-table td:nth-child(5){min-width:190px}
-  .main table.people-table th:nth-child(6),.main table.people-table td:nth-child(6){min-width:90px}
-  .main table.people-table th:nth-child(7),.main table.people-table td:nth-child(7){min-width:130px}
-  .main table.people-table td .celllink{max-width:none;min-width:max-content}
   .goat-identifier-grid{grid-template-columns:minmax(190px,1fr) minmax(190px,1fr) minmax(190px,1fr) minmax(150px,.8fr)}
   @media(max-width:1080px){.goat-identifier-grid{grid-template-columns:repeat(2,minmax(190px,1fr))}}
   @media(max-width:640px){.goat-identifier-grid{grid-template-columns:1fr}}
@@ -1000,7 +991,6 @@
   /* Mobile tap targets (>=40px): breadcrumb links keep their compact look
      but get a 40px hit area on touch-width viewports; notification-matrix checkboxes sit in a
      40px label hit area (checkbox itself stays native size). */
-  .nmatrix-hit{display:inline-flex;align-items:center;justify-content:center;min-width:40px;min-height:40px;cursor:pointer}
   .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:4px}
   .legend span{display:inline-flex;align-items:center;gap:6px}
   .sw{width:11px;height:11px;border-radius:3px;display:inline-block}
@@ -2067,73 +2057,35 @@ select:disabled { opacity: .45 }
   .lt-page .lt-fbar.cc-fbar{position:relative;z-index:20}
 }
 
-@media(max-width:760px){
-  .notification-matrix-mobile-card{overflow:visible!important}
-}
 
 /* ── People / access editor ──────────────────────────────────────────────────
    The access editor is a template MUI Dialog (person-access-launcher.tsx); these
    are the capability-grid parts inside it. */
 
 /* The setup strip: designation + park scope, above the module grid. */
-.pa-setup { display: flex; flex-wrap: wrap; gap: 18px 26px; padding-bottom: 15px; border-bottom: 1px solid var(--line) }
-.pa-setup .fld { min-width: 210px }
 /* The pen-visit block carries a sentence of blurb: it takes its own row and wraps
    instead of sizing to the sentence and running past the editor's edge. */
-.pa-setup .pa-visits { flex: 1 1 100%; min-width: 0; white-space: normal }
-.pa-lbl { font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); font-weight: 700; margin-bottom: 7px }
 
 /* Park + scope pills. Toggling one is a local decision until Save, so they are
    buttons, never links — an overlay must not navigate (local-overlay contract). */
-.pa-pills { display: flex; flex-wrap: wrap; gap: 6px }
-.pa-pill { border: 1px solid var(--line); background: var(--panel-2); color: var(--muted); border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; transition: background .12s, border-color .12s, color .12s }
-.pa-pill:hover { border-color: var(--brand) }
-.pa-pill.on { background: var(--brand-soft); border-color: var(--brand); color: var(--brand) }
 
 /* The module grid. Three columns: what the module is, then one cell per surface.
    Wide content scrolls inside its own container so the modal body never scrolls
    sideways. */
-.pa-gridwrap { overflow-x: auto }
-.pa-grid { width: 100%; min-width: 620px; border-collapse: collapse }
-.pa-grid thead th:not(.MuiTableCell-root) { text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); font-weight: 700; padding: 0 0 9px; border-bottom: 1px solid var(--line) }
-.pa-grid thead th.pa-surface { width: 232px }
-.pa-grid tbody td:not(.MuiTableCell-root) { padding: 11px 0; border-bottom: 1px solid var(--line); vertical-align: top }
-.pa-grid tbody tr:last-child td { border-bottom: 0 }
-.pa-mod { padding-right: 22px }
-.pa-mod b { display: block; font-size: 13.5px; font-weight: 640; line-height: 1.3 }
-.pa-mod span { display: block; font-size: 11.5px; color: var(--faint); line-height: 1.45; margin-top: 2px }
 /* A row the person holds something on is marked on its leading edge, so the
    granted modules are findable in a list of seventeen without reading every chip. */
-.pa-grid tbody tr.pa-has .pa-mod { box-shadow: inset 3px 0 0 -1px var(--brand); padding-left: 10px }
 
 /* Capability chips. */
-.pa-caps { display: flex; flex-wrap: wrap; gap: 5px }
-.pa-cap { border: 1px solid var(--line); background: var(--panel-2); color: var(--muted); border-radius: 7px; padding: 4px 9px; font: inherit; font-size: 11.5px; font-weight: 650; cursor: pointer; transition: background .12s, border-color .12s, color .12s }
-.pa-cap:hover { border-color: var(--brand); color: var(--ink) }
-.pa-cap.on { background: var(--brand); border-color: var(--brand); color:var(--on-brand) }
-.pa-cap:focus-visible, .pa-pill:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px }
 /* Page ticks: which screens INSIDE a granted module this person keeps. Web only --
    the phone builds its own navigation. Deliberately quieter than the capability
    chips above: the capability is the decision, the pages are its detail. */
-.pa-pages { margin-top: 7px; padding-left: 10px; border-left: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 4px }
-.pa-page { border: 1px dashed var(--line); background: transparent; color: var(--faint); border-radius: 6px; padding: 2px 7px; font: inherit; font-size: 11px; font-weight: 600; cursor: pointer; transition: background .12s, color .12s, border-color .12s }
-.pa-page:hover { color: var(--ink); background: var(--panel-2); border-color: var(--brand) }
-.pa-page.on { background: var(--panel-2); border-style: solid; border-color: var(--line); color: var(--ink) }
-.pa-page.on::before { content: "\2713\00a0"; color: var(--brand); font-weight: 700 }
-.pa-page:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px }
 
 /* A module that does not exist on this surface. Says WHY rather than rendering
    an empty set of chips, which reads as "nothing ticked yet". */
-.pa-na { font-size: 11.5px; color: var(--faint); font-style: italic }
 
 /* Separation-of-duty caution. Warns, never blocks: this authority is the
    maintainer's to grant, and the warning exists so granting it is a decision. */
-.pa-warn { display: flex; gap: 10px; padding: 11px 13px; border: 1px solid var(--warn); background: var(--warnx); border-radius: 9px; font-size: 12.5px; line-height: 1.5 }
-.pa-warn b { display: block; font-weight: 700; margin-bottom: 2px }
 
-@media (prefers-reduced-motion: reduce) {
-  .pa-cap, .pa-pill, .pa-page { transition: none }
-}
 
 /* Tasks new/edit modals: the MUI Dialog paper carries .lt-modal (box, scroll, header from the template). */
 .lt-modal .lt-modal-bd{display:grid;gap:12px}
