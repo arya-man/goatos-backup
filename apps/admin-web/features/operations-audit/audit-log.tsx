@@ -1,4 +1,5 @@
 import Form from "next/form";
+import { PageRoot } from "@/components/app/page-root";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import { ListRowsSkeleton, StatStripSkeleton, TableSkeleton } from "@/components/app/skeletons";
@@ -7,7 +8,6 @@ import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import Box from "@mui/material/Box";
-import Stack from "@mui/material/Stack";
 import Grid from "@mui/material/Grid";
 import Button from "@mui/material/Button";
 import Avatar from "@mui/material/Avatar";
@@ -158,7 +158,7 @@ export async function OperationsAuditPage({
   ];
 
   return (
-    <Stack spacing={3}>
+    <PageRoot>
       <PageHeader
         title={pageContract.title}
         crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
@@ -390,7 +390,7 @@ export async function OperationsAuditPage({
         closeHref={closeDrawerHref}
         pageContract={pageContract}
       />
-    </Stack>
+    </PageRoot>
   );
 }
 

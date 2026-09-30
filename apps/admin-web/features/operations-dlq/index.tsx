@@ -1,9 +1,9 @@
 import Form from "next/form";
+import { PageRoot } from "@/components/app/page-root";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import { StatStripSkeleton, TableSkeleton } from "@/components/app/skeletons";
 import Box from "@mui/material/Box";
-import Stack from "@mui/material/Stack";
 import Button from "@mui/material/Button";
 import Card from "@mui/material/Card";
 import TextField from "@mui/material/TextField";
@@ -104,7 +104,7 @@ export async function OperationsDLQPage({
   ];
 
   return (
-    <Stack spacing={3}>
+    <PageRoot>
       <PageHeader
         title={pageContract.title}
         crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
@@ -221,7 +221,7 @@ export async function OperationsDLQPage({
         initialSelectedOutboxId={initialSelectedOutboxId}
         closeHref={closeDrawerHref}
       />
-    </Stack>
+    </PageRoot>
   );
 }
 

@@ -1,4 +1,5 @@
 import Table from "@mui/material/Table";
+import { PageRoot } from "@/components/app/page-root";
 import { ADHERENCE_LEDGER_HEADER_SX, ADHERENCE_SEVERITY_WIDTH, ADHERENCE_STATE_WIDTH, ADHERENCE_TAB_STATES, ADHERENCE_TILE_SIZE } from "./protocol-adherence-layout";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
@@ -315,7 +316,7 @@ export async function ProtocolAdherencePage({
   const head = ledgerLabels.map((label, index) => ({ id: `c${index}`, label, width: LEDGER_WIDTHS[index] }));
 
   return (
-    <Stack spacing={3}>
+    <PageRoot>
       <PageHeader
         title={pageContract.title}
         crumbs={crumbItems}
@@ -510,7 +511,7 @@ export async function ProtocolAdherencePage({
         initialSelectedRowId={initialSelectedRowId}
         pageContract={pageContract}
       />
-    </Stack>
+    </PageRoot>
   );
 }
 

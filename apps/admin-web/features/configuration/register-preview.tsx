@@ -1,5 +1,6 @@
 "use client";
 
+import { PageRoot } from "@/components/app/page-root";
 import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
 import Grid from "@mui/material/Grid";
@@ -24,7 +25,6 @@ import { TableHeadCustom, TablePaginationLinks } from "@/components/app/table";
 import { OrderTableToolbar } from "@/components/app/sections/order/order-table-toolbar";
 import { orderToolbarFilterSx, orderToolbarSearchSx } from "@/components/app/order-toolbar-filter";
 import { MailNavItem } from "@/components/app/sections/mail/mail-nav-item";
-import { CONFIG_PAGE_SX } from "./items-layout";
 
 /**
  * PRESENTATION-ONLY replica of the /configuration/items register view (rail · table card) for
@@ -61,7 +61,7 @@ export function RegisterPreview({
   const c = (key: string) => copy[key] ?? key;
   const hasCounts = rows.some((row) => row.counts);
   return (
-    <Box sx={CONFIG_PAGE_SX}>
+    <PageRoot>
       <PageHeader
         title={c("title")}
         crumbs={[{ label: c("crumb") }, { label: title }]}
@@ -188,6 +188,6 @@ export function RegisterPreview({
           </Card>
         </Grid>
       </Grid>
-    </Box>
+    </PageRoot>
   );
 }

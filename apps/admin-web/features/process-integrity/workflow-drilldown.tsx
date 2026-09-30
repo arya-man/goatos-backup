@@ -1,4 +1,5 @@
 import Box from "@mui/material/Box";
+import { PageRoot } from "@/components/app/page-root";
 import Card from "@mui/material/Card";
 import { WF_DETAIL_GRID } from "./workflow-drilldown-layout";
 import Grid from "@mui/material/Grid";
@@ -121,7 +122,7 @@ export async function VaccinationWorkflowDrilldownPage({
 
   if (!result.ok) {
     return (
-      <Stack spacing={3}>
+      <PageRoot>
         <OrderDetailsToolbar title={pageContract.title || copy(pageContract, "fallback.title")} subtitle={copy(pageContract, "crumb")} backHref={backHref} backLabel={backLabel} />
         <Alert severity="error" role="alert">
           <b>{copy(pageContract, "error.row_unavailable", "This workflow record could not be opened.")}</b>
@@ -132,7 +133,7 @@ export async function VaccinationWorkflowDrilldownPage({
             {backLabel}
           </LinkButton>
         </Box>
-      </Stack>
+      </PageRoot>
     );
   }
 
@@ -155,7 +156,7 @@ export async function VaccinationWorkflowDrilldownPage({
   );
 
   return (
-    <Stack spacing={3}>
+    <PageRoot>
       <OrderDetailsToolbar
         title={title}
         status={optionLabel(pageContract, "work_state_filter_chips", row.work_state)}
@@ -234,6 +235,6 @@ export async function VaccinationWorkflowDrilldownPage({
           </Card>
         </Grid>
       </Grid>
-    </Stack>
+    </PageRoot>
   );
 }

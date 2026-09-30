@@ -14,7 +14,7 @@ import {
 /** /workflows: header, four KPI cards, the catalog table card (tabs, toolbar, table, pager) beside the chain rail. */
 export default function Loading() {
   return (
-    <PageSkeleton>
+    <PageSkeleton root="page-root">
       <PageHeaderSkeleton />
       <KpiRowSkeleton count={4} hint />
       <GridSkeleton

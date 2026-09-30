@@ -1,5 +1,6 @@
 // A GET form through next/form: Apply is a soft navigation (the page stays on screen), not a document reload.
-import { CONFIG_PAGE_SX, ITEMS_RAIL_SIZE, ITEMS_REGISTER_SIZE } from "./items-layout";
+import { PageRoot } from "@/components/app/page-root";
+import { ITEMS_RAIL_SIZE, ITEMS_REGISTER_SIZE } from "./items-layout";
 import { ItemsRegisterSkeleton } from "./items-skeleton";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
@@ -452,7 +453,7 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
   ];
 
   return (
-    <Box sx={CONFIG_PAGE_SX}>
+    <PageRoot>
       <PageHeader
         title={pageContract.title}
         crumbs={[{ label: c("crumb") }, { label: pageContract.title }]}
@@ -771,7 +772,7 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
       </Stack>
 
       <LocalOverlayDrawer items={drawerItems} selectionKey={PARAM_EDIT} initialSelectedId={one(sp, PARAM_EDIT)} closeHref={listHref} ariaLabel={register?.label ?? c("crumb")} closeLabel={c("action.close")} />
-    </Box>
+    </PageRoot>
   );
 }
 
