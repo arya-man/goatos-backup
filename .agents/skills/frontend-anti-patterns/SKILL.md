@@ -310,6 +310,7 @@ chapters below; do not review from the summary.
 - **Toolbars and pagers (R3OPS-3).** r2 audit P0 `controls|label-doubled`, `controls|control-overlap`, `controls|pager-clipped`. One label per field, no overlapping controls, arrows inside the card; phone search owns its row.
 - **Early-return screens stream too (R3OPS-3).** Header/tabs render without await; the read sits in an async panel inside `UrlSuspense` (`toxin-panel-suspense`). Drawer filters and downloads seed from the page park (`video-log-park-seed`).
 - **Toolbars outside the keyed panel (R3OPS-3).** Toolbar row before `UrlSuspense`, rows + pager inside; cross-boundary state via a per-card context (`leave-toolbar-outside-panel`, `routines-toolbar-outside-panel`).
+- **Drag must work on touch; never native HTML5 drag (guard `task-board-touch-dnd`).** Touch browsers never fire `dragstart`/`drop`, and the HTML5 drag image of a background-less `<a>` is a transparent ghost. Drag with `@dnd-kit/core` (Mouse distance 5, Touch delay 200 / tolerance 5, Keyboard) and a portalled `DragOverlay` that renders the same card on `background.paper` with the template lift. An e2e that drags must hold and abort the write, never let it reach a shared API.
 - **Caveats are info tooltips (R3OPS-3).** `InfoTip` (controlled Tooltip, 44px `eva:info-outline` IconButton, tap-to-open, text as aria-label) beside the control (`action-center-paging-tooltip`, `info-tip-tap`).
 
 ## Proven performance patterns (from main + #415)

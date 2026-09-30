@@ -21,8 +21,6 @@ export const FAILURE_STRINGS = [
 
 /** Phone tap-target floor, in CSS px. The page's own phone-viewport test uses the same number. */
 export const PHONE_TAP_FLOOR = 40;
-/** Below this width the board has no drag: `(min-width: 761px) and (pointer: fine)`. */
-export const DRAG_MIN_WIDTH = 761;
 
 export function findFailureString(text) {
   const haystack = String(text ?? "");
@@ -60,8 +58,10 @@ export function elementKey(descriptor) {
  *   current      — a `role=tab` that is already `aria-selected`: re-clicking the selected tab
  *                  is a no-op by design, not a dead control; the OTHER tabs prove the control
  *   disabled     — asserted disabled/aria-disabled instead of clicked (a pager's Prev on page 1)
- *   drag-absent  — a draggable card at phone width: a FAIL, drag is desktop-only
- *   drag         — desktop draggable card: dragstart/dragend, never a drop
+ *   drag-native  — a native HTML5 `draggable="true"` element: a FAIL at every width. The board
+ *                  drags with dnd-kit (mouse, touch, keyboard; guard task-board-touch-dnd), and a
+ *                  native drag is the retired path touch browsers never fire. The real drag is
+ *                  exercised by scripts/task-board-dnd-e2e.mjs, never by this click matrix.
  *   select       — choose a different option
  *   type         — fill text; a value change alone is enough ONLY for composer fields (the
  *                  commit control is asserted separately); the toolbar search must fire a request
@@ -82,9 +82,7 @@ export function planActivation(descriptor, viewportWidth, overlayStage = false) 
   if (descriptor.disabled) return { how: "disabled", reason: "asserted disabled/aria-disabled rather than clicked" };
   if (descriptor.role === "tab" && descriptor.selected) return { how: "current", reason: "the already-selected tab: re-clicking it is a no-op by design (its siblings prove the control)" };
   if (descriptor.draggable === "true") {
-    return viewportWidth < DRAG_MIN_WIDTH
-      ? { how: "drag-absent", reason: "a draggable card must not exist at phone width" }
-      : { how: "drag", reason: "dragstart must put the board in its drag state; dragend must clear it (no drop: a drop is a status write)" };
+    return { how: "drag-native", reason: "a native HTML5 draggable is the retired board drag (touch never fires it); the board drags with dnd-kit" };
   }
   const tag = descriptor.tag;
   const type = descriptor.type || "";

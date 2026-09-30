@@ -86,7 +86,7 @@ assert.match(
   "the column highlight must be derived from the dragged row's own options",
 );
 assert.doesNotMatch(dnd, /"open".*=>.*"in_progress"/s, "no hardcoded transition matrix");
-assert.match(dnd, /if \(!droppable\) return;/, "an illegal column must not preventDefault, so it cannot accept a drop");
+assert.match(dnd, /useDroppable\(\{ id: columnKey, disabled: !droppable \}\)/, "an illegal column is a disabled drop target, so it cannot accept a drop");
 
 // ---- The idempotency key is minted PER DROP, client-side. A server-rendered key replays on back
 // navigation and swallows a legitimate second change; that was a real defect on this page.
@@ -105,12 +105,49 @@ assert.match(dnd, /runTaskWrite\(task\.id,/);
 assert.match(dnd, /changeLeadershipTaskStatusInPlaceAction\(formData\)/);
 assert.doesNotMatch(dnd, /await action\(formData\)/);
 
-// ---- PHONE: no drag below the page's breakpoint, and the anchor's native drag is switched off
-// explicitly (an <a> is draggable by default, so silence would ship a URL drag).
-assert.match(dnd, /\(min-width: 761px\) and \(pointer: fine\)/, "drag is gated above the 760px breakpoint");
-assert.match(dnd, /useState\(false\)/, "the gate must start closed so the server-rendered HTML is the non-drag one");
-assert.match(card, /draggable=\{draggable\}/, "the card must state draggable either way");
-assert.match(dnd, /dragCapable && task\.statusOptions\.length > 0/, "a card with no legal move is not draggable at all");
+// ---- TOUCH + OVERLAY (guard: task-board-touch-dnd, Ravi 2026-09-30). The board used native
+// HTML5 drag: touch browsers never fire it (a phone could not move a card) and the drag image was
+// the transparent snapshot of the link. It is dnd-kit now, with sensors that keep a tap a tap.
+assert.doesNotMatch(dnd, /onDragStart=\{\(event\) => \{\s*event\.dataTransfer/, "no native HTML5 dragstart on the board");
+assert.doesNotMatch(dnd, /dataTransfer/, "the board never reads an HTML5 drag payload");
+assert.doesNotMatch(dnd, /pointer: fine/, "drag is no longer gated off for touch or phone widths");
+assert.match(dnd, /from "@dnd-kit\/core"/, "the board drags with dnd-kit");
+assert.match(dnd, /useSensor\(TouchSensor, \{ activationConstraint: TOUCH_ACTIVATION \}\)/, "a TouchSensor with an activation constraint");
+assert.match(dnd, /useSensor\(MouseSensor, \{ activationConstraint: MOUSE_ACTIVATION \}\)/, "a MouseSensor with a travel constraint, so a click still opens the card");
+assert.match(dnd, /useSensor\(KeyboardSensor,/, "the keyboard sensor stays");
+{
+  const touch = /export const TOUCH_ACTIVATION = \{ delay: (\d+), tolerance: (\d+) \}/.exec(dnd);
+  assert.ok(touch, "TOUCH_ACTIVATION is a delay + tolerance constraint");
+  assert.ok(Number(touch[1]) >= 150 && Number(touch[1]) <= 300, "the long-press delay is about 200ms (a tap opens, a hold drags)");
+  assert.ok(Number(touch[2]) >= 3 && Number(touch[2]) <= 10, "the tolerance is about 5px (a swipe scrolls)");
+  const mouse = /export const MOUSE_ACTIVATION = \{ distance: (\d+) \}/.exec(dnd);
+  assert.ok(mouse && Number(mouse[1]) >= 3, "a mouse drag starts only after a few px of travel");
+}
+assert.match(dnd, /start: \["Space"\]/, "Space picks a card up; Enter stays the link's open");
+// The overlay is the SAME card, on the paper background with the template lift, in a portal.
+assert.match(dnd, /<DragOverlay[^>]*className="ltb-drag-overlay"/, "a DragOverlay renders the dragged card");
+assert.match(dnd, /<BoardDragOverlay>\s*\{draggingTask \? \(\s*<TaskBoardCard[\s\S]*?\boverlay\b/, "the overlay renders TaskBoardCard in overlay mode");
+assert.match(dnd, /createPortal\(overlay, document\.body\)/, "the overlay is portalled, so no scroller clips it");
+assert.match(card, /const OVERLAY_SX = \(theme: Theme\) => \(\{\s*backgroundColor: theme\.vars\.palette\.background\.paper,/, "the overlay card is paper-backed (never transparent)");
+assert.match(card, /boxShadow: theme\.vars\.customShadows\.z24/, "the overlay card is lifted with the template shadow");
+assert.match(card, /transform: "rotate\(\d+(?:\.\d+)?deg\) scale\(1\.0\d\)"/, "the overlay card tilts and scales slightly");
+assert.match(card, /draggable=\{false\}/, "the link's native drag is always off (no transparent ghost, no URL drag)");
+assert.match(card, /dragging \? \{ filter: "grayscale\(1\)", "& > \*": \{ opacity: 0\.4 \} \}/, "the source slot keeps the template --dragging placeholder");
+assert.match(card, /WebkitTouchCallout: "none"/, "a long-press does not raise the iOS link callout");
+assert.match(dnd, /canDrag=\{task\.statusOptions\.length > 0\}/, "a card with no legal move is not draggable at all");
+assert.match(dnd, /useClickSuppressor\(\)/, "the click that follows a drop never opens the drawer");
+// The drop is still the same in-place, optimistic write with rollback.
+assert.match(dnd, /onDragEnd=\{\(event: DragEndEvent\) => \{[\s\S]*?move\(task, column\.key\);/, "a drop calls the same move()");
+assert.match(dnd, /publishTaskRow\(task\.id, before\);/, "a refused move rolls back");
+// The e2e that drags for real (mouse 1440, touch 390) and the gate plugin that runs it on /tasks.
+{
+  const journey = read("../../scripts/lib/task-board-dnd-journey.mjs");
+  assert.match(journey, /Input\.dispatchTouchEvent/, "the e2e drags with real touch events");
+  assert.match(journey, /route\.abort\("failed"\)/, "the e2e never lets the status write reach the API");
+  assert.doesNotMatch(journey, /route\.continue\(/, "the e2e never continues a server action");
+  const plugin = read("../../scripts/r2-audit-checks/task-board-dnd.mjs");
+  assert.match(plugin, /runBoardDragJourney/, "the visual gate runs the drag journey on /tasks");
+}
 
 // ---- ARIA: no deprecated aria-grabbed anywhere, and the announcement is a real live region.
 // The attribute form, not the word: the file's own comment explains WHY it is not used.
@@ -133,4 +170,4 @@ assert.match(actions, /code === "not_assignee" && task\.assignee_name/);
 assert.match(actions, /code === "not_raiser" && task\.raised_by_name/);
 assert.match(actions, /task\.status !== fromStatus/, "the status is named only when the task actually moved");
 
-console.log("task board drag-and-drop: legality, refusal copy, key minting, phone gate and palette all pinned");
+console.log("task board drag-and-drop: legality, refusal copy, key minting, touch sensors, overlay and palette all pinned");

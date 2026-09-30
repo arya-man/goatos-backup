@@ -2,7 +2,27 @@
 
 import { FOUR_LANE_COLUMN_WIDTH } from "@/components/app/kanban/board-layout";
 import { visuallyHidden } from "@mui/utils";
-import { useEffect, useState, useTransition } from "react";
+import { useCallback, useRef, useState, useTransition, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
+import {
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  MouseSensor,
+  TouchSensor,
+  pointerWithin,
+  rectIntersection,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type Announcements,
+  type CollisionDetection,
+  type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent,
+  type KeyboardCoordinateGetter,
+} from "@dnd-kit/core";
 import { faro } from "@grafana/faro-web-sdk";
 import Box from "@mui/material/Box";
 import Alert from "@mui/material/Alert";
@@ -31,20 +51,22 @@ import type { TaskBoardColumn } from "./task-url";
 /**
  * The board's COLUMN TRACK, and the only place a status may be changed by dragging.
  *
- * ── WHY HTML5 DRAG-AND-DROP, AND NO LIBRARY ───────────────────────────────────────────────────
- * The repo has no drag library and `@base-ui/react` is a dead dependency; neither is being woken
- * up for this. Between the two dependency-free options:
- *   - native HTML5 DnD wins because the cards ALREADY are `<a>` elements, which the browser
- *     drags natively anyway. Without this component the anchors are draggable and drop a URL
- *     somewhere unhelpful, so the choice is "own the drag" or "explicitly turn it off" — there is
- *     no neutral option. It also gives the drag image, the `no-drop` cursor over an illegal
- *     column and the column scroll-during-drag for free, and it fires no pointer handler while
- *     the reader is merely scrolling the page.
- *   - pointer events would mean re-implementing hit-testing against `.ltb-colbd`, which is a
- *     height-capped scroller inside a horizontally-scrolling track — two nested scroll contexts
- *     to autoscroll by hand, plus a touch-action fight with the page.
- * HTML5 DnD does not fire for touch, which on this page is a FEATURE (see the phone note below),
- * not a gap: the non-drag path is the real path there.
+ * ── WHY DND-KIT (POINTER, TOUCH AND KEYBOARD SENSORS), NOT HTML5 DRAG-AND-DROP ────────────────
+ * The board used native HTML5 DnD (`draggable` + `onDragStart`). Two defects came with it
+ * (Ravi, 2026-09-30): touch browsers never fire HTML5 drag events, so a card could not be moved
+ * on a phone at all, and the browser's drag image is a snapshot of the `<a>` alone, which has no
+ * background, so the text floated transparently over the other cards. `@dnd-kit/core` fixes both
+ * at the root:
+ *   - three sensors: the MOUSE starts a drag after 5px of travel (so a click still opens the
+ *     card), TOUCH after a 200ms long-press with 5px tolerance (so a tap still opens the card and
+ *     a swipe still scrolls the page or the column track -- the template kanban's constraint),
+ *     and the KEYBOARD on Space (Enter stays the link's own "open"), arrows jumping column to
+ *     column, Space/Enter to drop, Escape to cancel;
+ *   - a `DragOverlay`: the dragged card is the SAME `TaskBoardCard`, rendered on the paper
+ *     background with the template's lift (shadow, slight rotation and scale) in a portal, while
+ *     the source slot keeps the template `--dragging` placeholder state (grayscale, faded).
+ * The native anchor drag is switched off (`draggable={false}`), so a card never also ships a URL
+ * drag. guard: task-board-touch-dnd (task-board-dnd.test.mjs + e2e/task-board-dnd.e2e.mjs).
  *
  * ── WHY A DROP CAN NEVER JUST "MOVE THE CARD" ─────────────────────────────────────────────────
  * A status change goes through `changeLeadershipTaskStatusAction`, which is fenced on
@@ -71,32 +93,19 @@ import type { TaskBoardColumn } from "./task-url";
  * against. A column is droppable exactly when its key appears in it, so the board and the write
  * cannot disagree, and a task whose options are empty cannot be dragged at all.
  *
- * ── PHONE WIDTH: DRAG IS OFF, DELIBERATELY ────────────────────────────────────────────────────
- * Below the page's 760px breakpoint the columns STACK, and this page is opened at phone width in
- * the WhatsApp in-app webview, where a long-press drag fights the page scroll and a drop target
- * is off-screen behind that scroll. So there the cards stay plain links (`draggable={false}`,
- * which also suppresses the browser's own anchor drag) and the status actions in the detail panel
- * are the path. The gate is a `matchMedia` on `(min-width: 761px) and (pointer: fine)` evaluated
- * in an effect, so the server-rendered HTML is the non-drag one and a narrow or touch client
- * never upgrades.
+ * ── PHONE WIDTH AND THE WEBVIEW ───────────────────────────────────────────────────────────────
+ * Below the page's 760px breakpoint the columns sit in a horizontally snapping track. A drag is
+ * a long-press, so the page and the track still scroll under a plain swipe; while a card is held
+ * the snap is lifted so dnd-kit's auto-scroll can carry it to an off-screen column, and the card
+ * suppresses the iOS link callout and text selection that a long-press would otherwise raise.
  *
  * ── KEYBOARD AND SCREEN READER ────────────────────────────────────────────────────────────────
- * The drag is an ACCELERATOR, never the only affordance, and it adds no ARIA theatre:
- * `aria-grabbed` is deprecated and a fake listbox over the columns would be a worse lie than the
- * truth, which is that the real control is elsewhere. Every card stays the same `?task=<uuid>`
+ * The drag is an ACCELERATOR, never the only affordance. Every card stays the same `?task=<uuid>`
  * link it was, reachable by Tab and openable with Enter, and the detail panel it opens carries
  * `TaskStatusActions` — one plain submit button per legal transition, the same server action this
- * component posts. The hint line below the columns says so in words (desktop-only, since it
- * describes a desktop affordance), and a polite live region announces the move in flight so a
- * screen-reader user who does drag is not left guessing.
+ * component posts. dnd-kit's announcements are fed our own task numbers and column labels (never
+ * a raw id), and a polite live region announces the move in flight.
  */
-
-/**
- * The drag payload's own media type. A private type rather than `text/plain` so a card dropped
- * outside the board (an address bar, a text field) carries nothing this component minted, and so
- * a drag that started elsewhere can never be read as a task.
- */
-const DRAG_MIME = "application/x-mesha-leadership-task";
 
 /**
  * The Faro event for this surface's primary action (TELEMETRY_GUARDRAILS.md §2.2: a new
@@ -106,8 +115,15 @@ const DRAG_MIME = "application/x-mesha-leadership-task";
  */
 const BOARD_DRAG_EVENT = "leadership_task_board_drag_status_change";
 
-/** Drag is offered above the page's single breakpoint, and only to a precise pointer. */
-const DRAG_MEDIA_QUERY = "(min-width: 761px) and (pointer: fine)";
+/**
+ * The sensors' activation constraints (the template kanban's numbers). A mouse drag starts after
+ * 5px of travel, so a click is still a click; a touch drag after a 200ms long-press that has not
+ * moved more than 5px, so a tap opens the card and a swipe scrolls.
+ */
+export const MOUSE_ACTIVATION = { distance: 5 } as const;
+export const TOUCH_ACTIVATION = { delay: 200, tolerance: 5 } as const;
+/** Space picks a card up; Enter is left to the link, which opens the card. */
+const KEYBOARD_CODES = { start: ["Space"], cancel: ["Escape"], end: ["Space", "Enter"] };
 
 export type BoardColumnMeta = {
   key: TaskBoardColumn;
@@ -144,7 +160,6 @@ export function TaskBoardColumns({
   action?: (formData: FormData) => void | Promise<void>;
   returnTo: string;
 }) {
-  const dragCapable = useDragCapable();
   const [, startTransition] = useTransition();
   /**
    * The rows as the browser knows them: a status changed in the drawer is published to the row
@@ -255,8 +270,56 @@ export function TaskBoardColumns({
       } ${columns.find((column) => column.key === pendingMove.to)?.label ?? pendingMove.to}`
     : "";
 
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: MOUSE_ACTIVATION }),
+    useSensor(TouchSensor, { activationConstraint: TOUCH_ACTIVATION }),
+    useSensor(KeyboardSensor, { keyboardCodes: KEYBOARD_CODES, coordinateGetter: columnKeyboardCoordinates }),
+  );
+  const suppressNextClick = useClickSuppressor();
+
+  const taskNumber = (id: string | number | undefined): string =>
+    rows.find((task) => task.id === id)?.number ?? "";
+  const columnLabel = (id: string | number | undefined): string =>
+    columns.find((column) => column.key === id)?.label ?? "";
+  // dnd-kit's own live region, fed our numbers and labels: never a raw task UUID, never English
+  // sentences the page contract does not serve.
+  const announcements: Announcements = {
+    onDragStart: ({ active }) => taskNumber(active.id),
+    onDragOver: ({ active, over }) => (over ? `${taskNumber(active.id)} ${columnLabel(over.id)}` : taskNumber(active.id)),
+    onDragEnd: ({ active, over }) => (over ? `${taskNumber(active.id)} ${columnLabel(over.id)}` : taskNumber(active.id)),
+    onDragCancel: ({ active }) => taskNumber(active.id),
+  };
+
+  const endDrag = () => {
+    setDraggingTaskID(null);
+    setOverColumn(null);
+    suppressNextClick();
+  };
+
   return (
-    <>
+    <DndContext
+      id="leadership-task-board"
+      sensors={sensors}
+      collisionDetection={pointerThenRect}
+      accessibility={{ announcements }}
+      onDragStart={(event: DragStartEvent) => {
+        setRefusal("");
+        setDraggingTaskID(String(event.active.id));
+      }}
+      onDragOver={(event: DragOverEvent) => setOverColumn(event.over ? String(event.over.id) : null)}
+      onDragCancel={endDrag}
+      onDragEnd={(event: DragEndEvent) => {
+        const taskID = String(event.active.id);
+        const overKey = event.over ? String(event.over.id) : null;
+        endDrag();
+        const task = rows.find((row) => row.id === taskID);
+        const column = columns.find((candidate) => candidate.key === overKey);
+        if (!task || !column) return;
+        if (!task.statusOptions.some((option) => option.key === column.key)) return;
+        if (statusOf(task) === column.key) return;
+        move(task, column.key);
+      }}
+    >
       {/* Template sections/kanban: the KanbanBoard track, one template column per status
           (ColumnWrapper + ColumnRoot, the round count Label and the h6 name in the column
           toolbar, the ColumnList of items); a legal drop target takes the template's
@@ -265,10 +328,12 @@ export function TaskBoardColumns({
         className="ltb-cols"
         role="group"
         aria-label={copy(pageContract, "board.aria", "Tasks by status")}
+        data-dragging={draggingTask ? "true" : undefined}
         sx={{
           "--kanban-column-width": FOUR_LANE_COLUMN_WIDTH,
           overscrollBehaviorX: "contain",
-          scrollSnapType: { xs: "x mandatory", md: "none" },
+          // The snap is lifted while a card is held, so auto-scroll can carry it across columns.
+          scrollSnapType: draggingTask ? "none" : { xs: "x mandatory", md: "none" },
           "& > section": { scrollSnapAlign: "start" },
         }}
       >
@@ -278,35 +343,15 @@ export function TaskBoardColumns({
             const over = droppable && overColumn === column.key;
             const count = column.total === null ? cards.length : Math.max(0, column.total + totalDelta(column.key));
             return (
-              <ColumnWrapper
+              <DroppableColumn
                 key={column.key}
+                columnKey={column.key}
+                droppable={droppable}
                 className={`ltb-col ltb-col-${column.key}${
                   activeFilter === column.key ? " is-focused" : ""
                 }${droppable ? " ltb-drop-ok" : ""}${over ? " ltb-drop-over" : ""}${
                   draggingTask && !droppable ? " ltb-drop-no" : ""
                 }`}
-                onDragOver={(event) => {
-                  if (!droppable) return;
-                  event.preventDefault();
-                  event.dataTransfer.dropEffect = "move";
-                  if (overColumn !== column.key) setOverColumn(column.key);
-                }}
-                onDragLeave={(event) => {
-                  if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-                  setOverColumn((current) => (current === column.key ? null : current));
-                }}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  setOverColumn(null);
-                  const taskID =
-                    draggingTaskID || event.dataTransfer.getData(DRAG_MIME);
-                  const task = rows.find((row) => row.id === taskID);
-                  setDraggingTaskID(null);
-                  if (!task) return;
-                  if (!task.statusOptions.some((option) => option.key === column.key)) return;
-                  if (task.status === column.key) return;
-                  move(task, column.key);
-                }}
               >
                 <ColumnRoot
                   className={over ? kanbanColumnState.taskOver : draggingTask && droppable ? kanbanColumnState.columnOver : draggingTask ? kanbanColumnState.dragging : undefined}
@@ -345,24 +390,15 @@ export function TaskBoardColumns({
                   <ColumnList className="ltb-colbd">
                     {cards.length ? (
                       cards.map((task) => (
-                        <TaskBoardCard
+                        <DraggableTaskCard
                           key={task.id}
                           task={task}
                           pageContract={pageContract}
                           href={cardHrefs[task.id] ?? ""}
                           selected={task.id === selectedTaskID}
-                          draggable={dragCapable && task.statusOptions.length > 0}
+                          canDrag={task.statusOptions.length > 0}
                           dragging={draggingTaskID === task.id}
                           pending={pendingMove?.taskID === task.id}
-                          onDragStart={(event) => {
-                            event.dataTransfer.setData(DRAG_MIME, task.id);
-                            event.dataTransfer.effectAllowed = "move";
-                            setDraggingTaskID(task.id);
-                          }}
-                          onDragEnd={() => {
-                            setDraggingTaskID(null);
-                            setOverColumn(null);
-                          }}
                         />
                       ))
                     ) : column.emptyMessage ? (
@@ -374,10 +410,26 @@ export function TaskBoardColumns({
                     ) : null}
                   </ColumnList>
                 </ColumnRoot>
-              </ColumnWrapper>
+              </DroppableColumn>
             );
           })}
       </KanbanBoard>
+
+      {/* The dragged card itself: the SAME card component on the paper background with the
+          template's lift, in a portal so no scroller or stacking context clips it. Never the
+          browser's transparent snapshot of the link. */}
+      <BoardDragOverlay>
+        {draggingTask ? (
+          <TaskBoardCard
+            task={draggingTask}
+            pageContract={pageContract}
+            href={cardHrefs[draggingTask.id] ?? ""}
+            selected={false}
+            draggable={false}
+            overlay
+          />
+        ) : null}
+      </BoardDragOverlay>
 
       {refusal ? (
         <Alert severity="error" role="alert" data-testid="ltb-refusal" sx={{ mt: 2 }}>
@@ -388,26 +440,117 @@ export function TaskBoardColumns({
       <Box component="p" role="status" aria-live="polite" sx={visuallyHidden}>
         {announcement}
       </Box>
-    </>
+    </DndContext>
   );
 }
 
+/** One status column as a dnd-kit drop target; an illegal column is disabled, so it never collides. */
+function DroppableColumn({
+  columnKey,
+  droppable,
+  className,
+  children,
+}: {
+  columnKey: TaskBoardColumn;
+  droppable: boolean;
+  className: string;
+  children: React.ReactNode;
+}) {
+  const { setNodeRef } = useDroppable({ id: columnKey, disabled: !droppable });
+  return (
+    <ColumnWrapper ref={setNodeRef} className={className} data-column={columnKey}>
+      {children}
+    </ColumnWrapper>
+  );
+}
+
+/** One card as a dnd-kit draggable: the `<li>` is measured, the `<a>` is the activator. */
+function DraggableTaskCard({
+  task,
+  canDrag,
+  ...card
+}: Omit<React.ComponentProps<typeof TaskBoardCard>, "draggable" | "dragHandle" | "overlay"> & { canDrag: boolean }) {
+  const { setNodeRef, setActivatorNodeRef, listeners, attributes } = useDraggable({ id: task.id, disabled: !canDrag });
+  return (
+    <TaskBoardCard
+      {...card}
+      task={task}
+      draggable={canDrag}
+      dragHandle={{
+        rootRef: setNodeRef,
+        activatorRef: setActivatorNodeRef,
+        listeners: canDrag ? listeners : undefined,
+        describedBy: canDrag ? attributes["aria-describedby"] : undefined,
+      }}
+    />
+  );
+}
+
+/** The overlay wrapper only carries the grabbing hand; the card inside draws the template lift. */
+const OVERLAY_STYLE: CSSProperties = { cursor: "grabbing" };
+
+function BoardDragOverlay({ children }: { children: React.ReactNode }) {
+  const overlay = (
+    <DragOverlay className="ltb-drag-overlay" style={OVERLAY_STYLE} zIndex={1500}>
+      {children}
+    </DragOverlay>
+  );
+  return typeof document === "undefined" ? overlay : createPortal(overlay, document.body);
+}
+
 /**
- * Whether this client may drag at all.
- *
- * Starts FALSE so the server-rendered markup is the non-drag markup — the phone and the WhatsApp
- * webview get plain links with no hydration flip to correct — and is raised only by the effect on
- * a client that is both wide enough for side-by-side columns and driven by a precise pointer.
+ * Pointer first (mouse and touch: the column under the finger wins, even when the lifted card
+ * overlaps two), the rectangle for the keyboard, which has no pointer.
  */
-function useDragCapable(): boolean {
-  const [capable, setCapable] = useState(false);
-  useEffect(() => {
-    if (typeof window.matchMedia !== "function") return;
-    const query = window.matchMedia(DRAG_MEDIA_QUERY);
-    const sync = () => setCapable(query.matches);
-    sync();
-    query.addEventListener("change", sync);
-    return () => query.removeEventListener("change", sync);
+const pointerThenRect: CollisionDetection = (args) => {
+  const hits = pointerWithin(args);
+  return hits.length ? hits : rectIntersection(args);
+};
+
+/**
+ * The keyboard moves a held card COLUMN to column (Arrow Right / Down forward, Left / Up back),
+ * not 25px at a time: the target is the next enabled (legal) drop column in reading order.
+ */
+const columnKeyboardCoordinates: KeyboardCoordinateGetter = (event, { context, currentCoordinates }) => {
+  const forward = event.code === "ArrowRight" || event.code === "ArrowDown";
+  const back = event.code === "ArrowLeft" || event.code === "ArrowUp";
+  if (!forward && !back) return undefined;
+  event.preventDefault();
+  const { collisionRect, droppableRects, droppableContainers } = context;
+  if (!collisionRect) return currentCoordinates;
+  const targets = droppableContainers
+    .getEnabled()
+    .map((container) => droppableRects.get(container.id))
+    .filter((rect): rect is NonNullable<typeof rect> => Boolean(rect))
+    .sort((a, b) => a.left - b.left || a.top - b.top);
+  const centre = collisionRect.left + collisionRect.width / 2;
+  const next = forward
+    ? targets.find((rect) => rect.left > centre)
+    : [...targets].reverse().find((rect) => rect.right < centre);
+  if (!next) return currentCoordinates;
+  return { x: next.left + (next.width - collisionRect.width) / 2, y: next.top + 56 };
+};
+
+/**
+ * A drag ends with a pointer-up, and the browser may follow it with a click on the card the drag
+ * started on (a drop back into the card's own slot). That click must not open the drawer, so a
+ * click in the next 100ms is swallowed; a later, real click is untouched.
+ */
+const CLICK_SUPPRESS_MS = 100;
+
+function useClickSuppressor(): () => void {
+  const armed = useRef<((event: MouseEvent) => void) | null>(null);
+  return useCallback(() => {
+    if (armed.current) window.removeEventListener("click", armed.current, true);
+    const swallow = (event: MouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    armed.current = swallow;
+    window.addEventListener("click", swallow, true);
+    window.setTimeout(() => {
+      window.removeEventListener("click", swallow, true);
+      if (armed.current === swallow) armed.current = null;
+    }, CLICK_SUPPRESS_MS);
   }, []);
-  return capable;
 }
