@@ -1,12 +1,32 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 
 import { MinimalDrawer, type MinimalDrawerWidth } from "@/components/app/drawer";
 import { Scrollbar } from "@/components/minimal/scrollbar";
+
+/**
+ * The drawer's footer action slot (J2B P2-12: Edit park put Save + Cancel inline in the body and a
+ * separate Close in the footer). `undefined` = not inside a DetailDrawer with a footer (render in
+ * place); `null` = inside one whose slot is not mounted yet (render nothing for that frame).
+ */
+const DrawerFooterSlot = createContext<HTMLElement | null | undefined>(undefined);
+
+/**
+ * A body form's primary action rendered in the drawer's template footer row, after the footer's own
+ * buttons (Close / Cancel left, primary right, as the template DialogActions). The button stays in
+ * the form's React tree (its pending state is the form's own); a submit button names its form with
+ * `form=` because the footer sits outside the form element. guard: drawer-primary-in-footer
+ */
+export function DrawerFooterActions({ children }: { children: ReactNode }) {
+  const slot = useContext(DrawerFooterSlot);
+  if (slot === undefined) return <>{children}</>;
+  return slot ? createPortal(children, slot) : null;
+}
 
 /**
  * Record/detail drawer on the template MinimalDrawer (portalled MUI Drawer, theme backdrop, focus
@@ -50,7 +70,9 @@ export function DetailDrawer({
   paperTestId?: string;
   children: ReactNode;
 }) {
+  const [footerSlot, setFooterSlot] = useState<HTMLElement | null>(null);
   return (
+    <DrawerFooterSlot.Provider value={footer ? footerSlot : undefined}>
     <MinimalDrawer
       open={open}
       onClose={onClose}
@@ -61,7 +83,10 @@ export function DetailDrawer({
       slotProps={{ paper: { "aria-label": ariaLabel, role: "dialog", ...(paperTestId ? { "data-testid": paperTestId } : {}) } as object }}
       footer={
         footer ? (
-          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5, width: 1, justifyContent: "flex-end" }}>{footer}</Box>
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5, width: 1, justifyContent: "flex-end" }}>
+            {footer}
+            <Box ref={setFooterSlot} data-drawer-footer-actions="" sx={{ display: "contents" }} />
+          </Box>
         ) : undefined
       }
     >
@@ -92,6 +117,7 @@ export function DetailDrawer({
           sized to its value ("—") read as a stray chip at the drawer's left edge. */}
       <Box sx={{ p: 2.5, display: "flex", flexDirection: "column", gap: 2.5, minWidth: 0, "& .MuiFormControl-root": { width: 1 }, ...bodySx }}>{children}</Box>
     </MinimalDrawer>
+    </DrawerFooterSlot.Provider>
   );
 }
 

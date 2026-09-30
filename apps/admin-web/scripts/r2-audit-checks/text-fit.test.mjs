@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
 
-import plugin, { probeDeadControls, probeFieldWidths, probeTextFit } from "./text-fit.mjs";
+import plugin, { probeDeadControls, probeDrawerPrimaryPlacement, probeFieldWidths, probeTextFit } from "./text-fit.mjs";
 
 // guards: button-label-wrap (J3 P1-3), axis-label-overlap (J3 P1-4), raw-id-text (J2 P1-3/P1-4),
 // dead-primary (J2 P1-1). Each probe flags the defect and passes the fixed shape.
@@ -147,6 +147,26 @@ test("header-primary-height flags a 44px header primary at desktop, passes 36px"
       <a class="MuiButton-root MuiButton-contained" style="display:inline-block;height:36px">New task</a></header></main>`);
     const found = (await page.evaluate(probeTextFit)).filter((f) => f.kind === "header-primary-height");
     assert.deepEqual(found.map((f) => f.detail), ['"Add person" is 44px tall (template header action 36px)']);
+  } finally {
+    await browser.close();
+  }
+});
+
+// guard: drawer-primary-in-footer (J2B P2-12). A drawer with a footer row keeps its form's Save there
+// (template DialogActions order: dismiss, then primary), never inline in the scrolling body.
+test("probeDrawerPrimaryPlacement flags a body Save when the drawer has a footer row", async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const drawer = (bodyBtn, footBtn) => `<div class="MuiDrawer-paper" data-r2-paper="1"><div>Edit park</div>
+      <div class="minimal__scrollbar__root"><form>${bodyBtn}</form></div>
+      <div>${footBtn}</div></div>`;
+    await page.setContent(drawer('<button class="MuiButton-root MuiButton-contained">Save</button>', '<button class="MuiButton-root MuiButton-outlined">Close</button>'));
+    assert.deepEqual((await page.evaluate(probeDrawerPrimaryPlacement, "[data-r2-paper]")).map((f) => f.kind), ["primary-in-body"]);
+    await page.setContent(drawer("", '<button class="MuiButton-root MuiButton-outlined">Close</button><button class="MuiButton-root MuiButton-contained">Save</button>'));
+    assert.deepEqual(await page.evaluate(probeDrawerPrimaryPlacement, "[data-r2-paper]"), []);
+    const { isP0 } = await import("../r2-visual-audit.mjs");
+    assert.ok(isP0("drawer|primary-in-body"));
   } finally {
     await browser.close();
   }

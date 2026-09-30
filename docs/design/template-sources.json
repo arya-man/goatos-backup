@@ -184,7 +184,9 @@
     "layouts/template/settings/drawer/nav-layout-option.tsx": "src/components/settings/drawer/nav-layout-option.tsx",
     "layouts/template/settings/drawer/icons.tsx": "src/components/settings/drawer/icons.tsx",
     "layouts/template/settings/drawer/index.ts": "src/components/settings/drawer/index.ts",
-    "layouts/template/settings/drawer/base-option.tsx": "src/components/settings/drawer/base-option.tsx"
+    "layouts/template/settings/drawer/base-option.tsx": "src/components/settings/drawer/base-option.tsx",
+    "components/minimal/assets/illustrations/page-not-found-illustration.tsx": "src/assets/illustrations/page-not-found-illustration.tsx",
+    "components/minimal/assets/illustrations/background-shape.tsx": "src/assets/illustrations/background-shape.tsx"
   },
   "verbatim": {
     "components/minimal/_shared/format-number.ts": {
@@ -201,6 +203,22 @@
         "dayjs/plugin/duration",
         "dayjs/plugin/relativeTime",
         "dayjs/plugin/utc"
+      ]
+    },
+    "components/minimal/assets/illustrations/background-shape.tsx": {
+      "sha256": "015b08403466fd1f4d109f58870f7d3b585c20d85bb0f606a36502d175c6ab92",
+      "imports": [
+        "react"
+      ]
+    },
+    "components/minimal/assets/illustrations/page-not-found-illustration.tsx": {
+      "sha256": "c978da88d746669cc8ff0d6b230a505b330aad26035c28af78fb940b6c031191",
+      "imports": [
+        "@mui/material/SvgIcon",
+        "react",
+        "@mui/material/SvgIcon",
+        "src/global-config",
+        "./background-shape"
       ]
     },
     "components/minimal/calendar/styles.tsx": {

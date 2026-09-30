@@ -58,12 +58,14 @@ export function LocalOverlayDrawer({
       icon={displayedItem.icon}
       ariaLabel={ariaLabel}
       closeLabel={closeLabel}
+      // Template action row (DialogActions / drawer footers): the dismiss button first, the item's
+      // actions (and a body form's primary, DrawerFooterActions) after it, primary right-most.
       footer={
         <>
-          {displayedItem.footer}
           <Button variant="outlined" color="inherit" onClick={closeDrawer}>
             {closeLabel}
           </Button>
+          {displayedItem.footer}
         </>
       }
     >
