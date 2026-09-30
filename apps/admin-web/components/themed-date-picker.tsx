@@ -45,6 +45,8 @@ export function ThemedDatePicker({
   value,
   onChange,
   cleared,
+  form,
+  size,
 }: {
   name: string;
   label: string;
@@ -67,6 +69,14 @@ export function ThemedDatePicker({
   onChange?: (key: string) => void;
   /** Controlled use: the field's placeholder while nothing is picked (e.g. "Any"). */
   cleared?: string;
+  /**
+   * The id of the <form> the ISO value posts with when the field sits outside it (a table row
+   * editing a record through a hidden form, /sales payments). The required-date submit guard
+   * listens on that form too.
+   */
+  form?: string;
+  /** `small` for a field inside a table row. */
+  size?: "small" | "medium";
 }) {
   const minDate = useMemo(() => parseDateKey(min), [min]);
   // parseDateKey falls back to TODAY for an absent value, so the bounds are read off the raw props
@@ -89,8 +99,8 @@ export function ThemedDatePicker({
   }, [selected]);
 
   useEffect(() => {
-    const form = anchorRef.current?.closest("form");
-    if (!form || !required) return undefined;
+    const owner = form ? document.getElementById(form) : anchorRef.current?.closest("form");
+    if (!(owner instanceof HTMLFormElement) || !required) return undefined;
     function onSubmit(event: SubmitEvent): void {
       const belowMin = minKey !== "" && selected < minKey;
       const aboveMax = maxKey !== "" && selected > maxKey;
@@ -101,14 +111,14 @@ export function ThemedDatePicker({
       event.preventDefault();
       setError(invalidDateText.replace("{date}", fmtDate(belowMin ? minKey : maxKey) || ""));
     }
-    form.addEventListener("submit", onSubmit);
-    return () => form.removeEventListener("submit", onSubmit);
-  }, [invalidDateText, maxKey, minKey, required, selected]);
+    owner.addEventListener("submit", onSubmit);
+    return () => owner.removeEventListener("submit", onSubmit);
+  }, [form, invalidDateText, maxKey, minKey, required, selected]);
 
   return (
     <Box sx={{ minWidth: 0 }}>
       {/* The ISO key is what the form submits; the field shows DD/MM/YYYY like every visible date. */}
-      <input ref={anchorRef} type="hidden" name={name} value={selected} />
+      <input ref={anchorRef} type="hidden" name={name} value={selected} form={form} />
       <DatePicker
         label={label}
         value={draft}
@@ -130,6 +140,7 @@ export function ThemedDatePicker({
           field: { clearable: !required } as never,
           textField: {
             fullWidth: true,
+            size,
             error: Boolean(error),
             helperText: error || undefined,
             placeholder: selected ? undefined : cleared,

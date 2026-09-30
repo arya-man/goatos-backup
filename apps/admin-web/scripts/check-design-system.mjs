@@ -421,6 +421,10 @@ function runGuard(root, { themeDiff }) {
       if (RAW_FLOAT_FIXED.test(code) || RAW_UNIT_TEMPLATE.test(code)) findings.push(finding("raw-float-format", file.rel, lineNo, raw));
       if (RAW_CHART_LIB.test(code)) findings.push(finding("raw-chart-lib", file.rel, lineNo, raw));
       for (const check of new Set([...cssDeclFindings(code), ...jsxStyleFindings(code), ...elementFindings(code, file.rel)])) {
+        // J1B P2-4 (FIXJ7): `role="dialog"` / `aria-modal` inside a template drawer's own opening tag
+        // (<MinimalDrawer role="dialog" …>) names the template part's role; it is not a hand-rolled
+        // dialog. The 6 raw-dialog allowances this produced were false positives.
+        if (check === "raw-dialog" && drawerLines.has(lineNo)) continue;
         findings.push(finding(check, file.rel, lineNo, raw));
       }
       for (const text of userVisibleStrings(code, file.rel)) {
@@ -1363,6 +1367,8 @@ async function selfTest() {
   // list no longer comes from them), and a documented hook (msh-side) is exempt.
   put("stories/Bad.stories.tsx", 'export const B = () => <button className="chip on">x</button>;\n');
   put("features/hooked.tsx", 'export const H = () => <nav className="msh-side">x</nav>;\n');
+  // J1B P2-4: role="dialog" on the template drawer's own tag is not a raw dialog; on a <div> it is.
+  put("features/drawer-role.tsx", 'export const D = () => (\n  <MinimalDrawer\n    open\n    role="dialog"\n  >\n    x\n  </MinimalDrawer>\n);\nexport const R = () => (\n  <div\n    role="dialog"\n  />\n);\n');
   put("app/(admin)/cardy/page.tsx", 'import { Panel } from "@/features/cardy";\nexport default function Page() { return <Panel />; }\n');
   put("app/(admin)/cardy/loading.tsx", "export default function L() { return null; }\n");
   put("features/cardy/index.ts", 'export { Panel } from "./panel";\n');
@@ -1384,6 +1390,7 @@ async function selfTest() {
     if (hits("legacy-class-use", "features/legacy-class.tsx") !== 2) problems.push(`legacy-class-use wrap+fld=${hits("legacy-class-use", "features/legacy-class.tsx")} (want 2)`);
     if (hits("legacy-class-use", "stories/Bad.stories.tsx") !== 2) problems.push(`legacy-class-use story chip+on=${hits("legacy-class-use", "stories/Bad.stories.tsx")} (want 2)`);
     if (hits("legacy-class-use", "features/hooked.tsx") !== 0) problems.push("legacy-class-use flagged the documented hook msh-side");
+    if (hits("raw-dialog", "features/drawer-role.tsx") !== 1) problems.push(`raw-dialog drawer-role=${hits("raw-dialog", "features/drawer-role.tsx")} (want 1: the <div role="dialog">, not the MinimalDrawer's role)`);
     if (hits("legacy-card-reachable", "features/cardy/panel.tsx") !== 2) problems.push(`legacy-card-reachable panel=${hits("legacy-card-reachable", "features/cardy/panel.tsx")} (want 2: card + hd through the barrel)`);
     if (hits("legacy-card-reachable", "features/orphan-card.tsx") !== 0) problems.push("legacy-card-reachable flagged a file no page imports");
     if (hits("lucide-import", "features/icons.tsx") !== 2) problems.push(`lucide-import=${hits("lucide-import", "features/icons.tsx")} (want 2)`);

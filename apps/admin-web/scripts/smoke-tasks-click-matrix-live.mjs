@@ -307,11 +307,11 @@ async function enumerate(page) {
       const roots = [document.querySelector(region), ...extras.map((s) => document.querySelector(s))].filter(Boolean);
       const seen = new Set();
       const out = [];
-      // WHAT IS OPEN OVER THE PAGE. The detail drawer, the Edit / New task modals (`aria-modal`)
-      // and the phone filter sheet (`.lt-fgroup.open`, behind its own `.lt-fscrim`) all sit on
+      // WHAT IS OPEN OVER THE PAGE. The detail drawer, the Edit / New task modals and the phone
+      // filters drawer are template MUI Dialog / Drawer parts (`aria-modal`) and all sit on
       // a scrim. While one is open, every control OUTSIDE it is legitimately inert -- the scrim
       // is the overlay doing its job. The scrim button itself is the overlay's own control.
-      const overlays = [...document.querySelectorAll('[aria-modal="true"], .lt-fgroup.open')];
+      const overlays = [...document.querySelectorAll('[aria-modal="true"]')];
       const overlayOpen = overlays.length > 0;
       const insideOverlay = (node) => overlays.some((root) => root.contains(node));
       const exposedAt = (node, x, y) => {
@@ -413,13 +413,14 @@ async function fingerprint(page) {
       selected: names('[aria-selected="true"]'),
       pressed: names('[aria-pressed="true"]'),
       checked: [...document.querySelectorAll("input:checked, [aria-checked=true]")].length,
-      onClass: document.querySelectorAll(".on").length,
-      dialogs: document.querySelectorAll('[role="dialog"].on, .lt-modal, .drawer.on, .lt-fgroup.open').length,
-      popovers: document.querySelectorAll("[data-people-popup], .MuiPopover-paper, .lt-fdrop-pop, [data-mention-popup]").length,
+      // J1B P2-4 (FIXJ7): the legacy `.on` / `.drawer.on` / `.lt-fgroup.open` / `.lt-fdrop-pop`
+      // overlays are gone; open overlays are the template MUI Dialog / Drawer / Popover parts.
+      dialogs: document.querySelectorAll('.MuiDialog-root [role="dialog"], .MuiDrawer-paper[role="dialog"], .lt-modal').length,
+      popovers: document.querySelectorAll(".MuiPopover-paper, [data-mention-popup]").length,
       detailsOpen: document.querySelectorAll("details[open]").length,
       cards: document.querySelectorAll(".ltb-card").length,
       rows: document.querySelectorAll("tbody tr").length,
-      dragging: document.querySelectorAll(".ltb-card.is-dragging, .ltb-col.is-over, .ltb-col.is-drop").length,
+      dragging: document.querySelectorAll(".ltb-card-root.--dragging, .ltb-col.ltb-drop-ok").length,
       inputs: [...document.querySelectorAll("input, select, textarea")].map((node) => node.value ?? "").join("|"),
       invalidFocused: Boolean(active && active.matches?.(":invalid")),
       textHash: hash,
@@ -733,7 +734,7 @@ async function scriptedChecks(page, viewport, task) {
       return { inSlot: Boolean(active?.closest('.lt-fslot[data-slot="assignee"] .lt-people')), expanded: active?.getAttribute("aria-expanded"), tag: active?.tagName };
     });
     if (!focused.inSlot || focused.tag !== "BUTTON") throw new Error(`focus did not return to the trigger; activeElement=${JSON.stringify(focused)}`);
-    if (phone && (await page.locator(".lt-fgroup.open").count()) !== 1) throw new Error("Escape closed the whole filter sheet instead of just the menu");
+    if (phone && (await page.locator('.MuiDrawer-root [aria-modal="true"], .MuiDrawer-paper[role="dialog"]').count()) < 1) throw new Error("Escape closed the whole filters drawer instead of just the menu");
     return `focus on the ${focused.tag.toLowerCase()} trigger (aria-expanded=${focused.expanded})`;
   });
 
