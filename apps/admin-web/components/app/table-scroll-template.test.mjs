@@ -33,7 +33,6 @@ const ALLOWED = {
   "features/counts/herd-passport-vaccination.tsx": 2,
   "features/health/health-register.tsx": 1,
   "features/health/health-types.tsx": 2,
-  "features/people/notification-matrix.tsx": 2,
   "features/preventive-care-vaccination/cohort-detail.tsx": 1,
   "features/preventive-care-vaccination/command-board-view.tsx": 11,
   "features/preventive-care-vaccination/status-matrix.tsx": 1,

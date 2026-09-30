@@ -129,18 +129,18 @@ export async function PeopleBoard({
     <>
       {actionStatus ? (
         actionStatus === "success" ? (
-          <div className="note" style={{ marginBottom: 14 }}>
+          <Alert severity="success" sx={{ mb: 2 }}>
             {actionFeedbackCopy(pageContract, actionStatus, actionKey)}
-          </div>
+          </Alert>
         ) : (
-          <Alert severity="error" style={{ marginBottom: 14 }}>
+          <Alert severity="error" sx={{ mb: 2 }}>
             {actionFeedbackCopy(pageContract, actionStatus, actionKey)}
           </Alert>
         )
       ) : null}
 
       {!result.ok ? (
-        <Alert severity="error" style={{ marginBottom: 14 }}>
+        <Alert severity="error" sx={{ mb: 2 }}>
           <b>{result.error.code ?? result.error.kind}</b>&nbsp;{result.error.message || copy(pageContract, "error.load")}
         </Alert>
       ) : null}
@@ -292,7 +292,7 @@ export async function PeopleBoard({
                 const drawerHref = hrefWithQuery(pathname, sp, { person: person.person_id });
                 return (
                   <Box component="li" key={person.person_id} sx={{ display: "flex", alignItems: "center", gap: 1, pl: 2, pr: 1, py: 1.25, borderBottom: 1, borderColor: "divider" }}>
-                    <LocalOverlayLink href={drawerHref} className="celllink" scroll={false} style={{ flex: "1 1 auto", minWidth: 0 }}>
+                    <Link component={LocalOverlayLink} href={drawerHref} scroll={false} color="inherit" underline="none" sx={{ display: "block", flex: "1 1 auto", minWidth: 0, minHeight: "var(--tap-min)" }}>
                       <Stack spacing={0.5} sx={{ minWidth: 0 }}>
                         <Stack direction="row" spacing={1} sx={{ alignItems: "center", minWidth: 0 }}>
                           <Typography variant="subtitle2" noWrap sx={{ minWidth: 0 }}>{person.display_name}</Typography>
@@ -303,7 +303,7 @@ export async function PeopleBoard({
                         </Typography>
                         <Box>{clockLabel(person)}</Box>
                       </Stack>
-                    </LocalOverlayLink>
+                    </Link>
                     <PersonAccessLauncher personId={person.person_id} personName={person.display_name} pageContract={pageContract} compact />
                   </Box>
                 );

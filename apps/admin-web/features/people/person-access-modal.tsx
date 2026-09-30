@@ -5,10 +5,12 @@ import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 
-import { AlertTriangle, ShieldCheck } from "lucide-react";
 import { useCallback, useMemo, useState, useTransition } from "react";
 
 import Box from "@mui/material/Box";
+import Chip from "@mui/material/Chip";
+import Stack from "@mui/material/Stack";
+import { Scrollbar } from "@/components/minimal/scrollbar";
 import Button from "@mui/material/Button";
 import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
@@ -209,7 +211,7 @@ export function PersonAccessModal({
   return (
     <>
         <DialogTitle component="div" sx={{ display: "flex", alignItems: "center", gap: 1.5, pr: 1.5 }}>
-          <Box component="span" aria-hidden="true" sx={{ display: "inline-flex", color: "primary.main" }}><ShieldCheck size={20} /></Box>
+          <Iconify icon="solar:shield-check-bold" width={22} sx={{ color: "primary.main", flexShrink: 0 }} />
           <Box sx={{ minWidth: 0, flexGrow: 1 }}>
             <Typography variant="h6" component="h2">
               {t("access.title")} · {access.display_name}
@@ -234,92 +236,75 @@ export function PersonAccessModal({
           ) : null}
 
           {access.warnings.map((warning) => (
-            <div key={warning.module_key} className="pa-warn">
-              <AlertTriangle size={16} aria-hidden style={{ flexShrink: 0, marginTop: 1 }} />
-              <div>
-                <b>{t("access.warning.title")}</b>
-                {warning.message}
-              </div>
-            </div>
+            <Alert key={warning.module_key} severity="warning">
+              <b>{t("access.warning.title")}</b> {warning.message}
+            </Alert>
           ))}
 
-          <div className="pa-setup">
-            <div className="fld">
+          <Stack spacing={2.5}>
+            <TextField
+              select
+              label={t("access.designation")}
+              value={draft.designationCode}
+              disabled={pending || !mayEdit}
+              onChange={(event) => applyDesignation(event.target.value)}
+              sx={{ flexShrink: 0, maxWidth: 1 }}
+              slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+            >
+              <MenuItem value="">{t("access.designation.none")}</MenuItem>
+              {access.designations.map((designation) => (
+                <MenuItem key={designation.code} value={designation.code}>
+                  {designation.label}
+                </MenuItem>
+              ))}
+            </TextField>
+
+            <Box>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>{t("access.scope")}</Typography>
+              <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", rowGap: 1 }}>
+                <ToggleChip
+                  label={t("access.scope.tenant")}
+                  on={draft.scopeMode === "tenant"}
+                  onClick={() => setDraft((c) => ({ ...c, scopeMode: "tenant" }))}
+                />
+                {access.parks.map((park) => (
+                  <ToggleChip
+                    key={park.park_id}
+                    label={park.label}
+                    on={draft.scopeMode === "parks" && draft.parkIDs.includes(park.park_id)}
+                    onClick={() =>
+                      setDraft((c) => {
+                        const parkIDs = toggle(c.scopeMode === "parks" ? c.parkIDs : [], park.park_id);
+                        // An unticked park cannot stay the home park, nor a pen-visit park.
+                        const homeParkID = parkIDs.includes(c.homeParkID) ? c.homeParkID : "";
+                        const penVisitParkIDs = c.penVisitParkIDs.filter((id) => parkIDs.includes(id));
+                        return { ...c, scopeMode: "parks", parkIDs, homeParkID, penVisitParkIDs };
+                      })
+                    }
+                  />
+                ))}
+              </Stack>
+            </Box>
+
+            {draft.scopeMode === "parks" && draft.parkIDs.length > 1 ? (
               <TextField
                 select
-                label={t("access.designation")}
-                value={draft.designationCode}
-                disabled={pending || !mayEdit}
-                onChange={(event) => applyDesignation(event.target.value)}
+                label={t("access.home_park")}
+                value={draft.homeParkID}
+                disabled={!mayEdit || pending}
+                onChange={({ target: { value: homeParkID } }) => setDraft((c) => ({ ...c, homeParkID }))}
+                helperText={t("access.home_park.hint")}
                 sx={{ flexShrink: 0, maxWidth: 1 }}
                 slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
               >
-                <MenuItem value="">{t("access.designation.none")}</MenuItem>
-                {access.designations.map((designation) => (
-                  <MenuItem key={designation.code} value={designation.code}>
-                    {designation.label}
+                <MenuItem value="">{t("access.home_park.none")}</MenuItem>
+                {access.parks
+                    .filter((park) => draft.parkIDs.includes(park.park_id)).map((park) => (
+                  <MenuItem key={park.park_id} value={park.park_id}>
+                    {park.label}
                   </MenuItem>
                 ))}
               </TextField>
-            </div>
-
-            <div>
-              <div className="pa-lbl">{t("access.scope")}</div>
-              <div className="pa-pills">
-                <button
-                  type="button"
-                  className={`pa-pill${draft.scopeMode === "tenant" ? " on" : ""}`}
-                  aria-pressed={draft.scopeMode === "tenant"}
-                  onClick={() => setDraft((c) => ({ ...c, scopeMode: "tenant" }))}
-                >
-                  {t("access.scope.tenant")}
-                </button>
-                {access.parks.map((park) => {
-                  const on = draft.scopeMode === "parks" && draft.parkIDs.includes(park.park_id);
-                  return (
-                    <button
-                      key={park.park_id}
-                      type="button"
-                      className={`pa-pill${on ? " on" : ""}`}
-                      aria-pressed={on}
-                      onClick={() =>
-                        setDraft((c) => {
-                          const parkIDs = toggle(c.scopeMode === "parks" ? c.parkIDs : [], park.park_id);
-                          // An unticked park cannot stay the home park, nor a pen-visit park.
-                          const homeParkID = parkIDs.includes(c.homeParkID) ? c.homeParkID : "";
-                          const penVisitParkIDs = c.penVisitParkIDs.filter((id) => parkIDs.includes(id));
-                          return { ...c, scopeMode: "parks", parkIDs, homeParkID, penVisitParkIDs };
-                        })
-                      }
-                    >
-                      {park.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {draft.scopeMode === "parks" && draft.parkIDs.length > 1 ? (
-              <div className="fld">
-                <TextField
-                  select
-                  label={t("access.home_park")}
-                  value={draft.homeParkID}
-                  disabled={!mayEdit || pending}
-                  onChange={({ target: { value: homeParkID } }) => setDraft((c) => ({ ...c, homeParkID }))}
-                  sx={{ flexShrink: 0, maxWidth: 1 }}
-                  slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
-                >
-                  <MenuItem value="">{t("access.home_park.none")}</MenuItem>
-                  {access.parks
-                      .filter((park) => draft.parkIDs.includes(park.park_id)).map((park) => (
-                    <MenuItem key={park.park_id} value={park.park_id}>
-                      {park.label}
-                    </MenuItem>
-                  ))}
-                </TextField>
-                <div className="pa-na">{t("access.home_park.hint")}</div>
-              </div>
             ) : null}
 
             {/* Pen visits (maintainer decision 2026-09-12): which parks' pens this person walks
@@ -327,40 +312,32 @@ export function PersonAccessModal({
                 whom may record; the label and blurb are backend copy. Only parks the person
                 covers are offered, so a visit is never owed to someone whose scope cannot
                 reach it. */}
-            <div className="pa-visits">
-              <div className="pa-lbl">{access.pen_visit_label}</div>
-              <div className="pa-pills" data-testid="pa-pen-visit-parks">
+            <Box>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>{access.pen_visit_label}</Typography>
+              <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", rowGap: 1 }} data-testid="pa-pen-visit-parks">
                 {access.parks
                   .filter((park) => draft.scopeMode === "tenant" || draft.parkIDs.includes(park.park_id))
-                  .map((park) => {
-                    const on = draft.penVisitParkIDs.includes(park.park_id);
-                    return (
-                      <button
-                        key={park.park_id}
-                        type="button"
-                        className={`pa-pill${on ? " on" : ""}`}
-                        aria-pressed={on}
-                        disabled={!mayEdit || pending}
-                        onClick={() =>
-                          setDraft((c) => ({ ...c, penVisitParkIDs: toggle(c.penVisitParkIDs, park.park_id) }))
-                        }
-                      >
-                        {park.label}
-                      </button>
-                    );
-                  })}
-              </div>
-              <div className="pa-na">{access.pen_visit_blurb}</div>
-            </div>
-          </div>
+                  .map((park) => (
+                    <ToggleChip
+                      key={park.park_id}
+                      label={park.label}
+                      on={draft.penVisitParkIDs.includes(park.park_id)}
+                      disabled={!mayEdit || pending}
+                      onClick={() => setDraft((c) => ({ ...c, penVisitParkIDs: toggle(c.penVisitParkIDs, park.park_id) }))}
+                    />
+                  ))}
+              </Stack>
+              <Typography variant="caption" component="div" sx={{ color: "text.secondary", mt: 1 }}>{access.pen_visit_blurb}</Typography>
+            </Box>
+          </Stack>
 
-          <div className="pa-gridwrap tablewrap">
-            <Table className="pa-grid">
+          <Scrollbar>
+            <Table size="small" sx={{ minWidth: 560 }}>
               <TableHead>
                 <TableRow>
                   <TableCell component="th">{t("access.column.module")}</TableCell>
-                  <TableCell component="th" className="pa-surface">{t("access.column.web")}</TableCell>
-                  <TableCell component="th" className="pa-surface">{t("access.column.mobile")}</TableCell>
+                  <TableCell component="th">{t("access.column.web")}</TableCell>
+                  <TableCell component="th">{t("access.column.mobile")}</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -368,19 +345,19 @@ export function PersonAccessModal({
                   const held = draft.modules[row.module_key] ?? { web: [], mobile: [], pages: [] };
                   const hasAny = held.web.length > 0 || held.mobile.length > 0;
                   return (
-                    <TableRow key={row.module_key} className={hasAny ? "pa-has" : undefined}>
-                      <TableCell className="pa-mod">
-                        <b>{row.label}</b>
-                        <span>{row.blurb}</span>
+                    <TableRow key={row.module_key} selected={hasAny}>
+                      <TableCell sx={{ minWidth: 200 }}>
+                        <Typography variant="subtitle2">{row.label}</Typography>
+                        <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{row.blurb}</Typography>
                       </TableCell>
                       {(["web", "mobile"] as const).map((surface) => {
                         const offered = surface === "web" ? row.offered_web : row.offered_mobile;
                         if (offered.length === 0) {
                           return (
                             <TableCell key={surface}>
-                              <span className="pa-na">
+                              <Typography variant="caption" sx={{ color: "text.disabled" }}>
                                 {t(surface === "web" ? "access.unavailable.web" : "access.unavailable.mobile")}
-                              </span>
+                              </Typography>
                             </TableCell>
                           );
                         }
@@ -391,43 +368,36 @@ export function PersonAccessModal({
                           surface === "web" && row.pages.length > 0 && held.web.length > 0;
                         return (
                           <TableCell key={surface}>
-                            <div className="pa-caps">
+                            <Stack direction="row" spacing={0.75} sx={{ flexWrap: "wrap", rowGap: 0.75 }}>
                               {offered.map((level) => {
                                 const copy = capabilityLabel(level);
-                                const on = held[surface].includes(level);
                                 return (
-                                  <button
+                                  <ToggleChip
                                     key={level}
-                                    type="button"
-                                    className={`pa-cap${on ? " on" : ""}`}
-                                    aria-pressed={on}
+                                    label={copy?.label ?? level}
                                     title={copy?.blurb}
+                                    size="small"
+                                    on={held[surface].includes(level)}
                                     disabled={pending || !mayEdit}
                                     onClick={() => setCapability(row.module_key, surface, level)}
-                                  >
-                                    {copy?.label ?? level}
-                                  </button>
+                                  />
                                 );
                               })}
-                            </div>
+                            </Stack>
                             {showPages ? (
-                              <div className="pa-pages" role="group" aria-label={t("access.pages.label")}>
-                                {row.pages.map((page) => {
-                                  const on = held.pages.includes(page.page_key);
-                                  return (
-                                    <button
-                                      key={page.page_key}
-                                      type="button"
-                                      className={`pa-page${on ? " on" : ""}`}
-                                      aria-pressed={on}
-                                      disabled={pending || !mayEdit}
-                                      onClick={() => setPage(row.module_key, page.page_key)}
-                                    >
-                                      {page.label}
-                                    </button>
-                                  );
-                                })}
-                              </div>
+                              <Stack direction="row" spacing={0.75} sx={{ flexWrap: "wrap", rowGap: 0.75, mt: 1 }} role="group" aria-label={t("access.pages.label")}>
+                                {row.pages.map((page) => (
+                                  <ToggleChip
+                                    key={page.page_key}
+                                    label={page.label}
+                                    size="small"
+                                    tone="info"
+                                    on={held.pages.includes(page.page_key)}
+                                    disabled={pending || !mayEdit}
+                                    onClick={() => setPage(row.module_key, page.page_key)}
+                                  />
+                                ))}
+                              </Stack>
                             ) : null}
                           </TableCell>
                         );
@@ -437,7 +407,7 @@ export function PersonAccessModal({
                 })}
               </TableBody>
             </Table>
-          </div>
+          </Scrollbar>
         </DialogContent>
 
         <DialogActions>
@@ -457,5 +427,39 @@ export function PersonAccessModal({
           </Box>
         </DialogActions>
     </>
+  );
+}
+
+/** A pressable template Chip: soft primary when on, outlined when off (aria-pressed carries the state). */
+function ToggleChip({
+  label,
+  on,
+  onClick,
+  disabled,
+  title,
+  size = "medium",
+  tone = "primary",
+}: {
+  label: string;
+  on: boolean;
+  onClick: () => void;
+  disabled?: boolean;
+  title?: string;
+  size?: "small" | "medium";
+  tone?: "primary" | "info";
+}) {
+  return (
+    <Chip
+      label={label}
+      title={title}
+      size={size}
+      clickable
+      disabled={disabled}
+      color={on ? tone : "default"}
+      variant={on ? "soft" : "outlined"}
+      aria-pressed={on}
+      onClick={onClick}
+      icon={on ? <Iconify icon="eva:checkmark-fill" width={16} /> : undefined}
+    />
   );
 }
