@@ -342,6 +342,21 @@ var moduleCapabilities = []ModuleCapability{
 		},
 	},
 	{
+		// Fumigation, the pen disinfectant spray (maintainer instruction 2026-09-30), planned by
+		// park heads, the Breeding Director and the Health Director. Its own row for the same
+		// reason pc_trimming is: pc_care at Configure plans every category, and these desks plan
+		// exactly one. Honoured on the same /app/pc-care/* routes; there is no second screen.
+		Key:      "pc_fumigation",
+		Label:    "Fumigation",
+		Blurb:    "Plan fumigation tasks for pens; the spraying itself is done under Preventive Care.",
+		Surfaces: []string{SurfaceWeb, SurfaceMobile},
+		Levels: map[string][]string{
+			LevelView: {PCCareMonitor},
+			// Planning without executing, the pc_care Configure shape narrowed to one category.
+			LevelConfigure: {PCCareMonitor, PCCarePlanFumigation},
+		},
+	},
+	{
 		Key:   "procurement",
 		Label: "Procurement",
 		Blurb: "Source entry: animals bought in.",

@@ -28,9 +28,11 @@ import (
 //     OWN evening cutoff (blank = the farm-wide feed_water_removal_config evening shared with
 //     weighing); the instruction on the removal card; the captures the card asks for per pen
 //     (1..8 slots, video / photo / either, compulsory or not); extra questions per pen.
-//   - PER CATEGORY: the instruction, the per-animal capture slots (1..8, at least one
-//     compulsory -- the work must be proven by something the verifier can see) and the questions
-//     answered per animal beside the captures.
+//   - PER CATEGORY: the instruction, the capture slots (1..8, at least one compulsory -- the
+//     work must be proven by something the verifier can see) and the questions answered at
+//     submit. The slots are PER ANIMAL for the five hands-on-the-animal categories and PER PEN
+//     for fumigation (2026-09-30), whose task scans no animal: the capture mode decides the
+//     grain, the document decides what is captured.
 //
 // A task is stamped with the SOP version it was PLANNED on (pc_care_tasks.sop_version, the same
 // number on every pen task of a round and on the round's removal card) and runs on that version
@@ -227,6 +229,9 @@ func ValidatePCCareSOP(dsl PCCareSOP) []string {
 	for i, c := range fwr.AppliesTo {
 		if !isSOPCategory(c) {
 			add("pc_care.feed_water_removal.applies_to.%d: %q is not a PC Care work category", i, c)
+		} else if IsPenProofCategory(c) {
+			// Fasting is for animals about to be dosed; a pen spray doses no animal.
+			add("pc_care.feed_water_removal.applies_to.%d: %q is pen work -- feed and water removal does not apply to it", i, c)
 		}
 		if seenApplies[c] {
 			add("pc_care.feed_water_removal.applies_to.%d: %q is listed twice", i, c)

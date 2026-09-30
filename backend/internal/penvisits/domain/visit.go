@@ -67,10 +67,12 @@ const (
 	ReasonTicksRemoval  = "ticks_removal"
 	ReasonHoofTrimming  = "hoof_trimming"
 	ReasonHairTrimming  = "hair_trimming"
+	// ReasonFumigation: a sprayed pen is visited the next day too (maintainer 2026-09-30).
+	ReasonFumigation = "fumigation"
 )
 
 // reasonOrder is the display order when a pen carries several reasons on one day.
-var reasonOrder = []string{ReasonVaccination, ReasonDeworming, ReasonAntiProtozoan, ReasonTicksRemoval, ReasonHoofTrimming, ReasonHairTrimming}
+var reasonOrder = []string{ReasonVaccination, ReasonDeworming, ReasonAntiProtozoan, ReasonTicksRemoval, ReasonHoofTrimming, ReasonHairTrimming, ReasonFumigation}
 
 // ReasonLabel is the farm word for a reason. Unknown keys render as themselves so a future
 // vocabulary widening never blanks a card.
@@ -88,6 +90,8 @@ func ReasonLabel(reason string) string {
 		return "Hoof trimming"
 	case ReasonHairTrimming:
 		return "Hair trimming"
+	case ReasonFumigation:
+		return "Fumigation"
 	}
 	return strings.ReplaceAll(reason, "_", " ")
 }

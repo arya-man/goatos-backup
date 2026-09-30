@@ -162,13 +162,14 @@ func (s *Service) WithNow(now func() time.Time) *Service {
 
 // planCapabilities are the capabilities that PLAN: pc_care.plan covers every planner category
 // (CEO, the weighing.plan precedent); pc_care.plan_trimming covers hoof and hair trimming only
-// (the Breeding Director, maintainer decision 2026-09-04). The route table admits either on the
+// (the Breeding Director, maintainer decision 2026-09-04); pc_care.plan_fumigation covers
+// fumigation only (park heads, the Breeding and Health Directors, 2026-09-30). The route table admits either on the
 // planner routes; WHICH category a holder may write is decided here, per request, because a
 // route cannot see a category.
-var planCapabilities = []string{permissions.PCCarePlan, permissions.PCCarePlanTrimming}
+var planCapabilities = []string{permissions.PCCarePlan, permissions.PCCarePlanTrimming, permissions.PCCarePlanFumigation}
 
 // planOrMonitorParkCapabilities is the alternative set behind every planner/oversight surface.
-var planOrMonitorParkCapabilities = []string{permissions.PCCarePlan, permissions.PCCarePlanTrimming, permissions.PCCareMonitor, permissions.PCCareOverseeOperators}
+var planOrMonitorParkCapabilities = []string{permissions.PCCarePlan, permissions.PCCarePlanTrimming, permissions.PCCarePlanFumigation, permissions.PCCareMonitor, permissions.PCCareOverseeOperators}
 
 // canPlanOrMonitor is the planner's read gate: writes belong to the plan capabilities, but
 // read-only oversight (monitor/oversee) may look at the same vocabulary.
@@ -189,7 +190,10 @@ func canPlanAny(actor domain.Actor) bool {
 // grant covers and never by a broader capability they do not hold.
 func planCapabilitiesForCategory(category string) []string {
 	if domain.IsTrimmingCategory(category) {
-		return planCapabilities
+		return []string{permissions.PCCarePlan, permissions.PCCarePlanTrimming}
+	}
+	if domain.IsFumigationCategory(category) {
+		return []string{permissions.PCCarePlan, permissions.PCCarePlanFumigation}
 	}
 	return []string{permissions.PCCarePlan}
 }
@@ -648,7 +652,7 @@ func (s *Service) plannableTaskForLifecycle(ctx context.Context, actor domain.Ac
 // ---------------------------------------------------------------------------
 
 // monitorReadCapabilities admit the flat task list.
-var monitorReadCapabilities = []string{permissions.PCCarePlan, permissions.PCCarePlanTrimming, permissions.PCCareMonitor, permissions.PCCareOverseeOperators}
+var monitorReadCapabilities = []string{permissions.PCCarePlan, permissions.PCCarePlanTrimming, permissions.PCCarePlanFumigation, permissions.PCCareMonitor, permissions.PCCareOverseeOperators}
 
 // maxPenCoverageFilterPens caps how many pens one Care Coverage request may tick. The farm has a
 // few hundred pens; a bigger list is a malformed request, refused rather than silently cut.
@@ -789,7 +793,7 @@ func (s *Service) Worklist(ctx context.Context, actor domain.Actor, category, du
 }
 
 // taskReadCapabilities admit the task detail / captures poll: workers and overseers alike.
-var taskReadCapabilities = []string{permissions.PCCareExecute, permissions.PCCarePlan, permissions.PCCarePlanTrimming, permissions.PCCareMonitor, permissions.PCCareOverseeOperators}
+var taskReadCapabilities = []string{permissions.PCCareExecute, permissions.PCCarePlan, permissions.PCCarePlanTrimming, permissions.PCCarePlanFumigation, permissions.PCCareMonitor, permissions.PCCareOverseeOperators}
 
 // GetTask reads one task (detail contract: row + expected slots composed by the handler).
 func (s *Service) GetTask(ctx context.Context, actor domain.Actor, taskID string) (ports.TaskRow, error) {
@@ -1014,7 +1018,18 @@ func (s *Service) RegisterTaskProof(ctx context.Context, actor domain.Actor, in 
 		return err
 	}
 	var slot authored.ProofSlot
-	if task.Category == domain.CategoryFeedWaterRemoval {
+	if domain.IsPenProofCategory(task.Category) {
+		// Fumigation (2026-09-30): the pen's captures are the PINNED card's category slots.
+		rules, err := s.rulesForVersion(ctx, actor.TenantID, task.SOPVersion)
+		if err != nil {
+			return err
+		}
+		penSlot, ok := rules.SlotForCategory(task.Category, in.SlotKey)
+		if !ok {
+			return domain.ErrInvalidSlotForCategory
+		}
+		slot = penSlot.ProofSlot
+	} else if task.Category == domain.CategoryFeedWaterRemoval {
 		// A single-task removal card (the kernel's own create path) runs the PINNED removal
 		// card's slots: the key must be one of them.
 		rules, err := s.rulesForVersion(ctx, actor.TenantID, task.SOPVersion)
@@ -1189,6 +1204,10 @@ func (s *Service) SubmitTask(ctx context.Context, actor domain.Actor, in SubmitT
 	default:
 		questions = rules.CategoryQuestions(task.Category)
 		slots = rules.CategorySlots(task.Category)
+		if domain.IsPenProofCategory(task.Category) {
+			// Pen work (fumigation): the same card, judged on the task's own captures.
+			removalSlots = slotsAsAuthored(slots)
+		}
 	}
 	answers := in.Answers
 	if answers == nil {

@@ -35,10 +35,17 @@ const (
 	// difference is that it has NO feed & water removal — deworming's tablet goes in the feed,
 	// this dose does not — and that difference is an absence, not a variant: the removal fields
 	// are admitted for deworming alone, so this category is refused one automatically.
-	CategoryAntiProtozoan    = "anti_protozoan"
-	CategoryTicksRemoval     = "ticks_removal"
-	CategoryHoofTrimming     = "hoof_trimming"
-	CategoryHairTrimming     = "hair_trimming"
+	CategoryAntiProtozoan = "anti_protozoan"
+	CategoryTicksRemoval  = "ticks_removal"
+	CategoryHoofTrimming  = "hoof_trimming"
+	CategoryHairTrimming  = "hair_trimming"
+	// CategoryFumigation is the pen disinfectant spray (maintainer instruction 2026-09-30): the
+	// operator mixes Virufix into water (5 ml per litre, the seeded instruction) and sprays the
+	// pen. It is PEN work, not animal work -- nothing is scanned -- so it runs the task_proof
+	// capture mode: the pen's two videos (mixing, then spraying) are the whole evidence. No feed
+	// & water removal and no planning cutoff: it may be planned for today. It is verifier-
+	// reviewed and owes the next-day pen visit like the other five.
+	CategoryFumigation       = "fumigation"
 	CategoryInventoryVaccine = "inventory_vaccine"
 	// CategoryFeedWaterRemoval is the evening-before precondition for a tablet-in-feed deworming
 	// (maintainer decision 2026-09-03): feed and water are removed from the pen the evening
@@ -49,18 +56,19 @@ const (
 )
 
 // Categories lists every valid category, in display order.
-var Categories = []string{CategoryDeworming, CategoryAntiProtozoan, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming, CategoryInventoryVaccine, CategoryFeedWaterRemoval}
+var Categories = []string{CategoryDeworming, CategoryAntiProtozoan, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming, CategoryFumigation, CategoryInventoryVaccine, CategoryFeedWaterRemoval}
 
 // PlannerCategories lists categories humans may plan through the PC Care create wizard.
 // Kernel-owned categories stay readable/listable, but are created by reconciliation stages.
-var PlannerCategories = []string{CategoryDeworming, CategoryAntiProtozoan, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming}
+var PlannerCategories = []string{CategoryDeworming, CategoryAntiProtozoan, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming, CategoryFumigation}
 
 // PenVisitCategories are the categories whose work in a pen raises the next-day pen visit
-// (maintainer decision 2026-09-12): the five hands-on-the-animal categories. A task in one of
-// these, with a shed, keeps its kernel clock open after its own videos are verified until the
+// (maintainer decision 2026-09-12): the five hands-on-the-animal categories, plus fumigation
+// (maintainer instruction 2026-09-30: a sprayed pen is visited the next day too). A task in one
+// of these, with a shed, keeps its kernel clock open after its own videos are verified until the
 // visit is verified too. It is the SAME set as PlannerCategories today and is named separately
 // because the two questions are different: what a human may plan, and what obliges a visit.
-var PenVisitCategories = []string{CategoryDeworming, CategoryAntiProtozoan, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming}
+var PenVisitCategories = []string{CategoryDeworming, CategoryAntiProtozoan, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming, CategoryFumigation}
 
 // OwesPenVisit reports whether a task of this category with this shed owes a next-day visit.
 func OwesPenVisit(category, shedID string) bool {
@@ -91,10 +99,33 @@ func IsTrimmingCategory(c string) bool {
 	return false
 }
 
+// FumigationCategories are the planner categories a holder of pc_care.plan_fumigation may plan
+// (maintainer instruction 2026-09-30: park heads, the Breeding Director and the Health Director
+// plan fumigation while the rest of PC Care stays CEO-planned). The ONE list that permission
+// covers, the TrimmingCategories shape.
+var FumigationCategories = []string{CategoryFumigation}
+
+// IsFumigationCategory reports whether c is one of FumigationCategories.
+func IsFumigationCategory(c string) bool {
+	for _, category := range FumigationCategories {
+		if c == category {
+			return true
+		}
+	}
+	return false
+}
+
+// IsPenProofCategory reports a PLANNER category whose evidence is the pen's own task-level
+// captures rather than per-animal clips (fumigation). Its task carries no animals: a scan or a
+// per-animal slot write on it is refused, and its submit is judged on pc_care_task_proofs.
+func IsPenProofCategory(c string) bool {
+	return !IsKernelOwnedCategory(c) && CaptureModeForCategory(c) == CaptureModeTaskProof
+}
+
 // IsValidCategory reports whether c names a real PC Care category.
 func IsValidCategory(c string) bool {
 	switch c {
-	case CategoryDeworming, CategoryAntiProtozoan, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming, CategoryInventoryVaccine, CategoryFeedWaterRemoval:
+	case CategoryDeworming, CategoryAntiProtozoan, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming, CategoryFumigation, CategoryInventoryVaccine, CategoryFeedWaterRemoval:
 		return true
 	}
 	return false
@@ -112,7 +143,7 @@ func IsKernelOwnedCategory(c string) bool {
 // the vaccine-stock check is recorded by park operators and approved by the PC DIRECTOR on the
 // module's own stock-verdict route — the toxin-module approval-gate shape — so the verifier
 // never sees stock work and no verification item is enqueued for it.
-var VerifierReviewedCategories = []string{CategoryDeworming, CategoryAntiProtozoan, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming, CategoryFeedWaterRemoval}
+var VerifierReviewedCategories = []string{CategoryDeworming, CategoryAntiProtozoan, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming, CategoryFumigation, CategoryFeedWaterRemoval}
 
 // IsDirectorApprovedCategory reports whether a category's submitted proof is judged by the PC
 // Director instead of the tenant verifier.
@@ -140,6 +171,8 @@ const (
 	SlotStockFridgeVideo = "stock_fridge_video"
 	SlotFeedVideo        = "feed_video"
 	SlotWaterVideo       = "water_video"
+	SlotMixingVideo      = "mixing_video"
+	SlotSprayingVideo    = "spraying_video"
 )
 
 // Capture modes (maintainer decision 2026-08-21, second pass). The quick jobs — deworming and
@@ -158,7 +191,9 @@ func CaptureModeForCategory(category string) string {
 	switch category {
 	case CategoryHoofTrimming, CategoryHairTrimming:
 		return CaptureModeRosterPick
-	case CategoryInventoryVaccine, CategoryFeedWaterRemoval:
+	// Fumigation is pen work (2026-09-30): the pen's two videos are the evidence, no animal is
+	// scanned -- the same task-level capture the fridge check and the removal card use.
+	case CategoryInventoryVaccine, CategoryFeedWaterRemoval, CategoryFumigation:
 		return CaptureModeTaskProof
 	}
 	return CaptureModeScanRecord
@@ -232,6 +267,13 @@ func legacySlotsForCategory(category string) []Slot {
 			{FieldKey: SlotDuring, Label: "While trimming", Description: "Record the hair being trimmed", MinDurationHintSeconds: 10},
 			{FieldKey: SlotAfter, Label: "After trimming", Description: "Show the trimmed coat after the work"},
 		}
+	// Fumigation (2026-09-30): two videos per PEN, never per animal -- the mix being made, then
+	// the pen being sprayed. The seed oracle for the authored card, like the five above.
+	case CategoryFumigation:
+		return []Slot{
+			{FieldKey: SlotMixingVideo, Label: "Mixing video", Description: "Show 5 ml of Virufix being mixed into each litre of water"},
+			{FieldKey: SlotSprayingVideo, Label: "Spraying video", Description: "Show the mixture being sprayed across this pen"},
+		}
 	case CategoryInventoryVaccine:
 		return []Slot{
 			{
@@ -292,6 +334,8 @@ func CategoryLabel(category string) string {
 		return "Hoof Trimming"
 	case CategoryHairTrimming:
 		return "Hair Trimming"
+	case CategoryFumigation:
+		return "Fumigation"
 	case CategoryInventoryVaccine:
 		return "Vaccine Inventory"
 	case CategoryFeedWaterRemoval:
@@ -321,6 +365,7 @@ const (
 	VerificationCategoryTicksRemoval     = "pc_ticks_removal"
 	VerificationCategoryHoofTrimming     = "pc_hoof_trimming"
 	VerificationCategoryHairTrimming     = "pc_hair_trimming"
+	VerificationCategoryFumigation       = "pc_fumigation"
 	VerificationCategoryInventoryVaccine = "inventory_vaccine"
 	VerificationCategoryFeedWaterRemoval = "pc_feed_water_removal"
 	VerificationRefTypeTask              = "pc_care_task"
@@ -344,6 +389,8 @@ func VerificationCategoryFor(category string) string {
 		return VerificationCategoryHoofTrimming
 	case CategoryHairTrimming:
 		return VerificationCategoryHairTrimming
+	case CategoryFumigation:
+		return VerificationCategoryFumigation
 	case CategoryInventoryVaccine:
 		return VerificationCategoryInventoryVaccine
 	case CategoryFeedWaterRemoval:
@@ -492,4 +539,8 @@ var (
 	// a category other than deworming — rejected loudly, never silently dropped. Surfaces as 422
 	// feed_removal_not_applicable.
 	ErrFeedRemovalNotApplicable = errors.New("pccare: the published card does not apply feed and water removal to this work")
+	// ErrNotAnimalTask is returned when a scan or a per-animal slot write targets a task whose
+	// evidence is the pen's own captures (fumigation): there is no animal to film. Surfaces as
+	// 422 not_animal_task.
+	ErrNotAnimalTask = errors.New("pccare: this work is recorded for the pen, not per animal")
 )

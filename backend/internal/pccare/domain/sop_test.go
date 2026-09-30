@@ -68,7 +68,13 @@ func TestMigrationEmbedsTheSeededPCCareSOP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read migration: %v", err)
 	}
-	seed := string(SeededPCCareSOPJSON())
+	// 000386 froze the DAY-ONE document; the live seed has since gained the fumigation card
+	// (000457, pinned below). The day-one document is kept byte for byte beside it.
+	v1, err := os.ReadFile(filepath.Join("sopseed", "pc_care_v1.json"))
+	if err != nil {
+		t.Fatalf("read v1 seed: %v", err)
+	}
+	seed := string(v1)
 	marker := "$seed$" + seed + "$seed$"
 	if n := strings.Count(string(migration), marker); n != 1 {
 		t.Fatalf("migration embeds the seed %d times, want exactly 1 (the v1 insert)", n)
@@ -78,12 +84,13 @@ func TestMigrationEmbedsTheSeededPCCareSOP(t *testing.T) {
 	if err := json.Unmarshal([]byte(seed), &fromMigration); err != nil {
 		t.Fatalf("seed json: %v", err)
 	}
-	dsl, err := ParsePCCareSOP(map[string]any{"pc_care": fromMigration})
-	if err != nil {
+	if _, err := ParsePCCareSOP(map[string]any{"pc_care": fromMigration}); err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if problems := ValidatePCCareSOP(dsl); len(problems) > 0 {
-		t.Fatalf("seed invalid: %v", problems)
+	// The day-one document predates fumigation, so it is no longer a complete card set on its
+	// own; the LIVE seed (day one + the 000457 card) is what must validate.
+	if problems := ValidatePCCareSOP(SeededRules().PCCareSOP); len(problems) > 0 {
+		t.Fatalf("live seed invalid: %v", problems)
 	}
 }
 
@@ -236,5 +243,90 @@ func TestServedRulesFillEveryList(t *testing.T) {
 	// A category block the document lost reads as the seed so the task stays workable.
 	if len(served.Categories[CategoryHoofTrimming].Proofs) != 3 {
 		t.Fatalf("hoof trimming fell back to %d slots, want the seeded 3", len(served.Categories[CategoryHoofTrimming].Proofs))
+	}
+}
+
+// TestMigrationEmbedsTheSeededFumigationCard pins migration 000457: the card it adds in place is
+// the seeded fumigation card, and the live seed is exactly the day-one document plus that card.
+func TestMigrationEmbedsTheSeededFumigationCard(t *testing.T) {
+	migration, err := os.ReadFile(filepath.Join("..", "..", "..", "migrations", "postgres", "000457_pc_care_fumigation.sql"))
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	parts := strings.Split(string(migration), "$fumigation$")
+	if len(parts) != 3 {
+		t.Fatalf("migration carries %d $fumigation$ markers, want exactly 2", len(parts)-1)
+	}
+	var embedded CategoryRules
+	if err := json.Unmarshal([]byte(parts[1]), &embedded); err != nil {
+		t.Fatalf("embedded card: %v", err)
+	}
+	seeded := SeededRules().Categories[CategoryFumigation]
+	if seeded == nil {
+		t.Fatal("the seed carries no fumigation card")
+	}
+	got, _ := json.Marshal(embedded)
+	want, _ := json.Marshal(seeded)
+	if string(got) != string(want) {
+		t.Fatalf("000457 card drifted from the seed:\n got %s\nwant %s", got, want)
+	}
+
+	v1, err := os.ReadFile(filepath.Join("sopseed", "pc_care_v1.json"))
+	if err != nil {
+		t.Fatalf("read v1 seed: %v", err)
+	}
+	var day1, live map[string]any
+	if err := json.Unmarshal(v1, &day1); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(SeededPCCareSOPJSON(), &live); err != nil {
+		t.Fatal(err)
+	}
+	var card any
+	_ = json.Unmarshal([]byte(parts[1]), &card)
+	day1["categories"].(map[string]any)[CategoryFumigation] = card
+	a, _ := json.Marshal(day1)
+	b, _ := json.Marshal(live)
+	if string(a) != string(b) {
+		t.Fatal("the live seed is not the day-one document plus the 000457 fumigation card")
+	}
+}
+
+// TestFumigationIsPenWorkWithTwoVideos: the pen's two captures, mixing then spraying, both
+// compulsory videos; no animal capture mode; never under the feed & water removal.
+func TestFumigationIsPenWorkWithTwoVideos(t *testing.T) {
+	if !IsPenProofCategory(CategoryFumigation) || CaptureModeForCategory(CategoryFumigation) != CaptureModeTaskProof {
+		t.Fatal("fumigation must be recorded per pen (task_proof)")
+	}
+	for _, c := range []string{CategoryDeworming, CategoryHoofTrimming, CategoryInventoryVaccine, CategoryFeedWaterRemoval} {
+		if IsPenProofCategory(c) {
+			t.Fatalf("%s is not a planner pen-proof category", c)
+		}
+	}
+	slots := SeededRules().CategorySlots(CategoryFumigation)
+	if len(slots) != 2 || slots[0].FieldKey != SlotMixingVideo || slots[1].FieldKey != SlotSprayingVideo {
+		t.Fatalf("slots = %+v, want mixing_video then spraying_video", slots)
+	}
+	for _, s := range slots {
+		if s.Kind != "video" || !s.Required {
+			t.Fatalf("slot %s: kind %q required %v, want a compulsory video", s.FieldKey, s.Kind, s.Required)
+		}
+	}
+	if !strings.Contains(SeededRules().Category(CategoryFumigation).Instruction, "5 ml") {
+		t.Fatal("the seeded instruction must carry the 5 ml per litre dosage")
+	}
+	if SeededRules().RemovalAppliesTo(CategoryFumigation) {
+		t.Fatal("the seed must not apply the feed & water removal to fumigation")
+	}
+	dsl := SeededRules().PCCareSOP
+	dsl.FeedWaterRemoval.AppliesTo = []string{CategoryDeworming, CategoryFumigation}
+	if problems := ValidatePCCareSOP(dsl); len(problems) == 0 {
+		t.Fatal("a removal applied to fumigation must be refused")
+	}
+	if VerificationCategoryFor(CategoryFumigation) != "pc_fumigation" {
+		t.Fatal("fumigation needs its own verifier category")
+	}
+	if !OwesPenVisit(CategoryFumigation, "shed-1") {
+		t.Fatal("a fumigated pen owes the next-day visit (2026-09-30)")
 	}
 }

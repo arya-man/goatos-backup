@@ -335,6 +335,13 @@ const (
 	// category check is the service's, because a route cannot see the body. PCCarePlan remains
 	// the superset: a holder of it plans every planner category, unchanged.
 	PCCarePlanTrimming = "pc_care.plan_trimming"
+	// PCCarePlanFumigation (maintainer instruction 2026-09-30) is CATEGORY-SCOPED planning in the
+	// PCCarePlanTrimming shape: plan and cancel PC Care tasks whose category is fumigation (the
+	// pen disinfectant spray), and nothing else. Park heads (their own park, by grant scope), the
+	// Breeding Director and the Health Director hold it; the CEO plans fumigation through
+	// PCCarePlan. The category set is pccare/domain.FumigationCategories, resolved by the service
+	// per request. No holder gets PCCareExecute from it: planning is not filming.
+	PCCarePlanFumigation = "pc_care.plan_fumigation"
 	// PCCareStockApprove (maintainer decision 2026-09-02): the vaccine-stock fridge check
 	// (category inventory_vaccine) is RECORDED BY PARK OPERATORS and APPROVED BY THE PC
 	// DIRECTOR — the director cannot be in both farms, so the park's own vaccination
@@ -1008,7 +1015,10 @@ var rolePermissions = map[string]map[string]struct{}{
 		FeedDirectionComplete:  {},
 		FeedTransportRead:      {},
 		VerificationAct:        {},
-		HealthRead:             {},
+		// Fumigation (maintainer instruction 2026-09-30): a park head plans the pen spray for
+		// their own park (the grant's park scope) and reads the PC Care board it lands on.
+		PCCareMonitor: {}, PCCarePlanFumigation: {},
+		HealthRead: {},
 		// Work Board (2026-09-10): the whole park's day, every module, park-scoped.
 		WorkBoardRead: {}, WorkBoardOversee: {},
 		// TAG ANIMALS TO A SALE, AND NOTHING ELSE OF SALES (maintainer decision 2026-09-11). The
@@ -1238,9 +1248,12 @@ var rolePermissions = map[string]map[string]struct{}{
 		// already lets this role record a clinical fact about one animal; this lets it author the
 		// standing course every animal with that disease is treated under.
 		//
-		// It does NOT come with any Preventive Care permission, and must not: pc_director and
-		// health_director are separate departments and merging them is prohibited. Vaccination
+		// PREVENTIVE CARE ACCESS (maintainer instruction 2026-09-30, REPLACING "no Preventive Care
+		// permission, and must not"): the Health Director now reads the PC Care board and plans
+		// FUMIGATION. It is still not the PC Director: no pc_care.plan (deworming, ticks and
+		// trimming stay with their planners), no execute, no stock approval, and vaccination
 		// protocol authoring stays on /config with ProtocolWrite, which this role does not hold.
+		PCCareMonitor: {}, PCCarePlanFumigation: {},
 		HealthConfigRead: {}, HealthConfigWrite: {},
 		// CONFIRMING A DIAGNOSIS (maintainer decision 2026-08-14).
 		//
@@ -1353,6 +1366,8 @@ var rolePermissions = map[string]map[string]struct{}{
 		// Alerts (2026-09-16): every director reads the page; configuring is per person.
 		AlertsRead:         {},
 		PCCarePlanTrimming: {},
+		// Fumigation (2026-09-30): the Breeding Director also plans the pen spray.
+		PCCarePlanFumigation: {},
 	},
 	RoleHR: {
 		// The HR desk (maintainer decision 2026-09-10): decides the HR line of a leave
@@ -1468,9 +1483,12 @@ var rolePermissions = map[string]map[string]struct{}{
 		// be the shed's assignee. Reopen/close authority is WeighingMonitor and is unaffected.
 		// PC Care (maintainer decision 2026-08-21): the CEO plans and monitors, exactly the
 		// weighing shape — and for the same reason NOT PCCareExecute.
-		PCCarePlan:    {},
-		PCCareMonitor: {},
-		CalendarRead:  {}, CalendarAction: {},
+		PCCarePlan: {},
+		// Fumigation (2026-09-30): a subset of PCCarePlan, held explicitly so the CEO floor's
+		// pc_fumigation row reproduces what the role already holds.
+		PCCarePlanFumigation: {},
+		PCCareMonitor:        {},
+		CalendarRead:         {}, CalendarAction: {},
 		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
 		RosterRead: {}, RosterManage: {},
 		CountsWrite:            {},

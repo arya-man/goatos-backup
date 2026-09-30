@@ -50,14 +50,6 @@
         {"key": "after_video", "title": "After trimming", "hint": "Show the trimmed coat after the work", "kind": "video", "required": true}
       ],
       "questions": []
-    },
-    "fumigation": {
-      "instruction": "Mix 5 ml of Virufix liquid into every litre of water and spray the whole pen. Record two videos for the pen: the mixing, then the spraying.",
-      "proofs": [
-        {"key": "mixing_video", "title": "Mixing video", "hint": "Show 5 ml of Virufix being mixed into each litre of water", "kind": "video", "required": true},
-        {"key": "spraying_video", "title": "Spraying video", "hint": "Show the mixture being sprayed across this pen", "kind": "video", "required": true}
-      ],
-      "questions": []
     }
   }
 }

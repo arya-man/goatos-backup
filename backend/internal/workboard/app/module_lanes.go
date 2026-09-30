@@ -29,6 +29,7 @@ var moduleLanes = map[string][]domain.Module{
 	"aas_health":       {domain.ModuleHealth},
 	"pc_care":          {domain.ModulePCCare},
 	"pc_trimming":      {domain.ModulePCCare},
+	"pc_fumigation":    {domain.ModulePCCare},
 	"procurement":      {domain.ModuleProcurement},
 	"animal_purchases": {domain.ModuleProcurement},
 	"feed_purchases":   {domain.ModuleProcurement},

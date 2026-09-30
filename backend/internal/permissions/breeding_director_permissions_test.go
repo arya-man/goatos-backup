@@ -34,8 +34,9 @@ func TestBreedingDirectorPlansTrimmingOnly(t *testing.T) {
 			t.Errorf("breeding_director must NOT hold %s", mustNot)
 		}
 	}
-	if len(perms) != 15 {
-		t.Errorf("breeding_director carries %d permissions, want exactly 15 -- widen this test deliberately, never by accident", len(perms))
+	// 2026-09-30: the desk also plans FUMIGATION (pc_care.plan_fumigation), 15 -> 16.
+	if len(perms) != 16 {
+		t.Errorf("breeding_director carries %d permissions, want exactly 16 -- widen this test deliberately, never by accident", len(perms))
 	}
 
 	// The whole-module plan is still the CEO's alone.
