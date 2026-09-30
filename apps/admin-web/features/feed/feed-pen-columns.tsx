@@ -56,7 +56,7 @@ export function FeedPenColumns({
   // tallest bar still fits under it and every pen still shares it.
   const top = niceCeiling(yMax);
   return (
-    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(auto-fill, minmax(400px, 1fr))" }, gap: 1.75, mx: { xs: 2.5, sm: 3 }, mb: { xs: 2.5, sm: 3 } }}>
+    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "repeat(2, minmax(0, 1fr))", xl: "repeat(3, minmax(0, 1fr))" }, gap: 1.75, mx: { xs: 2.5, sm: 3 }, mb: { xs: 2.5, sm: 3 } }}>
       {/* `tabIndex={0}` on each pen is main's fix (56b3da919, "make vaccination schedule scroll on
           mobile"): `.penbars` can scroll at phone width, and a scroll container nothing can focus
           cannot be scrolled from a keyboard. It survives the move into this component. */}
