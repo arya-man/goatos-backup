@@ -113,7 +113,7 @@ export async function LeavePage({
             </div>
           ) : (
             <div className="tablewrap" style={{ overflowX: "auto" }}>
-              <table className="tbl">
+              <table className="tbl dsc-rtable">
                 <thead>
                   <tr>
                     {queueLabels.map((label) => (
@@ -124,24 +124,28 @@ export async function LeavePage({
                 <tbody>
                   {queueRows.map((row) => (
                     <tr key={row.leave_request_id} data-testid="leave-queue-row">
-                      <td>
+                      <td className="dsc-rt-head">
                         <b>{row.person_name}</b>
                         {row.park_label ? <div className="small muted">{row.park_label}</div> : null}
                         {row.designation ? <div className="small muted">{row.designation}</div> : null}
                       </td>
-                      <td>
+                      <td data-label={queueLabels[1]}>
                         {row.dates_label}
                         <div className="small muted">{row.raised_at_label}</div>
                       </td>
-                      <td style={{ maxWidth: 320, whiteSpace: "normal" }}>{row.reason}</td>
-                      <td>
+                      <td data-label={queueLabels[2]} style={{ maxWidth: 320, whiteSpace: "normal" }}>
+                        {row.reason}
+                      </td>
+                      <td data-label={queueLabels[3]}>
                         {row.my_slot_label ? <Tag tone="info">{row.my_slot_label}</Tag> : null}
                         <div className="small muted" style={{ marginTop: 4 }}>
                           {row.status_line}
                         </div>
                       </td>
-                      <td>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 220 }}>
+                      <td className="dsc-rt-actions">
+                        {/* Approve on its own line; rejecting needs a reason the person will read, so the
+                            box is labelled, full width and above its button -- never squeezed beside it. */}
+                        <div className="leave-decide">
                           <form action={approveLeaveAction}>
                             <input type="hidden" name="leave_request_id" value={row.leave_request_id} />
                             <input type="hidden" name="return_to" value={returnTo} />
@@ -149,18 +153,13 @@ export async function LeavePage({
                               {t("action.approve")}
                             </button>
                           </form>
-                          <form action={rejectLeaveAction} style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
+                          <form action={rejectLeaveAction} className="leave-reject">
                             <input type="hidden" name="leave_request_id" value={row.leave_request_id} />
                             <input type="hidden" name="return_to" value={returnTo} />
-                            <input
-                              name="reason"
-                              className="inp"
-                              required
-                              placeholder={t("reject.reason_hint")}
-                              aria-label={t("reject.reason")}
-                              data-testid="leave-reject-reason"
-                              style={{ flex: 1 }}
-                            />
+                            <label className="leave-reject-field">
+                              <span className="small muted">{t("reject.reason")}</span>
+                              <input name="reason" className="inp" required maxLength={500} placeholder={t("reject.reason_hint")} data-testid="leave-reject-reason" />
+                            </label>
                             <button type="submit" className="btn dng" data-testid="leave-reject">
                               {t("action.reject")}
                             </button>
@@ -187,7 +186,7 @@ export async function LeavePage({
         <section className="card" data-testid="leave-list">
           <div className="hd" style={{ flexWrap: "wrap" }}>
             <h3 style={{ marginRight: "auto" }}>{listTable.title}</h3>
-            <div className="subtabs">
+            <div className="subtabs leave-status-tabs">
               {STATUS_FILTERS.map((key) => (
                 <Link
                   key={key || "all"}
@@ -212,7 +211,7 @@ export async function LeavePage({
             </div>
           ) : (
             <div className="tablewrap" style={{ overflowX: "auto" }}>
-              <table className="tbl">
+              <table className="tbl dsc-rtable">
                 <thead>
                   <tr>
                     {listLabels.map((label) => (
@@ -223,20 +222,22 @@ export async function LeavePage({
                 <tbody>
                   {listRows.map((row) => (
                     <tr key={row.leave_request_id} data-testid="leave-list-row">
-                      <td>
+                      <td className="dsc-rt-head">
                         <b>{row.person_name}</b>
                         {row.designation ? <div className="small muted">{row.designation}</div> : null}
                       </td>
-                      <td>{row.park_label ?? ""}</td>
-                      <td>{row.dates_label}</td>
-                      <td style={{ maxWidth: 320, whiteSpace: "normal" }}>{row.reason}</td>
-                      <td>
+                      <td data-label={listLabels[1]}>{row.park_label ?? ""}</td>
+                      <td data-label={listLabels[2]}>{row.dates_label}</td>
+                      <td data-label={listLabels[3]} style={{ maxWidth: 320, whiteSpace: "normal" }}>
+                        {row.reason}
+                      </td>
+                      <td data-label={listLabels[4]}>
                         <Tag tone={statusTone(row.status)}>{row.status_label}</Tag>
                         <div className="small muted" style={{ marginTop: 4 }}>
                           {row.status_line}
                         </div>
                       </td>
-                      <td>{row.raised_at_label}</td>
+                      <td data-label={listLabels[5]}>{row.raised_at_label}</td>
                     </tr>
                   ))}
                 </tbody>

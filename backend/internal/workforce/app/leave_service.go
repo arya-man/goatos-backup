@@ -454,7 +454,7 @@ func (s *LeaveService) composeLeave(row ports.LeaveRequestRow, viewerMemberID st
 	if approver.mayApprove() && row.Status == domain.LeaveRequestStatusPending {
 		if slot, err := resolveLeaveSlot(row, approver, "", copyMap); err == nil {
 			out.MySlot = slot
-			out.MySlotLabel = copyMap["slot."+slot]
+			out.MySlotLabel = copyMap["myslot."+slot]
 		}
 	}
 	return out
@@ -598,6 +598,8 @@ var leaveCopyEN = map[string]string{
 	"status.withdrawn":         "Withdrawn",
 	"slot.park_head":           "Park head",
 	"slot.hr":                  "HR",
+	"myslot.park_head":         "You approve as park head",
+	"myslot.hr":                "You approve as HR",
 	"line.waiting_park_head":   "Waiting for park head",
 	"line.waiting_hr":          "Waiting for HR",
 	"line.park_head_approved":  "Park head approved",

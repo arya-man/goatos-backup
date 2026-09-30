@@ -7305,6 +7305,16 @@ aside.drawer.approvals-drawer .df{flex-wrap:wrap}
   .dsc-rtable .dsc-rt-actions{padding-top:8px}
   .dsc-rtable .dsc-editor-row{border-style:dashed}
 }
+.leave-decide{display:flex;flex-direction:column;gap:10px;min-width:260px;max-width:340px}
+.leave-status-tabs{flex-wrap:wrap}
+@media (max-width:640px){
+  .main table.tbl.dsc-rtable{min-width:0;width:100%}
+  .main table.tbl.dsc-rtable td,.main table.tbl.dsc-rtable th{min-width:0;max-width:none!important;white-space:normal}
+  .leave-decide{min-width:0;max-width:none;width:100%}
+}
+.leave-reject{display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+.leave-reject-field{display:flex;flex-direction:column;gap:4px;width:100%}
+.leave-reject-field .inp{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--surf)}
 .dsc-tile-warn{border-color:var(--warn)}
 .dsc-tile-warn .dsc-tile-value{color:var(--warn)}
 .dsc-detail{color:var(--muted);margin-top:2px}
