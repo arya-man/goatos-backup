@@ -21,6 +21,7 @@
 --      published version would lean on the Go seed fallback for the new card. The card is
 --      embedded verbatim and pinned by TestMigrationEmbedsTheSeededFumigationCard.
 --   3. / 4. The planners' per-person ticks and job defaults (below), additive and ledgered.
+--   5. Virufix in Configuration › Items & categories (Consumables, ml), ledgered.
 --
 -- seed-fixture-guard:ignore: adds an operational PC Care work category and its seeded SOP card;
 -- no vaccination / HRMS / goats schema moves.
@@ -158,7 +159,42 @@ INSERT INTO public.designation_module_defaults_fumigation_backfill (designation_
 SELECT designation_code, surface, module_key FROM inserted
 ON CONFLICT DO NOTHING;
 
+-- 5. VIRUFIX IN THE ITEM CATALOGUE. Configuration › Items & categories is where the farm keeps the
+--    things its work uses; fumigation's disinfectant belongs there beside the medicines and
+--    vaccines. Filed under each tenant's root Consumables list, measured in ml, with the dosage in
+--    its notes. The code is the one the screen itself makes from the name (ITM-VIRUFIX), so the row
+--    edits like any hand-added item; an existing item named Virufix is left alone. Ledgered.
+CREATE TABLE IF NOT EXISTS public.inventory_items_fumigation_backfill (
+  tenant_id uuid NOT NULL,
+  item_id   uuid NOT NULL,
+  PRIMARY KEY (tenant_id, item_id)
+);
+
+WITH inserted AS (
+  INSERT INTO public.inventory_items (tenant_id, item_code, name, category, base_unit, category_id, context)
+  SELECT c.tenant_id, 'ITM-VIRUFIX', 'Virufix', 'consumable', 'ml', c.category_id,
+         jsonb_build_object('notes', 'Pen disinfectant for Preventive Care fumigation: 5 ml per litre of water, sprayed across the pen.')
+  FROM public.item_categories c
+  WHERE c.parent_category_id IS NULL
+    AND c.item_kind = 'consumable'
+    AND c.status = 'active'
+    AND NOT EXISTS (
+      SELECT 1 FROM public.inventory_items i
+      WHERE i.tenant_id = c.tenant_id AND (lower(i.name) = 'virufix' OR i.item_code = 'ITM-VIRUFIX')
+    )
+  ON CONFLICT (tenant_id, item_code) DO NOTHING
+  RETURNING tenant_id, item_id
+)
+INSERT INTO public.inventory_items_fumigation_backfill (tenant_id, item_id)
+SELECT tenant_id, item_id FROM inserted
+ON CONFLICT DO NOTHING;
+
 -- +goose Down
+DELETE FROM public.inventory_items i
+USING public.inventory_items_fumigation_backfill b
+WHERE i.tenant_id = b.tenant_id AND i.item_id = b.item_id;
+DROP TABLE IF EXISTS public.inventory_items_fumigation_backfill;
+
 DELETE FROM public.designation_module_defaults d
 USING public.designation_module_defaults_fumigation_backfill b
 WHERE d.designation_code = b.designation_code

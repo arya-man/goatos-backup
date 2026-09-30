@@ -1032,7 +1032,7 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 	case errors.Is(err, ports.ErrIdempotencyConflict):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, err.Error(), nil)
 	case errors.Is(err, domain.ErrProofIncomplete):
-		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "proof_incomplete", Message: "some animals are still missing required videos"}, nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "proof_incomplete", Message: "some required videos are still missing"}, nil)
 	case errors.Is(err, domain.ErrNoAnimals):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "no_animals", Message: "no animals scanned in this task yet"}, nil)
 	case errors.Is(err, domain.ErrProofRulesUnresolved):

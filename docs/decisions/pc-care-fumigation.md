@@ -29,6 +29,7 @@ also have preventive care access from now on"; a fumigated pen **owes the next-d
 | Review | The tenant verifier, verification category `pc_fumigation` under the one PC Care Verify tab. Approve completes; reject reworks the task (re-shoot, resubmit). |
 | Pen visit | Owed. `fumigation` is in `PenVisitCategories`; the materializer maps `pc_fumigation` to the reason "Fumigation". The task's kernel clock closes when the visit is verified too. |
 | Phone | A sixth PC tab, **Fumigation** (one word, four locales), spray-bottle icon. The task face is the generic served-slot list the removal card uses -- never the fridge pair. Plan / close / start again are offered only on a tab whose category the person may plan (the planner catalog's list), so a park head sees Plan on Fumigation alone. |
+| Items | Virufix is a Configuration item (Consumables, ml) carrying the dosage in its notes. |
 | Web | A Fumigation card on `/pc-care/sops` ("What the operator records, for the pen"; the removal's "work it applies to" never lists it) and a Fumigation column on Care Coverage. |
 
 ## The Health Director change
@@ -53,6 +54,15 @@ Migration `000457_pc_care_fumigation.sql`, every change additive:
    403 on the planner routes (the `000454` / `000245` defect). Ledgered, so Down removes exactly
    these rows.
 4. The same ticks as the park head / Health Director / Breeding Director job defaults.
+5. **Virufix** in Configuration › Items & categories: one item per tenant under the root Consumables
+   list, unit `ml`, code `ITM-VIRUFIX` (the code the screen itself makes), the dosage in its notes.
+   An existing Virufix is left alone; ledgered for an exact Down.
+
+## Not linked yet (recorded, not done)
+
+The SOP card's dosage is authored TEXT; it does not reference the Virufix catalogue item, and a
+fumigation does not draw Virufix stock. Linking a card to an item and deducting stock per pen is a
+separate decision (it would need the litres sprayed per pen, which nobody records today).
 
 ## Pinned by
 
