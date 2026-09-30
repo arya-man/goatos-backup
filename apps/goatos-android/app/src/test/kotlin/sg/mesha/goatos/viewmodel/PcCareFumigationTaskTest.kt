@@ -94,4 +94,40 @@ class PcCareFumigationTaskTest {
         // Catalog not loaded yet: no button rather than one that may be refused.
         assertFalse(pcCarePlanAllowedOnTab(canPlan = true, tabCategory = "fumigation", plannableCategories = emptyList()))
     }
+
+    /**
+     * Found on the Realme 2026-09-30: a REAL video recorded for mixing_video was refused as
+     * "Wrong proof type returned", because the kind check fell back to a fixed key list (fridge,
+     * feed, water) that no authored key is on. The capture is judged by the card's slot kind now,
+     * reaches the outbox, and is registered against the pen task.
+     */
+    @Test
+    fun `a video recorded for the mixing capture is accepted and registered`() = runTest(dispatcher) {
+        val repo = fumigationRepo()
+        val proofRepo = FakeProofCaptureRepository()
+        val proofSource = sg.mesha.goatos.capture.FakeProofCaptureSource(
+            mutableListOf(
+                sg.mesha.goatos.capture.CapturedVideo(
+                    localUri = "file:///mixing.mp4",
+                    mimeType = "video/mp4",
+                    startedAtMs = 1_000L,
+                    endedAtMs = 6_000L,
+                    captureSource = "in_app_camera",
+                ),
+            ),
+        )
+        val vm = buildPcCareTaskViewModel(repo, proofRepo = proofRepo, proofSource = proofSource, title = "Fumigation", category = "fumigation")
+        val collectJob = launch { vm.state.collect {} }
+        runCurrent()
+
+        vm.onEvent(sg.mesha.goatos.feature.pccare.PcCareTaskEvent.RecordTaskProof("mixing_video", "video"))
+        runCurrent()
+
+        assertEquals(1, proofSource.captureCount)
+        assertEquals("mixing_video", proofRepo.captureCalls.single().fieldKey)
+        assertEquals(1, repo.taskProofRegistrations.size)
+        assertEquals("mixing_video", repo.taskProofRegistrations.single()[1])
+        assertTrue(vm.state.value.message?.contains("Wrong proof type") != true)
+        collectJob.cancel()
+    }
 }
