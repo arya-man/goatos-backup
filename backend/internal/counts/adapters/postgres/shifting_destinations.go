@@ -7,6 +7,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	protocoldomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 )
 
@@ -190,7 +191,8 @@ func (r *Repository) ShiftingDestinationCatalog(ctx context.Context, tenantID st
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	rows, err := r.pool.Query(ctx, shiftingDestinationCatalogQuery, tenantID)
+	catalogBound := sqlbind.MustBind(shiftingDestinationCatalogQuery, tenantID)
+	rows, err := r.pool.Query(ctx, catalogBound.SQL(), catalogBound.Args()...)
 	if err != nil {
 		return domain.ShiftingDestinationCatalog{}, fmt.Errorf("counts: shifting destination catalog: %w", err)
 	}
@@ -252,8 +254,9 @@ func (r *Repository) ShiftingDestinationCatalog(ctx context.Context, tenantID st
 	if err := rows.Err(); err != nil {
 		return domain.ShiftingDestinationCatalog{}, fmt.Errorf("counts: shifting destination catalog rows: %w", err)
 	}
-	stageRows, err := r.pool.Query(ctx, `SELECT stage_code FROM animal_stage_lookup
+	stagesBound := sqlbind.MustBind(`SELECT stage_code FROM animal_stage_lookup
 WHERE tenant_id=$1::uuid AND status='active' ORDER BY sort_order, stage_code`, tenantID)
+	stageRows, err := r.pool.Query(ctx, stagesBound.SQL(), stagesBound.Args()...)
 	if err != nil {
 		return domain.ShiftingDestinationCatalog{}, fmt.Errorf("counts: shifting management stages: %w", err)
 	}
@@ -359,7 +362,8 @@ func (r *Repository) GoatShiftingFacts(ctx context.Context, tenantID string, goa
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	rows, err := r.pool.Query(ctx, goatShiftingFactsQuery, tenantID, goatIDs)
+	factsBound := sqlbind.MustBind(goatShiftingFactsQuery, tenantID, goatIDs)
+	rows, err := r.pool.Query(ctx, factsBound.SQL(), factsBound.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("counts: goat shifting facts: %w", err)
 	}
@@ -399,7 +403,8 @@ WHERE tenant_id = $1::uuid AND status = 'active' AND min_age_days IS NOT NULL`
 func (r *Repository) StageMinAgeDays(ctx context.Context, tenantID string) (map[string]int, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, stageMinAgeDaysQuery, tenantID)
+	minAgesBound := sqlbind.MustBind(stageMinAgeDaysQuery, tenantID)
+	rows, err := r.pool.Query(ctx, minAgesBound.SQL(), minAgesBound.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("counts: stage min ages: %w", err)
 	}

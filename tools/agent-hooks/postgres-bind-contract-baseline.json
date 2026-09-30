@@ -14,7 +14,6 @@
   "internal/configuration/adapters/postgres/import_store.go|unverified-dynamic-bind": 2,
   "internal/configuration/adapters/postgres/stores_reference.go|unverified-dynamic-bind": 5,
   "internal/counts/adapters/postgres/feed_projected_counts.go|unverified-dynamic-bind": 1,
-  "internal/counts/adapters/postgres/shifting_destinations.go|unverified-dynamic-bind": 1,
   "internal/countssop/adapters/postgres/capture_card_source.go|unverified-dynamic-bind": 1,
   "internal/feeddirection/adapters/postgres/packing_completions.go|unverified-dynamic-bind": 3,
   "internal/feeddirection/adapters/postgres/wastage_completions.go|unverified-dynamic-bind": 4,
