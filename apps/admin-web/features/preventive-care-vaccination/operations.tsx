@@ -11,6 +11,7 @@ import { VaccinationFullSchedule, vaccinationScheduleYear } from "./full-vaccine
 import { VaccinationCommandBoard } from "./command-board";
 import { VaccinationCommandBoardSkeleton, VaccinationFullScheduleSkeleton, VaccinationInventorySkeleton, VaccinationShedBoardSkeleton } from "./vaccination-skeletons";
 import { InventoryVaccineProgressSection } from "./inventory-vaccine-progress";
+import { isVaccinationScheduleView } from "./command-board-layout";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { StackSkeleton } from "@/components/app/skeletons";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
@@ -36,7 +37,7 @@ export function VaccinationOperationsPage({
 }) {
   const sp = searchParams ?? {};
   const scope = parseScope(sp);
-  const isFullSchedule = one(sp, "view") === "schedule";
+  const isFullSchedule = isVaccinationScheduleView(one(sp, "view"));
   const scheduleYear = vaccinationScheduleYear(sp);
 
   return (

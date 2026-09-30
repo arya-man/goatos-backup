@@ -107,7 +107,7 @@ test("vaccination schedule renders one visible row per operator day", () => {
 
 test("vaccination schedule keeps shed totals visible and partition detail out of the overview columns", () => {
   assert.match(source, /title=\{penTitle\(pen\)\}/);
-  assert.match(source, /<Label key=\{pen\.key\} variant="outlined" title=\{penTitle\(pen\)\}>/);
+  assert.match(source, /<Label key=\{pen\.key\} title=\{penTitle\(pen\)\}>/);
   assert.doesNotMatch(source, /<th>\{copy\(pageContract, "schedule\.column\.partition"\)\}<\/th>/);
   assert.doesNotMatch(source, /className="operator-day-partitions"/);
 });

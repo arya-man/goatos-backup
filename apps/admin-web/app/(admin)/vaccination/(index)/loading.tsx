@@ -1,24 +1,6 @@
-import { VACCINATION_HEADER_ACTION_WIDTHS } from "@/features/preventive-care-vaccination/command-board-layout";
-import { PageHeaderSkeleton, PageSkeleton, StackSkeleton } from "@/components/app/skeletons";
-import {
-  VaccinationCommandBoardSkeleton,
-  VaccinationInventorySkeleton,
-  VaccinationShedBoardSkeleton,
-} from "@/features/preventive-care-vaccination/vaccination-skeletons";
+import { VaccinationRouteSkeleton } from "@/features/preventive-care-vaccination/vaccination-route-skeleton";
 
-/**
- * /vaccination: header + Full schedule, then the operations column with the SAME three panel
- * skeletons the page streams its sections behind (command board, inventory progress, pen board).
- */
+/** /vaccination: the board shape, or the full-schedule shape for `?view=schedule` (the page's own predicate). */
 export default function Loading() {
-  return (
-    <PageSkeleton gap={3}>
-      <PageHeaderSkeleton crumbLink={false} actionWidths={VACCINATION_HEADER_ACTION_WIDTHS} />
-      <StackSkeleton spacing={2}>
-        <VaccinationCommandBoardSkeleton />
-        <VaccinationInventorySkeleton />
-        <VaccinationShedBoardSkeleton />
-      </StackSkeleton>
-    </PageSkeleton>
-  );
+  return <VaccinationRouteSkeleton />;
 }

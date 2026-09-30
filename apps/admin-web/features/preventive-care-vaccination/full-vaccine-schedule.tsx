@@ -515,11 +515,11 @@ export async function VaccinationFullSchedule({
                       <TableCell sx={{ maxWidth: 180 }}>
                         <DrawerLink href={drawerHref}><Typography variant="body2" component="span" noWrap title={row.parkName} sx={{ display: "block" }}>{row.parkName}</Typography></DrawerLink>
                       </TableCell>
-                      <TableCell sx={{ minWidth: 200 }}>
+                      <TableCell sx={{ minWidth: 240, maxWidth: 360 }}>
                         <DrawerLink href={drawerHref} title={row.pens.map(penTitle).join(", ")}>
                           <Stack direction="row" useFlexGap sx={{ flexWrap: "wrap", gap: 0.75 }}>
                             {row.pens.map((pen) => (
-                              <Label key={pen.key} variant="outlined" title={penTitle(pen)}>
+                              <Label key={pen.key} title={penTitle(pen)}>
                                 {pen.display}
                                 <Box component="span" sx={{ ml: 0.5, color: "text.secondary" }}>{pen.animals}</Box>
                               </Label>
@@ -527,7 +527,7 @@ export async function VaccinationFullSchedule({
                           </Stack>
                         </DrawerLink>
                       </TableCell>
-                      <TableCell sx={{ minWidth: 160 }}>
+                      <TableCell sx={{ minWidth: 120 }}>
                         <DrawerLink href={drawerHref}>
                           <Stack direction="row" useFlexGap sx={{ flexWrap: "wrap", gap: 0.75 }}>
                             {row.vaccineNames.map((vaccineName) => (
@@ -536,7 +536,7 @@ export async function VaccinationFullSchedule({
                           </Stack>
                         </DrawerLink>
                       </TableCell>
-                      <TableCell sx={{ minWidth: 220 }}>
+                      <TableCell sx={{ minWidth: 200 }}>
                         <DrawerLink href={drawerHref}>
                           {/* Operator workload: animals + doses, the animal-based bucket bar, then the bucket legend. */}
                           <Stack spacing={0.75} sx={{ maxWidth: 260 }}>
