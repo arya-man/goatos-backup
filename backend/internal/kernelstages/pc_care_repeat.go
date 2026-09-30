@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	calendarpg "github.com/vgoats/goatos/backend/internal/calendar/adapters/postgres"
 	calendarapp "github.com/vgoats/goatos/backend/internal/calendar/app"
@@ -75,4 +76,10 @@ func (s *PcCareRepeatStage) Run(ctx context.Context) error {
 			"pens_skipped", result.PensSkipped, "conflicts", result.Conflicts)
 	}
 	return nil
+}
+
+// WithClock pins the stage's clock (tests and E2E drives); production uses time.Now.
+func (s *PcCareRepeatStage) WithClock(now func() time.Time) *PcCareRepeatStage {
+	s.service.WithNow(now)
+	return s
 }
