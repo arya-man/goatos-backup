@@ -6,7 +6,7 @@ Land PR #458 (`feat/kid-stage-shift-tasks`) to `main`, then deploy STG backend/a
 
 ## Current SHA
 
-- Candidate: `544d41e2715ec90d8ead267eb0790c9cc39b5e19`
+- Candidate: `2dcb2954d3744cdd884336f7ac7dd31491a18d0c`
 - Branch: `review-pr-458`
 - PR: https://github.com/vgoats/goatos/pull/458
 - GitHub merge state before landing: `BLOCKED`
@@ -38,11 +38,12 @@ Land PR #458 (`feat/kid-stage-shift-tasks`) to `main`, then deploy STG backend/a
   - `GOATOS_CI_ONLY_STEP='android-bounded-memory-guard' tools/ci/run-local-ci.sh android`
 - Fourth `make land-main` attempt failed before push on `leadership-assistant-coverage-guard`.
 - Added `docs/ceo-ai/coverage-matrix.md` coverage for the kid-stage litter shift workflow helpers as write-path plumbing behind the existing counts shifting read surfaces.
+- Focused failing step rerun passed:
+  - `GOATOS_CI_ONLY_STEP='leadership-assistant-coverage-guard' tools/ci/run-local-ci.sh common`
 
 ## Pending
 
-- Commit the leadership assistant coverage repair.
-- Rerun focused `leadership-assistant-coverage-guard`.
+- Commit the focused coverage rerun note.
 - Rerun full `make land-main` with the OCI query-plan DSNs scoped in the environment and admin-web dependencies installed.
 - Verify local and remote `main` SHA after landing.
 - Run guarded STG deploy:
