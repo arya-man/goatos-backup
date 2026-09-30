@@ -490,7 +490,6 @@ export function LoadwiseSection({
             }}
           >
           <PagedRows
-            wrapClassName=""
             scrollbar
             ariaLabel={copy(pageContract, "section.loadwise.aria")}
             headCells={columns.map((label, index) => ({ id: `c${index}`, label, align: LOADWISE_NUM_COLUMNS.has(index) ? "right" : undefined }))}

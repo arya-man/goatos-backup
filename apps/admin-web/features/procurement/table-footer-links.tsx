@@ -13,8 +13,9 @@ import { TablePaginationLinks } from "@/components/app/table/table-pagination-li
  * contracts, whose keys these routes do not have): every label is passed in by the caller from its
  * own contract, so no route needs a new copy key to get a real footer.
  *
- * Dense is client state that belongs to the table, so the toggle puts `kit-dense` on the element
- * with id `denseTargetId` — the table's own `.tablewrap`. The choice is remembered per table id.
+ * Dense is client state that belongs to the table, so the toggle puts `data-dense` on the element
+ * with id `denseTargetId` (the table's own scroller); AppBaseline gives its body cells MUI's
+ * small-table padding.
  */
 export function ProcurementTableFooter({
   page,
@@ -58,7 +59,7 @@ export function ProcurementTableFooter({
   // setState in an effect and a first paint at the wrong density.
   useEffect(() => {
     if (!denseTargetId) return;
-    document.getElementById(denseTargetId)?.classList.toggle("kit-dense", dense);
+    document.getElementById(denseTargetId)?.toggleAttribute("data-dense", dense);
   }, [dense, denseTargetId]);
 
   const onDense = useCallback((next: boolean) => setDense(next), []);

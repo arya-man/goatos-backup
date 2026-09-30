@@ -18,7 +18,7 @@ import { defaultSettings, SettingsProvider } from '@/layouts/template/settings';
 
 import { themeConfig } from './theme-config';
 import { ThemeProvider } from './theme-provider';
-import { LegacyBaseline } from './legacy-baseline';
+import { AppBaseline } from './app-baseline';
 import { NavRailSync } from '@/components/app/nav-rail-sync';
 
 // ----------------------------------------------------------------------
@@ -45,7 +45,7 @@ export function AppThemeStack({ children, cookieSettings }: { children: React.Re
           chart / template section reading theme.palette.* painted light-mode colours in dark
           (#54A02C bars on /sales/sold). guard: theme-palette-follows-mode */}
       <ThemeProvider modeStorageKey={themeConfig.modeStorageKey} defaultMode={themeConfig.defaultMode} forceThemeRerender>
-        <LegacyBaseline />
+        <AppBaseline />
         <PhoneTapStyles />
         <ModeSync />
         <NavRailSync />

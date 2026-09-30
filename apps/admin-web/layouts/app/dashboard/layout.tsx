@@ -98,7 +98,8 @@ export function DashboardLayout({
             open={open}
             onClose={onClose}
             cssVars={navVars.section}
-            className="msh-side"
+            // Webview rule: the phone / tablet drawer items stay >= 44px taps (FIXJ6: was mesha-layout.css).
+            sx={{ '& .MuiButtonBase-root': { minHeight: 'var(--tap-min)' } }}
             aria-label={navLabel}
             slots={{
               topArea: (
@@ -128,7 +129,14 @@ export function DashboardLayout({
         slots={{ ...headerSlots, ...slotProps?.header?.slots }}
         slotProps={merge(headerSlotProps, slotProps?.header?.slotProps ?? {})}
         // Declared override (Mesha WebView): the header clears the status-bar notch under viewport-fit=cover.
-        sx={mergeSx({ pt: 'env(safe-area-inset-top, 0px)' }, slotProps?.header?.sx)}
+        // Webview rule: header icon buttons stay >= 44px taps below the desktop nav (FIXJ6: was mesha-layout.css).
+        sx={mergeSx(
+          {
+            pt: 'env(safe-area-inset-top, 0px)',
+            [theme.breakpoints.down(layoutQuery)]: { '& .MuiIconButton-root': { minWidth: 'var(--tap-min)', minHeight: 'var(--tap-min)' } },
+          },
+          slotProps?.header?.sx
+        )}
       />
     );
   };
@@ -139,7 +147,8 @@ export function DashboardLayout({
       isNavMini={isNavMini}
       layoutQuery={layoutQuery}
       cssVars={navVars.section}
-      className="msh-side"
+      // The shell's nav hook (route-pending source, smoke / overlay journeys).
+      data-shell-nav=""
       aria-label={navLabel}
       slots={{
         topArea: isNavMini ? (

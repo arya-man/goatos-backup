@@ -43,7 +43,7 @@ export const ManyRowsPhone: Story = { ...ManyRows, globals: mobile };
 /** Dense on: rows stay compact on desktop (the 72px floor is released). */
 export const Dense: Story = {
   render: () => (
-    <Card className="kit-dense" sx={{ p: { xs: 2, sm: 3 } }}>
+    <Card data-dense="" sx={{ p: { xs: 2, sm: 3 } }}>
       <CardHeader sx={{ p: 0, mb: 2 }} title="Animals" />
       <PagedRows ariaLabel="Animals" head={head} rows={rows} />
     </Card>

@@ -128,7 +128,6 @@ export function LiveTrackerSheds({
           <PagedRows
             scrollbar
             tableMinWidth={960}
-            wrapClassName=""
             ariaLabel={copy(pageContract, "section.sheds.title")}
             head={<LiveHeadRow labels={cols} numeric={[3, 4, 5, 6]} />}
             rows={shedRows}

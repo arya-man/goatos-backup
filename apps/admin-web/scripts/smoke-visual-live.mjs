@@ -2127,14 +2127,14 @@ async function clickTopBarParkHref(page, href, routeName) {
 async function assertMobileSidebarNavigation(page, routeName) {
   const originalUrl = page.url();
   // Template dashboard layout: the header MenuButton (data-nav-open) opens NavMobile, a MUI Drawer
-  // whose paper carries `.msh-side`; groups and leaves are template nav items
+  // whose paper carries `[data-shell-nav]`; groups and leaves are template nav items
   // (`.minimal__nav__item__root`: a button for a group, an anchor for a leaf).
   const menu = page.locator("button[data-nav-open]").first();
   if ((await menu.count()) !== 1) {
     throw new Error(`${routeName} mobile expected one mobile navigation menu button`);
   }
   await menu.click();
-  const sidebar = page.locator(".MuiDrawer-paper.msh-side");
+  const sidebar = page.locator(".MuiDrawer-paper[data-shell-nav]");
   await sidebar.waitFor({ state: "visible", timeout: 5_000 });
   const loadsLeaf = sidebar.locator('a.minimal__nav__item__root[href^="/sales/loads"]').first();
   if (!(await loadsLeaf.isVisible().catch(() => false))) {

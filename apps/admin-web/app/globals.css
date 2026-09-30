@@ -34,7 +34,7 @@
 
 /* The one shadcn-era token still read: Tailwind preflight's default border colour for elements
    that set a border width without a colour (the rest of the old token block, the body paint and
-   the unused fadeUp / scaleX keyframes are gone; MUI CssBaseline + LegacyBaseline paint the body). */
+   the unused fadeUp / scaleX keyframes are gone; MUI CssBaseline + AppBaseline paint the body). */
 @layer base {
   :root {
     --border: 240 3% 13%;

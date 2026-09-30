@@ -57,6 +57,8 @@ export function NavMobile({
       slotProps={{
         paper: {
           className: mergeClasses([layoutClasses.nav.root, layoutClasses.nav.vertical, className]),
+          // Mesha: the shell's nav hook (route-pending source, smoke / overlay journeys).
+          ...({ 'data-shell-nav': '' } as object),
           sx: [
             {
               overflow: 'unset',

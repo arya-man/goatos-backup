@@ -2,7 +2,6 @@ import Avatar from "@mui/material/Avatar";
 import Box from "@mui/material/Box";
 import MuiSkeleton from "@mui/material/Skeleton";
 import { KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton, TableSkeleton } from "@/components/app/skeletons";
-import "@/layouts/mesha-layout.css";
 
 // MUI Minimal DashboardLayout geometry (layouts/dashboard/css-vars.ts + layouts/core/css-vars.ts):
 // nav 300px / mini 88px (html[data-nav-rail="mini"]), hidden below lg (1200px); header 64px /
@@ -14,8 +13,7 @@ const MINI_W = 88;
 /**
  * The shell, drawn before the bootstrap contract arrives. Same geometry as the MUI Minimal
  * DashboardLayout the shell renders (layouts/dashboard), so the first paint does not jump when the
- * real shell hydrates; the page column is still `.main.msh-content > .wrap.msh-wrap` (the page
- * frame the unconverted page bodies are scoped to). No copy of its own beyond the wordmark tile.
+ * real shell hydrates; the page column is the same `main > [data-page-column]` box. No copy of its own beyond the wordmark tile.
  * FIXJ4: theme sx, no layouts/shell-skeleton.css.
  */
 export function ShellSkeleton({ children }: { children?: React.ReactNode }) {
@@ -75,8 +73,8 @@ export function ShellSkeleton({ children }: { children?: React.ReactNode }) {
           <MuiSkeleton variant="circular" width={40} height={40} />
           <MuiSkeleton variant="circular" width={40} height={40} />
         </Box>
-        <Box component="main" className="main msh-content" sx={{ flex: 1, minWidth: 0, overflow: "hidden", pt: 1, px: { xs: 2, sm: 3, lg: 5 } }}>
-          <div className="wrap msh-wrap">{children ?? <GenericPageSkeleton />}</div>
+        <Box component="main" sx={{ flex: 1, minWidth: 0, overflow: "hidden", pt: 1, px: { xs: 2, sm: 3, lg: 5 } }}>
+          <Box data-page-column="" sx={{ width: 1, minWidth: 0 }}>{children ?? <GenericPageSkeleton />}</Box>
         </Box>
       </Box>
     </Box>

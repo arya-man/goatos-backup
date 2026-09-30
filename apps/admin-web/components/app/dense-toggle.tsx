@@ -11,7 +11,7 @@ export type DenseToggleProps = {
 };
 
 // The template table footer's Dense switch (TablePaginationCustom: FormControlLabel + Switch).
-// Flipping is purely presentational: put `kit-dense` on the table wrapper and the row padding tightens.
+// Flipping is purely presentational: put `data-dense` on the table host (AppBaseline) and the row padding tightens.
 export function DenseToggle({ checked, onChange, label = "Dense", className }: DenseToggleProps) {
   return (
     <FormControlLabel

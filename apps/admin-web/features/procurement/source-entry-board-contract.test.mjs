@@ -65,15 +65,15 @@ assert.match(source, /"& \.minimal__label__root, & \.MuiChip-root": \{ whiteSpac
 }
 assert.match(source, /<ProcurementPager[\s\S]*?dense[\s\S]*?rowsPerPage=\{PAGE_SIZE\}[\s\S]*?rowsPerPageHrefs=/, "template pager: Dense + rows-per-page");
 assert.match(source, /rowsPerPageHrefs=\{pageSizes\.map\(\(size\) => \(\{ value: size, href: hrefWithQuery\(pathname, sp, \{ limit: String\(size\), cursor: null, cursor_stack: null, page: null/, "a page-size change restarts the cursor chain");
-// Same two class names, handed to the kit PagedRows that now renders this table: `.twrap` owns
-// the horizontal scroll and `.procurement-load-goats-table` carries the per-column min-widths
-// asserted below. PagedRows supplies the tabIndex/role/aria-label itself.
+// main's mobile-scroll fix (56b3da919) as theme sx on the kit PagedRows (FIXJ6: the `.twrap` /
+// `.procurement-load-goats-table` classes died with mesha-theme.css): the wrapper owns the sideways
+// scroll, the table keeps its 1280px floor and per-column min-widths.
 assert.match(
   loadDetail,
-  /<PagedRows[\s\S]*?wrapClassName="twrap"[\s\S]*?tableClassName="procurement-load-goats-table"/,
+  /<PagedRows[\s\S]*?tableMinWidth=\{LOAD_GOATS_TABLE_MIN_WIDTH\}[\s\S]*?tableSx=\{LOAD_GOATS_TABLE_SX\}/,
   "load detail animal table must use the standard mobile scroll owner",
 );
-assert.match(css, /\.main table\.procurement-load-goats-table\{min-width:1280px\}/, "load detail animal table must stay horizontally scrollable on mobile");
+assert.match(loadDetail, /const LOAD_GOATS_TABLE_MIN_WIDTH = 1280;/, "load detail animal table must stay horizontally scrollable on mobile");
 
 // TR-2 P1-6 follow-up: the New load supplier picker is built from the loads on the current page, so
 // the board must default to the contract's LARGEST page size (the backend keeps 200 in

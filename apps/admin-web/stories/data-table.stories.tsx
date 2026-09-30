@@ -40,7 +40,7 @@ function StatusChip({ status }: { status: string }) {
 
 function PenTable({ rows = PENS, dense = false, withMenu = true }: { rows?: typeof PENS; dense?: boolean; withMenu?: boolean }) {
   return (
-    <div className={cx("tablewrap", dense && "kit-dense")} tabIndex={0} role="group" aria-label="Pens">
+    <div data-dense={dense ? "" : undefined} tabIndex={0} role="group" aria-label="Pens">
       <table className="tbl">
         <thead>
           <tr>
