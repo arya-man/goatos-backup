@@ -97,7 +97,9 @@ export function SalesFarmToggle({
   return (
     // The chips' query follows the LIVE URL, so a parameter the page moved in place (Farm value's
     // applied Over 35 kg margin) survives a farm switch (defect 2026-09-25). Template pill tabs.
-    <Box sx={{ mb: 1.75 }}>
+    // No own margin: the PageRoot grid gap spaces the strip, as its twin (SalesFarmTabsSkeleton)
+    // assumes; a 14px mb here pushed every block below it off its skeleton (farm-born IoU 0.71).
+    <Box>
       <LiveQueryTabs
         pagePath={pagePath}
         ariaLabel={copy(pageContract, "filter.farm")}
