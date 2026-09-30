@@ -3,8 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import ButtonBase from "@mui/material/ButtonBase";
 import { Iconify } from "@/components/minimal/iconify";
+import { copyIconSx } from "./ceo-ai-styles";
 
-export function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
+export function CopyButton({ text, label = "Copy", inCode = false }: { text: string; label?: string; inCode?: boolean }) {
   const [done, setDone] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
@@ -34,7 +35,7 @@ export function CopyButton({ text, label = "Copy" }: { text: string; label?: str
   };
   return (
     <ButtonBase
-      className="mzai-copy-ic"
+      sx={copyIconSx(inCode)}
       aria-label={done ? "Copied" : label}
       title={done ? "Copied" : label}
       onClick={() => void copy()}

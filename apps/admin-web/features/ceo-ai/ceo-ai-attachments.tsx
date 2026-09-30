@@ -3,7 +3,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Dialog from "@mui/material/Dialog";
 import ButtonBase from "@mui/material/ButtonBase";
+import Box from "@mui/material/Box";
 import { Iconify } from "@/components/minimal/iconify";
+import {
+  lightboxBodySx,
+  lightboxCardSx,
+  lightboxCountSx,
+  lightboxNameSx,
+  lightboxNavSx,
+  lightboxPaperSx,
+  lightboxTopSx,
+  thumbNameSx,
+  thumbOpenSx,
+  thumbRemoveSx,
+  thumbSx,
+} from "./ceo-ai-styles";
 
 // A file shown in the composer tray or on a sent message. `url` is an object URL
 // (images/PDFs preview inline); other types show a file card.
@@ -52,26 +66,37 @@ export async function shrinkImage(file: File, maxSide = 2000): Promise<File> {
   return new File([blob], file.name.replace(/\.\w+$/, type === "image/jpeg" ? ".jpg" : ".png"), { type });
 }
 
-export function Thumb({ file, onOpen, onRemove }: { file: PreviewFile; onOpen: () => void; onRemove?: () => void }) {
+export function Thumb({
+  file,
+  onOpen,
+  onRemove,
+  inUserMessage = false,
+}: {
+  file: PreviewFile;
+  onOpen: () => void;
+  onRemove?: () => void;
+  /** On a sent user message the card sits on the paper surface (the bubble is tinted). */
+  inUserMessage?: boolean;
+}) {
   return (
-    <span className={`mzai-thumb${isImage(file) ? " img" : ""}`}>
-      <ButtonBase className="mzai-thumb-open" onClick={onOpen} title={file.name} aria-label={`Preview ${file.name}`}>
+    <Box component="span" sx={thumbSx}>
+      <ButtonBase sx={thumbOpenSx(isImage(file), inUserMessage)} onClick={onOpen} title={file.name} aria-label={`Preview ${file.name}`}>
         {isImage(file) ? (
           // eslint-disable-next-line @next/next/no-img-element -- local object URL preview
           <img src={file.url} alt={file.name} />
         ) : (
           <>
             <Iconify icon="solar:file-text-bold" width={16} />
-            <span className="mzai-thumb-name">{file.name}</span>
+            <Box component="span" sx={thumbNameSx}>{file.name}</Box>
           </>
         )}
       </ButtonBase>
       {onRemove ? (
-        <ButtonBase className="mzai-thumb-x" onClick={onRemove} aria-label={`Remove ${file.name}`}>
+        <ButtonBase sx={thumbRemoveSx} onClick={onRemove} aria-label={`Remove ${file.name}`}>
           <Iconify icon="mingcute:close-line" width={11} />
         </ButtonBase>
       ) : null}
-    </span>
+    </Box>
   );
 }
 
@@ -113,13 +138,13 @@ export function Lightbox({ files, start, onClose }: { files: PreviewFile[]; star
     }
     if (isPdf(file)) return <iframe src={file.url} title={file.name} />;
     return (
-      <div className="mzai-lb-card">
+      <Box sx={lightboxCardSx}>
         <Iconify icon="solar:file-text-bold" width={40} />
         <span>{file.name}</span>
         <a href={file.url} download={file.name}>
           Download
         </a>
-      </div>
+      </Box>
     );
   }, [file]);
   if (!file) return null;
@@ -132,26 +157,26 @@ export function Lightbox({ files, start, onClose }: { files: PreviewFile[]; star
         if (reason !== "escapeKeyDown") onClose();
       }}
       slotProps={{
-        paper: { className: "mzai-lb", "aria-label": file.name, onClick: onClose } as object,
+        paper: { sx: lightboxPaperSx, "aria-label": file.name, onClick: onClose } as object,
         transition: { onEntered: () => closeRef.current?.focus() },
       }}
     >
-      <div className="mzai-lb-top" onClick={(e) => e.stopPropagation()}>
-        <span className="mzai-lb-name">{file.name}</span>
-        {n > 1 ? <span className="mzai-lb-count">{i + 1} / {n}</span> : null}
+      <Box sx={lightboxTopSx} onClick={(e) => e.stopPropagation()}>
+        <Box component="span" sx={lightboxNameSx}>{file.name}</Box>
+        {n > 1 ? <Box component="span" sx={lightboxCountSx}>{i + 1} / {n}</Box> : null}
         <ButtonBase ref={closeRef} onClick={onClose} aria-label="Close preview">
           <Iconify icon="mingcute:close-line" width={18} />
         </ButtonBase>
-      </div>
-      <div className="mzai-lb-body" onClick={(e) => e.stopPropagation()}>
+      </Box>
+      <Box sx={lightboxBodySx} onClick={(e) => e.stopPropagation()}>
         {body}
-      </div>
+      </Box>
       {n > 1 ? (
         <>
-          <ButtonBase className="mzai-lb-nav prev" aria-label="Previous" onClick={(e) => { e.stopPropagation(); setI((v) => (v - 1 + n) % n); }}>
+          <ButtonBase sx={lightboxNavSx("prev")} aria-label="Previous" onClick={(e) => { e.stopPropagation(); setI((v) => (v - 1 + n) % n); }}>
             <Iconify icon="eva:arrow-ios-back-fill" width={26} />
           </ButtonBase>
-          <ButtonBase className="mzai-lb-nav next" aria-label="Next" onClick={(e) => { e.stopPropagation(); setI((v) => (v + 1) % n); }}>
+          <ButtonBase sx={lightboxNavSx("next")} aria-label="Next" onClick={(e) => { e.stopPropagation(); setI((v) => (v + 1) % n); }}>
             <Iconify icon="eva:arrow-ios-forward-fill" width={26} />
           </ButtonBase>
         </>
