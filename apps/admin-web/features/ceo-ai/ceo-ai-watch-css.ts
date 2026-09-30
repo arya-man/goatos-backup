@@ -19,7 +19,7 @@ export const WATCH_CSS = `
 .mzai-w-table{border-collapse:collapse;width:100%;font-size:12px;color:var(--ink)}
 .mzai-w-table th{position:sticky;top:0;background:var(--panel);text-align:left;font-weight:600;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
 .mzai-w-table td{padding:6px 10px;border-bottom:1px solid var(--line);vertical-align:top;white-space:nowrap}
-.mzai-w-table .num{text-align:right;font-variant-numeric:tabular-nums}
+.mzai-w-table .mzai-w-num{text-align:right;font-variant-numeric:tabular-nums}
 .mzai-w-tag{font-weight:600}
 .mzai-w-dim{display:block;font-size:11px;color:var(--muted)}
 .mzai-w-pill{display:inline-block;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:600;background:color-mix(in srgb,var(--muted) 14%,transparent);color:var(--ink)}

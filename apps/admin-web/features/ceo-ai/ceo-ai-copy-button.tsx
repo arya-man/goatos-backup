@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Check, Copy } from "lucide-react";
+import ButtonBase from "@mui/material/ButtonBase";
+import { Iconify } from "@/components/minimal/iconify";
 
 export function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
   const [done, setDone] = useState(false);
@@ -32,14 +33,13 @@ export function CopyButton({ text, label = "Copy" }: { text: string; label?: str
     timer.current = setTimeout(() => setDone(false), 1500);
   };
   return (
-    <button
-      type="button"
+    <ButtonBase
       className="mzai-copy-ic"
       aria-label={done ? "Copied" : label}
       title={done ? "Copied" : label}
       onClick={() => void copy()}
     >
-      {done ? <Check size={14} /> : <Copy size={14} />}
-    </button>
+      {done ? <Iconify icon="eva:checkmark-fill" width={14} /> : <Iconify icon="solar:copy-bold" width={14} />}
+    </ButtonBase>
   );
 }

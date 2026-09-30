@@ -4,6 +4,7 @@ import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
+import ButtonBase from "@mui/material/ButtonBase";
 
 // Live BLE ear-tag watch card for Ask Mesha (watch_tags tool). The agent server
 // polls the Herd Signals live table and streams frames; this card shows the live
@@ -105,9 +106,9 @@ export function CeoAiWatchCard(props: { watch: WatchState; onStop?: () => void }
           <>
             <span className="mzai-w-count" aria-live="off">{countdown}</span>
             {onStop ? (
-              <button type="button" className="mzai-w-stop" onClick={onStop}>
+              <ButtonBase className="mzai-w-stop" onClick={onStop}>
                 Stop watching
-              </button>
+              </ButtonBase>
             ) : null}
           </>
         ) : null}
@@ -122,9 +123,9 @@ export function CeoAiWatchCard(props: { watch: WatchState; onStop?: () => void }
                 <TableCell component="th">Tag</TableCell>
                 <TableCell component="th">Pen</TableCell>
                 <TableCell component="th">State</TableCell>
-                <TableCell component="th" className="num">Motion</TableCell>
-                {showOwn ? <TableCell component="th" className="num">vs own</TableCell> : null}
-                {showPen ? <TableCell component="th" className="num">vs pen</TableCell> : null}
+                <TableCell component="th" className="mzai-w-num">Motion</TableCell>
+                {showOwn ? <TableCell component="th" className="mzai-w-num">vs own</TableCell> : null}
+                {showPen ? <TableCell component="th" className="mzai-w-num">vs pen</TableCell> : null}
                 <TableCell component="th">Last seen</TableCell>
                 <TableCell component="th">Signal</TableCell>
               </TableRow>
@@ -145,14 +146,14 @@ export function CeoAiWatchCard(props: { watch: WatchState; onStop?: () => void }
                     {r.live_state === "moving_now" ? <span className="mzai-w-dim">moving now</span> : null}
                     {r.still_min >= 1 ? <span className="mzai-w-dim">still {r.still_min}m</span> : null}
                   </TableCell>
-                  <TableCell className="num">
+                  <TableCell className="mzai-w-num">
                     {r.motion_count ?? "—"}
                     <span className="mzai-w-dim">
                       {r.delta_since_start !== null ? `+${r.delta_since_start} since start` : ""}
                     </span>
                   </TableCell>
-                  {showOwn ? <TableCell className="num">{pct(r.vs_own_pct) ?? "—"}</TableCell> : null}
-                  {showPen ? <TableCell className="num">{pct(r.vs_pen_pct) ?? "—"}</TableCell> : null}
+                  {showOwn ? <TableCell className="mzai-w-num">{pct(r.vs_own_pct) ?? "—"}</TableCell> : null}
+                  {showPen ? <TableCell className="mzai-w-num">{pct(r.vs_pen_pct) ?? "—"}</TableCell> : null}
                   <TableCell>{ago(r.last_seen_s)}</TableCell>
                   <TableCell>
                     <span className={`mzai-w-pill ${STATUS_TONE[r.status] ?? "mut"}`}>{r.status}</span>

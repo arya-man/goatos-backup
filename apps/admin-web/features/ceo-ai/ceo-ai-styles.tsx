@@ -12,6 +12,7 @@
 // see docs/ceo-ai/access-policy.md / mascot note.
 
 import type { ReactElement } from "react";
+import Box from "@mui/material/Box";
 import { WATCH_CSS } from "./ceo-ai-watch-css";
 
 
@@ -19,11 +20,11 @@ import { WATCH_CSS } from "./ceo-ai-watch-css";
 function GoatArt(): ReactElement {
   return (
     <>
-      <path fill="#FFAC33" d="M7.44 7.503c-1-4 3.687-6 8-4 .907.421.948 1.316 0 1-3-1-6 1-4 4 1.109 1.664-3.233 2.068-4-1z" />
-      <path fill="#FFCC4D" d="M6.136 5.785c-1-4 3.687-6 8-4 .907.421.949 1.316 0 1-3-1-6 1-4 4 1.11 1.664-3.233 2.067-4-1z" />
-      <path fill="#E1E8ED" d="M5 14.785c0 4-2 4.827-2 4 0-2-1 0-1-1v-3c0-1.657.671-3 1.5-3s1.5 1.343 1.5 3z" />
-      <path fill="#CCD6DD" d="M35.159 10.49c-.68-1.643-2.313-2.705-4.159-2.705-.553 0-1 .448-1 1s.447 1 1 1c1.034 0 1.941.577 2.312 1.471.341.824.168 1.758-.455 2.647-.984-1.506-2.602-2.618-4.856-2.618-2.391 0-7.279.714-10.828 1.289-.052-.094-.105-.188-.172-.289-2-3-4-8.157-7-8.157-4 0-10 4.986-10 9.157 0 2.544 5.738 2.929 7.486 2.988.697 1.43 1.414 2.934 2.232 4.33.066.205.155.429.282.683 3 6 3.119 14.5 4.5 14.5s2.5-4.857 2.5-9c0-.151-.004-.299-.007-.447 3.126.649 6.607.322 9.677-.61 1.448 5.045 1.77 10.058 2.83 10.058 1.342 0 2.433-8.818 2.494-13.12C33.316 21.226 34 19.51 34 17.785c0-.605-.086-1.23-.248-1.843 1.614-1.644 2.143-3.676 1.407-5.452z" />
-      <circle fill="#292F33" cx="7" cy="9.285" r="1" />
+      <path fill="var(--palette-warning-main)" d="M7.44 7.503c-1-4 3.687-6 8-4 .907.421.948 1.316 0 1-3-1-6 1-4 4 1.109 1.664-3.233 2.068-4-1z" />
+      <path fill="var(--palette-warning-light)" d="M6.136 5.785c-1-4 3.687-6 8-4 .907.421.949 1.316 0 1-3-1-6 1-4 4 1.11 1.664-3.233 2.067-4-1z" />
+      <path fill="var(--palette-grey-200)" d="M5 14.785c0 4-2 4.827-2 4 0-2-1 0-1-1v-3c0-1.657.671-3 1.5-3s1.5 1.343 1.5 3z" />
+      <path fill="var(--palette-grey-300)" d="M35.159 10.49c-.68-1.643-2.313-2.705-4.159-2.705-.553 0-1 .448-1 1s.447 1 1 1c1.034 0 1.941.577 2.312 1.471.341.824.168 1.758-.455 2.647-.984-1.506-2.602-2.618-4.856-2.618-2.391 0-7.279.714-10.828 1.289-.052-.094-.105-.188-.172-.289-2-3-4-8.157-7-8.157-4 0-10 4.986-10 9.157 0 2.544 5.738 2.929 7.486 2.988.697 1.43 1.414 2.934 2.232 4.33.066.205.155.429.282.683 3 6 3.119 14.5 4.5 14.5s2.5-4.857 2.5-9c0-.151-.004-.299-.007-.447 3.126.649 6.607.322 9.677-.61 1.448 5.045 1.77 10.058 2.83 10.058 1.342 0 2.433-8.818 2.494-13.12C33.316 21.226 34 19.51 34 17.785c0-.605-.086-1.23-.248-1.843 1.614-1.644 2.143-3.676 1.407-5.452z" />
+      <circle fill="var(--palette-grey-800)" cx="7" cy="9.285" r="1" />
     </>
   );
 }
@@ -94,28 +95,30 @@ export function GoatWalking(): ReactElement {
 export function MeshaLogo(props: { width?: number; height?: number; className?: string }): ReactElement {
   const { width = 26, className } = props;
   return (
-    <span
+    <Box
+      component="span"
       aria-label="Mesha"
       role="img"
       className={className}
-      style={{
+      sx={{
         width,
         height: width,
         flex: "none",
         display: "grid",
         placeItems: "center",
         borderRadius: "50%",
-        border: "1.5px solid var(--brand)",
-        background: "var(--brand)",
-        color: "var(--on-brand, #fff)",
+        border: "1.5px solid",
+        borderColor: "primary.main",
+        bgcolor: "primary.main",
+        color: "primary.contrastText",
         fontWeight: 800,
         fontSize: Math.round(width * 0.47),
         lineHeight: 1,
-        fontFamily: "var(--f)",
+        fontFamily: "inherit",
       }}
     >
       मे
-    </span>
+    </Box>
   );
 }
 
@@ -136,34 +139,34 @@ export function CeoAiStyles(): ReactElement {
 .mzai-md p,.mzai-md li{overflow-wrap:anywhere}
 .mzai-md blockquote{margin:0 0 .7em;padding:.1em .9em;border-left:3px solid var(--brand);opacity:.9}
 .mzai-md hr{border:0;border-top:1px solid var(--line);margin:1em 0}
-.mzai-md :not(pre)>code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.86em;padding:.12em .38em;border-radius:5px;background:rgba(127,127,127,.18)}
+.mzai-md :not(pre)>code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.86em;padding:.12em .38em;border-radius:5px;background:rgba(var(--palette-grey-500Channel) / 0.18)}
 .mzai-table{overflow-x:auto;margin:.3em 0 .9em;border:1px solid var(--line);border-radius:10px}
 .mzai-md table{border-collapse:collapse;width:100%;font-size:.92em}
 .mzai-md th,.mzai-md td{padding:.45em .75em;text-align:left;white-space:nowrap;border-bottom:1px solid var(--line)}
 .mzai-md tr:last-child td{border-bottom:0}
-.mzai-md th{font-weight:700;background:rgba(127,127,127,.1)}
+.mzai-md th{font-weight:700;background:rgba(var(--palette-grey-500Channel) / 0.1)}
 .mzai-md td:not(:first-child),.mzai-md th:not(:first-child){font-variant-numeric:tabular-nums}
-.mzai-code{margin:.3em 0 .9em;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#0d1117}
-.mzai-code-head{display:flex;justify-content:space-between;align-items:center;padding:.35em .5em .35em .8em;font-size:11.5px;color:#9aa4ae;background:#161b22;border-bottom:1px solid #262c34}
+.mzai-code{margin:.3em 0 .9em;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--palette-grey-900)}
+.mzai-code-head{display:flex;justify-content:space-between;align-items:center;padding:.35em .5em .35em .8em;font-size:11.5px;color:var(--palette-grey-500);background:var(--palette-grey-800);border-bottom:1px solid var(--palette-grey-700)}
 .mzai-code-actions{display:flex;gap:6px}
-.mzai-code pre{margin:0;padding:.8em .9em;overflow-x:auto;color:#e6edf3;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1.55;white-space:pre}
+.mzai-code pre{margin:0;padding:.8em .9em;overflow-x:auto;color:var(--palette-grey-200);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1.55;white-space:pre}
 .mzai-code pre code{background:none;padding:0;font-size:inherit}
-.mzai-html{display:block;width:100%;height:320px;border:0;background:#fff}
-.mzai-copy{font:inherit;font-size:11.5px;padding:.25em .6em;border-radius:6px;border:1px solid rgba(127,127,127,.35);background:transparent;color:inherit;cursor:pointer}
-.mzai-copy:hover{background:rgba(127,127,127,.18)}
+.mzai-html{display:block;width:100%;height:320px;border:0;background:var(--palette-common-white)}
+.mzai-copy{font:inherit;font-size:11.5px;padding:.25em .6em;border-radius:6px;border:1px solid rgba(var(--palette-grey-500Channel) / 0.35);background:transparent;color:inherit;cursor:pointer}
+.mzai-copy:hover{background:rgba(var(--palette-grey-500Channel) / 0.18)}
 .mzai-copy-ic{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;
   border:0;border-radius:6px;background:transparent;color:var(--muted);cursor:pointer;opacity:.75;transition:opacity .15s,background .15s}
-.mzai-copy-ic:hover{opacity:1;background:rgba(127,127,127,.16);color:var(--ink)}
-.mzai-code .mzai-copy-ic{color:#9aa4ae;width:24px;height:24px}
-.mzai-code .mzai-copy-ic:hover{color:#e6edf3}
-.hljs-comment,.hljs-quote{color:#8b949e;font-style:italic}
-.hljs-keyword,.hljs-selector-tag,.hljs-literal,.hljs-type{color:#ff7b72}
-.hljs-string,.hljs-regexp,.hljs-addition{color:#a5d6ff}
-.hljs-number,.hljs-symbol,.hljs-bullet{color:#79c0ff}
-.hljs-title,.hljs-section,.hljs-title.function_{color:#d2a8ff}
-.hljs-attr,.hljs-attribute,.hljs-variable,.hljs-template-variable,.hljs-property{color:#79c0ff}
-.hljs-built_in,.hljs-name,.hljs-tag{color:#7ee787}
-.hljs-meta{color:#ffa657}.hljs-deletion{color:#ffa198}
+.mzai-copy-ic:hover{opacity:1;background:rgba(var(--palette-grey-500Channel) / 0.16);color:var(--ink)}
+.mzai-code .mzai-copy-ic{color:var(--palette-grey-500);width:24px;height:24px}
+.mzai-code .mzai-copy-ic:hover{color:var(--palette-grey-200)}
+.hljs-comment,.hljs-quote{color:var(--palette-grey-500);font-style:italic}
+.hljs-keyword,.hljs-selector-tag,.hljs-literal,.hljs-type{color:var(--palette-error-light)}
+.hljs-string,.hljs-regexp,.hljs-addition{color:var(--palette-info-lighter)}
+.hljs-number,.hljs-symbol,.hljs-bullet{color:var(--palette-info-light)}
+.hljs-title,.hljs-section,.hljs-title.function_{color:var(--palette-secondary-light)}
+.hljs-attr,.hljs-attribute,.hljs-variable,.hljs-template-variable,.hljs-property{color:var(--palette-info-light)}
+.hljs-built_in,.hljs-name,.hljs-tag{color:var(--palette-success-light)}
+.hljs-meta{color:var(--palette-warning-light)}.hljs-deletion{color:var(--palette-error-lighter)}
 
 /* ---- containment: nothing inside a message may widen the chat column ---- */
 .mzai-log{overflow-x:hidden}
@@ -189,14 +192,14 @@ export function CeoAiStyles(): ReactElement {
   .mzai-root.mzai-open.mzai-view-min{inset:auto 0 0 0 !important}
   .mzai-open.mzai-view-min .mzai-panel{height:auto;padding-top:0;border-top:1px solid var(--line)}
   .mzai-body{position:relative}
-  .mzai-side{position:absolute;inset:0 auto 0 0;width:min(78vw,280px);z-index:2;box-shadow:8px 0 24px rgba(0,0,0,.25)}
+  .mzai-side{position:absolute;inset:0 auto 0 0;width:min(78vw,280px);z-index:2;box-shadow:8px 0 24px rgba(var(--palette-common-blackChannel) / 0.25)}
   .mzai-msg.assistant{max-width:calc(100% - 36px)}
   .mzai-root .mzai-form textarea{font-size:16px}
 }
 .mzai-tool{flex:none;width:38px;height:38px;border-radius:10px;border:1px solid var(--line);background:transparent;
   color:var(--muted);display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
-.mzai-tool:hover{color:var(--ink);background:rgba(127,127,127,.14)}
-.mzai-tool.on{color:#fff;background:var(--danger);border-color:var(--danger);animation:mzai-pulse 1.2s ease-in-out infinite}
+.mzai-tool:hover{color:var(--ink);background:rgba(var(--palette-grey-500Channel) / 0.14)}
+.mzai-tool.mzai-tool-on{color:var(--palette-common-white);background:var(--danger);border-color:var(--danger);animation:mzai-pulse 1.2s ease-in-out infinite}
 @keyframes mzai-pulse{50%{opacity:.7}}
 .mzai-files{display:flex;flex-wrap:wrap;gap:8px;padding:10px 16px 4px;border-top:1px solid var(--line)}
 .mzai-thumb{position:relative;display:inline-flex}
@@ -208,17 +211,17 @@ export function CeoAiStyles(): ReactElement {
 .mzai-thumb-x{position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;border:1px solid var(--line);
   background:var(--panel);color:var(--ink);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 .mzai-msg-files{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
-.mzai-msg.user .mzai-thumb-open{border-color:rgba(255,255,255,.35);background:rgba(0,0,0,.12);color:#fff}
-.MuiDialog-paper.mzai-lb{background:rgba(6,10,8,.92);display:flex;flex-direction:column}
-.mzai-lb-top{display:flex;align-items:center;gap:12px;padding:12px 16px;color:#fff;font-size:13px}
+.mzai-msg.user .mzai-thumb-open{border-color:rgba(var(--palette-common-whiteChannel) / 0.35);background:rgba(var(--palette-common-blackChannel) / 0.12);color:var(--palette-common-white)}
+.MuiDialog-paper.mzai-lb{background:rgba(var(--palette-grey-900Channel) / 0.92);display:flex;flex-direction:column}
+.mzai-lb-top{display:flex;align-items:center;gap:12px;padding:12px 16px;color:var(--palette-common-white);font-size:13px}
 .mzai-lb-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mzai-lb-count{opacity:.7}
-.mzai-lb-top button,.mzai-lb-nav{border:0;background:rgba(255,255,255,.12);color:#fff;border-radius:50%;width:40px;height:40px;
+.mzai-lb-top button,.mzai-lb-nav{border:0;background:rgba(var(--palette-common-whiteChannel) / 0.12);color:var(--palette-common-white);border-radius:50%;width:40px;height:40px;
   display:flex;align-items:center;justify-content:center;cursor:pointer}
 .mzai-lb-body{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:8px 64px 24px}
 .mzai-lb-body img{max-width:100%;max-height:100%;object-fit:contain;border-radius:8px}
-.mzai-lb-body iframe{width:min(1000px,100%);height:100%;border:0;border-radius:8px;background:#fff}
-.mzai-lb-card{display:flex;flex-direction:column;align-items:center;gap:12px;color:#fff}
+.mzai-lb-body iframe{width:min(1000px,100%);height:100%;border:0;border-radius:8px;background:var(--palette-common-white)}
+.mzai-lb-card{display:flex;flex-direction:column;align-items:center;gap:12px;color:var(--palette-common-white)}
 .mzai-lb-card a{color:var(--brand)}
 .mzai-lb-nav{position:absolute;top:50%;transform:translateY(-50%)}
 .mzai-lb-nav.prev{left:12px}.mzai-lb-nav.next{right:12px}
@@ -233,11 +236,11 @@ export function CeoAiStyles(): ReactElement {
 .mzai-actions{display:flex;gap:2px;margin:-2px 0 0 2px}
 .mzai-panel{position:relative}
 .mzai-drop{position:absolute;inset:8px;z-index:5;display:flex;align-items:center;justify-content:center;border:2px dashed var(--brand);
-  border-radius:16px;background:rgba(20,28,22,.82);color:#fff;font-size:15px;font-weight:600;pointer-events:none}
+  border-radius:16px;background:rgba(var(--palette-grey-900Channel) / 0.82);color:var(--palette-common-white);font-size:15px;font-weight:600;pointer-events:none}
 .mzai-bubble{width:56px;height:56px;border-radius:50%;border:2px solid var(--brand);
   background:var(--brand);color:var(--on-brand);display:flex;align-items:center;justify-content:center;
-  cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.15);transition:transform .2s cubic-bezier(.34,.1,.64,.9),box-shadow .2s ease}
-.mzai-bubble:hover{transform:translateY(-4px);box-shadow:0 8px 20px rgba(0,0,0,.2)}
+  cursor:pointer;box-shadow:0 4px 12px rgba(var(--palette-common-blackChannel) / 0.15);transition:transform .2s cubic-bezier(.34,.1,.64,.9),box-shadow .2s ease}
+.mzai-bubble:hover{transform:translateY(-4px);box-shadow:0 8px 20px rgba(var(--palette-common-blackChannel) / 0.2)}
 .mzai-bubble:active{transform:translateY(-2px)}
 .mzai-goat-icon{width:28px;height:28px}
 @media (prefers-reduced-motion: reduce) {
@@ -247,7 +250,7 @@ export function CeoAiStyles(): ReactElement {
 }
 .mzai-panel{display:flex;flex-direction:column;height:100%;background:var(--panel);
   border:1px solid var(--line);border-radius:20px;overflow:hidden;
-  box-shadow:0 20px 60px rgba(0,0,0,.2),0 0 1px rgba(0,0,0,.1);
+  box-shadow:0 20px 60px rgba(var(--palette-common-blackChannel) / 0.2),0 0 1px rgba(var(--palette-common-blackChannel) / 0.1);
   animation:mzai-panel-open .3s cubic-bezier(.34,.1,.64,.9);overscroll-behavior:contain}
 @keyframes mzai-panel-open{from{opacity:0;transform:scale(.8) translateY(8px)}to{opacity:1;transform:scale(1) translateY(0)}}
 .mzai-head{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line);
@@ -265,7 +268,6 @@ export function CeoAiStyles(): ReactElement {
   cursor:pointer;transition:all .15s ease}
 .mzai-icon:hover{background:var(--sidebar-2);border-color:var(--brand-l)}
 .mzai-icon:active{transform:scale(.95)}
-.mzai-icon .ic{width:18px;height:18px}
 .mzai-icon[aria-pressed="true"]{background:var(--brand-soft);border-color:var(--brand);color:var(--brand-d)}
 .mzai-body{display:flex;flex:1;min-height:0}
 .mzai-side{width:200px;flex:none;border-right:1px solid var(--line);background:var(--panel-2);
@@ -275,9 +277,8 @@ export function CeoAiStyles(): ReactElement {
 .mzai-side-head span{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
 .mzai-newbtn{display:flex;align-items:center;gap:5px;border:1px solid var(--brand);background:var(--brand);
   color:var(--on-brand);border-radius:8px;padding:6px 9px;font:inherit;font-size:11px;font-weight:600;cursor:pointer;
-  transition:all .15s ease;box-shadow:0 2px 6px rgba(0,0,0,.08)}
-.mzai-newbtn:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.12)}
-.mzai-newbtn .ic{width:13px;height:13px}
+  transition:all .15s ease;box-shadow:0 2px 6px rgba(var(--palette-common-blackChannel) / 0.08)}
+.mzai-newbtn:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(var(--palette-common-blackChannel) / 0.12)}
 .mzai-threads{flex:1;overflow-y:auto;padding:6px 8px 10px;overscroll-behavior:contain}
 .mzai-thread{display:flex;align-items:center;gap:6px;border-radius:10px;padding:8px 8px;cursor:pointer;
   transition:all .12s ease}
@@ -296,7 +297,6 @@ export function CeoAiStyles(): ReactElement {
    Touch (no hover) keeps them visible; focus still reveals them for keyboards. */
 @media (hover:hover){.mzai-thread:not(:hover):not(:focus-within) .mzai-thread-act{width:0;margin-left:-6px;overflow:hidden}}
 .mzai-thread-act:hover{background:var(--danger);color:var(--danger-badge-ink)}
-.mzai-thread-act .ic{width:13px;height:13px}
 .mzai-side-empty{padding:12px;font-size:12px;color:var(--muted);line-height:1.6}
 .mzai-main{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
 .mzai-log{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:14px;overscroll-behavior:contain}
@@ -311,9 +311,9 @@ export function CeoAiStyles(): ReactElement {
 .mzai-msg.assistant .mzai-avatar{background:transparent;border:0}
 .mzai-bub{padding:12px 14px;border-radius:16px;font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word}
 .mzai-msg.user .mzai-bub{background:var(--brand);color:var(--on-brand);border-bottom-right-radius:4px;
-  box-shadow:0 2px 8px rgba(0,0,0,.1)}
+  box-shadow:0 2px 8px rgba(var(--palette-common-blackChannel) / 0.1)}
 .mzai-msg.assistant .mzai-bub{background:var(--panel-2);color:var(--ink);border:1px solid var(--line);
-  border-bottom-left-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.05)}
+  border-bottom-left-radius:4px;box-shadow:0 2px 8px rgba(var(--palette-common-blackChannel) / 0.05)}
 /* Tinted, not solid red: white on --danger fails 4.5:1 for body text. */
 .mzai-msg.error .mzai-bub{background:color-mix(in srgb,var(--danger) 14%,var(--panel-2));color:var(--ink);
   border:1px solid color-mix(in srgb,var(--danger) 55%,transparent)}
@@ -334,7 +334,6 @@ export function CeoAiStyles(): ReactElement {
 .mzai-cite.tier-cube b{color:var(--brand-d)}
 .mzai-foot{display:flex;align-items:center;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--muted);margin-top:4px}
 .mzai-mode{display:inline-flex;align-items:center;gap:4px}
-.mzai-mode .ic{width:12px;height:12px}
 .mzai-mode.degraded{color:var(--danger)}
 .mzai-fb{display:flex;align-items:center;gap:3px;margin-left:auto}
 .mzai-fb button{width:28px;height:28px;border:1px solid var(--line);background:var(--bg);border-radius:8px;
@@ -345,7 +344,6 @@ export function CeoAiStyles(): ReactElement {
   border-color:var(--brand-l);color:var(--brand-d)}
 .mzai-fb button.on-down{background:var(--error-soft);
   border-color:var(--danger);color:var(--error-ink)}
-.mzai-fb button .ic{width:13px;height:13px}
 .mzai-reason{display:flex;gap:6px;margin-top:6px}
 .mzai-reason input{flex:1;font:inherit;font-size:11.5px;border:1px solid var(--line);border-radius:8px;padding:6px 9px;
   background:var(--panel);color:var(--ink);outline:0;transition:border-color .15s ease}
@@ -359,7 +357,6 @@ export function CeoAiStyles(): ReactElement {
   font-size:12px;font-weight:600;cursor:pointer;transition:all .15s ease}
 .mzai-suggestbar button:hover,.mzai-suggestbar button[aria-expanded="true"]{border-color:var(--brand-l);
   background:linear-gradient(135deg,var(--brand-soft),var(--brand-soft));color:var(--brand-d)}
-.mzai-suggestbar .ic{width:14px;height:14px}
 .mzai-starters{display:flex;flex-wrap:wrap;gap:8px;padding:0 16px 12px;max-height:164px;
   overflow-y:auto;overscroll-behavior:contain}
 .mzai-starters button{display:flex;align-items:center;gap:6px;border:1px solid var(--line);
@@ -377,13 +374,12 @@ export function CeoAiStyles(): ReactElement {
 .mzai-form textarea::placeholder{color:var(--muted)}
 .mzai-send{width:40px;height:40px;flex:none;border-radius:12px;border:none;background:var(--brand);
   color:var(--on-brand);display:flex;align-items:center;justify-content:center;cursor:pointer;
-  transition:all .15s cubic-bezier(.34,.1,.64,.9);box-shadow:0 2px 6px rgba(0,0,0,.1)}
-.mzai-send:hover:not(:disabled){background:var(--brand-d);transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.15)}
+  transition:all .15s cubic-bezier(.34,.1,.64,.9);box-shadow:0 2px 6px rgba(var(--palette-common-blackChannel) / 0.1)}
+.mzai-send:hover:not(:disabled){background:var(--brand-d);transform:translateY(-2px);box-shadow:0 4px 12px rgba(var(--palette-common-blackChannel) / 0.15)}
 .mzai-send:active:not(:disabled){transform:translateY(0)}
 .mzai-send:disabled{opacity:.5;cursor:not-allowed}
 .mzai-send.stop{background:var(--brand);border:none;cursor:pointer}
 .mzai-send.stop:hover{background:var(--brand-d);transform:translateY(-2px)}
-.mzai-send .ic{width:18px;height:18px}
 .mzai-send .mzai-goat-walking{width:18px;height:18px}
 .mzai-banner{margin:0 16px 12px;padding:10px 12px;border-radius:12px;font-size:12px;line-height:1.5;
   display:flex;align-items:center;gap:8px;animation:mzai-slide-up .3s ease}
@@ -417,7 +413,7 @@ export function CeoAiStyles(): ReactElement {
 @media (max-width:620px){
   .mzai-root .mzai-hide-mobile{display:none}
   .mzai-side{width:min(78vw,280px)}
-  .mzai-scrim{display:block;position:absolute;inset:0;z-index:1;border:0;padding:0;background:rgba(0,0,0,.45)}
+  .mzai-scrim{display:block;position:absolute;inset:0;z-index:1;border:0;padding:0;background:rgba(var(--palette-common-blackChannel) / 0.45)}
   .mzai-form{gap:6px;padding:8px 10px}
   .mzai-tool{width:36px;height:40px}
   .mzai-send{width:40px}
@@ -438,7 +434,7 @@ export function CeoAiStyles(): ReactElement {
 .mzai-confirm{display:flex;flex-wrap:wrap;align-items:center;gap:6px;width:100%;font-size:12px;color:var(--ink)}
 .mzai-confirm>span{flex:1 1 100%}
 .mzai-confirm button{font:inherit;font-size:11.5px;padding:3px 9px;border-radius:6px;cursor:pointer}
-.mzai-confirm-yes{border:0;background:var(--danger);color:#fff}
+.mzai-confirm-yes{border:0;background:var(--danger);color:var(--palette-common-white)}
 .mzai-confirm-no{border:1px solid var(--line);background:transparent;color:var(--ink)}
 /* Phones: the launcher was hidden (no other entry point) — show a compact one,
    raised clear of browser/webview bottom toolbars. */
@@ -463,7 +459,7 @@ export function CeoAiStyles(): ReactElement {
 .mzai-steps ol{list-style:none;margin:2px 0 0;padding:0;display:flex;flex-direction:column;gap:1px}
 .mzai-steps li{display:flex;align-items:flex-start;gap:7px;padding:1px 0;min-width:0}
 .mzai-step-tx{min-width:0;overflow-wrap:anywhere}
-.mzai-steps li.more{padding-left:19px;font-size:11.5px;opacity:.7}
+.mzai-steps li.mzai-step-more{padding-left:19px;font-size:11.5px;opacity:.7}
 .mzai-step-ic{flex:none;width:12px;height:12px;margin-top:3px;display:inline-flex;align-items:center;justify-content:center;color:var(--brand)}
 .mzai-steps li.now{color:var(--ink)}
 .mzai-steps li.now .mzai-step-ic{border:1.5px solid color-mix(in srgb,var(--brand) 35%,transparent);border-top-color:var(--brand);

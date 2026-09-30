@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, FileText, X } from "lucide-react";
 import Dialog from "@mui/material/Dialog";
+import ButtonBase from "@mui/material/ButtonBase";
+import { Iconify } from "@/components/minimal/iconify";
 
 // A file shown in the composer tray or on a sent message. `url` is an object URL
 // (images/PDFs preview inline); other types show a file card.
@@ -54,21 +55,21 @@ export async function shrinkImage(file: File, maxSide = 2000): Promise<File> {
 export function Thumb({ file, onOpen, onRemove }: { file: PreviewFile; onOpen: () => void; onRemove?: () => void }) {
   return (
     <span className={`mzai-thumb${isImage(file) ? " img" : ""}`}>
-      <button type="button" className="mzai-thumb-open" onClick={onOpen} title={file.name} aria-label={`Preview ${file.name}`}>
+      <ButtonBase className="mzai-thumb-open" onClick={onOpen} title={file.name} aria-label={`Preview ${file.name}`}>
         {isImage(file) ? (
           // eslint-disable-next-line @next/next/no-img-element -- local object URL preview
           <img src={file.url} alt={file.name} />
         ) : (
           <>
-            <FileText size={16} />
+            <Iconify icon="solar:file-text-bold" width={16} />
             <span className="mzai-thumb-name">{file.name}</span>
           </>
         )}
-      </button>
+      </ButtonBase>
       {onRemove ? (
-        <button type="button" className="mzai-thumb-x" onClick={onRemove} aria-label={`Remove ${file.name}`}>
-          <X size={11} />
-        </button>
+        <ButtonBase className="mzai-thumb-x" onClick={onRemove} aria-label={`Remove ${file.name}`}>
+          <Iconify icon="mingcute:close-line" width={11} />
+        </ButtonBase>
       ) : null}
     </span>
   );
@@ -113,7 +114,7 @@ export function Lightbox({ files, start, onClose }: { files: PreviewFile[]; star
     if (isPdf(file)) return <iframe src={file.url} title={file.name} />;
     return (
       <div className="mzai-lb-card">
-        <FileText size={40} />
+        <Iconify icon="solar:file-text-bold" width={40} />
         <span>{file.name}</span>
         <a href={file.url} download={file.name}>
           Download
@@ -138,21 +139,21 @@ export function Lightbox({ files, start, onClose }: { files: PreviewFile[]; star
       <div className="mzai-lb-top" onClick={(e) => e.stopPropagation()}>
         <span className="mzai-lb-name">{file.name}</span>
         {n > 1 ? <span className="mzai-lb-count">{i + 1} / {n}</span> : null}
-        <button ref={closeRef} type="button" onClick={onClose} aria-label="Close preview">
-          <X size={18} />
-        </button>
+        <ButtonBase ref={closeRef} onClick={onClose} aria-label="Close preview">
+          <Iconify icon="mingcute:close-line" width={18} />
+        </ButtonBase>
       </div>
       <div className="mzai-lb-body" onClick={(e) => e.stopPropagation()}>
         {body}
       </div>
       {n > 1 ? (
         <>
-          <button type="button" className="mzai-lb-nav prev" aria-label="Previous" onClick={(e) => { e.stopPropagation(); setI((v) => (v - 1 + n) % n); }}>
-            <ChevronLeft size={26} />
-          </button>
-          <button type="button" className="mzai-lb-nav next" aria-label="Next" onClick={(e) => { e.stopPropagation(); setI((v) => (v + 1) % n); }}>
-            <ChevronRight size={26} />
-          </button>
+          <ButtonBase className="mzai-lb-nav prev" aria-label="Previous" onClick={(e) => { e.stopPropagation(); setI((v) => (v - 1 + n) % n); }}>
+            <Iconify icon="eva:arrow-ios-back-fill" width={26} />
+          </ButtonBase>
+          <ButtonBase className="mzai-lb-nav next" aria-label="Next" onClick={(e) => { e.stopPropagation(); setI((v) => (v + 1) % n); }}>
+            <Iconify icon="eva:arrow-ios-forward-fill" width={26} />
+          </ButtonBase>
         </>
       ) : null}
     </Dialog>

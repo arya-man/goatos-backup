@@ -1,5 +1,6 @@
 "use client";
 import Table from "@mui/material/Table";
+import ButtonBase from "@mui/material/ButtonBase";
 
 import { Children, isValidElement, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
@@ -34,9 +35,9 @@ function CodeBlock({ children }: { children?: ReactNode }) {
         <span>{lang || "text"}</span>
         <span className="mzai-code-actions">
           {isHtml ? (
-            <button type="button" className="mzai-copy" onClick={() => setPreview((p) => !p)}>
+            <ButtonBase className="mzai-copy" onClick={() => setPreview((p) => !p)}>
               {preview ? "Code" : "Preview"}
-            </button>
+            </ButtonBase>
           ) : null}
           <CopyButton text={code} label="Copy code" />
         </span>

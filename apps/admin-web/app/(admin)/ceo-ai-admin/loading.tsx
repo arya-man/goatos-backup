@@ -9,7 +9,7 @@ import { OrderToolbarSkeleton, PageHeaderSkeleton, PageSkeleton, StackSkeleton, 
  */
 export default function Loading() {
   return (
-    <PageSkeleton>
+    <PageSkeleton root="ceo-ai-admin-page" gap={3}>
       <PageHeaderSkeleton crumbLink={false} titleWidth={180} crumbWidths={[44, 150]} />
       <StackSkeleton>
         <ToolbarCardSkeleton subheaderLines={{ xs: 5, md: 2 }} toolbar={<OrderToolbarSkeleton trailing={[172]} trailingTall />} />

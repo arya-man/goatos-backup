@@ -7,24 +7,6 @@
     "fixed-px-width|features/ceo-ai/ceo-ai-styles.tsx|@media (min-width:621px){",
     "fixed-px-width|features/leadership-tasks/task-board-dnd.tsx|const DRAG_MEDIA_QUERY = \"(min-width: 761px) and (pointer: fine)\";",
     "fixed-px-width|lib/hooks.ts|return useMediaQuery(\"(min-width: 640px)\");",
-    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.hljs-attr,.hljs-attribute,.hljs-variable,.hljs-template-variable,.hljs-property{color:#79c0ff}",
-    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.hljs-built_in,.hljs-name,.hljs-tag{color:#7ee787}",
-    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.hljs-comment,.hljs-quote{color:#8b949e;font-style:italic}",
-    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.hljs-keyword,.hljs-selector-tag,.hljs-literal,.hljs-type{color:#ff7b72}",
-    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.hljs-meta{color:#ffa657}.hljs-deletion{color:#ffa198}",
-    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.hljs-number,.hljs-symbol,.hljs-bullet{color:#79c0ff}",
-    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.hljs-string,.hljs-regexp,.hljs-addition{color:#a5d6ff}",
-    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.hljs-title,.hljs-section,.hljs-title.function_{color:#d2a8ff}",
-    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-code .mzai-copy-ic:hover{color:#e6edf3}",
-    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-code .mzai-copy-ic{color:#9aa4ae;width:24px;height:24px}",
-    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-code pre{margin:0;padding:.8em .9em;overflow-x:auto;color:#e6edf3;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1.5",
-    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-code-head{display:flex;justify-content:space-between;align-items:center;padding:.35em .5em .35em .8em;font-size:11.5px;color:#9aa4ae;background:#161b22;bo",
-    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-code{margin:.3em 0 .9em;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#0d1117}",
-    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|<circle fill=\"#292F33\" cx=\"7\" cy=\"9.285\" r=\"1\" />",
-    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|<path fill=\"#CCD6DD\" d=\"M35.159 10.49c-.68-1.643-2.313-2.705-4.159-2.705-.553 0-1 .448-1 1s.447 1 1 1c1.034 0 1.941.577 2.312 1.471.341.824.168 1.758-.455 2.647",
-    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|<path fill=\"#E1E8ED\" d=\"M5 14.785c0 4-2 4.827-2 4 0-2-1 0-1-1v-3c0-1.657.671-3 1.5-3s1.5 1.343 1.5 3z\" />",
-    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|<path fill=\"#FFAC33\" d=\"M7.44 7.503c-1-4 3.687-6 8-4 .907.421.948 1.316 0 1-3-1-6 1-4 4 1.109 1.664-3.233 2.068-4-1z\" />",
-    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|<path fill=\"#FFCC4D\" d=\"M6.136 5.785c-1-4 3.687-6 8-4 .907.421.949 1.316 0 1-3-1-6 1-4 4 1.11 1.664-3.233 2.067-4-1z\" />",
     "missing-loading-tsx|app/(admin)/actions/page.tsx|no sibling loading.tsx",
     "missing-loading-tsx|app/(admin)/page.tsx|no sibling loading.tsx",
     "missing-loading-tsx|app/(admin)/procurement/page.tsx|no sibling loading.tsx",
@@ -116,28 +98,7 @@
     "legacy-table-paint|app/minimal-theme.css|.wrap .card>.twrap tbody tr:hover>th:first-child",
     "legacy-table-paint|app/minimal-theme.css|.wrap .kit-tablecard .tablewrap tbody tr:hover>td:first-child",
     "legacy-table-paint|app/minimal-theme.css|.wrap .kit-tablecard .tablewrap tbody tr:hover>th:first-child",
-    "legacy-table-paint|app/minimal-theme.css|.wrap .kit-tablecard .twrap tbody tr:hover>td:first-child",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-md :not(pre)>code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.86em;padding:.12em .38em;border-radius:5px;background:rgba(127,127,12",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-md th{font-weight:700;background:rgba(127,127,127,.1)}",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-copy{font:inherit;font-size:11.5px;padding:.25em .6em;border-radius:6px;border:1px solid rgba(127,127,127,.35);background:transparent;color:inherit;cursor",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-copy:hover{background:rgba(127,127,127,.18)}",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-copy-ic:hover{opacity:1;background:rgba(127,127,127,.16);color:var(--ink)}",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-side{position:absolute;inset:0 auto 0 0;width:min(78vw,280px);z-index:2;box-shadow:8px 0 24px rgba(0,0,0,.25)}",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-tool:hover{color:var(--ink);background:rgba(127,127,127,.14)}",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-msg.user .mzai-thumb-open{border-color:rgba(255,255,255,.35);background:rgba(0,0,0,.12);color:#fff}",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.MuiDialog-paper.mzai-lb{background:rgba(6,10,8,.92);display:flex;flex-direction:column}",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-lb-top button,.mzai-lb-nav{border:0;background:rgba(255,255,255,.12);color:#fff;border-radius:50%;width:40px;height:40px;",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|border-radius:16px;background:rgba(20,28,22,.82);color:#fff;font-size:15px;font-weight:600;pointer-events:none}",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.15);transition:transform .2s cubic-bezier(.34,.1,.64,.9),box-shadow .2s ease}",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-bubble:hover{transform:translateY(-4px);box-shadow:0 8px 20px rgba(0,0,0,.2)}",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|box-shadow:0 20px 60px rgba(0,0,0,.2),0 0 1px rgba(0,0,0,.1);",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|transition:all .15s ease;box-shadow:0 2px 6px rgba(0,0,0,.08)}",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-newbtn:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.12)}",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|box-shadow:0 2px 8px rgba(0,0,0,.1)}",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|border-bottom-left-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.05)}",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|transition:all .15s cubic-bezier(.34,.1,.64,.9);box-shadow:0 2px 6px rgba(0,0,0,.1)}",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-send:hover:not(:disabled){background:var(--brand-d);transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.15)}",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-scrim{display:block;position:absolute;inset:0;z-index:1;border:0;padding:0;background:rgba(0,0,0,.45)}"
+    "legacy-table-paint|app/minimal-theme.css|.wrap .kit-tablecard .twrap tbody tr:hover>td:first-child"
   ],
   "reasons": {
     "technical-copy|components/data-table.tsx|throw new Error(`data-table: no cell renderer for contract column \"${column.key}\"`);": "developer invariant: fires only on a build/contract shape mismatch, caught by the error boundary which shows generic copy; not a message a user reads",
@@ -206,28 +167,7 @@
     "legacy-table-paint|app/minimal-theme.css|.wrap .card>.twrap tbody tr:hover>th:first-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/minimal-theme.css|.wrap .kit-tablecard .tablewrap tbody tr:hover>td:first-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/minimal-theme.css|.wrap .kit-tablecard .tablewrap tbody tr:hover>th:first-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
-    "legacy-table-paint|app/minimal-theme.css|.wrap .kit-tablecard .twrap tbody tr:hover>td:first-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-md :not(pre)>code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.86em;padding:.12em .38em;border-radius:5px;background:rgba(127,127,12": "Ask Mesha embedded stylesheet (ceo-ai-styles.tsx) predates the MUI rebuild; inventoried when rgb-colour-in-code landed (R2KPI 2026-09-27)",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-md th{font-weight:700;background:rgba(127,127,127,.1)}": "Ask Mesha embedded stylesheet (ceo-ai-styles.tsx) predates the MUI rebuild; inventoried when rgb-colour-in-code landed (R2KPI 2026-09-27)",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-copy{font:inherit;font-size:11.5px;padding:.25em .6em;border-radius:6px;border:1px solid rgba(127,127,127,.35);background:transparent;color:inherit;cursor": "Ask Mesha embedded stylesheet (ceo-ai-styles.tsx) predates the MUI rebuild; inventoried when rgb-colour-in-code landed (R2KPI 2026-09-27)",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-copy:hover{background:rgba(127,127,127,.18)}": "Ask Mesha embedded stylesheet (ceo-ai-styles.tsx) predates the MUI rebuild; inventoried when rgb-colour-in-code landed (R2KPI 2026-09-27)",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-copy-ic:hover{opacity:1;background:rgba(127,127,127,.16);color:var(--ink)}": "Ask Mesha embedded stylesheet (ceo-ai-styles.tsx) predates the MUI rebuild; inventoried when rgb-colour-in-code landed (R2KPI 2026-09-27)",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-side{position:absolute;inset:0 auto 0 0;width:min(78vw,280px);z-index:2;box-shadow:8px 0 24px rgba(0,0,0,.25)}": "Ask Mesha embedded stylesheet (ceo-ai-styles.tsx) predates the MUI rebuild; inventoried when rgb-colour-in-code landed (R2KPI 2026-09-27)",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-tool:hover{color:var(--ink);background:rgba(127,127,127,.14)}": "Ask Mesha embedded stylesheet (ceo-ai-styles.tsx) predates the MUI rebuild; inventoried when rgb-colour-in-code landed (R2KPI 2026-09-27)",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-msg.user .mzai-thumb-open{border-color:rgba(255,255,255,.35);background:rgba(0,0,0,.12);color:#fff}": "Ask Mesha embedded stylesheet (ceo-ai-styles.tsx) predates the MUI rebuild; inventoried when rgb-colour-in-code landed (R2KPI 2026-09-27)",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.MuiDialog-paper.mzai-lb{background:rgba(6,10,8,.92);display:flex;flex-direction:column}": "Ask Mesha embedded stylesheet (ceo-ai-styles.tsx) predates the MUI rebuild; inventoried when rgb-colour-in-code landed (R2KPI 2026-09-27)",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-lb-top button,.mzai-lb-nav{border:0;background:rgba(255,255,255,.12);color:#fff;border-radius:50%;width:40px;height:40px;": "Ask Mesha embedded stylesheet (ceo-ai-styles.tsx) predates the MUI rebuild; inventoried when rgb-colour-in-code landed (R2KPI 2026-09-27)",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|border-radius:16px;background:rgba(20,28,22,.82);color:#fff;font-size:15px;font-weight:600;pointer-events:none}": "Ask Mesha embedded stylesheet (ceo-ai-styles.tsx) predates the MUI rebuild; inventoried when rgb-colour-in-code landed (R2KPI 2026-09-27)",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.15);transition:transform .2s cubic-bezier(.34,.1,.64,.9),box-shadow .2s ease}": "Ask Mesha embedded stylesheet (ceo-ai-styles.tsx) predates the MUI rebuild; inventoried when rgb-colour-in-code landed (R2KPI 2026-09-27)",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-bubble:hover{transform:translateY(-4px);box-shadow:0 8px 20px rgba(0,0,0,.2)}": "Ask Mesha embedded stylesheet (ceo-ai-styles.tsx) predates the MUI rebuild; inventoried when rgb-colour-in-code landed (R2KPI 2026-09-27)",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|box-shadow:0 20px 60px rgba(0,0,0,.2),0 0 1px rgba(0,0,0,.1);": "Ask Mesha embedded stylesheet (ceo-ai-styles.tsx) predates the MUI rebuild; inventoried when rgb-colour-in-code landed (R2KPI 2026-09-27)",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|transition:all .15s ease;box-shadow:0 2px 6px rgba(0,0,0,.08)}": "Ask Mesha embedded stylesheet (ceo-ai-styles.tsx) predates the MUI rebuild; inventoried when rgb-colour-in-code landed (R2KPI 2026-09-27)",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-newbtn:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.12)}": "Ask Mesha embedded stylesheet (ceo-ai-styles.tsx) predates the MUI rebuild; inventoried when rgb-colour-in-code landed (R2KPI 2026-09-27)",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|box-shadow:0 2px 8px rgba(0,0,0,.1)}": "Ask Mesha embedded stylesheet (ceo-ai-styles.tsx) predates the MUI rebuild; inventoried when rgb-colour-in-code landed (R2KPI 2026-09-27)",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|border-bottom-left-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.05)}": "Ask Mesha embedded stylesheet (ceo-ai-styles.tsx) predates the MUI rebuild; inventoried when rgb-colour-in-code landed (R2KPI 2026-09-27)",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|transition:all .15s cubic-bezier(.34,.1,.64,.9);box-shadow:0 2px 6px rgba(0,0,0,.1)}": "Ask Mesha embedded stylesheet (ceo-ai-styles.tsx) predates the MUI rebuild; inventoried when rgb-colour-in-code landed (R2KPI 2026-09-27)",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-send:hover:not(:disabled){background:var(--brand-d);transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.15)}": "Ask Mesha embedded stylesheet (ceo-ai-styles.tsx) predates the MUI rebuild; inventoried when rgb-colour-in-code landed (R2KPI 2026-09-27)",
-    "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-scrim{display:block;position:absolute;inset:0;z-index:1;border:0;padding:0;background:rgba(0,0,0,.45)}": "Ask Mesha embedded stylesheet (ceo-ai-styles.tsx) predates the MUI rebuild; inventoried when rgb-colour-in-code landed (R2KPI 2026-09-27)"
+    "legacy-table-paint|app/minimal-theme.css|.wrap .kit-tablecard .twrap tbody tr:hover>td:first-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts"
   },
   "ratchet": {
     "fixed-overlay-no-portal|features/ceo-ai/ceo-ai-styles.tsx": {
@@ -643,7 +583,7 @@
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
     },
     "raw-input|features/ceo-ai/ceo-ai-panel.tsx": {
-      "allowed": 2,
+      "allowed": 1,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
     },
     "raw-input|features/configuration/catalogue-lists.tsx": {
@@ -963,7 +903,7 @@
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
     },
     "raw-px|features/ceo-ai/ceo-ai-styles.tsx": {
-      "allowed": 116,
+      "allowed": 107,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
     },
     "raw-px|features/ceo-ai/ceo-ai-watch-css.ts": {
