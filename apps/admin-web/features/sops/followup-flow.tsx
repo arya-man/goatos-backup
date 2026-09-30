@@ -2,12 +2,12 @@
 
 import { EmptyState } from "@/components/app/empty-state";
 
-import { GitBranch, Plus, MousePointerClick } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { branchPhrase } from "./branch-field";
-import { FlowCanvas, type CanvasLayout, type CanvasNode } from "./flow-canvas";
+import { FlowCanvas, FlowStudio, NodeActions, NodeButton, NodeKind, NodeNote, NodeOwner, NodeTitle, type CanvasLayout, type CanvasNode } from "./flow-canvas";
+import { Iconify } from "@/components/minimal/iconify";
 import { layoutTrack, nextBranchCondition, type FlowCondition, type FlowInsert, type FlowNode } from "./flow-layout";
 import { stepAnswerKind, type FollowUpStepRow, type FollowUpTrackRows } from "./followup-model";
 
@@ -54,7 +54,10 @@ export function FollowUpFlow({
       answerKindOf,
       (c: FlowCondition) => {
         const q = track.steps.find((s) => s.key === c.whenStep);
-        return branchPhrase(pc, { ...track.steps[0], whenStep: c.whenStep, whenOp: c.whenOp, whenValues: c.whenValues } as FollowUpStepRow, q?.title || c.whenStep).replace(`${copy(pc, "studio.branch.note")} `, "");
+        return branchPhrase(pc, { ...track.steps[0], whenStep: c.whenStep, whenOp: c.whenOp, whenValues: c.whenValues } as FollowUpStepRow, q?.title || c.whenStep).replace(
+          `${copy(pc, "studio.branch.note")} `,
+          "",
+        );
       },
       copy(pc, "studio.flow.otherwise"),
     );
@@ -68,7 +71,7 @@ export function FollowUpFlow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [track, answerKinds, pc]);
   const typeLabel = (key: string) => taskTypes.find((t) => t.key === key)?.label ?? key;
-  const ownerLabel = (key: string) => (key ? owners.find((o) => o.key === key)?.label ?? key : "");
+  const ownerLabel = (key: string) => (key ? (owners.find((o) => o.key === key)?.label ?? key) : "");
   const selected = track.steps.find((s) => s.id === selectedId);
   const selectedIndex = track.steps.findIndex((s) => s.id === selectedId);
 
@@ -77,9 +80,9 @@ export function FollowUpFlow({
     if (n.kind === "start" || n.kind === "finish") {
       return (
         <>
-          <span className="studio-node-kind">{copy(pc, n.kind === "start" ? "studio.flow.start" : "studio.flow.finish")}</span>
-          <b>{n.kind === "start" ? track.label || track.key : copy(pc, "studio.flow.finish")}</b>
-          <span className="muted small">{copy(pc, n.kind === "start" ? "studio.flow.start_hint" : "studio.flow.finish_hint")}</span>
+          <NodeKind>{copy(pc, n.kind === "start" ? "studio.flow.start" : "studio.flow.finish")}</NodeKind>
+          <NodeTitle>{n.kind === "start" ? track.label || track.key : copy(pc, "studio.flow.finish")}</NodeTitle>
+          <NodeNote>{copy(pc, n.kind === "start" ? "studio.flow.start_hint" : "studio.flow.finish_hint")}</NodeNote>
         </>
       );
     }
@@ -91,66 +94,63 @@ export function FollowUpFlow({
       for (const b of branches) seen.set(`${b.whenOp}|${b.whenValues.join(",")}`, { whenStep: s.key, whenOp: b.whenOp, whenValues: b.whenValues });
       return (
         <>
-          <span className="studio-node-kind">
-            <GitBranch size={12} /> {copy(pc, "studio.flow.decision")}
-          </span>
-          <button
-            type="button"
-            className="btn sm ghost"
+          <NodeKind icon="solar:transfer-horizontal-bold-duotone">{copy(pc, "studio.flow.decision")}</NodeKind>
+          <NodeButton
             onClick={() => {
               const insertAt = Math.max(...[n.index!, ...branches.map((b) => track.steps.indexOf(b))]) + 1;
-              onInsert({ index: insertAt, when: nextBranchCondition(s, kind, [...seen.values()].map((c) => ({ condition: c }))) });
+              onInsert({
+                index: insertAt,
+                when: nextBranchCondition(
+                  s,
+                  kind,
+                  [...seen.values()].map((c) => ({ condition: c })),
+                ),
+              });
             }}
-            data-testid={`flow-add-branch-${s.key}`}
+            testId={`flow-add-branch-${s.key}`}
           >
-            <Plus size={12} /> {copy(pc, "studio.flow.add_branch")}
-          </button>
+            {copy(pc, "studio.flow.add_branch")}
+          </NodeButton>
         </>
       );
     }
-    const proof = [s.proofVideos > 0 ? `${s.proofVideos} ${copy(pc, "studio.flow.videos")}` : "", s.proofPhotos > 0 ? `${s.proofPhotos} ${copy(pc, "studio.flow.photos")}` : ""].filter(Boolean).join(" · ");
+    const proof = [s.proofVideos > 0 ? `${s.proofVideos} ${copy(pc, "studio.flow.videos")}` : "", s.proofPhotos > 0 ? `${s.proofPhotos} ${copy(pc, "studio.flow.photos")}` : ""]
+      .filter(Boolean)
+      .join(" · ");
     // A question with NO branch yet still offers "Add branch": that is how the FIRST path is
     // started from the chart (edge-case audit 2026-09-18 -- before this the control appeared
     // only once a branch existed, so the first one had to be made from the Only-if field).
     const canBranch = n.branchable && s.key;
     return (
       <>
-        <span className="studio-node-kind">{typeLabel(s.taskType)}</span>
-        <b>{s.title || s.titlePattern || copy(pc, "followup.step.title")}</b>
-        <span className="muted small">{[kind && kind !== "none" ? answerKindLabels[kind] ?? kind : "", proof].filter(Boolean).join(" · ")}</span>
+        <NodeKind>{typeLabel(s.taskType)}</NodeKind>
+        <NodeTitle>{s.title || s.titlePattern || copy(pc, "followup.step.title")}</NodeTitle>
+        <NodeNote>{[kind && kind !== "none" ? (answerKindLabels[kind] ?? kind) : "", proof].filter(Boolean).join(" · ")}</NodeNote>
         {s.owner ? (
-          <span className="studio-node-owner" data-testid={`flow-owner-${s.key}`}>
+          <NodeOwner testId={`flow-owner-${s.key}`}>
             {copy(pc, "followup.step.owner")}: {ownerLabel(s.owner)}
-          </span>
+          </NodeOwner>
         ) : null}
         {canBranch ? (
-          <span className="studio-node-actions">
-            <button
-              type="button"
-              className="btn sm ghost"
+          <NodeActions>
+            <NodeButton
               onClick={(e) => {
                 e.stopPropagation();
                 onInsert({ index: n.index! + 1, when: nextBranchCondition(s, kind, []) });
               }}
-              data-testid={`flow-add-branch-${s.key}`}
+              testId={`flow-add-branch-${s.key}`}
             >
-              <Plus size={12} /> {copy(pc, "studio.flow.add_branch")}
-            </button>
-          </span>
+              {copy(pc, "studio.flow.add_branch")}
+            </NodeButton>
+          </NodeActions>
         ) : null}
       </>
     );
   };
 
   return (
-    <div className="studio-flow" data-testid="flow-view">
-      <FlowCanvas pc={pc} layout={layout} selectedId={selectedId} onSelect={(node) => onSelect(node.id)} onInsert={(insert) => onInsert(insert)} renderNode={renderNode} />
-      <aside className="studio-flow-props card" data-testid="flow-props">
-        <div className="hd">
-          <h3>{copy(pc, "studio.flow.properties")}</h3>
-        </div>
-        {selected ? renderCard(selected, selectedIndex) : <EmptyState title={copy(pc, "studio.flow.none_selected")} icon={<MousePointerClick className="ic" />} style={{ padding: 16 }} />}
-      </aside>
-    </div>
+    <FlowStudio pc={pc} canvas={<FlowCanvas pc={pc} layout={layout} selectedId={selectedId} onSelect={(node) => onSelect(node.id)} onInsert={(insert) => onInsert(insert)} renderNode={renderNode} />}>
+      {selected ? renderCard(selected, selectedIndex) : <EmptyState title={copy(pc, "studio.flow.none_selected")} icon={<Iconify icon="solar:info-circle-bold" width={24} />} />}
+    </FlowStudio>
   );
 }

@@ -4,6 +4,7 @@
 // SOP drawer so the whole inspection is visible without opening the editor.
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { parseInspection, parseVendorForm, type InspectionQuestionRow } from "./inspection-model";
+import { SummaryRoot, SummaryHeading, SummarySub, SummaryGroup, SummaryList, SummaryRow, SummaryTitle, SummaryMeta } from "./sop-summary";
 
 function fill(template: string, vars: Record<string, string | number>): string {
   return Object.entries(vars).reduce((s, [k, v]) => s.split(`{${k}}`).join(String(v)), template);
@@ -33,51 +34,45 @@ export function InspectionSummary({ pageContract, formDsl, profile = "inspection
   // Running question number across pages, computed up front (phone order).
   const startAt = rows.pages.map((_, i) => rows.pages.slice(0, i).reduce((n, p) => n + p.questions.length, 0));
   return (
-    <div className="inspection-summary">
-      <div className="b700" style={{ margin: "14px 0 8px" }}>
-        {copy(pageContract, `${prefix}.drawer.title`)} <span className="muted small">— {copy(pageContract, `${prefix}.drawer.subtitle`)}</span>
-      </div>
+    <SummaryRoot>
+      <SummaryHeading>
+        {copy(pageContract, `${prefix}.drawer.title`)} <SummarySub>— {copy(pageContract, `${prefix}.drawer.subtitle`)}</SummarySub>
+      </SummaryHeading>
       {rows.loadForm.length > 0 ? (
         <div>
-          <div className="muted small b700" style={{ margin: "8px 0 4px" }}>
-            {copy(pageContract, "inspection.loadform.title")}
-          </div>
-          <div className="htl">
+          <SummaryGroup>{copy(pageContract, "inspection.loadform.title")}</SummaryGroup>
+          <SummaryList>
             {rows.loadForm.map((q, qi) => (
-              <div className="hrow" key={q.id}>
-                <div className="htx">
-                  <b>
-                    {qi + 1}. {q.title}
-                  </b>
-                  <div className="hmeta muted small">{questionMeta(pageContract, q, Object.fromEntries(rows.loadForm.map((x) => [x.key, x.title])))}</div>
-                </div>
-              </div>
+              <SummaryRow key={q.id}>
+                <SummaryTitle>
+                  {qi + 1}. {q.title}
+                </SummaryTitle>
+                <SummaryMeta>{questionMeta(pageContract, q, Object.fromEntries(rows.loadForm.map((x) => [x.key, x.title])))}</SummaryMeta>
+              </SummaryRow>
             ))}
-          </div>
+          </SummaryList>
         </div>
       ) : null}
       {rows.pages.map((page, pi) => (
         <div key={page.id}>
-          <div className="muted small b700" style={{ margin: "8px 0 4px" }}>
+          <SummaryGroup>
             {copy(pageContract, "inspection.page")} {pi + 1}
             {page.title ? ` · ${page.title}` : ""}
-          </div>
-          <div className="htl">
+          </SummaryGroup>
+          <SummaryList>
             {page.questions.map((q, qi) => {
               return (
-                <div className="hrow" key={q.id}>
-                  <div className="htx">
-                    <b>
-                      {startAt[pi] + qi + 1}. {q.title}
-                    </b>
-                    <div className="hmeta muted small">{questionMeta(pageContract, q, titleByKey)}</div>
-                  </div>
-                </div>
+                <SummaryRow key={q.id}>
+                  <SummaryTitle>
+                    {startAt[pi] + qi + 1}. {q.title}
+                  </SummaryTitle>
+                  <SummaryMeta>{questionMeta(pageContract, q, titleByKey)}</SummaryMeta>
+                </SummaryRow>
               );
             })}
-          </div>
+          </SummaryList>
         </div>
       ))}
-    </div>
+    </SummaryRoot>
   );
 }

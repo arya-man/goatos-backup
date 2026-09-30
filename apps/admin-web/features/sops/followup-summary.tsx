@@ -6,10 +6,10 @@
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { branchPhrase } from "./branch-field";
 import { describeDue, describeProof, expandSeriesRows, formatAfter, parseFollowUp, type ExpandedRound, type FollowUpCopy } from "./followup-model";
+import { SummaryRoot, SummaryHeading, SummarySub, SummaryGroup, SummaryList, SummaryRow, SummaryTitle, SummaryMeta } from "./sop-summary";
 
 export function followUpCopy(pc: AdminUiPageContract): FollowUpCopy {
-  return (key, vars = {}) =>
-    Object.entries(vars).reduce((s, [k, v]) => s.split(`{${k}}`).join(String(v)), copy(pc, key));
+  return (key, vars = {}) => Object.entries(vars).reduce((s, [k, v]) => s.split(`{${k}}`).join(String(v)), copy(pc, key));
 }
 
 export function dayLabel(pc: AdminUiPageContract, dayOffset: number): string {
@@ -28,66 +28,61 @@ export function FollowUpStepsSummary({ pageContract, formDsl }: { pageContract: 
   if (!rows) return null;
   const c = followUpCopy(pageContract);
   return (
-    <div className="followup-summary">
-      <div className="b700" style={{ margin: "14px 0 8px" }}>
-        {copy(pageContract, "followup.drawer.title")}{" "}
-        <span className="muted small">— {copy(pageContract, "followup.drawer.subtitle")}</span>
-      </div>
+    <SummaryRoot>
+      <SummaryHeading>
+        {copy(pageContract, "followup.drawer.title")} <SummarySub>— {copy(pageContract, "followup.drawer.subtitle")}</SummarySub>
+      </SummaryHeading>
       {rows.tracks.map((track) => {
         const titleByKey = Object.fromEntries(track.steps.map((s) => [s.key, s.title || s.titlePattern || s.key]));
         let n = 0;
         return (
           <div key={track.key} className="followup-summary-track">
-            <div className="muted small b700" style={{ margin: "6px 0" }}>
+            <SummaryGroup dense>
               {copy(pageContract, "followup.track")} · {track.label || track.key}
-            </div>
-            <div className="htl">
+            </SummaryGroup>
+            <SummaryList>
               {track.steps.flatMap((step) => {
                 const proof = describeProof(step, c);
                 // The legacy `when` (kid pen unresolved) and an answer-driven branch both read as
                 // conditions here; a branch step was rendered as unconditional before (PR 308 review).
-                const when = [
-                  step.when ? copy(pageContract, "followup.step.only_when") : "",
-                  step.whenStep ? branchPhrase(pageContract, step, titleByKey[step.whenStep] ?? step.whenStep) : "",
-                ].filter(Boolean).map((t) => ` · ${t}`).join("");
+                const when = [step.when ? copy(pageContract, "followup.step.only_when") : "", step.whenStep ? branchPhrase(pageContract, step, titleByKey[step.whenStep] ?? step.whenStep) : ""]
+                  .filter(Boolean)
+                  .map((t) => ` · ${t}`)
+                  .join("");
                 if (step.scheduleKind === "series") {
                   return expandSeriesRows(step).map((r) => {
                     n += 1;
                     return (
-                      <div className="hrow" key={`${step.key}-${r.dayOffset}-${r.time}-${r.afterMinutes ?? ""}`}>
-                        <div className="htx">
-                          <b>
-                            {n}. {r.title}
-                          </b>
-                          <div className="hmeta muted small">
-                            {roundWhen(pageContract, r)}
-                            {proof ? ` · ${proof}` : ""}
-                          </div>
-                        </div>
-                      </div>
+                      <SummaryRow key={`${step.key}-${r.dayOffset}-${r.time}-${r.afterMinutes ?? ""}`}>
+                        <SummaryTitle>
+                          {n}. {r.title}
+                        </SummaryTitle>
+                        <SummaryMeta>
+                          {roundWhen(pageContract, r)}
+                          {proof ? ` · ${proof}` : ""}
+                        </SummaryMeta>
+                      </SummaryRow>
                     );
                   });
                 }
                 n += 1;
                 return [
-                  <div className="hrow" key={step.key}>
-                    <div className="htx">
-                      <b>
-                        {n}. {step.title || step.titlePattern || step.key}
-                      </b>
-                      <div className="hmeta muted small">
-                        {describeDue(step, c, titleByKey)}
-                        {proof ? ` · ${proof}` : ""}
-                        {when}
-                      </div>
-                    </div>
-                  </div>,
+                  <SummaryRow key={step.key}>
+                    <SummaryTitle>
+                      {n}. {step.title || step.titlePattern || step.key}
+                    </SummaryTitle>
+                    <SummaryMeta>
+                      {describeDue(step, c, titleByKey)}
+                      {proof ? ` · ${proof}` : ""}
+                      {when}
+                    </SummaryMeta>
+                  </SummaryRow>,
                 ];
               })}
-            </div>
+            </SummaryList>
           </div>
         );
       })}
-    </div>
+    </SummaryRoot>
   );
 }

@@ -2,11 +2,11 @@
 
 import { EmptyState } from "@/components/app/empty-state";
 
-import { GitBranch, Lock, Plus, MousePointerClick } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { FlowCanvas, type CanvasEdge, type CanvasLayout, type CanvasNode } from "./flow-canvas";
+import { FlowCanvas, FlowStudio, NodeActions, NodeButton, NodeKind, NodeNote, NodeTitle, type CanvasEdge, type CanvasLayout, type CanvasNode } from "./flow-canvas";
+import { Iconify } from "@/components/minimal/iconify";
 import { DECISION_H, NODE_H, NODE_W } from "./flow-layout";
 import type { CountedProofRow, RemovalProofRow, WeighingQuestionRow, WeighingRows } from "./weighing-model";
 
@@ -151,34 +151,30 @@ export function WeighingFlow({
     if (node.kind === "start") {
       return (
         <>
-          <span className="studio-node-kind">{copy(pc, "studio.flow.start")}</span>
-          <b>{copy(pc, "wsop.flow.start")}</b>
-          <span className="muted small">{rows.modes.map((m) => copy(pc, `wsop.planning.mode.${m}`)).join(" · ")}</span>
+          <NodeKind>{copy(pc, "studio.flow.start")}</NodeKind>
+          <NodeTitle>{copy(pc, "wsop.flow.start")}</NodeTitle>
+          <NodeNote>{rows.modes.map((m) => copy(pc, `wsop.planning.mode.${m}`)).join(" · ")}</NodeNote>
         </>
       );
     }
     if (node.kind === "finish") {
       return (
         <>
-          <span className="studio-node-kind">{copy(pc, "studio.flow.finish")}</span>
-          <b>{copy(pc, "studio.flow.finish")}</b>
-          <span className="muted small">{copy(pc, "studio.flow.finish_hint")}</span>
+          <NodeKind>{copy(pc, "studio.flow.finish")}</NodeKind>
+          <NodeTitle>{copy(pc, "studio.flow.finish")}</NodeTitle>
+          <NodeNote>{copy(pc, "studio.flow.finish_hint")}</NodeNote>
         </>
       );
     }
     if (node.kind === "decision") {
-      return (
-        <span className="studio-node-kind">
-          <GitBranch size={12} /> {copy(pc, "wsop.flow.decision")}
-        </span>
-      );
+      return <NodeKind icon="solar:transfer-horizontal-bold-duotone">{copy(pc, "wsop.flow.decision")}</NodeKind>;
     }
     if (node.kind === "fixed") {
       return (
         <>
-          <span className="studio-node-kind"><Lock size={11} /> {copy(pc, "wsop.capture.individual.locked_short")}</span>
-          <b>{copy(pc, d.fixed!)}</b>
-          <span className="muted small">{copy(pc, `${d.fixed}_hint`)}</span>
+          <NodeKind icon="solar:lock-password-outline">{copy(pc, "wsop.capture.individual.locked_short")}</NodeKind>
+          <NodeTitle>{copy(pc, d.fixed!)}</NodeTitle>
+          <NodeNote>{copy(pc, `${d.fixed}_hint`)}</NodeNote>
         </>
       );
     }
@@ -188,16 +184,16 @@ export function WeighingFlow({
       const title = d.group === "removal" ? copy(pc, "wsop.flow.removal") : d.group === "individual" ? copy(pc, "wsop.flow.individual") : copy(pc, "wsop.flow.lump_sum");
       return (
         <>
-          <span className="studio-node-kind">{d.group === "removal" ? copy(pc, "wsop.flow.removal_hint") : d.offered === false ? copy(pc, "wsop.flow.mode_not_offered") : copy(pc, "wsop.section.capture")}</span>
-          <b>{title}</b>
-          <span className="studio-node-actions">
-            <button type="button" className="btn sm ghost" onClick={() => onInsert({ list: slots, index: rows[slots].length })} data-testid={`flow-add-${slots}`}>
-              <Plus size={12} /> {copy(pc, "wsop.flow.add_capture")}
-            </button>
-            <button type="button" className="btn sm ghost" onClick={() => onInsert({ list: questions, index: rows[questions].length })} data-testid={`flow-add-${questions}`}>
-              <Plus size={12} /> {copy(pc, "wsop.flow.add_question")}
-            </button>
-          </span>
+          <NodeKind>{d.group === "removal" ? copy(pc, "wsop.flow.removal_hint") : d.offered === false ? copy(pc, "wsop.flow.mode_not_offered") : copy(pc, "wsop.section.capture")}</NodeKind>
+          <NodeTitle>{title}</NodeTitle>
+          <NodeActions>
+            <NodeButton onClick={() => onInsert({ list: slots, index: rows[slots].length })} testId={`flow-add-${slots}`}>
+              {copy(pc, "wsop.flow.add_capture")}
+            </NodeButton>
+            <NodeButton onClick={() => onInsert({ list: questions, index: rows[questions].length })} testId={`flow-add-${questions}`}>
+              {copy(pc, "wsop.flow.add_question")}
+            </NodeButton>
+          </NodeActions>
         </>
       );
     }
@@ -206,9 +202,9 @@ export function WeighingFlow({
       const q = (rows[ref.list] as WeighingQuestionRow[]).find((x) => x.id === ref.id);
       return (
         <>
-          <span className="studio-node-kind">{copy(pc, "wsop.flow.question")}</span>
-          <b>{q?.title || copy(pc, "wsop.question.title")}</b>
-          <span className="muted small">{q?.required ? copy(pc, "wsop.flow.compulsory") : copy(pc, "wsop.flow.optional")}</span>
+          <NodeKind>{copy(pc, "wsop.flow.question")}</NodeKind>
+          <NodeTitle>{q?.title || copy(pc, "wsop.question.title")}</NodeTitle>
+          <NodeNote>{q?.required ? copy(pc, "wsop.flow.compulsory") : copy(pc, "wsop.flow.optional")}</NodeNote>
         </>
       );
     }
@@ -216,24 +212,36 @@ export function WeighingFlow({
     const counted = "min" in p;
     return (
       <>
-        <span className="studio-node-kind">{copy(pc, "wsop.flow.capture")}</span>
-        <b>{p.title || proofKindLabels[p.kind] || p.kind}</b>
-        <span className="muted small">
-          {proofKindLabels[p.kind] ?? p.kind} · {counted ? `${(p as CountedProofRow).min || 0} ${copy(pc, "wsop.flow.count")} ${(p as CountedProofRow).max || 0}` : (p as RemovalProofRow).required ? copy(pc, "wsop.flow.compulsory") : copy(pc, "wsop.flow.optional")}
-        </span>
+        <NodeKind>{copy(pc, "wsop.flow.capture")}</NodeKind>
+        <NodeTitle>{p.title || proofKindLabels[p.kind] || p.kind}</NodeTitle>
+        <NodeNote>
+          {proofKindLabels[p.kind] ?? p.kind} ·{" "}
+          {counted
+            ? `${(p as CountedProofRow).min || 0} ${copy(pc, "wsop.flow.count")} ${(p as CountedProofRow).max || 0}`
+            : (p as RemovalProofRow).required
+              ? copy(pc, "wsop.flow.compulsory")
+              : copy(pc, "wsop.flow.optional")}
+        </NodeNote>
       </>
     );
   };
 
   return (
-    <div className="studio-flow" data-testid="flow-view">
-      <FlowCanvas pc={pc} layout={layout} selectedId={selectedId} onSelect={(n) => n.data?.ref && onSelect(n.data.ref)} onInsert={(insert) => onInsert(insert)} renderNode={renderNode} hint={copy(pc, "wsop.flow.hint")} />
-      <aside className="studio-flow-props card" data-testid="flow-props">
-        <div className="hd">
-          <h3>{copy(pc, "studio.flow.properties")}</h3>
-        </div>
-        {selected ? renderCard(selected) : <EmptyState title={copy(pc, "studio.flow.none_selected")} icon={<MousePointerClick className="ic" />} style={{ padding: 16 }} />}
-      </aside>
-    </div>
+    <FlowStudio
+      pc={pc}
+      canvas={
+        <FlowCanvas
+          pc={pc}
+          layout={layout}
+          selectedId={selectedId}
+          onSelect={(n) => n.data?.ref && onSelect(n.data.ref)}
+          onInsert={(insert) => onInsert(insert)}
+          renderNode={renderNode}
+          hint={copy(pc, "wsop.flow.hint")}
+        />
+      }
+    >
+      {selected ? renderCard(selected) : <EmptyState title={copy(pc, "studio.flow.none_selected")} icon={<Iconify icon="solar:info-circle-bold" width={24} />} />}
+    </FlowStudio>
   );
 }

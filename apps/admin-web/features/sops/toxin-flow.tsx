@@ -1,10 +1,9 @@
 "use client";
 
-import { Clock, Plus } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { FlowCanvas, type CanvasEdge, type CanvasLayout, type CanvasNode } from "./flow-canvas";
+import { FlowCanvas, FlowStudio, FlowNoneSelected, NodeKind, NodeNote, NodeTitle, type CanvasEdge, type CanvasLayout, type CanvasNode } from "./flow-canvas";
 import { NODE_W } from "./flow-layout";
 import type { ToxinRows, ToxinStepRow } from "./toxin-model";
 
@@ -75,27 +74,27 @@ export function ToxinFlow({
     if (node.kind === "start") {
       return (
         <>
-          <span className="studio-node-kind">{copy(pc, "studio.flow.start")}</span>
-          <b title={copy(pc, "tsop.flow.start")}>{copy(pc, "tsop.flow.start")}</b>
-          <span className="muted small">{copy(pc, "tsop.flow.start_hint")}</span>
+          <NodeKind>{copy(pc, "studio.flow.start")}</NodeKind>
+          <NodeTitle title={copy(pc, "tsop.flow.start")}>{copy(pc, "tsop.flow.start")}</NodeTitle>
+          <NodeNote lines={2}>{copy(pc, "tsop.flow.start_hint")}</NodeNote>
         </>
       );
     }
     if (node.kind === "finish") {
       return (
         <>
-          <span className="studio-node-kind">{copy(pc, "studio.flow.finish")}</span>
-          <b>{copy(pc, "studio.flow.finish")}</b>
-          <span className="muted small">{copy(pc, "tsop.flow.finish_hint")}</span>
+          <NodeKind>{copy(pc, "studio.flow.finish")}</NodeKind>
+          <NodeTitle>{copy(pc, "studio.flow.finish")}</NodeTitle>
+          <NodeNote lines={2}>{copy(pc, "tsop.flow.finish_hint")}</NodeNote>
         </>
       );
     }
     if (node.id === "review") {
       return (
         <>
-          <span className="studio-node-kind">{copy(pc, "tsop.flow.locked")}</span>
-          <b>{copy(pc, "tsop.flow.review")}</b>
-          <span className="muted small">{copy(pc, "tsop.flow.review_hint")}</span>
+          <NodeKind>{copy(pc, "tsop.flow.locked")}</NodeKind>
+          <NodeTitle>{copy(pc, "tsop.flow.review")}</NodeTitle>
+          <NodeNote lines={2}>{copy(pc, "tsop.flow.review_hint")}</NodeNote>
         </>
       );
     }
@@ -104,45 +103,38 @@ export function ToxinFlow({
     if (step.kind === "wait") {
       return (
         <>
-          <span className="studio-node-kind">
-            <Clock size={11} /> {copy(pc, "tsop.flow.wait")}
-          </span>
-          <b>{step.title || copy(pc, "tsop.flow.wait")}</b>
-          <span className="muted small">{waitWords(step.waitMinutes, pc)}</span>
+          <NodeKind icon="solar:clock-circle-bold">{copy(pc, "tsop.flow.wait")}</NodeKind>
+          <NodeTitle>{step.title || copy(pc, "tsop.flow.wait")}</NodeTitle>
+          <NodeNote lines={2}>{waitWords(step.waitMinutes, pc)}</NodeNote>
         </>
       );
     }
     return (
       <>
-        <span className="studio-node-kind">{kindLabels[step.kind] ?? step.kind}</span>
-        <b>{step.title || copy(pc, "tsop.step.untitled")}</b>
-        <span className="muted small">{step.instruction || copy(pc, "tsop.problem.instruction")}</span>
+        <NodeKind>{kindLabels[step.kind] ?? step.kind}</NodeKind>
+        <NodeTitle>{step.title || copy(pc, "tsop.step.untitled")}</NodeTitle>
+        <NodeNote lines={2}>{step.instruction || copy(pc, "tsop.problem.instruction")}</NodeNote>
       </>
     );
   };
 
   return (
-    <div className="studio-flow toxin-flow" data-testid="flow-view">
-      <FlowCanvas
-        pc={pc}
-        layout={layout}
-        selectedId={selected ? `step:${selected}` : ""}
-        onSelect={(n) => n.data?.stepId && onSelect(n.data.stepId)}
-        onInsert={(insert) => onInsert(insert)}
-        renderNode={renderNode}
-        hint={copy(pc, "tsop.flow.hint")}
-      />
-      <aside className="studio-flow-props card" data-testid="flow-props">
-        <div className="hd">
-          <h3>{copy(pc, "studio.flow.properties")}</h3>
-        </div>
-        {selected ? renderCard(selected) : (
-          <div className="studio-flow-empty muted small" role="status" style={{ padding: 16 }}>
-            {copy(pc, "studio.flow.none_selected")}
-          </div>
-        )}
-      </aside>
-    </div>
+    <FlowStudio
+      pc={pc}
+      canvas={
+        <FlowCanvas
+          pc={pc}
+          layout={layout}
+          selectedId={selected ? `step:${selected}` : ""}
+          onSelect={(n) => n.data?.stepId && onSelect(n.data.stepId)}
+          onInsert={(insert) => onInsert(insert)}
+          renderNode={renderNode}
+          hint={copy(pc, "tsop.flow.hint")}
+        />
+      }
+    >
+      {selected ? renderCard(selected) : <FlowNoneSelected pc={pc} />}
+    </FlowStudio>
   );
 }
 

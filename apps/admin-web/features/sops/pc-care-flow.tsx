@@ -1,10 +1,9 @@
 "use client";
 
-import { Lock, Plus } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { FlowCanvas, type CanvasEdge, type CanvasLayout, type CanvasNode } from "./flow-canvas";
+import { FlowCanvas, FlowStudio, NodeActions, NodeButton, NodeKind, NodeNote, NodeTitle, type CanvasEdge, type CanvasLayout, type CanvasNode } from "./flow-canvas";
 import { NODE_H, NODE_W } from "./flow-layout";
 import { PC_CARE_CATEGORIES, type PcCareCategory, type PcCareRows } from "./pc-care-model";
 import type { WeighingQuestionRow } from "./weighing-model";
@@ -83,14 +82,34 @@ export function PcCareFlow({
       prev = "removal";
       rows.removal.proofs.forEach((p, i) => {
         const id = `removal:proof:${p.id}`;
-        nodes.push({ id, tid: `removal-proof-${p.key || i}`, kind: "step", x: centre - NODE_W / 2, y, w: NODE_W, h: NODE_H, data: { ref: { section: "removal", kind: "proof", id: p.id } }, selectable: true });
+        nodes.push({
+          id,
+          tid: `removal-proof-${p.key || i}`,
+          kind: "step",
+          x: centre - NODE_W / 2,
+          y,
+          w: NODE_W,
+          h: NODE_H,
+          data: { ref: { section: "removal", kind: "proof", id: p.id } },
+          selectable: true,
+        });
         link(prev, id, { section: "removal", kind: "proof", index: i });
         prev = id;
         y += NODE_H + GAP_Y;
       });
       rows.removal.questions.forEach((q, i) => {
         const id = `removal:question:${q.id}`;
-        nodes.push({ id, tid: `removal-question-${q.key || i}`, kind: "question", x: centre - NODE_W / 2, y, w: NODE_W, h: NODE_H, data: { ref: { section: "removal", kind: "question", id: q.id } }, selectable: true });
+        nodes.push({
+          id,
+          tid: `removal-question-${q.key || i}`,
+          kind: "question",
+          x: centre - NODE_W / 2,
+          y,
+          w: NODE_W,
+          h: NODE_H,
+          data: { ref: { section: "removal", kind: "question", id: q.id } },
+          selectable: true,
+        });
         link(prev, id, { section: "removal", kind: "question", index: i });
         prev = id;
         y += NODE_H + GAP_Y;
@@ -122,7 +141,17 @@ export function PcCareFlow({
       });
       block.questions.forEach((q, i) => {
         const id = `${category}:question:${q.id}`;
-        nodes.push({ id, tid: `${category}-question-${q.key || i}`, kind: "question", x, y: cy, w: NODE_W, h: NODE_H, data: { ref: { section: category, kind: "question", id: q.id } }, selectable: true });
+        nodes.push({
+          id,
+          tid: `${category}-question-${q.key || i}`,
+          kind: "question",
+          x,
+          y: cy,
+          w: NODE_W,
+          h: NODE_H,
+          data: { ref: { section: category, kind: "question", id: q.id } },
+          selectable: true,
+        });
         const dep = q.onlyIfQuestion ? block.questions.find((d) => d.key === q.onlyIfQuestion) : undefined;
         const label = q.onlyIfQuestion ? `${copy(pc, "studio.branch.note")} “${dep?.title || q.onlyIfQuestion}” ${copy(pc, "studio.branch.op.eq")} ${q.onlyIfValue}` : "";
         link(columnPrev, id, i === 0 && block.proofs.length === 0 ? { section: category, kind: "proof", index: 0 } : { section: category, kind: "question", index: i }, label);
@@ -161,37 +190,35 @@ export function PcCareFlow({
     if (node.kind === "start") {
       return (
         <>
-          <span className="studio-node-kind">{copy(pc, "studio.flow.start")}</span>
-          <b>{copy(pc, "pcsop.flow.start")}</b>
-          <span className="muted small">{copy(pc, "pcsop.flow.start_hint")}</span>
+          <NodeKind>{copy(pc, "studio.flow.start")}</NodeKind>
+          <NodeTitle>{copy(pc, "pcsop.flow.start")}</NodeTitle>
+          <NodeNote>{copy(pc, "pcsop.flow.start_hint")}</NodeNote>
         </>
       );
     }
     if (node.kind === "finish") {
       return (
         <>
-          <span className="studio-node-kind">{copy(pc, "studio.flow.finish")}</span>
-          <b>{copy(pc, "studio.flow.finish")}</b>
-          <span className="muted small">{copy(pc, "studio.flow.finish_hint")}</span>
+          <NodeKind>{copy(pc, "studio.flow.finish")}</NodeKind>
+          <NodeTitle>{copy(pc, "studio.flow.finish")}</NodeTitle>
+          <NodeNote>{copy(pc, "studio.flow.finish_hint")}</NodeNote>
         </>
       );
     }
     if (node.kind === "decision") {
       return (
         <>
-          <span className="studio-node-kind">{copy(pc, "studio.flow.decision")}</span>
-          <b>{copy(pc, "pcsop.flow.decision")}</b>
+          <NodeKind>{copy(pc, "studio.flow.decision")}</NodeKind>
+          <NodeTitle>{copy(pc, "pcsop.flow.decision")}</NodeTitle>
         </>
       );
     }
     if (node.kind === "fixed") {
       return (
         <>
-          <span className="studio-node-kind">
-            <Lock size={11} /> {copy(pc, "wsop.capture.individual.locked_short")}
-          </span>
-          <b>{copy(pc, d.fixed!)}</b>
-          <span className="muted small">{copy(pc, `${d.fixed}_hint`)}</span>
+          <NodeKind icon="solar:lock-password-outline">{copy(pc, "wsop.capture.individual.locked_short")}</NodeKind>
+          <NodeTitle>{copy(pc, d.fixed!)}</NodeTitle>
+          <NodeNote>{copy(pc, `${d.fixed}_hint`)}</NodeNote>
         </>
       );
     }
@@ -201,23 +228,21 @@ export function PcCareFlow({
       const block = isRemoval ? rows.removal : rows.categories[section as PcCareCategory];
       return (
         <>
-          <span className="studio-node-kind">{copy(pc, isRemoval ? "pcsop.flow.removal" : "pcsop.flow.card")}</span>
-          <b>{isRemoval ? copy(pc, "pcsop.section.removal") : categoryLabel(section as PcCareCategory)}</b>
+          <NodeKind>{copy(pc, isRemoval ? "pcsop.flow.removal" : "pcsop.flow.card")}</NodeKind>
+          <NodeTitle>{isRemoval ? copy(pc, "pcsop.section.removal") : categoryLabel(section as PcCareCategory)}</NodeTitle>
           {!isRemoval ? (
-            <span className="muted small">
-              {(section as PcCareCategory) === "hoof_trimming" || (section as PcCareCategory) === "hair_trimming"
-                ? copy(pc, "pcsop.flow.reach_roster")
-                : copy(pc, "pcsop.flow.reach_scan")}
-            </span>
+            <NodeNote>
+              {(section as PcCareCategory) === "hoof_trimming" || (section as PcCareCategory) === "hair_trimming" ? copy(pc, "pcsop.flow.reach_roster") : copy(pc, "pcsop.flow.reach_scan")}
+            </NodeNote>
           ) : null}
-          <span className="studio-node-actions">
-            <button type="button" className="btn sm ghost" onClick={() => onInsert({ section, kind: "proof", index: block.proofs.length })} data-testid={`flow-add-${section}-proof`}>
-              <Plus size={12} /> {copy(pc, "pcsop.category.add_capture")}
-            </button>
-            <button type="button" className="btn sm ghost" onClick={() => onInsert({ section, kind: "question", index: block.questions.length })} data-testid={`flow-add-${section}-question`}>
-              <Plus size={12} /> {copy(pc, "inspection.question.add")}
-            </button>
-          </span>
+          <NodeActions>
+            <NodeButton onClick={() => onInsert({ section, kind: "proof", index: block.proofs.length })} testId={`flow-add-${section}-proof`}>
+              {copy(pc, "pcsop.category.add_capture")}
+            </NodeButton>
+            <NodeButton onClick={() => onInsert({ section, kind: "question", index: block.questions.length })} testId={`flow-add-${section}-question`}>
+              {copy(pc, "inspection.question.add")}
+            </NodeButton>
+          </NodeActions>
         </>
       );
     }
@@ -227,35 +252,42 @@ export function PcCareFlow({
       const q = block.questions.find((x) => x.id === ref.id) as WeighingQuestionRow | undefined;
       return (
         <>
-          <span className="studio-node-kind">{copy(pc, "pcsop.flow.question")}</span>
-          <b>{q?.title || copy(pc, "wsop.question.title")}</b>
-          <span className="muted small">{q?.required ? copy(pc, "pcsop.flow.compulsory") : copy(pc, "pcsop.flow.optional")}</span>
+          <NodeKind>{copy(pc, "pcsop.flow.question")}</NodeKind>
+          <NodeTitle>{q?.title || copy(pc, "wsop.question.title")}</NodeTitle>
+          <NodeNote>{q?.required ? copy(pc, "pcsop.flow.compulsory") : copy(pc, "pcsop.flow.optional")}</NodeNote>
         </>
       );
     }
     const p = block.proofs.find((x) => x.id === ref.id)!;
     return (
       <>
-        <span className="studio-node-kind">{copy(pc, "pcsop.flow.capture")}</span>
-        <b>{p.title || proofKindLabels[p.kind] || p.kind}</b>
-        <span className="muted small">
+        <NodeKind>{copy(pc, "pcsop.flow.capture")}</NodeKind>
+        <NodeTitle>{p.title || proofKindLabels[p.kind] || p.kind}</NodeTitle>
+        <NodeNote>
           {proofKindLabels[p.kind] ?? p.kind} · {p.required ? copy(pc, "pcsop.flow.compulsory") : copy(pc, "pcsop.flow.optional")}
-        </span>
+        </NodeNote>
       </>
     );
   };
 
   return (
-    <div className="studio-flow" data-testid="flow-view">
-      <FlowCanvas pc={pc} layout={layout} selectedId={selectedId} onSelect={(n) => n.data?.ref && onSelect(n.data.ref)} onInsert={(insert) => onInsert(insert)} renderNode={renderNode} hint={copy(pc, "pcsop.flow.hint")} />
-      <aside className="studio-flow-props card" data-testid="flow-props">
-        <div className="hd">
-          <h3>{copy(pc, "studio.flow.properties")}</h3>
-        </div>
-        {/* Nothing picked is an EMPTY STATE, not a paragraph under the heading: the frame has one
+    <FlowStudio
+      pc={pc}
+      canvas={
+        <FlowCanvas
+          pc={pc}
+          layout={layout}
+          selectedId={selectedId}
+          onSelect={(n) => n.data?.ref && onSelect(n.data.ref)}
+          onInsert={(insert) => onInsert(insert)}
+          renderNode={renderNode}
+          hint={copy(pc, "pcsop.flow.hint")}
+        />
+      }
+    >
+      {/* Nothing picked is an EMPTY STATE, not a paragraph under the heading: the frame has one
             shape for "there is nothing here yet" and this panel uses it like every other. */}
-        {selected ? renderCard(selected) : <EmptyState title={copy(pc, "studio.flow.none_selected")} />}
-      </aside>
-    </div>
+      {selected ? renderCard(selected) : <EmptyState title={copy(pc, "studio.flow.none_selected")} />}
+    </FlowStudio>
   );
 }
