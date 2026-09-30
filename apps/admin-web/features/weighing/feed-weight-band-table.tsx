@@ -1,5 +1,11 @@
 "use client";
 
+import Box from "@mui/material/Box";
+import Link from "@mui/material/Link";
+import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
+import type { Theme } from "@mui/material/styles";
+import type { SystemStyleObject } from "@mui/system";
 import { DataTable, columnsFromContract } from "@/components/data-table";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { Tag } from "@/components/ui-primitives";
@@ -13,17 +19,28 @@ const BAND_STEPS = ["under_15", "15_20", "20_25", "25_30", "30_35", "35_plus"] a
  * this one, so a reader can place a row on the scale without reading the number. Colours are the
  * theme's line and brand tokens; nothing new.
  */
-export function BandCell({ band, label }: { band: string; label: string }) {
+export function BandCell({ band, label, wide = false }: { band: string; label: string; wide?: boolean }) {
+  const barWidth = wide ? 60 : 26;
   const filled = Math.max(0, BAND_STEPS.indexOf(band as (typeof BAND_STEPS)[number]) + 1);
   return (
-    <span className="wt-bandc">
-      <span className="wt-bandbar" aria-hidden>
+    <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.625, whiteSpace: "nowrap" }}>
+      <Box
+        component="span"
+        aria-hidden
+        data-band-bar=""
+        sx={{ display: "inline-flex", gap: 0.25, width: barWidth, flexShrink: 0, flexGrow: 0 }}
+      >
         {BAND_STEPS.map((step, index) => (
-          <i key={step} className={index < filled ? "on" : undefined} />
+          <Box
+            key={step}
+            component="span"
+            data-on={index < filled ? "true" : undefined}
+            sx={{ display: "block", flex: 1, height: "calc(var(--sp-1h) / 2)", borderRadius: "calc(var(--r-sm) / 3)", bgcolor: index < filled ? "primary.dark" : "divider" }}
+          />
         ))}
-      </span>
+      </Box>
       <b>{label}</b>
-    </span>
+    </Box>
   );
 }
 
@@ -87,22 +104,72 @@ function FeedTypeTag({ feedType, label, title }: { feedType: string; label: stri
   );
 }
 
+/**
+ * The table's column hooks: the wrapper's sx below styles them (feed and breed never truncate on a
+ * laptop; twelve columns fit 1280 with no scroll). Names only, no stylesheet defines them.
+ */
+/** Compact type for the twelve-column table, on the type-scale tokens. */
+const FS = {
+  xxsh: "calc(var(--fs-caption) * 0.875)", // 10.5
+  xs: "calc(var(--fs-caption) * 11 / 12)", // 11
+  sm: "var(--fs-caption)", // 12
+  smh: "calc(var(--fs-caption) * 25 / 24)", // 12.5
+  md: "var(--fs-button-sm)", // 13
+  body: "var(--fs-body2)", // 14
+} as const;
+
+const COL = { pen: "fb-pen", narrow: "fb-narrow", breed: "fb-breed", num: "fb-num" } as const;
+
+/** Breed and Feed given are the two columns a reader came for: never truncated on a laptop. */
+const feedBandTableSx = (theme: Theme): SystemStyleObject<Theme> => ({
+  "& td.MuiTableCell-root": { whiteSpace: "nowrap", verticalAlign: "middle", fontSize: FS.smh, py: 1, px: 0.5 },
+  "& th.MuiTableCell-root": { fontSize: FS.xxsh, whiteSpace: "normal", lineHeight: 1.2, px: 0.5 },
+  [`& td.${COL.breed}`]: { whiteSpace: "normal", minWidth: 170, maxWidth: 210, lineHeight: 1.3 },
+  [`& td.${COL.narrow}`]: { whiteSpace: "normal", maxWidth: 84, lineHeight: 1.25 },
+  [`& td.${COL.num}`]: { textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" },
+  [`& td.${COL.pen}`]: { whiteSpace: "normal", maxWidth: 132, lineHeight: 1.25 },
+  "& [data-feed-given]": { minWidth: 230 },
+  // A 1280 laptop: the same twelve columns, still no scroll and no truncation (a line more of wrap).
+  [theme.breakpoints.down(1366)]: {
+    "& [data-feed-given]": { minWidth: 188 },
+    [`& td.${COL.breed}`]: { minWidth: 140, maxWidth: 160 },
+    [`& td.${COL.narrow}`]: { maxWidth: 72 },
+    [`& td.${COL.pen}`]: { maxWidth: 96 },
+    "& td.MuiTableCell-root, & th.MuiTableCell-root": { px: 0.375 },
+  },
+});
+
 /** "Bhusa 250 g/head + Kids Concentrate 1450 g/head" as one line per item, never truncated. */
-function FeedGivenLines({ value }: { value: string }) {
+function FeedGivenLines({ value, card = false }: { value: string; card?: boolean }) {
   const parts = value.split(" + ").filter(Boolean);
   return (
-    <span className="wt-feedband-feed">
+    <Box
+      component="span"
+      data-feed-given=""
+      sx={
+        card
+          ? { display: "block", whiteSpace: "normal", minWidth: 0, color: "text.primary", fontSize: FS.md, lineHeight: 1.35, flex: "1 1 100%" }
+          : { display: "block", whiteSpace: "normal", color: "text.secondary", fontSize: FS.sm, lineHeight: 1.3 }
+      }
+    >
       {parts.map((part, index) => (
-        <span key={part + index} className="wt-feedband-feedline">
+        <Box component="span" key={part + index} sx={{ display: "block" }}>
           {index > 0 ? "+ " : ""}
           {part}
-        </span>
+        </Box>
       ))}
-    </span>
+    </Box>
   );
 }
 
-function ExitNotes({ row, labels }: { row: FeedWeightBandTableRow; labels: FeedWeightBandTableLabels }) {
+/** "+N sold" under the head count: a small note in the theme's warning hue; a link when it opens the panel. */
+const exitNoteSx = (card: boolean) =>
+  card
+    ? // Phone card: a 44px tap target in the row of figures.
+      { display: "inline-flex", alignItems: "center", minHeight: "var(--tap-min)", px: 0.75, fontSize: FS.sm, color: "warning.main" }
+    : { display: "block", whiteSpace: "nowrap", fontSize: FS.xs, lineHeight: 1.3, color: "warning.main" };
+
+function ExitNotes({ row, labels, card = false }: { row: FeedWeightBandTableRow; labels: FeedWeightBandTableLabels; card?: boolean }) {
   const notes: string[] = [];
   const prefix = row.includeExited ? `${labels.incl} ` : "+";
   if (row.exitedSold > 0) notes.push(`${prefix}${row.exitedSold.toLocaleString("en-IN")} ${labels.sold}`);
@@ -114,18 +181,33 @@ function ExitNotes({ row, labels }: { row: FeedWeightBandTableRow; labels: FeedW
         row.exitHref ? (
           // A click opens the exited panel for THIS pen and bracket, the app's local drawer: no
           // route re-run, filters untouched.
-          <LocalOverlayLink key={note} href={row.exitHref} className="wt-feedband-gone" scroll={false}>
+          <Link
+            key={note}
+            component={LocalOverlayLink}
+            href={row.exitHref}
+            scroll={false}
+            data-feedband-exit=""
+            underline="hover"
+            sx={exitNoteSx(card)}
+          >
             {note}
-          </LocalOverlayLink>
+          </Link>
         ) : (
-          <span key={note} className="wt-feedband-gone">
+          <Box component="span" key={note} sx={exitNoteSx(card)}>
             {note}
-          </span>
+          </Box>
         ),
       )}
     </>
   );
 }
+
+const cardCaption = (text: React.ReactNode) => (
+  <Typography component="span" variant="caption" sx={{ color: "text.secondary" }}>
+    {text}{" "}
+  </Typography>
+);
+const cardLineSx = { display: "flex", flexWrap: "wrap", alignItems: "center", columnGap: 1, rowGap: 0.75, minWidth: 0, overflowWrap: "anywhere" } as const;
 
 /**
  * The feed-by-weight-band table on TanStack, the pens-table shape. Columns come from the page's
@@ -152,16 +234,16 @@ export function FeedWeightBandTable({
       ),
     },
     // Label only on the desktop table; the six-step bar rides under the label on the phone cards.
-    band: { cell: (row) => <b className="wt-feedband-bandlabel">{row.bandLabel}</b> },
-    pen: { cell: (row) => <b>{row.pen}</b>, meta: { cellClassName: "wt-feedband-pen" } },
-    group: { cell: (row) => stageLabel(row.group), meta: { cellClassName: "wt-feedband-narrow" } },
-    gender: { cell: (row) => (row.gender ? row.gender : <span className="muted">{labels.noGender}</span>), meta: { cellClassName: "wt-feedband-narrow" } },
-    breed: { cell: (row) => row.breed, meta: { cellClassName: "wt-feedband-breed" } },
+    band: { cell: (row) => <Box component="b" sx={{ whiteSpace: "nowrap" }}>{row.bandLabel}</Box> },
+    pen: { cell: (row) => <b>{row.pen}</b>, meta: { cellClassName: COL.pen } },
+    group: { cell: (row) => stageLabel(row.group), meta: { cellClassName: COL.narrow } },
+    gender: { cell: (row) => (row.gender ? row.gender : <Box component="span" sx={{ color: "text.secondary" }}>{labels.noGender}</Box>), meta: { cellClassName: COL.narrow } },
+    breed: { cell: (row) => row.breed, meta: { cellClassName: COL.breed } },
     feed_type: { cell: (row) => <FeedTypeTag feedType={row.feedType} label={row.feedTypeShort} title={row.feedTypeLabel} /> },
-    feed_given: { cell: (row) => <FeedGivenLines value={row.feedGiven} />, meta: { cellClassName: "wt-feedband-feedcell" } },
+    feed_given: { cell: (row) => <FeedGivenLines value={row.feedGiven} /> },
     pen_kg_per_day: {
       cell: (row) => kg(row.penKgPerDay),
-      meta: { cellClassName: "num wt-feedband-num" },
+      meta: { cellClassName: COL.num, align: "right" },
     },
     weight_animals: {
       cell: (row) => (
@@ -170,65 +252,82 @@ export function FeedWeightBandTable({
           <ExitNotes row={row} labels={labels} />
         </>
       ),
-      meta: { cellClassName: "num wt-feedband-num" },
+      meta: { cellClassName: COL.num, align: "right" },
     },
     average_weight: {
       cell: (row) => kg(row.averageKg),
-      meta: { cellClassName: "num wt-feedband-num" },
+      meta: { cellClassName: COL.num, align: "right" },
     },
   });
   const visible = new Set(contract.columns.filter((column) => column.visible).map((column) => column.key));
 
   return (
     <>
-      <div className="wt-feedband-tablehost">
+      <Box
+        sx={(theme): SystemStyleObject<Theme> => ({
+          ...feedBandTableSx(theme),
+          [theme.breakpoints.down(768)]: { display: "none" },
+        })}
+      >
         <DataTable<FeedWeightBandTableRow>
-          className="tbl wt-feedband"
           columns={columns}
           data={rows}
           getRowId={(row) => row.key}
           ariaLabel={labels.ariaLabel}
           empty={labels.empty}
         />
-      </div>
+      </Box>
       {/* Phone (< 768px): one stacked card per row instead of the twelve-column table, so Feed
           given and Breed read in full and nothing scrolls sideways. Same rows, same order. */}
-      <ul className="wt-feedband-cards" aria-label={labels.ariaLabel}>
-        {rows.length === 0 ? <li className="wt-feedband-cardempty muted small">{labels.empty}</li> : null}
+      <Stack
+        component="ul"
+        aria-label={labels.ariaLabel}
+        spacing={1}
+        sx={(theme) => ({ display: "none", listStyle: "none", m: 0, px: 1.5, pb: 1, [theme.breakpoints.down(768)]: { display: "flex" } })}
+      >
+        {rows.length === 0 ? (
+          <Typography component="li" variant="caption" sx={{ color: "text.secondary", px: 0.5, py: 1.75 }}>
+            {labels.empty}
+          </Typography>
+        ) : null}
         {rows.map((row) => (
-          <li key={row.key} className="wt-feedband-cardrow">
-            <div className="wt-feedband-cardline">
-              <b className="wt-feedband-cardpen">{row.pen}</b>
+          <Box
+            component="li"
+            key={row.key}
+            sx={{ border: 1, borderColor: "divider", borderRadius: "var(--r2)", bgcolor: "background.paper", px: 1.5, py: 1.25, display: "grid", gap: 0.75, minWidth: 0 }}
+          >
+            <Box sx={cardLineSx}>
+              <Box component="b" sx={{ fontSize: FS.body, mr: "auto" }}>{row.pen}</Box>
               {visible.has("park") ? <Tag tone="mut">{row.park}</Tag> : null}
               <Tag tone={row.weightSource === "per_animal" ? "info" : "mut"}>{row.weightSourceLabel}</Tag>
-            </div>
-            <div className="wt-feedband-cardline">
-              <BandCell band={row.band} label={row.bandLabel} />
-            </div>
-            <div className="wt-feedband-cardline wt-feedband-cardfeed">
+            </Box>
+            <Box sx={cardLineSx}>
+              <BandCell band={row.band} label={row.bandLabel} wide />
+            </Box>
+            <Box sx={cardLineSx}>
               <FeedTypeTag feedType={row.feedType} label={row.feedTypeLabel} />
-              <FeedGivenLines value={row.feedGiven} />
-            </div>
-            <div className="wt-feedband-cardline muted small">
+              <FeedGivenLines value={row.feedGiven} card />
+            </Box>
+            <Typography component="div" variant="caption" sx={{ ...cardLineSx, color: "text.secondary" }}>
               {row.breed} · {row.group} · {row.gender || labels.noGender}
-            </div>
-            <div className="wt-feedband-cardline wt-feedband-cardnums">
-              <span>
-                <span className="muted small">{contract.columns.find((column) => column.key === "pen_kg_per_day")?.label} </span>
+            </Typography>
+            <Box sx={{ ...cardLineSx, justifyContent: "space-between", columnGap: 1.5 }}>
+              <Box component="span" sx={{ display: "inline-flex", flexWrap: "wrap", alignItems: "baseline", gap: 0.5 }}>
+                {cardCaption(contract.columns.find((column) => column.key === "pen_kg_per_day")?.label)}
                 <b>{kg(row.penKgPerDay)}</b>
-              </span>
-              <span>
-                <span className="muted small">{contract.columns.find((column) => column.key === "weight_animals")?.label} </span>
-                <b>{row.weightAnimals.toLocaleString("en-IN")}</b> <ExitNotes row={row} labels={labels} />
-              </span>
-              <span>
-                <span className="muted small">{contract.columns.find((column) => column.key === "average_weight")?.label} </span>
+              </Box>
+              <Box component="span" sx={{ display: "inline-flex", flexWrap: "wrap", alignItems: "baseline", gap: 0.5 }}>
+                {cardCaption(contract.columns.find((column) => column.key === "weight_animals")?.label)}
+                <b>{row.weightAnimals.toLocaleString("en-IN")}</b> <ExitNotes row={row} labels={labels} card />
+              </Box>
+              <Box component="span" sx={{ display: "inline-flex", flexWrap: "wrap", alignItems: "baseline", gap: 0.5 }}>
+                {cardCaption(contract.columns.find((column) => column.key === "average_weight")?.label)}
                 <b>{kg(row.averageKg)}</b>
-              </span>
-            </div>
-          </li>
+              </Box>
+            </Box>
+          </Box>
         ))}
-      </ul>
+      </Stack>
     </>
   );
 }
@@ -261,19 +360,26 @@ export function FeedWeightBandUnmatchedTable({
     pen: { cell: (row) => <b>{row.pen}</b> },
     shed_tag: { cell: (row) => stageLabel(row.shedTag) },
     ration: { cell: (row) => stageLabel(row.ration) },
-    breed: { cell: (row) => <span title={row.breed}>{row.breed}</span>, meta: { cellClassName: "wt-feedband-wrap" } },
+    breed: { cell: (row) => <span title={row.breed}>{row.breed}</span> },
     feed_type: { cell: (row) => <FeedTypeTag feedType={row.feedType} label={row.feedTypeLabel} /> },
-    feed_given: { cell: (row) => <span className="wt-feedband-feed" title={row.feedGiven}>{row.feedGiven}</span> },
-    pen_kg_per_day: { cell: (row) => kg(row.penKgPerDay), meta: { cellClassName: "num" } },
+    feed_given: {
+      cell: (row) => (
+        <Box component="span" data-feed-given="" title={row.feedGiven} sx={{ display: "block", whiteSpace: "normal", color: "text.secondary", fontSize: FS.sm, lineHeight: 1.3 }}>
+          {row.feedGiven}
+        </Box>
+      ),
+    },
+    pen_kg_per_day: { cell: (row) => kg(row.penKgPerDay), meta: { cellClassName: COL.num, align: "right" } },
   });
   return (
-    <DataTable<FeedWeightBandUnmatchedRow>
-      className="tbl wt-feedband"
-      columns={columns}
-      data={rows}
-      getRowId={(row) => row.key}
-      ariaLabel={labels.ariaLabel}
-      empty={labels.empty}
-    />
+    <Box sx={feedBandTableSx}>
+      <DataTable<FeedWeightBandUnmatchedRow>
+        columns={columns}
+        data={rows}
+        getRowId={(row) => row.key}
+        ariaLabel={labels.ariaLabel}
+        empty={labels.empty}
+      />
+    </Box>
   );
 }

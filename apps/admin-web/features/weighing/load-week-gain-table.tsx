@@ -41,5 +41,5 @@ export function LoadWeekGainTable({
     }
     return { rowKey, weekStart: point.weekStart, animals: point.animals, gainGPerDay: point.gainGPerDay };
   });
-  return <WeekGainTable contract={contract} rows={rows} cells={cells} labels={labels} className="wt-loadweek" />;
+  return <WeekGainTable contract={contract} rows={rows} cells={cells} labels={labels} />;
 }

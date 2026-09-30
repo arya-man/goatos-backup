@@ -113,8 +113,8 @@
   :root .main .btn{min-height:44px}
   /* Generic floor for every interactive control inside the page (buttons, inputs, summaries, chips, pager
      and calendar links). Inline text links keep their flow; these are all block/flex controls. */
-  :root .main button:not(.kit-check input),:root .main input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),:root .main select,:root .main textarea,:root .main summary,:root .main .chip,:root .main a.more,:root .main .wt-feedband-gone{min-height:44px}
-  :root .main summary,:root .main .chip,:root .main a.more,:root .main .wt-feedband-gone{display:inline-flex;align-items:center;justify-content:center;min-width:44px;box-sizing:border-box}
+  :root .main button:not(.kit-check input),:root .main input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),:root .main select,:root .main textarea,:root .main summary,:root .main .chip,:root .main a.more{min-height:44px}
+  :root .main summary,:root .main .chip,:root .main a.more{display:inline-flex;align-items:center;justify-content:center;min-width:44px;box-sizing:border-box}
 
   :root .main .fld>label[for]:not(.MuiFormLabel-root),:root .main label[for]:not(.MuiFormLabel-root){min-height:44px;display:flex;align-items:center}
 }

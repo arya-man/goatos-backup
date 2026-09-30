@@ -44,6 +44,7 @@
     "app/(admin)/vaccination/plan/edit/page.tsx",
     "app/(admin)/verification/",
     "app/(admin)/verify/",
+    "app/(admin)/weighing/",
     "app/(admin)/work-board/",
     "app/(admin)/workflows/",
     "app/not-found.tsx",
@@ -225,6 +226,7 @@
     "features/vaccination-sheds/shed-scope.ts",
     "features/vaccination-sheds/shed-table-client.tsx",
     "features/verification-review/",
+    "features/weighing/",
     "features/work-board/"
   ]
 }

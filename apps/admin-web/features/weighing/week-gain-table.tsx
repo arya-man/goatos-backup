@@ -1,3 +1,4 @@
+import Box from "@mui/material/Box";
 import Table from "@mui/material/Table";
 import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
@@ -5,6 +6,7 @@ import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import type { AdminUiTableContract } from "@/lib/admin-ui-contract";
 import { fmtDate } from "@/lib/format";
+import { STICKY_FIRST_COLUMN_SX } from "@/components/app/table";
 
 /**
  * One cell of a week pivot as the backend served it: which row it belongs to, which week, how
@@ -48,14 +50,12 @@ export function WeekGainTable({
   rows,
   cells,
   labels,
-  className,
   emphasisKey,
 }: {
   contract: AdminUiTableContract;
   rows: readonly WeekGainRow[];
   cells: readonly WeekGainCell[];
   labels: WeekGainLabels;
-  className: string;
   emphasisKey?: string;
 }) {
   const fixed = contract.columns.filter((column) => column.visible);
@@ -73,7 +73,7 @@ export function WeekGainTable({
   const nameKey = emphasisKey ?? fixed[0]?.key;
 
   return (
-    <Table className={`tbl ${className}`} aria-label={labels.ariaLabel}>
+    <Table aria-label={labels.ariaLabel} sx={STICKY_FIRST_COLUMN_SX}>
       <TableHead>
         <TableRow>
           {fixed.map((column) => (
@@ -82,7 +82,7 @@ export function WeekGainTable({
             </TableCell>
           ))}
           {weeks.map((week) => (
-            <TableCell component="th" key={week} scope="col" style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+            <TableCell component="th" key={week} scope="col" align="right" sx={{ whiteSpace: "nowrap" }}>
               {fmtDate(week)}
             </TableCell>
           ))}
@@ -106,13 +106,13 @@ export function WeekGainTable({
                 {weeks.map((week) => {
                   const cell = rowCells?.get(week);
                   return (
-                    <TableCell key={week} style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                    <TableCell key={week} align="right" sx={{ whiteSpace: "nowrap" }}>
                       {cell ? (
                         <span title={`${cell.animals.toLocaleString("en-IN")} ${labels.animals} · ${labels.unit}`}>
                           {Math.round(cell.gainGPerDay).toLocaleString("en-IN")} g
                         </span>
                       ) : (
-                        <span className="muted">{labels.blank}</span>
+                        <Box component="span" sx={{ color: "text.secondary" }}>{labels.blank}</Box>
                       )}
                     </TableCell>
                   );
