@@ -1,5 +1,5 @@
 -- +goose Up
--- 000458_pc_care_repeat.sql
+-- 000459_pc_care_repeat.sql
 --
 -- PC CARE REPEAT (maintainer instruction 2026-09-30): each Preventive Care SOP card may say
 -- "repeat every N days". The pc-care-repeat kernel stage then plans the NEXT task of that work
@@ -10,9 +10,9 @@
 --
 -- Rollout-safe, every change additive:
 --
---   1. pc_care_tasks.repeat_of_task_id names the task a repeat was made from. The unique index
---      is what makes "a task is repeated at most once" a database fact: two kernel ticks racing
---      on the same source cannot both insert.
+--   1. pc_care_tasks.repeat_of_task_id names the task a repeat was made from. Its unique index
+--      ("a task is repeated at most once" as a database fact, so two racing ticks cannot both
+--      insert) is built CONCURRENTLY in 000460, a NO TRANSACTION migration of its own.
 --   2. pc_care_repeat_skips remembers a source the stage could not repeat (and alerted about),
 --      so the alert fires once and the stage stops re-examining it. A planner who plans that pen
 --      again by hand starts a new chain from their own task.
@@ -20,15 +20,15 @@
 -- seed-fixture-guard:ignore: nullable column + ledger table for a kernel-created follow-up; no
 -- vaccination / HRMS / goats schema moves.
 
+-- A nullable column with no default is a catalog-only change; the lock is bounded anyway.
+SET lock_timeout = '5s';
 ALTER TABLE public.pc_care_tasks
   ADD COLUMN IF NOT EXISTS repeat_of_task_id uuid;
+RESET lock_timeout;
 
 COMMENT ON COLUMN public.pc_care_tasks.repeat_of_task_id IS
   'The task this one was repeated from by the pc-care-repeat stage (SOP card repeat_every_days, 2026-09-30); NULL for a task a person planned.';
 
-CREATE UNIQUE INDEX IF NOT EXISTS pc_care_tasks_repeat_of_uidx
-  ON public.pc_care_tasks (tenant_id, repeat_of_task_id)
-  WHERE repeat_of_task_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS public.pc_care_repeat_skips (
   tenant_id      uuid NOT NULL REFERENCES public.tenants (tenant_id),
@@ -45,5 +45,6 @@ COMMENT ON TABLE public.pc_care_repeat_skips IS
 
 -- +goose Down
 DROP TABLE IF EXISTS public.pc_care_repeat_skips;
-DROP INDEX IF EXISTS public.pc_care_tasks_repeat_of_uidx;
+SET lock_timeout = '5s';
 ALTER TABLE public.pc_care_tasks DROP COLUMN IF EXISTS repeat_of_task_id;
+RESET lock_timeout;

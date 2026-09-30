@@ -29,8 +29,13 @@ substituted.
 
 ## Storage
 
-Migration `000458_pc_care_repeat.sql`: `pc_care_tasks.repeat_of_task_id` + unique index, and the
-`pc_care_repeat_skips` ledger. Both additive.
+- `000459_pc_care_repeat.sql`: `pc_care_tasks.repeat_of_task_id` (nullable, catalog-only) and the
+  `pc_care_repeat_skips` ledger.
+- `000460_pc_care_repeat_uidx.sql` (NO TRANSACTION): the partial unique index, built
+  `CONCURRENTLY` so pc_care_tasks writes are never blocked (PR #457 review).
+- `000461_notification_type_pc_care_repeat_skipped.sql` (NO TRANSACTION): widens the hot
+  `notification_requests_type_check` in the low-lock shape -- drop + `NOT VALID` add as one short
+  statement, then `VALIDATE` on its own.
 
 ## Pinned by
 

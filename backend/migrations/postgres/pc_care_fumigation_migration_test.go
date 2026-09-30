@@ -9,7 +9,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
-// 000457 (maintainer instruction 2026-09-30): Fumigation. On a database that already carries the
+// 000458 (maintainer instruction 2026-09-30): Fumigation. On a database that already carries the
 // day-one pc_care.tasks version and people migrated onto per-person ticks, the Up path
 //   - adds the seeded fumigation card IN PLACE to the stored version (and to nothing else),
 //   - writes the planners' ticks for everyone already migrated, keyed on the role grant, leaving
@@ -77,9 +77,9 @@ VALUES ($1::uuid, $2::uuid, 'mobile', 'pc_care', ARRAY[$3]::text[])`, tenant, id
 	// The tenant's root Consumables list, where Virufix is filed.
 	exec(`INSERT INTO item_categories (tenant_id, name, normalized_name, item_kind, status) VALUES ($1::uuid, 'Consumables', 'consumables', 'consumable', 'active')`, tenant)
 
-	raw, err := os.ReadFile("000457_pc_care_fumigation.sql")
+	raw, err := os.ReadFile("000458_pc_care_fumigation.sql")
 	if err != nil {
-		t.Fatalf("read 000457: %v", err)
+		t.Fatalf("read 000458: %v", err)
 	}
 	up := migrationUp(string(raw))
 	exec(up)

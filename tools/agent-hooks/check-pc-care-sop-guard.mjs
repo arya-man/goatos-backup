@@ -11,7 +11,7 @@
 //   1. seed-drifted-from-migration    -- the DAY-ONE seed document (sopseed/pc_care_v1.json) is
 //                                        present verbatim in the migration that seeds v1 (exactly
 //                                        once). The live seed (pc_care.json) has since gained the
-//                                        fumigation card, added in place by 000457 and pinned by
+//                                        fumigation card, added in place by 000458 and pinned by
 //                                        TestMigrationEmbedsTheSeededFumigationCard.
 //   2. slot-table-read-at-runtime     -- production Go under pccare/{app,adapters} never calls
 //                                        domain.SlotsForCategory / IsValidSlotForCategory /

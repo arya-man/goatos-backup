@@ -1,5 +1,5 @@
 -- +goose Up
--- 000457_pc_care_fumigation.sql
+-- 000458_pc_care_fumigation.sql
 --
 -- FUMIGATION (maintainer instruction 2026-09-30): a sixth PC Care work category, the pen
 -- disinfectant spray. The operator mixes Virufix into water (5 ml per litre) and sprays the pen.
@@ -12,8 +12,7 @@
 --
 -- Rollout-safe, every change:
 --
---   1. The category CHECKs on pc_care_tasks / pc_care_rounds admit 'fumigation'. No existing
---      row changes.
+--   1. (The category CHECKs are 000457, a NO TRANSACTION migration of their own.)
 --   2. The seeded fumigation card is added IN PLACE to every pc_care.tasks version that lacks
 --      it (the weighing 000315 shape). No task is pinned to fumigation before this migration,
 --      so no task's behaviour moves; the version keeps its number. Without it the SOP editor
@@ -26,21 +25,7 @@
 -- seed-fixture-guard:ignore: adds an operational PC Care work category and its seeded SOP card;
 -- no vaccination / HRMS / goats schema moves.
 
-ALTER TABLE public.pc_care_tasks
-  DROP CONSTRAINT IF EXISTS pc_care_tasks_category_check;
 
-ALTER TABLE public.pc_care_tasks
-  ADD CONSTRAINT pc_care_tasks_category_check CHECK (
-    category IN ('deworming', 'anti_protozoan', 'ticks_removal', 'hoof_trimming', 'hair_trimming', 'fumigation', 'inventory_vaccine', 'feed_water_removal')
-  );
-
-ALTER TABLE public.pc_care_rounds
-  DROP CONSTRAINT IF EXISTS pc_care_rounds_category_check;
-
-ALTER TABLE public.pc_care_rounds
-  ADD CONSTRAINT pc_care_rounds_category_check CHECK (
-    category IN ('deworming', 'anti_protozoan', 'ticks_removal', 'hoof_trimming', 'hair_trimming', 'fumigation')
-  );
 
 -- seed-migration-guard:ignore owner=claude issue=pc-care-fumigation reason=in-place card add on the pc_care.tasks library document; no task is pinned to the new category before this migration expiry=2026-12-31
 UPDATE public.sop_versions v
@@ -216,22 +201,3 @@ FROM public.sop_definitions sd
 WHERE sd.tenant_id = v.tenant_id
   AND sd.sop_id = v.sop_id
   AND sd.code = 'pc_care.tasks';
-
-DELETE FROM public.pc_care_tasks WHERE category = 'fumigation';
-DELETE FROM public.pc_care_rounds WHERE category = 'fumigation';
-
-ALTER TABLE public.pc_care_rounds
-  DROP CONSTRAINT IF EXISTS pc_care_rounds_category_check;
-
-ALTER TABLE public.pc_care_rounds
-  ADD CONSTRAINT pc_care_rounds_category_check CHECK (
-    category IN ('deworming', 'anti_protozoan', 'ticks_removal', 'hoof_trimming', 'hair_trimming')
-  );
-
-ALTER TABLE public.pc_care_tasks
-  DROP CONSTRAINT IF EXISTS pc_care_tasks_category_check;
-
-ALTER TABLE public.pc_care_tasks
-  ADD CONSTRAINT pc_care_tasks_category_check CHECK (
-    category IN ('deworming', 'anti_protozoan', 'ticks_removal', 'hoof_trimming', 'hair_trimming', 'inventory_vaccine', 'feed_water_removal')
-  );

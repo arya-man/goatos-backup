@@ -42,9 +42,15 @@ updated in the same change.
 
 ## Storage
 
-Migration `000457_pc_care_fumigation.sql`, every change additive:
+Two migrations, split so no lock is held across statements (PR #457 review):
 
-1. `pc_care_tasks` / `pc_care_rounds` category CHECKs admit `fumigation`.
+- `000457_pc_care_fumigation_category.sql` (NO TRANSACTION) -- the category CHECKs on
+  `pc_care_tasks` / `pc_care_rounds` admit `fumigation`: drop + `NOT VALID` add in ONE short
+  statement under a bounded `lock_timeout`, then `VALIDATE` on its own (SHARE UPDATE EXCLUSIVE,
+  blocks no writes).
+- `000458_pc_care_fumigation.sql` (transactional), every change additive:
+
+1. (The CHECKs are 000457.)
 2. The seeded fumigation card is added IN PLACE to every stored `pc_care.tasks` version that lacks
    it (the weighing `000315` shape): no task is pinned to fumigation before this migration, so no
    task's behaviour moves. `000386`'s day-one document is kept verbatim as
@@ -66,7 +72,7 @@ separate decision (it would need the litres sprayed per pen, which nobody record
 
 ## Pinned by
 
-- `pccare/domain`: `TestFumigationIsPenWorkWithTwoVideos`, `TestMigrationEmbedsTheSeededFumigationCard`.
+- `pccare/domain`: `TestFumigationIsPenWorkWithTwoVideos`, `TestMigrationEmbedsTheSeededFumigationCard` (000458).
 - `pccare/app`: `TestFumigationIsPlannedByParkHeadsAndTheBreedingAndHealthDirectors`,
   `TestFumigationCarriesNoFeedRemovalAndMayBePlannedForToday`,
   `TestFumigationPlannerIsParkScopedByItsOwnGrant`,

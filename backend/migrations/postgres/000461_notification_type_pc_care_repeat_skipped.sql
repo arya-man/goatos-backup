@@ -1,4 +1,5 @@
 -- +goose Up
+-- +goose NO TRANSACTION
 -- seed-fixture-guard:ignore: notification vocabulary widening only.
 --
 -- PC CARE REPEAT SKIPPED (maintainer instruction 2026-09-30, docs/decisions/pc-care-repeat.md):
@@ -7,13 +8,17 @@
 -- 'pc_care_repeat_skipped' (notificationbridge.PCCareRepeatSkippedNotifier).
 -- notification_requests_type_check is a closed list, so the type is added here or every insert
 -- fails 23514 and the alert silently never arrives (caught by
--- TestEveryNotificationTypeIsAllowedByTheCheckConstraint). Shape and list are 000446's plus ours.
+-- TestEveryNotificationTypeIsAllowedByTheCheckConstraint). List = 000446's plus ours.
+--
+-- LOW-LOCK SHAPE (PR #457 review): notification_requests is a hot kernel table. NO TRANSACTION, so
+-- no lock is held across statements; the drop + NOT VALID add is ONE statement (no instant without
+-- a constraint, ACCESS EXCLUSIVE only for the catalog change, bounded by lock_timeout); VALIDATE is
+-- its own statement under SHARE UPDATE EXCLUSIVE, which blocks no reads or writes. (The earlier
+-- transactional shape held the ACCESS EXCLUSIVE lock for the whole VALIDATE scan.)
 SET lock_timeout = '5s';
 -- seed-migration-guard:ignore owner=manohark issue=pc-care-repeat reason=enum-widening-on-a-table-no-seed-path-writes expiry=2026-12-31
 ALTER TABLE public.notification_requests
-  DROP CONSTRAINT IF EXISTS notification_requests_type_check;
--- seed-migration-guard:ignore owner=manohark issue=pc-care-repeat reason=enum-widening-on-a-table-no-seed-path-writes expiry=2026-12-31
-ALTER TABLE public.notification_requests
+  DROP CONSTRAINT IF EXISTS notification_requests_type_check,
   ADD CONSTRAINT notification_requests_type_check
   CHECK ((notification_type = ANY (ARRAY[
     'reminder'::text,
@@ -46,18 +51,17 @@ ALTER TABLE public.notification_requests
     'feed_sale_failed_return'::text,
     'pc_care_repeat_skipped'::text
   ]))) NOT VALID;
+RESET lock_timeout;
 -- seed-migration-guard:ignore owner=manohark issue=pc-care-repeat reason=enum-widening-on-a-table-no-seed-path-writes expiry=2026-12-31
 ALTER TABLE public.notification_requests
   VALIDATE CONSTRAINT notification_requests_type_check;
-RESET lock_timeout;
 
 -- +goose Down
+-- +goose NO TRANSACTION
 SET lock_timeout = '5s';
 -- seed-migration-guard:ignore owner=manohark issue=pc-care-repeat reason=enum-widening-on-a-table-no-seed-path-writes expiry=2026-12-31
 ALTER TABLE public.notification_requests
-  DROP CONSTRAINT IF EXISTS notification_requests_type_check;
--- seed-migration-guard:ignore owner=manohark issue=pc-care-repeat reason=enum-widening-on-a-table-no-seed-path-writes expiry=2026-12-31
-ALTER TABLE public.notification_requests
+  DROP CONSTRAINT IF EXISTS notification_requests_type_check,
   ADD CONSTRAINT notification_requests_type_check
   CHECK ((notification_type = ANY (ARRAY[
     'reminder'::text,
@@ -89,7 +93,7 @@ ALTER TABLE public.notification_requests
     'leadership_task_updated'::text,
     'feed_sale_failed_return'::text
   ]))) NOT VALID;
+RESET lock_timeout;
 -- seed-migration-guard:ignore owner=manohark issue=pc-care-repeat reason=enum-widening-on-a-table-no-seed-path-writes expiry=2026-12-31
 ALTER TABLE public.notification_requests
   VALIDATE CONSTRAINT notification_requests_type_check;
-RESET lock_timeout;
