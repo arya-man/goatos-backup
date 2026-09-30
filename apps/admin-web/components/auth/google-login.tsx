@@ -2,7 +2,6 @@
 
 import Script from "next/script";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { ArrowRight } from "lucide-react";
 import Alert from "@mui/material/Alert";
 import AlertTitle from "@mui/material/AlertTitle";
 import Box from "@mui/material/Box";
@@ -439,7 +438,7 @@ export function GoogleLogin({
             disabled={isBusy}
             loading={status === "signing_in"}
             loadingPosition="end"
-            endIcon={status === "signing_in" ? undefined : <ArrowRight aria-hidden="true" />}
+            endIcon={status === "signing_in" ? undefined : <Iconify icon="eva:arrow-forward-fill" />}
           >
             {status === "signing_in" ? "Signing in…" : "Sign in"}
           </Button>

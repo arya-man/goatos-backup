@@ -1,6 +1,6 @@
 "use client";
 
-import { Download } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 
 import Button from "@mui/material/Button";
 
@@ -34,7 +34,7 @@ export function FeedAnalyticsExport({
       variant="contained"
       color="primary"
       disabled={disabled || rows.length === 0}
-      startIcon={<Download size={16} aria-hidden="true" />}
+      startIcon={<Iconify icon="solar:download-bold" width={16} />}
       onClick={() => {
         const body = `${rows.map((row) => row.map(cell).join(",")).join("\n")}\n`;
         const url = URL.createObjectURL(new Blob([body], { type: "text/csv" }));

@@ -97,16 +97,14 @@
 .metagrid div{padding:12px 16px}
 /* Type floor: nothing the reader must read renders under 11px (judge M2 round 4 #10). Class list =
    every sub-11px text node found on work-board/calendar/vaccination/verify/weights/dlq/workflows at 390. */
-.wrap small,.wrap .small,.wrap .pill,.wrap .mode,.wrap .date-scope-label,.wrap .cbq,.wrap .here,.wrap .tag,.wrap .col .n{font-size:max(11px,1em)}
-.wrap small,.wrap .small,.wrap .pill,.wrap .mode,.wrap .date-scope-label,.wrap .cbq,.wrap .here,.wrap .tag,.wrap .col .n{font-size:11px}
+.wrap small,.wrap .small,.wrap .pill,.wrap .mode,.wrap .cbq,.wrap .here,.wrap .tag,.wrap .col .n{font-size:max(11px,1em)}
+.wrap small,.wrap .small,.wrap .pill,.wrap .mode,.wrap .cbq,.wrap .here,.wrap .tag,.wrap .col .n{font-size:11px}
 .wrap .small,.wrap small{font-size:12px}
 .wrap .subtabs .cbq{font-size:11px}
 /* Window chip: the trigger grows to its own text ("01/08/2026 to 19/09/2026") instead of ellipsising it. */
 /* The date field never shrinks below its own text (min 240px) and the bar wraps with a 12px gap, so
    sibling fields cannot overlap at any width (owner shot 35: Period text under the Weighing select). */
 .kit-field-date{width:max-content;min-width:240px;max-width:100%;flex:0 0 auto}
-.kit-field-date .date-scope-copy{flex:1 1 auto;min-width:0}
-.kit-field-date .date-scope-value{overflow:visible;text-overflow:clip;white-space:nowrap}
 @media(max-width:640px){.kit-field-date{width:100%}}
 /* Phone overflow fixes (route integrity, 390): card-head actions scroll or wrap instead of pushing past the edge. */
 .wrap:has(.lt-page){overflow-x:visible}
@@ -123,16 +121,14 @@
   :root .main .btn{min-height:44px}
   /* Generic floor for every interactive control inside the page (buttons, inputs, summaries, chips, pager
      and calendar links). Inline text links keep their flow; these are all block/flex controls. */
-  :root .main button:not(.kit-check input),:root .main input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),:root .main select,:root .main textarea,:root .main summary,:root .main .chip,:root .main .move-date-button,:root .main a.more,:root .main .wt-feedband-gone{min-height:44px}
+  :root .main button:not(.kit-check input),:root .main input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),:root .main select,:root .main textarea,:root .main summary,:root .main .chip,:root .main a.more,:root .main .wt-feedband-gone{min-height:44px}
   :root .main summary,:root .main .chip,:root .main a.more,:root .main .wt-feedband-gone{display:inline-flex;align-items:center;justify-content:center;min-width:44px;box-sizing:border-box}
-  :root .main .move-date-popover,:root .main .top-date-popover{width:min(100vw - 16px,360px);max-width:calc(100vw - 16px);left:0;right:auto;padding:12px}
 
   :root .main .fld>label[for]:not(.MuiFormLabel-root),:root .main label[for]:not(.MuiFormLabel-root){min-height:44px;display:flex;align-items:center}
   :root .main .pager2 a.btn,:root .main .pager2 .btn,:root .main .pager2 button{min-height:44px;height:44px}
 }
 /* A closed date picker's popover is not rendered at all (it was laid out at opacity 0 behind the page — 42
    invisible 40px day buttons per picker for a screen reader and the touch-target audit). */
-details.move-date-picker:not([open])>.move-date-popover{display:none}
 /* Cards clip (not scroll): `overflow:clip` keeps the rounded corners without ever becoming a scroll container,
    so a card a few px taller than its box can never trap a swipe (webview guard class 5). */
 .card{overflow:clip;display:flow-root}
@@ -144,9 +140,6 @@ details.move-date-picker:not([open])>.move-date-popover{display:none}
 /* ---- 404 / error states inside the shell ---- */
 .kit-state-inline{max-width:none;justify-items:center;padding:48px 24px;animation:none}
 .kit-state-inline .kit-state-title{font-family:var(--font-display);font-size:28px;line-height:36px}
-.kit-state-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:8px}
-.kit-state-ref{font-size:12px;color:var(--fg-faint);font-variant-numeric:tabular-nums}
-.kit-error-page{padding:24px}
 .topbar-ai-slot{display:inline-flex;align-items:center}
 .topbar-ai-slot:empty{display:none}
 

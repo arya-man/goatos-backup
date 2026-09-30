@@ -88,7 +88,7 @@
        from slot 2. Slot 2 sits under 3:1 on white, which every bar's printed figure relieves. */
     --chart-1:#2B66B8; --chart-2:#7BC13F; --chart-3:#B83232; --chart-4:#B5791A;
   }
-  h1,h2,h3,h4,.kpi-value{font-family:var(--font-display);letter-spacing:0}
+  h1,h2,h3,h4{font-family:var(--font-display);letter-spacing:0}
   h1,h2,h3,h4{font-weight:700}
   *{box-sizing:border-box}
   html{max-width:100%;overflow-x:hidden}
@@ -127,12 +127,6 @@
   }
   .pm-hint{font-size:11px;color:var(--faint);padding:8px 10px 3px;border-top:1px solid var(--line2);margin-top:5px}
   /* in-screen park filter */
-  .date-scope-copy{display:flex;align-items:baseline;gap:6px}
-  .date-scope-label{font-size:10.5px;color:var(--muted);font-weight:700;white-space:nowrap}
-  .date-scope-value{font-size:12.5px;color:var(--ink);font-weight:800;white-space:nowrap}
-  .top-date-popover{position:absolute;z-index:80;top:calc(100% + 8px);right:0;width:306px;padding:12px;background:var(--panel);border:1px solid var(--line);border-radius:13px;box-shadow:0 18px 46px rgba(15,23,42,.22)}
-  .top-date-head{display:grid;grid-template-columns:34px 1fr 34px;align-items:center;margin-bottom:9px;text-align:center}
-  .top-date-head b{font-size:13px;color:var(--ink)}
   /* Page-body variant of the same calendar (Actions board capture-date filter). The top-bar copy
      hangs off the right edge of the shell; a filter row grows left-to-right, so the popover
      anchors to the control's left edge instead. */
@@ -142,7 +136,6 @@
      not help because the box was in view while its content was cut. `:has()` lifts
      the clip only while a picker inside the card is actually open, so the card's
      own clipping is unchanged the rest of the time. */
-  .card:has(.top-date-picker[open]){overflow:visible}
   /* A card title is a NAME and reads as one line. In the header flex row a long hint squeezed the
      title until it wrapped ("Packing quantity / mismatches"), which reads as two headings. The
      title holds its width and the hint takes the remaining space, shrinking instead. */
@@ -162,7 +155,6 @@
 
   /* Interior days of a selected span. Deliberately weaker than .on so the two ENDS stay the thing
      the eye lands on — those are the dates the verifier actually chose. */
-  .top-date-hint{margin-right:auto;color:var(--muted);font-size:11px;font-weight:650}
   /* SOP rule-builder */
   .charts{column-width:340px;column-gap:14px}
   @media(max-width:1080px){.charts{grid-template-columns:1fr}}.charts>.card{break-inside:avoid;-webkit-column-break-inside:avoid;width:100%;margin:0 0 14px;display:inline-block;vertical-align:top}
@@ -188,7 +180,6 @@
   .ceo-ai{position:fixed;z-index:140;display:grid;justify-items:end;pointer-events:none}
   .ceo-ai>*{pointer-events:auto}
   .ceo-ai-panel{width:100%;height:100%;display:grid;grid-template-rows:auto minmax(0,1fr) auto auto;background:color-mix(in srgb,var(--panel) 96%,black);border:1px solid color-mix(in srgb,var(--brand) 30%,var(--line));border-radius:14px;box-shadow:0 18px 56px rgba(0,0,0,.48);overflow:hidden}
-  .ceo-ai-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 13px;border-bottom:1px solid var(--line);background:color-mix(in srgb,var(--panel-2) 78%,transparent)}
   @media(max-width:620px){.ceo-ai{right:12px!important;bottom:12px!important;left:12px!important;width:auto!important;height:min(560px,calc(100dvh - 24px))!important}}
   .dot{position:absolute;top:-5px;right:-5px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;background:var(--danger);color:#fff;font-size:10px;font-weight:700;display:grid;place-items:center;border:2px solid var(--panel)}
   .me{display:flex;align-items:center;gap:9px;padding:4px 6px 4px 4px;border-radius:30px;border:1px solid var(--line);background:var(--panel);cursor:pointer}
@@ -198,15 +189,6 @@
   /* user / role-switcher menu — stack name over description, no cramped wrap */
   #userMenu{width:310px;z-index:140;background:#101812;box-shadow:0 18px 48px rgba(0,0,0,.62)}
   /* config rule editor */
-  .wrap:has(.cfgpage-rule){max-width:1540px}
-  .cfgpolicy-note{display:grid;gap:3px;margin-top:4px;padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--ink)}
-  .cfgpolicy-note>span{font-size:10px;font-weight:800;text-transform:uppercase;color:var(--faint)}.cfgpolicy-note>b{font-size:13px;line-height:1.35;font-weight:650;color:var(--muted)}
-  .cfgdate-label{display:inline-flex;align-items:center;gap:8px;min-width:0}
-  .cfgdate-popover{position:absolute;right:0;top:calc(100% + 8px);z-index:20;width:min(330px,88vw);padding:12px;background:var(--panel)}
-  .cfgcalendar-head{display:flex;align-items:center;gap:10px;margin-bottom:9px}.cfgcalendar-head b{font-size:13px}.cfgcalendar-head input{width:142px;height:32px;margin-left:auto;font-size:12px}
-  .cfgsafety-list{display:grid;gap:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg)}
-  @media(max-width:640px){.cfgdate-popover{left:0;right:auto;width:min(330px,92vw)}}
-  .cfgdsl-label{display:block;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0;margin-bottom:5px}
   /* layout + sidebar */
   .layout{display:flex;height:calc(100dvh - 58px);min-height:0;overflow:hidden}
   /* SIDEBAR LABEL SIZE IS ONE NUMBER (maintainer, 2026-09-02). The three kinds of sidebar row --
@@ -228,8 +210,6 @@
   .screen{display:none;animation:fade .25s ease}
   .screen.on{display:block}
   @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
-  .metric-help-panel{position:absolute;z-index:80;top:calc(100% + 8px);left:0;width:min(360px,calc(100vw - 40px));display:grid;gap:7px;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel);box-shadow:var(--shadow);color:var(--ink);font-size:12px;line-height:1.45}
-  .metric-help-panel span{color:var(--muted)}
   /* breadcrumb microcopy — --muted (not --faint) to clear WCAG AA contrast on --panel (a11y gate). */
   .crumb{font-size:12px;color:var(--muted);font-weight:600;margin-bottom:3px}
   .crumb b{color:var(--brand-d)}
@@ -315,8 +295,6 @@
       touch-action:pan-x pan-y;
       scrollbar-gutter:stable
     }
-
-    .top-date-popover{right:auto;left:0;width:min(306px,calc(100vw - 24px))}
   }
 
   .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
@@ -332,7 +310,6 @@
   .kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:15px 16px;box-shadow:var(--shadow);position:relative;overflow:hidden}
   .kpi .lab{color:var(--muted);font-size:12px;font-weight:600;display:flex;align-items:center;gap:7px}
   .kpi .dl{margin-top:4px;font-size:12px;font-weight:650;color:color-mix(in srgb,var(--muted) 64%,var(--ink))}
-  .people-availability-list{display:grid;gap:1px;background:var(--line2);border:1px solid var(--line2);border-radius:10px;overflow:hidden}
   .up{color:var(--ok)}.down{color:var(--danger)}
   /* Accordion/collapsible cards (vaccination plan rows) */
   .dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex:none}.dot.l{background:var(--warn)}.dot.k{background:var(--info)}
@@ -389,9 +366,6 @@
   /* Feed Analytics "Feed by shed" mix cell: one line per feed item with the
      item's chart colour dot, label left, kg right — a small aligned ledger
      instead of a chip pile. The kg column is tabular so amounts line up. */
-  .main .sfmix-label{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .main .sfmix-kg{margin-left:auto;padding-left:14px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ink);white-space:nowrap}
-  .main table.tbl td:has(.sfmix){vertical-align:top}
   /* Feed Analytics "Feed by pen" charts: one card per pen of the chosen name, seven
      day slots, a bar per day at the feed directed per animal. Plain HTML bars so the
      labels stay legible in a third-width card (an SVG viewBox would shrink them);
@@ -470,15 +444,6 @@
   /* Below the widest layouts the table still scrolls, and on macOS the overlay scrollbar is
      invisible until touched — so a clipped column read as missing rather than as scrollable.
      A thin always-drawn scrollbar makes the affordance visible without stealing row height. */
-
-  .move-date-picker{position:relative}
-  .move-date-picker summary{list-style:none}
-  .move-date-picker summary::-webkit-details-marker{display:none}
-  .move-date-button{display:flex;align-items:center;justify-content:space-between;width:100%;height:40px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);padding:0 10px;font:inherit;font-size:14px;text-transform:none;letter-spacing:0;cursor:pointer}
-  .move-date-button:hover,.move-date-picker[open] .move-date-button{border-color:var(--brand);box-shadow:0 0 0 2px var(--brand-soft)}
-  .move-date-button .ic{width:16px;height:16px;color:var(--brand)}
-  .move-date-popover{position:absolute;left:0;top:calc(100% + 8px);z-index:95;width:min(318px,calc(100vw - 56px))}
-  .move-date-error{display:block;margin-top:6px;color:var(--danger);font-size:11px;font-weight:750;text-transform:none;letter-spacing:0}
   .screen th:not(.MuiTableCell-root){text-align:left;font-size:11px;letter-spacing:.4px;text-transform:uppercase;color:var(--muted);font-weight:700;padding:9px 12px;border-bottom:1px solid var(--line)}
   .screen td:not(.MuiTableCell-root){padding:11px 12px;border-bottom:1px solid var(--line2);vertical-align:middle}
   .cliptext{display:block;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -505,15 +470,6 @@
 	  .subtabs{display:flex;gap:4px;background:var(--bg);border:1px solid var(--line);border-radius:11px;padding:4px;margin-bottom:18px;width:max-content;max-width:100%;overflow:auto}
 	  .subtabs button,.subtabs a{border:0;background:transparent;font:inherit;font-weight:650;color:var(--muted);padding:7px 13px;border-radius:8px;cursor:pointer;white-space:nowrap}
 	  .subtabs button.on,.subtabs a.on{background:var(--panel);color:var(--ink);box-shadow:var(--shadow)}
-	  .calpicker{position:relative}
-	  .calpicker summary{list-style:none;border:0;background:transparent;font:inherit;font-weight:650;color:var(--muted);padding:7px 13px;border-radius:8px;cursor:pointer;white-space:nowrap}
-	  .calpicker summary::-webkit-details-marker{display:none}
-	  .calpicker[open] summary{background:var(--panel);color:var(--ink);box-shadow:var(--shadow)}
-	  .calpicker:not([open]) .calpicker-popover{display:none}
-	  .calpicker-popover{position:absolute;right:0;top:calc(100% + 10px);z-index:85;width:min(372px,calc(100vw - 28px));background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:0 18px 48px rgba(0,0,0,.42);padding:14px}
-	  .calpicker-head{display:grid;grid-template-columns:40px minmax(0,1fr) 40px;align-items:center;gap:8px;margin-bottom:8px}
-	  .calpicker-note{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:10px;padding-top:9px;border-top:1px solid var(--line2);color:var(--muted);font-size:11px}
-	  .calpicker-note .sp{flex:1}
 	  .audit-kpi-grid{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
 	  .pager2 > .muted{margin-right:auto}
 	  .pager2 select{min-width:44px}
@@ -707,26 +663,9 @@
   .btn.ghost{background:transparent;border-style:dashed;color:var(--brand-d);font-size:12.5px;padding:6px 10px}
   .inspection-summary .htl{margin-bottom:6px}
   .btn.ghost:hover{background:var(--brand-soft)}
-  .weighing-command-panel{border:1px solid var(--line2);background:var(--bg);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px;min-width:0}
-  .weighing-wizard-head{display:grid;grid-template-columns:minmax(0,1fr) minmax(180px,.45fr);gap:16px;align-items:end}
-  .weighing-wizard-head h2{margin:4px 0 7px;font-size:28px;letter-spacing:-.7px}
-  .weighing-duplicate-note{border:1px solid color-mix(in srgb,var(--warn) 42%,var(--line));border-radius:16px;background:color-mix(in srgb,var(--warn) 5%,var(--panel));color:var(--muted);padding:16px 18px;line-height:1.65}
-  .weighing-step-label{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--brand-d);font-weight:850}
-
-  @media(max-width:1040px){
-    .weighing-wizard-head{grid-template-columns:1fr}
-  }
-
-  @media(max-width:640px){
-    .weighing-command-panel{padding:12px}
-  }
   /* operator preview (right column) */
 
   /* ===== Sign-in (split-screen) ===== */
-  .login-panel{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:48px 34px}
-  @media(max-width:900px){
-    .login-panel{padding:26px 20px 40px}
-  }
 
 /* === Vaccination Operators Screen === */
 .crumb { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin-bottom: 6px }
@@ -773,9 +712,6 @@ th:not(.MuiTableCell-root) { font-size: 10.5px; text-transform: uppercase; lette
 .wc.off b { color: var(--info) }
 
 .modal { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); width: min(440px, 92vw); overflow: hidden }
-.modal .mh { display: flex; align-items: center; gap: 10px; padding: 16px 18px; border-bottom: 1px solid var(--line) }
-.modal .mh h3 { margin: 0; font-size: 15px }
-.modal .mh span { font-size: 11.5px; color: var(--muted) }
 .modal label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted) }
 .ctl { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end; margin: 8px 0 4px }
 .fld { display: flex; flex-direction: column; gap: 5px }
@@ -1133,13 +1069,6 @@ select:disabled { opacity: .45 }
    stacks, ONE dates disclosure, sort. The stack avatars are 24px here (the size the board's own
    menu rows use; its toolbar stack is 30px, its cards 22px) so two stacks of nine people fit
    beside a five-chip segment at 1440px; every other rule is the board's own, scoped by the `wb` class on the slot. */
-/* The ONE dates disclosure: both spans inside, each its own labelled group, ONE Apply and ONE
-   Clear for the four fields. Each field is the console's themed calendar (`.move-date-*`): a
-   caption above it that never wraps (one line, ellipsis), the button beneath reading the picked
-   day as DD-MM-YYYY or "any". At desktop the two fields of a span sit side by side and the
-   calendar overlays (the `to` calendar hangs off its right edge so it stays inside the popover's
-   right-aligned box); in the phone sheet they stack and the calendar opens in flow. */
-/* Hung from the trigger's LEFT edge when the bar has wrapped and the trigger sits at the left. */
 
 /* ---- A DATE SPAN, collapsed. Four raw `dd/mm/yyyy` inputs across a row, plus a lone Apply
    beneath them, dominated a bar whose reader almost never touches a date. Each span is now one
@@ -1345,8 +1274,6 @@ select:disabled { opacity: .45 }
    never clipped by the body's scroller); the phone stacks the three. */
 .lt-modal .lt-deadline-row{display:grid;grid-template-columns:minmax(0,1fr) 84px 84px;gap:8px;align-items:start;margin-top:4px}
 .lt-modal .lt-deadline-date{min-width:0}
-.lt-modal .lt-deadline-date .move-date-button{height:44px;border-radius:9px}
-.lt-modal .lt-deadline-date .move-date-popover{position:static;width:100%;margin-top:8px;box-shadow:none;border-color:var(--line2)}
 .lt-modal .lt-deadline-time{display:grid;gap:4px;margin:0;min-width:0}
 .lt-modal .lt-deadline-time select{width:100%;min-width:0;min-height:44px;padding:8px 9px;border:1px solid var(--line);border-radius:9px;background:var(--panel);color:var(--ink);font:inherit}
 @media (max-width:600px){
@@ -1363,7 +1290,7 @@ select:disabled { opacity: .45 }
   .lt-modal .lt-counter{margin-top:2px;font-size:11px}
   .lt-modal .avs-trigger{min-height:44px;padding:8px 10px;font-size:13px}
   .lt-modal .lt-deadline-row{gap:8px;margin-top:2px}
-  .lt-modal .lt-deadline-date .move-date-button,.lt-modal .lt-deadline-time select{min-height:44px;height:44px;font-size:13px}
+  .lt-modal .lt-deadline-time select{min-height:44px;height:44px;font-size:13px}
   .lt-modal .lt-pickers{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
   .lt-modal .lt-picker{min-height:44px;padding:8px 10px;border-radius:10px}
   .lt-modal .lt-picker .lt-picker-label{font-size:13px}

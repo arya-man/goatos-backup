@@ -2,7 +2,6 @@
 
 import Link from "@/components/no-prefetch-link";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
-import { ArrowRight } from "lucide-react";
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
@@ -111,7 +110,7 @@ export function PasswordResetAction({ mode, oobCode, continueHref }: PasswordRes
           size="large"
           variant="contained"
           color="primary"
-          endIcon={<ArrowRight aria-hidden="true" />}
+          endIcon={<Iconify icon="eva:arrow-forward-fill" />}
         >
           Back to sign in
         </Button>
@@ -139,7 +138,7 @@ export function PasswordResetAction({ mode, oobCode, continueHref }: PasswordRes
           size="large"
           variant="contained"
           color="primary"
-          endIcon={<ArrowRight aria-hidden="true" />}
+          endIcon={<Iconify icon="eva:arrow-forward-fill" />}
         >
           Continue to sign in
         </Button>
@@ -184,7 +183,7 @@ export function PasswordResetAction({ mode, oobCode, continueHref }: PasswordRes
           disabled={!canSubmit}
           loading={status === "submitting"}
           loadingPosition="end"
-          endIcon={status === "submitting" ? undefined : <ArrowRight aria-hidden="true" />}
+          endIcon={status === "submitting" ? undefined : <Iconify icon="eva:arrow-forward-fill" />}
         >
           {status === "submitting" ? "Updating password…" : "Update password"}
         </Button>

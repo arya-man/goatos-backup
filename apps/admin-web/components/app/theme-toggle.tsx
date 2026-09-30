@@ -3,7 +3,8 @@
 import { AnimatePresence, m, useReducedMotion } from "motion/react";
 import IconButton from "@mui/material/IconButton";
 import { varTap, varHover, transitionTap } from "@/layouts/template/animate";
-import { Moon, Sun } from "lucide-react";
+import SvgIcon from "@mui/material/SvgIcon";
+import { settingIcons } from "@/layouts/template/settings/drawer/icons";
 import { useSyncExternalStore } from "react";
 import { applyTheme, readTheme, type ThemeMode } from "@/lib/theme";
 
@@ -36,6 +37,7 @@ export function ThemeToggle({ labelToLight, labelToDark, className, onChange }: 
       whileHover={varHover(1.04)}
       transition={transitionTap()}
       className={className}
+      sx={{ "& > span:not(.MuiTouchRipple-root)": { display: "grid", placeItems: "center" } }}
       title={label}
       aria-label={label}
       onClick={() => {
@@ -47,13 +49,13 @@ export function ThemeToggle({ labelToLight, labelToDark, className, onChange }: 
       <AnimatePresence mode="wait" initial={false}>
         <m.span
           key={mode}
-          style={{ display: "grid", placeItems: "center" }}
           initial={reduce ? false : { rotate: -90, opacity: 0, scale: 0.8 }}
           animate={{ rotate: 0, opacity: 1, scale: 1 }}
           exit={reduce ? undefined : { rotate: 90, opacity: 0, scale: 0.8 }}
           transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
         >
-          {isLight ? <Moon width={24} height={24} /> : <Sun width={24} height={24} />}
+          {/* Template settings-drawer mode glyphs (verbatim settingIcons): moon = go dark, contrast = go light. */}
+          <SvgIcon fontSize="medium">{isLight ? settingIcons.moon : settingIcons.contrast}</SvgIcon>
         </m.span>
       </AnimatePresence>
     </IconButton>

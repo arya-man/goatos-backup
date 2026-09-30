@@ -1,26 +1,23 @@
 "use client";
 
-// The app's ONE date field.
+// The app's ONE date field for forms and filters.
 //
-// A native date input renders the browser's own control and the OS calendar popover: different
-// chrome from every other field on the page, and a locale-driven day/month/year order that
-// contradicts the DD-MM-YYYY rule the rest of the app renders through fmtDate. Two existing tests
-// already ban the native input for exactly that reason -- and they ban it by scanning THIS file for
-// the attribute, so do not name it here either. This is the component they expect instead.
-//
-// It moved here from features/preventive-care-vaccination on 2026-08-27, unchanged in behaviour
-// but no longer min-only: it now takes an optional `max` so a field bounded in the OTHER direction
-// (a sale date, which may be in the past but never in the future) can use the same control rather
-// than fall back to a native input.
-import { CalendarDays } from "lucide-react";
+// FIXJ4 (J1 P1-4): a thin adapter over the template date anatomy -- one MUI X DatePicker, outlined,
+// floating label, DD/MM/YYYY with the trailing calendar icon (the same field FormDateField and
+// WorklistFilters render). It used to be a hand-made <details> summary button + DateCalendar
+// dropdown on legacy date-picker classes and a stylesheet module; both are gone. Public props are
+// unchanged, so callers did not move:
+// - uncontrolled (a form): `name` posts the ISO YYYY-MM-DD key through a hidden input;
+//   `defaultValue` seeds it; `required` / `min` / `max` refuse the submit with `invalidDateText`.
+// - controlled (the Tasks desk's Dates filter, not a form): `value` + `onChange`.
+// Never a native date input (two tests ban it by scanning this file for the attribute).
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import dayjs from "dayjs";
-import { DateCalendar } from "@mui/x-date-pickers/DateCalendar";
+import dayjs, { type Dayjs } from "dayjs";
+import Box from "@mui/material/Box";
+import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 
 import { fmtDate } from "@/lib/format";
-import dp from "./themed-date-picker.module.css";
-import { DropdownPaper } from "@/components/app/dropdown-paper";
 
 function parseDateKey(value?: string): Date {
   const [year, month, day] = (value ?? "").split("-").map((part) => Number.parseInt(part, 10));
@@ -68,7 +65,7 @@ export function ThemedDatePicker({
    */
   value?: string;
   onChange?: (key: string) => void;
-  /** Controlled use: what the button reads while nothing is picked, if not the `label`. */
+  /** Controlled use: the field's placeholder while nothing is picked (e.g. "Any"). */
   cleared?: string;
 }) {
   const minDate = useMemo(() => parseDateKey(min), [min]);
@@ -80,34 +77,19 @@ export function ThemedDatePicker({
   const [internal, setInternal] = useState<string>(defaultValue ?? "");
   const selected = value ?? internal;
   const [error, setError] = useState<string>("");
-  // Open on the month of the value being edited, else on the earliest allowed month (today when
-  // unbounded), so a correction form does not make the operator page back to the original day.
-  const [cursor, setCursor] = useState<Date>(() => parseDateKey(defaultValue || min));
-  const detailsRef = useRef<HTMLDetailsElement>(null);
+  const anchorRef = useRef<HTMLInputElement>(null);
+  // The field's own value: a half-typed date stays on screen without reaching the host.
+  const [draft, setDraft] = useState<Dayjs | null>(() => (selected ? dayjs(selected) : null));
+  useEffect(() => {
+    setDraft((current) => {
+      const currentKey = current && current.isValid() ? current.format("YYYY-MM-DD") : "";
+      if (currentKey === selected) return current;
+      return selected ? dayjs(selected) : null;
+    });
+  }, [selected]);
 
   useEffect(() => {
-    function onPointerDown(event: PointerEvent): void {
-      const details = detailsRef.current;
-      if (!details?.open || !event.target || details.contains(event.target as Node)) return;
-      details.open = false;
-    }
-    function onKeyDown(event: KeyboardEvent): void {
-      if (event.key !== "Escape") return;
-      const details = detailsRef.current;
-      if (!details?.open) return;
-      event.preventDefault();
-      details.open = false;
-    }
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, []);
-
-  useEffect(() => {
-    const form = detailsRef.current?.closest("form");
+    const form = anchorRef.current?.closest("form");
     if (!form || !required) return undefined;
     function onSubmit(event: SubmitEvent): void {
       const belowMin = minKey !== "" && selected < minKey;
@@ -118,52 +100,44 @@ export function ThemedDatePicker({
       }
       event.preventDefault();
       setError(invalidDateText.replace("{date}", fmtDate(belowMin ? minKey : maxKey) || ""));
-      if (detailsRef.current) detailsRef.current.open = true;
     }
     form.addEventListener("submit", onSubmit);
     return () => form.removeEventListener("submit", onSubmit);
   }, [invalidDateText, maxKey, minKey, required, selected]);
 
-  function selectDate(key: string): void {
-    setInternal(key);
-    onChange?.(key);
-    setError("");
-    if (detailsRef.current) detailsRef.current.open = false;
-  }
-
   return (
-    <details ref={detailsRef} className={`move-date-picker ${dp.picker}`}>
-      <summary className="move-date-button">
-        {/* DD-MM-YYYY like every other visible date in the app; the ISO key stays on the hidden
-            input, which is what the form actually submits. */}
-        <span>{selected ? fmtDate(selected) : cleared ?? label}</span>
-        <CalendarDays className="ic" aria-hidden="true" />
-      </summary>
-      <input type="hidden" name={name} value={selected} />
-      <DropdownPaper className="move-date-popover" role="group" aria-label={label}>
-        {/* Template calendar: MUI X DateCalendar (same component the CustomDateRangePicker uses).
-            Hidden input above still carries the ISO YYYY-MM-DD value the form submits. Aria labels
-            for the month arrows keep the backend-composed copy (`previousMonthLabel`, `nextMonthLabel`). */}
-        <DateCalendar
-          value={selected ? dayjs(selected) : null}
-          referenceDate={dayjs(cursor)}
-          onChange={(next) => {
-            if (next) selectDate(next.format("YYYY-MM-DD"));
-          }}
-          onMonthChange={(month) => setCursor(new Date(month.year(), month.month(), 1))}
-          minDate={min ? dayjs(min) : undefined}
-          maxDate={max ? dayjs(max) : undefined}
-          views={["day"]}
-          showDaysOutsideCurrentMonth
-          fixedWeekNumber={6}
-          slotProps={{
-            previousIconButton: { "aria-label": previousMonthLabel } as never,
-            nextIconButton: { "aria-label": nextMonthLabel } as never,
-          }}
-          sx={{ width: 1, maxWidth: 1, height: "auto" }}
-        />
-      </DropdownPaper>
-      {error ? <span className="move-date-error" role="alert">{error}</span> : null}
-    </details>
+    <Box sx={{ minWidth: 0 }}>
+      {/* The ISO key is what the form submits; the field shows DD/MM/YYYY like every visible date. */}
+      <input ref={anchorRef} type="hidden" name={name} value={selected} />
+      <DatePicker
+        label={label}
+        value={draft}
+        format="DD/MM/YYYY"
+        referenceDate={dayjs(defaultValue || min || undefined)}
+        minDate={min ? dayjs(min) : undefined}
+        maxDate={max ? dayjs(max) : undefined}
+        onChange={(next) => {
+          setDraft(next);
+          if (next && !next.isValid()) return;
+          const key = next ? next.format("YYYY-MM-DD") : "";
+          setInternal(key);
+          onChange?.(key);
+          setError("");
+        }}
+        slotProps={{
+          previousIconButton: { "aria-label": previousMonthLabel } as never,
+          nextIconButton: { "aria-label": nextMonthLabel } as never,
+          field: { clearable: !required } as never,
+          textField: {
+            fullWidth: true,
+            error: Boolean(error),
+            helperText: error || undefined,
+            placeholder: selected ? undefined : cleared,
+            // The asterisk only: a `required` picker input would be browser-validated while hidden.
+            slotProps: { inputLabel: { shrink: true, required } },
+          } as never,
+        }}
+      />
+    </Box>
   );
 }

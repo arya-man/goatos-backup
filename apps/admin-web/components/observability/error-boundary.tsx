@@ -8,8 +8,9 @@
 // within the two approved Faro packages (@grafana/faro-web-sdk, @grafana/faro-web-tracing) and
 // has no dependency on the React Router-oriented @grafana/faro-react package.
 import { Component, useEffect, type ErrorInfo, type ReactNode } from "react";
-import { AlertTriangle } from "lucide-react";
+import Button from "@mui/material/Button";
 import Link from "@/components/no-prefetch-link";
+import { StatePanel } from "@/components/app/state-panel";
 import { faro } from "@grafana/faro-web-sdk";
 import { adminRouteErrorReference, type NextRouteError } from "@/lib/admin-route-error";
 
@@ -30,26 +31,24 @@ function EmergencyErrorContent({
   reference?: string | null;
 }) {
   return (
-    <main className="kit-page kit-error-page">
-      <section className="kit-state kit-state-inline" role="alert">
-        <span className="kit-state-icon" aria-hidden="true">
-          <AlertTriangle />
-        </span>
-        <h1 className="kit-state-title">Something went wrong</h1>
-        <p className="kit-state-body">This screen failed to render. It has been reported.</p>
-        <div className="kit-state-actions">
+    <StatePanel
+      page={false}
+      title="Something went wrong"
+      body="This screen failed to render. It has been reported."
+      reference={reference ? `Ref ${reference}` : null}
+      actions={
+        <>
           {onRetry ? (
-            <button type="button" className="btn primary" onClick={onRetry}>
+            <Button variant="contained" color="primary" onClick={onRetry}>
               Try again
-            </button>
+            </Button>
           ) : null}
-          <Link href="/" className="btn">
+          <Button variant="outlined" color="inherit" component={Link} href="/">
             Go to home
-          </Link>
-        </div>
-        {reference ? <span className="kit-state-ref">Ref {reference}</span> : null}
-      </section>
-    </main>
+          </Button>
+        </>
+      }
+    />
   );
 }
 

@@ -1,9 +1,9 @@
-import { AlertTriangle } from "lucide-react";
 import { FirebaseSessionBridge } from "@/components/auth/firebase-session-bridge";
 import { contractUnavailableCopy } from "@/components/admin-shell-unavailable";
 import { MeshaShell, type ShellContract } from "@/components/mesha-shell";
 import Button from "@mui/material/Button";
 import { RetryButton } from "@/components/app/retry-button";
+import { StatePanel } from "@/components/app/state-panel";
 import { ContractUnavailableTelemetry } from "@/components/observability/contract-unavailable-telemetry";
 import { getAdminWebBootstrap, type AdminWebBootstrapResponse } from "@/lib/api/server";
 import type { Park } from "@/lib/scope";
@@ -36,24 +36,21 @@ export async function AdminShell({ children }: { children: React.ReactNode }) {
       <>
         <FirebaseSessionBridge enabled={process.env.GOATOS_AUTH_MODE !== "bearer"} />
         <ContractUnavailableTelemetry kind={kind} code={code} status={status} traceId={traceId} />
-        <main className="kit-state-page">
-          <section className="kit-state" role="alert">
-            <span className="kit-state-icon" aria-hidden="true">
-              <AlertTriangle />
-            </span>
-            <h1 className="kit-state-title">{copy.title}</h1>
-            <p className="kit-state-body">{copy.body}</p>
-            {/* No error code or transport sentence on screen (main 7956ca373): the code goes to the
-                server log and Faro above. Unauthorized goes to sign-in; anything else reloads. */}
-            {kind === "unauthorized" ? (
+        {/* No error code or transport sentence on screen (main 7956ca373): the code goes to the
+            server log and Faro above. Unauthorized goes to sign-in; anything else reloads. */}
+        <StatePanel
+          title={copy.title}
+          body={copy.body}
+          actions={
+            kind === "unauthorized" ? (
               <Button variant="outlined" color="inherit" href="/login">
                 {copy.retry}
               </Button>
             ) : (
               <RetryButton label={copy.retry} />
-            )}
-          </section>
-        </main>
+            )
+          }
+        />
       </>
     );
   }

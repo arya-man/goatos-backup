@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Button from "@mui/material/Button";
-import { LogOut } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import { LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { clearFirebaseSession } from "@/lib/auth/firebase-client";
 
@@ -18,7 +18,7 @@ export function SignOutButton() {
       title="Sign out"
       aria-label="Sign out"
       disabled={pending}
-      startIcon={<LogOut aria-hidden="true" />}
+      startIcon={<Iconify icon="ic:round-power-settings-new" />}
       onClick={() => {
         setPending(true);
         void clearFirebaseSession().finally(() => {

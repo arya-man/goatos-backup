@@ -177,20 +177,22 @@ test("vaccination schedule move date uses an overlay and themed dark date picker
   assert.doesNotMatch(themedDatePickerSource, /className=.*out/);
   assert.doesNotMatch(themedDatePickerSource, /addDays\(parseDateKey\(min\), 1\)/);
   assert.match(themedDatePickerSource, /const minDate = useMemo\(\(\) => parseDateKey\(min\), \[min\]\)/);
+  // FIXJ4: the picker is the template MUI X DatePicker (DD/MM/YYYY, floating label), posting the ISO
+  // key through a hidden input; the legacy `.move-date-*` summary button + popover are gone.
   assert.match(moveDrawerSource, /displayedRow\.vaccineOriginalDates\[selectedVaccineCode\]/);
   assert.match(moveDrawerSource, /value=\{selectedVaccineCode\}/);
   assert.match(moveDrawerSource, /min=\{todayIso\(\)\}/);
-  assert.match(themedDatePickerSource, /move-date-popover/);
+  assert.doesNotMatch(themedDatePickerSource, /move-date-|\.module\.css/);
+  assert.match(themedDatePickerSource, /format="DD\/MM\/YYYY"/);
+  assert.match(themedDatePickerSource, /<input ref=\{anchorRef\} type="hidden" name=\{name\}/);
   // Calendar body now uses MUI X DateCalendar (template's CustomDateRangePicker calendar) so the
   // hand-rolled `.move-date-spacer` empty-cell placeholders no longer exist; the check the test
   // guards (not a native date input, month arrows aria-labelled, close-on-outside-click) stays.
-  assert.match(themedDatePickerSource, /DateCalendar/);
-  assert.match(themedDatePickerSource, /document\.addEventListener\("pointerdown", onPointerDown\)/);
-  assert.match(themedDatePickerSource, /detailsRef\.current\.open = false/);
+  assert.match(themedDatePickerSource, /<DatePicker/);
   assert.match(moveDrawerSource, /schedule\.move\.previous_month/);
   assert.match(moveDrawerSource, /schedule\.move\.next_month/);
   assert.match(moveDrawerSource, /schedule\.move\.invalid_future_date/);
-  assert.match(css, /\.move-date-popover/);
+  assert.doesNotMatch(css, /\.move-date-/);
   assert.match(css, /background:var\(--panel\)/);
 });
 

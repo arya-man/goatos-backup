@@ -132,10 +132,6 @@ select option{background:var(--paper);color:var(--fg)}
 @keyframes kit-menu-in{from{opacity:0;transform:scale(.92)}to{opacity:1;transform:none}}
 
 /* Date range trigger inside a floating-label field. */
-.kit-field-date .date-scope-label{display:none}
-.kit-field-date .date-scope-value{font-size:14px;font-weight:500;color:var(--fg);overflow:hidden;text-overflow:ellipsis}
-.kit-field-date .date-scope-copy{min-width:0;flex:1}
-.top-date-popover{animation:kit-menu-in 220ms var(--ease) both;transform-origin:top left}
 
 /* ---------- Filter bar: one row, reset, trailing action right ---------- */
 /* Never nowrap: seven fields (Farm born) clipped "Stage" at the card edge at 1440. Fields keep a
@@ -178,7 +174,6 @@ select option{background:var(--paper);color:var(--fg)}
 /* Two-up on a phone (reference: KPI cards pair up at 390), single column only under 360. Long figures wrap rather than clip. */
 
 /* ---------- Full-page state (contract error / empty) ---------- */
-.kit-state-page{min-height:100dvh;display:grid;place-items:center;padding:24px 16px;background:var(--bg)}
 .kit-state{width:100%;max-width:480px;display:grid;justify-items:center;gap:12px;padding:40px 32px;text-align:center;border-radius:16px;background:var(--paper);box-shadow:var(--shadow-card);animation:kit-page-in 300ms var(--ease-out) both}
 .kit-state-icon{display:grid;place-items:center;width:48px;height:48px;border-radius:12px;background:var(--warning-soft);color:var(--warning-ink)}
 .kit-state-icon svg{width:24px;height:24px}
@@ -460,14 +455,7 @@ input[type="radio"],input[type="checkbox"]{accent-color:var(--primary)}
    a soft brand band behind the days, the two ends filled circles carrying half the band. The cell is
    the button (full hit area); ::before draws the circle, ::after the band. Phones grow the circle to
    the 44px tap floor. Colours: Mesha brand/neutral tokens only. */
-.top-date-popover{--cal-d:36px}
-.top-date-popover .top-date-head{grid-template-columns:minmax(0,1fr) auto auto;gap:var(--sp-half);margin-bottom:var(--sp-1);text-align:left}
-.top-date-popover .top-date-head b{order:-1;padding-left:var(--sp-1);font-size:var(--fs-subtitle1);font-weight:600;color:var(--fg)}
 /* The band rounds off where a week row starts or ends, like MUI's range day. */
-.top-date-popover .top-date-hint{font-size:var(--fs-caption);font-weight:400;color:var(--fg-muted)}
-@media(pointer:coarse),(max-width:640px){
-  .top-date-popover{--cal-d:44px}
-}
 
 /* Template MUI inputs own their outline (the notched OutlinedInput border). The legacy page rules
    (`.main input[type=search]{border…}` and friends) must not draw a second box inside them. */

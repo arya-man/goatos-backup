@@ -17,6 +17,8 @@ import TableBody from "@mui/material/TableBody";
 import TableCell from "@mui/material/TableCell";
 import MuiTableFooter from "@mui/material/TableFooter";
 import TableRow from "@mui/material/TableRow";
+import Typography from "@mui/material/Typography";
+import { visuallyHidden } from "@mui/utils";
 
 import type { AdminUiTableContract } from "@/lib/admin-ui-contract";
 import { EmptyContent } from "@/components/minimal/empty-content";
@@ -68,14 +70,26 @@ import { TableHeadCustom, type TableHeadCellProps } from "@/components/app/table
  * scroll sideways on a phone.
  */
 export function IdentityCell({ primary, secondary, lead }: { primary: React.ReactNode; secondary?: React.ReactNode; lead?: React.ReactNode }) {
+  // Template user-list name cell: optional avatar/lead, then a Stack of the name (subtitle2) and a
+  // caption line in text.disabled (sections/user/user-table-row).
   return (
-    <span className="kit-idcell">
-      {lead ? <span className="kit-idcell-lead">{lead}</span> : null}
-      <span className="kit-idcell-copy">
-        <span className="kit-idcell-primary">{primary}</span>
-        {secondary === undefined || secondary === null ? null : <span className="kit-idcell-secondary">{secondary}</span>}
-      </span>
-    </span>
+    <Box component="span" sx={{ display: "flex", alignItems: "center", gap: 1.25, minWidth: 0 }}>
+      {lead ? (
+        <Box component="span" sx={{ flex: "none", display: "inline-flex", alignItems: "center" }}>
+          {lead}
+        </Box>
+      ) : null}
+      <Box component="span" sx={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+        <Typography component="span" variant="subtitle2" noWrap sx={{ color: "text.primary" }}>
+          {primary}
+        </Typography>
+        {secondary === undefined || secondary === null ? null : (
+          <Typography component="span" variant="caption" noWrap sx={{ color: "text.disabled" }}>
+            {secondary}
+          </Typography>
+        )}
+      </Box>
+    </Box>
   );
 }
 
@@ -123,7 +137,7 @@ export type DataTableColumnMeta = {
    * column (found 2026-09-18 on /tasks at phone width, where the urgency column is dropped).
    */
   headerClassName?: string;
-  /** Extra inline style for this column's body cells. */
+  /** Extra style for this column's body cells (applied as the cell's sx). */
   cellStyle?: React.CSSProperties;
 };
 
@@ -263,14 +277,13 @@ export function DataTable<Row>({
         className: meta?.headerClassName,
       } satisfies TableHeadCellProps;
     }),
-    ...(rowActions ? [{ id: "__actions", label: rowActionsHeader ?? <span className="sr-only">Actions</span>, sortable: false, align: "right" as const, className: "kit-actcell" }] : []),
+    ...(rowActions ? [{ id: "__actions", label: rowActionsHeader ?? <Box component="span" sx={visuallyHidden}>Actions</Box>, sortable: false, align: "right" as const, width: 52 }] : []),
   ];
 
   // Template user-list anatomy: Scrollbar > Table (size follows the dense switch) > TableHeadCustom,
   // rows as TableRow hover, TableNoData-style empty cell. TanStack still owns order and sorting.
   return (
     <Box
-      className={dense ? "kit-dense" : undefined}
       tabIndex={0}
       role="region"
       aria-label={ariaLabel}
@@ -301,11 +314,11 @@ export function DataTable<Row>({
               const open = expandable ? expandable.isOpen(row.original) : false;
               const selected = Boolean(selectedIds?.has(row.id));
               return (
-                <TableBody key={row.id} className={open ? "xgroup open" : undefined}>
+                <TableBody key={row.id} data-open={open ? "true" : undefined}>
                   <TableRow
                     hover
                     selected={selected}
-                    className={expandable ? (open ? "xrow open" : "xrow") : undefined}
+                    aria-expanded={expandable ? open : undefined}
                     // The whole line is the affordance. Clicks that land on an interactive control
                     // inside a cell (an inline editor, a link) keep their own meaning and do not
                     // toggle: the control handles them and stops propagation.
@@ -331,13 +344,13 @@ export function DataTable<Row>({
                       const meta = cell.column.columnDef.meta as DataTableColumnMeta | undefined;
                       if (meta?.spanned) return null;
                       return (
-                        <TableCell key={cell.id} className={meta?.cellClassName} colSpan={meta?.colSpan} align={meta?.align} style={meta?.cellStyle}>
+                        <TableCell key={cell.id} className={meta?.cellClassName} colSpan={meta?.colSpan} align={meta?.align} sx={meta?.cellStyle}>
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </TableCell>
                       );
                     })}
                     {rowActions ? (
-                      <TableCell className="kit-actcell" align="right" onClick={(event) => event.stopPropagation()}>
+                      <TableCell align="right" sx={{ width: 52, whiteSpace: "nowrap" }} onClick={(event) => event.stopPropagation()}>
                         {rowActions(row.original)}
                       </TableCell>
                     ) : null}
