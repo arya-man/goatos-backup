@@ -265,6 +265,8 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		bothSurfaces("leave_approvals", LevelView, LevelOversee),
 		// HRMS Timetable (2026-09-30): HR edits who works which shift. Web only.
 		one(assign("timetable", SurfaceWeb, LevelView, LevelConfigure)),
+		// HRMS Violations (2026-09-30): HR records violations. Web only.
+		one(assign("violations", SurfaceWeb, LevelView, LevelConfigure)),
 	),
 	RoleCountsApprover: rows(
 		bothSurfaces("counts", LevelOversee),
@@ -315,6 +317,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		bothSurfaces("leave_approvals", LevelView, LevelOversee, LevelConfigure),
 		// HRMS Timetable (2026-09-30): the CEO floor sees and edits every park's shifts.
 		one(assign("timetable", SurfaceWeb, LevelView, LevelConfigure)),
+		one(assign("violations", SurfaceWeb, LevelView, LevelConfigure)),
 		bothSurfaces("vaccination", LevelView, LevelOversee, LevelConfigure),
 		bothSurfaces("weighing", LevelView, LevelConfigure),
 		bothSurfaces("pc_care", LevelView, LevelConfigure),

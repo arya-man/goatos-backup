@@ -259,6 +259,9 @@ func navigation() domain.NavigationContract {
 					// (permissionsForNav); the list and the flags are page-contract controls on
 					// leave.read / leave.approval.configure.
 					navLeafDomain("leave", "Leave", "/leave", "admin.people", nil),
+					// Violations (maintainer decisions 2026-09-30): a violation recorded against a person
+					// with a fine in rupees; the types are authored on the HRMS SOP.
+					navLeafDomain("people-violations", "Violations", "/people/violations", "admin.people", nil),
 					navLeafDomain("people-notifications", "Notifications", "/people/notifications", "admin.people", nil),
 					navLeafDomain("people-vaccination", "Vaccination operators", "/people/vaccination", "admin.people", nil),
 				},
@@ -364,6 +367,7 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/people", Label: "People", Match: "exact"},
 		{Pattern: "/people/clock", Label: "Clock in / out", Match: "exact"},
 		{Pattern: "/people/timetable", Label: "Timetable", Match: "exact"},
+		{Pattern: "/people/violations", Label: "Violations", Match: "exact"},
 		{Pattern: "/people/notifications", Label: "Notifications", Match: "exact"},
 		{Pattern: "/people/vaccination", Label: "Vaccination operators", Match: "exact"},
 		{Pattern: "/goats/{goat_id}", Label: "Goat Passport", Match: "pattern"},
@@ -1114,6 +1118,13 @@ func pages() []domain.PageContract {
 		page("people-timetable", "/people/timetable", "/people/timetable", "Timetable", "Who works which shift at each park, and each shift's working hours", "authority-screen",
 			[]domain.TableContract{
 				tableP("timetable-people", "People", "/admin/workforce/timetable", []string{"person", "designation", "department", "shift", "work_timings"}, "person_id", []int{50}),
+			}),
+		// Violations (maintainer decisions 2026-09-30): the per-person totals for the filter and
+		// every recorded violation. Final when recorded; a mistaken one is withdrawn, never deleted.
+		page("people-violations", "/people/violations", "/people/violations", "Violations", "Violations recorded against each person, and the fine for each", "authority-screen",
+			[]domain.TableContract{
+				tableP("violation-people", "By person", "/admin/workforce/violations", []string{"person", "park", "violations", "fines"}, "person_id", []int{50}),
+				tableP("violations", "All violations", "/admin/workforce/violations", []string{"date", "person", "violation", "fine", "note", "recorded_by", "status"}, "violation_id", []int{25}),
 			}),
 		// Notifications (maintainer decision 2026-09-08): which DESIGNATION hears which alert.
 		// One row per configurable alert; the designation columns are tenant rows carried in the
@@ -2260,6 +2271,63 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.empty_placeholder":          "—",
 			"section.work_board.aria":          "Action Center work board",
 			"error.unavailable_prefix":         "Workflow record unavailable",
+		}
+	case "people-violations":
+		// HRMS Violations (maintainer decisions 2026-09-30). The violation types, their default
+		// fines and the park/person names come from the read itself (the published HRMS SOP and
+		// the roster); every date and amount sentence is backend-composed.
+		return map[string]string{
+			"crumb":                    "HRMS",
+			"filter.park":              "Park",
+			"filter.park_all":          "All parks",
+			"filter.month":             "Month",
+			"filter.status":            "Status",
+			"filter.status.recorded":   "Recorded",
+			"filter.status.withdrawn":  "Withdrawn",
+			"summary.count":            "Violations",
+			"summary.fines":            "Fines",
+			"summary.people":           "People",
+			"people.title":             "By person",
+			"people.empty":             "No violations recorded for this filter.",
+			"list.title":               "All violations",
+			"list.empty":               "No violations recorded for this filter.",
+			"column.date":              "Date",
+			"column.person":            "Person",
+			"column.park":              "Park",
+			"column.violation":         "Violation",
+			"column.violations":        "Violations",
+			"column.fine":              "Fine",
+			"column.fines":             "Fines",
+			"column.note":              "Note",
+			"column.recorded_by":       "Recorded by",
+			"column.status":            "Status",
+			"form.title":               "Record a violation",
+			"form.person":              "Person",
+			"form.person_choose":       "Choose a person",
+			"form.type":                "Violation",
+			"form.type_choose":         "Choose a violation",
+			"form.date":                "Date",
+			"form.fine":                "Fine (₹)",
+			"form.note":                "Note",
+			"form.note_hint":           "What happened",
+			"form.prev_month":          "Previous month",
+			"form.next_month":          "Next month",
+			"form.invalid_date":        "Choose a date on or before {date}.",
+			"form.no_types":            "No violation types are published yet. Add them on HRMS SOP, then record here.",
+			"action.record":            "Record violation",
+			"action.save":              "Record",
+			"action.saving":            "Saving…",
+			"action.cancel":            "Cancel",
+			"action.withdraw":          "Withdraw",
+			"action.withdraw_confirm":  "Withdraw",
+			"action.withdraw_reason":   "Why it is withdrawn",
+			"action.saved":             "Recorded",
+			"action.withdrawn":         "Withdrawn",
+			"action.failed":            "Could not save. Try again.",
+			"action.required":          "Choose the person, the violation and the date.",
+			"pager.next":               "Next",
+			"pager.first":              "Back to the start",
+			"disabled.violation_write": "Your current role can see violations but not record them.",
 		}
 	case "people-timetable":
 		// HRMS Timetable (maintainer request 2026-09-30). Every word the page shows; the shift

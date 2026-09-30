@@ -91,6 +91,7 @@ func TestFieldlessSOPCodesMatchTheirOwners(t *testing.T) {
 		toxinSOPCode:                       "procurement.toxin_test",
 		salesSOPCodeVendor:                 "sales.vendor",
 		pcCareSOPCode:                      "pc_care.tasks",
+		hrmsSOPCodeViolations:              "hrms.violations",
 	} {
 		if code != label {
 			t.Fatalf("fieldless code %q drifted from %q", code, label)

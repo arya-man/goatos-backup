@@ -596,8 +596,19 @@ const (
 	// neither for now (maintainer answer 2026-09-30: they get a phone editor later).
 	WorkforceTimetableRead  = "workforce.timetable.read"
 	WorkforceTimetableWrite = "workforce.timetable.write"
-	RosterRead              = "roster.read"
-	RosterManage            = "roster.manage"
+	// HRMS Violations (maintainer decisions 2026-09-30): a violation recorded against a person
+	// with a fine in rupees. READ opens People / HRMS > Violations; WRITE records one or withdraws
+	// a mistaken one. HR and the CEO/CXO hold both; park heads later. WHICH violation types exist
+	// and their default fines are authored on the HRMS SOP, never here.
+	WorkforceViolationsRead  = "workforce.violations.read"
+	WorkforceViolationsWrite = "workforce.violations.write"
+	// HRMSSOPAuthor lets its holder read, save and publish the HRMS SOPs -- and ONLY those
+	// (code prefix "hrms.", enforced in the SOP HTTP adapter, not just the UI). HR authors the
+	// violation types, their fines and the enquiry questions (maintainer answer 2026-09-30)
+	// without being handed every other module's SOP through sop.write / sop.publish.
+	HRMSSOPAuthor = "hrms.sop.author"
+	RosterRead    = "roster.read"
+	RosterManage  = "roster.manage"
 	// CountsWrite gates the app-tier Counts write surface: an operator recording a shifting
 	// (movement) event, a birth, or a death from the phone (/app/counts/*).
 	//
@@ -1384,6 +1395,9 @@ var rolePermissions = map[string]map[string]struct{}{
 		// HRMS Timetable (2026-09-30): HR decides who works which shift and each park's
 		// shift hours, on the web.
 		WorkforceTimetableRead: {}, WorkforceTimetableWrite: {},
+		// HRMS Violations (2026-09-30): HR records violations and their fines, on the web,
+		// and authors the HRMS SOP (violation types, fines, enquiry questions) -- that SOP only.
+		WorkforceViolationsRead: {}, WorkforceViolationsWrite: {}, HRMSSOPAuthor: {},
 	},
 	RoleCountsApprover: {
 		CountsApproveAccess:    {},
@@ -1472,6 +1486,10 @@ var rolePermissions = map[string]map[string]struct{}{
 		LeaveApprove: {}, LeaveRead: {}, LeaveApprovalConfigure: {},
 		// HRMS Timetable (2026-09-30): the CEO floor sees and changes every park's shifts.
 		WorkforceTimetableRead: {}, WorkforceTimetableWrite: {},
+		// HRMS Violations (2026-09-30): records and withdraws violations for any park. The CEO
+		// already holds every sop.* permission; HRMSSOPAuthor is listed so the Violations
+		// module's configure level reproduces exactly on this role.
+		WorkforceViolationsRead: {}, WorkforceViolationsWrite: {}, HRMSSOPAuthor: {},
 		GoatRead: {}, GoatWriteIdentity: {}, GoatWriteHealth: {},
 		// The ONLY holder of the whole-pen cohort reclassification. See the constant's doc comment:
 		// it applies immediately, with no approval and no proof, and flips kid/adult for the whole

@@ -1133,6 +1133,8 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			out[i].Controls = compilePeopleControls(out[i].Controls, input, out[i].Copy)
 		case "people-timetable":
 			out[i].Controls = compileTimetableControls(out[i].Controls, input, out[i].Copy)
+		case "people-violations":
+			out[i].Controls = compileViolationControls(out[i].Controls, input, out[i].Copy)
 		case "counts-breakdown":
 			out[i].Controls = compileCountsBreakdownControls(out[i].Controls, input, out[i].Copy)
 			// The breed catalog for the inline breed correction, injected the same way Feed's
@@ -1809,6 +1811,34 @@ func compilePeopleControls(controls []domain.Control, input BootstrapInput, copy
 		Enabled:        clockAllowed,
 		DisabledReason: clockReason,
 		Action:         "GET /admin/workforce/clock-entries",
+	})
+}
+
+// compileViolationControls splits People / HRMS > Violations by authority (maintainer decisions
+// 2026-09-30): WorkforceViolationsRead opens the page; only WorkforceViolationsWrite -- HR and the
+// CEO/CXO -- records a violation or withdraws a mistaken one. A reader sees both disabled with a
+// reason; the POST routes refuse regardless.
+func compileViolationControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
+	allowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.WorkforceViolationsWrite})
+	reason := ""
+	if !allowed {
+		reason = controlCopy(copy, "disabled.violation_write", "Your current role can see violations but not record them.")
+	}
+	controls = upsertControl(controls, domain.Control{
+		ID:             "record_violation",
+		Label:          controlCopy(copy, "action.record", "Record violation"),
+		Kind:           "primary_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "POST /admin/workforce/violations",
+	})
+	return upsertControl(controls, domain.Control{
+		ID:             "withdraw_violation",
+		Label:          controlCopy(copy, "action.withdraw", "Withdraw"),
+		Kind:           "row_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "POST /admin/workforce/violations/{violation_id}/withdraw",
 	})
 }
 
@@ -2733,6 +2763,8 @@ func permissionsForNav(id string) []string {
 		return []string{permissions.OperatorsRead, permissions.ClockPresenceRead}
 	case "people-timetable":
 		return []string{permissions.WorkforceTimetableRead}
+	case "people-violations":
+		return []string{permissions.WorkforceViolationsRead}
 	case "audit-log":
 		return []string{permissions.OperatorsViewAudit}
 	case "dlq-center":

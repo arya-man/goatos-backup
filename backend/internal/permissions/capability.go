@@ -750,6 +750,22 @@ var moduleCapabilities = []ModuleCapability{
 		},
 	},
 	{
+		// HRMS Violations (maintainer decisions 2026-09-30): People / HRMS > Violations -- a
+		// violation recorded against a person, with a fine in rupees, final when recorded. Its own
+		// module for the same reason as Timetable: HR works it without the staff directory. Web
+		// only; park heads later.
+		Key:      "violations",
+		Label:    "Violations",
+		Blurb:    "Violations recorded against a person, and the fine for each.",
+		Surfaces: []string{SurfaceWeb},
+		Levels: map[string][]string{
+			LevelView: {WorkforceViolationsRead},
+			// Configure also authors the HRMS SOP (the violation types and enquiry questions),
+			// scoped to hrms.* by the SOP adapter.
+			LevelConfigure: {WorkforceViolationsRead, WorkforceViolationsWrite, HRMSSOPAuthor},
+		},
+	},
+	{
 		// The landed cost of a purchased ANIMAL load, entered on the Sales page's load-wise
 		// section (maintainer decision 2026-08-31, docs/decisions/sales-loadwise.md). Its own
 		// module for the same reason feed_purchases is: this is supplier money, and folding it

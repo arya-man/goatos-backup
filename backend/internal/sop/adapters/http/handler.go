@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
 	"github.com/vgoats/goatos/backend/internal/sop/app"
@@ -86,7 +87,7 @@ func (h *Handler) ListSOPs(w nethttp.ResponseWriter, r *nethttp.Request) {
 		TenantID:   tenantID(r),
 		Status:     q.Get("status"),
 		Kind:       strings.TrimSpace(q.Get("kind")),
-		CodePrefix: codePrefix,
+		CodePrefix: hrmsListPrefix(r.Context(), codePrefix),
 		Search:     search,
 		Cursor:     cursor,
 		Limit:      limit,
@@ -104,11 +105,17 @@ func (h *Handler) CreateSOP(w nethttp.ResponseWriter, r *nethttp.Request) {
 }
 
 func (h *Handler) GetSOP(w nethttp.ResponseWriter, r *nethttp.Request) {
+	if !h.guardHRMSOnly(w, r, permissions.SOPRead) {
+		return
+	}
 	result, err := h.service.GetSOP(r.Context(), tenantID(r), r.PathValue("sop_id"), traceID(r))
 	h.respond(w, r, result, err)
 }
 
 func (h *Handler) CreateVersion(w nethttp.ResponseWriter, r *nethttp.Request) {
+	if !h.guardHRMSOnly(w, r, permissions.SOPWrite) {
+		return
+	}
 	var body domain.CreateSOPVersionRequest
 	if !decodeJSON(w, r, &body) {
 		return
@@ -123,6 +130,9 @@ func (h *Handler) CreateVersion(w nethttp.ResponseWriter, r *nethttp.Request) {
 }
 
 func (h *Handler) GetVersion(w nethttp.ResponseWriter, r *nethttp.Request) {
+	if !h.guardHRMSOnly(w, r, permissions.SOPRead) {
+		return
+	}
 	result, err := h.service.GetVersion(r.Context(), tenantID(r), r.PathValue("sop_id"), r.PathValue("sop_version_id"), traceID(r))
 	h.respond(w, r, result, err)
 }
@@ -150,6 +160,9 @@ func (h *Handler) RetireVersion(w nethttp.ResponseWriter, r *nethttp.Request) {
 }
 
 func (h *Handler) versionStatus(w nethttp.ResponseWriter, r *nethttp.Request, action string) {
+	if !h.guardHRMSOnly(w, r, permissions.SOPPublish) {
+		return
+	}
 	var body struct {
 		RowVersion int `json:"row_version"`
 	}

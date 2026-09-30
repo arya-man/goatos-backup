@@ -105,6 +105,11 @@ const (
 	SOPKindGeneral = "general"
 )
 
+// HRMSCodePrefix is the code prefix of the HRMS SOPs (violation types, enquiries -- 2026-09-30).
+// It is also the ONLY prefix an HRMS SOP author (permissions.HRMSSOPAuthor, held by HR) may read
+// or write; every other SOP stays with the full sop.* permissions.
+const HRMSCodePrefix = "hrms."
+
 // ModuleKeyForCode derives the owning module from a SOP code's prefix (the same slicing the
 // per-module pages use); "" when the prefix names no module.
 func ModuleKeyForCode(code string) string {
@@ -121,6 +126,8 @@ func ModuleKeyForCode(code string) string {
 		return "procurement"
 	case strings.HasPrefix(code, "vaccination.") || strings.HasPrefix(code, "vacc"):
 		return "vaccination"
+	case strings.HasPrefix(code, HRMSCodePrefix):
+		return "hrms"
 	}
 	return ""
 }

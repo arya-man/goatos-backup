@@ -217,6 +217,10 @@ var protectedRoutes = []Route{
 	{OperationID: "getWorkforceTimetable", Method: "GET", Pattern: "/admin/workforce/timetable", Permissions: []string{WorkforceTimetableRead}},
 	{OperationID: "setWorkforceParkShiftTiming", Method: "PUT", Pattern: "/admin/workforce/timetable/parks/{park_id}/shifts/{shift_code}", Permissions: []string{WorkforceTimetableWrite}},
 	{OperationID: "setWorkforceMemberShift", Method: "PUT", Pattern: "/admin/workforce/timetable/people/{person_id}/shift", Permissions: []string{WorkforceTimetableWrite}},
+	// HRMS Violations (maintainer decisions 2026-09-30): HR and the CEO/CXO record and withdraw.
+	{OperationID: "listWorkforceViolations", Method: "GET", Pattern: "/admin/workforce/violations", Permissions: []string{WorkforceViolationsRead}},
+	{OperationID: "recordWorkforceViolation", Method: "POST", Pattern: "/admin/workforce/violations", Permissions: []string{WorkforceViolationsWrite}},
+	{OperationID: "withdrawWorkforceViolation", Method: "POST", Pattern: "/admin/workforce/violations/{violation_id}/withdraw", Permissions: []string{WorkforceViolationsWrite}},
 	// Mobile live remote-config poll (docs/mobile/backend-driven-config.md): ETag/revision +
 	// cache_policy, presentation feature flags/owned-module registry, and bounded client runtime
 	// knobs. Same AppBootstrap "any authenticated app principal" gate as /app/bootstrap.
@@ -239,14 +243,16 @@ var protectedRoutes = []Route{
 	{OperationID: "listAppNotifications", Method: "GET", Pattern: "/app/notifications", Permissions: []string{AppBootstrap}},
 	{OperationID: "markAppNotificationsRead", Method: "POST", Pattern: "/app/notifications/read", Permissions: []string{AppBootstrap}},
 
-	{OperationID: "listSOPs", Method: "GET", Pattern: "/admin/sops", Permissions: []string{SOPRead}},
+	// HRMSSOPAuthor (2026-09-30) opens the SOP read/save/publish routes for the HRMS SOPs ONLY;
+	// the SOP adapter narrows such a caller to the "hrms." codes (sop/adapters/http hrmsOnly).
+	{OperationID: "listSOPs", Method: "GET", Pattern: "/admin/sops", AnyPermissions: []string{SOPRead, HRMSSOPAuthor}},
 	{OperationID: "createSOP", Method: "POST", Pattern: "/admin/sops", Permissions: []string{SOPWrite}},
-	{OperationID: "getSOP", Method: "GET", Pattern: "/admin/sops/{sop_id}", Permissions: []string{SOPRead}},
-	{OperationID: "createSOPVersion", Method: "POST", Pattern: "/admin/sops/{sop_id}/versions", Permissions: []string{SOPWrite}},
-	{OperationID: "getSOPVersion", Method: "GET", Pattern: "/admin/sops/{sop_id}/versions/{sop_version_id}", Permissions: []string{SOPRead}},
+	{OperationID: "getSOP", Method: "GET", Pattern: "/admin/sops/{sop_id}", AnyPermissions: []string{SOPRead, HRMSSOPAuthor}},
+	{OperationID: "createSOPVersion", Method: "POST", Pattern: "/admin/sops/{sop_id}/versions", AnyPermissions: []string{SOPWrite, HRMSSOPAuthor}},
+	{OperationID: "getSOPVersion", Method: "GET", Pattern: "/admin/sops/{sop_id}/versions/{sop_version_id}", AnyPermissions: []string{SOPRead, HRMSSOPAuthor}},
 	{OperationID: "dryRunSOPVersion", Method: "POST", Pattern: "/admin/sops/{sop_id}/versions/{sop_version_id}/dry-run", Permissions: []string{SOPRead}},
-	{OperationID: "publishSOPVersion", Method: "POST", Pattern: "/admin/sops/{sop_id}/versions/{sop_version_id}/publish", Permissions: []string{SOPPublish}},
-	{OperationID: "retireSOPVersion", Method: "POST", Pattern: "/admin/sops/{sop_id}/versions/{sop_version_id}/retire", Permissions: []string{SOPPublish}},
+	{OperationID: "publishSOPVersion", Method: "POST", Pattern: "/admin/sops/{sop_id}/versions/{sop_version_id}/publish", AnyPermissions: []string{SOPPublish, HRMSSOPAuthor}},
+	{OperationID: "retireSOPVersion", Method: "POST", Pattern: "/admin/sops/{sop_id}/versions/{sop_version_id}/retire", AnyPermissions: []string{SOPPublish, HRMSSOPAuthor}},
 	{OperationID: "listTasks", Method: "GET", Pattern: "/admin/tasks", Permissions: []string{TaskRead}},
 	{OperationID: "createTask", Method: "POST", Pattern: "/admin/tasks", Permissions: []string{TaskAssign}},
 	{OperationID: "getTask", Method: "GET", Pattern: "/admin/tasks/{task_id}", Permissions: []string{TaskRead}},
