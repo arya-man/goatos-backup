@@ -74,6 +74,9 @@ VALUES ($1::uuid, $2::uuid, 'mobile', 'pc_care', ARRAY[$3]::text[])`, tenant, id
 		}
 	}
 
+	// The tenant's root Consumables list, where Virufix is filed.
+	exec(`INSERT INTO item_categories (tenant_id, name, normalized_name, item_kind, status) VALUES ($1::uuid, 'Consumables', 'consumables', 'consumable', 'active')`, tenant)
+
 	raw, err := os.ReadFile("000457_pc_care_fumigation.sql")
 	if err != nil {
 		t.Fatalf("read 000457: %v", err)
@@ -128,6 +131,18 @@ WHERE v.tenant_id = $1::uuid AND d.code = 'pc_care.tasks'`, tenant).Scan(&versio
 		assertCaps(stage, "health-director", "mobile", "pc_care", "view")
 		assertCaps(stage, "breeding-director", "web", "pc_fumigation", "view,configure")
 		assertCaps(stage, "pc-director", "mobile", "pc_fumigation", "<none>") // plans nothing
+		// Virufix, once, in the Consumables list, in ml.
+		var items int
+		var unit, notes string
+		if err := pool.QueryRow(ctx, `
+SELECT count(*), min(i.base_unit), min(i.context ->> 'notes')
+FROM inventory_items i JOIN item_categories c ON c.tenant_id = i.tenant_id AND c.category_id = i.category_id
+WHERE i.tenant_id = $1::uuid AND i.name = 'Virufix' AND c.item_kind = 'consumable'`, tenant).Scan(&items, &unit, &notes); err != nil {
+			t.Fatalf("%s: read Virufix: %v", stage, err)
+		}
+		if items != 1 || unit != "ml" || !strings.Contains(notes, "5 ml per litre") {
+			t.Fatalf("%s: Virufix items=%d unit=%q notes=%q, want one ml item carrying the dosage", stage, items, unit, notes)
+		}
 	}
 	check("after up")
 
@@ -153,6 +168,11 @@ WHERE v.tenant_id = $1::uuid AND d.code = 'pc_care.tasks'`, tenant).Scan(&versio
 	assertCaps("after down", "park-head", "mobile", "pc_fumigation", "<none>")
 	assertCaps("after down", "park-head", "mobile", "pc_care", "<none>")
 	assertCaps("after down", "park-head-already-doing", "mobile", "pc_care", "do")
+	var virufix int
+	_ = pool.QueryRow(ctx, `SELECT count(*) FROM inventory_items WHERE tenant_id = $1::uuid AND name = 'Virufix'`, tenant).Scan(&virufix)
+	if virufix != 0 {
+		t.Fatalf("after down: %d Virufix items, want 0", virufix)
+	}
 	var hasCard bool
 	if err := pool.QueryRow(ctx, `
 SELECT v.form_dsl -> 'pc_care' -> 'categories' ? 'fumigation'
