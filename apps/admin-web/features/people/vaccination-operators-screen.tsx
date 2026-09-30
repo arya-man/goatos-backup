@@ -1,11 +1,18 @@
 'use client';
 import Table from "@mui/material/Table";
-import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
-
-import { Tag } from "@/components/ui-primitives";
+import ButtonBase from "@mui/material/ButtonBase";
+import Snackbar from "@mui/material/Snackbar";
+import ToggleButton from "@mui/material/ToggleButton";
+import dayjs from "dayjs";
+import { varAlpha } from "minimal-shared/utils";
+import { DateCalendar } from "@mui/x-date-pickers/DateCalendar";
+import { PickerDay, type PickerDayProps } from "@mui/x-date-pickers/PickerDay";
+import { Label } from "@/components/minimal/label";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { TableHeadCustom, type TableHeadCellProps } from "@/components/app/table/table-head-custom";
 
 import { getAdminApi } from '@/lib/api/client';
 import MenuItem from "@mui/material/MenuItem";
@@ -22,7 +29,6 @@ import {
 import { type AdminUiPageContract } from '@/lib/admin-ui-contract';
 import type { AdminApiComponents } from '@goatos/api-client';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
-import { Check } from 'lucide-react';
 import Button from "@mui/material/Button";
 import Dialog from "@mui/material/Dialog";
 import DialogTitle from "@mui/material/DialogTitle";
@@ -70,8 +76,35 @@ const WEEK_LABELS: Record<string, string> = {
   sunday: 'Sun',
 };
 
-const MON_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const DOW_NAMES = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+// Roster table: the template table card (TableHeadCustom in a Scrollbar). The weekly-schedule
+// column needs its seven day cells, so the table keeps a floor and scrolls inside its card
+// instead of clipping at the card edge (J1 P0-3).
+const ROSTER_HEAD: TableHeadCellProps[] = [
+  { id: 'person', label: 'Person' },
+  { id: 'park', label: 'Park' },
+  { id: 'shift', label: 'Shift' },
+  { id: 'cap', label: 'Cap' },
+  { id: 'week_off', label: 'Week off' },
+  { id: 'leave', label: 'Planned leave' },
+  { id: 'schedule', label: 'Weekly schedule' },
+  { id: 'status', label: 'Status' },
+];
+const ROSTER_MIN_WIDTH = 1280;
+const WEEKLY_HEAD: TableHeadCellProps[] = [
+  { id: 'day', label: 'Day', width: 80 },
+  { id: 'operator', label: 'Assigned operator' },
+  { id: 'reason', label: 'Reason' },
+];
+/** Weekly-preview reason kind -> palette key of its dot. */
+const KIND_COLOR = { brand: 'primary', info: 'info', warn: 'warning', danger: 'error' } as const;
+const LEAVE_LEGEND = [
+  { label: 'Selected', color: 'primary', solid: true },
+  { label: 'Already planned', color: 'warning', solid: false },
+  { label: 'Booked by another', color: 'error', solid: false },
+] as const;
+const TOAST_MS = 3400;
+
+type Toast = { title?: string; text: string; severity: 'success' | 'info' | 'warning' | 'error' };
 
 function todayISO(): string {
   const d = new Date();
@@ -208,17 +241,16 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
   const [modalTarget, setModalTarget] = useState<string | null>(null);
-  const [viewYear, setViewYear] = useState(new Date().getFullYear());
-  const [viewMonth, setViewMonth] = useState(new Date().getMonth());
   const [selFrom, setSelFrom] = useState<string | null>(null);
   const [selTo, setSelTo] = useState<string | null>(null);
   const [modalError, setModalError] = useState<string>('');
 
-  const [toast, setToast] = useState<string>('');
+  const [toast, setToast] = useState<Toast | null>(null);
+  const [toastOpen, setToastOpen] = useState(false);
 
-  const showToast = useCallback((msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(''), 3400);
+  const showToast = useCallback((next: Toast) => {
+    setToast(next);
+    setToastOpen(true);
   }, []);
 
   // Load data
@@ -336,8 +368,6 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
     setSelFrom(null);
     setSelTo(null);
     setModalError('');
-    setViewYear(new Date().getFullYear());
-    setViewMonth(new Date().getMonth());
     setModalOpen(true);
   };
 
@@ -388,7 +418,7 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
       // serial-await: allow the reload must read the shift this write just saved
       await reloadShifts(parkId);
       setShiftTarget(null);
-      showToast(`<b style="color:var(--brand)">Shift saved</b> · ${op.person_display_name ?? 'Operator'} — future vaccination drives are being re-planned`);
+      showToast({ title: 'Shift saved', text: `${op.person_display_name ?? 'Operator'} — future vaccination drives are being re-planned`, severity: 'success' });
     } catch (err) {
       setShiftError(err instanceof Error ? err.message : 'The shift could not be saved. Try again.');
     } finally {
@@ -408,7 +438,7 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
       await reloadShifts(parkId);
       setShiftTarget(null);
       setClearArmed(false);
-      showToast(`<b style="color:var(--brand)">Shift cleared</b> · ${op.person_display_name ?? 'Operator'}`);
+      showToast({ title: 'Shift cleared', text: op.person_display_name ?? 'Operator', severity: 'success' });
     } catch (err) {
       setClearArmed(false);
       setShiftError(err instanceof Error ? err.message : 'The shift could not be cleared. Try again.');
@@ -441,7 +471,7 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
   // Persist operator count and default operator to backend
   const persistOperatorConfig = async () => {
     if (!parkId || !defaultOperator) {
-      showToast('Configuration not ready. Please refresh.');
+      showToast({ text: 'Configuration not ready. Please refresh.', severity: 'warning' });
       return;
     }
 
@@ -464,13 +494,13 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
         setAssignmentConfig(result.data);
         setRowVersion(result.data.rowVersion);
         setSelectedOperatorIds(result.data.selectedOperatorIds ?? nextSelected);
-        showToast(`<b style="color:var(--brand)">Saved</b> · ${operatorCount} operator${operatorCount !== 1 ? 's' : ''}/day assigned`);
+        showToast({ title: 'Saved', text: `${operatorCount} operator${operatorCount !== 1 ? 's' : ''}/day assigned`, severity: 'success' });
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Failed to save';
       if (errMsg.includes('409') || errMsg.includes('conflict')) {
         // Row version conflict — refetch config
-        showToast('Configuration changed elsewhere. Reloading...');
+        showToast({ text: 'Configuration changed elsewhere. Reloading...', severity: 'info' });
         try {
           const api = getAdminApi();
           const refreshResult = await api.getVaccinationOperatorAssignmentConfig(parkId);
@@ -485,7 +515,7 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
           console.error('Failed to reload config:', reloadErr);
         }
       } else {
-        showToast(`Error: ${errMsg}`);
+        showToast({ title: 'Error', text: errMsg, severity: 'error' });
       }
     } finally {
       setConfigSaving(false);
@@ -542,7 +572,7 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
         [modalTarget]: mergeLeaves(newLeaves),
       });
       closeModal();
-      showToast('<b style="color:var(--brand)">Leave added</b> · operator availability updated');
+      showToast({ title: 'Leave added', text: 'operator availability updated', severity: 'success' });
     } catch (err) {
       setModalError(err instanceof Error ? err.message : 'Failed to add leave');
     }
@@ -650,7 +680,6 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
     });
   }, [orderedOps, operatorCount, leaves]);
 
-  const kindColor: Record<string, string> = { brand: 'var(--brand)', info: 'var(--info)', warn: 'var(--warn)', danger: 'var(--danger)' };
   const capForPosition = (pos: Position): number => pos.vaccination_daily_animal_cap ?? commonCap;
 
   const saveOperatorCap = async (pos: Position) => {
@@ -676,7 +705,7 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
         delete next[pos.position_id!];
         return next;
       });
-      showToast(`<b style="color:var(--brand)">Saved</b> · ${updated.person_display_name ?? 'Operator'} cap ${nextCap}/day`);
+      showToast({ title: 'Saved', text: `${updated.person_display_name ?? 'Operator'} cap ${nextCap}/day`, severity: 'success' });
     } catch (err) {
       setCapError(err instanceof Error ? err.message : 'Failed to save operator cap');
     } finally {
@@ -724,7 +753,7 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
       setAnimalShotCap(updated.maxShotsPerAnimalPerDrive ?? null);
       setCapRowVersion(updated.rowVersion);
       setCapEditing(false);
-      showToast(`<b style="color:var(--brand)">Saved</b> · animal shot cap updated — future vaccination schedules are being re-planned`);
+      showToast({ title: 'Saved', text: 'animal shot cap updated — future vaccination schedules are being re-planned', severity: 'success' });
     } catch (err) {
       setCapError(err instanceof Error ? err.message : 'Could not save the capacity setting. Check the value and try again.');
     } finally {
@@ -736,86 +765,79 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
   const kpiOperators = operatorsList.length;
   const kpiDaily = operatorCount * commonCap;
 
-  // Render calendar for modal
-  const calendarDays: React.ReactNode[] = [];
-  const dow = DOW_NAMES.map((d) => (
-    <div key={d} className="cal-dow">
-      {d}
-    </div>
-  ));
 
-  const first = new Date(viewYear, viewMonth, 1);
-  const start = first.getDay();
-  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  // Leave calendar (template MUI X DateCalendar, the calendar the template's CustomDateRangePicker
+  // uses). Past days, days another operator booked and this operator's own planned days are not
+  // pickable; the Day slot paints the span band, the ends and the two booked tints.
   const blocked = blockedDates(modalTarget || '', leaves);
   const own = ownDates(modalTarget || '', leaves);
   const today = todayISO();
 
-  for (let i = 0; i < start; i++) {
-    calendarDays.push(<div key={`pad-${i}`} className="cal-day muted"></div>);
-  }
-
-  for (let day = 1; day <= daysInMonth; day++) {
-    const ds = `${viewYear}-${pad(viewMonth + 1)}-${pad(day)}`;
-    let cls = 'cal-day';
-    const isPast = ds < today;
-    if (isPast) {
-      cls += ' muted';
-    } else if (blocked.has(ds)) {
-      cls += ' dis';
-    } else if (own.has(ds)) {
-      cls += ' own';
-    } else if (selFrom && selTo && ds >= selFrom && ds <= selTo) {
-      cls += (ds === selFrom || ds === selTo) ? ' end' : ' inrange';
-    } else if (selFrom && !selTo && ds === selFrom) {
-      cls += ' end';
+  const pickLeaveDay = (ds: string) => {
+    if (ds < today || blocked.has(ds) || own.has(ds)) return;
+    if (!selFrom || (selFrom && selTo)) {
+      setSelFrom(ds);
+      setSelTo(null);
+    } else if (ds < selFrom) {
+      setSelFrom(ds);
+    } else {
+      // Check range doesn't cross blocked/own
+      let ok = true;
+      const testD = new Date(selFrom + 'T00:00:00');
+      const testE = new Date(ds + 'T00:00:00');
+      while (testD <= testE) {
+        if (blocked.has(iso(testD)) || own.has(iso(testD))) {
+          ok = false;
+          break;
+        }
+        testD.setDate(testD.getDate() + 1);
+      }
+      if (!ok) {
+        setModalError('Range crosses a blocked or already-planned date. Pick a clear span.');
+      } else {
+        setSelTo(ds);
+        setModalError('');
+      }
     }
+  };
 
-    calendarDays.push(
-      <div
-        key={ds}
-        className={cls}
+  const LeaveDay = (props: PickerDayProps) => {
+    const ds = props.day.format('YYYY-MM-DD');
+    const isBlocked = blocked.has(ds);
+    const isOwn = own.has(ds);
+    const isEdge = ds === selFrom || ds === selTo;
+    const inRange = Boolean(selFrom && selTo && ds > selFrom && ds < selTo);
+    const tint = isBlocked ? 'error' : isOwn ? 'warning' : null;
+    return (
+      <PickerDay
+        {...props}
+        disabled={ds < today || isBlocked || isOwn}
+        selected={isEdge && !props.outsideCurrentMonth}
+        aria-pressed={isEdge}
         data-d={ds}
-        onClick={() => {
-          if (isPast || blocked.has(ds) || own.has(ds)) return;
-          if (!selFrom || (selFrom && selTo)) {
-            setSelFrom(ds);
-            setSelTo(null);
-          } else if (ds < selFrom) {
-            setSelFrom(ds);
-          } else {
-            // Check range doesn't cross blocked/own
-            let ok = true;
-            const testD = new Date(selFrom + 'T00:00:00');
-            const testE = new Date(ds + 'T00:00:00');
-            while (testD <= testE) {
-              if (blocked.has(iso(testD)) || own.has(iso(testD))) {
-                ok = false;
-                break;
-              }
-              testD.setDate(testD.getDate() + 1);
-            }
-            if (!ok) {
-              setModalError('Range crosses a blocked or already-planned date. Pick a clear span.');
-            } else {
-              setSelTo(ds);
-              setModalError('');
-            }
-          }
-        }}
-      >
-        {day}
-      </div>
+        sx={(theme) =>
+          props.outsideCurrentMonth
+            ? {}
+            : tint
+              ? {
+                  bgcolor: varAlpha(theme.vars.palette[tint].mainChannel, 0.16),
+                  border: `1px solid ${theme.vars.palette[tint].main}`,
+                  '&.Mui-disabled': { color: theme.vars.palette.text.secondary },
+                }
+              : inRange
+                ? { borderRadius: 0, bgcolor: varAlpha(theme.vars.palette.primary.mainChannel, 0.08) }
+                : {}
+        }
+      />
     );
-  }
+  };
 
   if (loading) return <ListCardSkeleton rows={5} />;
   if (error)
     return (
-      <div style={{ padding: 24 }}>
-        <Alert severity="error" role="alert"><span>{error}</span>
-        </Alert>
-      </div>
+      <Box sx={{ p: 3 }}>
+        <Alert severity="error" role="alert">{error}</Alert>
+      </Box>
     );
 
   // BUG-019: a caller whose authorized scope covers several parks must CHOOSE one before any roster,
@@ -825,7 +847,7 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
   // Nothing is preselected, so no local default can be silently overwritten by a later response.
   if (parkChoices) {
     return (
-      <section className="screen on" data-screen="vaccination-operators">
+      <Stack spacing={3} data-skel-root="" data-screen="vaccination-operators">
         {/* Template Card + CardHeader with one select. Picking a park applies it (no Continue button
             that sits disabled until a pick: guard operators-park-chooser-applies). */}
         <Card>
@@ -856,7 +878,7 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
             )}
           </CardContent>
         </Card>
-      </section>
+      </Stack>
     );
   }
 
@@ -871,12 +893,24 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
   const scopedParkName = scopedPark?.name ?? '';
   const scopedParkLabel = scopedPark ? [scopedPark.code, scopedPark.name].filter((part, i, all) => part && all.indexOf(part) === i).join(' · ') : '';
 
+  const leaveItem = (r: { from: string; to: string }, past: boolean) => (
+    <Box
+      key={r.from}
+      sx={{ px: 2, py: 1.5, borderRadius: 'var(--r-md)', border: (theme) => `1px solid ${theme.vars.palette.divider}`, color: past ? 'text.disabled' : 'text.primary' }}
+    >
+      <Typography variant="subtitle2">{fmtRange(r)}</Typography>
+      <Typography variant="caption" sx={{ color: past ? 'text.disabled' : 'text.secondary' }}>
+        {daysIn(r)} day{daysIn(r) > 1 ? 's' : ''}
+      </Typography>
+    </Box>
+  );
+
   return (
-    <section className="screen on" data-screen="vaccination-operators">
+    <Stack spacing={3} data-skel-root="" data-screen="vaccination-operators">
       {/* The People page carries the title; this row names the park the screen is scoped to and,
           for a multi-park actor, keeps the backend park list as a Park switch (main 6259f5aed). */}
       {scopedParkLabel || (parkOptions && parkOptions.length > 1 && parkId) ? (
-        <Stack direction="row" spacing={2} sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', rowGap: 1.5, mb: 3 }}>
+        <Stack direction="row" spacing={2} sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', rowGap: 1.5 }}>
           {scopedParkLabel ? <Caption>{scopedParkLabel}</Caption> : <span />}
           {parkOptions && parkOptions.length > 1 && parkId ? (
             <MuiTextField
@@ -913,74 +947,68 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
         <KpiWidget title="Daily capacity" total={kpiDaily} color="success" caption="at full availability" />
       </KpiGrid>
 
-      {/* Roster & Availability Card */}
-      <div className="card">
-        <div className="hd">
-          <h3>Operator roster & availability</h3>
-          <div className="sp"></div>
-          <div className="capctl">
-            {/* Operator cap is edited per-operator in the roster rows below + summarized in the KPI
-                card; this control edits ONLY the per-animal shot cap. */}
-            {capEditing ? (
-              <>
-                <span className="capctl-lab">Animal shot cap</span>
-                <input
-                  aria-label="Per-animal shot cap per day"
-                  className="capin"
-                  inputMode="numeric"
-                  min={1}
-                  placeholder="default"
-                  type="number"
-                  value={draftAnimalCap}
-                  onChange={(event) => setDraftAnimalCap(event.target.value)}
-                />
-                <span className="capunit">shots/animal</span>
-                <button className="btn b sm" disabled={savingCapCfg} onClick={() => void saveCapacityConfig()} type="button">
-                  {savingCapCfg ? 'Saving' : 'Save'}
-                </button>
-                <button className="btn sm ghost" disabled={savingCapCfg} onClick={() => setCapEditing(false)} type="button">
-                  Cancel
-                </button>
-              </>
-            ) : (
-              <>
-                <span className="capctl-lab">Animal shot cap</span>
-                <b>{capConfigError ? '—' : animalShotCap == null ? 'default' : animalShotCap}</b>
-                <span className="capunit">shots/animal</span>
-                <button
-                  className="btn sm"
-                  onClick={openCapEditor}
-                  type="button"
-                  disabled={!!capConfigError}
-                  aria-disabled={!!capConfigError}
-                  title={capConfigError ? `Capacity config failed to load — editing disabled. ${capConfigError}` : 'Edit animal shot cap'}
-                >
-                  Edit cap
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-        {capConfigError ? (
-          <div className="note" style={{ color: 'var(--danger)', margin: '10px 22px 0' }}>
-            Couldn’t load the vaccination capacity setting, so operator and animal caps can’t be edited right now. Reload to try again. ({capConfigError})
-          </div>
+      {/* Roster & Availability: template table card (Card + CardHeader action, Scrollbar table). */}
+      <Card>
+        <CardHeader
+          title="Operator roster & availability"
+          sx={{ flexWrap: 'wrap', rowGap: 1.5, '& .MuiCardHeader-action': { alignSelf: 'center', m: 0 } }}
+          action={
+            /* Operator cap is edited per-operator in the roster rows below + summarized in the KPI
+               card; this control edits ONLY the per-animal shot cap. */
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }}>
+              <Typography variant="body2" sx={{ color: 'text.secondary' }}>Animal shot cap</Typography>
+              {capEditing ? (
+                <>
+                  <MuiTextField
+                    size="small"
+                    type="number"
+                    placeholder="default"
+                    value={draftAnimalCap}
+                    onChange={(event) => setDraftAnimalCap(event.target.value)}
+                    sx={{ width: 110 }}
+                    slotProps={{ htmlInput: { 'aria-label': 'Per-animal shot cap per day', inputMode: 'numeric', min: 1 } }}
+                  />
+                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>shots/animal</Typography>
+                  <Button variant="contained" color="primary" size="small" disabled={savingCapCfg} onClick={() => void saveCapacityConfig()}>
+                    {savingCapCfg ? 'Saving' : 'Save'}
+                  </Button>
+                  <Button variant="outlined" color="inherit" size="small" disabled={savingCapCfg} onClick={() => setCapEditing(false)}>
+                    Cancel
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Typography variant="subtitle2">{capConfigError ? '—' : animalShotCap == null ? 'default' : animalShotCap}</Typography>
+                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>shots/animal</Typography>
+                  <Button
+                    variant="outlined"
+                    color="inherit"
+                    size="small"
+                    onClick={openCapEditor}
+                    disabled={!!capConfigError}
+                    aria-disabled={!!capConfigError}
+                    title={capConfigError ? `Capacity config failed to load — editing disabled. ${capConfigError}` : 'Edit animal shot cap'}
+                  >
+                    Edit cap
+                  </Button>
+                </>
+              )}
+            </Stack>
+          }
+        />
+        {capConfigError || capError ? (
+          <Stack spacing={1.5} sx={{ px: 3, pt: 2 }}>
+            {capConfigError ? (
+              <Alert severity="error">
+                Couldn’t load the vaccination capacity setting, so operator and animal caps can’t be edited right now. Reload to try again. ({capConfigError})
+              </Alert>
+            ) : null}
+            {capError ? <Alert severity="error">{capError}</Alert> : null}
+          </Stack>
         ) : null}
-        {capError ? <div className="note" style={{ color: 'var(--danger)', margin: '10px 22px 0' }}>{capError}</div> : null}
-        <div className="bd tablewrap" style={{ overflowX: 'auto' }}>
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell component="th">Person</TableCell>
-                <TableCell component="th">Park</TableCell>
-                <TableCell component="th">Shift</TableCell>
-                <TableCell component="th">Cap</TableCell>
-                <TableCell component="th">Week off</TableCell>
-                <TableCell component="th">Planned leave</TableCell>
-                <TableCell component="th">Weekly schedule</TableCell>
-                <TableCell component="th">Status</TableCell>
-              </TableRow>
-            </TableHead>
+        <Scrollbar sx={{ mt: 3 }}>
+          <Table sx={{ minWidth: ROSTER_MIN_WIDTH }}>
+            <TableHeadCustom headCells={ROSTER_HEAD} />
             <TableBody>
               {operatorsList.map((op) => {
                 const opLeaves = leaves[op.position_id ?? ''] ?? [];
@@ -998,127 +1026,114 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
                 const effectiveCap = capForPosition(op);
                 const draftCap = draftCaps[positionId] ?? String(effectiveCap);
                 const capChanged = draftCap.trim() !== String(effectiveCap);
+                const shift = getShiftForOperator(op.workforce_member_id ?? '');
 
                 return (
-                  <TableRow key={op.position_id}>
+                  <TableRow key={op.position_id} hover>
                     <TableCell>
-                      <div className="person">
+                      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
                         <Avatar name={op.person_display_name ?? "OP"} initials={init} size={34} decorative />
-                        <div>
-                          <b>{shortName}</b>
-                          <span>Vaccination operator</span>
-                        </div>
-                      </div>
+                        <Box sx={{ minWidth: 0 }}>
+                          <Typography variant="subtitle2" noWrap>{shortName}</Typography>
+                          <Typography variant="caption" component="div" sx={{ color: 'text.secondary' }}>Vaccination operator</Typography>
+                        </Box>
+                      </Stack>
                     </TableCell>
                     <TableCell>{scopedParkName || '—'}</TableCell>
                     <TableCell>
-                      {(() => {
-                        const shift = getShiftForOperator(op.workforce_member_id ?? '');
-                        return (
-                          <div className="leavecell">
-                            {shift ? <span>{shiftSummary(shift)}</span> : <span className="muted small">Not set</span>}
-                            <Button
-                              color="primary"
-                              size="small"
-                              variant="soft"
-                              onClick={() => openShiftForm(op)}
-                              disabled={!op.workforce_member_id}
-                              title={op.workforce_member_id ? undefined : 'This seat has no person yet'}
-                            >
-                              {shift ? 'Edit shift' : 'Set shift'}
-                            </Button>
-                          </div>
-                        );
-                      })()}
+                      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }}>
+                        {shift ? (
+                          <Typography variant="body2">{shiftSummary(shift)}</Typography>
+                        ) : (
+                          <Typography variant="body2" sx={{ color: 'text.disabled' }}>Not set</Typography>
+                        )}
+                        <Button
+                          color="primary"
+                          size="small"
+                          variant="soft"
+                          onClick={() => openShiftForm(op)}
+                          disabled={!op.workforce_member_id}
+                          title={op.workforce_member_id ? undefined : 'This seat has no person yet'}
+                        >
+                          {shift ? 'Edit shift' : 'Set shift'}
+                        </Button>
+                      </Stack>
                     </TableCell>
                     <TableCell>
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                        <input
-                          aria-label={`${shortName} animals/day cap`}
-                          inputMode="numeric"
-                          min={1}
-                          max={200}
-                          style={{ width: 92 }}
+                      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                        <MuiTextField
+                          size="small"
                           type="number"
                           value={draftCap}
                           onChange={(event) => setDraftCaps((current) => ({ ...current, [positionId]: event.target.value }))}
+                          sx={{ width: 92 }}
+                          slotProps={{ htmlInput: { 'aria-label': `${shortName} animals/day cap`, inputMode: 'numeric', min: 1, max: 200 } }}
                         />
-                        <span className="muted small">/day</span>
-                        <button
-                          className={`iconbtn kit-row-edit${capChanged ? ' kit-row-save-armed' : ''}`}
+                        <Typography variant="body2" sx={{ color: 'text.secondary' }}>/day</Typography>
+                        <IconButton
+                          color={capChanged ? 'primary' : 'default'}
                           disabled={!capChanged || savingCap === positionId}
                           aria-busy={savingCap === positionId || undefined}
                           onClick={() => void saveOperatorCap(op)}
-                          type="button"
                           title={savingCap === positionId ? 'Saving' : capChanged ? 'Save cap' : 'Cap unchanged'}
                           aria-label={savingCap === positionId ? 'Saving' : `Save ${shortName} cap`}
                         >
-                          <Check className="ic" aria-hidden="true" />
-                        </button>
-                      </div>
+                          <Iconify icon="eva:checkmark-fill" />
+                        </IconButton>
+                      </Stack>
                     </TableCell>
                     <TableCell>
-                      <Tag tone="info">{weekOffLabel}</Tag>
+                      <Label color="info">{weekOffLabel}</Label>
                     </TableCell>
                     <TableCell>
-                      {!opLeaves.length ? (
-                        <div className="leavecell">
-                          <button
-                            className="laddbtn"
-                            onClick={() => openModal(op.position_id!)}
+                      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                        {opLeaves.length ? (
+                          <ButtonBase
+                            onClick={() => openDrawer(op.position_id!)}
+                            sx={{ display: 'block', textAlign: 'left', borderRadius: 'var(--r-sm)', px: 0.5, py: 0.25 }}
                           >
-                            ＋ Add leave
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="leavecell">
-                          {nextRange ? (
-                            <div
-                              className="lsum"
-                              onClick={() => openDrawer(op.position_id!)}
-                              style={{ cursor: 'pointer' }}
-                            >
-                              <b>{fmtRange(nextRange)}</b>
-                              <small>
-                                {opLeaves.length} planned{opUpcoming.length > 1 ? ` · ${opUpcoming.length - 1} more upcoming` : ''}
-                              </small>
-                            </div>
-                          ) : (
-                            <div
-                              className="lsum"
-                              onClick={() => openDrawer(op.position_id!)}
-                              style={{ cursor: 'pointer' }}
-                            >
-                              <b>none upcoming</b>
-                              <small>{opLeaves.length} past</small>
-                            </div>
-                          )}
-                          <button className="laddbtn" onClick={() => openModal(op.position_id!)}>
-                            Manage
-                          </button>
-                        </div>
-                      )}
+                            <Typography variant="subtitle2" sx={{ color: 'warning.main', whiteSpace: 'nowrap' }}>
+                              {nextRange ? fmtRange(nextRange) : 'none upcoming'}
+                            </Typography>
+                            <Typography variant="caption" component="div" sx={{ color: 'text.secondary' }}>
+                              {nextRange
+                                ? `${opLeaves.length} planned${opUpcoming.length > 1 ? ` · ${opUpcoming.length - 1} more upcoming` : ''}`
+                                : `${opLeaves.length} past`}
+                            </Typography>
+                          </ButtonBase>
+                        ) : null}
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="inherit"
+                          startIcon={opLeaves.length ? undefined : <Iconify icon="mingcute:add-line" />}
+                          onClick={() => openModal(op.position_id!)}
+                          sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}
+                        >
+                          {opLeaves.length ? 'Manage' : 'Add leave'}
+                        </Button>
+                      </Stack>
                     </TableCell>
                     <TableCell>
-                      <div className="wk">
+                      <Stack direction="row" spacing={0.5}>
                         {WEEKDAYS.map((dow) => {
                           const isOff = weekOff.toLowerCase() === dow;
                           return (
-                            <div key={dow} className={`wc ${isOff ? 'off' : 'on'}`}>
-                              <span>{WEEK_LABELS[dow]}</span>
-                              <b>{isOff ? 'Off' : 'On'}</b>
-                            </div>
+                            <Stack key={dow} spacing={0.25} sx={{ alignItems: 'center', minWidth: 32 }}>
+                              <Typography variant="caption" sx={{ color: 'text.secondary' }}>{WEEK_LABELS[dow]}</Typography>
+                              <Label color={isOff ? 'default' : 'success'} sx={{ px: 0.5, minWidth: 30 }}>{isOff ? 'Off' : 'On'}</Label>
+                            </Stack>
                           );
                         })}
-                      </div>
+                      </Stack>
                     </TableCell>
                     <TableCell>
                       {onLeaveToday ? (
-                        <Tag tone="warn">On leave today</Tag>
+                        <Label color="warning">On leave today</Label>
                       ) : weekOffToday ? (
-                        <Tag tone="info">Week-off today</Tag>
+                        <Label color="info">Week-off today</Label>
                       ) : (
-                        <Tag tone="ok">Available</Tag>
+                        <Label color="success">Available</Label>
                       )}
                     </TableCell>
                   </TableRow>
@@ -1126,156 +1141,162 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
               })}
             </TableBody>
           </Table>
-        </div>
-      </div>
+        </Scrollbar>
+      </Card>
 
       {/* Drive Operator Assignment */}
-      <div className="card">
-        <div className="hd">
-          <h3>Drive operator assignment</h3>
-          <div className="sp"></div>
-        </div>
-        <div className="bd">
-          <div className="ctl">
-            <div className="fld">
-              <MuiTextField
-                select
-                label="Active operators / day"
-                value={String(operatorCount)}
-                disabled={configSaving}
-                title="Drives the live preview below."
-                onChange={({ target: { value } }) => changeOperatorCount(parseInt(value, 10))}
-                sx={{ minWidth: { xs: 0, sm: 190 }, flexShrink: 0, maxWidth: 1 }}
-                slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
-              >
-                <MenuItem value="1">1 operator</MenuItem>
-                <MenuItem value="2">2 operators</MenuItem>
-                <MenuItem value="3">3 operators</MenuItem>
-              </MuiTextField>
-            </div>
-            <div className="fld">
-              <MuiTextField
-                select
-                label="Default operator"
-                value={defaultOperator}
-                disabled={operatorCount !== 1 || configSaving}
-                title={operatorCount !== 1 ? 'Parallel mode uses the selected operator cards below.' : 'CEO default. Drives the live preview.'}
-                onChange={({ target: { value } }) => {
-                  setDefaultOperator(value);
-                  if (operatorCount === 1) setSelectedOperatorIds([value]);
-                }}
-                sx={{ minWidth: { xs: 0, sm: 190 }, flexShrink: 0, maxWidth: 1 }}
-                slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
-              >
-                {operatorsList.map((op) => (
-                  <MenuItem key={op.workforce_member_id ?? op.position_id} value={op.workforce_member_id ?? op.position_id}>
-                    {op.person_display_name || 'Operator'}
-                  </MenuItem>
-                ))}
-              </MuiTextField>
-            </div>
-            {/* Wrap in a .fld peer with a spacer label so the button sits on the same
-                baseline as the selects. The .fld margin-bottom shifts .ctl's flex-end
-                anchor; a bare button (no label row) otherwise drops ~13px below them. */}
-            <div className="fld">
-              <label aria-hidden="true">&nbsp;</label>
-              <button
-                className="btn b"
-                onClick={persistOperatorConfig}
-                disabled={configSaving}
-              >
-                Save configuration
-              </button>
-            </div>
-          </div>
-          <div className="note" style={{ marginTop: '10px' }}>
+      <Card>
+        <CardHeader title="Drive operator assignment" />
+        <CardContent>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: { xs: 'stretch', sm: 'center' }, flexWrap: 'wrap', rowGap: 2 }}>
+            <MuiTextField
+              select
+              label="Active operators / day"
+              value={String(operatorCount)}
+              disabled={configSaving}
+              title="Drives the live preview below."
+              onChange={({ target: { value } }) => changeOperatorCount(parseInt(value, 10))}
+              sx={{ minWidth: { xs: 0, sm: 190 }, flexShrink: 0, maxWidth: 1 }}
+              slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+            >
+              <MenuItem value="1">1 operator</MenuItem>
+              <MenuItem value="2">2 operators</MenuItem>
+              <MenuItem value="3">3 operators</MenuItem>
+            </MuiTextField>
+            <MuiTextField
+              select
+              label="Default operator"
+              value={defaultOperator}
+              disabled={operatorCount !== 1 || configSaving}
+              title={operatorCount !== 1 ? 'Parallel mode uses the selected operator cards below.' : 'CEO default. Drives the live preview.'}
+              onChange={({ target: { value } }) => {
+                setDefaultOperator(value);
+                if (operatorCount === 1) setSelectedOperatorIds([value]);
+              }}
+              sx={{ minWidth: { xs: 0, sm: 190 }, flexShrink: 0, maxWidth: 1 }}
+              slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+            >
+              {operatorsList.map((op) => (
+                <MenuItem key={op.workforce_member_id ?? op.position_id} value={op.workforce_member_id ?? op.position_id}>
+                  {op.person_display_name || 'Operator'}
+                </MenuItem>
+              ))}
+            </MuiTextField>
+            <Button variant="contained" color="primary" onClick={persistOperatorConfig} disabled={configSaving} sx={{ flexShrink: 0 }}>
+              Save configuration
+            </Button>
+          </Stack>
+          <Typography variant="body2" sx={{ color: 'text.secondary', mt: 1.5 }}>
             Live preview of the assignment logic from the roster + week-offs. Configure and save active-operators
             and default operator settings to the backend.
-          </div>
+          </Typography>
           {operatorCount !== 1 ? (
-            <div className="selectgrid" style={{ marginTop: '12px' }}>
+            <Box sx={{ mt: 2, display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr', sm: 'repeat(auto-fill, minmax(200px, 1fr))' } }}>
               {operatorsList.map((op) => {
                 const operatorId = op.workforce_member_id ?? '';
                 const checked = selectedOperatorIds.includes(operatorId);
                 const disabled = configSaving || (!checked && selectedOperatorIds.length >= operatorCount);
                 return (
-                  <button
+                  <ToggleButton
                     key={op.position_id}
-                    type="button"
-                    className={`pickop${checked ? ' on' : ''}`}
+                    value={operatorId}
+                    color="primary"
+                    selected={checked}
                     disabled={disabled}
-                    aria-pressed={checked}
-                    onClick={() => operatorId && toggleSelectedOperator(operatorId)}
+                    onChange={() => operatorId && toggleSelectedOperator(operatorId)}
                     title={disabled && !checked ? `Already selected ${operatorCount} operators` : `Toggle ${op.person_display_name ?? 'operator'}`}
+                    sx={{ justifyContent: 'flex-start', gap: 1.5, px: 1.5, py: 1, textAlign: 'left', textTransform: 'none' }}
                   >
                     <Avatar name={op.person_display_name ?? 'OP'} initials={(op.person_display_name ?? 'OP')[0]} size={28} decorative />
-                    <span>
-                      <b>{firstName(op)}</b>
-                      <small>off: {WEEK_LABELS[weekOffOf(op)] ?? '—'}</small>
-                    </span>
-                  </button>
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography variant="subtitle2" noWrap>{firstName(op)}</Typography>
+                      <Typography variant="caption" component="div" sx={{ color: 'text.secondary' }}>off: {WEEK_LABELS[weekOffOf(op)] ?? '—'}</Typography>
+                    </Box>
+                  </ToggleButton>
                 );
               })}
-            </div>
+            </Box>
           ) : null}
-          <div className="uline" style={{ marginTop: '14px' }}>
+          <Typography variant="subtitle2" sx={{ mt: 3 }}>
             {operatorCount === 1 ? 'Fallback chain — first available wins' : `Parallel — up to ${operatorCount}/day run together`}
-          </div>
-          <div className="chain" style={{ marginTop: '10px' }}>
-            {orderedOps.map((op, i) => (
-              <Fragment key={op.position_id}>
-                {i > 0 && <span className="carrow">{operatorCount === 1 ? '→' : '+'}</span>}
-                <div className={`cnode${operatorCount === 1 && i === 0 ? ' default' : ''}${i >= operatorCount ? ' down' : ''}`}>
-                  <Avatar name={op.person_display_name ?? 'OP'} initials={(op.person_display_name ?? 'OP')[0]} size={28} decorative />
-                  <div>
-                    <b>
-                      {firstName(op)} {operatorCount === 1 && i === 0 && <span className="badge-def">DEFAULT</span>}
-                    </b>
-                    <small>off: {WEEK_LABELS[weekOffOf(op)] ?? '—'}</small>
-                  </div>
-                </div>
-              </Fragment>
-            ))}
-          </div>
-          <div className="banner" style={{ marginTop: '10px', display: operatorCount !== 1 ? 'block' : 'none' }}>
-            <b>Parallel mode:</b> selected operators run together. Week-off/leave drops that operator&apos;s slice for the day and the roster fills the open slot.
-          </div>
-          <div className="uline" style={{ marginTop: '20px' }}>
+          </Typography>
+          <Stack direction="row" spacing={1} sx={{ mt: 1.5, alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }}>
+            {orderedOps.map((op, i) => {
+              const isDefault = operatorCount === 1 && i === 0;
+              const isDown = i >= operatorCount;
+              return (
+                <Fragment key={op.position_id}>
+                  {i > 0 && (
+                    <Typography variant="subtitle2" component="span" sx={{ color: 'text.disabled' }}>
+                      {operatorCount === 1 ? '→' : '+'}
+                    </Typography>
+                  )}
+                  <Stack
+                    direction="row"
+                    spacing={1}
+                    sx={(theme) => ({
+                      alignItems: 'center',
+                      px: 1.5,
+                      py: 1,
+                      borderRadius: 'var(--r-md)',
+                      border: `1px ${isDown ? 'dashed' : 'solid'} ${isDefault ? theme.vars.palette.primary.main : theme.vars.palette.divider}`,
+                      bgcolor: isDefault ? varAlpha(theme.vars.palette.primary.mainChannel, 0.08) : 'transparent',
+                    })}
+                  >
+                    <Avatar name={op.person_display_name ?? 'OP'} initials={(op.person_display_name ?? 'OP')[0]} size={28} decorative />
+                    <Box>
+                      <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
+                        <Typography variant="subtitle2" sx={{ color: isDown ? 'text.secondary' : 'text.primary' }}>{firstName(op)}</Typography>
+                        {isDefault && <Label color="primary">DEFAULT</Label>}
+                      </Stack>
+                      <Typography variant="caption" component="div" sx={{ color: 'text.secondary' }}>off: {WEEK_LABELS[weekOffOf(op)] ?? '—'}</Typography>
+                    </Box>
+                  </Stack>
+                </Fragment>
+              );
+            })}
+          </Stack>
+          {operatorCount !== 1 ? (
+            <Alert severity="info" sx={{ mt: 1.5 }}>
+              <b>Parallel mode:</b> selected operators run together. Week-off/leave drops that operator&apos;s slice for the day and the roster fills the open slot.
+            </Alert>
+          ) : null}
+          <Typography variant="subtitle2" sx={{ mt: 3 }}>
             Weekly assignment preview — who runs the drive each day
-          </div>
-          <div className="tablewrap" style={{ overflowX: 'auto', marginTop: '12px' }}>
-            <Table>
-              <TableHead>
-                <TableRow>
-                  <TableCell component="th" style={{ width: '80px' }}>Day</TableCell>
-                  <TableCell component="th">Assigned operator</TableCell>
-                  <TableCell component="th">Reason</TableCell>
+          </Typography>
+        </CardContent>
+        <Scrollbar>
+          <Table size="small" sx={{ minWidth: 560 }}>
+            <TableHeadCustom headCells={WEEKLY_HEAD} />
+            <TableBody>
+              {weeklyPlan.map((p) => (
+                <TableRow key={p.dow}>
+                  <TableCell>
+                    <Typography variant="subtitle2">{WEEK_LABELS[p.dow]}</Typography>
+                  </TableCell>
+                  <TableCell>
+                    {p.ops.length ? (
+                      <Stack direction="row" spacing={2} sx={{ flexWrap: 'wrap', rowGap: 0.5 }}>
+                        {p.ops.map((o) => (
+                          <Stack key={o.position_id} direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
+                            <Box component="span" sx={{ width: 'var(--sp-1)', height: 'var(--sp-1)', borderRadius: '50%', flexShrink: 0, bgcolor: `${KIND_COLOR[p.kind]}.main` }} />
+                            <Typography variant="body2">{firstName(o)}</Typography>
+                          </Stack>
+                        ))}
+                      </Stack>
+                    ) : (
+                      <Label color="error">— none —</Label>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>{p.reason}</Typography>
+                  </TableCell>
                 </TableRow>
-              </TableHead>
-              <TableBody>
-                {weeklyPlan.map((p) => (
-                  <TableRow key={p.dow}>
-                    <TableCell><b>{WEEK_LABELS[p.dow]}</b></TableCell>
-                    <TableCell>
-                      {p.ops.length ? (
-                        p.ops.map((o) => (
-                          <span key={o.position_id} className="op" style={{ marginRight: '14px' }}>
-                            <span className="dot" style={{ background: kindColor[p.kind] }}></span>
-                            {firstName(o)}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="tag t-danger">— none —</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="why">{p.reason}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </div>
-      </div>
+              ))}
+            </TableBody>
+          </Table>
+        </Scrollbar>
+      </Card>
 
       {/* Right Drawer - Leave Details: template MinimalDrawer (portal, focus trap, Escape / scrim /
           X, focus back on the opener; Back closes it via useBackCloses). */}
@@ -1285,41 +1306,27 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
         title={drawerOp?.person_display_name || 'Operator'}
         aria-label={drawerOp?.person_display_name || 'Operator'}
         footer={
-          <Button variant="contained" color="primary" fullWidth onClick={() => openModal(drawerTarget!)}>
-            ＋ Add leave
+          <Button variant="contained" color="primary" fullWidth startIcon={<Iconify icon="mingcute:add-line" />} onClick={() => openModal(drawerTarget!)}>
+            Add leave
           </Button>
         }
       >
         <Box sx={{ p: 2.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
           <Typography variant="body2" sx={{ color: 'text.secondary' }}>Planned leave</Typography>
           {!drawerLeaves.length ? (
-            <div className="lvempty">No planned leave. Use &quot;Add leave&quot;.</div>
+            <Typography variant="body2" sx={{ color: 'text.disabled', py: 2 }}>No planned leave. Use &quot;Add leave&quot;.</Typography>
           ) : (
             <>
               {drawerUpcoming.length > 0 && (
                 <>
                   <Typography variant="overline" component="div" sx={{ color: 'text.secondary', mt: 1 }}>Upcoming</Typography>
-                  {drawerUpcoming.map((r) => (
-                    <div key={r.from} className="lvitem">
-                      <div>
-                        <div className="lvdate">{fmtRange(r)}</div>
-                        <div className="lvdays">{daysIn(r)} day{daysIn(r) > 1 ? 's' : ''}</div>
-                      </div>
-                    </div>
-                  ))}
+                  {drawerUpcoming.map((r) => leaveItem(r, false))}
                 </>
               )}
               {drawerPast.length > 0 && (
                 <>
                   <Typography variant="overline" component="div" sx={{ color: 'text.secondary', mt: 1 }}>Past</Typography>
-                  {drawerPast.map((r) => (
-                    <div key={r.from} className="lvitem past">
-                      <div>
-                        <div className="lvdate">{fmtRange(r)}</div>
-                        <div className="lvdays">{daysIn(r)} day{daysIn(r) > 1 ? 's' : ''}</div>
-                      </div>
-                    </div>
-                  ))}
+                  {drawerPast.map((r) => leaveItem(r, true))}
                 </>
               )}
             </>
@@ -1335,13 +1342,13 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
           <Dialog fullWidth maxWidth="sm" open={Boolean(shiftTarget)} onClose={closeShiftForm} slotProps={{ paper: { "aria-label": existing ? 'Edit shift' : 'Set shift' } }}>
             <DialogTitle component="div" sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
               <Avatar name={shiftOp?.person_display_name || 'Operator'} size={36} decorative />
-              <div style={{ minWidth: 0 }}>
+              <Box sx={{ minWidth: 0 }}>
                 <Typography variant="h6" component="h3" id="shift-form-title">{existing ? 'Edit shift' : 'Set shift'}</Typography>
                 <Typography variant="body2" sx={{ color: 'text.secondary' }}>{shiftOp?.person_display_name || 'Operator'} · {scopedParkName || 'Vaccination operator'}</Typography>
-              </div>
+              </Box>
             </DialogTitle>
             <DialogContent sx={{ display: 'grid', gap: 2, pt: 1 }}>
-              <div className="ctl" style={{ flexWrap: 'wrap', paddingTop: 'var(--sp-1)' }}>
+              <Stack direction="row" spacing={2} sx={{ flexWrap: 'wrap', rowGap: 2, pt: 1 }}>
                 <MuiTextField
                   select
                   label="Shift"
@@ -1391,7 +1398,7 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
                     </MenuItem>
                   ))}
                 </MuiTextField>
-              </div>
+              </Stack>
               <Caption>
                 Times are 24-hour, like 08:00 or 17:30. The drive planner uses this shift and week off to
                 decide who runs each day, so saving re-plans future vaccination drives for this park.
@@ -1406,7 +1413,7 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
               {existing ? (
                 clearArmed ? (
                   <>
-                    <span className="muted small" style={{ marginRight: 'auto' }}>Clear this shift?</span>
+                    <Typography variant="body2" sx={{ color: 'text.secondary', mr: 'auto' }}>Clear this shift?</Typography>
                     <Button size="small" variant="outlined" color="inherit" onClick={() => setClearArmed(false)} disabled={shiftSaving}>
                       Keep
                     </Button>
@@ -1415,7 +1422,7 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
                     </Button>
                   </>
                 ) : (
-                  <Button size="small" variant="text" color="error" onClick={() => setClearArmed(true)} disabled={shiftSaving} style={{ marginRight: 'auto' }}>
+                  <Button size="small" variant="text" color="error" onClick={() => setClearArmed(true)} disabled={shiftSaving} sx={{ mr: 'auto' }}>
                     Clear shift
                   </Button>
                 )
@@ -1451,42 +1458,42 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
               </IconButton>
             </DialogTitle>
             <DialogContent dividers sx={{ pt: 1 }}>
-              <div className="rangelab">
-                <span>Pick leave dates</span>
-                <b id="lmRange">
+              <Stack direction="row" spacing={1} sx={{ alignItems: 'baseline', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                <Typography variant="caption" sx={{ color: 'text.secondary' }}>Pick leave dates</Typography>
+                <Typography variant="subtitle2" id="lmRange">
                   {!selFrom ? '— pick a start day —' : !selTo ? `${fmtRange({ from: selFrom, to: selFrom })} → pick end` : fmtRange({ from: selFrom, to: selTo })}
-                </b>
-              </div>
-              <div className="cal">
-                <div className="cal-h">
-                  <IconButton size="small" aria-label="Previous month" onClick={() => {
-                    setViewMonth(v => v === 0 ? 11 : v - 1);
-                    if (viewMonth === 0) setViewYear(y => y - 1);
-                  }}>
-                    <Iconify icon="eva:arrow-ios-back-fill" />
-                  </IconButton>
-                  <div className="mlab">{MON_NAMES[viewMonth]} {viewYear}</div>
-                  <IconButton size="small" aria-label="Next month" onClick={() => {
-                    setViewMonth(v => v === 11 ? 0 : v + 1);
-                    if (viewMonth === 11) setViewYear(y => y + 1);
-                  }}>
-                    <Iconify icon="eva:arrow-ios-forward-fill" />
-                  </IconButton>
-                </div>
-                <div className="cal-grid">{dow}</div>
-                <div className="cal-grid">{calendarDays}</div>
-              </div>
-              <div className="legendcal">
-                <span>
-                  <i style={{ background: 'var(--brand)' }}></i>Selected
-                </span>
-                <span>
-                  <i style={{ background: 'var(--warnx)', border: '1px solid var(--warn)' }}></i>Already planned
-                </span>
-                <span>
-                  <i style={{ background: 'var(--dangerx)', border: '1px solid var(--danger)' }}></i>Booked by another
-                </span>
-              </div>
+                </Typography>
+              </Stack>
+              <DateCalendar
+                value={selTo ? dayjs(selTo) : selFrom ? dayjs(selFrom) : null}
+                referenceDate={dayjs(today)}
+                onChange={(next) => {
+                  if (next) pickLeaveDay(next.format('YYYY-MM-DD'));
+                }}
+                minDate={dayjs(today)}
+                views={['day']}
+                fixedWeekNumber={6}
+                slots={{ day: LeaveDay }}
+                slotProps={{ previousIconButton: { 'aria-label': 'Previous month' } as never, nextIconButton: { 'aria-label': 'Next month' } as never }}
+                sx={{ width: 1, maxWidth: 1, height: 'auto' }}
+              />
+              <Stack direction="row" spacing={2} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
+                {LEAVE_LEGEND.map((item) => (
+                  <Stack key={item.label} direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
+                    <Box
+                      component="span"
+                      sx={(theme) => ({
+                        width: 'var(--sp-1h)',
+                        height: 'var(--sp-1h)',
+                        borderRadius: 'var(--r-sm)',
+                        bgcolor: item.solid ? theme.vars.palette[item.color].main : varAlpha(theme.vars.palette[item.color].mainChannel, 0.16),
+                        border: item.solid ? 'none' : `1px solid ${theme.vars.palette[item.color].main}`,
+                      })}
+                    />
+                    <Typography variant="caption" sx={{ color: 'text.secondary' }}>{item.label}</Typography>
+                  </Stack>
+                ))}
+              </Stack>
               {modalError && (
                 <Alert severity="error" role="alert" sx={{ mt: 1.5 }}>
                   {modalError}
@@ -1505,12 +1512,25 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
         );
       })()}
 
-      {/* Toast */}
-      {toast && (
-        <div id="toast" className="show">
-          <div dangerouslySetInnerHTML={{ __html: toast }} />
-        </div>
-      )}
-    </section>
+      {/* Save / error feedback: MUI Snackbar + filled Alert (the template's toast surface). */}
+      <Snackbar
+        open={toastOpen}
+        autoHideDuration={TOAST_MS}
+        onClose={(_event, reason) => {
+          if (reason !== 'clickaway') setToastOpen(false);
+        }}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        {toast ? (
+          <Alert severity={toast.severity} variant="filled" onClose={() => setToastOpen(false)} sx={{ width: 1 }}>
+            {toast.title ? <b>{toast.title}</b> : null}
+            {toast.title ? ' · ' : null}
+            {toast.text}
+          </Alert>
+        ) : (
+          <span />
+        )}
+      </Snackbar>
+    </Stack>
   );
 }

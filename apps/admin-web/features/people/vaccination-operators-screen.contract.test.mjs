@@ -70,7 +70,8 @@ test("BUG-020: cap editing is backed by a real capacity-config write", () => {
 
 // Every remaining showToast success must sit downstream of a real API call.
 test("BUG-020: remaining Saved toasts follow a backend write", () => {
-  const savedToasts = source.match(/showToast\(`?<b[^`)]*Saved[^`)]*/g) ?? [];
+  const savedToasts = source.match(/showToast\(\{ title: '(?:Saved|Shift saved|Shift cleared|Leave added)'[^}]*/g) ?? [];
+  assert.ok(savedToasts.length >= 4, "the success toasts are structured { title, text } Snackbar messages");
   for (const toast of savedToasts) {
     const idx = source.indexOf(toast);
     const preceding = source.slice(Math.max(0, idx - 800), idx);
@@ -131,4 +132,17 @@ test("the park chooser is a template card whose select applies on pick", () => {
   assert.match(chooser, /if \(event\.target\.value\) setChosenParkId\(event\.target\.value\)/);
   assert.doesNotMatch(chooser, /className="(card|btn|hd|bd|ctl|fld|lvempty)/);
   assert.doesNotMatch(chooser, /<(button|Button)[^>]*>\s*Continue/);
+});
+
+// guard: operators-roster-template-only (FIXJ2, J1 P0-3). The roster, drive assignment, leave
+// calendar and toast are template / MUI parts: no legacy className, no inline style, no native
+// control, no lucide icon, no hand-built calendar grid and no #toast div.
+test("the operators screen renders only template / MUI parts", () => {
+  assert.doesNotMatch(source, /className=/, "no legacy class names (sx + MUI only)");
+  assert.doesNotMatch(source, /style=\{\{/, "no inline style props");
+  assert.doesNotMatch(source, /<(button|input|select|textarea|table|tr|td|th)[\s>]/, "no native controls or tables");
+  assert.doesNotMatch(source, /lucide-react/, "icons are Iconify");
+  assert.doesNotMatch(source, /id="toast"|dangerouslySetInnerHTML/, "feedback is a Snackbar + Alert");
+  assert.match(source, /<DateCalendar/, "leave dates are the MUI X DateCalendar");
+  assert.match(source, /<Scrollbar[\s>]/, "the roster scrolls inside its card instead of clipping the weekly schedule");
 });
