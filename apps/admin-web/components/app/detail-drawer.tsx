@@ -71,8 +71,7 @@ export function DetailDrawer({
             <Box
               component="span"
               aria-hidden="true"
-              sx={{ width: "var(--sp-5)", height: "var(--sp-5)", borderRadius: "var(--r2)", display: "inline-grid", placeItems: "center", flex: "none", "& svg": { width: "var(--sp-2h)", height: "var(--sp-2h)" } }}
-              style={{ background: iconColors?.bg ?? "var(--brand-soft)", color: iconColors?.fg ?? "var(--brand-d)" }}
+              sx={{ width: "var(--sp-5)", height: "var(--sp-5)", borderRadius: "var(--r2)", display: "inline-grid", placeItems: "center", flex: "none", "& svg": { width: "var(--sp-2h)", height: "var(--sp-2h)" }, background: iconColors?.bg ?? "var(--brand-soft)", color: iconColors?.fg ?? "var(--brand-d)" }}
             >
               {icon}
             </Box>

@@ -15,7 +15,7 @@ test("the launcher docks into the header slot at every width", () => {
   assert.match(panel, /\{dockSlot\s*\?\s*createPortal\(/, "dock whenever the shell offers a slot");
   assert.doesNotMatch(panel, /dockSlot && !narrow/, "no phone-only floating bubble under the shell");
   assert.doesNotMatch(frame, /\.topbar-ai-slot\{display:none\}/, "the header slot is never hidden at phone width");
-  assert.match(shell, /<span id="topbar-ai-slot"/, "the shell header renders the slot");
+  assert.match(shell, /component="span" id="topbar-ai-slot"/, "the shell header renders the slot");
 });
 
 test("the dock is a template header IconButton, not a filled green bubble", () => {

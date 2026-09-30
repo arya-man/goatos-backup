@@ -1,5 +1,6 @@
 "use client";
 
+import Box from "@mui/material/Box";
 import { useState } from "react";
 import ClickAwayListener from "@mui/material/ClickAwayListener";
 import IconButton from "@mui/material/IconButton";
@@ -19,7 +20,7 @@ export function InfoTip({ title, testId }: { title: string; testId?: string }) {
   const [open, setOpen] = useState(false);
   return (
     <ClickAwayListener onClickAway={() => setOpen(false)}>
-      <span style={{ display: "inline-flex", flexShrink: 0 }}>
+      <Box component="span" sx={{ display: "inline-flex", flexShrink: 0 }}>
         <Tooltip
           title={title}
           arrow
@@ -38,7 +39,7 @@ export function InfoTip({ title, testId }: { title: string; testId?: string }) {
             <Iconify icon="eva:info-outline" width={20} />
           </IconButton>
         </Tooltip>
-      </span>
+      </Box>
     </ClickAwayListener>
   );
 }

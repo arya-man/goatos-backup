@@ -54,9 +54,10 @@ export function Avatar({
       role={decorative ? undefined : "img"}
       aria-hidden={decorative || undefined}
       aria-label={decorative ? undefined : name}
-      style={{ ["--av" as string]: `${size}px`, ...style }}
       sx={[
         {
+          "--av": `${size}px`,
+          ...(style as Record<string, unknown> | undefined),
           width: "var(--av)",
           height: "var(--av)",
           fontSize: "calc(var(--av) * 0.45)",
@@ -106,8 +107,8 @@ export function AvatarGroup({
       max={100}
       className={className}
       title={title}
-      style={{ ["--av" as string]: `${size}px` }}
       sx={{
+        "--av": `${size}px`,
         [`& .${avatarGroupClasses.avatar}`]: {
           width: "var(--av)",
           height: "var(--av)",
