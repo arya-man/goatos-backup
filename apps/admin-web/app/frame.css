@@ -9,8 +9,8 @@
 .wrap{box-sizing:border-box;width:100%;max-width:var(--page-max);margin:0 auto;padding:var(--page-pt) var(--page-px-xs) var(--page-pb)}
 @media(min-width:600px){.wrap{padding-left:var(--page-px-sm);padding-right:var(--page-px-sm)}}
 @media(min-width:1200px){.wrap{padding-left:var(--page-px-lg);padding-right:var(--page-px-lg)}}
-.wrap>.screen,.wrap>.kit-page,.wrap>.kit-enter,.wrap>.pagegrid,.wrap>.herd-signals-page,.wrap>.lt-page,.kit-page,.kit-enter{display:grid;gap:24px;min-width:0;align-content:start}
-.wrap>.screen>*,.kit-page>*,.kit-enter>*,.wrap>.pagegrid>*,.wrap>.herd-signals-page>*,.wrap>.lt-page>*{margin-top:0;margin-bottom:0;min-width:0}
+.wrap>.screen,.wrap>.kit-page,.wrap>.kit-enter,.wrap>.pagegrid,.wrap>.lt-page,.kit-page,.kit-enter{display:grid;gap:24px;min-width:0;align-content:start}
+.wrap>.screen>*,.kit-page>*,.kit-enter>*,.wrap>.pagegrid>*,.wrap>.lt-page>*{margin-top:0;margin-bottom:0;min-width:0}
 /* legacy spacer divs / empty fragments must not consume a rhythm slot */
 .wrap>.screen>:empty:not(.MuiSkeleton-root):not(i):not(hr){display:none}
 
@@ -73,11 +73,9 @@
   .card>.tablewrap th:first-child,.card>.tablewrap td:first-child,
   .card>.twrap th:first-child,.card>.twrap td:first-child,
   .kit-tablecard .tablewrap th:first-child,.kit-tablecard .tablewrap td:first-child,
-  .herd-signals-page .tblwrap th:first-child,.herd-signals-page .tblwrap td:first-child,
   .feed-scroll th:first-child,.feed-scroll td:first-child,.health-scroll th:first-child,.health-scroll td:first-child,
   [data-scroll-x] th:first-child,[data-scroll-x] td:first-child{position:sticky;left:0;z-index:2}
-  [data-scroll-x] tbody :is(th,td):first-child{background:var(--paper)} .card>.tablewrap th:not(.MuiTableCell-root):first-child,.card>.twrap th:not(.MuiTableCell-root):first-child,.kit-tablecard .tablewrap th:not(.MuiTableCell-root):first-child,.herd-signals-page .tblwrap th:not(.MuiTableCell-root):first-child,.feed-scroll th:not(.MuiTableCell-root):first-child,.health-scroll th:not(.MuiTableCell-root):first-child,[data-scroll-x] th:not(.MuiTableCell-root):first-child{z-index:3;background:var(--paper-2)}
-  :is(.card>.tablewrap,.card>.twrap,.kit-tablecard .tablewrap,.herd-signals-page .tblwrap) tbody tr:hover>td:not(.MuiTableCell-root):first-child{background:color-mix(in srgb,var(--fg) 4%,var(--paper))}
+  [data-scroll-x] tbody :is(th,td):first-child{background:var(--paper)} .card>.tablewrap th:not(.MuiTableCell-root):first-child,.card>.twrap th:not(.MuiTableCell-root):first-child,.kit-tablecard .tablewrap th:not(.MuiTableCell-root):first-child,.feed-scroll th:not(.MuiTableCell-root):first-child,.health-scroll th:not(.MuiTableCell-root):first-child,[data-scroll-x] th:not(.MuiTableCell-root):first-child{z-index:3;background:var(--paper-2)}
 }
 
 /* ---- Visible-route mobile fidelity sweep (PR #294) ----
@@ -118,8 +116,8 @@
 .metagrid div{padding:12px 16px}
 /* Type floor: nothing the reader must read renders under 11px (judge M2 round 4 #10). Class list =
    every sub-11px text node found on work-board/calendar/vaccination/verify/weights/dlq/workflows at 390. */
-.wrap small,.wrap .small,.wrap .pill,.wrap .ti,.wrap .mode,.wrap .date-scope-label,.wrap .top-date-weekday,.wrap .cbq,.wrap .wfsub,.wrap .here,.wrap .nxt,.wrap .tag,.wrap .faint,.wrap .col .n{font-size:max(11px,1em)}
-.wrap small,.wrap .small,.wrap .pill,.wrap .ti,.wrap .mode,.wrap .date-scope-label,.wrap .top-date-weekday,.wrap .cbq,.wrap .wfsub,.wrap .here,.wrap .nxt,.wrap .tag,.wrap .faint,.wrap .col .n{font-size:11px}
+.wrap small,.wrap .small,.wrap .pill,.wrap .ti,.wrap .mode,.wrap .date-scope-label,.wrap .top-date-weekday,.wrap .cbq,.wrap .wfsub,.wrap .here,.wrap .nxt,.wrap .tag,.wrap .col .n{font-size:max(11px,1em)}
+.wrap small,.wrap .small,.wrap .pill,.wrap .ti,.wrap .mode,.wrap .date-scope-label,.wrap .top-date-weekday,.wrap .cbq,.wrap .wfsub,.wrap .here,.wrap .nxt,.wrap .tag,.wrap .col .n{font-size:11px}
 .wrap .small,.wrap small{font-size:12px}
 .wrap .subtabs .cbq{font-size:11px}
 /* Window chip: the trigger grows to its own text ("01/08/2026 to 19/09/2026") instead of ellipsising it. */
@@ -143,7 +141,6 @@
 @media(max-width:640px){.pvbar .btn.sm{white-space:normal;height:auto;min-height:44px}}
 .pvbar .btn.sm{min-width:max-content;padding-left:12px;padding-right:12px}
 .wb .tag a{display:inline-flex;align-items:center;min-height:44px;min-width:44px;justify-content:center;margin:-16px 0}
-.hs-mapping-tab .fbar a.btn.sm{min-width:44px}
 /* Desktop sidebar: the .layout row is already viewport-height with .main as the scroll owner, so the
    sidebar is a plain full-height column — `position:sticky` inside an overflow:hidden parent is dead
    in Android WebView (webview guard class 5) and did nothing on desktop either. */
@@ -159,12 +156,11 @@
   :root .main .iconbtn.kit-row-edit{width:44px;height:44px}
   /* Generic floor for every interactive control inside the page (buttons, inputs, summaries, chips, pager
      and calendar links). Inline text links keep their flow; these are all block/flex controls. */
-  :root .main button:not(.kit-check input),:root .main input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),:root .main select,:root .main textarea,:root .main summary,:root .main .chip,:root .main .pgbtn,:root .main .parkpick a,:root .main .datenav a,:root .main .move-date-button,:root .main a.more,:root .main .wt-feedband-gone,:root .main .lt-intervalpick button,:root .main .vaccination-schedule-legend a{min-height:44px}
-  :root .main summary,:root .main .chip,:root .main .pgbtn,:root .main .parkpick a,:root .main .datenav a,:root .main a.more,:root .main .wt-feedband-gone,:root .main .vaccination-schedule-legend a{display:inline-flex;align-items:center;justify-content:center;min-width:44px;box-sizing:border-box}
+  :root .main button:not(.kit-check input),:root .main input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),:root .main select,:root .main textarea,:root .main summary,:root .main .chip,:root .main .parkpick a,:root .main .datenav a,:root .main .move-date-button,:root .main a.more,:root .main .wt-feedband-gone,:root .main .lt-intervalpick button,:root .main .vaccination-schedule-legend a{min-height:44px}
+  :root .main summary,:root .main .chip,:root .main .parkpick a,:root .main .datenav a,:root .main a.more,:root .main .wt-feedband-gone,:root .main .vaccination-schedule-legend a{display:inline-flex;align-items:center;justify-content:center;min-width:44px;box-sizing:border-box}
   :root .main .move-date-popover,:root .main .top-date-popover{width:min(100vw - 16px,360px);max-width:calc(100vw - 16px);left:0;right:auto;padding:12px}
   :root .main .top-date-grid{gap:1px}
   
-  :root .main .fbar a.btn{min-height:44px}
   :root .main .cfgchk label,:root .main label.chkline{min-height:44px;display:inline-flex;align-items:center;gap:8px}
   :root .main .qcard .ia{min-width:44px}
   :root .main a.lk,:root .main .lk.small{min-height:44px;display:inline-flex;align-items:center;padding:0 6px}
@@ -181,33 +177,6 @@ details.top-date-picker:not([open])>.top-date-popover,details.move-date-picker:n
 /* Tab-level skeletons sit inside their table card, never wider than it (owner shot ravi-shots/32). */
 /* A status chip is never a bar: it hugs its text even inside a stretched flex column / grid cell. */
 .tag{align-self:flex-start;justify-self:start;width:max-content;max-width:100%}
-/* Fair-fight rows: label column ellipsises, the value never overlaps it; ≤640 the value sits under the label. */
-
-/* ---- Herd Signals drawer + table card ---- */
-/* Live table: 56px two-line rows, row hover. */
-.herd-signals-page .tblwrap tbody td{padding:8px 16px;height:56px;vertical-align:middle}
-.herd-signals-page .tblwrap tbody td.animcell{padding:6px 16px}
-/* Phone stacked cards: the fixed 56px desktop row height squeezed the label + id + profile line and clipped the profile line. */
-@media(max-width:860px){.herd-signals-page .tblwrap tbody td{height:auto}.herd-signals-page .tblwrap tbody td.animcell small{flex-shrink:0}}
-.herd-signals-page tr.hs-selectable td:first-child > a:not(.hs-row-hit){line-height:20px}
-.herd-signals-page .tblwrap tbody td.animcell small{display:block;line-height:16px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:320px}
-.herd-signals-page .hs-watch{gap:2px;min-width:0;max-width:240px}
-.herd-signals-page .tblwrap tbody tr.hs-selectable{transition:background-color var(--dur-fast) var(--ease)}
-.herd-signals-page .tblwrap tbody tr.hs-selectable:hover td{background:var(--hover)}
-/* Herd Signals drawer header/body gutter and readings grid are owned by mesha-theme.css (system-ui
-   right-aligned wrapping values, 13/15 header with hairline, 15px body) and are not restyled here. */
-/* History range: the kit segmented control, not three bare buttons. */
-.herd-signals-page .rangepick{display:inline-flex;gap:2px;padding:3px;border:1px solid var(--line);border-radius:999px;background:var(--bg)}
-.herd-signals-page .rangepick button{min-height:28px;padding:0 12px;border:0;border-radius:999px;background:transparent;color:var(--fg-muted);font:inherit;font-size:12px;font-weight:600;transition:background-color var(--dur-fast) var(--ease),color var(--dur-fast) var(--ease)}
-.herd-signals-page .rangepick button:hover{color:var(--fg);background:var(--hover)}
-.herd-signals-page .rangepick button.on{background:var(--brand);color:var(--on-brand);box-shadow:none}
-
-.herd-signals-page .card .hd{padding:20px 24px 16px;border-bottom:1px solid var(--line)}
-.herd-signals-page .card .hd h3{font-size:18px;font-weight:600;font-family:var(--font-display)}
-.herd-signals-page .card .bd.flush{padding:0}
-.herd-signals-page .herd-signals-table th:first-child,.herd-signals-page .herd-signals-table td:first-child{padding-left:24px}
-.herd-signals-page .herd-signals-table th:last-child,.herd-signals-page .herd-signals-table td:last-child{padding-right:24px}
-.herd-signals-page .herd-signals-pager .wfspin{margin-right:8px}
 
 /* ---- 404 / error states inside the shell ---- */
 .kit-state-inline{max-width:none;justify-items:center;padding:48px 24px;animation:none}
@@ -273,9 +242,6 @@ details.top-date-picker:not([open])>.top-date-popover,details.move-date-picker:n
 .wb-dialog .l{font-size:12px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--fg-muted)}
 .wb-dialog .v{font-size:14px;font-weight:600}
 
-/* ---- Feed Packing: reduce nested operational panels to the shared card language ---- */
-
-.herd-signals-page .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:24px}
 .kit-dense tbody td,.card.kit-dense tbody td,.kit-tablecard.kit-dense tbody td{height:44px;padding-top:8px;padding-bottom:8px}
 
 /* ---- Filters fold into a sheet on phones ---- */

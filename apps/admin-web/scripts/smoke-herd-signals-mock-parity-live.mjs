@@ -115,8 +115,8 @@ async function verifyLiveRowClickOpensDrawer(context) {
   const page = await context.newPage();
   try {
     await page.goto(`${baseUrl}/herd-signals?scope_mode=company`, { waitUntil: "domcontentloaded", timeout: 30_000 });
-    await page.locator("table.herd-signals-table tbody tr").first().waitFor({ state: "visible", timeout: 15_000 });
-    const firstRow = page.locator("table.herd-signals-table tbody tr").first();
+    await page.locator('[data-testid="herd-signals-table"] tbody tr').first().waitFor({ state: "visible", timeout: 15_000 });
+    const firstRow = page.locator('[data-testid="herd-signals-table"] tbody tr').first();
     await firstRow.waitFor({ state: "visible", timeout: 15_000 });
     const tagIdElem = firstRow.locator("td[data-l='Smart tag'] .mono").first();
     const tagId = await tagIdElem.textContent();

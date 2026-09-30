@@ -14,6 +14,7 @@ import CardHeader from "@mui/material/CardHeader";
 import Typography from "@mui/material/Typography";
 import { DividedStack } from "@/components/app/divided-stack";
 import { Label } from "@/components/minimal/label";
+import { Iconify, type IconifyName } from "@/components/minimal/iconify";
 import Link from "@/components/no-prefetch-link";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
@@ -40,6 +41,7 @@ import { HerdSignalsInsights } from "./herd-signals-insights";
 import { Tag, type Tone } from "@/components/ui-primitives";
 import type { HerdSignalItem } from "@/lib/api/herd-signals";
 import { RISK_LABEL, RISK_TONE } from "./format";
+import { HERD_SIGNALS_PAGE_SX } from "./herd-signals-layout";
 import { HERD_SIGNALS_TABS, LIMIT_DEFAULT, herdSignalsHref, kpiToLiveState, kpiToMovementState, parseHerdSignalsParams, type HerdSignalsParams, type HerdSignalsTab } from "./params";
 
 const TAB_LABEL: Record<HerdSignalsTab, string> = {
@@ -51,46 +53,15 @@ const TAB_LABEL: Record<HerdSignalsTab, string> = {
   insights: "Insights",
 };
 
-// One glyph per tab, using exactly the paths the reference `.segs` buttons carry. Labels alone made
-// the six tabs a wall of same-weight text; the icon is what lets the eye find "Gateways" without
-// reading the row. Sized at `ic sm` (14px) as the reference does, not the 18px default `ic`.
-const TAB_ICON: Record<HerdSignalsTab, ReactNode> = {
-  live: (
-    <>
-      <path d="M4.9 19.1a10 10 0 0 1 0-14.2" />
-      <path d="M7.8 16.2a6 6 0 0 1 0-8.4" />
-      <circle cx="12" cy="12" r="2" />
-      <path d="M16.2 7.8a6 6 0 0 1 0 8.4" />
-      <path d="M19.1 4.9a10 10 0 0 1 0 14.2" />
-    </>
-  ),
-  animals: (
-    <>
-      <path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0 1 18 0Z" />
-      <circle cx="12" cy="10" r="3" />
-    </>
-  ),
-  gateways: (
-    <>
-      <path d="M5 12.5a7 7 0 0 1 14 0" />
-      <path d="M2 9a11 11 0 0 1 20 0" />
-      <circle cx="12" cy="17" r="2" />
-    </>
-  ),
-  alerts: (
-    <>
-      <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
-      <path d="M12 9v4" />
-      <path d="M12 17h.01" />
-    </>
-  ),
-  mapping: (
-    <>
-      <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" />
-      <path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7L12.2 19" />
-    </>
-  ),
-  insights: <path d="M3 12h4l3 8 4-16 3 8h4" />,
+// One glyph per tab (template Iconify solar set). Labels alone made the six tabs a wall of
+// same-weight text; the icon is what lets the eye find "Gateways" without reading the row.
+const TAB_ICON: Record<HerdSignalsTab, IconifyName> = {
+  live: "ic:baseline-bluetooth",
+  animals: "mingcute:location-fill",
+  gateways: "ic:baseline-wifi",
+  alerts: "solar:danger-triangle-bold",
+  mapping: "eva:link-2-fill",
+  insights: "solar:chart-square-outline",
 };
 
 // What the Alerts tab lists: the practical Watchlist shortlist. That is the cross-signal score from
@@ -225,7 +196,8 @@ export async function HerdSignalsBoard({
   if (gatewaysResult.ok) tabCounts.gateways = listOrEmpty(gatewaysResult.data.gateways).length;
 
   return (
-    <Box className="herd-signals-page">
+    // Page column: header, tab strip, tab body on the page's 24px rhythm (gap 3).
+    <Box sx={HERD_SIGNALS_PAGE_SX}>
       {/* One shared pending-transition flag for the stream bridge, the KPI cards, the filter bar and every
           pagination control on this tab — see herd-signals-nav-context.tsx for why a plain <Link>
           per control was the "clicking a filter reloads the whole page" defect. */}
@@ -247,11 +219,7 @@ export async function HerdSignalsBoard({
               items={HERD_SIGNALS_TABS.map((tab) => ({
                 value: tab,
                 label: TAB_LABEL[tab],
-                icon: (
-                  <svg className="ic sm" viewBox="0 0 24 24" aria-hidden="true">
-                    {TAB_ICON[tab]}
-                  </svg>
-                ),
+                icon: <Iconify icon={TAB_ICON[tab]} width={18} aria-hidden="true" />,
                 count: tabCounts[tab] !== undefined ? tabCounts[tab] : undefined,
                 href: herdSignalsHref(params, { hs_tab: tab === "live" ? undefined : tab }),
               }))}
@@ -373,10 +341,6 @@ function FilteredTableTab({
         <CardHeader title={title} sx={{ mb: 2 }} />
         <Box>
           <EmptyState
-            icon={<svg className="ic" viewBox="0 0 24 24">
-              <path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0 1 18 0Z" />
-              <circle cx="12" cy="10" r="3" />
-            </svg>}
             title="No mapped animals yet"
             description={<>{summary.tags_seen > 0
               ? `${summary.tags_seen.toLocaleString("en-IN")} smart tag(s) are broadcasting, but none carry an active smart-tag-capable identifier yet.`
@@ -438,11 +402,6 @@ function AlertsTab({
       <Box>
         {items.length === 0 ? (
           <EmptyState
-            icon={<svg className="ic" viewBox="0 0 24 24">
-              <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
-              <path d="M12 9v4" />
-              <path d="M12 17h.01" />
-            </svg>}
             title="No tags need attention right now"
             description="No smart tag is unusual against its own baseline or its pen group in this scope."
           />

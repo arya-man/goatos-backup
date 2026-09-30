@@ -2,7 +2,7 @@
 // loading twin (herd-signals-skeletons.tsx), so the skeleton's card count cannot drift. No "use client":
 // the values are plain functions and the icons plain elements, safe on either side.
 import type { ReactNode } from "react";
-import { Activity, BatteryLow, Radio, TriangleAlert, Wifi } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import type { KitTone } from "@/lib/tone";
 import type { HerdSignalsSummary } from "@/lib/api/herd-signals";
 import type { KpiFilterKey } from "./params";
@@ -31,11 +31,11 @@ export type KpiDef = {
 // mean summing it from the fetched page (banned — see herd-signals-row-filter.ts) rather than from
 // a real backend aggregate.
 const IC = {
-  radio: <Radio />,
-  activity: <Activity />,
-  wifi: <Wifi />,
-  alert: <TriangleAlert />,
-  battery: <BatteryLow />,
+  radio: <Iconify icon="ic:baseline-bluetooth" />,
+  activity: <Iconify icon="eva:activity-fill" />,
+  wifi: <Iconify icon="ic:baseline-wifi" />,
+  alert: <Iconify icon="solar:danger-triangle-bold" />,
+  battery: <Iconify icon="solar:electric-refueling-bold" />,
 };
 
 export const KPI_DEFS: KpiDef[] = [

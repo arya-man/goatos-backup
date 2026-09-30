@@ -7,7 +7,7 @@ const page = await browser.newPage({ viewport: { width: 1512, height: 982 }, dev
 
 try {
   await page.goto(`${baseUrl}/herd-signals?scope_mode=company`, { waitUntil: "domcontentloaded", timeout: 30_000 });
-  const rows = page.locator("table.herd-signals-table tbody tr");
+  const rows = page.locator('[data-testid="herd-signals-table"] tbody tr');
   await rows.first().waitFor({ state: "visible", timeout: 15_000 });
 
   let rowIndex = -1;

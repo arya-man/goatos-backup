@@ -21,6 +21,8 @@ import { TableSkeleton } from "@/components/app/skeletons";
 import Box from "@mui/material/Box";
 import Alert from "@mui/material/Alert";
 import Paper from "@mui/material/Paper";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
 import Stack from "@mui/material/Stack";
 import Button from "@mui/material/Button";
 import Dialog from "@mui/material/Dialog";
@@ -34,6 +36,8 @@ import InputAdornment from "@mui/material/InputAdornment";
 import ListItemButton from "@mui/material/ListItemButton";
 import CircularProgress from "@mui/material/CircularProgress";
 import { Iconify } from "@/components/minimal/iconify";
+import { TablePaginationLinks } from "@/components/app/table/table-pagination-links";
+import { HS_FAINT, HS_MONO, HS_SUBLINE, respTableSx, selectableRowSx } from "./herd-signals-sx";
 
 // The Tag Mapping tab is NOT the live view with different filters: it answers "which BLE tag
 // belongs to which animal identifier, who said so, and when", so it has its own ten columns
@@ -133,15 +137,15 @@ function AnimalCell({ item }: { item: HerdSignalItem }) {
   if (!item.display_id) {
     return (
       <>
-        <b className="muted">{NOT_ON_CONTRACT}</b>
-        <small>No animal identifier</small>
+        <Box component="b" sx={HS_FAINT}>{NOT_ON_CONTRACT}</Box>
+        <Box component="small" sx={HS_SUBLINE}>No animal identifier</Box>
       </>
     );
   }
   return (
     <>
       <b>{item.display_id}</b>
-      <small>{MAPPING_LABEL[item.mapping_state].toLowerCase()}</small>
+      <Box component="small" sx={HS_SUBLINE}>{MAPPING_LABEL[item.mapping_state].toLowerCase()}</Box>
     </>
   );
 }
@@ -589,18 +593,21 @@ export function HerdSignalsMappingTable({
   const actionButton = (action: MappingAction, label: string, primary: boolean) => {
     const reason = reasonFor(action);
     return (
-      <button
-        type="button"
-        className={`btn sm${primary ? " p" : ""}`}
-        disabled={reason !== null || busy}
-        title={reason ?? ACTION_TITLE[action]}
-        onClick={() => {
-          setFlash(null);
-          setDialog(action);
-        }}
-      >
-        {label}
-      </button>
+      // A disabled button swallows hover, so the reason rides on a wrapping span's title.
+      <Box component="span" title={reason ?? ACTION_TITLE[action]} sx={{ display: "inline-flex" }}>
+        <Button
+          size="small"
+          variant={primary ? "contained" : "outlined"}
+          color={primary ? "primary" : "inherit"}
+          disabled={reason !== null || busy}
+          onClick={() => {
+            setFlash(null);
+            setDialog(action);
+          }}
+        >
+          {label}
+        </Button>
+      </Box>
     );
   };
 
@@ -639,135 +646,90 @@ export function HerdSignalsMappingTable({
     navigate(nextHref);
   }
 
+  const rangeLabel = `Showing ${nf(rangeFrom)}–${nf(rangeTo)}${total ? ` of ${nf(total)}` : ""} · page ${nf(pageIndex + 1)}${pageCount ? ` of ${nf(pageCount)}` : ""}`;
+  // Template table pager (TablePaginationLinks: TablePagination anatomy, prev / next as links, rows
+  // per page navigating to a prepared href), above and below the rows as the mock draws it.
   const pager = (variant: "top" | "bottom") => (
-    <div className={`pager herd-signals-pager${variant === "top" ? " pager-top" : ""}`} aria-busy={busy}>
-      {busy ? <span className="wfspin" aria-hidden="true" title="Loading" /> : null}
-      {prevHref ? (
-        <Link href={prevHref} className="pgbtn" onClick={goPrev}>
-          &larr; Previous
-        </Link>
-      ) : (
-        <button type="button" className="pgbtn" disabled>
-          &larr; Previous
-        </button>
-      )}
-      {nextHref ? (
-        <Link href={nextHref} className="pgbtn" onClick={goNext}>
-          Next &rarr;
-        </Link>
-      ) : (
-        <button type="button" className="pgbtn" disabled>
-          Next &rarr;
-        </button>
-      )}
-      <span>
-        Showing <b>{`${nf(rangeFrom)}–${nf(rangeTo)}`}</b>
-        {total ? (
-          <>
-            {" of "}
-            <b>{nf(total)}</b>
-          </>
-        ) : null}
-        {" · page "}
-        <b>{nf(pageIndex + 1)}</b>
-        {pageCount ? (
-          <>
-            {" of "}
-            <b>{nf(pageCount)}</b>
-          </>
-        ) : null}
-      </span>
-      <span className="sp" style={{ flex: 1 }} />
-      <TextField
-        select
-        label="Rows per page"
-        value={String(params.limit)}
-        onChange={({ target: { value } }) => navigate(herdSignalsHref(params, { hs_limit: value }))}
-        sx={{ minWidth: { xs: 0, sm: 104 }, flexShrink: 0, maxWidth: 1 }}
-        slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
-      >
-        {PAGE_SIZE_OPTIONS.map((size) => (
-          <MenuItem key={String(size)} value={String(size)}>
-            {String(size)}
-          </MenuItem>
-        ))}
-      </TextField>
-    </div>
+    <Box aria-busy={busy} sx={variant === "top" ? { borderBottom: 1, borderColor: "divider" } : undefined}>
+      <TablePaginationLinks
+        page={pageIndex}
+        rowsPerPage={params.limit}
+        count={-1}
+        rowsPerPageHrefs={PAGE_SIZE_OPTIONS.map((size) => ({ value: size, href: herdSignalsHref(params, { hs_limit: String(size) }) }))}
+        prevHref={prevHref}
+        nextHref={nextHref}
+        onPrevClick={goPrev}
+        onNextClick={goNext}
+        labelRowsPerPage="Rows per page"
+        rangeLabel={rangeLabel}
+        prevLabel="Previous page"
+        nextLabel="Next page"
+        left={busy ? <CircularProgress size={16} color="inherit" aria-hidden="true" title="Loading" sx={{ color: "text.secondary" }} /> : null}
+      />
+    </Box>
   );
 
+  const filterButton = (label: string, value: HerdSignalsParams["mappingState"], selected: boolean) => {
+    const href = herdSignalsHref(params, { hs_map: value });
+    return (
+      <Button
+        component={Link}
+        href={href}
+        size="small"
+        variant={selected ? "contained" : "outlined"}
+        color={selected ? "primary" : "inherit"}
+        aria-current={selected ? "true" : undefined}
+        onClick={(event: React.MouseEvent) => {
+          if (!plainClick(event)) return;
+          event.preventDefault();
+          navigate(href);
+        }}
+      >
+        {label}
+      </Button>
+    );
+  };
+
+  // Template list toolbar row inside the card: the mapping-state filters, the selection readout and
+  // the three write actions.
   const toolbar = (
-    <div className="fbar" aria-busy={busy}>
-      <a
-        href={herdSignalsHref(params, { hs_map: undefined })}
-        // "All" is the unfiltered default, not an explicit selection — the mock (which never
-        // highlights any filter button, #tab-mapping's setMapFilter never toggles a class) renders
-        // it as a plain neutral button. Only the two explicit filters (Unmapped/Conflict) get the
-        // primary "p" highlight when chosen.
-        className="btn sm"
-        onClick={(event) => {
-          if (!plainClick(event)) return;
-          event.preventDefault();
-          navigate(herdSignalsHref(params, { hs_map: undefined }));
-        }}
-      >
-        All
-      </a>
-      <a
-        href={herdSignalsHref(params, { hs_map: "unmapped" })}
-        className={`btn sm${params.mappingState === "unmapped" ? " p" : ""}`}
-        onClick={(event) => {
-          if (!plainClick(event)) return;
-          event.preventDefault();
-          navigate(herdSignalsHref(params, { hs_map: "unmapped" }));
-        }}
-      >
-        Unmapped only
-      </a>
-      <a
-        href={herdSignalsHref(params, { hs_map: "conflict" })}
-        className={`btn sm${params.mappingState === "conflict" ? " p" : ""}`}
-        onClick={(event) => {
-          if (!plainClick(event)) return;
-          event.preventDefault();
-          navigate(herdSignalsHref(params, { hs_map: "conflict" }));
-        }}
-      >
-        Conflicts only
-      </a>
-      <div className="sp" style={{ flex: 1 }} />
-      <span className="small faint">
+    <Box aria-busy={busy} sx={{ p: 2.5, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 1 }}>
+      {/* "All" is the unfiltered default, not an explicit selection — the mock (which never
+          highlights any filter button) renders it as a plain neutral button. Only the two explicit
+          filters (Unmapped/Conflict) get the primary highlight when chosen. */}
+      {filterButton("All", undefined, false)}
+      {filterButton("Unmapped only", "unmapped", params.mappingState === "unmapped")}
+      {filterButton("Conflicts only", "conflict", params.mappingState === "conflict")}
+      <Box sx={{ flex: 1 }} />
+      <Typography variant="caption" sx={{ color: "text.secondary" }}>
         {selectionVisible ? (
           <>
-            Selected <span className="mono">{selected?.tag_id}</span>
+            Selected <Box component="span" sx={HS_MONO}>{selected?.tag_id}</Box>
           </>
         ) : (
           "Select a tag to act on it"
         )}
-      </span>
+      </Typography>
       {/* "Map to animal" is the PRIMARY verb here: on a farm where nothing is mapped yet it is the
           only action that makes this screen useful at all. */}
       {actionButton("map", "Map to animal", true)}
       {actionButton("replace", "Replace tag", false)}
       {actionButton("unmap", "Unmap", false)}
-    </div>
+    </Box>
   );
 
   const body = () => {
     if (items.length === 0) {
       return (
         <EmptyState
-          icon={<svg className="ic" viewBox="0 0 24 24">
-            <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" />
-            <path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7L12.2 19" />
-          </svg>}
           title={params.mappingState ? "No tags in this mapping state" : "No BLE tags to map yet"}
           description={params.mappingState
             ? "Every tag in scope is in a different mapping state — an outcome, not a read failure."
             : "No BLE gateway has posted a tag for this tenant yet. Tags appear here the moment a gateway forwards one, mapped or not."}
           action={params.mappingState ? (
-            <Link href={herdSignalsHref(params, { hs_map: undefined })} className="btn sm">
+            <Button component={Link} href={herdSignalsHref(params, { hs_map: undefined })} variant="outlined" color="inherit" size="small">
               Show all tags
-            </Link>
+            </Button>
           ) : undefined}
         />
       );
@@ -782,10 +744,10 @@ export function HerdSignalsMappingTable({
         {busy ? (
           <TableSkeleton bare header={false} pager={false} columns={10} rows={Math.min(Math.max(items.length, 1), 10)} />
         ) : (
-        <div className="tblwrap">
+        <>
         {/* Wide table scrolls inside the template Scrollbar (TR1-#20), never outside its card. */}
         <Scrollbar>
-          <Table className="resp">
+          <Table data-testid="herd-signals-mapping-table" sx={respTableSx()}>
             <TableHead>
               <TableRow>
                 <TableCell component="th">Animal</TableCell>
@@ -806,7 +768,7 @@ export function HerdSignalsMappingTable({
                 return (
                   <TableRow
                     key={item.tag_id}
-                    className={`hs-selectable${isSelected ? " on" : ""}`}
+                    sx={selectableRowSx(isSelected)}
                     // Selecting is NOT navigation: the row arms the action bar and nothing else.
                     aria-selected={isSelected}
                     tabIndex={0}
@@ -821,14 +783,14 @@ export function HerdSignalsMappingTable({
                       setSelectedTagId(isSelected ? null : item.tag_id);
                     }}
                   >
-                    <TableCell data-l="Animal" className="wide animcell">
+                    <TableCell data-l="Animal" data-wide>
                       <AnimalCell item={item} />
                     </TableCell>
-                    <TableCell data-l="Existing tag 1" className={item.animal_identifier_1 ? "" : "faint"}>
-                      {item.animal_identifier_1 ? <span className="mono">{item.animal_identifier_1}</span> : NOT_ON_CONTRACT}
+                    <TableCell data-l="Existing tag 1" sx={item.animal_identifier_1 ? undefined : HS_FAINT}>
+                      {item.animal_identifier_1 ? <Box component="span" sx={HS_MONO}>{item.animal_identifier_1}</Box> : NOT_ON_CONTRACT}
                     </TableCell>
-                    <TableCell data-l="Existing tag 2" className={item.animal_identifier_2 ? "" : "faint"}>
-                      {item.animal_identifier_2 ? <span className="mono">{item.animal_identifier_2}</span> : NOT_ON_CONTRACT}
+                    <TableCell data-l="Existing tag 2" sx={item.animal_identifier_2 ? undefined : HS_FAINT}>
+                      {item.animal_identifier_2 ? <Box component="span" sx={HS_MONO}>{item.animal_identifier_2}</Box> : NOT_ON_CONTRACT}
                     </TableCell>
                     {/* Every row on this screen IS a BLE smart tag -- that is why it is here at all.
                         smart_tag_capable is a flag on the ANIMAL IDENTIFIER, so an unmapped tag has
@@ -839,34 +801,34 @@ export function HerdSignalsMappingTable({
                       {item.mapping_state === "mapped" ? (
                         <Tag tone="ok">Yes</Tag>
                       ) : (
-                        <span className="faint" title="No animal identifier yet, so there is no identifier to carry the flag">
+                        <Box component="span" sx={HS_FAINT} title="No animal identifier yet, so there is no identifier to carry the flag">
                           {NOT_ON_CONTRACT}
-                        </span>
+                        </Box>
                       )}
                     </TableCell>
                     <TableCell data-l="BLE tag ID">
-                      <span className="mono">{item.tag_id}</span>
+                      <Box component="span" sx={HS_MONO}>{item.tag_id}</Box>
                     </TableCell>
                     <TableCell data-l="BLE MAC">
-                      <span className="mono faint">{fmtBleMac(item.tag_mac)}</span>
+                      <Box component="span" sx={{ ...HS_MONO, ...HS_FAINT }}>{fmtBleMac(item.tag_mac)}</Box>
                     </TableCell>
                     {/* The only provenance the live contract carries: which gateway forwarded the
                         tag. A tag with no gateway id was not attributed to one, so it gets "—",
                         never a guessed source. */}
-                    <TableCell data-l="Source">{item.gateway_id ? "Gateway" : <span className="faint">{NOT_ON_CONTRACT}</span>}</TableCell>
+                    <TableCell data-l="Source">{item.gateway_id ? "Gateway" : <Box component="span" sx={HS_FAINT}>{NOT_ON_CONTRACT}</Box>}</TableCell>
                     {/* TODO: Resolve mapped_by user ID to a human-readable operator name using the workforce
                         lookup pattern from the rest of the product (see docs for existing patterns).
                         For now, show the full ID; truncation to 8 chars can collide on UUIDs. */}
-                    <TableCell data-l="Bound by" className={item.mapped_by ? "" : "faint"}>
+                    <TableCell data-l="Bound by" sx={item.mapped_by ? undefined : HS_FAINT}>
                       {item.mapped_by ? (
-                        <span className="mono text-sm" title={`Operator ID: ${item.mapped_by}`}>
+                        <Box component="span" sx={{ ...HS_MONO, typography: "caption" }} title={`Operator ID: ${item.mapped_by}`}>
                           {item.mapped_by}
-                        </span>
+                        </Box>
                       ) : (
                         NOT_ON_CONTRACT
                       )}
                     </TableCell>
-                    <TableCell data-l="Bound at" className={item.mapped_at ? "" : "faint"}>
+                    <TableCell data-l="Bound at" sx={item.mapped_at ? undefined : HS_FAINT}>
                       {item.mapped_at ? fmtAgo(item.mapped_at, new Date().getTime()) : NOT_ON_CONTRACT}
                     </TableCell>
                     <TableCell data-l="Status">
@@ -878,7 +840,7 @@ export function HerdSignalsMappingTable({
             </TableBody>
           </Table>
         </Scrollbar>
-        </div>
+        </>
         )}
         {pager("bottom")}
       </>
@@ -886,24 +848,23 @@ export function HerdSignalsMappingTable({
   };
 
   return (
-    <div className="hs-mapping-tab">
-      {toolbar}
+    <Stack spacing={2}>
       {flash ? (
-        <div className="hs-flash" role="status">
+        <Alert severity="success" role="status" onClose={() => setFlash(null)}>
           {flash}
-        </div>
+        </Alert>
       ) : null}
-      <div className="card">
-        <div className="hd">
-          <h3>BLE tag ↔ animal identifier mapping</h3>
-          <div className="sp" style={{ flex: 1 }} />
-          <span className="small faint">Flag lives on the identifier, not the animal — an animal can carry several tags</span>
-        </div>
-        <div className="bd flush">{body()}</div>
-      </div>
+      <Card>
+        <CardHeader
+          title="BLE tag ↔ animal identifier mapping"
+          subheader="Flag lives on the identifier, not the animal — an animal can carry several tags"
+        />
+        {toolbar}
+        {body()}
+      </Card>
       {dialog && selected ? (
         <MappingDialog action={dialog} item={selected} onClose={() => setDialog(null)} onDone={onDone} />
       ) : null}
-    </div>
+    </Stack>
   );
 }

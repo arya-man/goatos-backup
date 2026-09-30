@@ -75,10 +75,10 @@ html.theme-switching *,html.theme-switching *::before,html.theme-switching *::af
 .main .tablewrap{border-radius:var(--r-lg)}
 .screen th:not(.MuiTableCell-root),.main th:not(.MuiTableCell-root){background:var(--paper-2);color:var(--fg-muted);font-size:14px;font-weight:600;letter-spacing:0;text-transform:none;padding:14px 16px;border-bottom:0;white-space:nowrap}
 .main thead th{position:sticky;top:0;z-index:2}
-/* Sticky heads for the tables that are not inside `.main`/`.tablewrap`: the weighing, health and
-   herd-signals screens use bare `.tbl`/`.feed-table`/`.resp`/`.loadwise-table`, so their headers
+/* Sticky heads for the tables that are not inside `.main`/`.tablewrap`: the weighing and health
+   screens use bare `.tbl`/`.feed-table`/`.loadwise-table`, so their headers
    scrolled away on every long list. One place, token background only. */
-.tbl thead th,.feed-table thead th,table.resp thead th,.loadwise-table thead th{position:sticky;top:0;z-index:2;background:var(--paper-2)}
+.tbl thead th,.feed-table thead th,.loadwise-table thead th{position:sticky;top:0;z-index:2;background:var(--paper-2)}
 .screen th:first-child,.main thead th:first-child{border-top-left-radius:var(--r-md);border-bottom-left-radius:var(--r-md)}
 .screen th:last-child,.main thead th:last-child{border-top-right-radius:var(--r-md);border-bottom-right-radius:var(--r-md)}
 .screen td:not(.MuiTableCell-root){padding:14px 16px;border-bottom:1px dashed var(--line);height:56px}
@@ -468,7 +468,6 @@ th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}
 
 /* Skeleton header strip: the same tint the real `th` carries, so a route-shaped shimmer never has
    to repeat the literal colour. Layout/tint only; the value is the one `th` already uses above. */
-
 
 /* ---- kit DateTimeField (calendar + hour/minute listboxes) ---- */
 .kit-datetime{display:grid;grid-template-columns:minmax(0,1fr) 92px 92px;gap:10px;align-items:end;position:relative;min-width:0}

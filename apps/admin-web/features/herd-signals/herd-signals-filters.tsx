@@ -9,6 +9,7 @@ import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
 import InputAdornment from "@mui/material/InputAdornment";
 import TextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
 import { MinimalDrawer } from "@/components/app/drawer";
 import { Iconify } from "@/components/minimal/iconify";
 
@@ -18,7 +19,6 @@ import { useHerdSignalsNav } from "./herd-signals-nav-context";
 import { HerdSignalsKpiChip } from "./herd-signals-kpis";
 import { herdSignalsHref, type HerdSignalsParams } from "./params";
 import { HERD_SIGNALS_SEARCH_SX, HERD_SIGNALS_SELECT_MIN } from "./herd-signals-layout";
-import hs from "./herd-signals-filters.module.css";
 import { Label } from "@/components/minimal/label";
 
 export type ShedOption = { id: string; label: string };
@@ -187,7 +187,9 @@ export function HerdSignalsFilters({
         {moreActive > 0 ? <Label variant="soft">{moreActive}</Label> : null}
       </MuiButton>
 
-      <div id="herd-signals-more-filters" className={hs.more} hidden={!showMore}>
+      {/* The rarely used filters open under "More filters"; inside the phone filters drawer everything
+          is listed (display: contents keeps them in the row's flex flow). */}
+      <Box id="herd-signals-more-filters" hidden={!showMore} sx={{ display: "contents", "&[hidden]": { display: "none" } }}>
       <TextField
         select
         label="Mapping"
@@ -282,20 +284,21 @@ export function HerdSignalsFilters({
         ))}
       </TextField>
 
-      <span className="fnote">15m activity is sustained movement &middot; thresholds provisional</span>
-      </div>
+      <Typography variant="caption" sx={{ color: "text.secondary", ml: "auto", whiteSpace: "nowrap" }}>
+        15m activity is sustained movement &middot; thresholds provisional
+      </Typography>
+      </Box>
     </>
   );
 
   return (
     <>
     <Card
-      className="herd-signals-fbar"
       aria-busy={isPending}
       sx={{
         overflow: "visible",
         // Inside another card (a table card) the toolbar is part of that card, as in the template list.
-        ".MuiCard-root &, .card &": { boxShadow: "none", bgcolor: "transparent", borderRadius: 0 },
+        ".MuiCard-root &": { boxShadow: "none", bgcolor: "transparent", borderRadius: 0 },
       }}
     >
       <Box sx={{ p: 2.5, gap: 2, display: "flex", flexWrap: "wrap", alignItems: "center" }}>

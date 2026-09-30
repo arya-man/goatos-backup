@@ -9,6 +9,9 @@ import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 
 import TableSortLabel from "@mui/material/TableSortLabel";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import CircularProgress from "@mui/material/CircularProgress";
 import { useSyncExternalStore, type MouseEvent } from "react";
 import { LocalOverlayLink, pushLocalOverlayUrl } from "@/components/local-overlay-link";
 import Link from "@/components/no-prefetch-link";
@@ -49,6 +52,12 @@ import { useNowMs } from "./herd-signals-stream-bridge";
 import { useHerdSignalsLiveSnapshot } from "./herd-signals-live-store";
 import { TablePaginationLinks } from "@/components/app/table/table-pagination-links";
 import { EmptyState } from "@/components/app/empty-state";
+import { HS_FAINT, HS_MONO, HS_SUBLINE, deltaSx, respTableSx, selectableRowSx } from "./herd-signals-sx";
+
+// Desktop min width per live-table column (21 columns), and the whole table's floor: the table
+// scrolls sideways inside the template Scrollbar instead of compressing its columns.
+const LIVE_COLUMN_WIDTHS = [190, 160, 150, 120, 112, 126, 132, 146, 116, 122, 122, 132, 160, 160, 124, 126, 150, 230, 142, 142, 138];
+const LIVE_TABLE_MIN_WIDTH = 2860;
 
 function rowTagId(item: HerdSignalItem): string {
   return item.tag_id;
@@ -222,9 +231,6 @@ export function HerdSignalsTable({
     // failure (handled by the caller before this component ever renders).
     return (
       <EmptyState
-        icon={<svg className="ic" viewBox="0 0 24 24">
-          <path d="M22 3H2l8 9.5V19l4 2v-8.5L22 3Z" />
-        </svg>}
         title="No rows on this page match that filter"
         description="The gateway is still receiving. Try clearing filters or paging through more rows."
       />
@@ -276,7 +282,6 @@ export function HerdSignalsTable({
 
   const pager = (
     <TablePaginationLinks
-      className="herd-signals-pager"
       page={positionKnown ? pageIndex : 0}
       rowsPerPage={params.limit}
       count={-1}
@@ -294,7 +299,7 @@ export function HerdSignalsTable({
       nextLabel="Next page"
       left={
         <>
-          {isPending ? <span className="wfspin" aria-hidden="true" title="Loading" /> : null}
+          {isPending ? <CircularProgress size={16} color="inherit" aria-hidden="true" title="Loading" sx={{ mr: 1, color: "text.secondary" }} /> : null}
           {visible.length > 10 ? <DenseToggleAuto /> : null}
         </>
       }
@@ -310,12 +315,12 @@ export function HerdSignalsTable({
     });
   }
 
-  const sortableHead = (label: string, sort: HerdSignalsSortKey, className?: string, help?: string) => {
+  const sortableHead = (label: string, sort: HerdSignalsSortKey, num?: boolean, help?: string) => {
     const active = params.sort === sort;
     return (
       // aria-sort belongs on the <TableCell component="th">, not on the link inside it: a screen reader announces the
       // column's sort state from the cell, and without it the table read as unsorted everywhere.
-      <TableCell component="th" className={className} aria-sort={active ? (params.sortDir === "asc" ? "ascending" : "descending") : "none"}>
+      <TableCell component="th" data-num={num || undefined} aria-sort={active ? (params.sortDir === "asc" ? "ascending" : "descending") : "none"}>
         {/* Template TableHeadCustom sort anatomy (TableSortLabel), as a link: sorting is URL state. */}
         <TableSortLabel component={Link} href={sortHref(sort)} hideSortIcon active={active} direction={active ? params.sortDir : "asc"} title={`Sort by ${label}`}>
           {label}
@@ -329,31 +334,33 @@ export function HerdSignalsTable({
     <>
       {/* A filter / sort / page change swaps this table to the panel skeleton (UrlSuspense ALL_PARAMS
           in herd-signals-board; UrlNavRouter announces every router.push) — no dimmed stale rows. */}
-      <div className="tblwrap">
-        {/* Wide table scrolls inside the template Scrollbar (TR1-#20), never outside its card. */}
-        <Scrollbar>
-        <Table className={`resp herd-signals-table${variant === "animals" ? " herd-signals-animals-table" : ""}`}>
+      {/* Wide table scrolls inside the template Scrollbar (TR1-#20), never outside its card. */}
+      <Scrollbar>
+        <Table
+          data-testid={variant === "animals" ? "herd-signals-animals-table" : "herd-signals-table"}
+          sx={variant === "animals" ? respTableSx({ columns: LIVE_COLUMN_WIDTHS.slice(0, 9) }) : respTableSx({ minWidth: LIVE_TABLE_MIN_WIDTH, columns: LIVE_COLUMN_WIDTHS })}
+        >
           <TableHead>
             {variant === "animals" ? (
               <HerdSignalsAnimalsHead />
             ) : (
             <TableRow>
               <TableCell component="th">Animal</TableCell>
-              {sortableHead("Smart tag", "smart_tag", undefined, TABLE_SORT_NOTE)}
+              {sortableHead("Smart tag", "smart_tag", false, TABLE_SORT_NOTE)}
               <TableCell component="th">Pen</TableCell>
               <TableCell component="th">Gateway</TableCell>
               <TableCell component="th">Signal</TableCell>
               <TableCell component="th">Now</TableCell>
               <TableCell component="th">Last moved</TableCell>
-              {sortableHead("Motion count", "motion_count", "num", "Cumulative counter maintained by the tag firmware. It can stay flat while packets are received.")}
-              <TableCell component="th" className="num">
+              {sortableHead("Motion count", "motion_count", true, "Cumulative counter maintained by the tag firmware. It can stay flat while packets are received.")}
+              <TableCell component="th" data-num>
                 {liveWindowLabel(params.liveWindow)} delta
                 <InfoTip title="Movement counter delta for the selected window. Use 30s or 1m for live checks; 15m remains the sustained activity window." />
               </TableCell>
-              {sortableHead("Tag temp", "tag_temp", "num", "Tag housing temperature, not the animal's body temperature.")}
-              {sortableHead("15m delta", "delta_15m", "num", "Current 15-minute motion-count delta: latest counter minus the baseline reading for the window.")}
-              {sortableHead("1h delta", "delta_1h", "num", "Current 1-hour motion-count delta when enough readings exist; blank means the window is not established yet.")}
-              <TableCell component="th" className="num">
+              {sortableHead("Tag temp", "tag_temp", true, "Tag housing temperature, not the animal's body temperature.")}
+              {sortableHead("15m delta", "delta_15m", true, "Current 15-minute motion-count delta: latest counter minus the baseline reading for the window.")}
+              {sortableHead("1h delta", "delta_1h", true, "Current 1-hour motion-count delta when enough readings exist; blank means the window is not established yet.")}
+              <TableCell component="th" data-num>
                 24h delta
                 <InfoTip title="Rolling 24-hour motion-counter delta. This is movement units from the tag firmware, not a step count." />
               </TableCell>
@@ -372,7 +379,7 @@ export function HerdSignalsTable({
                 <InfoTip title={RISK_RULES} />
               </TableCell>
               <TableCell component="th">Battery</TableCell>
-              {sortableHead("Last seen", "last_seen", undefined, "When the backend last received a packet from this tag. Sorting by this can move rows during live refresh.")}
+              {sortableHead("Last seen", "last_seen", false, "When the backend last received a packet from this tag. Sorting by this can move rows during live refresh.")}
               <TableCell component="th">Status</TableCell>
             </TableRow>
             )}
@@ -396,7 +403,7 @@ export function HerdSignalsTable({
               return (
                 <TableRow
                   key={item.tag_id}
-                  className="hs-selectable"
+                  sx={selectableRowSx()}
                   onClick={(event) => {
                     if (isInteractiveTarget(event.target)) return;
                     pushLocalOverlayUrl(href);
@@ -405,7 +412,7 @@ export function HerdSignalsTable({
                   {/* Two lines per row (56px): the animal and ONE secondary line. The RFID pair and
                       the profile live in the cell's tooltip and in the drawer; four stacked lines
                       made a 94px row (judge M2 round 4 #4). */}
-                  <TableCell data-l="Animal" className="animcell wide" title={[animalRfidLine(item), animalProfileLine(item)].filter(Boolean).join(" · ") || undefined}>
+                  <TableCell data-l="Animal" data-wide title={[animalRfidLine(item), animalProfileLine(item)].filter(Boolean).join(" · ") || undefined}>
                     {/* 44px tap box on a phone (webview rule); the desktop row keeps its compact line. */}
                     <MuiLink
                       component={LocalOverlayLink}
@@ -418,19 +425,19 @@ export function HerdSignalsTable({
                     >
                       {animalPrimaryLabel(item)}
                     </MuiLink>
-                    <small>
+                    <Box component="small" sx={HS_SUBLINE}>
                       {item.display_id && (item.animal_identifier_1 || item.animal_identifier_2) ? `${item.display_id} · ` : ""}
                       {item.mapping_state === "conflict" ? "mapping conflict" : MAPPING_LABEL[item.mapping_state].toLowerCase()}
                       {animalProfileLine(item) ? ` · ${animalProfileLine(item)}` : ""}
-                    </small>
+                    </Box>
                   </TableCell>
                   <TableCell data-l="Smart tag" title={fmtBleMac(item.tag_mac)}>
-                    <span className="mono">{item.tag_id}</span>
+                    <Box component="span" sx={HS_MONO}>{item.tag_id}</Box>
                   </TableCell>
                   <TableCell data-l="Pen" title={parkName || undefined}>
                     {location || "—"}
                   </TableCell>
-                  <TableCell data-l="Gateway" className="mono">{item.gateway_id || "—"}</TableCell>
+                  <TableCell data-l="Gateway" sx={HS_MONO}>{item.gateway_id || "—"}</TableCell>
                   <TableCell data-l="Signal">
                     {item.signal_state ? (
                       <Tag tone={SIGNAL_TONE[item.signal_state]} title={SIGNAL_LABEL[item.signal_state]}>
@@ -442,29 +449,29 @@ export function HerdSignalsTable({
                   </TableCell>
                   <TableCell data-l="Now">
                     <Tag tone={nowState.tone}>{nowState.label}</Tag>
-                    {item.last_packet_motion_delta != null ? <small className="faint">last pkt {fmtSignedDelta(item.last_packet_motion_delta).text}</small> : null}
+                    {item.last_packet_motion_delta != null ? <Box component="small" sx={{ ...HS_FAINT, display: "block", typography: "caption" }}>last pkt {fmtSignedDelta(item.last_packet_motion_delta).text}</Box> : null}
                   </TableCell>
                   <TableCell data-l="Last moved">{item.last_moved_at ? fmtAgo(item.last_moved_at, displayedNowMs) : "—"}</TableCell>
-                  <TableCell data-l="Motion count" className="num mono">{fmtDelta(item.motion_count)}</TableCell>
-                  <TableCell data-l={`${liveWindowLabel(params.liveWindow)} delta`} className="num">
-                    <span className={`delta ${liveDelta.tone}`}>{liveDelta.text}</span>
+                  <TableCell data-l="Motion count" data-num sx={HS_MONO}>{fmtDelta(item.motion_count)}</TableCell>
+                  <TableCell data-l={`${liveWindowLabel(params.liveWindow)} delta`} data-num>
+                    <Box component="span" sx={deltaSx(liveDelta.tone)}>{liveDelta.text}</Box>
                   </TableCell>
-                  <TableCell data-l="Tag temp" className="num" title="Tag housing temperature, not the animal's body temperature">
+                  <TableCell data-l="Tag temp" data-num title="Tag housing temperature, not the animal's body temperature">
                     {fmtTagTemp(item.tag_temperature_c)}
                   </TableCell>
                   <TableCell
                     data-l="15m delta"
-                    className="num"
+                    data-num
                     title={item.gap_delta ? "Accumulated across a reception gap — timing within the gap is unknown, not a normal 15m reading" : undefined}
                   >
-                    <span className={`delta ${delta15.tone}`}>{delta15.text}</span>
+                    <Box component="span" sx={deltaSx(delta15.tone)}>{delta15.text}</Box>
                     {item.gap_delta ? <sup title="Gap total">*</sup> : null}
                   </TableCell>
-                  <TableCell data-l="1h delta" className="num">
-                    <span className={`delta ${delta1h.tone}`}>{delta1h.text}</span>
+                  <TableCell data-l="1h delta" data-num>
+                    <Box component="span" sx={deltaSx(delta1h.tone)}>{delta1h.text}</Box>
                   </TableCell>
-                  <TableCell data-l="24h delta" className="num">
-                    <span className={`delta ${delta24h.tone}`}>{delta24h.text}</span>
+                  <TableCell data-l="24h delta" data-num>
+                    <Box component="span" sx={deltaSx(delta24h.tone)}>{delta24h.text}</Box>
                   </TableCell>
                   <TableCell data-l="15m activity">
                     {item.movement_state ? (
@@ -484,15 +491,15 @@ export function HerdSignalsTable({
                   </TableCell>
                   <TableCell data-l="Watchlist">
                     {/* One chip; the reasons and the detail line are its tooltip (two-line rows). */}
-                    <div
-                      className="hs-watch"
+                    <Box
+                      sx={{ display: "grid", justifyItems: "start", gap: 0.5, minWidth: 180, maxWidth: 280, whiteSpace: "normal" }}
                       title={[item.risk_reasons?.length ? item.risk_reasons.slice(0, 2).map(watchlistReasonLabel).filter(Boolean).join("; ") : "", watchlistDetailLine(item)].filter(Boolean).join(" · ") || undefined}
                     >
                       {item.risk_state ? <Tag tone={RISK_TONE[item.risk_state]}>{RISK_LABEL[item.risk_state]}</Tag> : "—"}
                       {item.risk_reasons?.length ? (
-                        <small>{item.risk_reasons.slice(0, 1).map(watchlistReasonLabel).filter(Boolean).join("; ")}</small>
+                        <Box component="small" sx={{ typography: "caption", color: "text.secondary" }}>{item.risk_reasons.slice(0, 1).map(watchlistReasonLabel).filter(Boolean).join("; ")}</Box>
                       ) : null}
-                    </div>
+                    </Box>
                   </TableCell>
                   <TableCell data-l="Battery">
                     {fmtBatteryMv(item.battery_mv)}
@@ -509,8 +516,7 @@ export function HerdSignalsTable({
             })}
           </TableBody>
         </Table>
-        </Scrollbar>
-        </div>
+      </Scrollbar>
 
       {pager}
 
@@ -529,30 +535,20 @@ function HerdSignalsTableEmpty({ params, tagsSeen }: { params: HerdSignalsParams
   if (params.hasFilter) {
     return (
       <EmptyState
-        icon={<svg className="ic" viewBox="0 0 24 24">
-          <path d="M22 3H2l8 9.5V19l4 2v-8.5L22 3Z" />
-        </svg>}
         title="No tags match these filters"
         description={tagsSeen > 0
           ? "The gateway is still receiving packets for this park. Clear filters to see the rest of the fleet."
           : "Filters exclude every row in scope."}
         action={
-          <Link href={herdSignalsHref(params, { hs_shed: undefined, hs_q: undefined, hs_move: undefined, hs_map: undefined, hs_pattern: undefined, hs_risk: undefined, hs_kpi: undefined })} className="btn sm">
+          <Button component={Link} href={herdSignalsHref(params, { hs_shed: undefined, hs_q: undefined, hs_move: undefined, hs_map: undefined, hs_pattern: undefined, hs_risk: undefined, hs_kpi: undefined })} variant="outlined" color="inherit" size="small">
             Clear filters
-          </Link>
+          </Button>
         }
       />
     );
   }
   return (
     <EmptyState
-      icon={<svg className="ic" viewBox="0 0 24 24">
-        <path d="M4.9 19.1a10 10 0 0 1 0-14.2" />
-        <path d="M7.8 16.2a6 6 0 0 1 0-8.4" />
-        <circle cx="12" cy="12" r="2" />
-        <path d="M16.2 7.8a6 6 0 0 1 0 8.4" />
-        <path d="M19.1 4.9a10 10 0 0 1 0 14.2" />
-      </svg>}
       title="No gateway packets yet"
       description="No BLE gateway has posted for this tenant. Confirm the gateway is powered, has a network route, and is in range of at least one smart tag."
     />

@@ -18,3 +18,13 @@ export const HERD_SIGNALS_KPI_WRAPPED_KEYS: readonly string[] = ["moving_now"];
 export const HERD_SIGNALS_KPI_WRAPPED_LINES = 2;
 /** The header's live-stream control width. */
 export const HERD_SIGNALS_HEADER_ACTION_WIDTHS = [150];
+/** The page column gap (theme spacing): header, tab strip and tab body, read by the board AND loading.tsx. */
+export const HERD_SIGNALS_PAGE_GAP = 3;
+/** The board's root: one grid column on the page's 24px rhythm (was frame.css `.wrap>.herd-signals-page`). */
+export const HERD_SIGNALS_PAGE_SX = {
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr)",
+  gap: HERD_SIGNALS_PAGE_GAP,
+  alignContent: "start",
+  minWidth: 0,
+} as const;

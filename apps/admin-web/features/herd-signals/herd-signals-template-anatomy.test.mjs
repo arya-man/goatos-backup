@@ -38,12 +38,12 @@ test("herd-signals-live-header: live toggle + export are template Buttons, KPI r
 });
 
 // TR1-#20: the live table and the tag-mapping table are wider than their card at every width; they
-// scroll sideways inside the template Scrollbar, and no legacy `.tblwrap` overflow / max-height rule
-// turns them into an inner scroll box.
+// scroll sideways inside the template Scrollbar (no `.tblwrap` box around them any more), and no
+// legacy `.tblwrap` overflow / max-height rule turns them into an inner scroll box.
 test("herd-signals-table-scroll: wide tables sit in the template Scrollbar", () => {
   for (const name of ["herd-signals-table.tsx", "herd-signals-mapping-table.tsx"]) {
     const src = readFileSync(new URL(`./${name}`, import.meta.url), "utf8");
-    assert.match(src, /<div className="tblwrap">\s*\{\/\*[^*]*\*\/\}\s*<Scrollbar>\s*<Table/, `${name}: Table inside Scrollbar`);
+    assert.match(src, /\{\/\*[^*]*\*\/\}\s*<Scrollbar>\s*<Table/, `${name}: Table inside Scrollbar`);
   }
   const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8") + readFileSync(new URL("../../app/frame.css", import.meta.url), "utf8");
   assert.doesNotMatch(css, /\.herd-signals-page \.tblwrap\{[^}]*(overflow|max-height)/);

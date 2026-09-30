@@ -31,16 +31,6 @@ const NETWORK_MODE_LABEL: Record<NonNullable<HerdGateway["network_mode"]>, strin
   wifi_ble: "Wi-Fi + BLE",
 };
 
-function RadioIcon({ className = "ic" }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24">
-      <path d="M5 12.5a7 7 0 0 1 14 0" />
-      <path d="M2 9a11 11 0 0 1 20 0" />
-      <circle cx="12" cy="17" r="2" />
-    </svg>
-  );
-}
-
 function gatewayName(gateway: HerdGateway): string {
   return gateway.label?.trim() || gateway.gateway_id;
 }
@@ -66,7 +56,6 @@ export function HerdSignalsGateways({ gateways, nowMs }: { gateways: HerdGateway
   if (gateways.length === 0) {
     return (
       <EmptyState
-        icon={<RadioIcon />}
         title="No gateways registered yet"
         description="No BLE gateway has posted for this tenant. Confirm a gateway is powered and networked."
       />
@@ -184,10 +173,6 @@ export function HerdSignalsGateways({ gateways, nowMs }: { gateways: HerdGateway
               slotProps={{ action: { sx: { alignSelf: "center" } } }}
             />
             <EmptyState
-              icon={<svg className="ic" viewBox="0 0 24 24">
-                <rect x="2" y="7" width="16" height="10" rx="2" />
-                <path d="M22 11v2" />
-              </svg>}
               title="No battery outlook on this tab yet"
               description="Per-tag battery voltage is on the Live Monitor tab and in each tag's drawer."
             />

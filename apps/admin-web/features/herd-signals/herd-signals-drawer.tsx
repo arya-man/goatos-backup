@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Maximize2, Radio } from "lucide-react";
 import Alert from "@mui/material/Alert";
 import AlertTitle from "@mui/material/AlertTitle";
 import Box from "@mui/material/Box";
@@ -31,7 +30,8 @@ import {
   fmtRssi,
   fmtTagTemp,
 } from "./format";
-import { ChartReadout, HistoryChart, historyChartLegend } from "./herd-signals-history-chart";
+import { ChartReadout, HistoryChart, HistoryChartLegend } from "./herd-signals-history-chart";
+import { Iconify } from "@/components/minimal/iconify";
 import { useNowMs } from "./herd-signals-stream-bridge";
 import { BlockSkeleton } from "@/components/app/skeletons";
 
@@ -148,7 +148,7 @@ export function HerdSignalsDrawer({
       onClose={closeDrawer}
       title={titleLine}
       subtitle={subtitleLine || "—"}
-      icon={<Radio aria-hidden="true" />}
+      icon={<Iconify icon="ic:baseline-bluetooth" aria-hidden="true" />}
       ariaLabel="Tag detail"
       closeLabel="Close tag detail"
     >
@@ -181,7 +181,7 @@ export function HerdSignalsDrawer({
           size="small"
           variant="outlined"
           color="inherit"
-          startIcon={<Maximize2 size={16} aria-hidden="true" />}
+          startIcon={<Iconify icon="solar:full-screen-square-outline" width={16} aria-hidden="true" />}
           title="Full history, custom date range and farm-activity overlay"
         >
           Expand
@@ -210,22 +210,7 @@ export function HerdSignalsDrawer({
         ) : (
           <HistoryChart buckets={buckets} baseline={item.baseline_delta} height={110} onHover={setHovered} />
         )}
-        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5, rowGap: 1, pt: 1.5 }}>
-          {historyChartLegend().filter((entry) => entry.className !== "b-reconnect").map((entry) => (
-            <Typography key={entry.label} variant="caption" sx={{ display: "inline-flex", alignItems: "center", gap: 0.75, color: "text.secondary" }}>
-              <Box
-                component="span"
-                aria-hidden="true"
-                sx={
-                  entry.dashed
-                    ? { width: 10, borderTop: "2px dashed var(--info)" }
-                    : { width: 10, aspectRatio: "1", borderRadius: "var(--r-sm)", bgcolor: LEGEND_SWATCH[entry.className] ?? "text.disabled", opacity: LEGEND_OPACITY[entry.className] ?? 1 }
-                }
-              />
-              {entry.label}
-            </Typography>
-          ))}
-        </Box>
+        <HistoryChartLegend omit={["reconnect"]} />
         <Typography variant="caption" component="div" sx={{ color: "text.secondary", pt: 1, "& b": { color: "text.primary", fontVariantNumeric: "tabular-nums" }, "&:empty": { display: "none" } }} aria-live="polite">
           <ChartReadout buckets={buckets} hovered={hovered} />
         </Typography>
@@ -270,16 +255,6 @@ export function HerdSignalsDrawer({
     </DetailDrawer>
   );
 }
-
-// Legend swatches carry the same palette tokens the history chart bars draw with.
-const LEGEND_SWATCH: Record<string, string> = {
-  "b-move": "var(--ok)",
-  "b-low": "var(--muted)",
-  "b-zero": "var(--line)",
-  "b-spike": "var(--warn)",
-  gap: "var(--danger)",
-};
-const LEGEND_OPACITY: Record<string, number> = { "b-low": 0.55, gap: 0.35 };
 
 // Where a reading comes from: read straight off the packet, derived, inferred, or correlated.
 type ReadingSource = "direct" | "derived" | "inferred" | "correlated";

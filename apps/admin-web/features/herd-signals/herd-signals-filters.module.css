@@ -1,4 +1,0 @@
-/* /herd-signals filter card: the rarely used filters open under "More filters"; inside the phone
-   filters drawer everything is listed and the toggle is hidden. */
-.more{display:contents}
-.more[hidden]{display:none}

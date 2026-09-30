@@ -55,9 +55,6 @@ export function HerdSignalsInsights({ cards }: { cards: HerdInsightCard[] }) {
       </Alert>
       {cards.length === 0 ? (
         <EmptyState
-          icon={<svg className="ic" viewBox="0 0 24 24">
-            <path d="M3 12h4l3 8 4-16 3 8h4" />
-          </svg>}
           title="No insight cards yet"
           description="Insights are computed from activity windows written as packets arrive."
         />

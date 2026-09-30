@@ -31,8 +31,6 @@
     "missing-loading-tsx|app/(admin)/procurement/page.tsx|no sibling loading.tsx",
     "missing-loading-tsx|app/(admin)/sales/page.tsx|no sibling loading.tsx",
     "missing-loading-tsx|app/(admin)/verification/page.tsx|no sibling loading.tsx",
-    "native-date-input|features/herd-signals/herd-signals-history-fullscreen.tsx|type=\"datetime-local\"",
-    "native-date-input|features/herd-signals/herd-signals-history-fullscreen.tsx|type=\"datetime-local\"",
     "native-date-input|features/procurement/sales-record-drawer.tsx|type=\"date\"",
     "native-select|features/procurement/sellable-products-section.tsx|<select id={`sp-species-${id}`} name=\"species_code\" required defaultValue={product?.species_code ?? \"\"} disabled={!canWrite}>",
     "native-select|features/procurement/sellable-products-section.tsx|<select id={`sp-unit-${id}`} name=\"unit\" required defaultValue={product?.unit ?? page.units[0]?.key} disabled={!canWrite}>",
@@ -83,20 +81,12 @@
     "legacy-table-paint|app/frame.css|.feed-scroll th:first-child",
     "legacy-table-paint|app/frame.css|.health-scroll td:first-child",
     "legacy-table-paint|app/frame.css|.health-scroll th:first-child",
-    "legacy-table-paint|app/frame.css|.herd-signals-page .tblwrap tbody tr.hs-selectable:hover td",
-    "legacy-table-paint|app/frame.css|.herd-signals-page .tblwrap tbody tr:hover>td:first-child",
-    "legacy-table-paint|app/frame.css|.herd-signals-page .tblwrap td:first-child",
-    "legacy-table-paint|app/frame.css|.herd-signals-page .tblwrap th:first-child",
     "legacy-table-paint|app/frame.css|.kit-tablecard .tablewrap tbody tr:hover>td:first-child",
     "legacy-table-paint|app/frame.css|.kit-tablecard .tablewrap td:first-child",
     "legacy-table-paint|app/frame.css|.kit-tablecard .tablewrap th:first-child",
     "legacy-table-paint|app/frame.css|.wrap tbody tr:hover>td",
     "legacy-table-paint|app/frame.css|[data-scroll-x] td:first-child",
     "legacy-table-paint|app/frame.css|[data-scroll-x] th:first-child",
-    "legacy-table-paint|app/mesha-theme.css|.herd-signals-page table.resp tbody tr",
-    "legacy-table-paint|app/mesha-theme.css|.herd-signals-page tr.hs-selectable.on",
-    "legacy-table-paint|app/mesha-theme.css|.herd-signals-page tr.hs-selectable:focus-visible",
-    "legacy-table-paint|app/mesha-theme.css|.herd-signals-page tr.hs-selectable:hover",
     "legacy-table-paint|app/mesha-theme.css|.lt-page .lt-tablewrap tbody tr:has(.lt-tasklink):hover td",
     "legacy-table-paint|app/mesha-theme.css|.lt-page tbody tr.lt-shed-row:hover",
     "legacy-table-paint|app/mesha-theme.css|.lt-page tr.is-selected td",
@@ -138,7 +128,6 @@
     "legacy-table-paint|app/minimal-theme.css|.wrap .kit-tablecard .tablewrap tbody tr:hover>td:first-child",
     "legacy-table-paint|app/minimal-theme.css|.wrap .kit-tablecard .tablewrap tbody tr:hover>th:first-child",
     "legacy-table-paint|app/minimal-theme.css|.wrap .kit-tablecard .twrap tbody tr:hover>td:first-child",
-    "legacy-table-paint|app/minimal-theme.css|table.resp thead th",
     "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-md :not(pre)>code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.86em;padding:.12em .38em;border-radius:5px;background:rgba(127,127,12",
     "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-md th{font-weight:700;background:rgba(127,127,127,.1)}",
     "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-copy{font:inherit;font-size:11.5px;padding:.25em .6em;border-radius:6px;border:1px solid rgba(127,127,127,.35);background:transparent;color:inherit;cursor",
@@ -188,20 +177,12 @@
     "legacy-table-paint|app/frame.css|.feed-scroll th:first-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/frame.css|.health-scroll td:first-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/frame.css|.health-scroll th:first-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
-    "legacy-table-paint|app/frame.css|.herd-signals-page .tblwrap tbody tr.hs-selectable:hover td": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
-    "legacy-table-paint|app/frame.css|.herd-signals-page .tblwrap tbody tr:hover>td:first-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
-    "legacy-table-paint|app/frame.css|.herd-signals-page .tblwrap td:first-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
-    "legacy-table-paint|app/frame.css|.herd-signals-page .tblwrap th:first-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/frame.css|.kit-tablecard .tablewrap tbody tr:hover>td:first-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/frame.css|.kit-tablecard .tablewrap td:first-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/frame.css|.kit-tablecard .tablewrap th:first-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/frame.css|.wrap tbody tr:hover>td": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/frame.css|[data-scroll-x] td:first-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/frame.css|[data-scroll-x] th:first-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
-    "legacy-table-paint|app/mesha-theme.css|.herd-signals-page table.resp tbody tr": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
-    "legacy-table-paint|app/mesha-theme.css|.herd-signals-page tr.hs-selectable.on": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
-    "legacy-table-paint|app/mesha-theme.css|.herd-signals-page tr.hs-selectable:focus-visible": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
-    "legacy-table-paint|app/mesha-theme.css|.herd-signals-page tr.hs-selectable:hover": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/mesha-theme.css|.lt-page .lt-tablewrap tbody tr:has(.lt-tasklink):hover td": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/mesha-theme.css|.lt-page tbody tr.lt-shed-row:hover": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/mesha-theme.css|.lt-page tr.is-selected td": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
@@ -243,7 +224,6 @@
     "legacy-table-paint|app/minimal-theme.css|.wrap .kit-tablecard .tablewrap tbody tr:hover>td:first-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/minimal-theme.css|.wrap .kit-tablecard .tablewrap tbody tr:hover>th:first-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/minimal-theme.css|.wrap .kit-tablecard .twrap tbody tr:hover>td:first-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
-    "legacy-table-paint|app/minimal-theme.css|table.resp thead th": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-md :not(pre)>code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.86em;padding:.12em .38em;border-radius:5px;background:rgba(127,127,12": "Ask Mesha embedded stylesheet (ceo-ai-styles.tsx) predates the MUI rebuild; inventoried when rgb-colour-in-code landed (R2KPI 2026-09-27)",
     "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-md th{font-weight:700;background:rgba(127,127,127,.1)}": "Ask Mesha embedded stylesheet (ceo-ai-styles.tsx) predates the MUI rebuild; inventoried when rgb-colour-in-code landed (R2KPI 2026-09-27)",
     "rgb-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-copy{font:inherit;font-size:11.5px;padding:.25em .6em;border-radius:6px;border:1px solid rgba(127,127,127,.35);background:transparent;color:inherit;cursor": "Ask Mesha embedded stylesheet (ceo-ai-styles.tsx) predates the MUI rebuild; inventoried when rgb-colour-in-code landed (R2KPI 2026-09-27)",
@@ -357,26 +337,6 @@
     },
     "raw-button|features/health/health-register-editor.tsx": {
       "allowed": 4,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
-    },
-    "raw-button|features/herd-signals/herd-signals-drawer.tsx": {
-      "allowed": 3,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
-    },
-    "raw-button|features/herd-signals/herd-signals-history-fullscreen.tsx": {
-      "allowed": 2,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
-    },
-    "raw-button|features/herd-signals/herd-signals-mapping-table.tsx": {
-      "allowed": 2,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
-    },
-    "raw-button|features/herd-signals/herd-signals-stream-bridge.tsx": {
-      "allowed": 1,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
-    },
-    "raw-button|features/herd-signals/herd-signals-table.tsx": {
-      "allowed": 1,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
     },
     "raw-button|features/leadership-tasks/task-activity-composer.tsx": {
@@ -719,14 +679,6 @@
       "allowed": 5,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
     },
-    "raw-font-size|features/herd-signals/herd-signals-history-fullscreen.tsx": {
-      "allowed": 1,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
-    },
-    "raw-font-size|features/herd-signals/herd-signals-insights.tsx": {
-      "allowed": 1,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
-    },
     "raw-font-size|features/leadership-tasks/leadership-tasks-kit.css": {
       "allowed": 3,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
@@ -833,10 +785,6 @@
     },
     "raw-input|features/health/health-register-editor.tsx": {
       "allowed": 8,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
-    },
-    "raw-input|features/herd-signals/herd-signals-history-fullscreen.tsx": {
-      "allowed": 2,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
     },
     "raw-input|features/leadership-tasks/edit-task-modal.tsx": {
@@ -1013,10 +961,6 @@
     },
     "raw-px|app/(admin)/goats/[goat_id]/loading.tsx": {
       "allowed": 3,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
-    },
-    "raw-px|app/(admin)/herd-signals/loading.tsx": {
-      "allowed": 1,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
     },
     "raw-px|app/(admin)/leave/loading.tsx": {
@@ -1315,23 +1259,7 @@
       "allowed": 29,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
     },
-    "raw-px|features/herd-signals/herd-signals-board.tsx": {
-      "allowed": 2,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
-    },
-    "raw-px|features/herd-signals/herd-signals-drawer.tsx": {
-      "allowed": 2,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
-    },
-    "raw-px|features/herd-signals/herd-signals-gateways.tsx": {
-      "allowed": 4,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
-    },
     "raw-px|features/herd-signals/herd-signals-history-fullscreen.tsx": {
-      "allowed": 8,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
-    },
-    "raw-px|features/herd-signals/herd-signals-insights.tsx": {
       "allowed": 1,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
     },

@@ -1,5 +1,8 @@
 "use client";
 
+import type { ReactNode } from "react";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
 import type { HerdSignalTimelineBucket } from "@/lib/api/herd-signals";
 import { alpha } from "@mui/material/styles";
 import { chartColor, useChartTheme } from "@/components/app/chart-colors";
@@ -112,22 +115,54 @@ export function HistoryChart({
     return <EmptyState title="No activity windows in this range yet. Buckets are written as packets arrive." />;
   }
   return (
-    <div className="hchartwrap" style={{ width: "100%", height }} role="img" aria-label="Motion-count delta history" onMouseLeave={() => onHover?.(null)}>
-      <Chart type="bar" series={[{ name: "delta", data: points }]} options={chartOptions} className="hchart" sx={{ height: 1 }} />
-    </div>
+    <Box sx={{ width: 1, height }} role="img" aria-label="Motion-count delta history" onMouseLeave={() => onHover?.(null)}>
+      <Chart type="bar" series={[{ name: "delta", data: points }]} options={chartOptions} sx={{ height: 1 }} />
+    </Box>
   );
 }
 
-export function historyChartLegend(): { label: string; className: string; dashed?: boolean }[] {
+export type HistoryLegendKey = "move" | "low" | "zero" | "spike" | "reconnect" | "gap" | "base";
+
+// Legend swatches carry the same palette entries the chart bars draw with (points above).
+export function historyChartLegend(): { label: string; key: HistoryLegendKey; color: string; opacity?: number; dashed?: boolean }[] {
   return [
-    { label: "Moving", className: "b-move" },
-    { label: "Low / quiet", className: "b-low" },
-    { label: "No movement (packets seen, delta 0)", className: "b-zero" },
-    { label: "Movement spike", className: "b-spike" },
-    { label: "Reconnect — gap total, timing unknown", className: "b-reconnect" },
-    { label: "Missing signal (no packets)", className: "gap" },
-    { label: "Animal baseline", className: "base", dashed: true },
+    { label: "Moving", key: "move", color: "primary.main" },
+    { label: "Low / quiet", key: "low", color: "grey.500" },
+    { label: "No movement (packets seen, delta 0)", key: "zero", color: "grey.400" },
+    { label: "Movement spike", key: "spike", color: "warning.main" },
+    { label: "Reconnect — gap total, timing unknown", key: "reconnect", color: "secondary.main" },
+    { label: "Missing signal (no packets)", key: "gap", color: "error.main", opacity: 0.35 },
+    { label: "Animal baseline", key: "base", color: "grey.500", dashed: true },
   ];
+}
+
+/** The chart legend row (drawer mini chart and full-screen chart): swatch + label per bar kind. */
+export function HistoryChartLegend({ omit = [], footer }: { omit?: HistoryLegendKey[]; footer?: ReactNode }) {
+  return (
+    <Box sx={{ display: "flex", flexWrap: "wrap", columnGap: 1.5, rowGap: 1, pt: 1.5 }}>
+      {historyChartLegend()
+        .filter((entry) => !omit.includes(entry.key))
+        .map((entry) => (
+          <Typography key={entry.key} variant="caption" sx={{ display: "inline-flex", alignItems: "center", gap: 0.75, color: "text.secondary" }}>
+            <Box
+              component="span"
+              aria-hidden="true"
+              sx={
+                entry.dashed
+                  ? { width: 10, borderTop: 2, borderTopStyle: "dashed", borderColor: entry.color }
+                  : { width: 10, aspectRatio: "1", borderRadius: "var(--r-sm)", bgcolor: entry.color, opacity: entry.opacity ?? 1 }
+              }
+            />
+            {entry.label}
+          </Typography>
+        ))}
+      {footer ? (
+        <Typography variant="caption" component="div" sx={{ flexBasis: "100%", color: "text.secondary" }}>
+          {footer}
+        </Typography>
+      ) : null}
+    </Box>
+  );
 }
 
 // The reconnect bucket only carries the gap's TOTAL, not its span — this walks backward from it
@@ -166,7 +201,7 @@ export function ChartReadout({
   if (hovered.is_gap) {
     return (
       <>
-        <b>{fmtClockIst(hovered.bucket_start)} IST</b> · <span style={{ color: "var(--danger)" }}>Missing signal</span> — no
+        <b>{fmtClockIst(hovered.bucket_start)} IST</b> · <Box component="span" sx={{ color: "error.main" }}>Missing signal</Box> — no
         packets received in this window. Not the same as no movement.
       </>
     );
@@ -176,7 +211,7 @@ export function ChartReadout({
     const window = buckets && index >= 0 ? gapWindowForReconnect(buckets, index) : null;
     return (
       <>
-        <b>{fmtClockIst(hovered.bucket_start)} IST</b> · <span style={{ color: "var(--purple)" }}>Reconnect</span> — delta{" "}
+        <b>{fmtClockIst(hovered.bucket_start)} IST</b> · <Box component="span" sx={{ color: "secondary.main" }}>Reconnect</Box> — delta{" "}
         <b>+{hovered.motion_delta ?? 0}</b> is the total accumulated while no packets were received
         {window ? (
           <>

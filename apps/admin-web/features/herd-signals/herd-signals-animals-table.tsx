@@ -1,6 +1,10 @@
 "use client";
 
 import type { ReactNode } from "react";
+import Box from "@mui/material/Box";
+import MuiLink from "@mui/material/Link";
+import TableCell from "@mui/material/TableCell";
+import TableRow from "@mui/material/TableRow";
 import { LocalOverlayLink, pushLocalOverlayUrl } from "@/components/local-overlay-link";
 import { Tag } from "@/components/ui-primitives";
 import { operationalLocationLabel } from "@/lib/operational-location";
@@ -16,6 +20,7 @@ import {
   fmtRssi,
   fmtSignedDelta,
 } from "./format";
+import { HS_MONO, HS_SUBLINE, deltaSx, selectableRowSx } from "./herd-signals-sx";
 
 function isInteractiveTarget(target: EventTarget | null): boolean {
   return target instanceof Element && Boolean(target.closest("a,button,input,select,textarea,[role='button']"));
@@ -34,10 +39,10 @@ function animalPrimaryLabel(item: HerdSignalItem): string {
 // live table's markup.
 //
 // Per-cell treatment is taken from that same `renderAnimals`, not from the live table:
-//   Animal      -- `td.wide`, the display id, linked so the row still opens the tag drawer
-//   Shed        -- operational location, park underneath in `.faint.small`
-//   Smart tag   -- `.mono` tag id ONLY (the live table's second MAC line is not in this set)
-//   15m / 1h    -- `td.num` + `span.delta` with the mock's up/zero/warn tone
+//   Animal      -- full-width on a phone (data-wide), the display id, linked so the row still opens the tag drawer
+//   Shed        -- operational location, park underneath as a caption line
+//   Smart tag   -- monospace tag id ONLY (the live table's second MAC line is not in this set)
+//   15m / 1h    -- right-aligned (data-num) delta with the mock's up/zero/warn tone (deltaSx)
 //   Activity    -- movement tone chip
 //   Signal      -- PLAIN "-62 dBm" text, not the live table's chip (mock renders it bare here)
 //   Battery     -- volts, plus the battery-state chip when it is not healthy
@@ -50,17 +55,17 @@ function animalPrimaryLabel(item: HerdSignalItem): string {
 
 export function HerdSignalsAnimalsHead() {
   return (
-    <tr>
-      <th>Animal</th>
-      <th>Pen</th>
-      <th>Smart tag</th>
-      <th className="num">15m delta</th>
-      <th className="num">1h delta</th>
-      <th>Activity</th>
-      <th>Signal</th>
-      <th>Battery</th>
-      <th>Last seen</th>
-    </tr>
+    <TableRow>
+      <TableCell component="th">Animal</TableCell>
+      <TableCell component="th">Pen</TableCell>
+      <TableCell component="th">Smart tag</TableCell>
+      <TableCell component="th" data-num>15m delta</TableCell>
+      <TableCell component="th" data-num>1h delta</TableCell>
+      <TableCell component="th">Activity</TableCell>
+      <TableCell component="th">Signal</TableCell>
+      <TableCell component="th">Battery</TableCell>
+      <TableCell component="th">Last seen</TableCell>
+    </TableRow>
   );
 }
 
@@ -80,52 +85,52 @@ export function HerdSignalsAnimalsRow({
   const delta1hText = fmtDelta1h(item.motion_delta_1h, item.motion_delta);
   const delta1h = delta1hText === "—" ? { text: "—", tone: "zero" as const } : fmtSignedDelta(item.motion_delta_1h);
   return (
-    <tr
-      className="hs-selectable"
+    <TableRow
+      sx={selectableRowSx()}
       onClick={(event) => {
         if (isInteractiveTarget(event.target)) return;
         pushLocalOverlayUrl(href);
       }}
     >
-      <td data-l="Animal" className="wide">
-        <LocalOverlayLink href={href} scroll={false} title="Open tag detail">
-          <b>{animalPrimaryLabel(item)}</b>
-        </LocalOverlayLink>
+      <TableCell data-l="Animal" data-wide>
+        <MuiLink
+          component={LocalOverlayLink}
+          href={href}
+          scroll={false}
+          title="Open tag detail"
+          color="inherit"
+          underline="hover"
+          sx={{ typography: "subtitle2", display: "inline-flex", alignItems: "center", minHeight: { xs: "var(--tap-min)", md: "auto" } }}
+        >
+          {animalPrimaryLabel(item)}
+        </MuiLink>
         {item.display_id && (item.animal_identifier_1 || item.animal_identifier_2) ? (
-          <>
-            <br />
-            <span className="faint small">{item.display_id}</span>
-          </>
+          <Box component="span" sx={HS_SUBLINE}>{item.display_id}</Box>
         ) : null}
-      </td>
-      <td data-l="Pen">
+      </TableCell>
+      <TableCell data-l="Pen">
         {location || "—"}
-        {item.park_name ? (
-          <>
-            <br />
-            <span className="faint small">{item.park_name}</span>
-          </>
-        ) : null}
-      </td>
-      <td data-l="Smart tag">
-        <span className="mono">{item.tag_id}</span>
-      </td>
-      <td
+        {item.park_name ? <Box component="span" sx={HS_SUBLINE}>{item.park_name}</Box> : null}
+      </TableCell>
+      <TableCell data-l="Smart tag">
+        <Box component="span" sx={HS_MONO}>{item.tag_id}</Box>
+      </TableCell>
+      <TableCell
         data-l="15m delta"
-        className="num"
+        data-num
         title={item.gap_delta ? "Accumulated across a reception gap — timing within the gap is unknown, not a normal 15m reading" : undefined}
       >
-        <span className={`delta ${delta15.tone}`}>{delta15.text}</span>
+        <Box component="span" sx={deltaSx(delta15.tone)}>{delta15.text}</Box>
         {item.gap_delta ? <sup title="Gap total">*</sup> : null}
-      </td>
-      <td data-l="1h delta" className="num">
-        <span className={`delta ${delta1h.tone}`}>{delta1h.text}</span>
-      </td>
-      <td data-l="Activity">
+      </TableCell>
+      <TableCell data-l="1h delta" data-num>
+        <Box component="span" sx={deltaSx(delta1h.tone)}>{delta1h.text}</Box>
+      </TableCell>
+      <TableCell data-l="Activity">
         {item.movement_state ? <Tag tone={MOVEMENT_TONE[item.movement_state]}>{MOVEMENT_LABEL[item.movement_state]}</Tag> : "—"}
-      </td>
-      <td data-l="Signal">{fmtRssi(item.rssi_dbm)}</td>
-      <td data-l="Battery">
+      </TableCell>
+      <TableCell data-l="Signal">{fmtRssi(item.rssi_dbm)}</TableCell>
+      <TableCell data-l="Battery">
         {fmtBatteryMv(item.battery_mv)}
         {item.battery_state && item.battery_state !== "healthy" ? (
           <>
@@ -133,8 +138,8 @@ export function HerdSignalsAnimalsRow({
             <Tag tone={BATTERY_TONE[item.battery_state]}>{BATTERY_LABEL[item.battery_state]}</Tag>
           </>
         ) : null}
-      </td>
-      <td data-l="Last seen">{fmtAgo(item.last_seen_at, nowMs)}</td>
-    </tr>
+      </TableCell>
+      <TableCell data-l="Last seen">{fmtAgo(item.last_seen_at, nowMs)}</TableCell>
+    </TableRow>
   );
 }

@@ -1,6 +1,10 @@
 "use client";
 
+import Box from "@mui/material/Box";
+import Chip from "@mui/material/Chip";
+import MuiLink from "@mui/material/Link";
 import Link from "@/components/no-prefetch-link";
+import { Iconify } from "@/components/minimal/iconify";
 import { KpiGrid } from "@/components/app/kpi-grid";
 import { KpiWidget, kpiColor } from "@/components/app/kpi-widget";
 import type { HerdSignalsSummary } from "@/lib/api/herd-signals";
@@ -24,7 +28,7 @@ export function HerdSignalsKpis({ summary, params, liveKey }: { summary: HerdSig
   const serverMovementKpis = new Set(["moving_now", "active_1m", "moving_15m", "quiet"]);
   return (
     // A KPI click swaps this deck to the panel skeleton (UrlSuspense ALL_PARAMS in herd-signals-board).
-    <div className="herd-signals-kpis">
+    <Box>
       <KpiGrid min={220}>
         {KPI_DEFS.map((def, index) => {
           const filterKey = index === 0 ? undefined : def.key;
@@ -44,12 +48,15 @@ export function HerdSignalsKpis({ summary, params, liveKey }: { summary: HerdSig
               sx={{ height: 1 }}
             />
           );
-          if (!href) return <div key={def.label}>{card}</div>;
+          if (!href) return <Box key={def.label}>{card}</Box>;
           return (
-            <Link
+            <MuiLink
               key={def.label}
+              component={Link}
               href={href}
-              className="kit-kpi-link"
+              underline="none"
+              color="inherit"
+              sx={{ display: "block", height: 1, borderRadius: "var(--r-lg)" }}
               aria-current={active ? "true" : undefined}
               onClick={(event) => {
                 if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -58,11 +65,11 @@ export function HerdSignalsKpis({ summary, params, liveKey }: { summary: HerdSig
               }}
             >
               {card}
-            </Link>
+            </MuiLink>
           );
         })}
       </KpiGrid>
-    </div>
+    </Box>
   );
 }
 
@@ -73,17 +80,18 @@ export function HerdSignalsKpiChip({ params }: { params: HerdSignalsParams }) {
   if (!def) return null;
   const href = herdSignalsHref(params, { hs_kpi: undefined });
   return (
-    <Link
-      href={href}
-      className="achip"
+    // Template filter-result chip (FiltersResult anatomy): the active KPI filter, its delete icon clears it.
+    <Chip
+      size="small"
+      variant="soft"
+      color="primary"
+      label={def.label}
       title="Clear this KPI filter"
-      onClick={(event) => {
-        if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-        event.preventDefault();
-        navigate(href);
-      }}
-    >
-      {def.label} <b>✕</b>
-    </Link>
+      aria-label={`Clear the ${def.label} KPI filter`}
+      deleteIcon={<Iconify icon="mingcute:close-line" width={16} />}
+      onClick={() => navigate(href)}
+      onDelete={() => navigate(href)}
+      sx={{ fontWeight: "fontWeightBold" }}
+    />
   );
 }
