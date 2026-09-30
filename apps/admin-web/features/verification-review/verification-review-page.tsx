@@ -1,4 +1,5 @@
 // A GET form through next/form: Apply is a soft navigation (the page stays on screen), not a document reload.
+import { PageRoot } from "@/components/app/page-root";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { DividedStack } from "@/components/app/divided-stack";
 import { StatStripSkeleton, TableSkeleton } from "@/components/app/skeletons";
@@ -263,7 +264,7 @@ export async function VerificationReviewPage({
   const allStatusOption = statuses.find((option) => !option.status);
 
   return (
-    <Stack spacing={3} sx={{ minWidth: 0 }}>
+    <PageRoot>
         <PageHeader
           title={pageContract.title}
           crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
@@ -738,7 +739,7 @@ export async function VerificationReviewPage({
         pageContract={pageContract}
         statusLabels={statusLabelRecord}
       />
-    </Stack>
+    </PageRoot>
   );
 }
 

@@ -11,7 +11,7 @@ const DEFAULT_ROWS = 25;
  */
 export default function Loading() {
   return (
-    <PageSkeleton>
+    <PageSkeleton root="page-root">
       <PageHeaderSkeleton crumbs={false} titleWidth={200} actionWidths={[140]} />
       <GridSkeleton
         items={[

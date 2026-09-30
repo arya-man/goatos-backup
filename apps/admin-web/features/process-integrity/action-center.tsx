@@ -1,4 +1,5 @@
 import { Label } from "@/components/minimal/label";
+import { PageRoot } from "@/components/app/page-root";
 import { Iconify } from "@/components/minimal/iconify";
 import { InfoTip } from "@/components/app/info-tip";
 import { LinkButton } from "@/components/app/link-button";
@@ -256,7 +257,7 @@ export async function VaccinationActionCenterPage({
   // KPI row + filter toolbar card + kanban-style status lanes (board), or ONE order-list card
   // (CardHeader + Label count, toolbar, Scrollbar + TableHeadCustom, pagination) for the queue.
   return (
-    <Stack spacing={3}>
+    <PageRoot>
       <PageHeader title={pageContract.title} crumbs={crumbItems} />
 
       {actionStatus ? (
@@ -517,7 +518,7 @@ export async function VaccinationActionCenterPage({
       )}
       </Stack>
       </UrlSuspense>
-    </Stack>
+    </PageRoot>
   );
 }
 

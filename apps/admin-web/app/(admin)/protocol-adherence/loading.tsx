@@ -15,7 +15,7 @@ import {
  */
 export default function Loading() {
   return (
-    <PageSkeleton>
+    <PageSkeleton root="page-root">
       <PageHeaderSkeleton titleWidth={345} />
       <StackSkeleton>
         <KpiRowSkeleton count={4} hint size={ADHERENCE_TILE_SIZE} />
