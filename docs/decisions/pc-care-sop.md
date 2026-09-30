@@ -182,6 +182,16 @@ Answers ride the submit through the outbox and survive process death.
   to end in the adminui contract, and every copy key the page's screens read served by the page's
   own merged map.
 
+## Extended (2026-09-30): the fumigation card
+
+`fumigation` joins the document as a sixth category. Its captures are PER PEN (the capture mode
+decides the grain, the document decides what is captured): the seed is a mixing video and a spraying
+video, and the instruction carries the 5 ml per litre dosage. The validator refuses a feed & water
+removal applied to it. Migration `000457` adds the card IN PLACE to every stored `pc_care.tasks`
+version (the weighing `000315` shape); the day-one document `000386` froze is kept byte for byte as
+`sopseed/pc_care_v1.json`, and `pc_care.json` is the live seed. Pinned by
+`TestMigrationEmbedsTheSeededFumigationCard`. See `docs/decisions/pc-care-fumigation.md`.
+
 ## Not here (phase 2)
 
 Per-category capture MODE (scan vs roster) stays fixed by the work. A media kind for questions (the

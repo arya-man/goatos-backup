@@ -21,6 +21,9 @@ import { QuestionCard } from "./weighing-editor";
 import { SlotCard } from "./feed-editor";
 import {
   PC_CARE_CATEGORIES,
+  PC_CARE_REMOVAL_CATEGORIES,
+  isPenCategory,
+  pcCareReachCopyKey,
   blankCapture,
   emitPcCare,
   pcCareProblems,
@@ -312,7 +315,7 @@ export function PcCareEditor({ pageContract: pc, basePath, sopId, sopName, versi
                       <span className="muted small">{copy(pc, "pcsop.removal.applies_to.subtitle")}</span>
                     </div>
                     <div className="qlist">
-                      {PC_CARE_CATEGORIES.map((category) => (
+                      {PC_CARE_REMOVAL_CATEGORIES.map((category) => (
                         <label className="chkline" key={category}>
                           <input
                             type="checkbox"
@@ -393,7 +396,7 @@ export function PcCareEditor({ pageContract: pc, basePath, sopId, sopName, versi
                 <div className="inspection-page-head" style={{ cursor: "default" }}>
                   <span className="qnum">{ci + 1}</span>
                   <strong>{categoryLabel(category)}</strong>
-                  <span className="muted small">{category === "hoof_trimming" || category === "hair_trimming" ? copy(pc, "pcsop.flow.reach_roster") : copy(pc, "pcsop.flow.reach_scan")}</span>
+                  <span className="muted small">{copy(pc, pcCareReachCopyKey(category))}</span>
                 </div>
                 <div className="bd">
                   <div className="qcfg">
@@ -405,7 +408,7 @@ export function PcCareEditor({ pageContract: pc, basePath, sopId, sopName, versi
 
                   <div className="qcfg" style={{ marginTop: 10 }}>
                     <div className="qcfg-head">
-                      <span className="qcfg-title">{copy(pc, "pcsop.category.proofs")}</span>
+                      <span className="qcfg-title">{copy(pc, isPenCategory(category) ? "pcsop.category.proofs.pen" : "pcsop.category.proofs")}</span>
                       <span className="muted small">{copy(pc, "pcsop.category.proofs.subtitle")}</span>
                     </div>
                     <div className="qlist">

@@ -982,3 +982,15 @@ private const val ROUND_CARDS_PREFETCH_DISTANCE = 3
 /** "07/09/2026" for the card chip; the raw value if it is not a date. */
 internal fun pcCareCardDate(iso: String): String =
     GoatOsDates.fromWireDate(iso)
+
+/**
+ * Whether a PC Care category tab may offer Plan (and close / start again). The planner catalog's
+ * categories are the CALLER's plannable set -- every planner category for pc_care.plan, hoof and
+ * hair trimming for pc_care.plan_trimming, fumigation for pc_care.plan_fumigation -- so a desk that
+ * plans only some categories is never offered a write the server would refuse on the others.
+ */
+internal fun pcCarePlanAllowedOnTab(
+    canPlan: Boolean,
+    tabCategory: String,
+    plannableCategories: List<PcCarePlanOption>,
+): Boolean = canPlan && plannableCategories.any { it.key == tabCategory }

@@ -110,6 +110,16 @@ and admitted the visitor onto the worklist (`ListTasksQuery.VisitorUserID`) is r
 visit is a task of its own on the Tasks module's "For me" tab. A card whose own clips are
 verified reads "Done"; the open clock is the kernel's business, not the card's.
 
+## Extended (2026-09-30): Fumigation, the pen spray
+
+A sixth category, **Fumigation**: the operator mixes Virufix into water (5 ml per litre) and sprays
+the pen, recorded as the PEN's own two videos (mixing, then spraying) -- capture mode `task_proof`,
+no animal scanned. Planned for any date including today (no removal, no cutoff) by park heads (own
+park), the Breeding Director and the Health Director through the category-scoped
+`pc_care.plan_fumigation` (the rule 1 carve-out shape), and by the CEO through `pc_care.plan`.
+Verifier-reviewed (`pc_fumigation`) and owes the next-day pen visit. Canonical prose:
+`docs/decisions/pc-care-fumigation.md`.
+
 ## Superseded in part (2026-09-02): vaccine stock is director-approved
 
 The `inventory_vaccine` stock check no longer travels to the tenant verifier and is no longer

@@ -79,9 +79,12 @@ already held `goat.write_health` to record a clinical fact about ONE animal; thi
 the standing course EVERY animal with that disease is treated under.
 
 Read the two together and the pattern is: `health_director` gets Health authority in full and
-Counts ownership without Counts access. It still gets NO Preventive Care permission -- `pc_director`
-and `health_director` are separate departments and merging them is prohibited, so vaccination
-protocol authoring stays on `/config` behind `ProtocolWrite`, which `health_director` does not hold.
+Counts ownership without Counts access. PREVENTIVE CARE ACCESS (maintainer instruction 2026-09-30,
+REPLACING "no Preventive Care permission"): it reads the PC Care board (`pc_care.monitor`) and plans
+FUMIGATION (`pc_care.plan_fumigation`) -- and nothing more. It is still not the PC Director: no
+`pc_care.plan` (deworming, ticks, trimming), no execute, no stock approval, and vaccination protocol
+authoring stays on `/config` behind `ProtocolWrite`, which `health_director` does not hold. See
+`docs/decisions/pc-care-fumigation.md`.
 `health.config.write` is also deliberately withheld from `operator` (executes a course, does not
 author it), `park_head` (runs a park's execution) and `verifier` (separation of duty: the verifier
 must not rewrite the standard the work is judged against). Only `ceo_internal` and `health_director`

@@ -8,9 +8,11 @@
 // hardcoded category branch on the phone, or a fixed proof column in SQL.
 //
 // WHAT IT CHECKS:
-//   1. seed-drifted-from-migration    -- the embedded seed document is present verbatim in the
-//                                        migration that seeds it (exactly once: there was no PC
-//                                        Care SOP before, so there is no in-place add).
+//   1. seed-drifted-from-migration    -- the DAY-ONE seed document (sopseed/pc_care_v1.json) is
+//                                        present verbatim in the migration that seeds v1 (exactly
+//                                        once). The live seed (pc_care.json) has since gained the
+//                                        fumigation card, added in place by 000457 and pinned by
+//                                        TestMigrationEmbedsTheSeededFumigationCard.
 //   2. slot-table-read-at-runtime     -- production Go under pccare/{app,adapters} never calls
 //                                        domain.SlotsForCategory / IsValidSlotForCategory /
 //                                        IsSingleVideoCategory / SlotDisplayLabel for one of the
@@ -49,7 +51,7 @@ import { tmpdir } from "node:os";
 
 const REPO = resolve(new URL("../..", import.meta.url).pathname);
 const MIGRATION = "backend/migrations/postgres/000386_pc_care_sop.sql";
-const SEED = "backend/internal/pccare/domain/sopseed/pc_care.json";
+const SEED = "backend/internal/pccare/domain/sopseed/pc_care_v1.json";
 const PCCARE_DIR = "backend/internal/pccare";
 const PCCARE_APP = "backend/internal/pccare/app";
 const PCCARE_PG = "backend/internal/pccare/adapters/postgres";

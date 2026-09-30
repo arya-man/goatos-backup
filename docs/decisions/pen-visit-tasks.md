@@ -153,7 +153,7 @@ appliers plus the `pen_visit.verified` subscriber), and the Android
 
 The day after **any vaccination or preventive-care work is submitted in a pen** -- a
 vaccination shed proof, or a PC Care task (deworming, anti protozoan, ticks removal, hoof
-trimming, hair trimming) -- the park's head goes to that pen, looks at the animals, records
+trimming, hair trimming, fumigation -- added 2026-09-30) -- the park's head goes to that pen, looks at the animals, records
 **one live in-app-camera video** and submits it. That is the whole task. There is no
 per-animal scan, no roster, no head count and no verifier: submit is completion.
 
@@ -176,8 +176,8 @@ all CBE cards, Chandrakant gets CPT."
    and a category, so the materializer reads that one table for the day (`created_at` in the
    IST window -- the SUBMIT instant, never `captured_at`, which is when the animal was handled)
    and maps category to reason. `vaccination_proof` -> vaccination; `pc_deworming`,
-   `pc_anti_protozoan`, `pc_ticks_removal`, `pc_hoof_trimming`, `pc_hair_trimming` -> their
-   category. Inventory-vaccine and feed-and-water-removal items are not pen work and raise
+   `pc_anti_protozoan`, `pc_ticks_removal`, `pc_hoof_trimming`, `pc_hair_trimming`,
+   `pc_fumigation` (2026-09-30) -> their category. Inventory-vaccine and feed-and-water-removal items are not pen work and raise
    nothing. A new partial index `verification_items_created_pen_idx (tenant_id, created_at)
    WHERE shed_id IS NOT NULL` serves the read.
 3. **One pen, one day, ONE task.** The natural key `(tenant, park, shed, partition_key, source
