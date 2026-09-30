@@ -1,7 +1,7 @@
 import Table from "@mui/material/Table";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { SalesMarketKpisSkeleton, SalesMarketPanelsSkeleton } from "./sales-skeletons";
-import { TableHeadCustom } from "@/components/minimal/table";
+import { TableHeadCustom } from "@/components/app/table";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
