@@ -7,7 +7,7 @@ import { FilterCardSkeleton, PageHeaderSkeleton, PageSkeleton, StackSkeleton, Ta
  */
 export default function Loading() {
   return (
-    <PageSkeleton root="">
+    <PageSkeleton root="" gap={3}>
       <PageHeaderSkeleton crumbs={false} titleWidth={80} actionWidths={[156]} />
       <StackSkeleton>
         <TableSkeleton
