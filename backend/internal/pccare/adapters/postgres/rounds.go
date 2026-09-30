@@ -1073,14 +1073,15 @@ func (r *Repository) ListRoundCards(ctx context.Context, q ports.ListRoundCardsQ
 	for rows.Next() {
 		var c ports.RoundCard
 		var roundID, singleTaskID, removalTaskID, removalStatus *string
-		var penStatuses, penWorkStates []string
+		var penStatuses, penWorkStates, penShedNames, penPartitionLabels []string
 		if err := rows.Scan(
 			&c.CardKey, &roundID, &singleTaskID, &c.Category, &c.ParkID, &c.ParkName,
-			&c.PlannedBusinessDate, &c.DueBusinessDate, &c.PenCount, &c.PenLabels,
+			&c.PlannedBusinessDate, &c.DueBusinessDate, &c.PenCount, &penShedNames, &penPartitionLabels,
 			&penStatuses, &penWorkStates, &c.AssigneeNames, &c.AnimalCount, &removalTaskID, &removalStatus,
 		); err != nil {
 			return ports.RoundCardPage{}, fmt.Errorf("pccare: scan round card: %w", err)
 		}
+		c.PenLabels = roundCardPenLabels(penShedNames, penPartitionLabels)
 		if roundID != nil {
 			c.RoundID = *roundID
 		}
@@ -1236,11 +1237,10 @@ WITH scoped AS (
     t.work_state,
     t.shed_id,
     coalesce(t.round_id::text, t.task_id::text) AS card_key,
-    CASE
-      WHEN shed.name IS NULL THEN ''
-      WHEN coalesce(btrim(t.partition_label), '') = '' THEN shed.name
-      ELSE shed.name || ' - ' || btrim(t.partition_label) -- operational_location_display
-    END AS operational_location_display
+    -- The pen's two halves; the display is composed in Go by oploc.Display (a hand-rolled
+    -- ' - ' join rendered "Castro - 1" for the pen the rest of the app calls "Castro 1").
+    coalesce(shed.name, '') AS shed_name,
+    coalesce(btrim(t.partition_label), '') AS partition_label
   FROM pc_care_tasks t
   LEFT JOIN locations shed ON shed.tenant_id = t.tenant_id AND shed.location_id = t.shed_id
   WHERE t.tenant_id = $1::uuid
@@ -1311,7 +1311,8 @@ SELECT
   min(s.planned_business_date)::text AS planned_business_date,
   min(s.due_business_date)::text AS due_business_date,
   count(*)::int AS pen_count,
-  array_remove(array_agg(s.operational_location_display ORDER BY s.operational_location_display), '') AS pen_labels,
+  array_agg(s.shed_name ORDER BY s.shed_name, s.partition_label) AS pen_shed_names,
+  array_agg(s.partition_label ORDER BY s.shed_name, s.partition_label) AS pen_partition_labels,
   array_agg(s.status) AS pen_statuses,
   array_agg(s.work_state) AS pen_work_states,
   coalesce(min(crew.names), ARRAY[]::text[]) AS assignee_names,
@@ -1347,4 +1348,24 @@ func decodeRoundCardCursor(cursor string) (dueDate, cardKey string, err error) {
 		return "", "", errors.New("pccare: malformed round card cursor")
 	}
 	return parts[0], parts[1], nil
+}
+
+// roundCardPenLabels composes each pen's name with the ONE canonical composer (oploc.Display),
+// in the order SQL returned them, dropping a pen with no shed name. The two arrays come from the
+// same ORDER BY, so index i is the same pen in both.
+func roundCardPenLabels(shedNames, partitionLabels []string) []string {
+	out := make([]string, 0, len(shedNames))
+	for i, shed := range shedNames {
+		if strings.TrimSpace(shed) == "" {
+			continue
+		}
+		partition := ""
+		if i < len(partitionLabels) {
+			partition = partitionLabels[i]
+		}
+		if label := (oploc.OperationalLocation{ShedName: shed, PartitionLabel: partition}).Display(); label != "" {
+			out = append(out, label)
+		}
+	}
+	return out
 }
