@@ -273,7 +273,7 @@ private fun QuestionCard(q: EnquiryQuestionUi, open: Boolean, onEvent: (EnquiryR
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(q.title, color = MeshaColors.Ink, style = MeshaType.bodyStrong, modifier = Modifier.weight(1f, fill = false))
-                if (q.required) Text(stringResource(R.string.hrms_required), color = MeshaColors.Faint, style = MeshaType.caption)
+                if (q.required && open) Text(stringResource(R.string.hrms_required), color = MeshaColors.Faint, style = MeshaType.caption)
             }
             when {
                 !open -> Text(

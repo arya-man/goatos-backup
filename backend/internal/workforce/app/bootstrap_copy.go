@@ -1745,6 +1745,14 @@ func modulesForScope(scope navScope, grantedModules []string, localeTag string, 
 	if scope.has(permissions.SalesAllocateAnimals) && !scope.has(permissions.SalesRead) {
 		keys = appendMissing(keys, "sale_allocation")
 	}
+	// HRMS enquiries + violations (maintainer decisions 2026-09-30) live on the Tasks module's For
+	// me tab. A park head's own ticks carry `enquiries` (the park-head job default) but not the
+	// Tasks module, and the narrowing above can only remove, so the tick alone would leave the
+	// enquiry card with no screen to reach it. Holding either authority adds the module; its
+	// "Raised by me" item stays gated on leadership_tasks.read, so such a person lands on For me.
+	if scope.has(permissions.EnquiryFill) || scope.has(permissions.ViolationRecordPark) {
+		keys = appendMissing(keys, "leadership_tasks")
+	}
 
 	// Standard path: look up modules in the registry (for operators and leadership).
 	available := make([]moduleDefinition, 0, len(keys))
