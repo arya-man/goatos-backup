@@ -19,24 +19,24 @@
 # (none) — finalizePlannedBatches was fixed with a progressed==0 break on 2026-07-11.
 
 # --- offset-pagination: use keyset/cursor instead ---
-offset-pagination backend/internal/locations/adapters/postgres/repository.go 1 # owner=identity-platform issue=C35-020 expires=2026-09-30 reason=admin locations search needs keyset pagination
+offset-pagination backend/internal/locations/adapters/postgres/repository.go 1 # owner=identity-platform issue=C35-020 expires=2026-10-31 reason=admin locations search needs keyset pagination
 
 # --- non-sargable-like: lower(col) LIKE '%..%' is unindexable ---
-non-sargable-like backend/internal/locations/adapters/postgres/repository.go 1 # owner=identity-platform issue=C35-020 expires=2026-09-30 reason=alias search needs normalized or trigram index
-non-sargable-like backend/internal/workforce/adapters/postgres/repository.go 1 # owner=workforce-platform issue=C35-020 expires=2026-09-30 reason=roster search needs normalized or trigram index
+non-sargable-like backend/internal/locations/adapters/postgres/repository.go 1 # owner=identity-platform issue=C35-020 expires=2026-10-31 reason=alias search needs normalized or trigram index
+non-sargable-like backend/internal/workforce/adapters/postgres/repository.go 1 # owner=workforce-platform issue=C35-020 expires=2026-10-31 reason=roster search needs normalized or trigram index
 
 # --- n-plus-one: DB call inside a loop; batch or hoist ---
 # procurement intake/arrival: FIXED — all 6 load intake writes converted to set-based batch statements.
 # outbox relay (P2): per-message Mark* updates; batch with a CASE / multi-row update
-n-plus-one backend/internal/outbox/adapters/postgres/repository.go 3 # owner=kernel-platform issue=C35-020 expires=2026-09-30 reason=relay outcome writes require batch CASE update
+n-plus-one backend/internal/outbox/adapters/postgres/repository.go 3 # owner=kernel-platform issue=C35-020 expires=2026-10-31 reason=relay outcome writes require batch CASE update
 # obligation sweep write loops (P1/P2): cancellation repair + status-event inserts now UNNEST-batched; remaining loops need UNNEST
-n-plus-one backend/internal/obligation/adapters/postgres/repository.go 2 # owner=kernel-platform issue=C35-020 expires=2026-09-30 reason=remaining bounded obligation write loops need UNNEST
-n-plus-one backend/internal/protocol/adapters/postgres/repository.go 1 # owner=protocol-platform issue=C35-020 expires=2026-09-30 reason=bounded vaccination anchor config publish loop needs UNNEST
+n-plus-one backend/internal/obligation/adapters/postgres/repository.go 2 # owner=kernel-platform issue=C35-020 expires=2026-10-31 reason=remaining bounded obligation write loops need UNNEST
+n-plus-one backend/internal/protocol/adapters/postgres/repository.go 1 # owner=protocol-platform issue=C35-020 expires=2026-10-31 reason=bounded vaccination anchor config publish loop needs UNNEST
 # sop / inventory / locations-write / bulkstatus: bounded chunk/write loops, verify-then-burn
-n-plus-one backend/internal/sop/adapters/postgres/repository.go 2 # owner=sop-platform issue=C35-004 expires=2026-09-30 reason=remaining bounded SOP writes require set-based audit and review
-n-plus-one backend/internal/inventory/adapters/postgres/repository.go 2 # owner=inventory-platform issue=C35-020 expires=2026-09-30 reason=bounded stock writes require batch replacement
-n-plus-one backend/internal/locations/adapters/postgres/write.go 2 # owner=identity-platform issue=C35-020 expires=2026-09-30 reason=bounded location writes require batch replacement
-n-plus-one backend/internal/bulkstatus/adapters/postgres/repository.go 1 # owner=identity-platform issue=C35-020 expires=2026-09-30 reason=bulk status counter update requires set-based replacement
+n-plus-one backend/internal/sop/adapters/postgres/repository.go 2 # owner=sop-platform issue=C35-004 expires=2026-10-31 reason=remaining bounded SOP writes require set-based audit and review
+n-plus-one backend/internal/inventory/adapters/postgres/repository.go 2 # owner=inventory-platform issue=C35-020 expires=2026-10-31 reason=bounded stock writes require batch replacement
+n-plus-one backend/internal/locations/adapters/postgres/write.go 2 # owner=identity-platform issue=C35-020 expires=2026-10-31 reason=bounded location writes require batch replacement
+n-plus-one backend/internal/bulkstatus/adapters/postgres/repository.go 1 # owner=identity-platform issue=C35-020 expires=2026-10-31 reason=bulk status counter update requires set-based replacement
 
 # Exact one-time command paths are excluded in scaleguard.go and covered by
 # TestExplicitOneTimeCommandClassification. Production workers are never excluded.
@@ -49,13 +49,13 @@ n-plus-one backend/internal/bulkstatus/adapters/postgres/repository.go 1 # owner
 #
 # P1 burn-down completed 2026-07-11: generation rulebook reads and proof refs are now batched.
 # P1 inside a P2 file: sweeper count/link/block are batched; remaining hits are bounded per-run page/chunk paths.
-n-plus-one-fanout backend/internal/obligation/app/sweeper.go 2 # owner=kernel-platform issue=C35-020 expires=2026-09-30 reason=remaining bounded sweep page paths still need bulk ports
+n-plus-one-fanout backend/internal/obligation/app/sweeper.go 2 # owner=kernel-platform issue=C35-020 expires=2026-10-31 reason=remaining bounded sweep page paths still need bulk ports
 # P2/P3 bounded (per-run / capped) — annotate with scale-guard:ignore then drop:
-n-plus-one-fanout backend/internal/sop/app/service.go 4 # owner=sop-platform issue=C35-020 expires=2026-09-30 reason=admin retry and pending lists are capped but need batch ports
-n-plus-one-fanout backend/internal/bulkstatus/app/worker.go 2 # owner=identity-platform issue=C35-020 expires=2026-09-30 reason=per-job count bumps need batch CASE update
-n-plus-one-fanout backend/internal/identity/app/service.go 1 # owner=identity-platform issue=C35-020 expires=2026-09-30 reason=merge redirect is capped at sixteen but needs one recursive read
-n-plus-one-fanout backend/internal/identity/app/admin_goat.go 1 # owner=identity-platform issue=C35-020 expires=2026-09-30 reason=admin bulk create needs INSERT SELECT
-n-plus-one-fanout backend/internal/protocol/app/publish.go 1 # owner=protocol-platform issue=C35-020 expires=2026-09-30 reason=bounded derived rules need batch creation
+n-plus-one-fanout backend/internal/sop/app/service.go 4 # owner=sop-platform issue=C35-020 expires=2026-10-31 reason=admin retry and pending lists are capped but need batch ports
+n-plus-one-fanout backend/internal/bulkstatus/app/worker.go 2 # owner=identity-platform issue=C35-020 expires=2026-10-31 reason=per-job count bumps need batch CASE update
+n-plus-one-fanout backend/internal/identity/app/service.go 1 # owner=identity-platform issue=C35-020 expires=2026-10-31 reason=merge redirect is capped at sixteen but needs one recursive read
+n-plus-one-fanout backend/internal/identity/app/admin_goat.go 1 # owner=identity-platform issue=C35-020 expires=2026-10-31 reason=admin bulk create needs INSERT SELECT
+n-plus-one-fanout backend/internal/protocol/app/publish.go 1 # owner=protocol-platform issue=C35-020 expires=2026-10-31 reason=bounded derived rules need batch creation
 
 # --- hot-path-inline-sql: multi-line SQL declared inside a function in a postgres adapter ---
 #
