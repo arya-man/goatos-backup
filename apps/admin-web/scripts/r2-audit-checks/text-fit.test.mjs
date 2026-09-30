@@ -43,3 +43,44 @@ test("probe flags a wrapped button label, overlapping axis labels, raw ids and a
     await browser.close();
   }
 });
+
+test("axis-label-overlap names an Apex label once (tspan + title copy)", async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({ viewport: { width: 390, height: 400 } });
+    await page.setContent(`<main style="font:12px sans-serif"><div class="apexcharts-canvas"><svg width="300" height="40">
+      <text class="apexcharts-xaxis-label" x="10" y="20"><tspan>60,000</tspan><title>60,000</title></text>
+      <text class="apexcharts-xaxis-label" x="40" y="20"><tspan>80,000</tspan><title>80,000</title></text>
+    </svg></div></main>`);
+    const found = await page.evaluate(probeTextFit);
+    assert.equal(found.length, 1, JSON.stringify(found));
+    assert.match(found[0].detail, /^"60,000" x "80,000" overlap/);
+  } finally {
+    await browser.close();
+  }
+});
+
+// guard: chart-label-every-route (FIXJ5). The fast pre-push lane audits the shell routes + at most 8
+// touched routes, so a chart route beyond the cap (/feed/analytics) is judged only by the FULL run.
+// The full run audits every app/(admin) route with `scan` on every profile and the text-fit plugin
+// declares no profile filter, so every route that renders an Apex chart gets the 390 label check.
+test("the full audit runs the chart-label check on every chart route at every profile", async () => {
+  const { discoverRoutes, routesForFiles, fastRouteSet, PROFILES } = await import("../r2-visual-audit.mjs");
+  const { readFileSync } = await import("node:fs");
+  const { fileURLToPath } = await import("node:url");
+  const { dirname, join, resolve } = await import("node:path");
+  const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+  assert.equal(plugin.profiles, undefined, "text-fit must run at 390 dark as well as 1440");
+  assert.ok(PROFILES.some((p) => p.label === "390-dark"));
+  const src = readFileSync(join(appRoot, "scripts/r2-visual-audit.mjs"), "utf8");
+  assert.match(src, /const ALL_CHECKS = \["scan",/, "the full run includes scan (where plugins run)");
+  assert.match(src, /if \(fast && !exactRoutes && !only\) routes = allRoutes\.filter/, "the route cap applies to --fast only");
+  const all = discoverRoutes(join(appRoot, "app", "(admin)"));
+  const chartModules = ["components/minimal/chart/index.ts", "components/minimal/chart/chart.tsx"];
+  const chartRoutes = routesForFiles(chartModules, all, appRoot).routes.map((r) => r.route);
+  assert.ok(chartRoutes.includes("/feed/analytics"), "the chart import graph reaches /feed/analytics");
+  assert.ok(chartRoutes.length > 8, "more chart routes than the fast cap: the full run must hold them");
+  assert.ok(fastRouteSet(chartRoutes.map((route) => ({ route }))).skipped.length > 0);
+  const full = new Set(all.map((r) => r.route));
+  for (const r of chartRoutes) assert.ok(full.has(r), `${r} is in the full run`);
+});

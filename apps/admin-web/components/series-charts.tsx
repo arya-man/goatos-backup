@@ -12,6 +12,8 @@
 // template tooltip, colours from the theme palette (components/app/chart-colors).
 
 import { useMemo, useState } from "react";
+import useMediaQuery from "@mui/material/useMediaQuery";
+import type { Theme } from "@mui/material/styles";
 import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
 import Divider from "@mui/material/Divider";
@@ -41,6 +43,30 @@ const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt
 
 /** Same figure within floating-point noise of the scale. */
 const near = (a: number, b: number, scale: number) => scale * 1e-6 >= Math.abs(a - b);
+
+/**
+ * Phones (below sm): a day axis of 7-90 slots cannot print every date. Five unrotated dd/mm labels, Apex
+ * hiding any that would still touch, instead of a crammed -45deg fan whose dates run into each
+ * other ("01/09/202603/09/2026" on /feed/analytics at 390). guard: axis-label-overlap (r2 text-fit)
+ * + phone-day-axis (series-charts-phone-axis.test.mjs).
+ */
+export const PHONE_DAY_AXIS_LABELS = {
+  tickAmount: 4,
+  labels: {
+    rotate: 0,
+    rotateAlways: false,
+    hideOverlappingLabels: true,
+    trim: false,
+    // "01/09/2026" -> "01/09": ten characters at five ticks still touch on a 390 plot; the tooltip
+    // title keeps the full date (its own formatter).
+    formatter: (value: string | number) => String(value ?? "").replace(/^(\d{2}\/\d{2})\/\d{4}$/, "$1"),
+  },
+};
+
+/** True below the theme's sm breakpoint; known at the first client render (noSsr). */
+function usePhone() {
+  return useMediaQuery((theme: Theme) => theme.breakpoints.down("sm"), { noSsr: true });
+}
 
 /** The precomputed label for an axis value; every other value Apex asks about stays blank. */
 const tickLabel = (ticks: AxisTick[], max: number) => (v: number) => ticks.find((t) => near(t.value, v, max))?.label ?? "";
@@ -97,13 +123,14 @@ export const SHARED_TIP_MAX_SERIES = 6;
 /** Columns on the template's AppAreaInstalled options (stacked when there is more than one series). */
 export function StackedColumnsChart({ categories, titles, series, extras, max, yTicks, hideZeroInTip, chartLabel, height = 320 }: StackedColumnsChartProps) {
   const theme = useChartTheme();
+  const phone = usePhone();
   const colors = series.map((s) => chartColor(theme, s.color));
   const options = useMemo<ChartOptions>(
     () => ({
       colors,
       chart: { stacked: series.length > 1 },
       stroke: { width: 0 },
-      xaxis: { categories },
+      xaxis: { categories, ...(phone ? PHONE_DAY_AXIS_LABELS : {}) },
       yaxis: { min: 0, max, tickAmount: 4, labels: { formatter: tickLabel(yTicks, max) } },
       tooltip: {
         shared: series.length <= SHARED_TIP_MAX_SERIES,
@@ -115,7 +142,7 @@ export function StackedColumnsChart({ categories, titles, series, extras, max, y
       plotOptions: { bar: { columnWidth: "40%" } },
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [colors.join(), categories, titles, series, extras, max, yTicks, hideZeroInTip],
+    [colors.join(), phone, categories, titles, series, extras, max, yTicks, hideZeroInTip],
   );
   const chartOptions = useChart(options);
   return (
@@ -225,6 +252,7 @@ export type SeriesLinesChartProps = {
  */
 export function SeriesLinesChart({ categories, series, max, yTicks, secondary, hideZeroInTip, chartLabel }: SeriesLinesChartProps) {
   const theme = useChartTheme();
+  const phone = usePhone();
   const all = useMemo(() => (secondary ? [...series, secondary] : series), [series, secondary]);
   const colors = all.map((s) => chartColor(theme, s.color));
   const options = useMemo<ChartOptions>(() => {
@@ -238,7 +266,7 @@ export function SeriesLinesChart({ categories, series, max, yTicks, secondary, h
           s.data.flatMap((_, k) => (has(s, k) && !has(s, k - 1) && !has(s, k + 1) ? [{ seriesIndex: i, dataPointIndex: k, size: 5, fillColor: colors[i], strokeColor: colors[i] }] : [])),
         ),
       },
-      xaxis: { categories, tooltip: { enabled: false } },
+      xaxis: { categories, tooltip: { enabled: false }, ...(phone ? PHONE_DAY_AXIS_LABELS : {}) },
       tooltip: {
         shared: true,
         intersect: false,
@@ -248,7 +276,7 @@ export function SeriesLinesChart({ categories, series, max, yTicks, secondary, h
       },
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [colors.join(), all, categories, hideZeroInTip]);
+  }, [colors.join(), phone, all, categories, hideZeroInTip]);
   const chartOptions = useChart(options);
   const primaryAxis = { min: 0, max, tickAmount: 4, labels: { formatter: tickLabel(yTicks, max) } };
   // Set AFTER useChart: its deep merge would fold an axis ARRAY into the base yaxis object.

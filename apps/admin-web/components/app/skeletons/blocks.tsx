@@ -134,7 +134,8 @@ export function PageHeaderSkeleton({
   titleWidth?: number;
   /** Number of header action buttons (right-aligned, 36px template Button). */
   actions?: number;
-  actionWidths?: (number | Record<string, number>)[];
+  /** Per-action width; a string (e.g. a calc) for an action that takes its own row below md. Capped at the row. */
+  actionWidths?: (number | string | Record<string, number | string>)[];
   /** Per-action height when it is not a 36px Button (a view ToggleButtonGroup: 40, 54 on a phone). */
   actionHeights?: (number | Record<string, number> | undefined)[];
   /** The page's own margin under its header when it sets one (template CustomBreadcrumbs mb { xs 3, md 5 }, minus the stack gap). */
@@ -142,7 +143,7 @@ export function PageHeaderSkeleton({
   tabs?: ReactNode;
   toolbar?: ReactNode;
 }) {
-  const widths: (number | Record<string, number>)[] = actionWidths ?? Array.from({ length: actions }, (_, i) => (i === actions - 1 ? 128 : 104));
+  const widths: (number | string | Record<string, number | string>)[] = actionWidths ?? Array.from({ length: actions }, (_, i) => (i === actions - 1 ? 128 : 104));
   // The verbatim template CustomBreadcrumbs, as PageHeader renders it: the heading slot (h4
   // typography, full row width) holds a text Skeleton, the crumb slot is the same MUI Breadcrumbs
   // (dot separators, body2 line) with Skeleton crumbs, the actions sit in the same right-hand Box.
@@ -183,7 +184,7 @@ export function PageHeaderSkeleton({
           widths.length ? (
             <Box sx={pageHeaderActionsSx(layout)}>
               {widths.map((w, i) => (
-                <Skeleton key={i} variant="rounded" sx={{ width: w, height: actionHeights?.[i] ?? tapHeight(36) }} />
+                <Skeleton key={i} variant="rounded" sx={{ width: w, maxWidth: 1, height: actionHeights?.[i] ?? tapHeight(36) }} />
               ))}
             </Box>
           ) : undefined

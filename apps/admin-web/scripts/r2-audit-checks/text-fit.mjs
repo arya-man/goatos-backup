@@ -3,7 +3,10 @@
 //   draft" in the /vaccination/plan draft Alert at 390). Buttons hold one line; group them with
 //   ActionAlert / a wrapping Stack instead of squeezing.
 // - axis-label-overlap (J3 P1-4): two unrotated Apex x-axis labels intersect ("SirohiAnantapur
-//   Sheep" on /weighing/weights at 390). Rotate, trim or shorten them below 600px.
+//   Sheep" on /weighing/weights at 390). Rotate, trim or shorten them below 600px. No `profiles`
+//   filter: the FULL audit runs it on every route at 1440 dark, 1440 light and 390 dark (the fast
+//   pre-push lane caps its touched routes at 8; /feed/analytics "Feed mix" 60,000 x 80,000 at 390
+//   was only caught by a full run; guard: chart-label-every-route in text-fit.test.mjs).
 // - raw-id-text (J2 P1-3/P1-4): a table cell, card header or list line shows a raw id: an 8-hex
 //   hash (`cee6e124`), a UUID, or a snake_case table name (`goat_identity_events`).
 // - placeholder-clipped (J2 P2-3): a text field's placeholder is wider than the field.
@@ -57,7 +60,9 @@ export function probeTextFit() {
       const tr = t.getAttribute("transform") || "";
       return !/rotate\(\s*-?[1-9]/.test(tr) && (t.textContent || "").trim() !== "";
     });
-    const boxes = labels.map((t) => ({ text: (t.textContent || "").trim(), r: t.getBoundingClientRect() }));
+    // Apex nests the label in a <tspan> beside a <title> copy: read the tspan, or the detail prints
+    // every label twice ("80,00080,000").
+    const boxes = labels.map((t) => ({ text: ((t.querySelector("tspan") || t).textContent || "").trim(), r: t.getBoundingClientRect() }));
     let hit = null;
     for (let i = 0; i < boxes.length && !hit; i++) {
       for (let j = i + 1; j < boxes.length; j++) {

@@ -18,6 +18,7 @@ import type { LeadershipTaskAssignee } from "@/lib/api/server";
 import { useBackCloses } from "@/components/use-back-closes";
 import { TaskAttachmentPickers, TaskField, type TaskAttachmentPicker } from "./task-form-parts";
 import { TaskDeadlineFields } from "./task-write-forms";
+import { TASK_NO_ASSIGNEES_NOTE_BASIS, TASK_NO_ASSIGNEES_NOTE_HEIGHT } from "./tasks-layout";
 
 /**
  * The "+ New task" entry on the web Tasks desk. Same shape as the phone's New task screen
@@ -118,7 +119,8 @@ export function NewTaskModal({
         <Typography
           variant="body2"
           role="note"
-          sx={{ color: "text.secondary", display: "inline-flex", alignItems: "center", gap: 0.75, minHeight: "var(--tap-min)" }}
+          // Own row below md, 44px line (the loading twin's placeholder; guard: tasks-loading-mirror).
+          sx={{ color: "text.secondary", display: "inline-flex", alignItems: "center", gap: 0.75, minHeight: TASK_NO_ASSIGNEES_NOTE_HEIGHT, flexBasis: TASK_NO_ASSIGNEES_NOTE_BASIS }}
         >
           <Iconify icon="eva:info-outline" width={18} sx={{ flexShrink: 0 }} />
           {text("new.no_assignees", "No one can be given a task from here yet.")}
