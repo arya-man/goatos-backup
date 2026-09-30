@@ -219,7 +219,7 @@ export function NotificationPanel({
         <Box
           component="section"
           aria-label={centreCopy.pushTitle}
-          sx={{ px: 2.5, pt: 1.5, pb: 0.5, borderBottom: (theme) => `dashed 1px ${theme.vars.palette.divider}` }}
+          sx={{ px: 2.5, pt: 1.5, pb: 0.5, borderBottom: 1, borderBottomStyle: "dashed", borderColor: "divider" }}
         >
           <Suspense
             fallback={
@@ -384,7 +384,9 @@ function NotificationRow({
         p: 2.5,
         pr: 1.5,
         minHeight: "var(--table-row-h)",
-        borderBottom: `dashed 1px ${theme.vars.palette.divider}`,
+        borderBottom: 1,
+        borderBottomStyle: "dashed",
+        borderColor: "divider",
         transition: theme.transitions.create("background-color", { duration: theme.transitions.duration.shorter }),
         ...(read ? {} : { bgcolor: varAlpha(theme.vars.palette.primary.mainChannel, 0.04) }),
         "&:hover": { bgcolor: read ? "action.hover" : varAlpha(theme.vars.palette.primary.mainChannel, 0.08) },

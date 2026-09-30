@@ -242,7 +242,7 @@ export function TaskActivityComposer({
   const composer = task.canComment ? (
     <Box
       data-testid="ltd-composer"
-      sx={{ display: "flex", gap: 2, minWidth: 0, pb: 2.5, mb: 2.5, borderBottom: (theme) => `dashed 1px ${theme.vars.palette.divider}` }}
+      sx={{ display: "flex", gap: 2, minWidth: 0, pb: 2.5, mb: 2.5, borderBottom: 1, borderBottomStyle: "dashed", borderColor: "divider" }}
     >
       <ActivityAvatar pending />
       <Box

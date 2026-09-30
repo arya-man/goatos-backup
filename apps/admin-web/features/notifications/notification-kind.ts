@@ -11,7 +11,7 @@
 
 export type NotificationTone = "primary" | "info" | "success" | "warning" | "error" | "violet" | "neutral";
 
-/** Icon NAMES, not components, so this file stays import-free; the panel maps names to lucide. */
+/** Icon NAMES, not components, so this file stays import-free; the panel maps names to registered Iconify icons. */
 export type NotificationIconName =
   | "bell"
   | "clock"
