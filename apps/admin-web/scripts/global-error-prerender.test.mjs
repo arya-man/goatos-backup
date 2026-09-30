@@ -70,7 +70,7 @@ async function streamToString(stream) {
 
 test("app/loading.tsx renders with no root layout or theme provider around it", () => {
   const html = renderToString(React.createElement(Loading));
-  assert.match(html, /shell-skeleton/);
+  assert.match(html, /data-shell-skeleton/);
 });
 
 test("the /_global-error tree (Suspense fallback = app/loading.tsx) prerenders when the page suspends", async () => {

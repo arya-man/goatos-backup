@@ -132,13 +132,9 @@
 .topbar-ai-slot{display:inline-flex;align-items:center}
 .topbar-ai-slot:empty{display:none}
 
-/* ---- Shell skeleton (first paint before the bootstrap contract) ---- */
-.shell-skeleton .top{display:flex;align-items:center;overflow:hidden}
-.shell-skeleton .brand{display:flex;align-items:center;gap:10px;min-width:0}
-.shell-skeleton .main{flex:1;min-width:0;overflow:hidden}
 
 /* skeletons paint immediately on busy roots (hard-nav must show shape at once) */
-.shell-skeleton .wrap>*,.wrap>[aria-busy="true"],.wrap>[aria-busy="true"]>*,.wrap>.kit-page[aria-busy="true"]>*{animation:none;opacity:1;transform:none}
+.wrap>[aria-busy="true"],.wrap>[aria-busy="true"]>*,.wrap>.kit-page[aria-busy="true"]>*{animation:none;opacity:1;transform:none}
 
 /* legacy scrollers scroll like kit ones */
 [data-scroll-x]{overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin;min-width:0;max-width:100%}
