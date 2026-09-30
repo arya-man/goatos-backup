@@ -7192,6 +7192,13 @@ aside.drawer.approvals-drawer .df{flex-wrap:wrap}
 .prt-table td.prt-col-evidence{white-space:normal;min-width:150px;max-width:220px}
 .prt-table td.prt-col-people .prt-people{max-width:220px}
 .prt-table td.prt-col-cadence{white-space:normal;min-width:110px}
+/* Phone tabs on /routines: the routine picker groups by park; long routine lists wrap in the table. */
+.prt-tab-park{display:flex;flex-direction:column;gap:4px}
+.prt-tab-routines{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 12px;padding:6px 8px;border:1px solid var(--line);border-radius:10px}
+.prt .prt-tab-routines label.prt-check{padding:6px 4px;flex-wrap:wrap}
+.prt-table td.prt-col-tab-routines{white-space:normal;min-width:180px;max-width:360px}
+.prt-table td.prt-col-tab-filters{white-space:normal;min-width:110px}
+@media (max-width:640px){.prt-tab-routines{grid-template-columns:minmax(0,1fr)}}
 @media (max-width:640px){
   .prt-cards{display:flex;flex-direction:column;gap:10px;margin-top:8px}
   .prt-table{display:none}

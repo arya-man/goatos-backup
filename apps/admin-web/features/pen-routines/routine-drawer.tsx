@@ -931,7 +931,7 @@ function subscribeSaveViews(listener: () => void): () => void {
   return () => saveListeners.delete(listener);
 }
 
-function SaveStateBridge({ formId, pending, message, tone }: { formId: string } & SaveView) {
+export function SaveStateBridge({ formId, pending, message, tone }: { formId: string } & SaveView) {
   useEffect(() => {
     publishSaveView(formId, { pending, message, tone });
   }, [formId, pending, message, tone]);

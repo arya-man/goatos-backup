@@ -30,6 +30,12 @@ export type PenRoutinePark = AdminApiComponents["schemas"]["PenRoutinePark"];
 export type PenRoutineListResponse = AdminApiComponents["schemas"]["PenRoutineListResponse"];
 export type PenRoutineDetailResponse = AdminApiComponents["schemas"]["PenRoutineDetailResponse"];
 export type PenRoutineTaskListResponse = AdminApiComponents["schemas"]["PenRoutineTaskListResponse"];
+export type PenRoutineTab = AdminApiComponents["schemas"]["PenRoutineTab"];
+export type PenRoutineTabRoutine = AdminApiComponents["schemas"]["PenRoutineTabRoutine"];
+export type PenRoutineTabListResponse = AdminApiComponents["schemas"]["PenRoutineTabListResponse"];
+export type PenRoutineTabDetailResponse = AdminApiComponents["schemas"]["PenRoutineTabDetailResponse"];
+export type PenRoutineTabWrite = AdminApiComponents["schemas"]["PenRoutineTabWrite"];
+export type PenRoutineTabStatusWrite = AdminApiComponents["schemas"]["PenRoutineTabStatusWrite"];
 
 function idempotentHeaders(idempotencyKey: string) {
   return { "Idempotency-Key": idempotencyKey };
@@ -135,6 +141,73 @@ export async function setPenRoutineStatus(
   return request(() =>
     client.request<PenRoutineDetailResponse>(
       `/admin/pen-routines/${encodeURIComponent(routineId)}/status` as keyof AdminApiPaths & string,
+      {
+        method: "POST",
+        cache: "no-store",
+        headers: idempotentHeaders(idempotencyKey),
+        body,
+      },
+    ),
+  );
+}
+
+// PHONE TABS (maintainer instruction 2026-10-01, docs/decisions/simple-task-phone-tabs.md): where
+// routines appear on the phone -- their own bottom-bar item, with a label, inside a chosen phone
+// module, an icon from a closed set and the list filters the phone offers. Read on
+// pen_routines.read, written on pen_routines.configure (the same authority as the routines).
+
+/** Every phone tab, with the closed vocabularies (modules, icons, filters) the editor offers. */
+export async function listPenRoutineTabs(): Promise<ApiResult<PenRoutineTabListResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<PenRoutineTabListResponse>("/admin/pen-routines/tabs", {
+      cache: "no-store",
+    }),
+  );
+}
+
+export async function createPenRoutineTab(body: PenRoutineTabWrite, idempotencyKey: string): Promise<ApiResult<PenRoutineTabDetailResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<PenRoutineTabDetailResponse>("/admin/pen-routines/tabs", {
+      method: "POST",
+      cache: "no-store",
+      headers: idempotentHeaders(idempotencyKey),
+      body,
+    }),
+  );
+}
+
+/** `body.routine_ids` REPLACES the tab's routines; `body.row_version` fences the drawer's read. */
+export async function updatePenRoutineTab(tabId: string, body: PenRoutineTabWrite, idempotencyKey: string): Promise<ApiResult<PenRoutineTabDetailResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<PenRoutineTabDetailResponse>(`/admin/pen-routines/tabs/${encodeURIComponent(tabId)}` as keyof AdminApiPaths & string, {
+      method: "PUT",
+      cache: "no-store",
+      headers: idempotentHeaders(idempotencyKey),
+      body,
+    }),
+  );
+}
+
+export async function setPenRoutineTabStatus(
+  tabId: string,
+  body: PenRoutineTabStatusWrite,
+  idempotencyKey: string,
+): Promise<ApiResult<PenRoutineTabDetailResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<PenRoutineTabDetailResponse>(
+      `/admin/pen-routines/tabs/${encodeURIComponent(tabId)}/status` as keyof AdminApiPaths & string,
       {
         method: "POST",
         cache: "no-store",

@@ -1,5 +1,5 @@
 import { RoutinesPage, routinesPageParams, type RoutinesPageData } from "@/features/pen-routines";
-import { getPenRoutineCatalog, listPenRoutineParkTasks, listPenRoutines } from "@/lib/api/pen-routines-server";
+import { getPenRoutineCatalog, listPenRoutineParkTasks, listPenRoutines, listPenRoutineTabs } from "@/lib/api/pen-routines-server";
 import { requireAdminWebPageContract } from "@/lib/api/server";
 import type { RouteSearchParams } from "@/lib/search-params";
 
@@ -17,7 +17,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rou
   const list = await listPenRoutines({ park_id: scope.parkId });
   const parks = list.ok ? list.data.parks : [];
   const todayPark = (scope.parkId ? parks.find((park) => park.park_id === scope.parkId) : parks[0]) ?? null;
-  const [catalog, tasks] = await Promise.all([
+  const [catalog, tasks, tabs, allRoutines] = await Promise.all([
     todayPark ? getPenRoutineCatalog(todayPark.park_id) : Promise.resolve(null),
     todayPark
       ? listPenRoutineParkTasks({
@@ -28,7 +28,19 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rou
           limit: scope.limit,
         })
       : Promise.resolve(null),
+    // Phone tabs: where routines appear on the phone. A tab may carry routines of either park, so
+    // its picker needs every park's routines -- the list above already is that unless a park is chosen.
+    listPenRoutineTabs(),
+    scope.parkId ? listPenRoutines({}) : Promise.resolve(list),
   ]);
-  const data: RoutinesPageData = { list, catalog: catalog && catalog.ok ? catalog.data : null, tasks, todayPark, businessDate: scope.businessDate };
+  const data: RoutinesPageData = {
+    list,
+    catalog: catalog && catalog.ok ? catalog.data : null,
+    tasks,
+    todayPark,
+    businessDate: scope.businessDate,
+    tabs,
+    tabRoutines: allRoutines.ok ? allRoutines.data.rows : [],
+  };
   return <RoutinesPage searchParams={params} pageContract={pageContract} data={data} />;
 }

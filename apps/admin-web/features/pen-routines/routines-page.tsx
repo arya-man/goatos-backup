@@ -12,6 +12,7 @@ import type {
   PenRoutineListResponse,
   PenRoutinePark,
   PenRoutineRow,
+  PenRoutineTabListResponse,
   PenRoutineTaskListResponse,
   PenRoutineTaskRow,
 } from "@/lib/api/pen-routines-server";
@@ -20,6 +21,7 @@ import { fmtDate, istDayPlus, todayIso } from "@/lib/format";
 import { all, boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { RoutineDrawerForm, RoutineSaveFooter } from "./routine-drawer";
 import { RoutineFilter } from "./routine-filter";
+import { PARAM_TAB, PhoneTabsSection, type PhoneTabsRoutine } from "./phone-tabs-section";
 
 /**
  * /routines (maintainer instruction 2026-09-16, docs/decisions/pen-routines.md): the routines of
@@ -105,6 +107,10 @@ export type RoutinesPageData = {
   /** The park the Today table and the catalog were read for (the chosen park, else the first park served). */
   todayPark: PenRoutinePark | null;
   businessDate: string;
+  /** The phone tabs and the vocabularies their editor offers. */
+  tabs: ApiResult<PenRoutineTabListResponse>;
+  /** Every park's routines, for the phone-tab picker (a tab may carry routines of both parks). */
+  tabRoutines: PenRoutineRow[];
 };
 
 /** The parameters the page reads for its data, resolved once so page.tsx and the feature agree. */
@@ -133,8 +139,9 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
   const parks = data.list.ok ? data.list.data.parks : [];
   const routines = data.list.ok ? data.list.data.rows : [];
   const selectedPark = one(sp, PARAM_PARK) ?? "";
-  const listHref = href(sp, { [PARAM_EDIT]: undefined }, true);
-  const editHref = (id: string) => href(sp, { [PARAM_EDIT]: id }, true);
+  // The two drawers (routine, phone tab) close each other: each href drops the other's parameter.
+  const listHref = href(sp, { [PARAM_EDIT]: undefined, [PARAM_TAB]: undefined }, true);
+  const editHref = (id: string) => href(sp, { [PARAM_EDIT]: id, [PARAM_TAB]: undefined }, true);
   const today = todayIso();
   const isToday = data.businessDate === today;
 
@@ -374,6 +381,25 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
           )}
         </div>
       </section>
+
+      <PhoneTabsSection
+        pageContract={pageContract}
+        initialTabs={data.tabs.ok ? data.tabs.data.tabs : []}
+        vocabulary={data.tabs.ok ? { modules: data.tabs.data.modules, icons: data.tabs.data.icons, filters: data.tabs.data.filters } : { modules: [], icons: [], filters: [] }}
+        loadError={data.tabs.ok ? "" : data.tabs.error.message}
+        routines={data.tabRoutines.map((routine): PhoneTabsRoutine => ({
+          routine_id: routine.routine_id,
+          name: routine.name,
+          park_id: routine.park_id,
+          park_name: routine.park_name,
+          status: routine.status,
+        }))}
+        canCreate={canCreate}
+        canEdit={canEdit}
+        canSetStatus={canSetStatus}
+        closeHref={listHref}
+        initialSelectedId={one(sp, PARAM_TAB)}
+      />
 
       <section className="card" aria-label={tasksTable.title}>
         <div className="hd">
