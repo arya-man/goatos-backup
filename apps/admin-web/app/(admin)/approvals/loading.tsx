@@ -7,7 +7,7 @@ import { APPROVALS_COPY, APPROVALS_SKELETON_ROWS, TYPE_TABS } from "@/features/a
  */
 export default function Loading() {
   return (
-    <PageSkeleton>
+    <PageSkeleton root="page-root">
       <PageHeaderSkeleton crumbs={false} />
       <StackSkeleton>
         <TableSkeleton

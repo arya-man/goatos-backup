@@ -1,5 +1,6 @@
 import { listOrEmpty } from "@/lib/list-or-empty";
 import { UrlSuspense } from "@/components/app/url-suspense";
+import { PageRoot } from "@/components/app/page-root";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import { TableSkeleton } from "@/components/app/skeletons";
 import { redirect } from "next/navigation";
@@ -96,7 +97,7 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
   const clearRow = { ap_row: null, ap_status: null, ap_code: null } as const;
 
   return (
-    <Box className="screen on">
+    <PageRoot>
       <PageHeader title={COPY.title} crumbs={[{ label: COPY.title }]} />
 
       <Stack spacing={3}>
@@ -225,7 +226,7 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
       </Stack>
 
       <ApprovalsDrawer items={drawerItems} initialSelectedId={selectedId} searchParams={sp} feedback={feedback} locationNames={locationNames} />
-    </Box>
+    </PageRoot>
   );
 }
 
