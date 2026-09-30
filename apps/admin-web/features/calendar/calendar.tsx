@@ -255,7 +255,6 @@ export async function VaccinationCalendarPage({
   return (
     <Stack spacing={3}>
       <PageHeader
-        className="calendar-page-head"
         title={presentation.page_title || pageContract.title}
         crumbs={[{ label: pageContract.title }]}
       />

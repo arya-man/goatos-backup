@@ -214,21 +214,21 @@ export const EVENT_TYPE_ICON: Record<CalendarEventType, IconifyName> = {
   vaccination_dose_due: "solar:medical-kit-bold",
   vaccination_drive: "solar:medical-kit-bold",
   vaccination_history: "solar:shield-check-bold",
-  vaccination_campaign: "solar:sort-by-time-bold-duotone",
+  vaccination_campaign: "solar:calendar-date-bold",
   vaccination_booster_due: "solar:medical-kit-bold",
-  vaccination_defer_review: "solar:shield-keyhole-bold-duotone",
+  vaccination_defer_review: "solar:danger-triangle-bold",
   vaccination_evidence_review: "solar:file-check-bold-duotone",
   vaccination_proof_verification: "solar:shield-check-bold",
-  vaccination_rework_due: "solar:transfer-horizontal-bold-duotone",
+  vaccination_rework_due: "solar:restart-bold",
   vaccine_stock_readiness: "solar:box-minimalistic-bold",
-  vaccine_cold_chain_check: "solar:ssd-round-bold",
-  vaccine_reorder_expiry_grn: "solar:box-minimalistic-bold",
-  pc_stock_anti_misuse: "solar:shield-keyhole-bold-duotone",
+  vaccine_cold_chain_check: "solar:shield-keyhole-bold-duotone",
+  vaccine_reorder_expiry_grn: "solar:archive-down-minimlistic-bold",
+  pc_stock_anti_misuse: "solar:danger-triangle-bold",
   vaccination_config_activation_review: "solar:file-check-bold-duotone",
 };
 
 export function eventTypeMeta(eventType: string, presentation?: CalendarPresentation): { label: string; icon: IconifyName } {
-  const fallback = { label: eventType, icon: EVENT_TYPE_ICON[eventType as CalendarEventType] ?? "solar:sort-by-time-bold-duotone" };
+  const fallback = { label: eventType, icon: EVENT_TYPE_ICON[eventType as CalendarEventType] ?? ("solar:calendar-date-bold" as IconifyName) };
   const backendLabel = presentation?.event_types.find((item) => item.key === eventType)?.label;
   return { ...fallback, label: backendLabel ?? fallback.label };
 }
