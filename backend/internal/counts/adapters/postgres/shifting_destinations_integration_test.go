@@ -731,3 +731,101 @@ VALUES ($1::uuid, $3::uuid, $2::uuid, 'Part 1', 'Hilbert 1 - Part 1'),
 		t.Fatalf("inactive partition surfaced in destination catalog: %+v", headCountByDisplay)
 	}
 }
+
+// TestGoatShiftingFactsAgeDaysOneToManyPaginationParkScopeStatusMatrix pins the age the growth
+// age-entry rule judges (kid stage shift tasks, the Non-Pregnant step, 2026-10-01):
+// age_days = the IST business date minus goats.dob, one row per requested animal.
+//
+//   - OneToMany: an animal with a partition row and a breed row still yields ONE fact (both joins
+//     are 1:0..1 by key), carrying its own age.
+//   - Pagination: the read is by the requested ids only -- a subset request returns that subset and
+//     never a neighbour.
+//   - ParkScope: animals of two parks each keep their own park and their own age.
+//   - StatusMatrix: alive and dead animals both report their age (the eligibility check, not this
+//     read, refuses a dead one); an animal with no recorded dob reports NO age rather than zero.
+func TestGoatShiftingFactsAgeDaysOneToManyPaginationParkScopeStatusMatrix(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	seedCustodianParty(t, ctx, pool)
+	repo := NewRepository(pool, 10*time.Second)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, name, status)
+VALUES ($1::uuid, $2::uuid, 'park', 'Second Farm', 'active') ON CONFLICT (location_id) DO NOTHING`, countsParkB, countsTenant); err != nil {
+		t.Fatalf("seed second park: %v", err)
+	}
+
+	const (
+		seventyDays = "00000000-0000-4000-8000-0000000052a1" // park A, alive, 70 days, sits in a partition
+		sixtyDays   = "00000000-0000-4000-8000-0000000052a2" // park B, alive, 60 days
+		deadAged    = "00000000-0000-4000-8000-0000000052a3" // park A, dead, 90 days
+		noDob       = "00000000-0000-4000-8000-0000000052a4" // park A, alive, no recorded dob
+	)
+	seed := []struct {
+		id, park string
+		daysOld  *int
+	}{
+		{seventyDays, countsPark, intPtr(70)},
+		{sixtyDays, countsParkB, intPtr(60)},
+		{deadAged, countsPark, intPtr(90)},
+		{noDob, countsPark, nil},
+	}
+	for _, g := range seed {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO goats (goat_id, tenant_id, species, sex, breed, lifecycle_status, custodian_party_id,
+                   park_id, origin_type, dob, entry_date)
+VALUES ($1::uuid, $2::uuid, 'goat', 'female', 'Sirohi', 'alive', $4::uuid, $3::uuid, 'birth',
+        CASE WHEN $5::int IS NULL THEN NULL ELSE (now() AT TIME ZONE 'Asia/Kolkata')::date - $5::int END,
+        DATE '2025-01-01')`,
+			g.id, countsTenant, g.park, countsCustodian, g.daysOld); err != nil {
+			t.Fatalf("seed goat %s: %v", g.id, err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `UPDATE goats SET lifecycle_status = 'dead', exited_at = now() WHERE goat_id = $1::uuid`, deadAged); err != nil {
+		t.Fatalf("exit goat: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'Part 1', 'seed') ON CONFLICT DO NOTHING`, countsTenant, seventyDays, countsShedA); err != nil {
+		t.Fatalf("seed partition row: %v", err)
+	}
+
+	facts, err := repo.GoatShiftingFacts(ctx, countsTenant, []string{seventyDays, sixtyDays, deadAged, noDob})
+	if err != nil {
+		t.Fatalf("GoatShiftingFacts: %v", err)
+	}
+	if len(facts) != 4 {
+		t.Fatalf("facts=%d, want one per requested animal (4)", len(facts))
+	}
+	age := map[string]*int{}
+	park := map[string]string{}
+	for _, f := range facts {
+		if _, dup := age[f.GoatID]; dup {
+			t.Fatalf("animal %s fanned out into more than one fact", f.GoatID)
+		}
+		age[f.GoatID] = f.AgeDays
+		if f.ParkID != nil {
+			park[f.GoatID] = *f.ParkID
+		}
+	}
+	for id, want := range map[string]int{seventyDays: 70, sixtyDays: 60, deadAged: 90} {
+		if age[id] == nil || *age[id] != want {
+			t.Errorf("animal %s age_days=%v, want %d", id, age[id], want)
+		}
+	}
+	if age[noDob] != nil {
+		t.Errorf("animal with no dob reports age %d, want none", *age[noDob])
+	}
+	if park[sixtyDays] != countsParkB || park[seventyDays] != countsPark {
+		t.Errorf("parks = %v, want each animal on its own park", park)
+	}
+
+	// A page of two animals returns exactly those two.
+	page, err := repo.GoatShiftingFacts(ctx, countsTenant, []string{sixtyDays, noDob})
+	if err != nil {
+		t.Fatalf("GoatShiftingFacts page: %v", err)
+	}
+	if len(page) != 2 || page[0].GoatID == seventyDays || page[1].GoatID == seventyDays {
+		t.Fatalf("page=%+v, want exactly the two requested animals", page)
+	}
+}
+
