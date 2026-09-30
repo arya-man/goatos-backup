@@ -1,22 +1,27 @@
 "use client";
 
-import { Tag } from "@/components/ui-primitives";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Eye, NotebookPen, Play, Plus, Video } from "lucide-react";
 import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import CardContent from "@mui/material/CardContent";
+import Stack from "@mui/material/Stack";
+import Grid from "@mui/material/Grid";
+import MuiTextField from "@mui/material/TextField";
+import { Label } from "@/components/minimal/label";
 import Button from "@mui/material/Button";
 import Dialog from "@mui/material/Dialog";
 import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
 import IconButton from "@mui/material/IconButton";
 import Typography from "@mui/material/Typography";
-import { Iconify } from "@/components/minimal/iconify";
+import { Iconify, type IconifyName } from "@/components/minimal/iconify";
+import { varAlpha } from "minimal-shared/utils";
 import Box from "@mui/material/Box";
-import type { Theme } from "@mui/material/styles";
 import { TemplateTabs } from "@/components/app/template-tabs";
 import { EditorHeader, FieldRow, FieldSelect } from "./editor-chrome";
+import { CheckLine, EDITOR_ICON, EditorPage, Hint, ProblemList, Spacer } from "./editor-parts";
 import {
   buildFormDsl,
   fieldConfigKind,
@@ -37,8 +42,6 @@ import { QuestionCard, type PriorStep } from "./question-card";
 import { BuilderPreview } from "./builder-preview";
 import type { DryRunResponse } from "@/lib/api/server";
 import { copy, optionGroup, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import Checkbox from "@mui/material/Checkbox";
-import FormControlLabel from "@mui/material/FormControlLabel";
 import Alert from "@mui/material/Alert";
 
 function newId(prefix: string): string {
@@ -79,17 +82,45 @@ function sanitizeVisibility(rows: BuilderStep[]): BuilderStep[] {
   });
 }
 
-// Builder basics: the name / domain / kind row stacks on a phone and the read-only chips wrap
-// (template compact field group). `&&&` keeps it above the shared builder row rule.
-const BASICS_ROW_SX = (theme: Theme) => ({
-  [theme.breakpoints.down("sm")]: {
-    "&&&": { display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 1.25 },
-    "&& > *": { minWidth: 0, width: 1 },
-    "&& > div[aria-label]": { minHeight: "var(--tap-min)", justifyContent: "space-between", flexWrap: "wrap", alignContent: "center" },
-    "&& > div[aria-label] .tag": { flex: "0 0 auto" },
-    "&& > div[aria-label] .muted": { minWidth: 0, whiteSpace: "normal", textAlign: "right" },
-  },
-});
+/** A builder section card: template Card + CardHeader (icon avatar, title, action) + CardContent. */
+function SectionCard({ icon, title, action, children }: { icon?: IconifyName; title: string; action?: ReactNode; children: ReactNode }) {
+  return (
+    <Card>
+      <CardHeader
+        avatar={
+          icon ? (
+            <Box sx={(theme) => ({ display: "inline-flex", p: 0.75, borderRadius: "var(--r-md)", color: "primary.main", bgcolor: varAlpha(theme.vars.palette.primary.mainChannel, 0.12) })}>
+              <Iconify icon={icon} width={18} />
+            </Box>
+          ) : undefined
+        }
+        title={title}
+        action={action}
+        slotProps={{ title: { variant: "subtitle1" }, action: { sx: { alignSelf: "center", m: 0 } } }}
+      />
+      <CardContent>
+        <Stack spacing={2}>{children}</Stack>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** A read-only fact the page decides (domain, SOP kind): outlined box, label + value, wraps on a phone. */
+function LockedFact({ ariaLabel, title, children, testId }: { ariaLabel: string; title: string; children: ReactNode; testId?: string }) {
+  return (
+    <Stack
+      direction="row"
+      spacing={1}
+      useFlexGap
+      aria-label={ariaLabel}
+      title={title}
+      data-testid={testId}
+      sx={{ alignItems: "center", flexWrap: "wrap", justifyContent: { xs: "space-between", sm: "flex-start" }, minHeight: "var(--tap-min)", px: 1.25, border: 1, borderColor: "divider", borderRadius: "var(--r-md)", bgcolor: "background.neutral" }}
+    >
+      {children}
+    </Stack>
+  );
+}
 
 export function SopBuilder({
   pageContract,
@@ -232,325 +263,249 @@ export function SopBuilder({
   }
 
   return (
-    <div className="kit-enter screen on sop-kit">
-      {/* One column with the template page gap between header, notices and the builder: an inner Box,
-          because `.screen.on` pins the root to display:block (as in sop-library). guard: rhythm|header-gap */}
-      <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
+    <EditorPage>
       <EditorHeader
         crumbs={[copy(pc, "crumb"), pc.title, editing ? copy(pc, "builder.crumb_edit") : copy(pc, "builder.crumb_current")]}
         title={editing ? copy(pc, "builder.title_edit") : copy(pc, "modal.builder.title")}
         subtitle={editing ? copy(pc, "builder.subtitle_edit") : copy(pc, "builder.subtitle")}
         backHref={basePath}
         actions={
-          <Button variant="contained" color="primary" startIcon={<Eye size={18} />} onClick={() => setPreviewOpen(true)}>
+          <Button variant="contained" color="primary" startIcon={<Iconify icon="solar:eye-bold" />} onClick={() => setPreviewOpen(true)}>
             {copy(pc, "builder.preview.open")}
           </Button>
         }
       />
 
       {notice ? (
-        <div>
-          {notice.ok ? (
-            <div className="note">
-              <Tag tone="ok">{copy(pc, "modal.builder.notice_ok")}</Tag> {notice.message}
-            </div>
-          ) : (
-            <Alert severity="warning"><div>{notice.message}</div>
-            </Alert>
-          )}
-        </div>
+        <Alert severity={notice.ok ? "success" : "warning"}>
+          {notice.ok ? <Label color="success" sx={{ mr: 1 }}>{copy(pc, "modal.builder.notice_ok")}</Label> : null}
+          {notice.message}
+        </Alert>
       ) : null}
 
-      {editBlocked ? (
-        <div>
-          <Alert severity="warning"><div>{copy(pc, "builder.edit_blocked")}</div>
-          </Alert>
-        </div>
-      ) : null}
+      {editBlocked ? <Alert severity="warning">{copy(pc, "builder.edit_blocked")}</Alert> : null}
 
-      <div className="builderwrap">
-        <div className="kit-enter buildermain">
+      <Grid container spacing={3}>
+        <Grid size={{ xs: 12, lg: 8 }} data-testid="builder-main">
+          <Stack spacing={3}>
           {/* Basics */}
-          <div>
-          <Card className="card">
-            <div className="hd">
-              <span className="fic" style={{ width: 26, height: 26, background: "var(--brand-soft)", color: "var(--brand-d)" }}>
-                <NotebookPen className="ic" style={{ width: 14 }} />
-              </span>
-              <h3 style={{ fontSize: 14 }}>{copy(pc, "builder.section.basics")}</h3>
-            </div>
-            <div className="bd">
-              <div className="fld">
-                <label>{copy(pc, "modal.builder.field.name")}</label>
-                {/* Phone: the name, domain and kind stack instead of squeezing onto one row. */}
-                <Box className="rowf" sx={BASICS_ROW_SX}>
-                  <input
-                    aria-label={copy(pc, "modal.builder.field.name")}
-                    value={name}
-                    onChange={(e) => {
-                      setName(e.target.value);
-                      resetResults();
-                    }}
-                    placeholder={copy(pc, "modal.builder.placeholder.name")}
-                  />
-                  <div
-                    aria-label={copy(pc, "modal.builder.domain_aria")}
-                    title={copy(pc, "modal.builder.domain_title")}
-                    style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, border: "1px solid var(--line)", background: "var(--bg)", borderRadius: 8, padding: "8px 10px" }}
-                  >
-                    <Tag tone="pur">{copy(pc, "modal.builder.domain_label")}</Tag>
-                    <span className="muted small">{copy(pc, "modal.builder.domain_locked")}</span>
-                  </div>
-                  {/* The SOP KIND (2026-09-18) is decided by the page: a module page authors
-                      module-level SOPs, Configuration › Work instructions authors general ones. */}
-                  <div
-                    aria-label={copy(pc, "studio.kind.label")}
-                    title={copy(pc, domain === "general" ? "studio.kind.general_hint" : "studio.kind.module_hint")}
-                    style={{ display: "flex", alignItems: "center", gap: 8, border: "1px solid var(--line)", background: "var(--bg)", borderRadius: 8, padding: "8px 10px" }}
-                    data-testid="builder-kind"
-                  >
-                    <span className="muted small">{copy(pc, "studio.kind.label")}</span>
-                    <span className="tag">{copy(pc, domain === "general" ? "studio.kind.general" : "studio.kind.module")}</span>
-                  </div>
-                </Box>
-                <div className="muted small" style={{ marginTop: 5 }}>
-                  {/* The SOP code (`counts.herd_operation`) is an internal key, never shown: the
-                      page already names the module, and this line says what the SOP governs. */}
-                  {copy(pc, "modal.builder.policy_label")}
-                </div>
-              </div>
-              <div className="fld" style={{ marginBottom: 0 }}>
-                <label>{copy(pc, "modal.builder.field.trigger")}</label>
-                <TemplateTabs
-                  variant="pill"
-                  ariaLabel={copy(pc, "modal.builder.field.trigger")}
-                  value={trigger}
-                  items={triggerOptions.map((t) => ({ value: t.key, label: t.label }))}
-                  onChange={(next) => {
-                    setTrigger(next as SopTrigger);
-                    resetResults();
-                  }}
-                />
-              </div>
-            </div>
-          </Card>
-          </div>
+          <SectionCard icon="solar:notes-bold-duotone" title={copy(pc, "builder.section.basics")}>
+            {/* Phone: the name, domain and kind stack instead of squeezing onto one row. */}
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.25} useFlexGap sx={{ flexWrap: "wrap", "& > *": { flex: { sm: "1 1 180px" }, minWidth: 0 } }}>
+              <MuiTextField
+                label={copy(pc, "modal.builder.field.name")}
+                size="small"
+                value={name}
+                placeholder={copy(pc, "modal.builder.placeholder.name")}
+                slotProps={{ inputLabel: { shrink: true }, htmlInput: { "data-testid": "builder-name" } }}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  resetResults();
+                }}
+              />
+              <LockedFact ariaLabel={copy(pc, "modal.builder.domain_aria")} title={copy(pc, "modal.builder.domain_title")}>
+                <Label color="secondary">{copy(pc, "modal.builder.domain_label")}</Label>
+                <Hint caption>{copy(pc, "modal.builder.domain_locked")}</Hint>
+              </LockedFact>
+              {/* The SOP KIND (2026-09-18) is decided by the page: a module page authors
+                  module-level SOPs, Configuration › Work instructions authors general ones. */}
+              <LockedFact
+                ariaLabel={copy(pc, "studio.kind.label")}
+                title={copy(pc, domain === "general" ? "studio.kind.general_hint" : "studio.kind.module_hint")}
+                testId="builder-kind"
+              >
+                <Hint caption>{copy(pc, "studio.kind.label")}</Hint>
+                <Label>{copy(pc, domain === "general" ? "studio.kind.general" : "studio.kind.module")}</Label>
+              </LockedFact>
+            </Stack>
+            {/* The SOP code (`counts.herd_operation`) is an internal key, never shown: the
+                page already names the module, and this line says what the SOP governs. */}
+            <Hint caption>{copy(pc, "modal.builder.policy_label")}</Hint>
+            <Stack spacing={1}>
+              <Typography variant="subtitle2" component="span">{copy(pc, "modal.builder.field.trigger")}</Typography>
+              <TemplateTabs
+                variant="pill"
+                ariaLabel={copy(pc, "modal.builder.field.trigger")}
+                value={trigger}
+                items={triggerOptions.map((t) => ({ value: t.key, label: t.label }))}
+                onChange={(next) => {
+                  setTrigger(next as SopTrigger);
+                  resetResults();
+                }}
+              />
+            </Stack>
+          </SectionCard>
 
           {/* Questions */}
-          <div>
-          <Card className="card">
-            <div className="hd">
-              <span className="fic" style={{ width: 26, height: 26, background: "var(--brand-soft)", color: "var(--brand-d)" }}>
-                <Check className="ic" style={{ width: 14 }} />
-              </span>
-              <h3 style={{ fontSize: 14 }}>{copy(pc, "builder.section.questions")}</h3>
-              <span className="sp" style={{ flex: 1 }} />
-              <Tag tone="mut">{fieldCount}</Tag>
-            </div>
-            <div className="bd">
-              <div className="muted small" style={{ marginBottom: 10 }}>
-                {copy(pc, "builder.section.questions_hint")}
-              </div>
-              {steps.length === 0 ? <div className="note">{copy(pc, "builder.empty_questions")}</div> : null}
-              <div className="qlist">
-                {steps.map((step, i) => {
-                  const priorSteps: PriorStep[] = steps.slice(0, i).map((s, j) => ({ id: s.id, position: j + 1, label: s.label }));
-                  return (
-                    <QuestionCard
-                      key={step.id}
-                      pageContract={pc}
-                      step={step}
-                      index={i}
-                      total={steps.length}
-                      priorSteps={priorSteps}
-                      onPatch={(patch) => patchStep(step.id, patch)}
-                      onChangeType={(type) => changeType(step.id, type)}
-                      onRemove={() => removeStep(step.id)}
-                      onDuplicate={() => duplicateStep(step.id)}
-                      onMoveUp={() => moveStep(i, i - 1)}
-                      onMoveDown={() => moveStep(i, i + 1)}
-                      dragging={dragIndex === i}
-                      onDragStart={() => setDragIndex(i)}
-                      onDragEnter={() => {
-                        if (dragIndex !== null && dragIndex !== i) {
-                          moveStep(dragIndex, i);
-                          setDragIndex(i);
-                        }
-                      }}
-                      onDragEnd={() => setDragIndex(null)}
-                    />
-                  );
-                })}
-              </div>
-              <Button color="primary" variant="outlined" size="small" startIcon={<Plus size={16} />} style={{ marginTop: 10 }} onClick={addStep}>
-                {copy(pc, "builder.add_question")}
-              </Button>
-            </div>
-          </Card>
-          </div>
+          <SectionCard icon="eva:checkmark-circle-2-outline" title={copy(pc, "builder.section.questions")} action={<Label>{fieldCount}</Label>}>
+            <Hint caption>{copy(pc, "builder.section.questions_hint")}</Hint>
+            {steps.length === 0 ? <Alert severity="info">{copy(pc, "builder.empty_questions")}</Alert> : null}
+            <Stack spacing={1.5}>
+              {steps.map((step, i) => {
+                const priorSteps: PriorStep[] = steps.slice(0, i).map((s, j) => ({ id: s.id, position: j + 1, label: s.label }));
+                return (
+                  <QuestionCard
+                    key={step.id}
+                    pageContract={pc}
+                    step={step}
+                    index={i}
+                    total={steps.length}
+                    priorSteps={priorSteps}
+                    onPatch={(patch) => patchStep(step.id, patch)}
+                    onChangeType={(type) => changeType(step.id, type)}
+                    onRemove={() => removeStep(step.id)}
+                    onDuplicate={() => duplicateStep(step.id)}
+                    onMoveUp={() => moveStep(i, i - 1)}
+                    onMoveDown={() => moveStep(i, i + 1)}
+                    dragging={dragIndex === i}
+                    onDragStart={() => setDragIndex(i)}
+                    onDragEnter={() => {
+                      if (dragIndex !== null && dragIndex !== i) {
+                        moveStep(dragIndex, i);
+                        setDragIndex(i);
+                      }
+                    }}
+                    onDragEnd={() => setDragIndex(null)}
+                  />
+                );
+              })}
+            </Stack>
+            <Button color="primary" variant="outlined" size="small" startIcon={<Iconify icon={EDITOR_ICON.add} />} sx={{ alignSelf: "flex-start" }} onClick={addStep}>
+              {copy(pc, "builder.add_question")}
+            </Button>
+          </SectionCard>
 
           {/* Gates & proof -- not for a general work instruction: its steps carry their own proofs
               and the document policy is the seeded run-scoped one (PR 308 review). */}
           {domain === "general" ? null : (
-          <div>
-          <Card className="card">
-            <div className="hd">
-              <span className="fic" style={{ width: 26, height: 26, background: "var(--brand-soft)", color: "var(--brand-d)" }}>
-                <Video className="ic" style={{ width: 14 }} />
-              </span>
-              <h3 style={{ fontSize: 14 }}>{copy(pc, "builder.section.gates")}</h3>
-            </div>
-            <div className="bd">
-              <div className="cfgchk" style={{ flexWrap: "wrap", gap: 14 }}>
-                <FormControlLabel control={<Checkbox checked={proofRequired} onChange={(e) => { setProofRequired(e.target.checked); resetResults(); }} sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<>{" "}
-                  {copy(pc, "modal.builder.label.proof_required")}</>} />
-                <FormControlLabel control={<Checkbox checked={verifyBeforeApply} onChange={(e) => { setVerifyBeforeApply(e.target.checked); resetResults(); }} sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<>{" "}
-                  {copy(pc, "modal.builder.label.verify_before_apply")}</>} />
-              </div>
-              <FieldRow>
-                <FieldSelect
-                  label={copy(pc, "modal.builder.field.proof_type")}
-                  value={proofType}
-                  options={proofTypeOptions.map((p) => ({ value: p.key, label: p.label }))}
-                  onChange={(next) => { setProofType(next as ProofType); resetResults(); }}
-                />
-                <label className="numfield" style={{ flex: "0 1 160px" }}>
-                  <span className="numlbl">{copy(pc, "modal.builder.field.min_count")}</span>
-                  <input
-                    aria-label={copy(pc, "modal.builder.field.min_count")}
-                    type="number"
-                    min={1}
-                    value={minCount}
-                    onChange={(e) => { setMinCount(Number(e.target.value)); resetResults(); }}
-                  />
-                </label>
-                <FieldSelect
-                  label={copy(pc, "modal.builder.field.subject_scope")}
-                  value={subjectScope}
-                  options={subjectScopeOptions.map((sc) => ({ value: sc.key, label: sc.label }))}
-                  onChange={(next) => { setSubjectScope(next as SubjectScope); resetResults(); }}
-                />
-              </FieldRow>
-              <div className="muted small" style={{ marginTop: 6 }}>{copy(pc, "builder.gates.subject_hint")}</div>
-              {!proofGapOk ? (
-                <Alert severity="warning" style={{ marginTop: 8 }}><div>{copy(pc, "modal.builder.proof_gap")}</div>
-                </Alert>
-              ) : null}
-            </div>
-          </Card>
-          </div>
+          <SectionCard icon="solar:videocamera-record-bold" title={copy(pc, "builder.section.gates")}>
+            <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: "wrap" }}>
+              <CheckLine checked={proofRequired} onChange={(on) => { setProofRequired(on); resetResults(); }} label={copy(pc, "modal.builder.label.proof_required")} />
+              <CheckLine checked={verifyBeforeApply} onChange={(on) => { setVerifyBeforeApply(on); resetResults(); }} label={copy(pc, "modal.builder.label.verify_before_apply")} />
+            </Stack>
+            <FieldRow>
+              <FieldSelect
+                label={copy(pc, "modal.builder.field.proof_type")}
+                value={proofType}
+                options={proofTypeOptions.map((p) => ({ value: p.key, label: p.label }))}
+                onChange={(next) => { setProofType(next as ProofType); resetResults(); }}
+              />
+              <MuiTextField
+                label={copy(pc, "modal.builder.field.min_count")}
+                size="small"
+                type="number"
+                value={minCount}
+                slotProps={{ htmlInput: { min: 1 } }}
+                sx={{ flex: "0 1 160px" }}
+                onChange={(e) => { setMinCount(Number(e.target.value)); resetResults(); }}
+              />
+              <FieldSelect
+                label={copy(pc, "modal.builder.field.subject_scope")}
+                value={subjectScope}
+                options={subjectScopeOptions.map((sc) => ({ value: sc.key, label: sc.label }))}
+                onChange={(next) => { setSubjectScope(next as SubjectScope); resetResults(); }}
+              />
+            </FieldRow>
+            <Hint caption>{copy(pc, "builder.gates.subject_hint")}</Hint>
+            {!proofGapOk ? <Alert severity="warning">{copy(pc, "modal.builder.proof_gap")}</Alert> : null}
+          </SectionCard>
           )}
-        </div>
+          </Stack>
+        </Grid>
 
         {/* Aside: preview + review */}
-        <div className="kit-enter builderside">
-          <div>
-          <Card className="card">
-            <div className="hd">
-              <h3 style={{ fontSize: 14 }}>{copy(pc, "builder.preview.title")}</h3>
-            </div>
-            <div className="bd">
-              <BuilderPreview pc={pc} steps={steps} />
-            </div>
-          </Card>
-          </div>
+        <Grid size={{ xs: 12, lg: 4 }} data-testid="builder-side">
+          <Stack spacing={3} sx={{ position: { lg: "sticky" }, top: { lg: 14 } }}>
+          <SectionCard title={copy(pc, "builder.preview.title")}>
+            <BuilderPreview pc={pc} steps={steps} />
+          </SectionCard>
 
-          <div>
-          <Card className="card">
-            <div className="hd">
-              <h3 style={{ fontSize: 14 }}>{copy(pc, "builder.section.review")}</h3>
-            </div>
-            <div className="bd">
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-                <Tag tone="mut">{fieldCount} {copy(pc, "builder.summary.fields")}</Tag>
-                <Tag tone="mut">{ruleCount} {copy(pc, "builder.summary.rules")}</Tag>
-                {proofRequired && domain !== "general" ? <Tag tone="pur">{proofType} {copy(pc, "builder.summary.proof")}</Tag> : null}
-              </div>
+          <SectionCard title={copy(pc, "builder.section.review")}>
+            <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: "wrap" }}>
+              <Label>{fieldCount} {copy(pc, "builder.summary.fields")}</Label>
+              <Label>{ruleCount} {copy(pc, "builder.summary.rules")}</Label>
+              {proofRequired && domain !== "general" ? <Label color="secondary">{proofType} {copy(pc, "builder.summary.proof")}</Label> : null}
+            </Stack>
 
-              {saved?.report ? (
-                <div className="note" style={{ marginBottom: 10 }}>
-                  <span className={`tag ${saved.report.valid ? "t-ok" : "t-warn"}`}>
-                    {saved.report.valid ? copy(pc, "modal.builder.validation.valid") : copy(pc, "modal.builder.validation.issues")}
-                  </span>{" "}
-                  {saved.versionId ? <span className="muted small">{copy(pc, "modal.builder.label.draft")} · {saved.versionId.slice(0, 8)}</span> : null}
-                  {saved.report.errors.length > 0 ? (
-                    <ul className="muted small" style={{ margin: "6px 0 0", paddingLeft: 18 }}>
-                      {saved.report.errors.map((e, i) => (
-                        <li key={i}><span className="mono">{e.field}</span>: {e.message}</li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </div>
-              ) : null}
+            {saved?.report ? (
+              <Alert severity={saved.report.valid ? "success" : "warning"} icon={false}>
+                <Label color={saved.report.valid ? "success" : "warning"} sx={{ mr: 1 }}>
+                  {saved.report.valid ? copy(pc, "modal.builder.validation.valid") : copy(pc, "modal.builder.validation.issues")}
+                </Label>
+                {saved.versionId ? <Typography variant="caption" component="span" sx={{ color: "text.secondary" }}>{copy(pc, "modal.builder.label.draft")} · {saved.versionId.slice(0, 8)}</Typography> : null}
+                <ProblemList items={saved.report.errors.map((e) => `${e.field}: ${e.message}`)} max={50} muted />
+              </Alert>
+            ) : null}
 
-              {dryRun ? (
-                <div className="note" style={{ marginBottom: 10 }}>
-                  <span className={`tag ${dryRun.valid ? "t-ok" : "t-warn"}`}>{copy(pc, "modal.builder.label.dry_run")} {dryRun.valid ? copy(pc, "modal.builder.notice_ok") : dryRun.final_state}</span>{" "}
-                  <span className="muted small">
-                    {copy(pc, "modal.builder.label.workflow")} {dryRun.workflow_path.join(" → ") || copy(pc, "label.placeholder")} · {copy(pc, "modal.builder.label.final")} {dryRun.final_state}
-                  </span>
-                  {dryRun.field_states.length > 0 ? (
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-                      {dryRun.field_states.map((fs) => (
-                        <span key={fs.key} className={`tag ${fs.blocked ? "t-warn" : fs.required ? "t-info" : "t-mut"}`}>
-                          {fs.key}
-                          {fs.required ? " *" : ""}
-                          {fs.blocked ? ` · ${copy(pc, "modal.builder.label.blocked")}` : ""}
-                        </span>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
+            {dryRun ? (
+              <Alert severity={dryRun.valid ? "success" : "warning"} icon={false}>
+                <Label color={dryRun.valid ? "success" : "warning"} sx={{ mr: 1 }}>
+                  {copy(pc, "modal.builder.label.dry_run")} {dryRun.valid ? copy(pc, "modal.builder.notice_ok") : dryRun.final_state}
+                </Label>
+                <Typography variant="caption" component="span" sx={{ color: "text.secondary" }}>
+                  {copy(pc, "modal.builder.label.workflow")} {dryRun.workflow_path.join(" → ") || copy(pc, "label.placeholder")} · {copy(pc, "modal.builder.label.final")} {dryRun.final_state}
+                </Typography>
+                {dryRun.field_states.length > 0 ? (
+                  <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: "wrap", mt: 1 }}>
+                    {dryRun.field_states.map((fs) => (
+                      <Label key={fs.key} color={fs.blocked ? "warning" : fs.required ? "info" : "default"}>
+                        {fs.key}
+                        {fs.required ? " *" : ""}
+                        {fs.blocked ? ` · ${copy(pc, "modal.builder.label.blocked")}` : ""}
+                      </Label>
+                    ))}
+                  </Stack>
+                ) : null}
+              </Alert>
+            ) : null}
 
-              <div className="builderactions">
-                <Button
-                  color="primary"
-                  variant="outlined"
-                  onClick={save}
-                  loading={pending}
-                  disabled={pending || !proofGapOk || editBlocked}
-                  title={editBlocked ? copy(pc, "builder.edit_blocked") : undefined}
-                >
-                  {pending ? copy(pc, "modal.builder.action.saving") : saved?.ok ? copy(pc, "modal.builder.action.re_save") : copy(pc, "modal.builder.action.save")}
-                </Button>
-                <Button
-                  color="primary"
-                  variant="outlined"
-                  startIcon={<Play size={16} />}
-                  onClick={dry}
-                  disabled={pending || !saved?.versionId}
-                  title={!saved?.versionId ? copy(pc, "modal.builder.title.save_first") : copy(pc, "modal.builder.title.preview")}
-                >
-                  {copy(pc, "modal.builder.action.dry_run")}
-                </Button>
-                <span className="spacer" style={{ flex: 1 }} />
-                <Button
-                  variant="contained"
-                  color="primary"
-                  startIcon={<Check size={16} />}
-                  onClick={publish}
-                  disabled={pending || !canPublish}
-                  title={!saved?.versionId ? copy(pc, "modal.builder.title.save_first") : canPublish ? copy(pc, "modal.builder.title.publish") : copy(pc, "modal.builder.title.resolve")}
-                >
-                  {copy(pc, "action.publish")}
-                </Button>
-              </div>
-            </div>
-          </Card>
-          </div>
-        </div>
-      </div>
+            <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", alignItems: "center" }}>
+              <Button
+                color="primary"
+                variant="outlined"
+                onClick={save}
+                loading={pending}
+                disabled={pending || !proofGapOk || editBlocked}
+                title={editBlocked ? copy(pc, "builder.edit_blocked") : undefined}
+              >
+                {pending ? copy(pc, "modal.builder.action.saving") : saved?.ok ? copy(pc, "modal.builder.action.re_save") : copy(pc, "modal.builder.action.save")}
+              </Button>
+              <Button
+                color="primary"
+                variant="outlined"
+                startIcon={<Iconify icon="carbon:play" />}
+                onClick={dry}
+                disabled={pending || !saved?.versionId}
+                title={!saved?.versionId ? copy(pc, "modal.builder.title.save_first") : copy(pc, "modal.builder.title.preview")}
+              >
+                {copy(pc, "modal.builder.action.dry_run")}
+              </Button>
+              <Spacer />
+              <Button
+                variant="contained"
+                color="primary"
+                startIcon={<Iconify icon={EDITOR_ICON.check} />}
+                onClick={publish}
+                disabled={pending || !canPublish}
+                title={!saved?.versionId ? copy(pc, "modal.builder.title.save_first") : canPublish ? copy(pc, "modal.builder.title.publish") : copy(pc, "modal.builder.title.resolve")}
+              >
+                {copy(pc, "action.publish")}
+              </Button>
+            </Stack>
+          </SectionCard>
+          </Stack>
+        </Grid>
+      </Grid>
 
       <Dialog fullWidth maxWidth="sm" open={previewOpen} onClose={() => setPreviewOpen(false)} slotProps={{ paper: { "aria-label": copy(pc, "builder.preview.title") } }}>
         <DialogTitle component="div" sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-          <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand)", width: 32, height: 32, borderRadius: 9 }}>
-            <Eye className="ic" />
-          </span>
-          <div style={{ flex: 1, minWidth: 0 }}>
+          <Box sx={(theme) => ({ display: "inline-flex", p: 0.75, borderRadius: "var(--r-md)", color: "primary.main", bgcolor: varAlpha(theme.vars.palette.primary.mainChannel, 0.12) })}>
+            <Iconify icon="solar:eye-bold" />
+          </Box>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography variant="overline" component="div" sx={{ color: "text.secondary" }}>{copy(pc, "modal.builder.eyebrow")}</Typography>
             <Typography variant="h6" component="h2">{copy(pc, "builder.preview.title")}</Typography>
-          </div>
+          </Box>
           <IconButton onClick={() => setPreviewOpen(false)} aria-label={copy(pc, "builder.preview.close")}>
             <Iconify icon="mingcute:close-line" />
           </IconButton>
@@ -559,7 +514,6 @@ export function SopBuilder({
           <BuilderPreview pc={pc} steps={steps} />
         </DialogContent>
       </Dialog>
-      </Box>
-    </div>
+    </EditorPage>
   );
 }

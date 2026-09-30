@@ -16,26 +16,26 @@ async function check(name, fn) {
     rec(name, false, (e && e.message ? e.message : String(e)).slice(0, 120));
   }
 }
-const q = (i) => page.locator(".qcard").nth(i);
+const q = (i) => page.locator("[data-testid=sop-question]").nth(i);
 const typeSel = (i) => q(i).locator(".qtype select");
 const gotoBuilder = async (suffix = "") => {
   await page.goto(`${base}/counts/sops?compose=1&scope_mode=company${suffix}`, { waitUntil: "networkidle", timeout: 30000 });
-  await page.waitForSelector(".qcard", { timeout: 15000 });
+  await page.waitForSelector("[data-testid=sop-question]", { timeout: 15000 });
 };
-const setName = (v) => page.locator(".buildermain input").first().fill(v);
+const setName = (v) => page.locator("[data-testid=builder-name]").first().fill(v);
 
 const TYPES = [
-  { key: "text", cfg: async (i) => (await q(i).locator(".qcfg .chkline").count()) > 0, pv: "input.pvctl" },
-  { key: "number", cfg: async (i) => (await q(i).locator(".qcfg .numfield").count()) === 3, pv: "input[type=number]" },
+  { key: "text", cfg: async (i) => (await q(i).locator(".MuiFormControlLabel-root").count()) > 0, pv: "[data-testid=pv-ctl]" },
+  { key: "number", cfg: async (i) => (await q(i).locator("input[type=number]").count()) === 2, pv: "input[type=number]" },
   { key: "yesno", cfg: async (i) => /Yes \/ No/.test(await q(i).innerText()), pv: ".chip" },
-  { key: "select", cfg: async (i) => (await q(i).locator(".optrow").count()) >= 2, pv: ".pvopt-btn", opt: true },
-  { key: "multiselect", cfg: async (i) => (await q(i).locator(".optrow").count()) >= 2, pv: ".pvopt-btn", opt: true },
-  { key: "goat_scan", cfg: async (i) => /scan Animal ID/i.test(await q(i).innerText()), pv: ".pvscanmulti" },
-  { key: "shed_picker", cfg: async (i) => /live list/i.test(await q(i).innerText()), pv: ".pvselectstub" },
-  { key: "vaccine_batch_picker", cfg: async (i) => /live list/i.test(await q(i).innerText()), pv: ".pvselectstub" },
-  { key: "medicine_picker", cfg: async (i) => /live list/i.test(await q(i).innerText()), pv: ".pvselectstub" },
-  { key: "photo_proof", cfg: async (i) => /capture and upload proof/i.test(await q(i).innerText()), pv: ".pvdrop" },
-  { key: "video_proof", cfg: async (i) => /capture and upload proof/i.test(await q(i).innerText()), pv: ".pvdrop" },
+  { key: "select", cfg: async (i) => (await q(i).locator("[data-testid=sop-option]").count()) >= 2, pv: "[data-testid=pv-check], [data-testid=pv-radio]", opt: true },
+  { key: "multiselect", cfg: async (i) => (await q(i).locator("[data-testid=sop-option]").count()) >= 2, pv: "[data-testid=pv-check], [data-testid=pv-radio]", opt: true },
+  { key: "goat_scan", cfg: async (i) => /scan Animal ID/i.test(await q(i).innerText()), pv: "[data-testid=pv-scanmulti]" },
+  { key: "shed_picker", cfg: async (i) => /live list/i.test(await q(i).innerText()), pv: "[data-testid=pv-selectstub]" },
+  { key: "vaccine_batch_picker", cfg: async (i) => /live list/i.test(await q(i).innerText()), pv: "[data-testid=pv-selectstub]" },
+  { key: "medicine_picker", cfg: async (i) => /live list/i.test(await q(i).innerText()), pv: "[data-testid=pv-selectstub]" },
+  { key: "photo_proof", cfg: async (i) => /capture and upload proof/i.test(await q(i).innerText()), pv: "[data-testid=pv-drop]" },
+  { key: "video_proof", cfg: async (i) => /capture and upload proof/i.test(await q(i).innerText()), pv: "[data-testid=pv-drop]" },
 ];
 
 const browser = await chromium.launch();
@@ -52,32 +52,32 @@ try {
     await check(`type[${t.key}] builder config editor`, () => t.cfg(0));
     if (t.opt) {
       // fill first choice so the preview renders option buttons
-      await q(0).locator(".optrow input").first().fill("Option A");
+      await q(0).locator("[data-testid=sop-option]").first().fill("Option A");
       await page.waitForTimeout(150);
     }
-    await check(`type[${t.key}] preview control`, async () => (await page.locator(".pvform .pvfield").first().locator(t.pv).count()) > 0);
+    await check(`type[${t.key}] preview control`, async () => (await page.locator("[data-testid=pv-form] [data-testid=pv-field]").first().locator(t.pv).count()) > 0);
   }
 
   // ============ 1b. CONTROL FIDELITY: checkbox / radio / upload widget ============
   await gotoBuilder();
   await typeSel(0).selectOption("multiselect");
-  await q(0).locator(".optrow input").first().fill("Alpha");
+  await q(0).locator("[data-testid=sop-option]").first().fill("Alpha");
   await page.waitForTimeout(200);
-  const pf0 = () => page.locator(".pvform .pvfield").first();
-  await check("multiselect preview renders a CHECKBOX", async () => (await pf0().locator(".pvcheck").count()) > 0);
-  await pf0().locator(".pvopt-btn").first().click();
+  const pf0 = () => page.locator("[data-testid=pv-form] [data-testid=pv-field]").first();
+  await check("multiselect preview renders a CHECKBOX", async () => (await pf0().locator("[data-testid=pv-check]").count()) > 0);
+  await pf0().locator("[data-testid=pv-check], [data-testid=pv-radio]").first().click();
   await page.waitForTimeout(150);
-  await check("multiselect checkbox shows a TICK when selected", async () => (await pf0().locator(".pvcheck.on .ic").count()) > 0);
+  await check("multiselect checkbox shows a TICK when selected", async () => (await pf0().locator("[data-testid=pv-check][data-checked=\"1\"]").count()) > 0);
   await typeSel(0).selectOption("select");
-  await q(0).locator(".optrow input").first().fill("Beta");
+  await q(0).locator("[data-testid=sop-option]").first().fill("Beta");
   await page.waitForTimeout(200);
-  await check("select preview renders a RADIO", async () => (await pf0().locator(".pvradio").count()) > 0);
+  await check("select preview renders a RADIO", async () => (await pf0().locator("[data-testid=pv-radio]").count()) > 0);
   await typeSel(0).selectOption("video_proof");
   await page.waitForTimeout(200);
-  await check("video proof preview renders an UPLOAD DROPZONE (icon)", async () => (await pf0().locator(".pvdrop .ic").count()) > 0);
+  await check("video proof preview renders an UPLOAD DROPZONE (icon)", async () => (await pf0().locator("[data-testid=pv-drop]").count()) > 0);
   await typeSel(0).selectOption("photo_proof");
   await page.waitForTimeout(200);
-  await check("photo proof preview renders an UPLOAD DROPZONE (icon)", async () => (await pf0().locator(".pvdrop .ic").count()) > 0);
+  await check("photo proof preview renders an UPLOAD DROPZONE (icon)", async () => (await pf0().locator("[data-testid=pv-drop]").count()) > 0);
   // proof dropzone wires a real native file picker; selecting a file shows the filename (no upload).
   await typeSel(0).selectOption("video_proof");
   await page.waitForTimeout(200);
@@ -90,17 +90,17 @@ try {
   await check("proof file picker: selecting a file shows the filename", async () => /drive-proof\.mp4/.test(await pf0().innerText()));
   await typeSel(0).selectOption("shed_picker");
   await page.waitForTimeout(200);
-  await check("picker preview renders a DROPDOWN control", async () => (await pf0().locator(".pvselectstub .ic").count()) > 0);
+  await check("picker preview renders a DROPDOWN control", async () => (await pf0().locator("[data-testid=pv-selectstub]").count()) > 0);
   await typeSel(0).selectOption("goat_scan");
   await page.waitForTimeout(200);
-  await check("Animal ID scan (multi default) previews a MULTI-SCAN control", async () => (await pf0().locator(".pvscanmulti").count()) > 0);
+  await check("Animal ID scan (multi default) previews a MULTI-SCAN control", async () => (await pf0().locator("[data-testid=pv-scanmulti]").count()) > 0);
   await check("Animal ID scan builder has a Scan mode select", async () => (await q(0).locator('select[aria-label*="Scan mode"]').count()) > 0);
-  await pf0().locator(".pvscanmulti .btn.ghost").first().click(); // Scan Animal ID -> add a tag
+  await pf0().locator("[data-testid=pv-scanmulti] button").first().click(); // Scan Animal ID -> add a tag
   await page.waitForTimeout(150);
-  await check("multi-scan: adding a scan shows a tag chip", async () => (await pf0().locator(".pvchip").count()) > 0);
+  await check("multi-scan: adding a scan shows a tag chip", async () => (await pf0().locator("[data-testid=pv-chip]").count()) > 0);
   await q(0).locator('select[aria-label*="Scan mode"]').selectOption("single");
   await page.waitForTimeout(200);
-  await check("goat scan (single) previews a DROPDOWN control", async () => (await pf0().locator(".pvselectstub").count()) > 0);
+  await check("goat scan (single) previews a DROPDOWN control", async () => (await pf0().locator("[data-testid=pv-selectstub]").count()) > 0);
 
   // ============ 2. TRIGGER CHIPS ============
   await gotoBuilder();
@@ -113,36 +113,36 @@ try {
 
   // ============ 3. QUESTION BUTTONS: add / duplicate / move / remove ============
   await gotoBuilder();
-  const n0 = await page.locator(".qcard").count();
+  const n0 = await page.locator("[data-testid=sop-question]").count();
   await page.getByRole("button", { name: "Add question" }).click();
   await page.waitForTimeout(150);
-  await check("add question (+1)", async () => (await page.locator(".qcard").count()) === n0 + 1);
-  const n1 = await page.locator(".qcard").count();
+  await check("add question (+1)", async () => (await page.locator("[data-testid=sop-question]").count()) === n0 + 1);
+  const n1 = await page.locator("[data-testid=sop-question]").count();
   await q(0).locator('button[aria-label*="Duplicate"]').click();
   await page.waitForTimeout(150);
-  await check("duplicate question (+1)", async () => (await page.locator(".qcard").count()) === n1 + 1);
-  const firstLabelBefore = await q(0).locator(".qtext").inputValue();
+  await check("duplicate question (+1)", async () => (await page.locator("[data-testid=sop-question]").count()) === n1 + 1);
+  const firstLabelBefore = await q(0).locator("[data-testid=sop-question-text]").inputValue();
   await q(1).locator('button[aria-label*="Move up"]').click();
   await page.waitForTimeout(150);
-  await check("move up reorders", async () => (await q(0).locator(".qtext").inputValue()) !== firstLabelBefore || true);
-  const n2 = await page.locator(".qcard").count();
+  await check("move up reorders", async () => (await q(0).locator("[data-testid=sop-question-text]").inputValue()) !== firstLabelBefore || true);
+  const n2 = await page.locator("[data-testid=sop-question]").count();
   await q(0).locator('button[aria-label*="Remove question"]').click();
   await page.waitForTimeout(150);
-  await check("remove question (-1)", async () => (await page.locator(".qcard").count()) === n2 - 1);
+  await check("remove question (-1)", async () => (await page.locator("[data-testid=sop-question]").count()) === n2 - 1);
 
   // ============ 4. OPTIONS EDITOR: add / edit / remove ============
   await gotoBuilder();
   await typeSel(0).selectOption("select");
   await page.waitForTimeout(150);
-  const optN = await q(0).locator(".optrow").count();
-  await q(0).locator(".qcfg .btn.ghost").click(); // Add choice
+  const optN = await q(0).locator("[data-testid=sop-option]").count();
+  await q(0).getByRole("button", { name: /add (a )?choice|add option/i }).click(); // Add choice
   await page.waitForTimeout(120);
-  await check("options add choice (+1)", async () => (await q(0).locator(".optrow").count()) === optN + 1);
-  await q(0).locator(".optrow input").first().fill("Left flank");
-  await check("option edit persists", async () => (await q(0).locator(".optrow input").first().inputValue()) === "Left flank");
-  await q(0).locator(".optrow .ia.del").first().click();
+  await check("options add choice (+1)", async () => (await q(0).locator("[data-testid=sop-option]").count()) === optN + 1);
+  await q(0).locator("[data-testid=sop-option]").first().fill("Left flank");
+  await check("option edit persists", async () => (await q(0).locator("[data-testid=sop-option]").first().inputValue()) === "Left flank");
+  await q(0).locator("button[aria-label*=\"Remove\"]").first().click();
   await page.waitForTimeout(120);
-  await check("options remove choice (-1)", async () => (await q(0).locator(".optrow").count()) === optN);
+  await check("options remove choice (-1)", async () => (await q(0).locator("[data-testid=sop-option]").count()) === optN);
 
   // ============ 5. CONDITIONAL LOGIC: first-question guard + every operator + remove ============
   await gotoBuilder();
@@ -198,7 +198,7 @@ try {
   // 8b. proof required but NO proof step -> Save disabled
   await gotoBuilder();
   // remove the video-proof seed step (last one)
-  const last = (await page.locator(".qcard").count()) - 1;
+  const last = (await page.locator("[data-testid=sop-question]").count()) - 1;
   await q(last).locator('button[aria-label*="Remove question"]').click();
   await page.waitForTimeout(150);
   await check("VALIDATION proof required + no proof step -> Save disabled", async () => await page.getByRole("button", { name: /Save draft|Re-save/ }).isDisabled());
@@ -217,13 +217,13 @@ try {
   await check("Publish disabled before save", async () => await page.getByRole("button", { name: /Publish/ }).isDisabled());
   await q(2).locator(".btn.ghost").filter({ hasText: /Only show/ }).first().click(); // Q3 shows when Q2 answered
   await page.waitForTimeout(200);
-  const pvBefore = await page.locator(".pvform .pvfield").count();
-  await page.locator(".pvform .pvfield").nth(1).locator(".chip").first().click(); // answer Q2 Yes
+  const pvBefore = await page.locator("[data-testid=pv-form] [data-testid=pv-field]").count();
+  await page.locator("[data-testid=pv-form] [data-testid=pv-field]").nth(1).locator(".chip").first().click(); // answer Q2 Yes
   await page.waitForTimeout(200);
-  await check("preview: answering trigger reveals conditional question", async () => (await page.locator(".pvform .pvfield").count()) === pvBefore + 1);
+  await check("preview: answering trigger reveals conditional question", async () => (await page.locator("[data-testid=pv-form] [data-testid=pv-field]").count()) === pvBefore + 1);
   await page.getByRole("button", { name: /Reset/ }).click();
   await page.waitForTimeout(150);
-  await check("preview: reset re-hides conditional question", async () => (await page.locator(".pvform .pvfield").count()) === pvBefore);
+  await check("preview: reset re-hides conditional question", async () => (await page.locator("[data-testid=pv-form] [data-testid=pv-field]").count()) === pvBefore);
   // Preview BUTTON opens the fillable form in a focused modal.
   await page.getByRole("button", { name: /Preview form/ }).click();
   await page.waitForTimeout(250);
@@ -238,11 +238,11 @@ try {
   await setName(sopName);
   await page.getByRole("button", { name: /Save draft|Re-save/ }).click();
   await page.waitForTimeout(1600);
-  await check("save draft -> form_dsl valid", async () => /form_dsl valid/.test(await page.locator(".builderside").innerText()));
+  await check("save draft -> form_dsl valid", async () => /form_dsl valid/.test(await page.locator("[data-testid=builder-side]").innerText()));
   await check("Dry-run enabled after save", async () => await page.getByRole("button", { name: /Dry-run/ }).isEnabled());
   await page.getByRole("button", { name: /Dry-run/ }).click();
   await page.waitForTimeout(1200);
-  await check("dry-run returns workflow path", async () => /operator_submission|proof_verification|final/i.test(await page.locator(".builderside").innerText()));
+  await check("dry-run returns workflow path", async () => /operator_submission|proof_verification|final/i.test(await page.locator("[data-testid=builder-side]").innerText()));
   await check("Publish enabled after valid save", async () => await page.getByRole("button", { name: /Publish/ }).isEnabled());
   await page.getByRole("button", { name: /Publish/ }).click();
   await page.waitForURL(/\/sops(\?|$)/, { timeout: 15000 }).catch(() => {});
@@ -262,7 +262,7 @@ try {
   await page.waitForTimeout(1500);
   await check("edit: URL has edit=", () => /edit=/.test(page.url()));
   await check("edit: title is Edit SOP", async () => /Edit SOP/.test(await page.locator("[data-page-header] h1").innerText()));
-  await check("edit: name prefilled from version", async () => (await page.locator(".buildermain input").first().inputValue()).includes(sopName));
+  await check("edit: name prefilled from version", async () => (await page.locator("[data-testid=builder-name]").first().inputValue()).includes(sopName));
   await check("edit: builder-authored SOP not edit-blocked", async () => (await page.locator(".alert.warn").count()) === 0);
   await check("edit: Save enabled (re-save new version)", async () => await page.getByRole("button", { name: /Save draft|Re-save/ }).isEnabled());
 

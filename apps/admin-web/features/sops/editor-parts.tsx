@@ -36,6 +36,7 @@ import type { SxProps, Theme } from "@mui/material/styles";
 import { varAlpha } from "minimal-shared/utils";
 import { Iconify, type IconifyName } from "@/components/minimal/iconify";
 import { Label } from "@/components/minimal/label";
+import { PageRoot } from "@/components/app/page-root";
 
 /** The registered (offline) template icons the editors use. */
 export const EDITOR_ICON = {
@@ -54,12 +55,12 @@ export const EDITOR_ICON = {
 
 const TAP = "var(--tap-min)";
 
-/** The editor page column: header, notices and cards stacked on the template page gap. */
+/** The editor page column: header, notices and cards on the shared PageRoot grid (24px gap). */
 export function EditorPage({ children, testId }: { children: ReactNode; testId?: string }) {
   return (
-    <Stack spacing={3} data-testid={testId} sx={{ minWidth: 0 }}>
+    <PageRoot data-testid={testId}>
       {children}
-    </Stack>
+    </PageRoot>
   );
 }
 

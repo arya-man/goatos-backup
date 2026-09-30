@@ -9,7 +9,6 @@ import { Label } from "@/components/minimal/label";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
 import Stack from "@mui/material/Stack";
-import type { Theme } from "@mui/material/styles";
 import { StickyBar } from "./editor-parts";
 
 /** `title` is the option's backend description (e.g. a toxin step kind's), shown as the menu item tooltip. */
@@ -184,26 +183,6 @@ export function FieldRow({ children }: { children: ReactNode }) {
 
 /** Save / dry-run / publish bar that stays reachable while a long editor is scrolled (template Card, editor-parts). */
 export const StickyActions = StickyBar;
-
-/**
- * Phone rhythm for the inspection-style SOP editors (inspection, weighing, feed, toxin, PC care,
- * shifting, capture): the page cards drop their outer padding, the page head wraps its hint under
- * the title, and the question config boxes give textareas the full width. Theme tokens only; `&&`
- * keeps these above the shared editor rules they refine.
- */
-export const inspectionEditorSx = (theme: Theme) => ({
-  [theme.breakpoints.down("sm")]: {
-    "&& .inspection-page": { p: 0 },
-    "&& .inspection-page-head": { alignItems: "flex-start", p: 1.75, gap: 1.25 },
-    "&& .inspection-page-head strong": { ...theme.typography.h6 },
-    "&& .inspection-page-head .muted": { flexBasis: "100%", pl: 5.25 },
-    "&& .inspection-page > .bd": { p: 1.75 },
-    "&& .inspection-page > .bd > .qcfg": { p: 1.5, borderRadius: "var(--r-lg)" },
-    "&& .inspection-page > .bd > .qcfg textarea:not(.MuiInputBase-input), && .inspection-page > .bd > .qcfg .qhelp": { width: 1, minWidth: 0, boxSizing: "border-box", ...theme.typography.body1 },
-    "&& .inspection-page > .bd > .qcfg textarea.qhelp": { minHeight: theme.spacing(14.5) },
-    "&& .inspection-page .qcfg-head": { alignItems: "flex-start", flexDirection: "column", gap: 0.5 },
-  },
-});
 
 export { BodyPortal } from "@/components/app/body-portal";
 

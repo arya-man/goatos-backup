@@ -76,7 +76,9 @@ test("/tasks and the SOP builder keep the page gap under the header", () => {
   const tasks = readFileSync(join(root, "features/leadership-tasks/leadership-tasks-page.tsx"), "utf8");
   assert.match(tasks, /<Box sx=\{\{ minWidth: 0, "& > \[data-page-header\]": \{ mb: 3 \} \}\}>/);
   const builder = readFileSync(join(root, "features/sops/sop-builder.tsx"), "utf8");
-  // `.screen.on` pins the root to display:block, so the column is an inner Box (as in sop-library).
-  assert.match(builder, /<div className="kit-enter screen on sop-kit">\s*\{\/\*[\s\S]*?\*\/\}\s*<Box sx=\{\{ display: "flex", flexDirection: "column", gap: 3 \}\}>/);
+  // The builder (and every SOP editor) roots on EditorPage, which is the shared PageRoot grid (24px gap).
+  assert.match(builder, /return \(\s*<EditorPage>\s*<EditorHeader/);
+  const parts = readFileSync(join(root, "features/sops/editor-parts.tsx"), "utf8");
+  assert.match(parts, /export function EditorPage\([^)]*\) \{\s*return \(\s*<PageRoot /);
   assert.doesNotMatch(builder, /marginBottom: 12/, "notices take the column gap, not their own margin");
 });

@@ -1,9 +1,20 @@
 "use client";
 
-import { Tag } from "@/components/ui-primitives";
-
 import { useMemo, useState } from "react";
-import { Camera, Check, ChevronDown, RotateCcw, ScanLine, Video, X } from "lucide-react";
+import Alert from "@mui/material/Alert";
+import Button from "@mui/material/Button";
+import Checkbox from "@mui/material/Checkbox";
+import Chip from "@mui/material/Chip";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import InputAdornment from "@mui/material/InputAdornment";
+import Radio from "@mui/material/Radio";
+import Stack from "@mui/material/Stack";
+import MuiTextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
+import { Iconify } from "@/components/minimal/iconify";
+import { Label } from "@/components/minimal/label";
+import { UploadFile } from "@/components/app/upload-file";
+import { EDITOR_ICON, Hint, NumBadge, Spacer } from "./editor-parts";
 import { fieldConfigKind, type BuilderCondition, type BuilderStep } from "./sop-derive";
 import { copy, optionalOptionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
@@ -47,6 +58,8 @@ function conditionMet(cond: BuilderCondition, steps: BuilderStep[], answers: Rec
 // Interactive operator preview of the form being authored — updated live as questions change, and
 // FILLABLE: type/select/toggle answers and conditional questions reveal or hide exactly as they will for
 // a real operator. Purely local (no save, no backend); pickers/scan/proof render as disabled stubs.
+// Template parts only (TextField, Radio/Checkbox lines, Chips, the template upload area); the
+// data-testid hooks (pv-*) are what the builder e2e reads.
 export function BuilderPreview({ pc, steps }: { pc: AdminUiPageContract; steps: BuilderStep[] }) {
   const yesNo = optionalOptionGroup(pc, "yes_no");
   const [answers, setAnswers] = useState<Record<string, Answer>>({});
@@ -73,183 +86,183 @@ export function BuilderPreview({ pc, steps }: { pc: AdminUiPageContract; steps: 
   }, [steps, answers]);
 
   if (steps.length === 0) {
-    return <div className="note">{copy(pc, "builder.preview.empty")}</div>;
+    return <Alert severity="info">{copy(pc, "builder.preview.empty")}</Alert>;
   }
 
   const visibleSteps = steps.filter((s) => visibleIds.has(s.id));
 
   return (
-    <div className="pvwrap">
-      <div className="pvbar">
-        <span className="muted small">{copy(pc, "builder.preview.subtitle")}</span>
-        <span className="sp" style={{ flex: 1 }} />
-        <button
-          type="button"
-          className="btn sm ghost"
+    <Stack spacing={2} data-testid="pv-wrap" sx={{ minWidth: 0 }}>
+      <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+        <Hint caption>{copy(pc, "builder.preview.subtitle")}</Hint>
+        <Spacer />
+        <Button
+          size="small"
+          color="inherit"
+          variant="text"
+          startIcon={<Iconify icon="solar:restart-bold" />}
           onClick={() => {
             setAnswers({});
             setFiles({});
           }}
           disabled={Object.keys(answers).length === 0 && Object.keys(files).length === 0}
         >
-          <RotateCcw className="ic" style={{ width: 12 }} /> {copy(pc, "builder.preview.reset")}
-        </button>
-      </div>
-      <div className="pvform">
+          {copy(pc, "builder.preview.reset")}
+        </Button>
+      </Stack>
+      <Stack spacing={2.5} data-testid="pv-form">
         {visibleSteps.map((step) => {
           const kind = fieldConfigKind(step.type);
           const answer = answers[step.id];
           const num = steps.findIndex((s) => s.id === step.id) + 1;
           const opts = step.options.filter((o) => o.label.trim());
+          const label = step.label.trim() || `${copy(pc, "builder.question_label")} ${num}`;
           return (
-            <div className="pvfield" key={step.id}>
-              <div className="pvlabel">
-                <span className="pvnum">{num}</span>
-                <span className="pvq">{step.label.trim() || `${copy(pc, "builder.question_label")} ${num}`}</span>
-                {step.required ? <Tag tone="warn">{copy(pc, "builder.preview.required_badge")}</Tag> : null}
-                {step.visibleWhen ? <Tag tone="info">{copy(pc, "builder.preview.conditional_badge")}</Tag> : null}
-              </div>
-              {step.helpText.trim() ? <div className="muted small pvhelp">{step.helpText}</div> : null}
+            <Stack spacing={1} key={step.id} data-testid="pv-field" sx={{ minWidth: 0 }}>
+              <Stack direction="row" spacing={1} useFlexGap sx={{ alignItems: "center", flexWrap: "wrap" }}>
+                <NumBadge>{num}</NumBadge>
+                <Typography variant="subtitle2" component="span" sx={{ minWidth: 0 }}>
+                  {label}
+                </Typography>
+                {step.required ? <Label color="warning">{copy(pc, "builder.preview.required_badge")}</Label> : null}
+                {step.visibleWhen ? <Label color="info">{copy(pc, "builder.preview.conditional_badge")}</Label> : null}
+              </Stack>
+              {step.helpText.trim() ? <Hint caption>{step.helpText}</Hint> : null}
 
               {kind === "text" ? (
-                step.longText ? (
-                  <textarea
-                    className="pvctl"
-                    rows={2}
-                    aria-label={step.label.trim() || `${copy(pc, "builder.question_label")} ${num}`}
-                    placeholder={step.placeholder}
-                    value={(answer as string) ?? ""}
-                    onChange={(e) => setAnswer(step.id, e.target.value)}
-                  />
-                ) : (
-                  <input
-                    className="pvctl"
-                    aria-label={step.label.trim() || `${copy(pc, "builder.question_label")} ${num}`}
-                    placeholder={step.placeholder}
-                    value={(answer as string) ?? ""}
-                    onChange={(e) => setAnswer(step.id, e.target.value)}
-                  />
-                )
+                <MuiTextField
+                  fullWidth
+                  size="small"
+                  multiline={step.longText}
+                  minRows={step.longText ? 2 : undefined}
+                  placeholder={step.placeholder}
+                  value={(answer as string) ?? ""}
+                  slotProps={{ htmlInput: { "aria-label": label, "data-testid": "pv-ctl" } }}
+                  onChange={(e) => setAnswer(step.id, e.target.value)}
+                />
               ) : null}
 
               {kind === "number" ? (
-                <div className="pvnumrow">
-                  <input
-                    className="pvctl"
-                    type="number"
-                    aria-label={step.label.trim() || `${copy(pc, "builder.question_label")} ${num}`}
-                    value={(answer as string) ?? ""}
-                    onChange={(e) => setAnswer(step.id, e.target.value)}
-                  />
-                  {step.unit.trim() ? <span className="pvunit">{step.unit}</span> : null}
-                </div>
+                <MuiTextField
+                  size="small"
+                  type="number"
+                  value={(answer as string) ?? ""}
+                  slotProps={{
+                    htmlInput: { "aria-label": label, "data-testid": "pv-ctl" },
+                    input: step.unit.trim() ? { endAdornment: <InputAdornment position="end">{step.unit}</InputAdornment> } : undefined,
+                  }}
+                  onChange={(e) => setAnswer(step.id, e.target.value)}
+                />
               ) : null}
 
               {kind === "boolean" ? (
-                <div className="chipset">
+                <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
                   {yesNo.map((o) => (
-                    <button
+                    <Chip
                       key={o.key}
-                      type="button"
-                      className={`chip${answer === o.key ? " on" : ""}`}
+                      label={o.label}
+                      clickable
+                      color={answer === o.key ? "primary" : "default"}
+                      variant={answer === o.key ? "filled" : "outlined"}
                       aria-pressed={answer === o.key}
                       onClick={() => setAnswer(step.id, answer === o.key ? undefined : o.key)}
-                    >
-                      {o.label}
-                    </button>
+                    />
                   ))}
-                </div>
+                </Stack>
               ) : null}
 
               {kind === "options" ? (
                 opts.length === 0 ? (
-                  <span className="muted small">{copy(pc, "builder.options.empty")}</span>
+                  <Hint caption>{copy(pc, "builder.options.empty")}</Hint>
                 ) : (
-                  <div className="pvopts">
+                  <Stack data-testid="pv-opts">
                     {opts.map((o) => {
-                      const checked = step.type === "multiselect" ? Array.isArray(answer) && answer.includes(o.label) : answer === o.label;
-                      const onClick = () =>
-                        step.type === "multiselect"
-                          ? toggleMulti(step.id, o.label)
-                          : setAnswer(step.id, answer === o.label ? undefined : o.label);
+                      const multi = step.type === "multiselect";
+                      const checked = multi ? Array.isArray(answer) && answer.includes(o.label) : answer === o.label;
+                      const onClick = () => (multi ? toggleMulti(step.id, o.label) : setAnswer(step.id, answer === o.label ? undefined : o.label));
                       return (
-                        <button key={o.id} type="button" className={`pvopt pvopt-btn${checked ? " on" : ""}`} aria-pressed={checked} onClick={onClick}>
-                          {step.type === "multiselect" ? (
-                            <span className={`pvcheck${checked ? " on" : ""}`} aria-hidden="true">{checked ? <Check className="ic" /> : null}</span>
-                          ) : (
-                            <span className={`pvradio${checked ? " on" : ""}`} aria-hidden="true" />
-                          )}
-                          {o.label}
-                        </button>
+                        <FormControlLabel
+                          key={o.id}
+                          data-testid={multi ? "pv-check" : "pv-radio"}
+                          data-checked={checked ? "1" : "0"}
+                          control={multi ? <Checkbox checked={checked} onChange={onClick} /> : <Radio checked={checked} onClick={onClick} />}
+                          label={o.label}
+                          sx={{ mr: 0, "& .MuiFormControlLabel-label": { typography: "body2" } }}
+                        />
                       );
                     })}
-                  </div>
+                  </Stack>
                 )
               ) : null}
 
-              {/* Pickers render as a live-list dropdown stub, scan as a scan control, proof as an upload
-                  dropzone — the real operator control's look (inert in preview; the operator does it live). */}
+              {/* Pickers render as a live-list dropdown stub, scan as a scan control, proof as the
+                  template upload area — the real operator control's look (inert in preview). */}
               {kind === "picker" ? (
-                <div className="pvselectstub" aria-disabled="true">
-                  <span>{copy(pc, "builder.picker.note")}</span>
-                  <ChevronDown className="ic" aria-hidden="true" />
-                </div>
+                <MuiTextField
+                  disabled
+                  fullWidth
+                  size="small"
+                  value={copy(pc, "builder.picker.note")}
+                  data-testid="pv-selectstub"
+                  slotProps={{ htmlInput: { "aria-disabled": true }, input: { endAdornment: <Iconify icon={EDITOR_ICON.down} /> } }}
+                />
               ) : null}
               {kind === "scan" ? (
                 step.multiScan ? (
                   // Multi-scan: operator scans every goat in the shed — a growing multi-select of tags.
-                  <div className="pvscanmulti">
-                    <div className="pvscanchips">
+                  <Stack spacing={1} data-testid="pv-scanmulti">
+                    <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", alignItems: "center" }}>
                       {(Array.isArray(answer) ? answer : []).map((g, gi) => (
-                        <button
-                          key={`${g}-${gi}`}
-                          type="button"
-                          className="pvchip"
-                          onClick={() => setAnswer(step.id, (answer as string[]).filter((_, k) => k !== gi))}
-                        >
-                          {g} <X className="ic" aria-hidden="true" />
-                        </button>
+                        <Chip key={`${g}-${gi}`} size="small" label={g} data-testid="pv-chip" onDelete={() => setAnswer(step.id, (answer as string[]).filter((_, k) => k !== gi))} />
                       ))}
-                      <button
-                        type="button"
-                        className="btn sm ghost"
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="primary"
+                        startIcon={<Iconify icon="solar:tag-horizontal-bold-duotone" />}
                         onClick={() => {
                           const cur = Array.isArray(answer) ? (answer as string[]) : [];
                           setAnswer(step.id, [...cur, `#${cur.length + 1}`]);
                         }}
                       >
-                        <ScanLine className="ic" style={{ width: 13 }} aria-hidden="true" /> {copy(pc, "builder.preview.scan_add")}
-                      </button>
-                    </div>
-                    <div className="muted small">{copy(pc, "builder.scan.note")}</div>
-                  </div>
+                        {copy(pc, "builder.preview.scan_add")}
+                      </Button>
+                    </Stack>
+                    <Hint caption>{copy(pc, "builder.scan.note")}</Hint>
+                  </Stack>
                 ) : (
-                  <div className="pvselectstub" aria-disabled="true">
-                    <ScanLine className="ic" aria-hidden="true" style={{ marginLeft: 0 }} />
-                    <span>{copy(pc, "builder.scan.note")}</span>
-                    <ChevronDown className="ic" aria-hidden="true" />
-                  </div>
+                  <MuiTextField
+                    disabled
+                    fullWidth
+                    size="small"
+                    value={copy(pc, "builder.scan.note")}
+                    data-testid="pv-selectstub"
+                    slotProps={{
+                      htmlInput: { "aria-disabled": true },
+                      input: {
+                        startAdornment: <Iconify icon="solar:tag-horizontal-bold-duotone" sx={{ mr: 1 }} />,
+                        endAdornment: <Iconify icon={EDITOR_ICON.down} />,
+                      },
+                    }}
+                  />
                 )
               ) : null}
               {kind === "proof" ? (
-                <label className="pvdrop">
-                  {/* Real native file picker so the author can verify the upload affordance. Preview only
-                      captures the chosen filename — no backend upload / proof record is created here. */}
-                  <input
-                    type="file"
-                    className="pvfileinput"
-                    accept={step.type === "photo_proof" ? "image/*" : "video/*"}
-                    onChange={(e) => setFile(step.id, e.target.files?.[0]?.name)}
-                  />
-                  {step.type === "photo_proof" ? <Camera className="ic" aria-hidden="true" /> : <Video className="ic" aria-hidden="true" />}
-                  <span>{copy(pc, "builder.proof.note")}</span>
-                  {files[step.id] ? <span className="pvfile">{files[step.id]}</span> : null}
-                </label>
+                // Real native file picker (hidden inside the template upload area) so the author can
+                // verify the upload affordance. Preview only keeps the chosen filename; no upload.
+                <UploadFile
+                  testId="pv-drop"
+                  accept={step.type === "photo_proof" ? "image/*" : "video/*"}
+                  title={copy(pc, "builder.proof.note")}
+                  description={files[step.id] || undefined}
+                  ariaLabel={label}
+                  onFileChange={(file) => setFile(step.id, file?.name)}
+                />
               ) : null}
-            </div>
+            </Stack>
           );
         })}
-      </div>
-    </div>
+      </Stack>
+    </Stack>
   );
 }
