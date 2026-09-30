@@ -1,3 +1,7 @@
+// The template PageNotFoundIllustration (src/assets/illustrations/page-not-found-illustration.tsx),
+// copied whole with ONE declared change: the sun's two fills are the theme warning tokens instead of
+// the Minimal default hex fills (design:guard brand-lock keeps Minimal default colours out of the
+// app). Everything else -- viewBox, paths, gradient, character image, 320px width -- is the template's.
 import type { SvgIconProps } from '@mui/material/SvgIcon';
 
 import { memo } from 'react';
@@ -46,12 +50,12 @@ function PageNotFoundIllustration({ hideBackground, sx, ...other }: SvgProps) {
       {renderCharacterImage()}
 
       <path
-        fill="#FFAB00"
+        fill="var(--palette-warning-main)"
         d="M111.1 141.2c58.7-1 58.6-88.3 0-89.2-58.6 1-58.6 88.3 0 89.2z"
         opacity="0.12"
       />
 
-      <path fill="#FFD666" d="M111.1 120c30.8-.5 30.8-46.3 0-46.8-30.8.5-30.8 46.3 0 46.8z" />
+      <path fill="var(--palette-warning-light)" d="M111.1 120c30.8-.5 30.8-46.3 0-46.8-30.8.5-30.8 46.3 0 46.8z" />
       <path
         fill="var(--primary-darker)"
         d="M244.9 182.5c82.3 1.4 82.2 123.8 0 125.2-82.3-1.5-82.3-123.8 0-125.2zm0 23.1c-51.8.9-51.8 77.9 0 78.8 51.8-.9 51.7-77.9 0-78.8z"
