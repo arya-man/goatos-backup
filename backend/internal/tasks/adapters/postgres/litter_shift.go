@@ -19,6 +19,7 @@ const (
 	litterOfChildSQL = `
 SELECT birth_event_id::text FROM goat_births
 WHERE tenant_id = $1::uuid AND child_goat_id = $2::uuid AND birth_event_id IS NOT NULL`
+	// scale-guard:plan-proof-exempt: bounded by one birth_event_id; goat_births_event_child_unique returns <=3 kids before the goat/event probes.
 	// litterKidsSQL lists the litter's kids with their CURRENT stage. A rejected birth's kids are
 	// not a litter anyone owes a move (its workflow is canceled by the rejection consumer).
 	// stage_since is the latest goat.stage_changed naming the kid's CURRENT stage: one LATERAL
@@ -43,6 +44,7 @@ WHERE gb.tenant_id = $1::uuid AND gb.birth_event_id = $2::uuid
 ORDER BY gb.child_ordinal`
 )
 
+// scale-guard:plan-proof-exempt: bounded by one birth_event_id; active RFID lookup runs once per <=3 litter kids.
 // litterKidViewsSQL is the litter detail read: each kid's RFID (the LATERAL pre-selects ONE
 // active animal identifier, keeping the join 1:0..1), stage, and pen (locations by primary key,
 // goat_shed_partitions by (tenant, goat)). Bounded by one litter (<= 3 rows).
@@ -170,6 +172,7 @@ type LitterOwingShift struct {
 	KidGoatID    string
 }
 
+// scale-guard:plan-proof-exempt: keyset-paged by birth_event_id with LIMIT; goat rows are probed from the litter child index.
 // littersOwingShiftSQL lists, keyset-paged on birth_event_id, the recorded litters that still hold
 // a LIVE kid on one of $2's stages and have NO litter workflow yet. goat_births is read through
 // goat_births_event_child_unique (tenant_id, birth_event_id, child_ordinal); goats and
