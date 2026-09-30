@@ -48,9 +48,9 @@ type CreateRoundParams struct {
 	// pc-care-repeat stage makes (2026-09-30). Empty for a round a person plans.
 	RepeatOf  map[string]string
 	CreatedBy string
-	ActorID                 string
-	ActorType               string
-	TraceID                 string
+	ActorID   string
+	ActorType string
+	TraceID   string
 }
 
 // RoundRow is one round as served to planner/monitor/worklist reads and echoed by the
