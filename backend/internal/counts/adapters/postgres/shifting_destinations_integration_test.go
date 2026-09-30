@@ -671,7 +671,7 @@ ON CONFLICT (location_id) DO NOTHING`,
 INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
 VALUES ($1::uuid, $2::uuid, 'Part 1', '1', 'active', 'manual'),
        ($1::uuid, $2::uuid, 'Part 2', '2', 'active', 'manual'),
-       ($1::uuid, $2::uuid, 'Part 99', '99', 'inactive', 'manual')
+       ($1::uuid, $2::uuid, 'Part 99', '99', 'retired', 'manual')
 ON CONFLICT (tenant_id, shed_id, normalized_label) DO UPDATE
 SET partition_label = EXCLUDED.partition_label, status = EXCLUDED.status`,
 		countsTenant, parentShed); err != nil {
