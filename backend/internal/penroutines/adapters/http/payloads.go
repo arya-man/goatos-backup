@@ -53,14 +53,17 @@ type penOptionPayload struct {
 	ShedID         string `json:"shed_id"`
 	PartitionLabel string `json:"partition_label"`
 	Label          string `json:"label"`
-	ParkName       string `json:"park_name"`
-	Count          int    `json:"count"`
+	// OperationalLocationDisplay is the same oploc display as Label, under the contract name every
+	// location-bearing response carries.
+	OperationalLocationDisplay string `json:"operational_location_display"`
+	ParkName                   string `json:"park_name"`
+	Count                      int    `json:"count"`
 }
 
 func toPenOptionPayloads(in []ports.PenOption) []penOptionPayload {
 	out := make([]penOptionPayload, 0, len(in))
 	for _, o := range in {
-		out = append(out, penOptionPayload{Value: o.ShedID + "|" + o.Partition, ShedID: o.ShedID, PartitionLabel: o.Partition, Label: o.Label, ParkName: o.ParkName, Count: o.Count})
+		out = append(out, penOptionPayload{Value: o.ShedID + "|" + o.Partition, ShedID: o.ShedID, PartitionLabel: o.Partition, Label: o.Label, OperationalLocationDisplay: o.Label, ParkName: o.ParkName, Count: o.Count})
 	}
 	return out
 }

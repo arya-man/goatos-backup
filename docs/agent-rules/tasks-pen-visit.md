@@ -62,6 +62,20 @@ both its own clips and the visit are approved; who visits is per-park HRMS confi
 one or more people. Do not re-fold the visit into a parent card, and do not re-title the board
 row as the parent work. Canonical prose: `docs/decisions/pen-visit-tasks.md` -> "2026-09-14".
 
+## Simple Tasks Get A Phone Tab Defined On The Web (maintainer instruction 2026-10-01)
+
+A SIMPLE task -- a pen, a schedule, one person, questions and photo/video captures, optional
+verifier, and nothing the server must compute (fumigation-style) -- is added with NO code: it is a
+pen routine, and a **phone tab** authored on `/routines` puts it on its own bottom-bar item in a
+chosen phone module (label, icon from a closed set, list filters). The phone renders every such tab
+with ONE parameterized root, `/pen-routines/tab/{tab_key}`. Complex modules (feed direction /
+packing / transport / wastage, weighing, vaccination, PC Care's own categories) stay coded and must
+not be moved onto it. This is the one place a bar item comes from data: the module and icon keys
+are closed vocabularies in `penroutines/domain/tab.go`, mirrored by `MeshaIcons.forTabIcon`, and
+who gets the tab is who owes the work (the task-list predicate), never a role template. A new
+simple task is a routine + a tab, never a new screen or a new registry entry. Canonical prose:
+`docs/decisions/simple-task-phone-tabs.md`.
+
 ## Operational Task-Kernel Non-Deviation Lock (Mandatory)
 
 Maintainer decision 2026-08-10: Goat OS is one event-driven, interlinked

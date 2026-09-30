@@ -9,6 +9,13 @@ video / photo, or any clock-in and clock-out stating some person entered the she
 Status: ACCEPTED, built on `feat/pen-routines`. On screen the module is **Routines**; the word
 is *pen*, never *shed* (`docs/decisions/pen-not-shed-vocabulary.md`).
 
+## 2026-10-01: routines can have their own phone tab
+
+A routine can now be placed on a **phone tab** defined on the web -- its own bottom-bar item in a
+chosen module (label, icon, filters). This is how a simple task like fumigation is added with no
+code. Everything below still governs the routine itself. See
+`docs/decisions/simple-task-phone-tabs.md`.
+
 ## 2026-09-26 revision: a routine is for ONE PERSON, picked like a task (SUPERSEDES "assign by role")
 
 Maintainer instruction (chat, 2026-09-26): *"we have two park heads each for one park and divide

@@ -48998,12 +48998,13 @@ components:
           items: { type: string, enum: [status, date, pen] }
     PenRoutinePenOption:
       type: object
-      required: [value, shed_id, partition_label, label, park_name, count]
+      required: [value, shed_id, partition_label, label, operational_location_display, park_name, count]
       properties:
         value: { type: string, description: Pass back as the pen parameter. }
         shed_id: { type: string, format: uuid }
         partition_label: { type: string }
-        label: { type: string, description: The operational location display (oploc). }
+        label: { type: string, description: The operational location display (oploc); same as operational_location_display. }
+        operational_location_display: { type: string, description: The backend-composed pen name, e.g. Castro 2 or Godel 1 - Part 3. }
         park_name: { type: string }
         count: { type: integer }
     PenRoutinePresenceLocation:

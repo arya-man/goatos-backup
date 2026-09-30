@@ -21528,8 +21528,10 @@ export interface components {
             /** Format: uuid */
             shed_id: string;
             partition_label: string;
-            /** @description The operational location display (oploc). */
+            /** @description The operational location display (oploc); same as operational_location_display. */
             label: string;
+            /** @description The backend-composed pen name */
+            operational_location_display: string;
             park_name: string;
             count: number;
         };

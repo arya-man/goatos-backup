@@ -28,6 +28,7 @@ them away: `docs/architecture/operational-read-model-contract.md`
 - Android/mobile/APK/Room/device QA -> `docs/agent-rules/android.md`: proof media, CLI bootstrap, APK traceability, who-did-what provenance, offline-first Room reads, refresh-on-open, Room upgrades, one-page fetch cap.
 - Vaccination -> `docs/agent-rules/vaccination.md`: anchor dates, catch-up joins normal drive, safe-window park batching, 200/operator-day packing, source dates.
 - Tasks/pen visit -> `docs/agent-rules/tasks-pen-visit.md`: day-after check, pen visit as own task, task-kernel non-deviation lock.
+- Simple tasks (fumigation-style: pens, schedule, questions, photos/videos, optional verifier) -> a pen routine placed on a web-defined phone tab; never a new screen -> `docs/agent-rules/tasks-pen-visit.md` "Simple Tasks Get A Phone Tab".
 - Weighing -> `docs/agent-rules/weighing.md`: isolated from herd/vaccination, scan-and-submit only, unconditional close gate.
 - Herd ops/sales -> `docs/agent-rules/sop-herd-sales.md`: SOP-driven herd ops and features, sale workflow on /sales/sops.
 - Procurement -> `docs/agent-rules/procurement.md`: SOP-driven end to end.
