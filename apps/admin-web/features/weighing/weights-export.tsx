@@ -1,6 +1,6 @@
 "use client";
 
-import { Download } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import { useCallback, useState, useSyncExternalStore, useTransition } from "react";
 
 import { DateRangePicker, type DateRangePickerLabels } from "@/components/date-range-picker";
@@ -194,7 +194,7 @@ export function WeightsExportControl({
 
   return (
     <div className="wt-export-control">
-      <Button component={LocalOverlayLink} href={openHref} variant="contained" color="primary" scroll={false} aria-haspopup="dialog" startIcon={<Download size={18} aria-hidden="true" />}>
+      <Button component={LocalOverlayLink} href={openHref} variant="contained" color="primary" scroll={false} aria-haspopup="dialog" startIcon={<Iconify icon="solar:download-bold" width={18} />}>
         {copy(pageContract, "export.button")}
       </Button>
 
@@ -216,7 +216,7 @@ export function WeightsExportControl({
             aria-busy={pending}
             loading={pending}
             loadingPosition="start"
-            startIcon={<Download size={18} aria-hidden="true" />}
+            startIcon={<Iconify icon="solar:download-bold" width={18} />}
           >
             {pending ? copy(pageContract, "export.preparing") : copy(pageContract, "export.download")}
           </Button>

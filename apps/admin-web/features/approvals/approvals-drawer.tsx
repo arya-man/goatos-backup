@@ -5,7 +5,7 @@ import {
   LOCAL_OVERLAY_URL_CHANGE_EVENT,
   replaceLocalOverlayUrl,
 } from "@/components/local-overlay-link";
-import { Gavel } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import type { AdminWebApprovalItem } from "@/lib/api/server";
@@ -153,7 +153,7 @@ function ApprovalsDrawerPanel({
       onClose={onClose}
       title={`${titleCase(item.request_type)} request`}
       eyebrow={COPY.drawer.eyebrow}
-      icon={<Gavel aria-hidden="true" />}
+      icon={<Iconify icon="solar:verified-check-bold" />}
       ariaLabel={COPY.drawer.aria}
       closeLabel={COPY.drawer.closeLabel}
       footer={

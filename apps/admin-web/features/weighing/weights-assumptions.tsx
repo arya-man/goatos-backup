@@ -7,7 +7,7 @@ import TableCell from "@mui/material/TableCell";
 
 import { Caption } from "@/components/app/caption";
 
-import { ChevronDown, SlidersHorizontal } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import Accordion from "@mui/material/Accordion";
 import AccordionDetails from "@mui/material/AccordionDetails";
@@ -215,7 +215,7 @@ export function WeightsAssumptionsControl({
 
   return (
     <div className="wt-assumptions-control">
-      <Button component={LocalOverlayLink} href={openHref} scroll={false} aria-haspopup="dialog" variant="outlined" color="inherit" size="small" startIcon={<SlidersHorizontal size={18} aria-hidden="true" />}>
+      <Button component={LocalOverlayLink} href={openHref} scroll={false} aria-haspopup="dialog" variant="outlined" color="inherit" size="small" startIcon={<Iconify icon="ic:round-filter-list" width={18} />}>
         {copy(pageContract, "action.assumptions")}
       </Button>
 
@@ -266,7 +266,7 @@ export function WeightsAssumptionsControl({
                 />
                 {current.stages.length > 0 ? (
                   <Accordion variant="outlined" disableGutters>
-                    <AccordionSummary expandIcon={<ChevronDown size={18} aria-hidden="true" />}>
+                    <AccordionSummary expandIcon={<Iconify icon="eva:arrow-ios-downward-fill" width={18} />}>
                       <Typography variant="body2" sx={{ color: "primary.main", fontWeight: "fontWeightSemiBold" }}>
                         {copy(pageContract, "drawer.assumptions.prices.by_stage")}
                         {overrideCount > 0 ? (

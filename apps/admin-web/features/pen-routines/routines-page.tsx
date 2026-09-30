@@ -10,7 +10,6 @@ import Avatar from "@mui/material/Avatar";
 import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
 import { listOrEmpty } from "@/lib/list-or-empty";
-import { ListChecks } from "lucide-react";
 
 import Link from "@/components/no-prefetch-link";
 import Card from "@mui/material/Card";
@@ -279,7 +278,7 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
       id: "new",
       eyebrow: c("drawer.routine.title"),
       title: c("drawer.routine.create_title"),
-      icon: <ListChecks className="ic" aria-hidden="true" />,
+      icon: <Iconify icon="solar:bill-list-bold-duotone" />,
       body: <RoutineDrawerForm pageContract={pageContract} parks={parks} catalog={data.catalog} catalogParkId={catalogParkId} parkHrefs={createParkHrefs} canEdit={canCreate} canSetStatus={false} listHref={listHref} formId="prt-form-new" />,
       footer: <RoutineSaveFooter key="save" formId="prt-form-new" saveLabel={c("action.save")} canSave={canCreate} />,
     });
@@ -290,7 +289,7 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
       id: routine.routine_id,
       eyebrow: c("drawer.routine.title"),
       title: canEdit ? c("drawer.routine.edit_title") : routine.name,
-      icon: <ListChecks className="ic" aria-hidden="true" />,
+      icon: <Iconify icon="solar:bill-list-bold-duotone" />,
       body: (
         <RoutineDrawerForm
           pageContract={pageContract}

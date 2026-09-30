@@ -1,6 +1,5 @@
 import { Tag } from "@/components/ui-primitives";
-import type { ComponentType, SVGProps } from "react";
-import { AlertTriangle, CalendarOff, CheckCircle2, Clock, Eye, FlaskConical, Lock, PencilLine } from "lucide-react";
+import { Iconify, type IconifyName } from "@/components/minimal/iconify";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { FeedDirectionLifecycle, FeedDirectionWorkflowLifecycle } from "@/lib/api/server";
@@ -29,21 +28,20 @@ export { isLifecycleEmpty };
 type LifecycleState = FeedDirectionLifecycle["state"];
 type WorkflowState = FeedDirectionWorkflowLifecycle["state"];
 
-type IconType = ComponentType<SVGProps<SVGSVGElement>>;
 
-const STATE_ICON: Record<LifecycleState, IconType> = {
-  issued: CheckCircle2,
-  amended: PencilLine,
-  locked: Lock,
-  pending: Clock,
-  not_issued: AlertTriangle,
+const STATE_ICON: Record<LifecycleState, IconifyName> = {
+  issued: "solar:check-circle-bold",
+  amended: "solar:pen-bold",
+  locked: "solar:lock-password-outline",
+  pending: "solar:clock-circle-bold",
+  not_issued: "solar:danger-triangle-bold",
   // `preview` = the rows were GENERATED on demand for a day with no issued sheet. Informational, not
   // alarming — an eye, not a warning triangle.
-  preview: Eye,
+  preview: "solar:eye-bold",
   // `beyond_horizon` = the day is outside the [today, tomorrow] projection window and has no issued
   // sheet, so no rows could be produced. A calendar-off marker: nothing wrong, just out of range.
-  beyond_horizon: CalendarOff,
-  draft: FlaskConical,
+  beyond_horizon: "solar:forbidden-circle-bold",
+  draft: "solar:atom-bold-duotone",
 };
 
 // kit Alert severity. success = a clean issued sheet; warn = amended (corrections folded in) or the not_issued
@@ -108,7 +106,6 @@ export function FeedLifecycleBanner({
   pageContract: AdminUiPageContract;
 }) {
   const state = lifecycle.state;
-  const Icon = STATE_ICON[state];
   const instant = headlineInstant(lifecycle);
   // Not-yet-frozen states are anchored by WHICH feed day they cover and by the per-workflow expected
   // issue times, not by a frozen instant. `preview` (rows generated on demand) belongs here too — it
@@ -126,7 +123,7 @@ export function FeedLifecycleBanner({
   return (
     <Alert
       severity={alertSeverity(state)}
-      icon={<Icon aria-hidden="true" />}
+      icon={<Iconify icon={STATE_ICON[state]} />}
       role="status"
       aria-label={copy(pageContract, "lifecycle.aria")}
       style={{ marginBottom: 16 }}
