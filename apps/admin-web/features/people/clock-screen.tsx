@@ -206,7 +206,7 @@ export async function ClockScreen({
             name="search"
             defaultValue={search}
             placeholder={copy(pageContract, "filter.search_placeholder")}
-            sx={{ flex: "1 1 240px", minWidth: 0 }}
+            sx={{ flex: "1 1 auto", minWidth: { xs: 0, sm: 240 } }}
             slotProps={{
               htmlInput: { maxLength: 200, "aria-label": copy(pageContract, "filter.search_label") },
               input: {

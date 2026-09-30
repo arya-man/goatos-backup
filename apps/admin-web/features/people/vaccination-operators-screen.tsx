@@ -821,7 +821,8 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
             : tint
               ? {
                   bgcolor: varAlpha(theme.vars.palette[tint].mainChannel, 0.16),
-                  border: `1px solid ${theme.vars.palette[tint].main}`,
+                  border: 1,
+                  borderColor: theme.vars.palette[tint].main,
                   '&.Mui-disabled': { color: theme.vars.palette.text.secondary },
                 }
               : inRange
@@ -897,7 +898,7 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
   const leaveItem = (r: { from: string; to: string }, past: boolean) => (
     <Box
       key={r.from}
-      sx={{ px: 2, py: 1.5, borderRadius: 'var(--r-md)', border: (theme) => `1px solid ${theme.vars.palette.divider}`, color: past ? 'text.disabled' : 'text.primary' }}
+      sx={{ px: 2, py: 1.5, borderRadius: 'var(--r-md)', border: 1, borderColor: 'divider', color: past ? 'text.disabled' : 'text.primary' }}
     >
       <Typography variant="subtitle2">{fmtRange(r)}</Typography>
       <Typography variant="caption" sx={{ color: past ? 'text.disabled' : 'text.secondary' }}>
@@ -1192,7 +1193,7 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
             and default operator settings to the backend.
           </Typography>
           {operatorCount !== 1 ? (
-            <Box sx={{ mt: 2, display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr', sm: 'repeat(auto-fill, minmax(200px, 1fr))' } }}>
+            <Box sx={{ mt: 2, display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))', lg: 'repeat(5, minmax(0, 1fr))' } }}>
               {operatorsList.map((op) => {
                 const operatorId = op.workforce_member_id ?? '';
                 const checked = selectedOperatorIds.includes(operatorId);
@@ -1240,7 +1241,9 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
                       px: 1.5,
                       py: 1,
                       borderRadius: 'var(--r-md)',
-                      border: `1px ${isDown ? 'dashed' : 'solid'} ${isDefault ? theme.vars.palette.primary.main : theme.vars.palette.divider}`,
+                      border: 1,
+                      borderStyle: isDown ? 'dashed' : 'solid',
+                      borderColor: isDefault ? theme.vars.palette.primary.main : theme.vars.palette.divider,
                       bgcolor: isDefault ? varAlpha(theme.vars.palette.primary.mainChannel, 0.08) : 'transparent',
                     })}
                   >
@@ -1490,7 +1493,8 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
                         height: 'var(--sp-1h)',
                         borderRadius: 'var(--r-sm)',
                         bgcolor: item.solid ? theme.vars.palette[item.color].main : varAlpha(theme.vars.palette[item.color].mainChannel, 0.16),
-                        border: item.solid ? 'none' : `1px solid ${theme.vars.palette[item.color].main}`,
+                        border: item.solid ? 0 : 1,
+                        borderColor: theme.vars.palette[item.color].main,
                       })}
                     />
                     <Typography variant="caption" sx={{ color: 'text.secondary' }}>{item.label}</Typography>

@@ -1111,14 +1111,6 @@
       "allowed": 1,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: raw px or #hex literal in TS/TSX; use theme spacing / typography / palette tokens. Shrink-only per file"
     },
-    "raw-px-hex-literal|features/people/clock-screen.tsx": {
-      "allowed": 1,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: raw px or #hex literal in TS/TSX; use theme spacing / typography / palette tokens. Shrink-only per file"
-    },
-    "raw-px-hex-literal|features/people/vaccination-operators-screen.tsx": {
-      "allowed": 5,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: raw px or #hex literal in TS/TSX; use theme spacing / typography / palette tokens. Shrink-only per file"
-    },
     "raw-px-hex-literal|features/preventive-care-vaccination/vaccination-filter-modal.tsx": {
       "allowed": 1,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: raw px or #hex literal in TS/TSX; use theme spacing / typography / palette tokens. Shrink-only per file"
