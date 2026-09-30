@@ -17,9 +17,9 @@ test("months chart keeps the template colour pair: no palette KEY handed to char
   assert.doesNotMatch(source, /seriesColorVar/);
 });
 
-// guard: mortality-kpi-trend-twin (SYNC). The Deaths / Kids / Adults cards carry the complete-month
-// trend, so KpiWidget draws them as the booking card with a trend row; the loading twin must draw the
-// same rows or the 390 skeleton card is 46px short (IoU 0.7). The page's trend-bearing cards and
+// guard: mortality-kpi-trend-twin (SYNC, J2 P1-8). The Deaths / Kids / Adults cards carry the
+// complete-month trend, which KpiWidget prints as the lead of the Course card's sub-line (one widget
+// kind per row); the loading twin draws that caption line. The page's trend-bearing cards and
 // MORTALITY_KPI_TRENDS stay in the same order.
 test("mortality KPI twin draws a trend row exactly where the page has one", async () => {
   const { readFileSync: read } = await import("node:fs");
@@ -30,5 +30,6 @@ test("mortality KPI twin draws a trend row exactly where the page has one", asyn
   const cards = body.split(/\n\s{4}\{/).slice(1).map((card) => /trend: monthTrend\(/.test(card));
   const declared = JSON.parse(layout.match(/MORTALITY_KPI_TRENDS = (\[[^\]]*\])/)[1]);
   assert.deepEqual(cards, declared);
-  assert.match(skeletons, /MORTALITY_KPI_TRENDS\[i\] \? \{ \.\.\.shape, booking: true, trend: true \}/);
+  assert.match(skeletons, /withTrendLine\(kpiShapes\(MORTALITY_KPI_CAPTIONS\), MORTALITY_KPI_TRENDS\)/);
+  assert.doesNotMatch(skeletons, /booking: true/, "no Booking-card twin: the page renders none");
 });

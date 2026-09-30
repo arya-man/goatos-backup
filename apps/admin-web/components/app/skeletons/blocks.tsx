@@ -435,20 +435,23 @@ export function KpiRowSkeleton({
   count,
   shapes,
   size,
+  sizes,
   ...shape
 }: {
   count: number;
   shapes?: KpiShape[];
   /** The page's own Grid item size when it lays its widgets out itself instead of KpiGrid. */
   size?: Record<string, number | "grow" | "auto">;
+  /** Per-tile Grid sizes (a 3 + 2 row pair where each row fills its width). */
+  sizes?: Record<string, number | "grow" | "auto">[];
 } & KpiShape) {
   const cards = Array.from({ length: count }, (_, i) => <KpiCardSkeleton key={i} {...(shapes?.[i] ?? shape)} />);
   return (
     <div data-skel="kpis" aria-hidden="true">
-      {size ? (
+      {size || sizes ? (
         <Grid container spacing={3}>
           {cards.map((card, i) => (
-            <Grid key={i} size={size as never} sx={{ minWidth: 0 }}>
+            <Grid key={i} size={(sizes?.[i] ?? size) as never} sx={{ minWidth: 0 }}>
               {card}
             </Grid>
           ))}

@@ -22,6 +22,7 @@ import {
   HERD_KPI_SIZE,
   MORTALITY_KPI_CAPTIONS,
   MORTALITY_KPI_TRENDS,
+  HA_KPI_TRENDS,
   MORTALITY_PLOT,
   MORTALITY_RATE_SIZE,
   MORTALITY_RATE_TABLE,
@@ -33,6 +34,8 @@ import {
 
 /** A KpiWidget course card per entry: no caption line (0), or the caption's lines (per breakpoint). */
 const kpiShapes = (captions: (number | { xs: number; sm: number })[]): KpiShape[] => captions.map((lines) => (lines === 0 ? {} : { hint: true, hintLines: lines }));
+/** A trend card leads its sub-line with the month change, so it has at least one caption line. */
+const withTrendLine = (shapes: KpiShape[], trends: readonly boolean[]): KpiShape[] => shapes.map((shape, i) => (trends[i] ? { ...shape, hint: true, hintLines: shape.hintLines ?? 1 } : shape));
 
 /** The DateRangePicker window control (/counts/analytics, /counts/mortality). */
 export function CountsWindowSkeleton() {
@@ -47,7 +50,7 @@ export function CountsWindowSkeleton() {
 export function HerdAnalyticsPanelSkeleton() {
   return (
     <StackSkeleton spacing={3}>
-      <KpiRowSkeleton count={HA_KPI_CAPTIONS.length} shapes={kpiShapes(HA_KPI_CAPTIONS)} />
+      <KpiRowSkeleton count={HA_KPI_CAPTIONS.length} shapes={withTrendLine(kpiShapes(HA_KPI_CAPTIONS), HA_KPI_TRENDS)} />
       <GridSkeleton
         items={[
           { size: HA_GRID.flow, node: <ChartCardSkeleton height={HA_PLOT.flow} /> },
@@ -99,7 +102,7 @@ export function HerdKpiSkeleton() {
 export function MortalityPanelSkeleton() {
   return (
     <StackSkeleton spacing={3}>
-      <KpiRowSkeleton count={MORTALITY_KPI_CAPTIONS.length} shapes={kpiShapes(MORTALITY_KPI_CAPTIONS).map((shape, i) => (MORTALITY_KPI_TRENDS[i] ? { ...shape, booking: true, trend: true } : shape))} />
+      <KpiRowSkeleton count={MORTALITY_KPI_CAPTIONS.length} shapes={withTrendLine(kpiShapes(MORTALITY_KPI_CAPTIONS), MORTALITY_KPI_TRENDS)} />
       <ChartCardSkeleton height={MORTALITY_PLOT.monthly} />
       <GridSkeleton
         items={Array.from({ length: MORTALITY_RATE_TABLE.cards }, () => ({

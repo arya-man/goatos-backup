@@ -9,8 +9,16 @@ export const FEED_ANALYTICS_RANGES = ["30", "61", "92"] as const;
 /** The Consumption view toggle (General / Status-wise segment) on the right of the chips row. */
 export const FEED_ANALYTICS_VIEW_TOGGLE_WIDTH = 189;
 
-/** The Overview KPI tiles' Grid item size: three to a row from md (five tiles = 3 + 2). */
-export const FEED_ANALYTICS_KPI_SIZE = { xs: 12, sm: 6, md: 4 };
+/** The Overview KPI tiles' Grid item sizes: the three 7-day (App) tiles fill one row from md, the two
+ *  course tiles fill the next (md 6 each), so no row leaves an empty slot and each row holds one widget
+ *  kind (J2 P1-8; guard kpi-row-one-kind). */
+export const FEED_ANALYTICS_KPI_SIZES = [
+  { xs: 12, sm: 6, md: 4 },
+  { xs: 12, sm: 6, md: 4 },
+  { xs: 12, sm: 12, md: 4 },
+  { xs: 12, sm: 6, md: 6 },
+  { xs: 12, sm: 6, md: 6 },
+];
 /** Overview tiles: three with a weekly trend (ecommerce card), two without (course card); all captioned. */
 export const FEED_ANALYTICS_KPI_SHAPES: KpiShape[] = [
   { spark: true, trend: true, hint: true },
@@ -42,7 +50,7 @@ export function FeedAnalyticsStripSkeleton() {
 export function FeedAnalyticsOverviewSkeleton() {
   return (
     <StackSkeleton>
-      <KpiRowSkeleton count={FEED_ANALYTICS_KPI_SHAPES.length} shapes={FEED_ANALYTICS_KPI_SHAPES} size={FEED_ANALYTICS_KPI_SIZE} />
+      <KpiRowSkeleton count={FEED_ANALYTICS_KPI_SHAPES.length} shapes={FEED_ANALYTICS_KPI_SHAPES} sizes={FEED_ANALYTICS_KPI_SIZES} />
       <ChartCardSkeleton height={FEED_ANALYTICS_CHART_HEIGHT} legend />
       <ChartCardSkeleton height={FEED_ANALYTICS_CHART_HEIGHT} subheader action />
     </StackSkeleton>

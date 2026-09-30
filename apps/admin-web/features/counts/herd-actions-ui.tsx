@@ -33,7 +33,7 @@ import {
   type ShedImportResponse,
 } from "./herd-actions";
 import { csvCell, isSpreadsheetFile, parseCSVRecords, sheetImportAccept, spreadsheetArrayBufferToCSV, stableCSVContentHash } from "./herd-import-utils";
-import { ThemedDatePicker } from "@/components/themed-date-picker";
+import { FormDateField } from "@/components/app/form-date-field";
 import Alert from "@mui/material/Alert";
 import AlertTitle from "@mui/material/AlertTitle";
 import Button from "@mui/material/Button";
@@ -182,7 +182,7 @@ function mergeShedCommitResult(preview: ShedImportResponse, committed: ShedImpor
 // footer buttons stay pinned under the scrolling fields and the submit button still sees the form. ----
 type DialogForm = {
   action: (formData: FormData) => void | Promise<void>;
-  onSubmit: () => void;
+  onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
 };
 
 export function HerdActionDialog({
@@ -310,18 +310,6 @@ function Field({
       fullWidth
       slotProps={{ inputLabel: { shrink: true }, htmlInput }}
     />
-  );
-}
-
-/** The app date field (ThemedDatePicker) under a caption naming it, so a picked date keeps its name. */
-function DateField({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <Stack spacing={0.75} sx={{ minWidth: 0 }}>
-      <Typography variant="caption" component="span" sx={{ color: "text.secondary", fontWeight: "fontWeightSemiBold" }}>
-        {label}
-      </Typography>
-      {children}
-    </Stack>
   );
 }
 
@@ -523,15 +511,12 @@ function RegisterGoatDrawer({
       // The action redirects (banner). Close the modal as the form submits so the banner is visible and
       // the client modal state does not linger over the navigated page. onSubmit fires only after the
       // browser's required-field validation passes, and React still dispatches the action this event.
-      form={{ action: createGoatAction, onSubmit: () => onClose() }}
+      form={{ action: createGoatAction, onSubmit: (event) => { if (!event.defaultPrevented) onClose(); } }}
       actions={
         <>
           <CancelButton onClick={onClose}>{copy(pageContract, "action.cancel")}</CancelButton>
-          {canCreate ? (
-            <SubmitButton pageContract={pageContract}>{copy(pageContract, "action.register_goat")}</SubmitButton>
-          ) : (
-            <Button type="button" variant="contained" color="primary" disabled aria-disabled="true">{copy(pageContract, "action.register_goat")}</Button>
-          )}
+          {/* No dead submit: without locations / stages the Alerts above say why and there is nothing to press. */}
+          {canCreate ? <SubmitButton pageContract={pageContract}>{copy(pageContract, "action.register_goat")}</SubmitButton> : null}
         </>
       }
     >
@@ -665,8 +650,7 @@ function RegisterGoatDrawer({
       </FieldGrid>
 
       <FieldGrid columns={3}>
-        <DateField label={copy(pageContract, "field.dob")}>
-          <ThemedDatePicker
+        <FormDateField
             name="dob"
             label={copy(pageContract, "field.dob")}
             max={todayIso()}
@@ -675,10 +659,8 @@ function RegisterGoatDrawer({
             nextMonthLabel={copy(pageContract, "date.next_month", "Next month")}
             invalidDateText={copy(pageContract, "date.invalid", "Pick a valid date")}
           />
-        </DateField>
         <Field id="rg_weight" name="weight_kg" type="number" label={copy(pageContract, "field.weight_kg")} placeholder={copy(pageContract, "placeholder.weight_kg")} htmlInput={{ min: 0, step: "0.1" }} />
-        <DateField label={copy(pageContract, "field.entry_date_required")}>
-          <ThemedDatePicker
+        <FormDateField
             name="entry_date"
             label={copy(pageContract, "field.entry_date_required")}
             defaultValue={todayIso()}
@@ -687,7 +669,6 @@ function RegisterGoatDrawer({
             nextMonthLabel={copy(pageContract, "date.next_month", "Next month")}
             invalidDateText={copy(pageContract, "date.invalid", "Pick a valid date")}
           />
-        </DateField>
       </FieldGrid>
       <FormControlLabel control={<Checkbox name="dob_estimated" sx={{ p: { xs: 1.5, sm: 1 } }} />} label={copy(pageContract, "field.dob_estimated")} />
 
@@ -731,11 +712,7 @@ function RegisterShedDrawer({
       actions={
         <>
           <CancelButton onClick={onClose}>{copy(pageContract, "action.cancel")}</CancelButton>
-          {canCreate ? (
-            <SubmitButton pageContract={pageContract}>{copy(pageContract, "action.register_shed")}</SubmitButton>
-          ) : (
-            <Button type="button" variant="contained" color="primary" disabled aria-disabled="true">{copy(pageContract, "action.register_shed")}</Button>
-          )}
+          {canCreate ? <SubmitButton pageContract={pageContract}>{copy(pageContract, "action.register_shed")}</SubmitButton> : null}
         </>
       }
     >
@@ -1353,7 +1330,7 @@ export function HerdReproductiveEdit({
         subtitle={`${displayId} · ${copy(pageContract, "drawer.reproductive.subtitle")}`}
         maxWidth={560}
         // Submits the operator's chosen backend status key; the action reads current row_version + writes.
-        form={{ action: reproductiveGoatAction, onSubmit: () => setOpen(false) }}
+        form={{ action: reproductiveGoatAction, onSubmit: (event) => { if (!event.defaultPrevented) setOpen(false); } }}
         actions={
           <>
             <CancelButton onClick={() => setOpen(false)}>{copy(pageContract, "action.cancel")}</CancelButton>
@@ -1379,24 +1356,20 @@ export function HerdReproductiveEdit({
         />
 
         <FieldGrid>
-          <DateField label={copy(pageContract, "field.breeding_date")}>
-            <ThemedDatePicker
+          <FormDateField
               name="breeding_date"
               label={copy(pageContract, "field.breeding_date")}
               previousMonthLabel={copy(pageContract, "date.prev_month", "Previous month")}
               nextMonthLabel={copy(pageContract, "date.next_month", "Next month")}
               invalidDateText={copy(pageContract, "date.invalid", "Pick a valid date")}
-            />
-          </DateField>
-          <DateField label={copy(pageContract, "field.last_delivery_date")}>
-            <ThemedDatePicker
+          />
+          <FormDateField
               name="last_delivery_date"
               label={copy(pageContract, "field.last_delivery_date")}
               previousMonthLabel={copy(pageContract, "date.prev_month", "Previous month")}
               nextMonthLabel={copy(pageContract, "date.next_month", "Next month")}
               invalidDateText={copy(pageContract, "date.invalid", "Pick a valid date")}
-            />
-          </DateField>
+          />
         </FieldGrid>
         <Note>{copy(pageContract, "note.reproductive_dates_optional")}</Note>
 

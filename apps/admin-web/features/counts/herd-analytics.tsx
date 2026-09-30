@@ -241,7 +241,7 @@ export async function HerdAnalyticsPage({
 
   const totals = data.totals;
   const monthLabels = data.months.map((month) => month.label);
-  // Births / deaths / sold tiles carry the change between the last two COMPLETE months (BookingWidgetSummary: percent, no
+  // Births / deaths / sold tiles carry the change between the last two COMPLETE months (the Course card sub-line leads with it, no
   // period text); the monthly series is the flow chart below.
   const monthTrend = (key: "births" | "deaths" | "sold") => {
     const percent = completeMonthPercent(data.months.map((m) => m[key]), data.window_to);

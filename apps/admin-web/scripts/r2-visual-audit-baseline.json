@@ -15,7 +15,7 @@
     "tap|button.iconbtn.kit-press": 12,
     "interact|Filter link|full-reload": 9,
     "skeleton|missing|block": 9,
-    "skeleton|mismatch|kpi-row": 9,
+    "skeleton|mismatch|kpi-row": 8,
     "skeleton|mismatch|card-grid": 8,
     "skeleton|missing|tabs": 8,
     "off-palette|color|#9e9eff|inline <style> `body`": 7,

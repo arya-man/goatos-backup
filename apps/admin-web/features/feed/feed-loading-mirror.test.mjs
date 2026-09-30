@@ -27,6 +27,6 @@ test("feed analytics loading is the page's own skeletons", () => {
   assert.match(skel, /<FeedAnalyticsStripSkeleton \/>/);
   assert.match(skel, /<FeedAnalyticsOverviewSkeleton \/>/);
   assert.match(page, /overview: <FeedAnalyticsOverviewSkeleton \/>/);
-  assert.match(page, /<Grid key=\{kpi\.key\} size=\{FEED_ANALYTICS_KPI_SIZE\}>/);
+  assert.match(page, /<Grid key=\{kpi\.key\} size=\{FEED_ANALYTICS_KPI_SIZES\[index\]\}>/);
   assert.match(page, /FEED_ANALYTICS_RANGES as RANGES, FEED_ANALYTICS_TABS as TABS/);
 });

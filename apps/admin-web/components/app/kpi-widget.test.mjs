@@ -38,7 +38,11 @@ test("adapter: numeric figure only, visible sub-line", () => {
   // Each trend period maps to the template widget whose fixed period text is true.
   assert.match(adapter, /period === "week"[\s\S]{0,200}<EcommerceWidgetSummary/);
   assert.match(adapter, /period === "7d"[\s\S]{0,200}<AppWidgetSummary/);
-  assert.match(adapter, /period === "month"[\s\S]{0,200}<BookingWidgetSummary/);
+  // kpi-row-one-kind (J2 P1-8): a month trend stays on the Course card (the change leads the
+  // sub-line), so a KPI row never mixes the Booking anatomy with Course tiles.
+  assert.doesNotMatch(adapter, /<BookingWidgetSummary/);
+  assert.match(adapter, /t\.period === "month" \? monthChange\(t\.percent\)/);
+  assert.match(adapter, /data-kpi-kind=\{kind\}/);
 });
 
 test("KPI call sites pass no string figure and no unit glued onto the title", () => {
@@ -70,7 +74,8 @@ test("tiles that had a series still carry one (or the page chart draws it)", () 
 // guard: kpi-map-truth (TR1-#17). A route mapped to the Ecommerce overview names the widget each of
 // its KPI tiles REALLY renders through the adapter: EcommerceWidgetSummary only where a tile passes a
 // weekly series (trend period "week") or renders the widget directly; a tile with no trend is a
-// CourseWidgetSummary and the row must say so; 7d -> AppWidgetSummary, month -> BookingWidgetSummary.
+// CourseWidgetSummary and the row must say so; 7d -> AppWidgetSummary; month -> CourseWidgetSummary
+// (the change leads the sub-line, J2 P1-8).
 export function kpiMapFindings(mapText, readSource) {
   const out = [];
   for (const line of mapText.split("\n")) {
@@ -83,11 +88,11 @@ export function kpiMapFindings(mapText, readSource) {
     const calls = [...src.matchAll(/<KpiWidget\b[\s\S]*?\/>/g)].map((m) => m[0]);
     if (!calls.length) continue;
     const week = /period: "week"/.test(src) || /<EcommerceWidgetSummary\b/.test(src);
-    const noTrend = calls.some((c) => !/\btrend=/.test(c));
+    const noTrend = calls.some((c) => !/\btrend=/.test(c)) || /period: "month"/.test(src);
     if (/EcommerceWidgetSummary/.test(blocks) && !week) out.push(`${route}: claims EcommerceWidgetSummary but no tile passes a weekly series`);
     if (noTrend && !/CourseWidgetSummary/.test(blocks)) out.push(`${route}: has trend-less tiles (CourseWidgetSummary) the row does not name`);
     if (/period: "7d"/.test(src) && !/AppWidgetSummary/.test(blocks)) out.push(`${route}: 7-day tiles render AppWidgetSummary, not named`);
-    if (/period: "month"/.test(src) && !/BookingWidgetSummary/.test(blocks)) out.push(`${route}: monthly tiles render BookingWidgetSummary, not named`);
+    if (/BookingWidgetSummary/.test(blocks)) out.push(`${route}: names BookingWidgetSummary, which the KPI adapter no longer renders (month tiles are CourseWidgetSummary)`);
   }
   return out;
 }

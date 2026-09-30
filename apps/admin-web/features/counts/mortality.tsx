@@ -499,7 +499,7 @@ export async function MortalityPage({
   const seasonByStage = data.season_by_stage.map((cell) => ({ ...cell, col_label: stageDisplayLabel(cell.col_label, stageNames) }));
   // Template CourseWidgetSummary takes a number: units go in the title, detail in the caption.
   // Template widgets print a number: the unit / remainder leads the visible sub-line. Deaths, kids
-  // and adults carry the change between the last two COMPLETE months (BookingWidgetSummary: percent, no period text); the
+  // and adults carry the change between the last two COMPLETE months (the change leads the Course card sub-line, J2 P1-8); the
   // monthly series itself is the kids / adults chart below.
   const monthTrend = (series: number[]) => {
     const percent = completeMonthPercent(series, data.window_to);

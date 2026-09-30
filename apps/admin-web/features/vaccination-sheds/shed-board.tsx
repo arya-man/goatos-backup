@@ -160,12 +160,6 @@ export async function VaccinationShedBoard({
   const result = summaryResult ?? (await loadVaccinationShedSummary(searchParams, pageContract));
   const rows: VaccinationShedSummaryRow[] = result.ok ? listOrEmpty(result.data.rows) : [];
   // Honest only unfiltered: `rows` is one server-filtered page.
-  const statusCounts = new Map<string, number>();
-  if (!statusFilter && !capacityFilter) {
-    for (const row of rows) {
-      statusCounts.set(row.status, (statusCounts.get(row.status) ?? 0) + 1);
-    }
-  }
   const total = result.ok ? result.data.page.total : 0;
   const hasFilter = Boolean(statusFilter || capacityFilter || search);
 
@@ -220,11 +214,14 @@ export async function VaccinationShedBoard({
           ariaLabel={copy(pageContract, "label.all_status")}
           value={statusFilter || "all"}
           items={[
-            { value: "all", label: copy(pageContract, "label.all_status"), href: allStatusHref },
+            // The backend serves the filtered total only (no per-status totals), so the count Label
+            // sits on the SHOWN tab and says that total. Counting the rows of page 1 said "Overdue 25"
+            // for 83 overdue pens and vanished after the switch (J3 P2-1; guard: shown-tab-count).
+            { value: "all", label: copy(pageContract, "label.all_status"), count: !statusFilter ? total : undefined, href: allStatusHref },
             ...SHED_STATUS_ORDER.map((s) => ({
               value: s,
               label: shedStatusLabel(pageContract, s),
-              count: statusCounts.get(s),
+              count: statusFilter === s ? total : undefined,
               href: hrefWith({ sheds_status: s, sheds_page: "1" }),
             })),
           ]}

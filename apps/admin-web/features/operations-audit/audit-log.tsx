@@ -137,14 +137,10 @@ export async function OperationsAuditPage({
   });
 
   const summaryPercent = (n: number) => (summary && summary.actions ? (n / summary.actions) * 100 : 0);
-  const tabCount = (key: string): number | undefined => {
-    if (!summary) return undefined;
-    if (key === activeStatusTab.key) return summary.actions;
-    if (activeStatusTab.key !== "all_results") return undefined;
-    if (key === "awaiting") return summary.awaiting_verification;
-    if (key === "rejected") return summary.rejected;
-    return undefined;
-  };
+  // The summary is filtered by the active tab, so only the SHOWN tab's total is known on every tab.
+  // Counting the other tabs from the "All" summary made their Labels vanish after a switch
+  // (J3 P2-1; guard: shown-tab-count). The awaiting / rejected totals stay in the summary strip.
+  const tabCount = (key: string): number | undefined => (summary && key === activeStatusTab.key ? summary.actions : undefined);
   const resetPage = { cursor: null, page: null } as const;
   const chips: LinkFilterChip[] = [
     ...(filters.q ? [{ id: "q", label: `${copy(pageContract, "action.search")}:`, value: filters.q, href: hrefWithUpdates(sp, { q: null, ...resetPage }) }] : []),

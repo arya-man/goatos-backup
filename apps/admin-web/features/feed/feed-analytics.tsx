@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { FEED_ANALYTICS_KPI_SIZE, FEED_ANALYTICS_RANGES as RANGES, FEED_ANALYTICS_TABS as TABS, FeedAnalyticsOverviewSkeleton } from "./feed-analytics-skeletons";
+import { FEED_ANALYTICS_KPI_SIZES, FEED_ANALYTICS_RANGES as RANGES, FEED_ANALYTICS_TABS as TABS, FeedAnalyticsOverviewSkeleton } from "./feed-analytics-skeletons";
 import { FilterChip } from "@/components/app/list/filter-chip";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { PanelSkeleton } from "@/components/app/panel-skeleton";
@@ -1092,13 +1092,13 @@ function DirectedTabs({
             { key: "per_head", unit: "g", total: latest && latest.per_head_grams !== "" ? num(latest.per_head_grams) : null, trend: dayTrend((d) => (d.per_head_grams === "" ? null : num(d.per_head_grams))) },
             { key: "adherence", unit: "%", total: adherence, trend: null },
             { key: "cost_per_animal", unit: "₹", total: costPerAnimal, trend: null },
-          ].map((kpi) => {
+          ].map((kpi, index) => {
             // The unit (or "—" when the figure is missing) leads the visible sub-line, unless the
             // contract sub-line already names it ("kg on the issued sheet").
             const sub = fa(pageContract, `kpi.${kpi.key}.sub`);
             const lead = kpi.total == null ? "—" : kpi.unit && !sub.includes(kpi.unit) ? kpi.unit : "";
             return (
-              <Grid key={kpi.key} size={FEED_ANALYTICS_KPI_SIZE}>
+              <Grid key={kpi.key} size={FEED_ANALYTICS_KPI_SIZES[index]}>
                 <KpiWidget
                   title={fa(pageContract, `kpi.${kpi.key}.label`)}
                   total={kpi.total}

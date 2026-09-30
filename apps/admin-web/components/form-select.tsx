@@ -19,7 +19,8 @@ type SelectOption = { value: string; label: string };
  *  - controlled (`value` + `onChange`) — the page owns it, like `<select value onChange>`; used where
  *    one select filters another (park → shed).
  *
- * `required` is carried as `aria-required` only: a hidden input cannot be constraint-validated, and
+ * `required` is carried as `aria-required` plus the label asterisk (like a required TextField beside
+ * it; J2 P1-6 mixed "(required)" copy with asterisks): a hidden input cannot be constraint-validated, and
  * a visually hidden focusable one makes Chrome report "not focusable" on submit. The server action
  * remains the validator, which it already was.
  */
@@ -74,7 +75,7 @@ export function FormSelect({
           onChange?.(next);
         }}
         sx={{ minWidth: { xs: 0, sm: minWidth }, flexShrink: 0, maxWidth: 1 }}
-        slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+        slotProps={{ inputLabel: { shrink: true, required }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
       >
         {options.map((option) => (
           <MenuItem key={option.value} value={option.value}>

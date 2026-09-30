@@ -8,9 +8,7 @@ import MuiLink from "@mui/material/Link";
 import Link from "@/components/no-prefetch-link";
 export { completeMonthPercent, lastStepPercent, sevenDayPercent } from "@/lib/kpi-trend";
 import { compactFigure } from "@/lib/kpi-figure";
-import { Iconify } from "@/components/minimal/iconify";
 import { AppWidgetSummary } from "@/components/minimal/sections/overview/app/app-widget-summary";
-import { BookingWidgetSummary } from "@/components/minimal/sections/overview/booking/booking-widget-summary";
 import { CourseWidgetSummary } from "@/components/minimal/sections/overview/course/course-widget-summary";
 import { EcommerceWidgetSummary } from "@/components/minimal/sections/overview/e-commerce/ecommerce-widget-summary";
 
@@ -19,8 +17,11 @@ import { EcommerceWidgetSummary } from "@/components/minimal/sections/overview/e
 // template's own period text is true:
 //  - trend.period "week"  -> EcommerceWidgetSummary (prints "<±x%> last week" + line sparkline);
 //  - trend.period "7d"    -> AppWidgetSummary (prints "<±x%> last 7 days" + bar sparkline);
-//  - trend.period "month" -> BookingWidgetSummary (prints "<±x%>" with no period text, no sparkline;
-//                            the monthly series itself is drawn by the page's chart card);
+//  - trend.period "month" -> CourseWidgetSummary with the change leading the visible sub-line
+//                            ("+400% · …", no period text, no sparkline; the monthly series is the
+//                            page's chart card). It used to be BookingWidgetSummary, which put a
+//                            second card anatomy (outlined icon, big circle, trend row) into rows of
+//                            Course tiles (J2 P1-8; guard: kpi-row-one-kind);
 //  - no trend             -> CourseWidgetSummary (figure, title, template corner icon in `color`).
 // The template figure is a number (fNumber / fShortenNumber). Anything else the contract says about
 // it (unit, "of 30", the no-data text, detail) is the `caption`, which the adapter renders VISIBLY as
@@ -104,23 +105,27 @@ export function cssString(text: string): string {
 export function KpiWidget({ title, total: rawTotal, caption: rawCaption, color = "primary", icon, trend, href, linkComponent, sx, "data-testid": testId }: KpiWidgetProps) {
   // A lakh or more is compacted for the template figure (never under the corner icon / sparkline);
   // the scale word and the exact value lead the visible sub-line (guard: kpi-long-figure).
-  const { total, caption } = compactFigure(rawTotal, rawCaption);
-  const figure = total ?? Number.NaN;
   const t: KpiTrend | null = trend ?? null;
+  const monthLead = t && t.period === "month" ? monthChange(t.percent) : "";
+  const compact = compactFigure(rawTotal, rawCaption);
+  const total = compact.total;
+  const caption = monthLead ? [monthLead, compact.caption].filter(Boolean).join(" · ") : compact.caption;
+  const figure = total ?? Number.NaN;
   const cardSx = [{ height: 1 }, EMPTY_FIGURE, ...(caption ? [SUBLINE_IN_FLOW] : []), ...(Array.isArray(sx) ? sx : [sx])] as SxProps<Theme>;
   const reserve = caption ? { "data-kpi-caption": caption, style: { "--kpi-caption": cssString(caption) } as CSSProperties } : {};
   let card;
+  let kind: "ecommerce" | "app" | "course" = "course";
   if (t && t.period === "week" && (t.series?.length ?? 0) > 1) {
+    kind = "ecommerce";
     card = <EcommerceWidgetSummary title={title} total={figure} percent={t.percent} chart={{ series: t.series ?? [], categories: t.categories ?? [] }} sx={cardSx} {...reserve} />;
   } else if (t && t.period === "7d" && (t.series?.length ?? 0) > 1) {
+    kind = "app";
     card = <AppWidgetSummary title={title} total={figure} percent={t.percent} chart={{ series: t.series ?? [], categories: t.categories ?? [] }} sx={cardSx} {...reserve} />;
-  } else if (t && t.period === "month") {
-    card = <BookingWidgetSummary title={title} total={figure} percent={t.percent} icon={<Iconify icon="solar:chart-square-outline" width={48} sx={{ color: `${color}.main`, opacity: 0.48 }} />} sx={cardSx} {...reserve} />;
   } else {
     card = <CourseWidgetSummary title={title} total={figure} color={color} icon={ICONS[icon ?? defaultIcon(color)]} sx={cardSx} {...reserve} />;
   }
   const body = (
-    <Box data-testid={testId} data-kpi-widget="" sx={{ position: "relative", height: 1 }}>
+    <Box data-testid={testId} data-kpi-widget="" data-kpi-kind={kind} sx={{ position: "relative", height: 1 }}>
       {card}
     </Box>
   );
@@ -130,6 +135,13 @@ export function KpiWidget({ title, total: rawTotal, caption: rawCaption, color =
       {body}
     </MuiLink>
   );
+}
+
+/** A month-over-month change as the sub-line lead: "+400%", "−12.5%", "0%" (no period words). */
+export function monthChange(percent: number): string {
+  const rounded = Math.round(percent * 10) / 10;
+  const text = `${Math.abs(rounded).toLocaleString("en-IN", { maximumFractionDigits: 1 })}%`;
+  return rounded > 0 ? `+${text}` : rounded < 0 ? `\u2212${text}` : text;
 }
 
 /** One half of a two-part reading ("Individual 54 · Lump-sum 7"). */
