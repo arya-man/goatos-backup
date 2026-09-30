@@ -40,6 +40,12 @@ type LitterKid struct {
 	GoatID string
 	Stage  string
 	Alive  bool
+	// StageSince is when the kid entered its CURRENT stage, from the herd register's own history
+	// (the latest goat.stage_changed naming that stage); nil when the register holds none (a kid
+	// seeded on its stage). It is what a completed step is stamped with, so the next step's
+	// "N days after" counts from the day the litter really got there -- for a litter backfilled
+	// long after it moved, and for an event processed late, alike.
+	StageSince *time.Time
 }
 
 // LitterShiftOutcome is what one shift step's condition reads off the litter.
@@ -149,10 +155,11 @@ func ApplyLitterShift(actions []WorkflowAction, kids []LitterKid, at time.Time) 
 		if !JudgeLitterShift(kids, a.TargetStage).Done() {
 			continue
 		}
+		doneAt := litterReachedAt(kids, a.TargetStage, at)
 		key := "litter-shift:" + a.ActionID
 		updated, replay, err := ApplyComplete(a, CompleteActionCommand{
 			TenantID: a.TenantID, WorkflowID: a.WorkflowID, ActionID: a.ActionID,
-			CompletedAt: at, IdempotencyKey: key, RequestFingerprint: key,
+			CompletedAt: doneAt, IdempotencyKey: key, RequestFingerprint: key,
 		})
 		if err != nil || replay {
 			continue
@@ -164,7 +171,7 @@ func ApplyLitterShift(actions []WorkflowAction, kids []LitterKid, at time.Time) 
 			if dep.AfterActionKey != updated.ActionKey || dep.Status != ActionStatusPending {
 				continue
 			}
-			due := at.Add(time.Duration(dep.AfterOffsetSeconds) * time.Second)
+			due := doneAt.Add(time.Duration(dep.AfterOffsetSeconds) * time.Second)
 			dep.DueAt = &due
 			dep.RowVersion++
 			actions[j] = dep
@@ -172,6 +179,33 @@ func ApplyLitterShift(actions []WorkflowAction, kids []LitterKid, at time.Time) 
 		}
 	}
 	return changed, false
+}
+
+// litterReachedAt is the moment the litter reached target: the LATEST stage entry among the live
+// kids that reached it, read from the herd register. When any of them has no recorded entry, the
+// caller's instant stands (the event being handled, or the backfill's run) -- never a guess.
+func litterReachedAt(kids []LitterKid, target string, fallback time.Time) time.Time {
+	var latest time.Time
+	before := countsdomain.GrowthStagesBefore(strings.TrimSpace(target))
+	for _, k := range kids {
+		if !k.Alive || k.Stage == "" || containsFold(before, k.Stage) {
+			continue
+		}
+		reached := strings.EqualFold(k.Stage, target) || containsFold(countsdomain.GrowthStagesBefore(k.Stage), target)
+		if !reached {
+			continue
+		}
+		if k.StageSince == nil {
+			return fallback
+		}
+		if k.StageSince.After(latest) {
+			latest = *k.StageSince
+		}
+	}
+	if latest.IsZero() {
+		return fallback
+	}
+	return latest
 }
 
 func stepUnfinished(status string) bool {

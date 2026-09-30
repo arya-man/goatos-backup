@@ -189,6 +189,8 @@ func RoleLabelForTemplate(templateKey string) string {
 		return "Kid"
 	case TemplateKeyBirthMother:
 		return "Mother"
+	case TemplateKeyBirthLitter:
+		return "Litter"
 	case TemplateKeyDeath:
 		return "Died"
 	}

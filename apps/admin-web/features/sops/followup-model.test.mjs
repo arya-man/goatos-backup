@@ -10,6 +10,14 @@ import { describeDue, emitFollowUp, expandSeriesRows, followUpProblems, ordinal,
 const seedDir = new URL("../../../../backend/internal/tasks/domain/sopseed/", import.meta.url);
 const seededDocs = readdirSync(seedDir).filter((f) => f.startsWith("counts_") && f.endsWith(".json"));
 
+// A seeded TRACK addendum (counts_birth_litter_track.json, the KID STAGE SHIFT TASKS litter track
+// appended to the Birth SOP by migration 000462) is one track, not a document: read it as the
+// one-track document it becomes on the page, so it is round-tripped like the rest.
+function seededDoc(name) {
+  const raw = JSON.parse(readFileSync(new URL(name, seedDir), "utf8"));
+  return raw.tracks ? raw : { schema_version: "goatos.sop-followup.v1", tracks: [raw] };
+}
+
 function canonical(v) {
   return JSON.stringify(v, (_k, val) => {
     if (val && typeof val === "object" && !Array.isArray(val)) {
@@ -22,7 +30,7 @@ function canonical(v) {
 test("the seeded herd-operations documents round-trip through the editor model byte-faithfully", () => {
   assert.ok(seededDocs.length >= 4, `expected the four seeded docs, found ${seededDocs.join(",")}`);
   for (const name of seededDocs) {
-    const doc = JSON.parse(readFileSync(new URL(name, seedDir), "utf8"));
+    const doc = seededDoc(name);
     const rows = parseFollowUp({ follow_up: doc });
     assert.ok(rows, `${name}: parse returned null`);
     const emitted = emitFollowUp(rows);
@@ -33,7 +41,7 @@ test("the seeded herd-operations documents round-trip through the editor model b
 test("the seeded documents raise no client-side problems", () => {
   const answerKinds = { record_yes_no: "yes_no", record_select: "select", record_multiselect: "multiselect", weigh: "number", record_pen: "text" };
   for (const name of seededDocs) {
-    const doc = JSON.parse(readFileSync(new URL(name, seedDir), "utf8"));
+    const doc = seededDoc(name);
     assert.deepEqual(followUpProblems(parseFollowUp({ follow_up: doc }), answerKinds), [], name);
   }
 });
@@ -130,3 +138,14 @@ test("the seeded sale document round-trips with its step owners", () => {
   assert.equal("owner" in emitted.tracks[0].steps[1], false);
   assert.equal(emitted.tracks[0].steps[0].owner, "park_head");
 });
+
+test("the litter track keeps its target stages through the editor", () => {
+  const rows = parseFollowUp({ follow_up: seededDoc("counts_birth_litter_track.json") });
+  const steps = rows.tracks[0].steps;
+  assert.deepEqual(steps.map((s) => s.targetStage), ["K1", "K2"]);
+  steps[1].targetStage = "K3";
+  assert.equal(emitFollowUp(rows).tracks[0].steps[1].target_stage, "K3");
+  steps[1].targetStage = "";
+  assert.equal("target_stage" in emitFollowUp(rows).tracks[0].steps[1], false);
+});
+

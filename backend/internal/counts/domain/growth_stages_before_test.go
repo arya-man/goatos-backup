@@ -23,3 +23,16 @@ func TestGrowthStagesBeforeWalksTheSameLadderTheRaiseObeys(t *testing.T) {
 		}
 	}
 }
+
+func TestGrowthTargetStagesAreTheLadderInOrder(t *testing.T) {
+	got := GrowthTargetStages()
+	want := []string{"K1", "K2", "K3", "F2", "F2-Male", "F2-Female", "Buck", "Non-Pregnant", "Mother", "Pregnant"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("GrowthTargetStages() = %v, want %v", got, want)
+	}
+	for _, s := range got {
+		if len(GrowthStagesBefore(s)) == 0 {
+			t.Errorf("%s is offered as a target but publish would refuse it", s)
+		}
+	}
+}

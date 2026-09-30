@@ -860,12 +860,26 @@ WHERE wi.tenant_id = $1::uuid AND wi.workflow_id = $2::uuid`, tenantID, workflow
 			return domain.WorkflowDetail{}, err
 		}
 		detail.LitterKids = kids
+		card.SubjectLabel = litterSubjectLabel(kids)
+		detail.Card.SubjectLabel = card.SubjectLabel
 		if tags := litterTags(kids); tags != "" {
 			facts = append(facts, domain.WorkflowFact{Label: "Kids", Value: tags})
 		}
 	}
 	detail.Facts = facts
 	return detail, nil
+}
+
+// litterSubjectLabel is the litter workflow's headline: "Litter of 2 · Castro 1" (the pen of the
+// first live kid), or just "Litter of 2" when no pen is known.
+func litterSubjectLabel(kids []domain.LitterKidView) string {
+	label := fmt.Sprintf("Litter of %d", len(kids))
+	for _, k := range kids {
+		if k.Alive && k.PenLabel != "" {
+			return label + " · " + k.PenLabel
+		}
+	}
+	return label
 }
 
 // litterTags is the litter's kids as one fact line: "A1024 (K0), A1025 (K1)".

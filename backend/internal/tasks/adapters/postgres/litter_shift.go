@@ -21,11 +21,23 @@ SELECT birth_event_id::text FROM goat_births
 WHERE tenant_id = $1::uuid AND child_goat_id = $2::uuid AND birth_event_id IS NOT NULL`
 	// litterKidsSQL lists the litter's kids with their CURRENT stage. A rejected birth's kids are
 	// not a litter anyone owes a move (its workflow is canceled by the rejection consumer).
+	// stage_since is the latest goat.stage_changed naming the kid's CURRENT stage: one LATERAL
+	// probe per kid on goat_identity_events_goat_timeline_idx (goat_id, occurred_at DESC), LIMIT 1,
+	// so the join stays 1:0..1 and the read stays bounded by the litter (<= 3 kids).
 	litterKidsSQL = `
 SELECT gb.child_goat_id::text, COALESCE(g.management_stage, ''),
-       (g.lifecycle_status = 'alive' AND g.merged_into_goat_id IS NULL)
+       (g.lifecycle_status = 'alive' AND g.merged_into_goat_id IS NULL),
+       since.occurred_at
 FROM goat_births gb
 JOIN goats g ON g.tenant_id = gb.tenant_id AND g.goat_id = gb.child_goat_id
+LEFT JOIN LATERAL (
+  SELECT e.occurred_at FROM goat_identity_events e
+  WHERE e.goat_id = g.goat_id AND e.tenant_id = g.tenant_id
+    AND e.event_type = 'goat.stage_changed'
+    AND e.payload->>'management_stage' = g.management_stage
+  ORDER BY e.occurred_at DESC
+  LIMIT 1
+) since ON true
 WHERE gb.tenant_id = $1::uuid AND gb.birth_event_id = $2::uuid
   AND gb.count_status <> 'rejected'
 ORDER BY gb.child_ordinal`
@@ -106,7 +118,7 @@ func litterKids(ctx context.Context, q queryer, tenantID, birthEventID string) (
 	var out []domain.LitterKid
 	for rows.Next() {
 		var k domain.LitterKid
-		if err := rows.Scan(&k.GoatID, &k.Stage, &k.Alive); err != nil {
+		if err := rows.Scan(&k.GoatID, &k.Stage, &k.Alive, &k.StageSince); err != nil {
 			return nil, err
 		}
 		out = append(out, k)
@@ -146,4 +158,55 @@ func (r *Repository) ReconcileLitterShiftSteps(ctx context.Context, tenantID, bi
 			return changed, false, nil
 		})
 	return err
+}
+
+// LitterOwingShift is one litter the backfill opens a shift workflow for: its birth event and one
+// of its live kids (the opener reads the birth moment and placement from that kid).
+type LitterOwingShift struct {
+	BirthEventID string
+	KidGoatID    string
+}
+
+// littersOwingShiftSQL lists, keyset-paged on birth_event_id, the recorded litters that still hold
+// a LIVE kid on one of $2's stages and have NO litter workflow yet. goat_births is read through
+// goat_births_event_child_unique (tenant_id, birth_event_id, child_ordinal); goats and
+// workflow_instances_subject_ref_uq are probed by key. A rejected birth is not a litter.
+const littersOwingShiftSQL = `
+SELECT gb.birth_event_id::text, min(gb.child_goat_id::text)
+FROM goat_births gb
+JOIN goats g ON g.tenant_id = gb.tenant_id AND g.goat_id = gb.child_goat_id
+WHERE gb.tenant_id = $1::uuid
+  AND gb.birth_event_id IS NOT NULL
+  AND gb.count_status <> 'rejected'
+  AND g.lifecycle_status = 'alive' AND g.merged_into_goat_id IS NULL
+  AND g.management_stage = ANY($2::text[])
+  AND ($3::text = '' OR gb.birth_event_id > nullif($3::text, '')::uuid)
+  AND NOT EXISTS (
+    SELECT 1 FROM workflow_instances wi
+    WHERE wi.tenant_id = gb.tenant_id AND wi.template_key = 'birth_litter'
+      AND wi.subject_ref_id = gb.birth_event_id)
+GROUP BY gb.birth_event_id
+ORDER BY gb.birth_event_id
+LIMIT $4`
+
+// LittersOwingShift is one keyset page of the backfill's candidates (after = last birth event
+// id of the previous page, "" for the first).
+func (r *Repository) LittersOwingShift(ctx context.Context, tenantID string, stages []string, after string, limit int) ([]LitterOwingShift, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	bound := sqlbind.MustBind(littersOwingShiftSQL, tenantID, stages, after, limit)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []LitterOwingShift
+	for rows.Next() {
+		var l LitterOwingShift
+		if err := rows.Scan(&l.BirthEventID, &l.KidGoatID); err != nil {
+			return nil, err
+		}
+		out = append(out, l)
+	}
+	return out, rows.Err()
 }

@@ -49,7 +49,7 @@ func seededLitterTrack(t *testing.T) (FollowUpTrack, TaskTypeRegistry) {
 }
 
 // The rule the maintainer dictated: K1 exactly 24 hours after birth, K2 exactly 7 days after the
-// litter reached K1, both the park head's, both engine-completed.
+// litter reached K1, both engine-completed.
 func TestSeededLitterTrackIsTheParkHeadsTwoTimedMoves(t *testing.T) {
 	track, reg := seededLitterTrack(t)
 	born := time.Date(2026, 9, 30, 15, 10, 0, 0, time.UTC)
@@ -64,8 +64,10 @@ func TestSeededLitterTrackIsTheParkHeadsTwoTimedMoves(t *testing.T) {
 	if k1.TargetStage != "K1" || k2.TargetStage != "K2" {
 		t.Fatalf("targets = %q, %q", k1.TargetStage, k2.TargetStage)
 	}
-	if k1.Owner != "park_head" || k2.Owner != "park_head" {
-		t.Fatalf("owners = %q, %q", k1.Owner, k2.Owner)
+	// Anyone in herd operations raises the shifting; the approver approves it (maintainer answer
+	// 2026-09-30) -- so the seeded steps name no owner. A farm may still author one per step.
+	if k1.Owner != "" || k2.Owner != "" {
+		t.Fatalf("owners = %q, %q, want none", k1.Owner, k2.Owner)
 	}
 	if k1.EngineHook != EngineHookShiftKidsStage || k2.EngineHook != EngineHookShiftKidsStage {
 		t.Fatal("both steps must carry the shift hook")
@@ -134,7 +136,7 @@ func TestLitterShiftCompletesOnlyWhenTheWholeLitterReachedTheStage(t *testing.T)
 	t1 := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
 
 	// Twins, one moved: nothing completes -- the task must not read done over a K0 kid.
-	changed, cancel := ApplyLitterShift(actions, []LitterKid{{"k1", "K1", true}, {"k2", "K0", true}}, t1)
+	changed, cancel := ApplyLitterShift(actions, []LitterKid{{GoatID: "k1", Stage: "K1", Alive: true}, {GoatID: "k2", Stage: "K0", Alive: true}}, t1)
 	if len(changed) != 0 || cancel {
 		t.Fatalf("half a litter moved must change nothing, got %d changes cancel=%v", len(changed), cancel)
 	}
@@ -142,7 +144,7 @@ func TestLitterShiftCompletesOnlyWhenTheWholeLitterReachedTheStage(t *testing.T)
 	// Both on K1: the K1 step completes at the moment the LAST kid moved, and the K2 step is due
 	// exactly 7 days later -- not 7 days after birth.
 	t2 := t1.Add(3 * time.Hour)
-	changed, _ = ApplyLitterShift(actions, []LitterKid{{"k1", "K1", true}, {"k2", "K1", true}}, t2)
+	changed, _ = ApplyLitterShift(actions, []LitterKid{{GoatID: "k1", Stage: "K1", Alive: true}, {GoatID: "k2", Stage: "K1", Alive: true}}, t2)
 	if actions[0].Status != ActionStatusCompleted || !actions[0].CompletedAt.Equal(t2) {
 		t.Fatalf("K1 step = %s at %v, want completed at %v", actions[0].Status, actions[0].CompletedAt, t2)
 	}
@@ -154,13 +156,13 @@ func TestLitterShiftCompletesOnlyWhenTheWholeLitterReachedTheStage(t *testing.T)
 	}
 
 	// A redelivery changes nothing.
-	if again, _ := ApplyLitterShift(actions, []LitterKid{{"k1", "K1", true}, {"k2", "K1", true}}, t2.Add(time.Minute)); len(again) != 0 {
+	if again, _ := ApplyLitterShift(actions, []LitterKid{{GoatID: "k1", Stage: "K1", Alive: true}, {GoatID: "k2", Stage: "K1", Alive: true}}, t2.Add(time.Minute)); len(again) != 0 {
 		t.Fatalf("redelivery changed %d rows", len(again))
 	}
 
 	// Both on K2: the K2 step completes.
 	t3 := t2.Add(7 * 24 * time.Hour)
-	ApplyLitterShift(actions, []LitterKid{{"k1", "K2", true}, {"k2", "K2", true}}, t3)
+	ApplyLitterShift(actions, []LitterKid{{GoatID: "k1", Stage: "K2", Alive: true}, {GoatID: "k2", Stage: "K2", Alive: true}}, t3)
 	if actions[1].Status != ActionStatusCompleted {
 		t.Fatalf("K2 step = %s, want completed", actions[1].Status)
 	}
@@ -169,14 +171,14 @@ func TestLitterShiftCompletesOnlyWhenTheWholeLitterReachedTheStage(t *testing.T)
 func TestLitterShiftIgnoresKidsThatLeftTheFarm(t *testing.T) {
 	actions := litterActions()
 	at := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
-	ApplyLitterShift(actions, []LitterKid{{"k1", "K1", true}, {"k2", "K0", false}}, at)
+	ApplyLitterShift(actions, []LitterKid{{GoatID: "k1", Stage: "K1", Alive: true}, {GoatID: "k2", Stage: "K0", Alive: false}}, at)
 	if actions[0].Status != ActionStatusCompleted {
 		t.Fatalf("a dead K0 twin must not hold the move open, K1 step = %s", actions[0].Status)
 	}
 
 	// Every kid gone: the litter owes nothing and the workflow is canceled.
 	actions = litterActions()
-	changed, cancel := ApplyLitterShift(actions, []LitterKid{{"k1", "K0", false}, {"k2", "K0", false}}, at)
+	changed, cancel := ApplyLitterShift(actions, []LitterKid{{GoatID: "k1", Stage: "K0", Alive: false}, {GoatID: "k2", Stage: "K0", Alive: false}}, at)
 	if !cancel || len(changed) != 2 || actions[0].Status != ActionStatusCanceled || actions[1].Status != ActionStatusCanceled {
 		t.Fatalf("no live kid: cancel=%v changed=%d statuses %s/%s", cancel, len(changed), actions[0].Status, actions[1].Status)
 	}
@@ -184,11 +186,11 @@ func TestLitterShiftIgnoresKidsThatLeftTheFarm(t *testing.T) {
 
 // A kid moved straight past K1 still counts as having reached it; a kid in ICU is neither.
 func TestJudgeLitterShiftReadsTheLadder(t *testing.T) {
-	o := JudgeLitterShift([]LitterKid{{"a", "K2", true}, {"b", "ICU-Kid", true}}, "K1")
+	o := JudgeLitterShift([]LitterKid{{GoatID: "a", Stage: "K2", Alive: true}, {GoatID: "b", Stage: "ICU-Kid", Alive: true}}, "K1")
 	if o.Reached != 1 || o.Waiting != 0 || o.Live != 2 || !o.Done() {
 		t.Fatalf("got %+v", o)
 	}
-	if JudgeLitterShift([]LitterKid{{"a", "ICU-Kid", true}}, "K1").Done() {
+	if JudgeLitterShift([]LitterKid{{GoatID: "a", Stage: "ICU-Kid", Alive: true}}, "K1").Done() {
 		t.Fatal("a litter whose only kid is in ICU has not reached K1")
 	}
 }
@@ -216,5 +218,31 @@ func TestMigrationEmbedsTheKidShiftSeed(t *testing.T) {
 		if !strings.Contains(string(raw), "$seed$"+strings.TrimSpace(string(doc))+"$seed$") {
 			t.Fatalf("migration 000462 does not embed %s verbatim", name)
 		}
+	}
+}
+
+// A litter that reached K1 on Monday and is judged on Thursday (a late event, or the backfill of a
+// litter already on the farm) completes AT MONDAY, so its K2 task is due the next Monday.
+func TestLitterShiftCountsFromWhenTheKidsReallyReachedTheStage(t *testing.T) {
+	actions := litterActions()
+	monday := time.Date(2026, 9, 21, 10, 0, 0, 0, time.UTC)
+	sunday := monday.Add(-24 * time.Hour)
+	thursday := monday.Add(72 * time.Hour)
+	ApplyLitterShift(actions, []LitterKid{
+		{GoatID: "a", Stage: "K1", Alive: true, StageSince: &sunday},
+		{GoatID: "b", Stage: "K1", Alive: true, StageSince: &monday},
+	}, thursday)
+	if actions[0].CompletedAt == nil || !actions[0].CompletedAt.Equal(monday) {
+		t.Fatalf("K1 step completed at %v, want the last kid's entry %v", actions[0].CompletedAt, monday)
+	}
+	if !actions[1].DueAt.Equal(monday.Add(7 * 24 * time.Hour)) {
+		t.Fatalf("K2 due %v, want 7 days after %v", actions[1].DueAt, monday)
+	}
+
+	// A kid with no recorded entry (seeded on its stage): the caller's instant stands.
+	actions = litterActions()
+	ApplyLitterShift(actions, []LitterKid{{GoatID: "a", Stage: "K1", Alive: true, StageSince: &monday}, {GoatID: "b", Stage: "K1", Alive: true}}, thursday)
+	if !actions[0].CompletedAt.Equal(thursday) {
+		t.Fatalf("with unknown history, completed at %v, want %v", actions[0].CompletedAt, thursday)
 	}
 }

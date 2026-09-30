@@ -808,3 +808,25 @@ func GrowthStagesBefore(target string) []string {
 	sort.Strings(out)
 	return out
 }
+
+// GrowthTargetStages lists every stage a growth shifting can move an animal INTO, in ladder order
+// from K0 (K1, K2, K3, F2, ...). It is the choice list for a kid shift step's target stage on the
+// Birth SOP editor (KID STAGE SHIFT TASKS), so the editor offers exactly what publish accepts.
+func GrowthTargetStages() []string {
+	var out []string
+	seen := map[string]bool{"K0": true}
+	frontier := []string{"K0"}
+	for len(frontier) > 0 {
+		from := frontier[0]
+		frontier = frontier[1:]
+		for _, to := range growthForwardEdges[from] {
+			if seen[to] {
+				continue
+			}
+			seen[to] = true
+			out = append(out, to)
+			frontier = append(frontier, to)
+		}
+	}
+	return out
+}

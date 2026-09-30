@@ -526,6 +526,8 @@ func TemplateLabel(templateKey string) string {
 	switch templateKey {
 	case TemplateKeyBirthKid, TemplateKeyBirthMother:
 		return "Birth"
+	case TemplateKeyBirthLitter:
+		return "Kid shifts"
 	case TemplateKeyDeath:
 		return "Death"
 	case TemplateKeyReconcile:

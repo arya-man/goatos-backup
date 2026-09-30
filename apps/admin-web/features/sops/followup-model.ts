@@ -51,6 +51,9 @@ export type FollowUpStepRow = {
   // Who does the step (SALES SOP, 2026-09-19): a designation code from the catalog served as
   // the `sop_step_owners` option group. Blank = anyone who can open the workflow.
   owner: string;
+  // KID STAGE SHIFT TASKS (2026-09-30): the growth stage a litter shift step moves the kids to
+  // (`K1`, `K2`). Only a step whose task type's engine hook is shift_kids_stage carries it.
+  targetStage: string;
 };
 
 /** Answer comparisons the engine evaluates (tasks/domain.AnswerCondition). */
@@ -129,6 +132,7 @@ export function blankStep(taskType = "record_yes_no"): FollowUpStepRow {
     whenOp: "eq",
     whenValues: [],
     owner: "",
+    targetStage: "",
   };
 }
 
@@ -228,6 +232,7 @@ export function parseFollowUp(formDsl: unknown): FollowUpRows | null {
                 whenOp: (ANSWER_OPS.includes(str(whenAnswer["op"]) as AnswerOp) ? str(whenAnswer["op"]) : "eq") as AnswerOp,
                 whenValues: strList(whenAnswer["value"]),
                 owner: str(step["owner"]),
+                targetStage: str(step["target_stage"]),
               } satisfies FollowUpStepRow,
             ];
           }),
@@ -317,6 +322,7 @@ export function emitFollowUp(rows: FollowUpRows): Record<string, unknown> {
         if (row.when) out.when = row.when;
         if (row.whenStep) out.when_answer = { step: row.whenStep, op: row.whenOp, value: row.whenValues.map((v) => v.trim()).filter(Boolean) };
         if (row.owner.trim()) out.owner = row.owner.trim();
+        if (row.targetStage.trim()) out.target_stage = row.targetStage.trim();
         return out;
       }),
     })),

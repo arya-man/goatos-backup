@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/adminui/domain"
+	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 )
 
@@ -82,6 +83,10 @@ type ReferenceFamilies struct {
 	// the same keys with Label = answer kind, so the builder knows which steps take options.
 	SOPTaskTypes           []ReferenceOption
 	SOPTaskTypeAnswerKinds []ReferenceOption
+	// SOPTaskTypeHooks carries the task types that have an engine hook: Key = task type key,
+	// Label = the hook. The editor reads it to know which steps take an engine-only field -- a kid
+	// shift step's target stage (KID STAGE SHIFT TASKS, 2026-09-30).
+	SOPTaskTypeHooks []ReferenceOption
 	// Designations is the farm's designation catalog (designation_catalog, migration 000219):
 	// Key = designation code, Label = job title. The SOP step editor's "Done by" select
 	// (SALES SOP, 2026-09-19) is compiled from it, never from a constant list.
@@ -1036,6 +1041,17 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			// items use. sop_task_type_answer_kinds is the metadata twin keyed on the same keys.
 			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "sop_task_types", optionsFromReferences(families.SOPTaskTypes, ""))
 			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "sop_task_type_answer_kinds", optionsFromReferences(families.SOPTaskTypeAnswerKinds, ""))
+			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "sop_task_type_hooks", optionsFromReferences(families.SOPTaskTypeHooks, ""))
+			if out[i].RouteID == "counts-sops" {
+				// KID STAGE SHIFT TASKS (2026-09-30): a litter shift step's target stage is a stage a
+				// growth shifting can move kids INTO -- the same ladder publish checks it against.
+				stages := countsdomain.GrowthTargetStages()
+				opts := make([]domain.Option, 0, len(stages))
+				for _, st := range stages {
+					opts = append(opts, domain.Option{Key: st, Label: st})
+				}
+				out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "sop_shift_target_stages", opts)
+			}
 			if out[i].RouteID == "weighing-sops" {
 				// The Assumptions drawer lives on the Weighing SOP page (maintainer instruction
 				// 2026-09-19, moved from ADG Analytics the same day): the SOP page is where the

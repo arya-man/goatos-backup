@@ -64,6 +64,10 @@ export function FollowUpEditor({
   // WHO DOES A STEP (SALES SOP, 2026-09-19): the designation catalog, compiled by the bootstrap;
   // an empty group (an older contract) simply hides the select.
   const owners = optionGroup(pc, "sop_step_owners");
+  // KID STAGE SHIFT TASKS (2026-09-30): which task types carry an engine hook, and the stages a
+  // litter shift step may target -- both compiled by the backend from its registry and ladder.
+  const taskHooks = useMemo(() => Object.fromEntries(optionGroup(pc, "sop_task_type_hooks").map((o) => [o.key, o.label])), [pc]);
+  const targetStages = optionGroup(pc, "sop_shift_target_stages");
   const conditions = optionGroup(pc, "sop_step_conditions");
   // A SALE step's condition is its own backend group (2026-09-25): "only when the sale has
   // animals". The herd conditions mean nothing on a sale and are never offered there.
@@ -253,6 +257,8 @@ export function FollowUpEditor({
                     answerKinds={answerKinds}
                     scheduleKinds={scheduleKinds}
                     owners={owners}
+                    taskHooks={taskHooks}
+                    targetStages={targetStages}
                     conditions={track.module === "sales" ? saleConditions : conditions}
                     sections={sections}
                     onChange={(patch) => updateStep(track.key, step.id, patch)}
@@ -282,6 +288,8 @@ export function FollowUpEditor({
                     answerKinds={answerKinds}
                     scheduleKinds={scheduleKinds}
                     owners={owners}
+                    taskHooks={taskHooks}
+                    targetStages={targetStages}
                     conditions={track.module === "sales" ? saleConditions : conditions}
                     sections={sections}
                     onChange={(patch) => updateStep(track.key, step.id, patch)}
@@ -341,6 +349,8 @@ function StepCard({
   answerKinds,
   scheduleKinds,
   owners = [],
+  taskHooks = {},
+  targetStages = [],
   conditions,
   sections,
   onChange,
@@ -359,6 +369,10 @@ function StepCard({
   scheduleKinds: { key: string; label: string; title?: string }[];
   /** Designations a step can be for (`sop_step_owners`); empty hides the Done-by select. */
   owners?: { key: string; label: string }[];
+  /** Task type key -> engine hook (`sop_task_type_hooks`). */
+  taskHooks?: Record<string, string>;
+  /** Stages a kid shift step may target (`sop_shift_target_stages`). */
+  targetStages?: { key: string; label: string }[];
   conditions: { key: string; label: string }[];
   sections: { key: string; label: string; title?: string }[];
   onChange: (patch: Partial<FollowUpStepRow>) => void;
@@ -465,6 +479,22 @@ function StepCard({
             <select data-testid="step-owner" value={step.owner} onChange={(e) => onChange({ owner: e.target.value })}>
               <option value="">{copy(pc, "followup.step.owner_any")}</option>
               {owners.map((o) => (
+                <option key={o.key} value={o.key}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      ) : null}
+
+      {taskHooks[step.taskType] === "shift_kids_stage" && targetStages.length > 0 ? (
+        <div className="qcfg followup-owner">
+          <label title={copy(pc, "followup.step.target_stage_hint")}>
+            {copy(pc, "followup.step.target_stage")}
+            <select data-testid="step-target-stage" value={step.targetStage} onChange={(e) => onChange({ targetStage: e.target.value })}>
+              <option value="">{copy(pc, "followup.step.target_stage_none")}</option>
+              {targetStages.map((o) => (
                 <option key={o.key} value={o.key}>
                   {o.label}
                 </option>

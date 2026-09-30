@@ -9177,6 +9177,10 @@ func pageSpecificCopy(id string) map[string]string {
 			"followup.step.owner":      "Done by",
 			"followup.step.owner_any":  "Anyone",
 			"followup.step.owner_hint": "Only this designation can do the step on the phone; everyone else sees it read-only.",
+			// KID STAGE SHIFT TASKS (2026-09-30): a litter shift step's target stage.
+			"followup.step.target_stage":      "Move the kids to",
+			"followup.step.target_stage_none": "Choose a stage",
+			"followup.step.target_stage_hint": "The step completes on its own once every live kid of the litter has reached this stage through a growth shifting.",
 		}
 		// Per-module copy: crumb names the owning vertical, and the builder's domain lock names
 		// the module the page is scoped to (SOP split, maintainer decision 2026-08-18).
@@ -10812,6 +10816,10 @@ func sopOptionGroups() []domain.OptionGroup {
 		// designation catalog by the compiler (never a constant list here).
 		{ID: "sop_step_owners"},
 		{ID: "sop_task_type_answer_kinds"},
+		// KID STAGE SHIFT TASKS (2026-09-30): which task types carry an engine hook, and the stages
+		// a litter shift step may target. Both filled by the compiler, never constants here.
+		{ID: "sop_task_type_hooks", Options: []domain.Option{}},
+		{ID: "sop_shift_target_stages", Options: []domain.Option{}},
 		{
 			// When a step is due, relative to the event the workflow opened on. Keys are the
 			// follow_up schedule kinds tasks/domain.CompileTrack accepts.

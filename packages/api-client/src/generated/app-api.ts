@@ -20015,6 +20015,19 @@ export interface components {
             owner_role?: string;
             /** @description The designation catalog's label for owner_role ("Park Head"). Render verbatim. */
             owner_label?: string;
+            /** @description KID STAGE SHIFT TASKS (docs/decisions/kid-stage-shift-tasks.md): on a litter shift step (task_type shift_kids_stage), the growth stage the kids move to ("K1"). The step is engine-completed when every live kid of the litter has reached it; a by-hand completion is refused 409 kid_shift_pending. Absent on every other step. */
+            target_stage?: string;
+            /** @description On a PENDING litter shift step, the live kids still on a stage before target_stage -- the animals to open Raise shifting (growth) with. Absent otherwise. */
+            waiting_kids?: components["schemas"]["WorkflowLitterKid"][];
+        };
+        WorkflowLitterKid: {
+            /** Format: uuid */
+            goat_id: string;
+            /** @description The kid's RFID (animal_identifier_1, else _2), else its display id. */
+            tag: string;
+            stage: string;
+            /** @description Backend-composed operational location ("Castro 1"). Render verbatim. */
+            pen_label: string;
         };
         WorkflowProofItem: {
             /** @description Server-minted proof id from /app/proofs/*. */

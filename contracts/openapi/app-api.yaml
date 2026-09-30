@@ -46140,6 +46140,40 @@ components:
         owner_label:
           description: The designation catalog's label for owner_role ("Park Head"). Render verbatim.
           type: string
+        target_stage:
+          description: >-
+            KID STAGE SHIFT TASKS (docs/decisions/kid-stage-shift-tasks.md): on a litter shift step
+            (task_type shift_kids_stage), the growth stage the kids move to ("K1"). The step is
+            engine-completed when every live kid of the litter has reached it; a by-hand completion
+            is refused 409 kid_shift_pending. Absent on every other step.
+          type: string
+        waiting_kids:
+          description: >-
+            On a PENDING litter shift step, the live kids still on a stage before target_stage --
+            the animals to open Raise shifting (growth) with. Absent otherwise.
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowLitterKid"
+    WorkflowLitterKid:
+      type: object
+      additionalProperties: false
+      required:
+        - goat_id
+        - tag
+        - stage
+        - pen_label
+      properties:
+        goat_id:
+          type: string
+          format: uuid
+        tag:
+          description: The kid's RFID (animal_identifier_1, else _2), else its display id.
+          type: string
+        stage:
+          type: string
+        pen_label:
+          description: Backend-composed operational location ("Castro 1"). Render verbatim.
+          type: string
     WorkflowProofItem:
       type: object
       additionalProperties: false

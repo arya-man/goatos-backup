@@ -124,7 +124,7 @@ func (r *Repository) LoadContractFamilies(ctx context.Context, tenantID string) 
 	if err != nil {
 		return out, err
 	}
-	out.SOPTaskTypes, out.SOPTaskTypeAnswerKinds, rev, err = r.listSOPTaskTypes(ctx, q, tenantID)
+	out.SOPTaskTypes, out.SOPTaskTypeAnswerKinds, out.SOPTaskTypeHooks, rev, err = r.listSOPTaskTypes(ctx, q, tenantID)
 	out.RevisionInputs["sop-task-types"] = rev
 	if err != nil {
 		return out, err
@@ -490,7 +490,7 @@ func (r *Repository) listUIConfigEntries(ctx context.Context, q querier, tenantI
 }
 
 const listSOPTaskTypesSQL = `
-SELECT task_type_key, name, COALESCE(description, ''), answer_kind, updated_at::text
+SELECT task_type_key, name, COALESCE(description, ''), answer_kind, COALESCE(engine_hook, ''), updated_at::text
 FROM sop_task_types
 WHERE tenant_id = $1::uuid AND status = 'active'
 ORDER BY sort_order, task_type_key
@@ -498,27 +498,30 @@ LIMIT 200`
 
 // listSOPTaskTypes reads the Task Type Registry (migration 000308) for the SOP builder's
 // follow-up step editor: one option list for the picker, one metadata twin carrying answer kinds.
-func (r *Repository) listSOPTaskTypes(ctx context.Context, q querier, tenantID string) ([]app.ReferenceOption, []app.ReferenceOption, string, error) {
+func (r *Repository) listSOPTaskTypes(ctx context.Context, q querier, tenantID string) ([]app.ReferenceOption, []app.ReferenceOption, []app.ReferenceOption, string, error) {
 	rows, err := q.Query(ctx, listSOPTaskTypesSQL, tenantID)
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("adminui: list sop task types: %w", err)
+		return nil, nil, nil, "", fmt.Errorf("adminui: list sop task types: %w", err)
 	}
 	defer rows.Close()
-	var types, kinds []app.ReferenceOption
+	var types, kinds, hooks []app.ReferenceOption
 	var rev strings.Builder
 	for rows.Next() {
-		var key, name, description, answer, updated string
-		if err := rows.Scan(&key, &name, &description, &answer, &updated); err != nil {
-			return nil, nil, "", err
+		var key, name, description, answer, hook, updated string
+		if err := rows.Scan(&key, &name, &description, &answer, &hook, &updated); err != nil {
+			return nil, nil, nil, "", err
 		}
 		types = append(types, app.ReferenceOption{Key: key, Label: name, Title: description})
 		kinds = append(kinds, app.ReferenceOption{Key: key, Label: answer})
-		rev.WriteString(key + "|" + name + "|" + answer + "|" + updated + "\n")
+		if hook != "" {
+			hooks = append(hooks, app.ReferenceOption{Key: key, Label: hook})
+		}
+		rev.WriteString(key + "|" + name + "|" + answer + "|" + hook + "|" + updated + "\n")
 	}
 	if err := rows.Err(); err != nil {
-		return nil, nil, "", err
+		return nil, nil, nil, "", err
 	}
-	return types, kinds, rev.String(), nil
+	return types, kinds, hooks, rev.String(), nil
 }
 
 // listDesignationsSQL reads the designation catalog (a global, tens-of-rows table) for the

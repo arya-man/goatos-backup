@@ -588,9 +588,25 @@ func (s *Service) openLitterWorkflow(ctx context.Context, tenantID, kidGoatID st
 	case err != nil:
 		return err
 	}
-	// A kid can already have moved before its litter's workflow opened (an out-of-order redelivery):
-	// judge the steps against the register now rather than waiting for the next stage change.
-	return s.repo.ReconcileLitterShiftSteps(ctx, tenantID, birthEventID, eventAt)
+	// A kid can already have moved before its litter's workflow opened (an out-of-order redelivery,
+	// or a litter already on the farm when the rule shipped): judge the steps against the register
+	// now. A step that completes is stamped with the kids' own recorded stage entry, never "now",
+	// unless the register holds none.
+	return s.repo.ReconcileLitterShiftSteps(ctx, tenantID, birthEventID, s.now().UTC())
+}
+
+// OpenLitterWorkflowForKid opens ONLY the litter's shift workflow for a kid already on the farm
+// (the KID STAGE SHIFT TASKS backfill, maintainer instruction 2026-09-30: "this should already
+// reflect for animals which are present also"). It never opens the kid or mother track -- those
+// belong to the birth event and were owed at birth. The litter's clock is the kid's recorded birth
+// moment, exactly as for a new birth. Idempotent: an existing litter workflow is left as it is.
+func (s *Service) OpenLitterWorkflowForKid(ctx context.Context, tenantID, kidGoatID string) error {
+	facts, err := s.repo.GoatWorkflowFacts(ctx, tenantID, kidGoatID)
+	if err != nil {
+		return err
+	}
+	eventAt := birthMoment(facts.DOB, facts.TimeOfBirth, "", s.now())
+	return s.openLitterWorkflow(ctx, tenantID, kidGoatID, eventAt, facts.ParkID, facts.ShedID)
 }
 
 // ReconcileLitterShift re-judges the litter a kid belongs to after that kid's stage changed or it
