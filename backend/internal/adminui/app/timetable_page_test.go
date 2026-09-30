@@ -61,3 +61,14 @@ func TestTimetableIsEditedByHRAndTheCEOOnly(t *testing.T) {
 		t.Fatalf("permissionsForNav(people-timetable) = %v, want [%s]", got, permissions.WorkforceTimetableRead)
 	}
 }
+
+// HR opens the console for Timetable and Leave; its account chip names the desk in farm words,
+// never the raw role code "hr" it showed before.
+func TestHRAccountChipSaysHR(t *testing.T) {
+	if got := roleLensForRole(permissions.RoleHR); got.Name != "HR" || got.ID != "hr" {
+		t.Fatalf("HR lens = %+v", got)
+	}
+	if got := roleInitials(permissions.RoleHR); got != "HR" {
+		t.Fatalf("HR initials = %q", got)
+	}
+}

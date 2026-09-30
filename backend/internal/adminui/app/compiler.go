@@ -2508,6 +2508,9 @@ func highestRole(roles []string) string {
 		permissions.RoleParkHead,
 		permissions.RoleVerifier,
 		permissions.RoleOperator,
+		// HR (2026-09-10) is a per-person desk layered on a job role; it chips the person only
+		// when no job role above does.
+		permissions.RoleHR,
 	} {
 		for _, got := range roles {
 			if got == role {
@@ -2550,6 +2553,10 @@ func roleLensForRole(role string) domain.RoleLensContract {
 		return domain.RoleLensContract{ID: "verifier", Name: "Verifier", AuditShort: "Verifier", Scope: "video verification · all verticals", Description: "Independent proof review"}
 	case permissions.RoleOperator:
 		return domain.RoleLensContract{ID: "ground", Name: "Assist / Ground", AuditShort: "Assist", Scope: "tasks · assigned park", Description: "field execution queue"}
+	// HR had web access since leave approvals (2026-09-10) and chipped as the raw role code "hr";
+	// it gets farm words like every other role that can open the console (2026-09-30).
+	case permissions.RoleHR:
+		return domain.RoleLensContract{ID: "hr", Name: "HR", AuditShort: "HR", Scope: "people · all parks", Description: "Timetable and leave"}
 	default:
 		return domain.RoleLensContract{ID: role, Name: role, AuditShort: role, Scope: "assigned scope", Description: "Backend RBAC role"}
 	}
@@ -2567,6 +2574,8 @@ func roleInitials(role string) string {
 	// reason his lens name changed.
 	case permissions.RolePCDirector:
 		return "PC"
+	case permissions.RoleHR:
+		return "HR"
 	case permissions.RoleGrowthDirector:
 		return "GD"
 	case permissions.RoleFeedDirector:
