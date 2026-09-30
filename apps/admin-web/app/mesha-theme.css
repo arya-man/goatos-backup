@@ -177,10 +177,6 @@
   .subtabs button .cbq,.subtabs a .cbq{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:16px;padding:0 5px;margin-left:7px;border-radius:999px;background:var(--line2);color:var(--muted);font-size:10.5px;font-weight:800;vertical-align:middle}
   .subtabs button.on .cbq,.subtabs a.on .cbq{background:var(--brand-soft);color:var(--brand-d)}
   .subtabs a.disabled,.subtabs button.disabled,.subtabs button:disabled{opacity:.4;cursor:not-allowed;pointer-events:none}
-  .htl{position:relative;padding-left:6px}
-  .hrow{display:flex;align-items:flex-start;gap:11px;padding:9px 2px;border-bottom:1px solid var(--line2)}
-  .htx{flex:1;min-width:0}.htx b{font-size:12.5px;font-weight:650}
-  .hmeta{color:var(--muted);font-size:11px;margin-top:2px}
 
   /* CEO/CXO read-only assistant bubble */
   .ceo-ai{position:fixed;z-index:140;display:grid;justify-items:end;pointer-events:none}
@@ -471,7 +467,7 @@
      40px label hit area (checkbox itself stays native size). */
   .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:4px}
   .legend span{display:inline-flex;align-items:center;gap:6px}
-  .muted{color:var(--muted)} .small{font-size:12px} .b700{font-weight:700}
+  .muted{color:var(--muted)} .small{font-size:12px}
   /* ---------- orchestration tree ---------- */
   /* ---------- calendar / reminders ---------- */
   .rhythm{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
@@ -580,54 +576,8 @@
     }
   }
 
-  .followup-summary .htl{margin-bottom:6px}
   /* SOP studio phase 2: the Flow view (features/sops/*-flow.tsx) */
-  .studio-flow{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:14px;align-items:stretch;margin-top:10px} /* phone-viewport:ignore: collapses to one column under 1100px (media query below) */
-  .studio-flow-canvas-wrap{display:flex;flex-direction:column;gap:8px;min-width:0}
-  .studio-flow-toolbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-  .studio-flow-hint{margin-left:auto}
-  .studio-flow-canvas{position:relative;overflow:auto;border:1px solid var(--line);border-radius:12px;background:radial-gradient(circle,var(--line) 1px,transparent 1px) 0 0/22px 22px,var(--bg);min-height:420px;max-height:72vh;padding:12px}
-  .studio-flow-scale{position:relative;transform-origin:0 0}
-  .studio-flow-edges{position:absolute;left:0;top:0;overflow:visible;pointer-events:none}
-  .studio-flow-edge{fill:none;stroke:var(--brand-d);stroke-width:2;opacity:.75}
-  .studio-flow-arrow{fill:var(--brand-d)}
-  .studio-flow-edge-label{position:absolute;transform:translate(-50%,-50%);z-index:2;font-size:11px;color:var(--muted);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:2px 8px;white-space:nowrap;max-width:240px;overflow:hidden;text-overflow:ellipsis}
-  .studio-flow-plus{position:absolute;transform:translate(-50%,-50%) scale(calc(1 / var(--studio-flow-zoom, 1)));z-index:2;width:22px;height:22px;border:0;background:transparent;color:var(--brand-d);font-weight:700;line-height:1;cursor:pointer;font-size:14px;transform-origin:center;display:grid;place-items:center}
-  .studio-flow-plus::before{content:"";position:absolute;width:22px;height:22px;border-radius:50%;border:1px solid var(--brand-d);background:var(--panel);z-index:-1}
-  @media (max-width: 1100px){.studio-flow-plus{width:44px;height:44px}.studio-flow-plus::before{width:24px;height:24px}}
-  .studio-flow-plus:hover{background:var(--brand-d);color:var(--on-brand)}
-  .studio-node{position:absolute;display:flex;flex-direction:column;gap:2px;justify-content:center;padding:8px 12px;border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--ink);text-align:left;font:inherit;box-sizing:border-box;z-index:1}
-  .studio-node b{font-size:13px;line-height:1.2;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-  .toxin-flow .studio-node b{flex-shrink:0;-webkit-line-clamp:2}
-  .toxin-flow .studio-node > .muted.small{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;flex-shrink:0}
-  .studio-node-kind{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);display:flex;align-items:center;gap:4px}
-  .studio-node-step,.studio-node-question{cursor:pointer}
-  .studio-node[role="button"]:focus-visible{outline:2px solid var(--brand-d);outline-offset:2px}
-  .studio-node-step:hover,.studio-node-question:hover{border-color:var(--brand-d)}
-  .studio-node.on{border-color:var(--brand-d);box-shadow:0 0 0 2px color-mix(in srgb,var(--brand-d) 30%,transparent)}
-  .studio-node-question{border-top:3px solid #6ea8fe}
-  .studio-node-decision{border-top:3px solid #e0b252;background:var(--panel-2,var(--panel));justify-content:space-between;flex-direction:row;align-items:center;gap:8px}
-  .studio-node-decision .btn{white-space:nowrap;flex:none}
-  .studio-node-start{border-top:3px solid var(--brand-d)}
-  .studio-node-start b,.studio-node-finish b,.studio-node-fixed b,.studio-node-group b{-webkit-line-clamp:1}
-  .studio-node-fixed{border-style:dashed;opacity:.85}
-  .studio-node-group{border-top:3px solid #a78bfa}
-  .studio-node-owner{align-self:flex-start;font-size:10px;padding:1px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted);background:var(--panel-2,var(--panel));white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
-  .studio-node-actions{display:flex;gap:4px;flex-wrap:wrap}
-  .studio-node-actions .btn{padding:2px 6px;font-size:11px}
-  .studio-node-finish{border-top:3px solid var(--muted)}
-  /* The properties panel is exactly as tall as the canvas column and scrolls INSIDE itself.
-     `height:0` keeps the panel's own content out of the grid row's height (a tall step's fields
-     would otherwise stretch the row and the panel could never scroll), `min-height:100%` then
-     fills the row the canvas sets. Two class names on purpose (see .card.vr-board): the generic
-     `.card{overflow:hidden}` is declared later at equal specificity, so a single-class
-     `overflow:auto` lost and the wheel scrolled the page with the "Only if" field at the bottom
-     of a tall step unreachable. The Herd Operations flow also sits inside a `.card.followup-track`,
-     whose clip cut the panel off at the card edge. */
-  .card.studio-flow-props{height:0;min-height:100%;overflow:auto;box-sizing:border-box}
-  @media (max-width:1100px){.studio-flow{grid-template-columns:1fr}.card.studio-flow-props{height:auto;min-height:0;max-height:60vh}}
   .btn.ghost{background:transparent;border-style:dashed;color:var(--brand-d);font-size:12.5px;padding:6px 10px}
-  .inspection-summary .htl{margin-bottom:6px}
   .btn.ghost:hover{background:var(--brand-soft)}
   .weighing-command-panel{border:1px solid var(--line2);background:var(--bg);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px;min-width:0}
   .weighing-wizard-head{display:grid;grid-template-columns:minmax(0,1fr) minmax(180px,.45fr);gap:16px;align-items:end}
