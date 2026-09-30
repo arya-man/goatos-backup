@@ -166,6 +166,20 @@ type WorkflowDetail struct {
 	Card    WorkflowCard
 	Facts   []WorkflowFact
 	Actions []WorkflowAction
+	// LitterKids is the litter workflow's kids (KID STAGE SHIFT TASKS), in birth order: who each
+	// is, its current stage and pen. Empty on every other template.
+	LitterKids []LitterKidView
+}
+
+// LitterKidView is one kid of a litter as the park head reads it. Tag is the animal's RFID
+// (animal_identifier_1, else _2), falling back to its display id; PenLabel is the composed
+// operational location ("Castro 1", "Mandela 1 - Part 10").
+type LitterKidView struct {
+	GoatID   string
+	Tag      string
+	Stage    string
+	PenLabel string
+	Alive    bool
 }
 
 // RoleLabelForTemplate is the operator-facing subject role on the card.

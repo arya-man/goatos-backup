@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"sort"
 	"strings"
 
 	protocoldomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
@@ -766,5 +767,44 @@ func ProductNamedStageCodes() []string {
 	for stage := range growthStageSex {
 		add(stage)
 	}
+	return out
+}
+
+// GrowthStagesBefore lists every stage that still has to move FORWARD along the growth ladder to
+// reach target -- the stages from which target is reachable by growth edges, not counting target
+// itself. `K1` -> [K0]; `K2` -> [K0 K1]. A stage off the ladder (a clinical pen tag such as
+// `ICU-Kid`, or Mother / Milking / M0 / Warmup, which have no edges) is in no one's "before" set.
+//
+// KID STAGE SHIFT TASKS (maintainer decision 2026-09-30, docs/decisions/kid-stage-shift-tasks.md)
+// read it to decide whether a litter still owes a shift: a live kid still on one of these stages is
+// the work. It walks the SAME growthForwardEdges the growth raise obeys, so the task and the raise
+// can never disagree about what "the next stage" is. The one reverse edge (Pregnant <->
+// Non-Pregnant) forms a loop the walk stops at, so it terminates.
+func GrowthStagesBefore(target string) []string {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	frontier := []string{target}
+	for len(frontier) > 0 {
+		next := frontier[0]
+		frontier = frontier[1:]
+		for from, tos := range growthForwardEdges {
+			if seen[strings.ToLower(from)] || strings.EqualFold(from, target) {
+				continue
+			}
+			for _, to := range tos {
+				if strings.EqualFold(to, next) {
+					seen[strings.ToLower(from)] = true
+					out = append(out, from)
+					frontier = append(frontier, from)
+					break
+				}
+			}
+		}
+	}
+	sort.Strings(out)
 	return out
 }

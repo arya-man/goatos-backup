@@ -167,6 +167,8 @@ type ActionTemplate struct {
 	AnswerGate *AnswerCondition
 	// Owner is the designation code that does the step; blank = anyone (sop_followup.go).
 	Owner string
+	// TargetStage is a kid shift step's authored target stage (kid_stage_shift.go).
+	TargetStage string
 }
 
 // IsDependencyTimed reports a step whose due time is set by another step's completion.

@@ -58,6 +58,7 @@ func NewWorkflowConsumerService(pool *pgxpool.Pool, timeout time.Duration, log *
 //	procurement.animal_purchase.load_recorded / .decided   -> the purchase load's intake workflow
 //	procurement.feed_purchase.recorded / .reached          -> the feed load's purchase workflow
 //	procurement.toxin_test.accepted                        -> that workflow's aflatoxin step
+//	goat.stage_changed / goat.exited                       -> the kid's litter shift steps
 //
 // The verdict handlers filter strictly on source.module=counts and distinct birth/death ref types,
 // so they cannot cross-fire with the shifting applier that also uses module=counts.
@@ -91,6 +92,9 @@ func RegisterWorkflowConsumers(bus eventbus.Bus, svc *tasksapp.Service, log *slo
 	tasksapp.NewFeedPurchaseRecordedWorkflowHandler(svc).Register(bus)
 	tasksapp.NewFeedPurchaseReachedWorkflowHandler(svc).Register(bus)
 	tasksapp.NewToxinTestAcceptedWorkflowHandler(svc).Register(bus)
+	// KID STAGE SHIFT TASKS (2026-09-30): a kid's stage change or exit re-judges its litter's
+	// K0 -> K1 / K1 -> K2 steps (docs/decisions/kid-stage-shift-tasks.md).
+	tasksapp.NewLitterShiftWorkflowHandler(svc).Register(bus)
 }
 
 // CaptureReviewStore is the counts repository slice the birth_capture verdict consumer drives.

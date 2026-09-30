@@ -36,6 +36,10 @@ type fakeRepo struct {
 	purchaseDecisionCompletions []string
 	feedReachedCompletions      []string
 	toxinStepCompletions        []string
+	// litters maps a kid goat id to its birth event (KID STAGE SHIFT TASKS); litterReconciles
+	// records "event|at" for every reconcile the service asked for.
+	litters          map[string]string
+	litterReconciles []string
 }
 
 func newFakeRepo() *fakeRepo {
@@ -227,6 +231,22 @@ func (f *fakeRepo) CompleteAction(_ context.Context, cmd domain.CompleteActionCo
 		return domain.ActionWriteResult{}, err
 	}
 	return domain.WriteResult(w, actions, target, replay), nil
+}
+
+func (f *fakeRepo) LitterOfChild(_ context.Context, _, goatID string) (string, error) {
+	if ev, ok := f.litters[goatID]; ok {
+		return ev, nil
+	}
+	return "", domain.ErrNotFound
+}
+
+func (f *fakeRepo) LitterKids(context.Context, string, string) ([]domain.LitterKid, error) {
+	return nil, nil
+}
+
+func (f *fakeRepo) ReconcileLitterShiftSteps(_ context.Context, _, birthEventID string, at time.Time) error {
+	f.litterReconciles = append(f.litterReconciles, birthEventID+"|"+at.UTC().Format(time.RFC3339))
+	return nil
 }
 
 func (f *fakeRepo) CompleteSaleTagStep(_ context.Context, tenantID, dealID string, completedAt time.Time) error {

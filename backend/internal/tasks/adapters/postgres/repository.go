@@ -164,6 +164,10 @@ WHERE tenant_id=$1::uuid AND child_goat_id=$2::uuid`, cmd.TenantID, childID).Sca
 			return false, err
 		}
 	}
+	if cmd.TemplateKey == domain.TemplateKeyBirthLitter {
+		// The litter workflow IS the birth event: keyed on it (subject_ref_id) and carrying it.
+		birthEventID = cmd.SubjectRefID
+	}
 
 	// Initial card fields come straight from the template (compute-on-write from the very first row):
 	// the first visible operator step is next, and the counters cover every visible operator step.
@@ -249,16 +253,16 @@ RETURNING workflow_id::text`,
 	sb.WriteString(`INSERT INTO workflow_actions (
   tenant_id, workflow_id, action_key, seq, section, action_type, title, detail, requires_video, options, due_at,
   task_type, answer_type, engine_hook, proof_min_videos, proof_min_photos, hard_time_gate, wait_for_all,
-  requires_keys, after_action_key, after_offset_seconds, answer_gate, owner_role
+  requires_keys, after_action_key, after_offset_seconds, answer_gate, owner_role, target_stage
 ) VALUES `)
 	for i, a := range template.Actions {
 		if i > 0 {
 			sb.WriteString(", ")
 		}
 		base := len(args)
-		sb.WriteString(fmt.Sprintf("($%d::uuid, $%d::uuid, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d::jsonb, $%d::timestamptz, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d::jsonb, $%d, $%d, $%d::jsonb, $%d)",
+		sb.WriteString(fmt.Sprintf("($%d::uuid, $%d::uuid, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d::jsonb, $%d::timestamptz, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d::jsonb, $%d, $%d, $%d::jsonb, $%d, nullif($%d::text, ''))",
 			base+1, base+2, base+3, base+4, base+5, base+6, base+7, base+8, base+9, base+10, base+11,
-			base+12, base+13, base+14, base+15, base+16, base+17, base+18, base+19, base+20, base+21, base+22, base+23))
+			base+12, base+13, base+14, base+15, base+16, base+17, base+18, base+19, base+20, base+21, base+22, base+23, base+24))
 		var options any
 		if len(a.Options) > 0 {
 			raw, err := json.Marshal(a.Options)
@@ -296,7 +300,7 @@ RETURNING workflow_id::text`,
 		}
 		args = append(args, cmd.TenantID, workflowID, a.Key, a.Seq, a.Section, a.Type, a.Title, a.Detail, a.RequiresVideo, options, dueAt,
 			a.TaskType, answerKind, a.EngineHook, a.Proof.Video, a.Proof.Photo, a.HardTimeGate, a.WaitForAll,
-			string(requires), a.Schedule.AfterStepKey, int(a.Schedule.Offset.Seconds()), answerGate, a.Owner)
+			string(requires), a.Schedule.AfterStepKey, int(a.Schedule.Offset.Seconds()), answerGate, a.Owner, a.TargetStage)
 	}
 	boundActionsInsert := sqlbind.MustBind(sb.String(), args...)
 	if _, err := tx.Exec(ctx, boundActionsInsert.SQL(), boundActionsInsert.Args()...); err != nil {
@@ -850,8 +854,34 @@ WHERE wi.tenant_id = $1::uuid AND wi.workflow_id = $2::uuid`, tenantID, workflow
 			facts = append(facts, domain.WorkflowFact{Label: "Animals", Value: fmt.Sprintf("%d", saleAnimals)})
 		}
 	}
+	if card.TemplateKey == domain.TemplateKeyBirthLitter && card.SubjectRefID != "" {
+		kids, err := r.litterKidViews(ctx, tenantID, card.SubjectRefID)
+		if err != nil {
+			return domain.WorkflowDetail{}, err
+		}
+		detail.LitterKids = kids
+		if tags := litterTags(kids); tags != "" {
+			facts = append(facts, domain.WorkflowFact{Label: "Kids", Value: tags})
+		}
+	}
 	detail.Facts = facts
 	return detail, nil
+}
+
+// litterTags is the litter's kids as one fact line: "A1024 (K0), A1025 (K1)".
+func litterTags(kids []domain.LitterKidView) string {
+	parts := make([]string, 0, len(kids))
+	for _, k := range kids {
+		if !k.Alive || k.Tag == "" {
+			continue
+		}
+		if k.Stage != "" {
+			parts = append(parts, k.Tag+" ("+k.Stage+")")
+		} else {
+			parts = append(parts, k.Tag)
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 // saleSubjectLabel composes the sale workflow's subject line from the sales_deals display join:
@@ -925,7 +955,8 @@ SELECT action_id::text, tenant_id::text, workflow_id::text, action_key, seq, sec
        idempotency_key, request_fingerprint, row_version,
        task_type, answer_type, engine_hook, proof_min_videos, proof_min_photos, proof_refs,
        hard_time_gate, wait_for_all, requires_keys, after_action_key, after_offset_seconds, rework_reason, answer_gate,
-       owner_role, COALESCE((SELECT dc.label FROM designation_catalog dc WHERE dc.designation_code = wa.owner_role), '')
+       owner_role, COALESCE((SELECT dc.label FROM designation_catalog dc WHERE dc.designation_code = wa.owner_role), ''),
+       COALESCE(target_stage, '')
 FROM workflow_actions wa
 WHERE tenant_id = $1::uuid AND workflow_id = $2::uuid
 ORDER BY seq ASC`+lock, tenantID, workflowID)
@@ -951,7 +982,7 @@ ORDER BY seq ASC`+lock, tenantID, workflowID)
 			&a.IdempotencyKey, &a.RequestFingerprint, &a.RowVersion,
 			&a.TaskType, &a.AnswerType, &a.EngineHook, &a.ProofMinVideos, &a.ProofMinPhotos, &proofRefs,
 			&a.HardTimeGate, &a.WaitForAll, &requires, &a.AfterActionKey, &a.AfterOffsetSeconds, &a.ReworkReason, &answerGate,
-			&a.OwnerRole, &a.OwnerLabel,
+			&a.OwnerRole, &a.OwnerLabel, &a.TargetStage,
 		); err != nil {
 			return nil, err
 		}
@@ -1728,7 +1759,8 @@ FROM workflow_instances
 WHERE tenant_id = $1::uuid
   AND ((template_key = 'birth_kid' AND subject_goat_id = ANY($3::uuid[])
         AND (birth_event_id = $2::uuid OR birth_event_id IS NULL))
-    OR (template_key = 'birth_mother' AND subject_goat_id = nullif($4::text, '')::uuid AND birth_event_id = $2::uuid))
+    OR (template_key = 'birth_mother' AND subject_goat_id = nullif($4::text, '')::uuid AND birth_event_id = $2::uuid)
+    OR (template_key = 'birth_litter' AND subject_ref_id = $2::uuid))
 ORDER BY workflow_id
 FOR UPDATE`
 	sqlRejectedBirthActionIDs = `

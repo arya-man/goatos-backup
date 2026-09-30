@@ -142,6 +142,14 @@ type Repository interface {
 	// CompleteSaleTagStep completes the sale workflow's sale_tag_animals step for the deal when
 	// its allocation confirm lands. No-op when there is no such open step.
 	CompleteSaleTagStep(ctx context.Context, tenantID, dealID string, completedAt time.Time) error
+
+	// KID STAGE SHIFT TASKS (2026-09-30). LitterOfChild resolves the birth event a kid was born in
+	// (domain.ErrNotFound when none); LitterKids lists that litter's kids and current stages; and
+	// ReconcileLitterShiftSteps applies the herd register to the litter workflow's shift steps
+	// (a no-op when the litter has no workflow).
+	LitterOfChild(ctx context.Context, tenantID, goatID string) (string, error)
+	LitterKids(ctx context.Context, tenantID, birthEventID string) ([]domain.LitterKid, error)
+	ReconcileLitterShiftSteps(ctx context.Context, tenantID, birthEventID string, at time.Time) error
 	// CancelSaleWorkflow cancels the sale workflow of a deal marked failed: every UNFINISHED step
 	// is cancelled and the card closes; finished steps keep their record. No-op when the deal has
 	// no workflow or it is no longer open.

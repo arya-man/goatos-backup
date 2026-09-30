@@ -530,6 +530,11 @@
         {
           "module": "vaccination",
           "file": "backend/internal/vaccination/app/generation_handler.go"
+        },
+        {
+          "module": "tasks",
+          "file": "backend/internal/tasks/app/litter_shift.go",
+          "notes": "KID STAGE SHIFT TASKS (2026-09-30, docs/decisions/kid-stage-shift-tasks.md): LitterShiftWorkflowHandler re-judges the kid's litter workflow (birth_litter) from the herd register -- a shift step completes when no live kid of the litter is left on a stage before its target on the growth ladder, and the next step's after-step clock starts at this event's instant; a litter with no live kid left is canceled. Engine-completed only (a by-hand completion is refused 409 kid_shift_pending). Idempotent: a redelivery re-reads the same register and changes nothing; a goat that is not a kid of a recorded litter, or a litter with no workflow, is a no-op. Registered in eventwiring.RegisterWorkflowConsumers, so the API in-process bus, kernelstages, domain-event-consumer and outbox-relay all run it."
         }
       ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
@@ -757,6 +762,11 @@
           "module": "health",
           "file": "backend/internal/health/app/event_handlers.go",
           "notes": "Filters exit_reason=died, closes open Health cases, and cancels every incomplete future session while retaining completed medicine history."
+        },
+        {
+          "module": "tasks",
+          "file": "backend/internal/tasks/app/litter_shift.go",
+          "notes": "KID STAGE SHIFT TASKS (2026-09-30, docs/decisions/kid-stage-shift-tasks.md): LitterShiftWorkflowHandler re-judges the kid's litter workflow (birth_litter) from the herd register -- a shift step completes when no live kid of the litter is left on a stage before its target on the growth ladder, and the next step's after-step clock starts at this event's instant; a litter with no live kid left is canceled. Engine-completed only (a by-hand completion is refused 409 kid_shift_pending). Idempotent: a redelivery re-reads the same register and changes nothing; a goat that is not a kid of a recorded litter, or a litter with no workflow, is a no-op. Registered in eventwiring.RegisterWorkflowConsumers, so the API in-process bus, kernelstages, domain-event-consumer and outbox-relay all run it."
         }
       ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",

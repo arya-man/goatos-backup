@@ -1,0 +1,3 @@
+[
+  {"key": "shift_kids_stage", "name": "Shift the kids to a stage", "category_scope": ["action"], "answer_kind": "none", "engine_hook": "shift_kids_stage", "description": "Opens Raise shifting (growth) for the litter's kids still waiting; the step completes on its own once every live kid has reached its target stage, never by hand.", "parameter_schema": {"type": "object", "properties": {"target_stage": {"type": "string"}}, "required": ["target_stage"]}}
+]

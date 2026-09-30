@@ -134,6 +134,9 @@ type WorkflowAction struct {
 	// OwnerLabel is the designation catalog's label for OwnerRole ("Park Head"); blank when
 	// unowned. Display only, resolved by the read.
 	OwnerLabel string
+	// TargetStage is the stage a litter shift step moves the kids to (workflow_actions.target_stage,
+	// stamped from the SOP at open); blank on every other step. See kid_stage_shift.go.
+	TargetStage string
 	// ReworkReason is the verifier's words when this step was sent back; cleared on completion.
 	ReworkReason       *string
 	CompletedBy        *string

@@ -161,6 +161,20 @@ type workflowActionDTO struct {
 	CompletedByLabel   string     `json:"completed_by_label"`
 	CompletedAt        *time.Time `json:"completed_at"`
 	VerificationStatus string     `json:"verification_status"`
+	// KID STAGE SHIFT TASKS (2026-09-30): a litter shift step's target stage ("K1") and the kids
+	// still waiting to reach it -- the animals the phone opens Raise shifting (growth) with.
+	// Blank / empty on every other step. The step completes on its own (engine-completed).
+	TargetStage string         `json:"target_stage,omitempty"`
+	WaitingKids []litterKidDTO `json:"waiting_kids,omitempty"`
+}
+
+// litterKidDTO is one kid of a litter: its id (the shifting raise names animals by id), its tag,
+// stage and pen, rendered verbatim.
+type litterKidDTO struct {
+	GoatID   string `json:"goat_id"`
+	Tag      string `json:"tag"`
+	Stage    string `json:"stage"`
+	PenLabel string `json:"pen_label"`
 }
 
 type workflowDetailResponse struct {
@@ -396,13 +410,39 @@ func (h *Handler) writeDetail(w http.ResponseWriter, detail domain.WorkflowDetai
 		if a.ActionType == domain.ActionTypeApproval || a.Status == domain.ActionStatusSkipped {
 			continue
 		}
-		actions = append(actions, actionDTO(detail.Card.TemplateKey, a, detail.Actions, now, roles))
+		dto := actionDTO(detail.Card.TemplateKey, a, detail.Actions, now, roles)
+		if a.HasHook(domain.EngineHookShiftKidsStage) {
+			dto.TargetStage = a.TargetStage
+			if a.Status == domain.ActionStatusPending {
+				dto.WaitingKids = waitingKidsDTO(detail.LitterKids, a.TargetStage)
+			}
+		}
+		actions = append(actions, dto)
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, workflowDetailResponse{
 		workflowCardDTO: cardDTOWithActions(detail.Card, detail.Actions),
 		Facts:           detail.Facts,
 		Actions:         actions,
 	})
+}
+
+// waitingKidsDTO lists the live kids still on a stage before target, in birth order.
+func waitingKidsDTO(kids []domain.LitterKidView, target string) []litterKidDTO {
+	judge := make([]domain.LitterKid, 0, len(kids))
+	for _, k := range kids {
+		judge = append(judge, domain.LitterKid{GoatID: k.GoatID, Stage: k.Stage, Alive: k.Alive})
+	}
+	waiting := map[string]bool{}
+	for _, k := range domain.KidsWaitingForShift(judge, target) {
+		waiting[k.GoatID] = true
+	}
+	var out []litterKidDTO
+	for _, k := range kids {
+		if waiting[k.GoatID] {
+			out = append(out, litterKidDTO{GoatID: k.GoatID, Tag: k.Tag, Stage: k.Stage, PenLabel: k.PenLabel})
+		}
+	}
+	return out
 }
 
 // actorRoles is the caller's designations: the roles on its active grants, deduplicated. The
@@ -889,6 +929,9 @@ func (h *Handler) writeDomainError(w http.ResponseWriter, r *http.Request, err e
 		h.writeError(w, r, http.StatusConflict, "toxin_test_pending", err.Error(), nil)
 	case errors.Is(err, domain.ErrPurchaseDecisionPending):
 		h.writeError(w, r, http.StatusConflict, "purchase_decision_pending", err.Error(), nil)
+	case errors.Is(err, domain.ErrKidShiftPending):
+		h.writeError(w, r, http.StatusConflict, "kid_shift_pending",
+			"Move the kids on Raise shifting; this step completes when every kid has reached the stage", err)
 	case errors.Is(err, domain.ErrSaleTaggingPending):
 		h.writeError(w, r, http.StatusConflict, "sale_tagging_pending",
 			"tag the animals on the sale-tagging screen; this step completes when the tagging is confirmed", err)

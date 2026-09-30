@@ -533,6 +533,9 @@ func (s *Service) OpenBirthWorkflows(ctx context.Context, in OpenBirthWorkflowsI
 	}); err != nil {
 		return err
 	}
+	if err := s.openLitterWorkflow(ctx, in.TenantID, in.GoatID, eventAt, facts.ParkID, facts.ShedID); err != nil {
+		return err
+	}
 
 	if damGoatID == "" {
 		return nil
@@ -552,6 +555,63 @@ func (s *Service) OpenBirthWorkflows(ctx context.Context, in OpenBirthWorkflowsI
 		ShedID:        damFacts.ShedID,
 	})
 	return err
+}
+
+// openLitterWorkflow opens the litter's shift workflow (KID STAGE SHIFT TASKS, maintainer decision
+// 2026-09-30): ONE per birth event, keyed on it, so twins' goat.created events -- and any
+// redelivery -- land on the same workflow. It counts from the birth moment, so the authored
+// "24 hours after birth" is 24 hours after the kid was born, not after the event was processed.
+//
+// A Birth SOP version the farm authored WITHOUT the litter track owes no move: nothing opens and
+// the kid and mother tracks are unaffected. A birth with no litter row (a legacy kid with no
+// resolved mother) has no litter to key on, and opens nothing either.
+func (s *Service) openLitterWorkflow(ctx context.Context, tenantID, kidGoatID string, eventAt time.Time, parkID, shedID *string) error {
+	birthEventID, err := s.repo.LitterOfChild(ctx, tenantID, kidGoatID)
+	if errors.Is(err, domain.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	_, err = s.repo.OpenWorkflow(ctx, ports.OpenWorkflowCommand{
+		TenantID:     tenantID,
+		TemplateKey:  domain.TemplateKeyBirthLitter,
+		SubjectRefID: &birthEventID,
+		EventAt:      eventAt,
+		ParkID:       parkID,
+		ShedID:       shedID,
+	})
+	switch {
+	case errors.Is(err, domain.ErrFollowUpTrackMissing), errors.Is(err, domain.ErrNothingOwed):
+		s.log.Info("tasks_birth_litter_track_absent", "tenant_id", tenantID, "birth_event_id", birthEventID)
+		return nil
+	case err != nil:
+		return err
+	}
+	// A kid can already have moved before its litter's workflow opened (an out-of-order redelivery):
+	// judge the steps against the register now rather than waiting for the next stage change.
+	return s.repo.ReconcileLitterShiftSteps(ctx, tenantID, birthEventID, eventAt)
+}
+
+// ReconcileLitterShift re-judges the litter a kid belongs to after that kid's stage changed or it
+// left the farm. at is the herd-register moment, which becomes a completed step's completion
+// instant (and so the start of the next step's "N days after" clock). A goat that is not a kid of
+// a recorded litter is a no-op.
+func (s *Service) ReconcileLitterShift(ctx context.Context, tenantID, goatID string, at time.Time) error {
+	if strings.TrimSpace(tenantID) == "" || strings.TrimSpace(goatID) == "" {
+		return nil
+	}
+	birthEventID, err := s.repo.LitterOfChild(ctx, tenantID, goatID)
+	if errors.Is(err, domain.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if at.IsZero() {
+		at = s.now().UTC()
+	}
+	return s.repo.ReconcileLitterShiftSteps(ctx, tenantID, birthEventID, at)
 }
 
 // OpenDeathWorkflowInput opens the staged death evidence trail from counts.death.reported.

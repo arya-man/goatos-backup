@@ -55,7 +55,7 @@ const SOPCodeFeedPurchaseIntake = "procurement.feed_purchase_intake"
 // TaskTypeFiles are the Task Type Registry seed files in the order their migrations shipped:
 // task_types.json (000308) and task_types_sales.json (the sales-SOP migration). A registry row
 // is never edited in an already-applied migration, so a later hook gets its own file.
-var TaskTypeFiles = []string{"task_types.json", "task_types_sales.json", "task_types_procurement.json", "task_types_procurement_feed.json"}
+var TaskTypeFiles = []string{"task_types.json", "task_types_sales.json", "task_types_procurement.json", "task_types_procurement_feed.json", "task_types_kid_shift.json"}
 
 // SOPCodeGateVisitorCheck is the seeded general SOP's code.
 const SOPCodeGateVisitorCheck = "general.gate_visitor_check"
@@ -82,13 +82,53 @@ type Category struct {
 // Raw returns the embedded bytes of one file.
 func Raw(name string) ([]byte, error) { return files.ReadFile(name) }
 
-// FollowUp returns the raw follow_up document for a SOP code.
+// FollowUpTrackAddenda are tracks ADDED to a seeded document after the migration that embedded it
+// verbatim shipped. The base file stays byte-identical to that migration (its golden test pins it);
+// the addendum is its own file, embedded by its own migration, and FollowUp appends it so a tenant
+// running the seeded document runs the same tracks a patched published version carries.
+//
+// KID STAGE SHIFT TASKS (maintainer decision 2026-09-30): the Birth SOP's `birth_litter` track --
+// the park head's K0 -> K1 and K1 -> K2 moves -- is embedded by migration 000462.
+var FollowUpTrackAddenda = map[string][]string{
+	"counts.birth": {"counts_birth_litter_track.json"},
+}
+
+// FollowUp returns the follow_up document for a SOP code: the seeded base file plus any track
+// addenda (FollowUpTrackAddenda), appended in order.
 func FollowUp(sopCode string) ([]byte, error) {
 	name, ok := FollowUpDocuments[sopCode]
 	if !ok {
 		return nil, fmt.Errorf("sopseed: no seeded follow_up for %q", sopCode)
 	}
-	return files.ReadFile(name)
+	base, err := files.ReadFile(name)
+	if err != nil {
+		return nil, err
+	}
+	addenda := FollowUpTrackAddenda[sopCode]
+	if len(addenda) == 0 {
+		return base, nil
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(base, &doc); err != nil {
+		return nil, fmt.Errorf("sopseed: %s: %w", name, err)
+	}
+	var tracks []json.RawMessage
+	if err := json.Unmarshal(doc["tracks"], &tracks); err != nil {
+		return nil, fmt.Errorf("sopseed: %s tracks: %w", name, err)
+	}
+	for _, add := range addenda {
+		raw, err := files.ReadFile(add)
+		if err != nil {
+			return nil, err
+		}
+		tracks = append(tracks, json.RawMessage(raw))
+	}
+	encoded, err := json.Marshal(tracks)
+	if err != nil {
+		return nil, err
+	}
+	doc["tracks"] = encoded
+	return json.Marshal(doc)
 }
 
 // TaskTypes decodes the seeded Task Type Registry: every TaskTypeFiles file, in order.

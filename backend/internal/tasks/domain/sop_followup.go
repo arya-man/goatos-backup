@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
@@ -99,6 +100,8 @@ func EngineCompletedStepRefusal(a WorkflowAction) error {
 		return ErrToxinTestPending
 	case a.HasHook(EngineHookAnimalPurchaseDecision):
 		return ErrPurchaseDecisionPending
+	case a.HasHook(EngineHookShiftKidsStage):
+		return ErrKidShiftPending
 	}
 	return nil
 }
@@ -193,6 +196,11 @@ type FollowUpStep struct {
 	// path refuses them. Blank = anyone who can open the workflow. Validated at publish against
 	// the live catalog (sop/app), never against a constant list.
 	Owner string `json:"owner,omitempty"`
+	// TargetStage is the growth stage a litter SHIFT step moves the kids to (KID STAGE SHIFT TASKS,
+	// maintainer decision 2026-09-30): `K1` for the day-after-birth move, `K2` for the move seven
+	// days later. Only a `shift_kids_stage` step carries it, and only on the birth_litter track;
+	// publish checks it against the tenant's live stage vocabulary (sop/app).
+	TargetStage string `json:"target_stage,omitempty"`
 }
 
 // AnswerCondition is one branch condition: the earlier question step, the comparison and the
@@ -538,6 +546,18 @@ func ValidateFollowUp(d FollowUpDSL, taskTypes map[string]FollowUpTaskTy) []stri
 					add("%s.when_answer: %s", sp, problem)
 				}
 			}
+			if ok && tt.EngineHook == EngineHookShiftKidsStage {
+				if t.Key != TemplateKeyBirthLitter {
+					add("%s.task_type: a kid shift step only runs on the litter's steps (%s)", sp, TemplateKeyBirthLitter)
+				}
+				if strings.TrimSpace(s.TargetStage) == "" {
+					add("%s.target_stage: a kid shift step must name the stage the kids move to", sp)
+				} else if len(countsdomain.GrowthStagesBefore(s.TargetStage)) == 0 {
+					add("%s.target_stage: %q is not a stage animals grow into (a growth shifting cannot move them there)", sp, s.TargetStage)
+				}
+			} else if strings.TrimSpace(s.TargetStage) != "" {
+				add("%s.target_stage: only a kid shift step names a target stage", sp)
+			}
 			answerKinds[s.Key] = answerKindOf(s, taskTypes)
 		}
 	}
@@ -690,6 +710,7 @@ func CompileTrack(track FollowUpTrack, taskTypes map[string]FollowUpTaskTy, opts
 			Requires:      append([]string(nil), s.Requires...),
 			AnswerGate:    s.WhenAnswer,
 			Owner:         strings.TrimSpace(s.Owner),
+			TargetStage:   strings.TrimSpace(s.TargetStage),
 		}
 		switch s.Schedule.Kind {
 		case ScheduleKindSeries:
@@ -892,7 +913,7 @@ func TemplateKeyToSOP(templateKey string) (sopCode string, trackKey string, ok b
 		return SOPCodeAnimalPurchaseIntake, TemplateKeyAnimalPurchaseIntake, true
 	case TemplateKeyFeedPurchaseIntake:
 		return SOPCodeFeedPurchaseIntake, TemplateKeyFeedPurchaseIntake, true
-	case TemplateKeyBirthKid, TemplateKeyBirthMother:
+	case TemplateKeyBirthKid, TemplateKeyBirthMother, TemplateKeyBirthLitter:
 		return SOPCodeBirth, templateKey, true
 	case TemplateKeyDeath:
 		return SOPCodeDeath, templateKey, true
@@ -938,6 +959,7 @@ func SubjectKeyedTemplate(templateKey string) bool {
 		return true
 	}
 	return templateKey == TemplateKeySalesDeal ||
+		templateKey == TemplateKeyBirthLitter ||
 		templateKey == TemplateKeyAnimalPurchaseIntake ||
 		templateKey == TemplateKeyFeedPurchaseIntake
 }
