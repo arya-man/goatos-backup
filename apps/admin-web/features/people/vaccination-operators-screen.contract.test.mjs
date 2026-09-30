@@ -122,3 +122,13 @@ test("a multi-park actor can switch park after choosing one", () => {
   assert.match(source, /id="vaccination-operators-park"/, "the loaded screen must render a Park switch");
   assert.match(source, /onChange=\{\(e\) => \{\s*if \(e\.target\.value && e\.target\.value !== parkId\) setChosenParkId\(e\.target\.value\)/, "switching must reload through the same backend-resolved path");
 });
+
+// guard: operators-park-chooser-applies (SYNC). The multi-park chooser is a template Card with one
+// select that applies on pick: no legacy .card/.btn markup and no Continue button parked disabled.
+test("the park chooser is a template card whose select applies on pick", () => {
+  const chooser = source.slice(source.indexOf("if (parkChoices) {"), source.indexOf("const drawerOp"));
+  assert.match(chooser, /<CardHeader title="Choose a park"/);
+  assert.match(chooser, /if \(event\.target\.value\) setChosenParkId\(event\.target\.value\)/);
+  assert.doesNotMatch(chooser, /className="(card|btn|hd|bd|ctl|fld|lvempty)/);
+  assert.doesNotMatch(chooser, /<(button|Button)[^>]*>\s*Continue/);
+});

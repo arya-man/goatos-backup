@@ -38,6 +38,9 @@ import { Avatar } from "@/components/app/avatar";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
+import CardContent from "@mui/material/CardContent";
+import CardHeader from "@mui/material/CardHeader";
+import Card from "@mui/material/Card";
 import IconButton from "@mui/material/IconButton";
 import { Iconify } from "@/components/minimal/iconify";
 import { MinimalDrawer } from "@/components/app/drawer";
@@ -823,49 +826,36 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
   if (parkChoices) {
     return (
       <section className="screen on" data-screen="vaccination-operators">
-        <div className="card">
-          <div className="hd">
-            <h3>Choose a park</h3>
-            <div className="sp"></div>
-          </div>
-          <div className="bd">
-            {parkChoiceMessage ? <div className="small muted" style={{ marginBottom: 12 }}>{parkChoiceMessage}</div> : null}
-            <div className="ctl">
-              <div className="fld">
-                <MuiTextField
-                  select
-                  label="Park"
-                  value={parkDraft}
-                  onChange={(event) => setParkDraft(event.target.value)}
-                  sx={{ minWidth: { xs: 0, sm: 220 }, flexShrink: 0, maxWidth: 1 }}
-                  slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
-                >
-                  <MenuItem value="">— select a park —</MenuItem>
-                  {parkChoices.map((park) => (
-                    <MenuItem key={park.parkId} value={park.parkId}>
-                      {park.code ? `${park.code} · ${park.name}` : park.name}
-                    </MenuItem>
-                  ))}
-                </MuiTextField>
-              </div>
-              <button
-                className="btn b sm"
-                style={{ marginTop: '16px' }}
-                onClick={() => setChosenParkId(parkDraft)}
-                disabled={!parkDraft}
-                aria-disabled={!parkDraft}
-                title={!parkDraft ? 'Select a park to load its roster' : 'Load this park’s roster'}
+        {/* Template Card + CardHeader with one select. Picking a park applies it (no Continue button
+            that sits disabled until a pick: guard operators-park-chooser-applies). */}
+        <Card>
+          <CardHeader title="Choose a park" subheader={parkChoiceMessage || undefined} />
+          <CardContent>
+            {parkChoices.length === 0 ? (
+              <Typography variant="body2" sx={{ color: 'text.secondary' }}>No park is available for your access yet.</Typography>
+            ) : (
+              <MuiTextField
+                select
+                id="vaccination-operators-park-choice"
+                label="Park"
+                value={parkDraft}
+                onChange={(event) => {
+                  setParkDraft(event.target.value);
+                  if (event.target.value) setChosenParkId(event.target.value);
+                }}
+                sx={{ minWidth: { xs: 1, sm: 260 }, maxWidth: 1 }}
+                slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
               >
-                Continue
-              </button>
-            </div>
-            {parkChoices.length === 0 && (
-              <div className="lvempty" style={{ marginTop: '12px' }}>
-                No park is available for your access yet.
-              </div>
+                <MenuItem value="" disabled>Select a park</MenuItem>
+                {parkChoices.map((park) => (
+                  <MenuItem key={park.parkId} value={park.parkId}>
+                    {park.code ? `${park.code} · ${park.name}` : park.name}
+                  </MenuItem>
+                ))}
+              </MuiTextField>
             )}
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       </section>
     );
   }
