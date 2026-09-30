@@ -12,6 +12,7 @@
 // track, and the route's Faro view + error boundary already cover the page.
 
 import { useEffect, useState } from "react";
+import Paper from "@mui/material/Paper";
 
 export function RangeCoverageNote({ message }: { message: string }) {
   const [visible, setVisible] = useState(true);
@@ -21,23 +22,25 @@ export function RangeCoverageNote({ message }: { message: string }) {
   }, [message]);
   if (!visible) return null;
   return (
-    <div
+    <Paper
       role="status"
       aria-live="polite"
-      className="card"
-      style={{
+      variant="outlined"
+      sx={{
         position: "fixed",
         top: 64,
         left: "50%",
         transform: "translateX(-50%)",
-        zIndex: 60,
-        padding: "8px 14px",
-        fontSize: 13,
-        color: "var(--amber)",
-        borderColor: "var(--amber)",
+        zIndex: "snackbar",
+        px: 1.75,
+        py: 1,
+        typography: "body2",
+        color: "warning.main",
+        borderColor: "warning.main",
+        boxShadow: "var(--customShadows-dropdown)",
       }}
     >
       {message}
-    </div>
+    </Paper>
   );
 }

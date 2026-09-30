@@ -3,6 +3,7 @@
 // telemetry:exempt presentational chart wrapper — no user action, no data read
 
 import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
 import { TrendChart } from "@/components/app/trend-chart";
 
 /**
@@ -55,17 +56,31 @@ export function FeedPenColumns({
   // tallest bar still fits under it and every pen still shares it.
   const top = niceCeiling(yMax);
   return (
-    <div className="qgrid penbars-grid">
+    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(auto-fill, minmax(400px, 1fr))" }, gap: 1.75, mx: { xs: 2.5, sm: 3 }, mb: { xs: 2.5, sm: 3 } }}>
       {/* `tabIndex={0}` on each pen is main's fix (56b3da919, "make vaccination schedule scroll on
           mobile"): `.penbars` can scroll at phone width, and a scroll container nothing can focus
           cannot be scrolled from a keyboard. It survives the move into this component. */}
       {pens.map((pen) => (
-        <div className="penbars" key={pen.key} role="group" tabIndex={0} aria-label={pen.ariaLabel}>
-          <div className="penbars-title">
-            <b>{pen.title}</b>
-            {pen.park ? <span className="small muted"> · {pen.park}</span> : null}
-            <span className="small muted">{unitLabel}</span>
-          </div>
+        <Box
+          key={pen.key}
+          role="group"
+          tabIndex={0}
+          aria-label={pen.ariaLabel}
+          sx={{ border: 1, borderColor: "divider", borderRadius: "var(--r-md)", px: 1.5, pt: 1.25, pb: 1, bgcolor: "background.neutral", minWidth: 0 }}
+        >
+          <Box sx={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 1, mb: 0.75 }}>
+            <Typography variant="subtitle2" component="span">
+              {pen.title}
+              {pen.park ? (
+                <Typography component="span" variant="body2" sx={{ color: "text.secondary" }}>
+                  {" "}· {pen.park}
+                </Typography>
+              ) : null}
+            </Typography>
+            <Typography component="span" variant="body2" sx={{ color: "text.secondary" }}>
+              {unitLabel}
+            </Typography>
+          </Box>
           <Box sx={{ mx: -0.5 }}>
             <TrendChart
               kind="bar"
@@ -86,9 +101,9 @@ export function FeedPenColumns({
               hideZeroInTip
             />
           </Box>
-        </div>
+        </Box>
       ))}
-    </div>
+    </Box>
   );
 }
 

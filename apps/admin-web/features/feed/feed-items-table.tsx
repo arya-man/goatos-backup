@@ -5,6 +5,10 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, useTra
 import { DataTable, columnsFromContract } from "@/components/data-table";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
+import { Label } from "@/components/minimal/label";
+import { TONE_COLOR, type Tone } from "@/components/ui-primitives";
 import {
   copy,
   optionGroup,
@@ -153,9 +157,16 @@ function FeedItemStatusCell({
   }
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, whiteSpace: "nowrap" }}>
-      <span
-        className={`tag t-${optionTone(pageContract, STATUS_GROUP, shown)} feed-item-status`}
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1, whiteSpace: "nowrap" }}>
+      <Label
+        variant="soft"
+        color={TONE_COLOR[optionTone(pageContract, STATUS_GROUP, shown) as Tone] ?? "default"}
+        sx={{
+          cursor: "pointer",
+          textDecoration: "underline dashed",
+          textUnderlineOffset: 3,
+          "&:focus-visible": { outline: "2px solid", outlineColor: "primary.main", outlineOffset: 2 },
+        }}
         // Both sentences: what this state means, and that the cell can be changed.
         title={`${optionTitle(pageContract, STATUS_GROUP, shown)} ${copy(pageContract, "hint.feed_item_status_edit")}`}
         role="button"
@@ -170,19 +181,20 @@ function FeedItemStatusCell({
         }}
       >
         {pending ? copy(pageContract, "state.loading") : optionLabel(pageContract, STATUS_GROUP, shown)}
-      </span>
+      </Label>
       {/* Only a REFUSAL is shown. A success needs no message here: the chip already carries the new
           state, which is the whole content of the confirmation. */}
       {failure ? (
-        <span
-          className="small"
-          style={{ color: "var(--danger)", whiteSpace: "normal", overflowWrap: "break-word", maxWidth: 220 }}
-        >
+        <Typography component="span" variant="body2" sx={{ color: "error.main", whiteSpace: "normal", overflowWrap: "break-word", maxWidth: 220 }}>
           {copy(pageContract, failure.messageKey)}
-          {failure.detail ? <div className="muted">{failure.detail}</div> : null}
-        </span>
+          {failure.detail ? (
+            <Box component="span" sx={{ display: "block", color: "text.secondary" }}>
+              {failure.detail}
+            </Box>
+          ) : null}
+        </Typography>
       ) : null}
-    </div>
+    </Box>
   );
 }
 
@@ -275,7 +287,6 @@ export function FeedItemsTable({
   return (
     <FeedItemCellContext.Provider value={cellContext}>
       <DataTable
-        className="feed-table"
         ariaLabel={ariaLabel}
         columns={columns}
         data={rows}

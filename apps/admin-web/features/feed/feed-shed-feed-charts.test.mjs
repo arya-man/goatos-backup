@@ -94,7 +94,9 @@ test("mobile pen bar scroll regions are keyboard focusable and labelled", () => 
   // scroll at phone width and a scroll container nothing can focus cannot be scrolled from a
   // keyboard, so the group + tabIndex are asserted where the element now lives. This page still
   // composes the label (pen + chart aria) and hands it over.
-  assert.match(penColumns, /className="penbars"[\s\S]*?role="group"[\s\S]*?tabIndex=\{0\}/);
+  // Template anatomy: each pen is an sx Box (divider border, neutral surface), never a legacy .penbars class.
+  assert.match(penColumns, /<Box\s+key=\{pen\.key\}\s+role="group"\s+tabIndex=\{0\}/);
+  assert.doesNotMatch(penColumns, /className="(qgrid|penbars)/);
   assert.match(penColumns, /aria-label=\{pen\.ariaLabel\}/);
   assert.match(source, /ariaLabel: `\$\{pen\.operational_location_display\} · \$\{fc\("shedfeed\.chart\.aria"\)\}`/);
 });

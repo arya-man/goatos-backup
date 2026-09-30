@@ -10,7 +10,7 @@ import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import { redirect } from "next/navigation";
-import { Package } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 
 import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
@@ -261,7 +261,7 @@ export async function FeedPackingPage({
         {lifecycleEmpty ? (
           <Box sx={{ px: 3, pb: 3 }}>
             {/* One glyph + one line: the card's own caption already names the grain above. */}
-            <EmptyState title={copy(pageContract, "empty.packing")} icon={<Package className="ic" />} />
+            <EmptyState title={copy(pageContract, "empty.packing")} icon={<Iconify icon="solar:box-minimalistic-bold" width={24} />} />
           </Box>
         ) : null}
 

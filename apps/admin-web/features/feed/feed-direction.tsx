@@ -11,7 +11,7 @@ import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import { listOrEmpty } from "@/lib/list-or-empty";
 import { redirect } from "next/navigation";
-import { ClipboardList } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 
 import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
@@ -285,7 +285,7 @@ export async function FeedDirectionPage({
         {lifecycleEmpty ? (
           <Box sx={{ px: 3, pb: 3 }}>
             {/* One glyph + one line: the card's own caption already names the grain above. */}
-            <EmptyState title={copy(pageContract, "empty.direction")} icon={<ClipboardList className="ic" />} />
+            <EmptyState title={copy(pageContract, "empty.direction")} icon={<Iconify icon="solar:bill-list-bold" width={24} />} />
           </Box>
         ) : null}
 

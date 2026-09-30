@@ -1,5 +1,9 @@
 import Table from "@mui/material/Table";
-import TableHead from "@mui/material/TableHead";
+import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import Typography from "@mui/material/Typography";
+import { TableHeadCustom } from "@/components/app/table";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
@@ -79,34 +83,34 @@ export function FeedStockLoadsTable({
   ];
 
   return (
-    <section className="card feed-loads-table" aria-label={fl("loads.title")}>
-      <div className="hd">
-        <h3>{fl("loads.title")}</h3>
-        <span className="small muted">{fl("loads.hint")}</span>
-      </div>
+    <Card component="section" aria-label={fl("loads.title")}>
+      <CardHeader title={fl("loads.title")} subheader={fl("loads.hint")} />
 
       <FeedFilters basePath={basePath} pageParam="fl_offset" fields={fields} pageContract={pageContract} />
 
       {data.total === 0 ? (
-        <p className="muted small">{fl("loads.empty")}</p>
+        <Typography variant="body2" sx={{ color: "text.secondary", px: 3, pb: 3 }}>
+          {fl("loads.empty")}
+        </Typography>
       ) : (
         <>
-          <div className="tablewrap" tabIndex={0} role="group" aria-label={fl("loads.title")}>
-            <Table className="tbl">
-              <TableHead>
-                <TableRow>
-                  <TableCell component="th">{fl("loads.col.purchase_date")}</TableCell>
-                  <TableCell component="th">{fl("loads.col.feed_item")}</TableCell>
-                  <TableCell component="th">{fl("loads.col.status")}</TableCell>
-                  <TableCell component="th" className="num">{fl("loads.col.purchased_kg")}</TableCell>
-                  <TableCell component="th" className="num">{fl("loads.col.consumed_kg")}</TableCell>
-                  <TableCell component="th" className="num">{fl("loads.col.left_kg")}</TableCell>
-                  <TableCell component="th" className="num">{fl("loads.col.days_said")}</TableCell>
-                  <TableCell component="th" className="num">{fl("loads.col.days_consumed")}</TableCell>
-                  <TableCell component="th" className="num">{fl("loads.col.days_left")}</TableCell>
-                  <TableCell component="th">{fl("loads.col.gap_days")}</TableCell>
-                </TableRow>
-              </TableHead>
+          <Box sx={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={fl("loads.title")}>
+            {/* Ten columns: a tighter cell pad and a wrapping header keep the check column on screen. */}
+            <Table size="small" sx={{ "& th, & td": { px: 1 }, "& th": { whiteSpace: "normal", lineHeight: 1.2 }, "& td": { fontVariantNumeric: "tabular-nums" } }}>
+              <TableHeadCustom
+                headCells={[
+                  { id: "purchase_date", label: fl("loads.col.purchase_date") },
+                  { id: "feed_item", label: fl("loads.col.feed_item") },
+                  { id: "status", label: fl("loads.col.status") },
+                  { id: "purchased_kg", label: fl("loads.col.purchased_kg"), align: "right" },
+                  { id: "consumed_kg", label: fl("loads.col.consumed_kg"), align: "right" },
+                  { id: "left_kg", label: fl("loads.col.left_kg"), align: "right" },
+                  { id: "days_said", label: fl("loads.col.days_said"), align: "right" },
+                  { id: "days_consumed", label: fl("loads.col.days_consumed"), align: "right" },
+                  { id: "days_left", label: fl("loads.col.days_left"), align: "right" },
+                  { id: "gap_days", label: fl("loads.col.gap_days") },
+                ]}
+              />
               <TableBody>
                 {rows.map((row) => (
                   <TableRow key={row.feed_purchase_id} data-testid="feed-stock-load-row" data-gap={row.gap_days ?? ""}>
@@ -115,55 +119,49 @@ export function FeedStockLoadsTable({
                       {/* The load's life in dates sits under the day it was bought, so the status
                           cell stays one chip wide and the check column stays on screen. */}
                       {row.consumption_from ? (
-                        <div className="muted small">
-                          {fl("loads.consumption_from").replace("{date}", fmtDate(row.consumption_from))}
-                        </div>
+                        <Muted>{fl("loads.consumption_from").replace("{date}", fmtDate(row.consumption_from))}</Muted>
                       ) : null}
                       {row.finished_on ? (
-                        <div className="muted small">
-                          {fl("loads.finished_on").replace("{date}", fmtDate(row.finished_on))}
-                        </div>
+                        <Muted>{fl("loads.finished_on").replace("{date}", fmtDate(row.finished_on))}</Muted>
                       ) : null}
                     </TableCell>
                     <TableCell>
                       {row.feed_item_label}
                       {/* Farm and load number ride under the feed name: two fewer columns, and the
                           check column stays on screen without a horizontal scroll. */}
-                      <div className="muted small">
-                        {fl("loads.load_line").replace("{farm}", row.farm_label).replace("{batch}", String(row.batch_no))}
-                      </div>
+                      <Muted>{fl("loads.load_line").replace("{farm}", row.farm_label).replace("{batch}", String(row.batch_no))}</Muted>
                     </TableCell>
                     <TableCell>
                       <Tag tone={STATUS_TONE[row.status] ?? "mut"}>{fl(`loads.status.${row.status}`)}</Tag>
                     </TableCell>
-                    <TableCell className="num">{kg(row.purchased_kg)}</TableCell>
-                    <TableCell className="num">{kg(row.consumed_kg)}</TableCell>
-                    <TableCell className="num" style={Number(row.left_kg) < 0 ? { color: "var(--danger)", fontWeight: 600 } : undefined}>
+                    <TableCell align="right">{kg(row.purchased_kg)}</TableCell>
+                    <TableCell align="right">{kg(row.consumed_kg)}</TableCell>
+                    <TableCell align="right" sx={Number(row.left_kg) < 0 ? { color: "error.main", fontWeight: "fontWeightSemiBold" } : undefined}>
                       {kg(row.left_kg)}
                     </TableCell>
-                    <TableCell className="num">
+                    <TableCell align="right">
                       {row.days_said ?? (
-                        <span className="muted" title={fl("loads.days_said.none")}>
+                        <Box component="span" sx={{ color: "text.secondary" }} title={fl("loads.days_said.none")}>
                           {fl("loads.gap.none")}
-                        </span>
+                        </Box>
                       )}
                     </TableCell>
-                    <TableCell className="num">{row.days_consumed}</TableCell>
-                    <TableCell className="num">
+                    <TableCell align="right">{row.days_consumed}</TableCell>
+                    <TableCell align="right">
                       {row.days_left ?? (
-                        <span className="muted" title={fl("loads.days_left.unknown")}>
+                        <Box component="span" sx={{ color: "text.secondary" }} title={fl("loads.days_left.unknown")}>
                           {fl("loads.gap.none")}
-                        </span>
+                        </Box>
                       )}
                     </TableCell>
-                    <TableCell style={{ whiteSpace: "nowrap" }}>
+                    <TableCell sx={{ whiteSpace: "nowrap" }}>
                       <GapCell gap={row.gap_days} fl={fl} />
                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
-          </div>
+          </Box>
 
           <FeedPager
             pageContract={pageContract}
@@ -178,7 +176,15 @@ export function FeedStockLoadsTable({
           />
         </>
       )}
-    </section>
+    </Card>
+  );
+}
+
+function Muted({ children }: { children: React.ReactNode }) {
+  return (
+    <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>
+      {children}
+    </Typography>
   );
 }
 
@@ -186,7 +192,7 @@ export function FeedStockLoadsTable({
 // Absent means one side of the sum is unknown -- no figure stated, or nothing fed recently enough
 // to project days left -- and reads as a dash, never as a pass.
 function GapCell({ gap, fl }: { gap: number | null | undefined; fl: (key: string) => string }) {
-  if (gap == null) return <span className="muted">{fl("loads.gap.none")}</span>;
+  if (gap == null) return <Box component="span" sx={{ color: "text.secondary" }}>{fl("loads.gap.none")}</Box>;
   if (gap === 0) return <Tag tone="ok">{fl("loads.gap.zero")}</Tag>;
   if (gap > 0) return <Tag tone="dng">{fl("loads.gap.positive").replace("{days}", String(gap))}</Tag>;
   return <Tag tone="warn">{fl("loads.gap.negative").replace("{days}", String(-gap))}</Tag>;

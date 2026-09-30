@@ -1,10 +1,13 @@
 import Table from "@mui/material/Table";
-import TableHead from "@mui/material/TableHead";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import { TableHeadCustom } from "@/components/app/table";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import { byParkThen, parksInArrivalOrder } from "@/lib/park-order";
 import Box from "@mui/material/Box";
+import Stack from "@mui/material/Stack";
 import { KpiGrid } from "@/components/app/kpi-grid";
 import { KpiWidget } from "@/components/app/kpi-widget";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
@@ -200,52 +203,58 @@ export function FeedCompletionTable({
   ];
 
   return (
-    <section className="card" aria-label={fc("completion.title")}>
-      <div className="hd">
-        <h3>{fc("completion.title")}</h3>
-        <span className="small muted">{fc("completion.hint")}</span>
-      </div>
+    <Stack spacing={3}>
+      {/* The day's status totals: a template KPI row ABOVE the table card (a KPI deck is a page row,
+          never a card grid inside a card; guard kpi-deck-not-in-card). They follow the card's filters. */}
+      {dayHasRows ? (
+        <Box component="section" aria-label={fc("completion.title")}>
+          <KpiGrid>
+            {STATUS_ORDER.map((status) => {
+              const count = totalFor(totals, status);
+              return (
+                <KpiWidget
+                  key={status}
+                  title={fc(STATUS_KPI_KEY[status])}
+                  total={count}
+                  caption={fc("completion.kpi.sub")}
+                  color={status === "not_started" && count > 0 ? "error" : status === "not_started" ? "info" : "primary"}
+                  sx={{ height: 1 }}
+                />
+              );
+            })}
+          </KpiGrid>
+        </Box>
+      ) : null}
+    <Card component="section" aria-label={fc("completion.title")}>
+      <CardHeader title={fc("completion.title")} subheader={fc("completion.hint")} />
 
       <FeedFilters basePath={basePath} pageParam="fdc_offset" fields={fields} pageContract={pageContract} />
 
       {!dayHasRows ? (
-        <p className="muted small">{fc("completion.empty")}</p>
+        <Typography variant="body2" sx={{ color: "text.secondary", px: 3, pb: 3 }}>
+          {fc("completion.empty")}
+        </Typography>
       ) : (
         <>
-          <Box component="section" aria-label={fc("completion.title")} sx={{ mb: 1.5 }}>
-            <KpiGrid>
-              {STATUS_ORDER.map((status) => {
-                const count = totalFor(totals, status);
-                return (
-                  <KpiWidget
-                    key={status}
-                    title={fc(STATUS_KPI_KEY[status])}
-                    total={count}
-                    caption={fc("completion.kpi.sub")}
-                    color={status === "not_started" && count > 0 ? "error" : status === "not_started" ? "info" : "primary"}
-                    sx={{ height: 1 }}
-                  />
-                );
-              })}
-            </KpiGrid>
-          </Box>
 
           {rows.length === 0 ? (
-            <p className="muted small">{fc("completion.empty_filtered")}</p>
+            <Typography variant="body2" sx={{ color: "text.secondary", px: 3, pb: 3 }}>
+              {fc("completion.empty_filtered")}
+            </Typography>
           ) : (
-            <div className="tablewrap" tabIndex={0} role="group" aria-label={fc("completion.title")}>
-              <Table className="tbl">
-                <TableHead>
-                  <TableRow>
-                    <TableCell component="th">{fc("col.completion.park")}</TableCell>
-                    <TableCell component="th">{fc("col.completion.pen")}</TableCell>
-                    <TableCell component="th">{fc("col.completion.session")}</TableCell>
-                    <TableCell component="th">{fc("col.completion.status")}</TableCell>
-                    <TableCell component="th">{fc("col.completion.videos")}</TableCell>
-                    <TableCell component="th">{fc("col.completion.who")}</TableCell>
-                    <TableCell component="th">{fc("col.completion.when")}</TableCell>
-                  </TableRow>
-                </TableHead>
+            <Box sx={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={fc("completion.title")}>
+              <Table>
+                <TableHeadCustom
+                  headCells={[
+                    { id: "park", label: fc("col.completion.park") },
+                    { id: "pen", label: fc("col.completion.pen") },
+                    { id: "session", label: fc("col.completion.session") },
+                    { id: "status", label: fc("col.completion.status") },
+                    { id: "videos", label: fc("col.completion.videos") },
+                    { id: "who", label: fc("col.completion.who") },
+                    { id: "when", label: fc("col.completion.when") },
+                  ]}
+                />
                 <TableBody>
                   {rows.map((row) => {
                     const id = rowId(row);
@@ -276,7 +285,7 @@ export function FeedCompletionTable({
                   })}
                 </TableBody>
               </Table>
-            </div>
+            </Box>
           )}
 
           {rows.length > 0 ? (
@@ -307,7 +316,8 @@ export function FeedCompletionTable({
         ariaLabel={fc("drawer.completion.aria")}
         closeLabel={fc("drawer.completion.close_label")}
       />
-    </section>
+    </Card>
+    </Stack>
   );
 }
 
@@ -349,15 +359,15 @@ function drawerItem(row: CompletionRow, pageContract: AdminUiPageContract): Loca
         <Typography variant="subtitle2" component="h4" sx={{ m: 0 }}>
           {fc("drawer.completion.videos")}
         </Typography>
-        <div className="tablewrap">
-          <Table className="tbl">
-            <TableHead>
-              <TableRow>
-                <TableCell component="th">{fc("drawer.completion.col.video")}</TableCell>
-                <TableCell component="th">{fc("drawer.completion.col.when")}</TableCell>
-                <TableCell component="th">{fc("drawer.completion.col.who")}</TableCell>
-              </TableRow>
-            </TableHead>
+        <Box sx={{ overflowX: "auto" }}>
+          <Table size="small">
+            <TableHeadCustom
+              headCells={[
+                { id: "video", label: fc("drawer.completion.col.video") },
+                { id: "when", label: fc("drawer.completion.col.when") },
+                { id: "who", label: fc("drawer.completion.col.who") },
+              ]}
+            />
             <TableBody>
               {row.proofs.map((slot: ProofSlot) => {
                 const uploaded = istInstant(slot.uploaded_at);
@@ -379,7 +389,7 @@ function drawerItem(row: CompletionRow, pageContract: AdminUiPageContract): Loca
               })}
             </TableBody>
           </Table>
-        </div>
+        </Box>
       </>
     ),
   };
