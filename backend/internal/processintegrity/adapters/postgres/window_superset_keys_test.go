@@ -16,10 +16,11 @@ import (
 // (TestProcessIntegrityCanonicalAggregateQueryPlanUsesIndexesAtScale), so it must not come back.
 func TestCanonicalWindowSupersetKeepsAllArmsAsIndexProbeArraysDateShiftStatusMatrix(t *testing.T) {
 	for name, sql := range map[string]string{
-		"rows":        processIntegrityCanonicalRowsSQL,
-		"counts":      processIntegrityCanonicalCountsSQL,
-		"rows+counts": processIntegrityCanonicalRowsAndCountsSQL,
-		"adherence":   processIntegrityCanonicalAdherenceSummarySQL,
+		"rows":         processIntegrityCanonicalRowsSQL,
+		"counts":       processIntegrityCanonicalCountsSQL,
+		"rows+counts":  processIntegrityCanonicalRowsAndCountsSQL,
+		"adherence":    processIntegrityCanonicalAdherenceSummarySQL,
+		"rows+summary": processIntegrityCanonicalRowsAndSummarySQL,
 	} {
 		if strings.Contains(sql, "oi.batch_id IN (SELECT batch_id FROM due_window_batches)") ||
 			strings.Contains(sql, "oi.obligation_id IN (SELECT obligation_id FROM due_window_members)") {
