@@ -969,7 +969,7 @@ class PcCareTaskViewModel @Inject constructor(
                             PhotoCaptureContext(
                                 title = slotDto.label,
                                 instruction = slotDto.description.ifBlank { slotDto.label },
-                                prompt = if (pcCareIsFeedWaterRemoval(detail)) null else ProofCapturePrompt.INVENTORY_VACCINE_STOCK,
+                                prompt = if (pcCareUsesServedTaskProofSlots(detail)) null else ProofCapturePrompt.INVENTORY_VACCINE_STOCK,
                             ),
                         )?.let {
                             PcCareCapturedTaskProof(
@@ -986,7 +986,7 @@ class PcCareTaskViewModel @Inject constructor(
                                 title = slotDto.label,
                                 primaryTag = detail.taskLabel.ifBlank { detail.operationalLocationDisplay.ifBlank { detail.shedLabel } },
                                 workLabel = slotDto.description.ifBlank { slotDto.label },
-                                prompt = if (pcCareIsFeedWaterRemoval(detail)) null else ProofCapturePrompt.INVENTORY_VACCINE_STOCK,
+                                prompt = if (pcCareUsesServedTaskProofSlots(detail)) null else ProofCapturePrompt.INVENTORY_VACCINE_STOCK,
                                 headerTitle = pcCareTaskTitle(detail).ifBlank { null },
                             ),
                         )?.let {
@@ -1445,11 +1445,7 @@ class PcCareTaskViewModel @Inject constructor(
                 latestProofs,
                 pcCareEffectiveTaskProofs(detail, local.value.removalPens),
                 local.value.capturingSlotKey,
-                missingCopy = if (pcCareIsFeedWaterRemoval(detail)) {
-                    "Record the feed removal and water removal videos first" // mobile-contract:ignore: device-local pre-sync gate copy
-                } else {
-                    "Record the fridge stock photo and video first" // mobile-contract:ignore: device-local pre-sync gate copy
-                },
+                missingCopy = pcCareTaskProofMissingCopy(detail),
             )
         } else {
             pcCareEvaluateSubmit(detail.expectedSlots, latestAnimals, latestProofs, json)
@@ -1498,11 +1494,7 @@ class PcCareTaskViewModel @Inject constructor(
                 latestProofs,
                 pcCareEffectiveTaskProofs(detail, local.value.removalPens),
                 local.value.capturingSlotKey,
-                missingCopy = if (pcCareIsFeedWaterRemoval(detail)) {
-                    "Record the feed removal and water removal videos first" // mobile-contract:ignore: device-local pre-sync gate copy
-                } else {
-                    "Record the fridge stock photo and video first" // mobile-contract:ignore: device-local pre-sync gate copy
-                },
+                missingCopy = pcCareTaskProofMissingCopy(detail),
             )
         } else {
             pcCareEvaluateSubmit(detail.expectedSlots, latestAnimals, latestProofs, json)
@@ -1820,7 +1812,14 @@ class PcCareTaskViewModel @Inject constructor(
         put(AnalyticsEvents.Params.FIELD, fieldKey)
         put("field_key", fieldKey)
         put("task_id", taskId)
-        put("feature_surface", if (category == PC_CARE_CATEGORY_FEED_WATER_REMOVAL) "pc_care_feed_water_removal" else "pc_care_stock")
+        put(
+            "feature_surface",
+            when (category) {
+                PC_CARE_CATEGORY_FEED_WATER_REMOVAL -> "pc_care_feed_water_removal"
+                PC_CARE_CATEGORY_FUMIGATION -> "pc_care_fumigation"
+                else -> "pc_care_stock"
+            },
+        )
         category.takeIf { it.isNotBlank() }?.let { put("category", it) }
         captureMode.takeIf { it.isNotBlank() }?.let { put("capture_mode", it) }
         status.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.STATUS, it) }
@@ -2013,6 +2012,7 @@ class PcCareTaskViewModel @Inject constructor(
         // tab, so its own capture_mode/category is what settles it.
         routeCategory == PC_CARE_CATEGORY_INVENTORY_VACCINE ||
             routeCategory == PC_CARE_CATEGORY_FEED_WATER_REMOVAL ||
+            routeCategory == PC_CARE_CATEGORY_FUMIGATION ||
             detail?.captureMode == PC_CARE_CAPTURE_MODE_TASK_PROOF ||
             detail?.category == PC_CARE_CATEGORY_INVENTORY_VACCINE ||
             detail?.category == PC_CARE_CATEGORY_FEED_WATER_REMOVAL
@@ -2035,6 +2035,33 @@ class PcCareTaskViewModel @Inject constructor(
     private fun pcCareIsFeedWaterRemoval(detail: PcCareTaskDto?): Boolean =
         routeCategory == PC_CARE_CATEGORY_FEED_WATER_REMOVAL ||
             detail?.category == PC_CARE_CATEGORY_FEED_WATER_REMOVAL
+
+    /**
+     * True on a PEN-work task (fumigation, maintainer instruction 2026-09-30): task_proof capture
+     * with the card's own served slots, no animals, and neither the fridge pair nor the removal
+     * card's per-pen round rows. Any task_proof category that is neither the fridge check nor the
+     * removal card is pen work, so a future one renders its served slots without a phone change.
+     */
+    private fun pcCareIsPenProof(detail: PcCareTaskDto?): Boolean {
+        if (routeCategory == PC_CARE_CATEGORY_FUMIGATION || detail?.category == PC_CARE_CATEGORY_FUMIGATION) return true
+        val category = detail?.category ?: return false
+        return detail.captureMode == PC_CARE_CAPTURE_MODE_TASK_PROOF &&
+            category != PC_CARE_CATEGORY_INVENTORY_VACCINE &&
+            category != PC_CARE_CATEGORY_FEED_WATER_REMOVAL
+    }
+
+    /** The GENERIC served-slot face: the removal card and pen work. Only the fridge check is fixed. */
+    private fun pcCareUsesServedTaskProofSlots(detail: PcCareTaskDto?): Boolean =
+        pcCareIsFeedWaterRemoval(detail) || pcCareIsPenProof(detail)
+
+    private fun pcCareTaskProofMissingCopy(detail: PcCareTaskDto?): String = when {
+        pcCareIsFeedWaterRemoval(detail) ->
+            "Record the feed removal and water removal videos first" // mobile-contract:ignore: device-local pre-sync gate copy
+        pcCareIsPenProof(detail) ->
+            "Record every video for this pen first" // mobile-contract:ignore: device-local pre-sync gate copy
+        else ->
+            "Record the fridge stock photo and video first" // mobile-contract:ignore: device-local pre-sync gate copy
+    }
 
     private fun pcCareTaskProofPreviewEvent(detail: PcCareTaskDto?): String =
         if (pcCareIsFeedWaterRemoval(detail)) {
@@ -2105,6 +2132,8 @@ class PcCareTaskViewModel @Inject constructor(
                 PcCareSlotDto(fieldKey = PC_CARE_SLOT_WATER_VIDEO, label = "Water removal video"),
             )
         }
+        // Pen work: the pinned card's slots, served verbatim. The phone names no slot of its own.
+        if (pcCareIsPenProof(detail)) return detail.expectedSlots
         return listOf(
             byKey[PC_CARE_SLOT_STOCK_FRIDGE_PHOTO] ?: PcCareSlotDto(
                 fieldKey = PC_CARE_SLOT_STOCK_FRIDGE_PHOTO,
@@ -2333,11 +2362,7 @@ class PcCareTaskViewModel @Inject constructor(
                 proofs,
                 effectiveTaskProofs,
                 bits.capturingSlotKey,
-                missingCopy = if (pcCareIsFeedWaterRemoval(detail)) {
-                    "Record the feed removal and water removal videos first" // mobile-contract:ignore: device-local pre-sync gate copy
-                } else {
-                    "Record the fridge stock photo and video first" // mobile-contract:ignore: device-local pre-sync gate copy
-                },
+                missingCopy = pcCareTaskProofMissingCopy(detail),
             )
         } else {
             pcCareEvaluateSubmit(expectedSlots, animals, proofs, json)
@@ -2405,9 +2430,9 @@ class PcCareTaskViewModel @Inject constructor(
                 )
             },
             taskProofMode = taskProofMode,
-            // The removal face renders the GENERIC slot list; the fridge face keeps its
-            // dedicated photo/video pair. Never both.
-            taskProofSlots = if (taskProofMode && pcCareIsFeedWaterRemoval(detail)) {
+            // The removal face and pen work render the GENERIC slot list; the fridge face keeps
+            // its dedicated photo/video pair. Never both.
+            taskProofSlots = if (taskProofMode && pcCareUsesServedTaskProofSlots(detail)) {
                 expectedSlots.map { slot ->
                     pcCareBuildTaskProofSlot(
                         slot = slot,
@@ -2421,7 +2446,7 @@ class PcCareTaskViewModel @Inject constructor(
             } else {
                 emptyList()
             },
-            taskProofSlot = if (taskProofMode && !pcCareIsFeedWaterRemoval(detail)) {
+            taskProofSlot = if (taskProofMode && !pcCareUsesServedTaskProofSlots(detail)) {
                 expectedSlots.firstOrNull { it.fieldKey == PC_CARE_SLOT_STOCK_FRIDGE_PHOTO }?.let { slot ->
                     pcCareBuildTaskProofSlot(
                         slot,
@@ -2435,7 +2460,7 @@ class PcCareTaskViewModel @Inject constructor(
             } else {
                 null
             },
-            taskProofPhotoSlot = if (taskProofMode && !pcCareIsFeedWaterRemoval(detail)) {
+            taskProofPhotoSlot = if (taskProofMode && !pcCareUsesServedTaskProofSlots(detail)) {
                 expectedSlots.firstOrNull { it.fieldKey == PC_CARE_SLOT_STOCK_FRIDGE_PHOTO }?.let { slot ->
                     pcCareBuildTaskProofSlot(
                         slot = slot,
@@ -2449,7 +2474,7 @@ class PcCareTaskViewModel @Inject constructor(
             } else {
                 null
             },
-            taskProofVideoSlot = if (taskProofMode && !pcCareIsFeedWaterRemoval(detail)) {
+            taskProofVideoSlot = if (taskProofMode && !pcCareUsesServedTaskProofSlots(detail)) {
                 expectedSlots.firstOrNull { it.fieldKey == PC_CARE_SLOT_STOCK_FRIDGE_VIDEO }?.let { slot ->
                     pcCareBuildTaskProofSlot(
                         slot = slot,
@@ -2529,6 +2554,7 @@ class PcCareTaskViewModel @Inject constructor(
         internal const val PC_CARE_CAPTURE_MODE_TASK_PROOF = "task_proof"
         internal const val PC_CARE_CATEGORY_INVENTORY_VACCINE = "inventory_vaccine"
         internal const val PC_CARE_CATEGORY_FEED_WATER_REMOVAL = "feed_water_removal"
+        internal const val PC_CARE_CATEGORY_FUMIGATION = "fumigation"
         internal const val PC_CARE_SLOT_FEED_VIDEO = "feed_video"
         internal const val PC_CARE_SLOT_WATER_VIDEO = "water_video"
         internal const val PC_CARE_SLOT_STOCK_FRIDGE_PHOTO = "stock_fridge_photo"
@@ -2610,6 +2636,7 @@ private fun String.isPcCareRepeatableTaskProofCategory(): Boolean =
     when (trim()) {
         PcCareTaskViewModel.PC_CARE_CATEGORY_FEED_WATER_REMOVAL,
         PcCareTaskViewModel.PC_CARE_CATEGORY_INVENTORY_VACCINE,
+        PcCareTaskViewModel.PC_CARE_CATEGORY_FUMIGATION,
         -> true
         else -> false
     }

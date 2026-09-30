@@ -93,3 +93,16 @@ test("an added capture emits its length only when it has one", () => {
   const emitted = emitPcCare(rows).categories.deworming.proofs.at(-1);
   assert.deepEqual(emitted, { key: "after_dose", title: "After the dose", kind: "video", required: true });
 });
+
+test("fumigation is pen work: its own card, never offered the feed & water removal", async () => {
+  const { PC_CARE_REMOVAL_CATEGORIES, isPenCategory, pcCareReachCopyKey } = await import("./pc-care-model.ts");
+  const rows = parsePcCare({ pc_care: seed });
+  assert.deepEqual(rows.categories.fumigation.proofs.map((p) => p.key), ["mixing_video", "spraying_video"]);
+  assert.match(rows.categories.fumigation.instruction, /5 ml/);
+  assert.equal(isPenCategory("fumigation"), true);
+  assert.equal(isPenCategory("deworming"), false);
+  assert.ok(!PC_CARE_REMOVAL_CATEGORIES.includes("fumigation"), "the removal is never offered on a pen spray");
+  assert.equal(pcCareReachCopyKey("fumigation"), "pcsop.flow.reach_pen");
+  assert.equal(pcCareReachCopyKey("hoof_trimming"), "pcsop.flow.reach_roster");
+  assert.equal(pcCareReachCopyKey("deworming"), "pcsop.flow.reach_scan");
+});

@@ -31,9 +31,28 @@ export const PC_CARE_SCHEMA_VERSION = ["go", "atos.sop-pc-care.v1"].join("");
 /** The SOP library code the PC Care rules are published under. */
 export const PC_CARE_SOP_CODE = "pc_care.tasks";
 
-/** The five work categories the document authors, in the order the phone shows their tabs. */
-export const PC_CARE_CATEGORIES = ["deworming", "anti_protozoan", "ticks_removal", "hoof_trimming", "hair_trimming"] as const;
+/** The six work categories the document authors, in the order the phone shows their tabs. */
+export const PC_CARE_CATEGORIES = ["deworming", "anti_protozoan", "ticks_removal", "hoof_trimming", "hair_trimming", "fumigation"] as const;
 export type PcCareCategory = (typeof PC_CARE_CATEGORIES)[number];
+
+/**
+ * PEN work (fumigation, 2026-09-30): recorded once for the pen, no animal scanned. The capture
+ * grain is the work's, never the author's -- the same way scan-vs-roster is fixed by the work.
+ */
+export const PC_CARE_PEN_CATEGORIES: readonly PcCareCategory[] = ["fumigation"];
+
+export function isPenCategory(category: PcCareCategory): boolean {
+  return PC_CARE_PEN_CATEGORIES.includes(category);
+}
+
+/** The work the feed & water removal may be ticked for: animal work only (a pen spray doses no animal). */
+export const PC_CARE_REMOVAL_CATEGORIES: readonly PcCareCategory[] = PC_CARE_CATEGORIES.filter((c) => !isPenCategory(c));
+
+/** How the operator reaches the work, as a copy key: scan a tag, tap the roster, or the pen itself. */
+export function pcCareReachCopyKey(category: PcCareCategory): string {
+  if (isPenCategory(category)) return "pcsop.flow.reach_pen";
+  return category === "hoof_trimming" || category === "hair_trimming" ? "pcsop.flow.reach_roster" : "pcsop.flow.reach_scan";
+}
 
 export type PcCareRemovalMode = "required" | "optional" | "off";
 

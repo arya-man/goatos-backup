@@ -351,6 +351,19 @@ object MeshaIcons {
     )
 
     /**
+     * A spray bottle and its mist -- fumigation, the pen spray (maintainer instruction 2026-09-30).
+     * Its own mark: the sixth Preventive Care tab sits on the same bar as the capsule, the cell,
+     * the tick, the hoof and the scissors.
+     */
+    val Fumigation: ImageVector = strokeIcon(
+        "fumigation",
+        "M8 11h7v9a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1z",
+        "M9.5 11V8h4v3",
+        "M9.5 8V5.5h5.5l1.5 2.5",
+        "M19 5h.01M21.5 3.5h.01M21.5 7h.01M19 9.5h.01",
+    )
+
+    /**
      * Leadership Tasks (maintainer request 2026-09-04 and Manju extension 2026-09-08): a clipboard
      * carrying LINES -- the brief one worker hands another. Deliberately not [ClipboardCheck] (Feed Wastage's recorded check) and
      * not the generic [Module] grid: the drawer lists this beside every other module.
@@ -524,6 +537,7 @@ object MeshaIcons {
         "pc_ticks" -> Tick
         "pc_hoof_trimming" -> HoofTrimming
         "pc_hair_trimming" -> HairTrimming
+        "pc_fumigation" -> Fumigation
         // Standalone Verifier section (context/architecture/verifier-app-and-flow.md). The tab is
         // a DECISION queue, so it takes the same CheckCircle as "approvals" above rather than the
         // Video glyph: video is the evidence, not the job, and the camcorder both restated the one

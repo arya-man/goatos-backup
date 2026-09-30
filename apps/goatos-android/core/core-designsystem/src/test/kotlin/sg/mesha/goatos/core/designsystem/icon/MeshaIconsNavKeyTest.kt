@@ -53,6 +53,7 @@ class MeshaIconsNavKeyTest {
         "pc_ticks",
         "pc_hoof_trimming",
         "pc_hair_trimming",
+        "pc_fumigation",
         // Vendors (maintainer decision 2026-09-03): the module row and its second tab share one
         // bar, so both need their own glyph.
         "vendors",

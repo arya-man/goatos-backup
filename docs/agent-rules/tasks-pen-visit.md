@@ -6,7 +6,7 @@
 ## Pen Visit Tasks: the day-after check (maintainer decision 2026-09-07, REAFFIRMED 2026-09-14)
 
 The day after ANY vaccination shed proof or PC Care task (deworming, anti protozoan, ticks
-removal, hoof trimming, hair trimming) is SUBMITTED in a pen, one of the park's configured
+removal, hoof trimming, hair trimming, fumigation -- the last added 2026-09-30) is SUBMITTED in a pen, one of the park's configured
 visitors owes that pen a visit and ONE live in-app-camera video. It is the phone Tasks module's
 **For me** tab beside a director's **Raised by me**; a CXO's Tasks module is unchanged (one
 list, no bar). Read `docs/decisions/pen-visit-tasks.md` before touching

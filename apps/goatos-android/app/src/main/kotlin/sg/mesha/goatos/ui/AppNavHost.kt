@@ -275,6 +275,7 @@ import sg.mesha.goatos.viewmodel.FeedTransportCaptureViewModel
 import sg.mesha.goatos.viewmodel.FeedTransportViewModel
 import sg.mesha.goatos.viewmodel.CoverageBannerViewModel
 import sg.mesha.goatos.viewmodel.PcCarePlanViewModel
+import sg.mesha.goatos.viewmodel.pcCarePlanAllowedOnTab
 import sg.mesha.goatos.viewmodel.PcCareTaskViewModel
 import sg.mesha.goatos.viewmodel.PcCareWorklistViewModel
 import sg.mesha.goatos.viewmodel.ClockPersonDayViewModel
@@ -626,6 +627,7 @@ object Routes {
     const val PC_TICKS = "/pc/ticks"
     const val PC_HOOF_TRIMMING = "/pc/hoof-trimming"
     const val PC_HAIR_TRIMMING = "/pc/hair-trimming"
+    const val PC_FUMIGATION = "/pc/fumigation"
     const val PC_TASK_ID_ARG = "task_id"
     const val PC_TASK_CATEGORY_ARG = "category"
     const val PC_TASK_TITLE_ARG = "title"
@@ -4789,6 +4791,9 @@ fun AppNavHost(
         pcCareCategoryComposable(Routes.PC_TICKS, "ticks_removal", "Ticks Removal", navController, canExecutePcCare, canPlanPcCare)
         pcCareCategoryComposable(Routes.PC_HOOF_TRIMMING, "hoof_trimming", "Hoof Trimming", navController, canExecutePcCare, canPlanPcCare)
         pcCareCategoryComposable(Routes.PC_HAIR_TRIMMING, "hair_trimming", "Hair Trimming", navController, canExecutePcCare, canPlanPcCare)
+        // Fumigation (maintainer instruction 2026-09-30): the pen spray. Pen work, not animal work:
+        // the task face is the served task_proof slot list (mixing, then spraying), no scan.
+        pcCareCategoryComposable(Routes.PC_FUMIGATION, "fumigation", "Fumigation", navController, canExecutePcCare, canPlanPcCare)
 
         // The L1 plan-wizard drill: category fixed by the launching tab, steps day → farm →
         // pen → people → review, hosted with Up/Back and no root chrome.
@@ -5370,6 +5375,7 @@ private val supportedRootDestinations = setOf(
     Routes.PC_TICKS,
     Routes.PC_HOOF_TRIMMING,
     Routes.PC_HAIR_TRIMMING,
+    Routes.PC_FUMIGATION,
     // Animal purchases (maintainer decision 2026-09-13): the Procurement module's third
     // backend-composed bar item, so it is an L0 root exactly like its two siblings — registering
     // the composable alone would leave a notification or deep link naming it treated as unhosted
@@ -5706,7 +5712,10 @@ private fun NavGraphBuilder.pcCareCategoryComposable(
             PcCareMonitorScreen(
                 state = state,
                 rows = rows,
-                planEnabled = canPlanPcCare,
+                // Plan / close / start-again only on a tab whose category this person may plan:
+                // the planner catalog is the caller's plannable set (a park head's is fumigation
+                // alone), so a tab the server would refuse never offers the button.
+                planEnabled = pcCarePlanAllowedOnTab(canPlanPcCare, category, state.categories),
                 onPlanTask = {
                     navController.navigate(Routes.pcPlanRoute(category, title)) { launchSingleTop = true }
                 },

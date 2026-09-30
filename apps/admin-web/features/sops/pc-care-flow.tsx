@@ -6,7 +6,7 @@ import { useMemo, type ReactNode } from "react";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { FlowCanvas, type CanvasEdge, type CanvasLayout, type CanvasNode } from "./flow-canvas";
 import { NODE_H, NODE_W } from "./flow-layout";
-import { PC_CARE_CATEGORIES, type PcCareCategory, type PcCareRows } from "./pc-care-model";
+import { PC_CARE_CATEGORIES, pcCareReachCopyKey, type PcCareCategory, type PcCareRows } from "./pc-care-model";
 import type { WeighingQuestionRow } from "./weighing-model";
 
 /** A row the chart can select: one section's capture or question. "removal" is the pen card. */
@@ -204,9 +204,7 @@ export function PcCareFlow({
           <b>{isRemoval ? copy(pc, "pcsop.section.removal") : categoryLabel(section as PcCareCategory)}</b>
           {!isRemoval ? (
             <span className="muted small">
-              {(section as PcCareCategory) === "hoof_trimming" || (section as PcCareCategory) === "hair_trimming"
-                ? copy(pc, "pcsop.flow.reach_roster")
-                : copy(pc, "pcsop.flow.reach_scan")}
+              {copy(pc, pcCareReachCopyKey(section as PcCareCategory))}
             </span>
           ) : null}
           <span className="studio-node-actions">
