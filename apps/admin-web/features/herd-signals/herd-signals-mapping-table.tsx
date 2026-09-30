@@ -66,8 +66,9 @@ const ACTION_TITLE: Record<MappingAction, string> = {
 };
 
 // Rows-per-page choices must match the live table's, so switching tabs does not silently change
-// the page size the reader had chosen.
-const PAGE_SIZE_OPTIONS = [20, 50, 100];
+// the page size the reader had chosen (the default LIMIT_DEFAULT 25 is one of them, or the pager
+// select shows blank).
+const PAGE_SIZE_OPTIONS = [25, 50, 100];
 
 type PagerWalk = { signature: string; stack: string[] };
 const EMPTY_WALK: PagerWalk = { signature: "", stack: [] };
