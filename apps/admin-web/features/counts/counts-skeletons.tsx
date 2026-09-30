@@ -76,8 +76,11 @@ export function HerdAnalyticsPanelSkeleton() {
 }
 
 /** /counts/breakdown KPI deck (the first card, the live head count, has no caption line). */
-export function BreakdownKpiSkeleton() {
-  return <KpiRowSkeleton count={BD_KPI_CAPTIONS.length} shapes={kpiShapes(BD_KPI_CAPTIONS)} />;
+/** `count`: the deck on screen (two totals + the non-empty stage tiles), so a filter click's twin
+ *  has the loaded deck's rows; the route loading.tsx draws the default six. */
+export function BreakdownKpiSkeleton({ count = BD_KPI_CAPTIONS.length }: { count?: number } = {}) {
+  const captions = Array.from({ length: count }, (_, i) => BD_KPI_CAPTIONS[i] ?? 1);
+  return <KpiRowSkeleton count={count} shapes={kpiShapes(captions)} />;
 }
 
 /** /counts/breakdown charts: breed share beside stage x sex, then the pen bars. */

@@ -529,7 +529,7 @@ export async function CountsBreakdownPage({
           read shows a dash. */}
       {/* KPI deck (guard: url-keyed-panel): a filter change swaps it to its skeleton at once; a page
           change of the pen table leaves it on screen. */}
-      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={BD_PAGER_PARAMS} fallback={<BreakdownKpiSkeleton />}>
+      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={BD_PAGER_PARAMS} fallback={<BreakdownKpiSkeleton count={2 + summaryCards.length} />}>
       <Box component="section" aria-label={copy(pageContract, "kpi.matching.label")}>
         <KpiGrid>
           <KpiWidget

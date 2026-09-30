@@ -34,7 +34,7 @@ test("herd-signals-live-header: live toggle + export are template Buttons, KPI r
   assert.match(bridge, /<Tooltip title=\{`\$\{live \? "Pause live stream" : "Resume live stream"\} · \$\{updatedLine\}`\}/);
   const css = legacyCss("mesha-theme");
   assert.doesNotMatch(css, /\.livebadge|\.refreshmeta|\.herd-signals-livebar|hs-lp/);
-  const grid = readFileSync(new URL("../../components/app/kpi-grid.tsx", import.meta.url), "utf8");
+  const grid = readFileSync(new URL("../../components/app/kpi-grid-size.ts", import.meta.url), "utf8");
   assert.match(grid, /if \(n % 4 === 0\) return \{ xs: 12, sm: 6, md: 3 \};/);
 });
 

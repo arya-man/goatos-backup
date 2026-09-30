@@ -98,7 +98,7 @@ test("/counts twins read counts-layout.ts, as the pages do", () => {
   const ha = read("counts/herd-analytics.tsx");
   for (const k of ["size={HA_GRID.flow}", "size={HA_GRID.sex}", "size={HA_GRID.mix}", "fallback={<HerdAnalyticsPanelSkeleton />}"]) assert.ok(ha.includes(k), `herd-analytics: ${k}`);
   const bd = read("counts/counts-breakdown.tsx");
-  for (const k of ["size={BD_GRID.breed}", "size={BD_GRID.stageSex}", "size={BD_GRID.pens}", "fallback={<BreakdownKpiSkeleton />}", "fallback={<BreakdownChartsSkeleton />}"]) assert.ok(bd.includes(k), `counts-breakdown: ${k}`);
+  for (const k of ["size={BD_GRID.breed}", "size={BD_GRID.stageSex}", "size={BD_GRID.pens}", "fallback={<BreakdownKpiSkeleton count={2 + summaryCards.length} />}", "fallback={<BreakdownChartsSkeleton />}"]) assert.ok(bd.includes(k), `counts-breakdown: ${k}`);
   const hr = read("counts/herd-register.tsx");
   for (const k of ["size={HERD_KPI_SIZE}", "fallback={<HerdKpiSkeleton />}"]) assert.ok(hr.includes(k), `herd-register: ${k}`);
   const mo = read("counts/mortality.tsx");
