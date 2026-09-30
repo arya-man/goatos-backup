@@ -484,23 +484,22 @@ function StepCard({
         <FieldGrid>
           <MuiTextField label={copy(pc, "followup.step.proof_videos")} size="small" type="number" slotProps={{ htmlInput: { min: 0, max: 10 } }} value={step.proofVideos} onChange={(e) => onChange({ proofVideos: Math.max(0, Number(e.target.value) || 0) })} />
           <MuiTextField label={copy(pc, "followup.step.proof_photos")} size="small" type="number" slotProps={{ htmlInput: { min: 0, max: 10 } }} value={step.proofPhotos} onChange={(e) => onChange({ proofPhotos: Math.max(0, Number(e.target.value) || 0) })} />
+          {owners.length > 0 ? (
+            <InlineSelect
+              label={copy(pc, "followup.step.owner")}
+              value={step.owner}
+              minWidth={220}
+              options={[{ value: "", label: copy(pc, "followup.step.owner_any") }, ...owners.map((o) => ({ value: o.key, label: o.label }))]}
+              onChange={(next) => onChange({ owner: next })}
+            />
+          ) : null}
         </FieldGrid>
-      </ConfigBox>
-
-      {owners.length > 0 ? (
-        <ConfigBox>
-          <InlineSelect
-            label={copy(pc, "followup.step.owner")}
-            value={step.owner}
-            minWidth={220}
-            options={[{ value: "", label: copy(pc, "followup.step.owner_any") }, ...owners.map((o) => ({ value: o.key, label: o.label }))]}
-            onChange={(next) => onChange({ owner: next })}
-          />
+        {owners.length > 0 ? (
           <Box component="span" sx={visuallyHidden} data-testid="step-owner">
             {copy(pc, "followup.step.owner_hint")}
           </Box>
-        </ConfigBox>
-      ) : null}
+        ) : null}
+      </ConfigBox>
 
       <ConfigBox>
         <FieldGrid>
