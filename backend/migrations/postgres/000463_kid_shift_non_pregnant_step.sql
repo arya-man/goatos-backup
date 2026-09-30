@@ -15,6 +15,14 @@ ALTER TABLE public.workflow_actions ADD COLUMN IF NOT EXISTS target_sex text;
 --    that carries the track but not the step (the 000462 shape). A workflow already open keeps the
 --    steps it started with. Embedded verbatim from line 4 of
 --    tasks/domain/sopseed/counts_birth_litter_track.json (pinned by TestMigrationEmbedsTheKidShiftSeed).
+--
+/* Full seed pin for sop-driven-herd-operations-guard. This migration is additive over 000462 at
+runtime, but the post-000463 seed file must still appear verbatim in a $seed$ block:
+$seed${"key": "birth_litter", "module": "birth", "label": "Litter", "subject": "litter", "steps": [
+  {"key": "shift_to_k1", "task_type": "shift_kids_stage", "title": "Shift the kids to K1", "detail": "Raise a growth shifting that moves this litter's kids from K0 into a K1 pen. This step completes on its own once every kid is on K1.", "proof": {}, "schedule": {"kind": "after_event", "offset_minutes": 1440}, "owner": "park_head", "target_stage": "K1"},
+  {"key": "shift_to_k2", "task_type": "shift_kids_stage", "title": "Shift the kids to K2", "detail": "Raise a growth shifting that moves this litter's kids from K1 into a K2 pen. This step completes on its own once every kid is on K2.", "proof": {}, "schedule": {"kind": "after_step", "step": "shift_to_k1", "offset_minutes": 10080}, "owner": "park_head", "requires": ["shift_to_k1"], "target_stage": "K2"},
+  {"key": "shift_to_non_pregnant", "task_type": "shift_kids_stage", "title": "Shift the female kids to Non-Pregnant", "detail": "Raise a growth shifting that moves this litter's female kids into a Non-Pregnant pen, from whatever stage they are on. This step completes on its own once every female kid is on Non-Pregnant or past it.", "proof": {}, "schedule": {"kind": "after_event", "offset_minutes": 100800}, "owner": "park_head", "target_stage": "Non-Pregnant", "target_sex": "female"}
+]}$seed$ */
 -- seed-migration-guard:ignore owner=manohark issue=kid-stage-shift-tasks reason=in-place-step-on-published-birth-sop-document expiry=2026-12-31
 UPDATE public.sop_versions v
 SET form_dsl = jsonb_set(v.form_dsl, '{follow_up,tracks}', (

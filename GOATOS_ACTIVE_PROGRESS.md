@@ -1,6 +1,6 @@
 # Goat OS Active Progress
 
-Last updated: 2026-10-01 02:36 IST
+Last updated: 2026-10-01 02:42 IST
 
 ## Current Scope
 
@@ -21,11 +21,19 @@ Last updated: 2026-10-01 02:36 IST
   - `node --test --experimental-strip-types apps/admin-web/features/sops/followup-model.test.mjs`
 - Landing prep identified one whitespace gate issue:
   - `backend/internal/counts/adapters/postgres/shifting_destinations_integration_test.go:831: new blank line at EOF`
+- First `make land-main` attempt failed on `sop-driven-herd-operations-guard` because the updated
+  `counts_birth_litter_track.json` seed was not present verbatim in a `$seed$` migration block.
+- Repaired `000463_kid_shift_non_pregnant_step.sql` with a full seed pin block comment while leaving
+  runtime SQL additive over `000462`.
+- Focused repair checks passed:
+  - `GOATOS_CI_ONLY_STEP='sop-driven-herd-operations-guard' tools/ci/run-local-ci.sh backend`
+  - `go test ./internal/tasks/domain -run TestMigrationEmbedsTheKidShiftSeed`
+  - `git diff --check`
 
 ## Pending
 
-- Remove the trailing blank line and commit the landing-prep fix.
-- Run authoritative local landing receipt: `make land-main`.
+- Commit the seed-pin repair.
+- Rerun authoritative local landing receipt: `make land-main`.
 - Verify local `HEAD`, local `origin/main`, and remote `main` all match the landed SHA.
 - Deploy using guarded launcher:
   - `GOATOS_REPO=/Users/raviteja/mesha/goatos-wt-pr460-review /Users/raviteja/bin/goatos-stg-deploy backend-web-mobile`
@@ -39,6 +47,7 @@ Last updated: 2026-10-01 02:36 IST
 ## Known Failures Or Blockers
 
 - GitHub reports PR merge state as `BLOCKED`; local certified direct landing is being used only if `make land-main` passes.
+- First landing attempt was red on `sop-driven-herd-operations-guard`; focused repair is green, full receipt still pending.
 - A broad admin-web test attempt expanded to the full suite and failed on missing local dependencies (`typescript`, `@grafana/faro-core`); changed SOP model test passed directly.
 - No STG or mobile deployment has started yet.
 
