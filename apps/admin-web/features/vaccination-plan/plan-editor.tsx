@@ -13,6 +13,7 @@
  */
 
 import Link from "@/components/no-prefetch-link";
+import { PageRoot } from "@/components/app/page-root";
 import { useRouter } from "next/navigation";
 import MuiButton from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
@@ -246,18 +247,18 @@ export function VaccinationPlanEditor(props: Props) {
 
   if (!current) {
     return (
-      <Box className="screen on">
+      <PageRoot>
         <Card>
           <CardHeader title="Company vaccination plan" subheader="This draft has no vaccines in it." sx={{ pb: 3 }} />
         </Card>
-      </Box>
+      </PageRoot>
     );
   }
 
   const publishBlockedReason = !blockedReason && !props.canPublish ? (props.cannotPublishReason ?? "Your role cannot publish the vaccination plan.") : null;
 
   return (
-    <Box className="screen on" sx={{ pb: 12 }}>
+    <PageRoot sx={{ pb: 12 }}>
       <PageHeader
         title="Company vaccination plan"
         crumbs={[{ label: "Preventive Care" }, { label: "Vaccination plan", href: "/vaccination/plan" }, { label: props.draftLabel }]}
@@ -599,7 +600,7 @@ export function VaccinationPlanEditor(props: Props) {
       </Paper>
 
       <AddVaccineModal open={addingVaccine} onSave={onAddVaccine} onCancel={() => setAddingVaccine(false)} />
-    </Box>
+    </PageRoot>
   );
 }
 

@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { PageRoot } from "@/components/app/page-root";
 import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
@@ -70,10 +71,10 @@ function StatusChips({ row, pageContract }: { row: VaccinationExecutionRow; page
 // "shed vaccination execution was not found" -- and put both a uuid and the word "shed" on screen).
 function PenUnavailable({ backHref, pageContract }: { backHref: string; pageContract: AdminUiPageContract }) {
   return (
-    <Box className="screen on">
+    <PageRoot>
       <PageHeader title={copy(pageContract, "fallback.title")} backHref={backHref} crumbs={[{ label: copy(pageContract, "crumb"), href: backHref }]} />
       <EmptyContent filled title={copy(pageContract, "fallback.body")} />
-    </Box>
+    </PageRoot>
   );
 }
 
@@ -134,7 +135,7 @@ export async function ShedExecutionDetailPage({
   ];
 
   return (
-    <Box className="screen on">
+    <PageRoot>
       <PageHeader
         title={`${shed.parkName} · ${shedDisplayLabel}`}
         backHref={backHref}
@@ -264,6 +265,6 @@ export async function ShedExecutionDetailPage({
           </Card>
         </Grid>
       </Grid>
-    </Box>
+    </PageRoot>
   );
 }

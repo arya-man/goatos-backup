@@ -9,7 +9,7 @@ import { WB_DAY_STEPPER_WIDTH, WB_SKELETON_LANES, WB_TOOLBAR_FIELDS } from "@/fe
  */
 export default function Loading() {
   return (
-    <PageSkeleton root="wb">
+    <PageSkeleton root="">
       <StackSkeleton>
         <PageHeaderSkeleton crumbLink={false} titleWidth={90} mb={{ xs: 0, md: 2 }} />
         <FilterCardSkeleton bare searchSmall fields={WB_TOOLBAR_FIELDS} actionWidths={[WB_DAY_STEPPER_WIDTH]} />

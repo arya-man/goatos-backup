@@ -22,3 +22,27 @@ test("the skeleton twin and the audit know the PageRoot root", () => {
   assert.match(read("scripts/r2-skeleton-iou.mjs"), /\[data-page-root\]/);
   assert.match(read("scripts/r2-visual-audit.mjs"), /PAGE_WRAPPER_SELECTOR = "[^"]*\[data-page-root\]/);
 });
+
+// FIXJ6: the last `screen on` roots (passport, plan console/editor, shed drill-down, care coverage,
+// people) are PageRoot; the skeleton twin's default root is page-root. No page or twin may bring the
+// legacy `.screen.on` root back (frame.css / mesha-theme.css are gone).
+test("no page root or skeleton twin uses the legacy screen/on classes", async () => {
+  const { readdirSync, statSync } = await import("node:fs");
+  const { join, relative } = await import("node:path");
+  const root = new URL("../../", import.meta.url).pathname;
+  const walk = (d) => readdirSync(d).flatMap((n) => {
+    const p = join(d, n);
+    if (n === "node_modules" || n === ".next" || n === "minimal") return [];
+    return statSync(p).isDirectory() ? walk(p) : [p];
+  });
+  const hits = [];
+  for (const dir of ["app", "components", "features", "layouts"]) {
+    for (const abs of walk(join(root, dir))) {
+      if (!abs.endsWith(".tsx")) continue;
+      const src = readFileSync(abs, "utf8");
+      if (/className=["'`{][^>]*\bscreen on\b/.test(src) || /root="screen/.test(src)) hits.push(relative(root, abs));
+    }
+  }
+  assert.deepEqual(hits, []);
+  assert.match(read("components/app/skeletons/blocks.tsx"), /root = "page-root"/, "PageSkeleton defaults to the PageRoot twin");
+});

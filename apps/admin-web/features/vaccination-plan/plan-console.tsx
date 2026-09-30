@@ -1,5 +1,6 @@
 "use client";
 import Table from "@mui/material/Table";
+import { PageRoot } from "@/components/app/page-root";
 import { EARLIER_HEAD_CELLS, LIVE_HEAD_CELLS, LIVE_PAGE_SIZE, PLAN_FACT_SIZE } from "./plan-layout";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
@@ -129,10 +130,10 @@ export function VaccinationPlanConsole({ searchParams, versions, catalog, change
 
   if (loadFailed) {
     return (
-      <Box className="screen on">
+      <PageRoot>
         <PageHeader title="Vaccination plan" crumbs={[{ label: "Preventive Care" }, { label: "Vaccination plan" }]} />
         <Alert severity="error">The vaccination plan could not be loaded.</Alert>
-      </Box>
+      </PageRoot>
     );
   }
 
@@ -162,7 +163,7 @@ export function VaccinationPlanConsole({ searchParams, versions, catalog, change
     : [];
 
   return (
-    <Box className="screen on">
+    <PageRoot>
       <PageHeader
         title="Vaccination plan"
         crumbs={[{ label: "Preventive Care" }, { label: "Vaccination plan" }]}
@@ -337,7 +338,7 @@ export function VaccinationPlanConsole({ searchParams, versions, catalog, change
       </Stack>
 
       <VersionSheet open={sheetOpen} data={sheet} loading={sheetLoading} error={sheetError} onClose={() => setSheetOpen(false)} />
-    </Box>
+    </PageRoot>
   );
 }
 

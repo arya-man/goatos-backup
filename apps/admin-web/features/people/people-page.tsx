@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { PageRoot } from "@/components/app/page-root";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { PanelSkeleton } from "@/components/app/panel-skeleton";
 import { FilterCardSkeleton, TableSkeleton, TabsSkeleton } from "@/components/app/skeletons";
@@ -67,7 +68,7 @@ export async function PeoplePage({
   };
 
   return (
-    <div className="kit-enter screen on">
+    <PageRoot>
       <div>
         {/* Template user list: the primary "Add" action sits on the breadcrumbs row. */}
         <PageHeader
@@ -107,7 +108,7 @@ export async function PeoplePage({
         )}
       </TabPanel>
       </UrlSuspense>
-    </div>
+    </PageRoot>
   );
 }
 

@@ -1,4 +1,5 @@
 import Box from "@mui/material/Box";
+import { PageRoot } from "@/components/app/page-root";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import { TableSkeleton } from "@/components/app/skeletons";
@@ -131,7 +132,7 @@ export async function CareCoverageBoard({
   const clearAllHref = scope.parkId || pens.length > 0 ? allParksHref : null;
 
   return (
-    <Box className="screen on">
+    <PageRoot>
       <PageHead pageContract={pageContract} />
       <Card>
         <CardHeader pageContract={pageContract} />
@@ -212,6 +213,6 @@ export async function CareCoverageBoard({
         )}
         </UrlSuspense>
       </Card>
-    </Box>
+    </PageRoot>
   );
 }

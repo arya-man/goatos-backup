@@ -59,38 +59,21 @@ const FIELD_H = 54;
 const wobble = (i: number, base = 44, span = 36) => `${base + ((i * 37) % span)}%`;
 
 /**
- * The page root while loading: the SAME root the page renders (`.screen.on` by default — the 24px
- * block rhythm of the page column), busy for assistive tech. `root` is the page root's own class list
- * when it is not `screen on` (weights-page, vplan, wb, pagegrid …); `gap` mirrors a root that sets its
- * own gap. `root="page-root"` twins the template `PageRoot` (sx grid, no legacy class).
+ * The page root while loading: the SAME root the page renders, busy for assistive tech. The default
+ * `root="page-root"` twins the template `PageRoot` (components/app/page-root.tsx: sx grid, 24px block
+ * rhythm, `data-page-root`, no legacy class; guard page-root-sx). `root=""` is a plain block for a
+ * page whose root is a bare Box; `gap` mirrors a root that sets its own gap.
  */
-export function PageSkeleton({ children, root = "screen on", className, gap }: { children: ReactNode; root?: string; className?: string; gap?: number }) {
-  // `root="page-root"`: the twin of `PageRoot` (components/app/page-root.tsx): the same sx grid and
-  // `data-page-root` hook, no legacy class (guard page-root-sx).
+export function PageSkeleton({ children, root = "page-root", gap }: { children: ReactNode; root?: "page-root" | ""; gap?: number }) {
   if (root === "page-root") {
     return (
-      <Box data-page-root="" aria-busy="true" data-skel-root="" className={className} sx={gap != null ? { ...PAGE_ROOT_SX, gap } : PAGE_ROOT_SX}>
+      <Box data-page-root="" aria-busy="true" data-skel-root="" sx={gap != null ? { ...PAGE_ROOT_SX, gap } : PAGE_ROOT_SX}>
         {children}
       </Box>
     );
   }
-  // The frame.css page gap (`.wrap > .screen` grid, 24px) reaches this root in loading.tsx; the shell's
-  // click-time pending skeleton restates it on its wrapper (mesha-shell PENDING_ROOT_SX, guard
-  // pending-skeleton-root-gap), so no root needs a gap of its own here.
-  // `.screen.on { display: block }` (mesha-theme.css, two classes) beats a one-class emotion
-  // `display: grid`, which silently dropped the gap (the SOP filter card butted against the KPI row).
-  // A `.screen` root therefore carries the gap on an inner column, as the pages do
-  // (`div.screen.on > Box flex column gap 3`).
-  const screen = root.split(/\s+/).includes("screen");
-  if (gap != null && screen) {
-    return (
-      <Box className={[root, className].filter(Boolean).join(" ")} aria-busy="true" data-skel-root="">
-        <Box sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap }}>{children}</Box>
-      </Box>
-    );
-  }
   return (
-    <Box className={[root, className].filter(Boolean).join(" ")} aria-busy="true" data-skel-root="" sx={gap != null ? { display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap } : undefined}>
+    <Box aria-busy="true" data-skel-root="" sx={gap != null ? { display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap } : undefined}>
       {children}
     </Box>
   );

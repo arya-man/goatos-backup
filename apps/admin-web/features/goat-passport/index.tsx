@@ -1,4 +1,5 @@
 import Table from "@mui/material/Table";
+import { PageRoot } from "@/components/app/page-root";
 import { DividedStack } from "@/components/app/divided-stack";
 import type { ReactNode } from "react";
 import { UrlSuspense } from "@/components/app/url-suspense";
@@ -182,13 +183,13 @@ export async function GoatPassportPage({
 
   if (!result.ok) {
     return (
-      <Box className="screen on">
+      <PageRoot>
         <PageHeader title={pageContract.title || copy(pageContract, "fallback.title")} crumbs={[{ label: copy(pageContract, "fallback.title") }]} />
         <Alert severity="error">
           <b>{result.error.code}</b>
           <Box sx={{ mt: 0.5, typography: "body2" }}>{result.error.message}</Box>
         </Alert>
-      </Box>
+      </PageRoot>
     );
   }
 
@@ -455,7 +456,7 @@ export async function GoatPassportPage({
   );
 
   return (
-    <Box className="screen on">
+    <PageRoot>
       <PageHeader
         title={goat.display_id}
         crumbs={[{ label: copy(pageContract, "fallback.title") }, { label: goat.display_id }]}
@@ -493,7 +494,7 @@ export async function GoatPassportPage({
         </Stack>
       )}
       </UrlSuspense>
-    </Box>
+    </PageRoot>
   );
 }
 

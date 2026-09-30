@@ -42,7 +42,7 @@ export function SopLibrarySkeleton({ titleWidth = 180, actionWidths = SOP_HEADER
 /** `?compose=1` / `?edit=`: the full-page builder (header + section cards + the action bar). */
 export function SopEditorSkeleton() {
   return (
-    <PageSkeleton className="sop-kit">
+    <PageSkeleton>
       <PageHeaderSkeleton crumbLink={false} actions={2} />
       <StackSkeleton>
         <DetailCardSkeleton rows={4} columns={2} />
