@@ -1,6 +1,6 @@
 {
   "note": "Accepted design-system debt. Every entry is a KNOWN violation of .agents/skills/design-system/SKILL.md that a future change must not multiply. Shrink this list; never grow it to land a change. P0 checks (foreign-palette, theme-token-drift, google-fonts-link) can never be waived.",
-  "updated_at": "2026-09-30T05:48:09.154Z",
+  "updated_at": "2026-09-30T06:06:59.106Z",
   "waived": [
     "f2-literal|features/counts/counts-summary-cards.ts|fattening: [\"F2\", \"F2-Male\", \"F2-Female\", \"Fattening\", \"Fattening male\", \"Fattening female\"],",
     "f2-literal|lib/admin-ui-contract.ts|{ key: \"F2\", label: \"Fattening\", title: \"\", tone: \"\", enabled: true, disabled_reason: \"\" },",
@@ -8,7 +8,6 @@
     "legacy-table-paint|app/frame.css|.wrap tbody tr:hover>td",
     "legacy-table-paint|app/mesha-theme.css|.lt-page tr.is-selected td",
     "legacy-table-paint|app/mesha-theme.css|tbody tr:hover",
-    "legacy-table-paint|app/minimal-theme.css|.loadwise-table thead th",
     "legacy-table-paint|app/minimal-theme.css|.main tbody tr:hover>td",
     "legacy-table-paint|app/minimal-theme.css|.main tbody tr[data-selected=\"true\"]",
     "legacy-table-paint|app/minimal-theme.css|.main tr.on>td",
@@ -20,7 +19,6 @@
     "legacy-table-paint|app/minimal-theme.css|.tablewrap td:last-child",
     "legacy-table-paint|app/minimal-theme.css|.tablewrap th:first-child",
     "legacy-table-paint|app/minimal-theme.css|.tablewrap th:last-child",
-    "legacy-table-paint|app/minimal-theme.css|.tbl thead th",
     "legacy-table-paint|app/minimal-theme.css|.wrap .card>.tablewrap tbody tr:hover>td:first-child",
     "legacy-table-paint|app/minimal-theme.css|.wrap .card>.tablewrap tbody tr:hover>th:first-child",
     "legacy-table-paint|app/minimal-theme.css|.wrap .card>.twrap tbody tr:hover>td:first-child",
@@ -77,7 +75,6 @@
     "legacy-table-paint|app/frame.css|.wrap tbody tr:hover>td": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/mesha-theme.css|.lt-page tr.is-selected td": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/mesha-theme.css|tbody tr:hover": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
-    "legacy-table-paint|app/minimal-theme.css|.loadwise-table thead th": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/minimal-theme.css|.main tbody tr:hover>td": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/minimal-theme.css|.main tbody tr[data-selected=\"true\"]": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/minimal-theme.css|.main tr.on>td": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
@@ -89,7 +86,6 @@
     "legacy-table-paint|app/minimal-theme.css|.tablewrap td:last-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/minimal-theme.css|.tablewrap th:first-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/minimal-theme.css|.tablewrap th:last-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
-    "legacy-table-paint|app/minimal-theme.css|.tbl thead th": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/minimal-theme.css|.wrap .card>.tablewrap tbody tr:hover>td:first-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/minimal-theme.css|.wrap .card>.tablewrap tbody tr:hover>th:first-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/minimal-theme.css|.wrap .card>.twrap tbody tr:hover>td:first-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
@@ -119,40 +115,12 @@
       "allowed": 1,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: inline style={…} prop; use the theme sx. Shrink-only per file"
     },
-    "inline-style-prop|features/weighing/fcr-pens-table.tsx": {
-      "allowed": 4,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: inline style={…} prop; use the theme sx. Shrink-only per file"
-    },
-    "inline-style-prop|features/weighing/pens-table.tsx": {
-      "allowed": 2,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: inline style={…} prop; use the theme sx. Shrink-only per file"
-    },
-    "inline-style-prop|features/weighing/week-gain-table.tsx": {
-      "allowed": 2,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: inline style={…} prop; use the theme sx. Shrink-only per file"
-    },
     "legacy-class-use|components/mesha-shell.tsx": {
       "allowed": 5,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
     },
     "legacy-class-use|components/shell-skeleton.tsx": {
       "allowed": 4,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
-    },
-    "legacy-class-use|features/weighing/fcr-pens-table.tsx": {
-      "allowed": 10,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
-    },
-    "legacy-class-use|features/weighing/feed-weight-band-table.tsx": {
-      "allowed": 34,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
-    },
-    "legacy-class-use|features/weighing/pens-table.tsx": {
-      "allowed": 5,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
-    },
-    "legacy-class-use|features/weighing/week-gain-table.tsx": {
-      "allowed": 2,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
     },
     "legacy-css-rules|app/frame.css": {
@@ -164,11 +132,11 @@
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a style rule in a legacy stylesheet or CSS module; style through template components + theme sx. Rule count per stylesheet is shrink-only, a new stylesheet has 0"
     },
     "legacy-css-rules|app/mesha-theme.css": {
-      "allowed": 365,
+      "allowed": 326,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a style rule in a legacy stylesheet or CSS module; style through template components + theme sx. Rule count per stylesheet is shrink-only, a new stylesheet has 0"
     },
     "legacy-css-rules|app/minimal-theme.css": {
-      "allowed": 119,
+      "allowed": 118,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a style rule in a legacy stylesheet or CSS module; style through template components + theme sx. Rule count per stylesheet is shrink-only, a new stylesheet has 0"
     },
     "legacy-css-rules|app/minimal-tokens.css": {
@@ -489,10 +457,6 @@
     },
     "raw-px|features/verification-review/verification-review-page.tsx": {
       "allowed": 2,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
-    },
-    "raw-px|features/weighing/fcr-pens-table.tsx": {
-      "allowed": 1,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
     },
     "raw-px|features/work-board/work-board-modal.tsx": {

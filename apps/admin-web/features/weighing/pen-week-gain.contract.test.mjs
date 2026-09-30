@@ -47,7 +47,7 @@ test("the table composes no copy of its own", () => {
 });
 
 test("a week without a second weigh renders the blank marker, never zero", () => {
-  assert.match(pivotSource, /<span className="muted">\{labels\.blank\}<\/span>/, "absence renders the backend's blank marker");
+  assert.match(pivotSource, /<Box component="span" sx=\{\{ color: "text\.secondary" \}\}>\{labels\.blank\}<\/Box>/, "absence renders the backend's blank marker");
   assert.doesNotMatch(pivotSource, /\?\? 0\b/, "a missing gain must never be coerced to 0");
   assert.doesNotMatch(tableSource, /\?\? 0\b/, "a missing gain must never be coerced to 0");
   assert.match(pivotSource, /\[\.\.\.new Set\(cells\.map\(\(cell\) => cell\.weekStart\)\)\]\.sort\(\)/, "week columns are the served weeks, ascending");

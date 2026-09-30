@@ -196,8 +196,8 @@ export const overlayJourneys = {
   "weighing-analytics-weight": [
     {
       id: "weight-band-exits-drawer",
-      // features/weighing/feed-weight-band-card.tsx: a.wt-feedband-tile-link href="#fb_exit=all"; feed-weight-band-table.tsx a.wt-feedband-gone
-      trigger: 'a.wt-feedband-tile-link[href*="fb_exit="], a.wt-feedband-gone[href*="fb_exit="]',
+      // features/weighing/feed-weight-band-card.tsx: KpiWidget link href="#fb_exit=all"; feed-weight-band-table.tsx exit note Link[data-feedband-exit]
+      trigger: 'a[href*="fb_exit="]',
       ...DETAIL_DRAWER,
       kind: "drawer",
       source: "features/weighing/feed-weight-band-card.tsx, feed-weight-band-table.tsx, feed-weight-band-exits-drawer.tsx",

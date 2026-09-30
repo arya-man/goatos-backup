@@ -1,6 +1,7 @@
 "use client";
 
 import { fmtDate } from "@/lib/format";
+import Box from "@mui/material/Box";
 import { DataTable, columnsFromContract } from "@/components/data-table";
 import { Tag } from "@/components/ui-primitives";
 import type { AdminUiTableContract } from "@/lib/admin-ui-contract";
@@ -55,12 +56,12 @@ export function PensTable({
 }) {
   const columns = columnsFromContract<PensTableRow>(contract, {
     park: { cell: (row) => row.park },
-    shed: { cell: (row) => <b style={{ fontWeight: 600, color: "var(--fg, inherit)" }}>{row.pen}</b> },
+    shed: { cell: (row) => <Box component="b" sx={{ fontWeight: 600, color: "text.primary" }}>{row.pen}</Box> },
     // A pen holding more than one breed reads "Mixed breeds" (backend copy) and is never split
     // across them: one pen average cannot be divided between two cohorts.
     breed: {
       cell: (row) =>
-        row.breed == null ? <span className="muted">{labels.noData}</span> : <span>{row.breed}</span>,
+        row.breed == null ? <Box component="span" sx={{ color: "text.secondary" }}>{labels.noData}</Box> : <span>{row.breed}</span>,
       sortValue: (row) => row.breed ?? undefined,
     },
     weighing: {
@@ -72,29 +73,29 @@ export function PensTable({
     },
     animals_weighed: {
       cell: (row) => row.animals.toLocaleString("en-IN"),
-      meta: { cellClassName: "num" },
+      meta: { align: "right" },
       sortValue: (row) => row.animals,
     },
     average_weight: {
       cell: (row) => (
-        <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
-          {kg(row.averageKg)} <span className="muted">kg</span>
-        </span>
+        <Box component="span" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
+          {kg(row.averageKg)} <Box component="span" sx={{ color: "text.secondary" }}>kg</Box>
+        </Box>
       ),
-      meta: { cellClassName: "num" },
+      meta: { align: "right" },
       sortValue: (row) => row.averageKg,
     },
     daily_gain: {
       cell: (row) =>
         row.gainGPerDay == null ? (
-          <span className="muted">{labels.noData}</span>
+          <Box component="span" sx={{ color: "text.secondary" }}>{labels.noData}</Box>
         ) : (
           <Tag tone={row.gainGPerDay < 0 ? "dng" : row.gainGPerDay === 0 ? "mut" : "ok"}>
             {row.gainGPerDay > 0 ? "+" : ""}
             {Math.round(row.gainGPerDay).toLocaleString("en-IN")} g
           </Tag>
         ),
-      meta: { cellClassName: "num" },
+      meta: { align: "right" },
       // A pen with no gain sorts below every measured one in either direction (the table's
       // sortUndefined: "last"): it is absent, not slow, and must never sit between a 30 g and
       // a 40 g pen as if it were 0.
@@ -102,21 +103,20 @@ export function PensTable({
     },
     total_weight: {
       cell: (row) => `${kg(row.totalKg, 0)} kg`,
-      meta: { cellClassName: "num" },
+      meta: { align: "right" },
       sortValue: (row) => row.totalKg,
     },
     last_weighed: {
       // fmtDate on the CELL only: sortValue below keeps the raw ISO string, which sorts
       // correctly as text where "08/09/2026" would not.
-      cell: (row) => (row.lastWeighed ? fmtDate(row.lastWeighed) : <span className="muted">{labels.neverWeighed}</span>),
-      meta: { cellClassName: "num" },
+      cell: (row) => (row.lastWeighed ? fmtDate(row.lastWeighed) : <Box component="span" sx={{ color: "text.secondary" }}>{labels.neverWeighed}</Box>),
+      meta: { align: "right" },
       sortValue: (row) => row.lastWeighed ?? undefined,
     },
   });
 
   return (
     <DataTable<PensTableRow>
-      className="tbl"
       columns={columns}
       data={rows}
       getRowId={(row) => row.key}
