@@ -9,14 +9,12 @@
 .wrap{box-sizing:border-box;width:100%;max-width:var(--page-max);margin:0 auto;padding:var(--page-pt) var(--page-px-xs) var(--page-pb)}
 @media(min-width:600px){.wrap{padding-left:var(--page-px-sm);padding-right:var(--page-px-sm)}}
 @media(min-width:1200px){.wrap{padding-left:var(--page-px-lg);padding-right:var(--page-px-lg)}}
-.wrap>.screen,.wrap>.kit-page,.wrap>.kit-enter,.wrap>.pagegrid,.wrap>.herd-signals-page,.wrap>.lt-page,.kit-page,.kit-enter{display:grid;gap:24px;min-width:0;align-content:start}
-.wrap>.screen>*,.kit-page>*,.kit-enter>*,.wrap>.pagegrid>*,.wrap>.herd-signals-page>*,.wrap>.lt-page>*{margin-top:0;margin-bottom:0;min-width:0}
+.wrap>.screen,.wrap>.kit-page,.wrap>.kit-enter,.wrap>.herd-signals-page,.wrap>.lt-page,.kit-page,.kit-enter{display:grid;gap:24px;min-width:0;align-content:start}
+.wrap>.screen>*,.kit-page>*,.kit-enter>*,.wrap>.herd-signals-page>*,.wrap>.lt-page>*{margin-top:0;margin-bottom:0;min-width:0}
 /* legacy spacer divs / empty fragments must not consume a rhythm slot */
 .wrap>.screen>:empty:not(.MuiSkeleton-root):not(i):not(hr){display:none}
 
 /* Description prose is deleted at its call sites, never hidden by CSS (a blanket display:none also killed real empty states). */
-.kit-pagehead{align-items:flex-start;gap:16px 24px}
-.kit-pagehead h1{font-size:24px;line-height:36px;font-weight:700}
 
 /* ---- Card ---- */
 .card{border-radius:16px;background:var(--paper);box-shadow:var(--shadow-card);border:0;min-width:0}
@@ -30,7 +28,7 @@
 .card>.hd .sp{flex:1}
 @media(max-width:640px){.card>.bd{padding:20px}.card>.hd{padding:16px 20px 0}}
 @media(max-width:640px){
-  .card,.kpi,.chartcard{border-radius:16px}
+  .card,.kpi{border-radius:16px}
   .card>.bd{padding:16px}
   .card>.hd{padding:16px 16px 0}
   .card>.hd h3,.card>.hd h2{font-size:17px;line-height:24px}
@@ -39,7 +37,7 @@
 .card>.bd+.bd{border-top:1px solid var(--line)}
 
 /* Legacy KPI tiles and hint strips inherit the card radius */
-.kpi,.chartcard{border-radius:16px}
+.kpi{border-radius:16px}
 .note,.hint{border-radius:12px}
 
 /* ---- TableCard ---- */
@@ -70,13 +68,8 @@
 .kit-scroll-fade{transition:opacity 200ms cubic-bezier(.4,0,.2,1)}
 /* Sticky first column inside table cards, so the row's identity stays while the rest scrolls. */
 @media(min-width:768px){
-  .card>.tablewrap th:first-child,.card>.tablewrap td:first-child,
-  .card>.twrap th:first-child,.card>.twrap td:first-child,
-  .kit-tablecard .tablewrap th:first-child,.kit-tablecard .tablewrap td:first-child,
-  .herd-signals-page .tblwrap th:first-child,.herd-signals-page .tblwrap td:first-child,
-  .feed-scroll th:first-child,.feed-scroll td:first-child,.health-scroll th:first-child,.health-scroll td:first-child,
-  [data-scroll-x] th:first-child,[data-scroll-x] td:first-child{position:sticky;left:0;z-index:2}
-  [data-scroll-x] tbody :is(th,td):first-child{background:var(--paper)} .card>.tablewrap th:not(.MuiTableCell-root):first-child,.card>.twrap th:not(.MuiTableCell-root):first-child,.kit-tablecard .tablewrap th:not(.MuiTableCell-root):first-child,.herd-signals-page .tblwrap th:not(.MuiTableCell-root):first-child,.feed-scroll th:not(.MuiTableCell-root):first-child,.health-scroll th:not(.MuiTableCell-root):first-child,[data-scroll-x] th:not(.MuiTableCell-root):first-child{z-index:3;background:var(--paper-2)}
+  .card>.tablewrap th:first-child,.card>.tablewrap td:first-child,.card>.twrap th:first-child,.card>.twrap td:first-child,.kit-tablecard .tablewrap th:first-child,.kit-tablecard .tablewrap td:first-child,.herd-signals-page .tblwrap th:first-child,.herd-signals-page .tblwrap td:first-child,.health-scroll th:first-child,.health-scroll td:first-child,[data-scroll-x] th:first-child,[data-scroll-x] td:first-child{position:sticky;left:0;z-index:2}
+  [data-scroll-x] tbody :is(th,td):first-child{background:var(--paper)} .card>.tablewrap th:not(.MuiTableCell-root):first-child,.card>.twrap th:not(.MuiTableCell-root):first-child,.kit-tablecard .tablewrap th:not(.MuiTableCell-root):first-child,.herd-signals-page .tblwrap th:not(.MuiTableCell-root):first-child,.health-scroll th:not(.MuiTableCell-root):first-child,[data-scroll-x] th:not(.MuiTableCell-root):first-child{z-index:3;background:var(--paper-2)}
   :is(.card>.tablewrap,.card>.twrap,.kit-tablecard .tablewrap,.herd-signals-page .tblwrap) tbody tr:hover>td:not(.MuiTableCell-root):first-child{background:color-mix(in srgb,var(--fg) 4%,var(--paper))}
 }
 
@@ -84,17 +77,6 @@
    These are late-cascade corrections for the routes still visible in the shell.
    The target is Minimal Dashboard density with Mesha tokens, not the older tall
    field/card rhythm. Deprecated surfaces stay out of this sweep. */
-@media(max-width:640px){
-
-  /* Counts: KPI tiles should scan like compact dashboard stats, with the table/farm section sooner. */
-  .ha-kit-stack .kpi{min-height:104px!important;padding:14px!important;border-radius:16px!important}
-  .ha-kit-stack .kpi .lab{font-size:12px!important;line-height:16px!important;color:var(--fg-muted)!important;font-weight:700!important}
-  .ha-kit-stack .kpi .val{font-size:min(clamp(24px,7vw,32px),16.5cqi)!important;line-height:1.05!important;margin-top:6px!important}
-  .ha-kit-stack .kpi .dl{font-size:11.5px!important;line-height:16px!important;color:var(--fg-muted)!important;margin-top:6px!important}
-
-  /* Feed packing: chips are data tags, not big secondary buttons. */
-
-}
 
 /* ---- Drawer / Sheet ---- */
 
@@ -118,8 +100,8 @@
 .metagrid div{padding:12px 16px}
 /* Type floor: nothing the reader must read renders under 11px (judge M2 round 4 #10). Class list =
    every sub-11px text node found on work-board/calendar/vaccination/verify/weights/dlq/workflows at 390. */
-.wrap small,.wrap .small,.wrap .pill,.wrap .ti,.wrap .mode,.wrap .date-scope-label,.wrap .top-date-weekday,.wrap .cbq,.wrap .wfsub,.wrap .here,.wrap .nxt,.wrap .tag,.wrap .faint,.wrap .col .n{font-size:max(11px,1em)}
-.wrap small,.wrap .small,.wrap .pill,.wrap .ti,.wrap .mode,.wrap .date-scope-label,.wrap .top-date-weekday,.wrap .cbq,.wrap .wfsub,.wrap .here,.wrap .nxt,.wrap .tag,.wrap .faint,.wrap .col .n{font-size:11px}
+.wrap small,.wrap .small,.wrap .pill,.wrap .mode,.wrap .date-scope-label,.wrap .top-date-weekday,.wrap .cbq,.wrap .here,.wrap .tag,.wrap .faint,.wrap .col .n{font-size:max(11px,1em)}
+.wrap small,.wrap .small,.wrap .pill,.wrap .mode,.wrap .date-scope-label,.wrap .top-date-weekday,.wrap .cbq,.wrap .here,.wrap .tag,.wrap .faint,.wrap .col .n{font-size:11px}
 .wrap .small,.wrap small{font-size:12px}
 .wrap .subtabs .cbq{font-size:11px}
 /* Window chip: the trigger grows to its own text ("01/08/2026 to 19/09/2026") instead of ellipsising it. */
@@ -131,12 +113,6 @@
 .kit-field-date .date-scope-value{overflow:visible;text-overflow:clip;white-space:nowrap}
 @media(max-width:640px){.kit-field-date{width:100%}.top-date-picker .date-scope-value{max-width:none;overflow:visible}}
 /* Phone overflow fixes (route integrity, 390): card-head actions scroll or wrap instead of pushing past the edge. */
-@media(max-width:640px){
-  /* ...and the same for a pill strip in a card BODY, which the rule above never reached: the Leave
-     page's All/Waiting/Approved/Rejected strip sat flush against the card edge with "Rejected" cut
-     off and nothing to say the strip continued. A thumb can pan it now, which is what the phone
-     rule allows a too-wide control to do; the tabs keep their own width so none of them squeezes. */
-}
 .wrap:has(.lt-page){overflow-x:visible}
 .main .card .hd h3,.main .card .hd h2,.card>.hd{min-width:0;flex:0 1 auto;white-space:normal;overflow-wrap:anywhere}
 .card>.hd{flex-wrap:wrap}
@@ -151,16 +127,15 @@
    ≥44px. `:root .main` carries enough specificity to beat the legacy per-page 40px rules without !important. */
 @media(pointer:coarse),(max-width:640px){
   :root .main .top-date-picker .top-date-grid .top-date-day,:root .top .top-date-grid .top-date-day{min-height:44px;height:44px;min-width:44px;aspect-ratio:auto}
-  :root .main .top-date-picker .top-date-head .top-date-arrow,:root .main .top-date-picker .top-date-modes .top-date-mode,:root .main .top-date-picker .top-date-footer button,:root .main .top-date-picker .pscope{min-height:44px;min-width:44px}
+  :root .main .top-date-picker .top-date-head .top-date-arrow,:root .main .top-date-picker .top-date-footer button,:root .main .top-date-picker .pscope{min-height:44px;min-width:44px}
   :root .main .top-date-picker .top-date-grid{gap:2px}
   :root .main .metricseg a,:root .main .metricseg button,:root .main .subtabs a,:root .main .subtabs button{min-height:44px;display:inline-flex;align-items:center}
-  :root .main .lt-fsearch input,:root .main .tsearch input{min-height:44px}
   :root .main .btn{min-height:44px}
   :root .main .iconbtn.kit-row-edit{width:44px;height:44px}
   /* Generic floor for every interactive control inside the page (buttons, inputs, summaries, chips, pager
      and calendar links). Inline text links keep their flow; these are all block/flex controls. */
-  :root .main button:not(.kit-check input),:root .main input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),:root .main select,:root .main textarea,:root .main summary,:root .main .chip,:root .main .pgbtn,:root .main .parkpick a,:root .main .datenav a,:root .main .move-date-button,:root .main a.more,:root .main .wt-feedband-gone,:root .main .lt-intervalpick button,:root .main .vaccination-schedule-legend a{min-height:44px}
-  :root .main summary,:root .main .chip,:root .main .pgbtn,:root .main .parkpick a,:root .main .datenav a,:root .main a.more,:root .main .wt-feedband-gone,:root .main .vaccination-schedule-legend a{display:inline-flex;align-items:center;justify-content:center;min-width:44px;box-sizing:border-box}
+  :root .main button:not(.kit-check input),:root .main input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),:root .main select,:root .main textarea,:root .main summary,:root .main .chip,:root .main .pgbtn,:root .main .move-date-button,:root .main a.more,:root .main .wt-feedband-gone,:root .main .vaccination-schedule-legend a{min-height:44px}
+  :root .main summary,:root .main .chip,:root .main .pgbtn,:root .main a.more,:root .main .wt-feedband-gone,:root .main .vaccination-schedule-legend a{display:inline-flex;align-items:center;justify-content:center;min-width:44px;box-sizing:border-box}
   :root .main .move-date-popover,:root .main .top-date-popover{width:min(100vw - 16px,360px);max-width:calc(100vw - 16px);left:0;right:auto;padding:12px}
   :root .main .top-date-grid{gap:1px}
   
@@ -227,7 +202,7 @@ details.top-date-picker:not([open])>.top-date-popover,details.move-date-picker:n
 .shell-skeleton .wrap>*,.wrap>[aria-busy="true"],.wrap>[aria-busy="true"]>*,.wrap>.kit-page[aria-busy="true"]>*{animation:none;opacity:1;transform:none}
 
 /* legacy scrollers scroll like kit ones */
-.feed-scroll,.health-scroll,[data-scroll-x]{overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin;min-width:0;max-width:100%}
+.health-scroll,[data-scroll-x]{overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin;min-width:0;max-width:100%}
 /* segmented link strips share the pending line */
 .metricseg-pending{position:relative}
 .metricseg-pending::after{content:"";position:absolute;left:6px;right:6px;bottom:0;height:2px;border-radius:2px;background:linear-gradient(90deg,transparent,var(--primary),transparent);background-size:40% 100%;background-repeat:no-repeat;animation:kit-tabs-progress 900ms linear infinite;pointer-events:none}
@@ -268,10 +243,6 @@ details.top-date-picker:not([open])>.top-date-popover,details.move-date-picker:n
 /* routine drawer: kit checkbox list rows */
 
 /* Native time input on the kit field anatomy. */
-.wb-dialog .sec{margin-top:24px;padding-top:24px;border-top:1px solid var(--line)}
-.wb-dialog .sec h4{font-family:var(--font-display);font-size:16px;line-height:24px;font-weight:700;margin:0 0 12px}
-.wb-dialog .l{font-size:12px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--fg-muted)}
-.wb-dialog .v{font-size:14px;font-weight:600}
 
 /* ---- Feed Packing: reduce nested operational panels to the shared card language ---- */
 
@@ -335,7 +306,6 @@ details.top-date-picker:not([open])>.top-date-popover,details.move-date-picker:n
 
 /* Audit Log toolbar: search and "Anomalies only" share one row, the status tabs take the row
    under them (they were three stacked rows with a lone button floating right). */
-.audit-toolbar>.tsearch{grid-column:1;grid-row:1;max-width:none!important;height:40px}
 .audit-toolbar>.sp{display:none}
 .audit-toolbar>.btn{grid-column:3;grid-row:1;height:40px}
 .audit-toolbar>:not(.tsearch):not(.sp):not(.btn){grid-column:1 / -1;grid-row:2;min-width:0}
@@ -354,9 +324,6 @@ details.top-date-picker:not([open])>.top-date-popover,details.move-date-picker:n
 /* Work board park picker, phone: the generic touch floor lifts `.parkpick a` to 44px, but the
    Minimal `.wb .parkpick{height:40px}` kept the box shorter than its links, so the 50px row sat
    inside a 42px clipped box and swallowed the scroll gesture. Let the box grow with its links. */
-@media(max-width:767px){
-  .wb .parkpick{height:auto!important;min-height:44px}
-}
 
 /* Sales KPI widgets (MUI widget ~186px). The sparkline gets its own fixed 40px slot under the figure
    so every card in the row is the same height whether its series has drawn yet or not, and the hint

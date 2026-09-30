@@ -53,7 +53,6 @@
   }
   /* .kit-scheme-light: a light surface inside the dark shell (the template's AnalyticsWidgetSummary
      stays pastel in both modes) reads the same light tokens. */
-  .kit-scheme-light,
   :root.light{
     /* Template neutrals, light scheme (Ravi 2026-09-27). */
     --bg:#FFFFFF; --bg-subtle:#F9FAFB; --paper:#FFFFFF; --paper-2:#F4F6F8;
@@ -89,7 +88,7 @@
        from slot 2. Slot 2 sits under 3:1 on white, which every bar's printed figure relieves. */
     --chart-1:#2B66B8; --chart-2:#7BC13F; --chart-3:#B83232; --chart-4:#B5791A;
   }
-  h1,h2,h3,h4,.kit-pagehead h1,.kpi-value{font-family:var(--font-display);letter-spacing:0}
+  h1,h2,h3,h4,.kpi-value{font-family:var(--font-display);letter-spacing:0}
   h1,h2,h3,h4{font-weight:700}
   *{box-sizing:border-box}
   html{max-width:100%;overflow-x:hidden}
@@ -115,7 +114,7 @@
   html.route-busy,html.route-busy body{cursor:progress}
   a[data-route-pending="true"]{position:relative;isolation:isolate;cursor:progress}
   a[data-route-pending="true"]::after{content:"";position:absolute;inset:2px;border-radius:inherit;pointer-events:none;background:linear-gradient(100deg,transparent,color-mix(in srgb,var(--brand) 24%,transparent),transparent);opacity:.85;animation:route-pending-sheen .9s ease-in-out infinite;z-index:-1}
-  a.nav[data-route-pending="true"],a.leaf[data-route-pending="true"],a.chip[data-route-pending="true"],a.btn[data-route-pending="true"],a.celllink[data-route-pending="true"],a.pexr[data-route-pending="true"]{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--brand) 72%,var(--line)),0 0 0 3px var(--brand-soft)}
+  a.nav[data-route-pending="true"],a.chip[data-route-pending="true"],a.btn[data-route-pending="true"],a.celllink[data-route-pending="true"],a.pexr[data-route-pending="true"]{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--brand) 72%,var(--line)),0 0 0 3px var(--brand-soft)}
   @keyframes route-pending-sheen{0%,100%{opacity:.38;transform:scaleX(.94)}50%{opacity:.9;transform:scaleX(1)}}
   /* Filter-bar busy ring. A filter apply is a same-PATH query change, which .routebar above
      deliberately ignores (see the click handler in mesha-shell) — so until this existed, applying a
@@ -136,12 +135,6 @@
        contrast rather than by motion. */
     .wfspin{animation:none}
   }
-  .parkpick{display:flex;align-items:center;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:3px;flex:none}
-  .parkpick button,.parkpick a{border:0;background:transparent;padding:6px 12px;border-radius:7px;font:inherit;font-weight:600;color:var(--muted);cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;white-space:nowrap;flex:0 0 auto}
-  .parkpick button.on,.parkpick a.on{background:var(--panel);color:var(--brand-d);box-shadow:var(--shadow)}
-  .parkpick a[aria-disabled="true"]{opacity:.45;cursor:not-allowed;pointer-events:none}
-  .parkpick button:disabled{opacity:.55;cursor:not-allowed}
-  .parkpick button:disabled.on{opacity:.75}
   .pm-hint{font-size:11px;color:var(--faint);padding:8px 10px 3px;border-top:1px solid var(--line2);margin-top:5px}
   /* in-screen park filter */
   .pscope{display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:6px 10px;font-weight:600;font-size:12.5px;color:var(--ink);cursor:pointer;white-space:nowrap;flex:none}
@@ -191,8 +184,6 @@
   /* This page's tab strip is its primary navigation -- five verticals of the feed day -- so it
      carries more weight than the inline metric toggles `.metricseg` was sized for elsewhere.
      Scoped to this row so the Weights and Counts strips keep their own density. */
-
-  .wt-tabbar .metricseg a{white-space:nowrap;overflow:visible;text-overflow:clip;flex:0 0 auto;width:max-content}
   /* Ten columns since breed and age group joined: at the default 12px each side the row needed
      more width than a laptop viewport gives, so Difference -- the column the reader came for --
      fell off the right edge behind a horizontal scroll. Tighter gutters fit the row instead of
@@ -204,42 +195,27 @@
 
   /* Interior days of a selected span. Deliberately weaker than .on so the two ENDS stay the thing
      the eye lands on — those are the dates the verifier actually chose. */
-  .top-date-day.in-range{border-color:transparent;background:color-mix(in srgb,var(--brand) 14%,transparent);color:var(--brand-d);border-radius:4px}
   .top-date-day:disabled{opacity:.32;cursor:not-allowed}
   .top-date-day:disabled:hover{border-color:transparent;background:transparent;color:var(--ink)}
   .top-date-hint{margin-right:auto;color:var(--muted);font-size:11px;font-weight:650}
-  .helpgrid{display:grid;grid-template-columns:auto 1fr;gap:1px;background:var(--line2);border:1px solid var(--line2);border-radius:10px;overflow:hidden;margin-top:4px}
-  .helpgrid>div{background:var(--panel);padding:8px 11px;font-size:12.5px}
   /* SOP rule-builder */
-  .helpgrid .hk{font-weight:700;white-space:nowrap}
   .charts{column-width:340px;column-gap:14px}
-  @media(max-width:1080px){.charts{grid-template-columns:1fr}}
-  .chartcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:13px 15px;box-shadow:var(--shadow);min-width:0;cursor:pointer}.charts>.chartcard,.charts>.card{break-inside:avoid;-webkit-column-break-inside:avoid;width:100%;margin:0 0 14px;display:inline-block;vertical-align:top}
-  .chartcard h4{margin:0 0 1px;font-size:13px}
-  .chartcard .cap{color:var(--muted);font-size:11.5px;margin-bottom:8px}
-  .chartcard h4,.chartcard .cap{overflow-wrap:anywhere}
+  @media(max-width:1080px){.charts{grid-template-columns:1fr}}.charts>.card{break-inside:avoid;-webkit-column-break-inside:avoid;width:100%;margin:0 0 14px;display:inline-block;vertical-align:top}
   /* Feed Items cards: the per-day money/quantity strip above each item's chart. */
 
   /* Feed Analytics > Consumption > Status-wise: one Feed Items-style card per status, no chart. */
-
-  .chartcard .lg{display:flex;gap:14px 18px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:8px}
-  .chartcard .lg span{display:inline-flex;align-items:center;gap:5px;min-width:0}
-  .chartcard svg{display:block}
   .fchipsbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 12px;padding:8px 11px;background:var(--panel);border:1px solid var(--line);border-radius:9px}
   .achip{display:inline-flex;gap:6px;align-items:center;background:var(--brand-soft);color:var(--brand-d);border-radius:7px;padding:3px 9px;font-size:11.5px;font-weight:600}
   .achip b{cursor:pointer;opacity:.65;font-weight:800}
   .achip b:hover{opacity:1}
   .achip.clr{background:transparent;color:var(--muted);cursor:pointer;border:1px dashed var(--line2)}
   .qgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px}
-  .qn{flex:none;min-width:30px;text-align:center;font-weight:740;font-size:12.5px}
   .subtabs button .cbq,.subtabs a .cbq{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:16px;padding:0 5px;margin-left:7px;border-radius:999px;background:var(--line2);color:var(--muted);font-size:10.5px;font-weight:800;vertical-align:middle}
   .subtabs button.on .cbq,.subtabs a.on .cbq{background:var(--brand-soft);color:var(--brand-d)}
   .subtabs a.disabled,.subtabs button.disabled,.subtabs button:disabled{opacity:.4;cursor:not-allowed;pointer-events:none}
   .wftoolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
   .htl{position:relative;padding-left:6px}
   .hrow{display:flex;align-items:flex-start;gap:11px;padding:9px 2px;border-bottom:1px solid var(--line2)}
-  .hdot{width:9px;height:9px;border-radius:50%;margin-top:4px;flex:none;background:var(--brand)}
-  .hdot.t-dng{background:var(--danger)}.hdot.t-warn{background:var(--amber)}.hdot.t-info{background:var(--info)}.hdot.t-mut{background:var(--faint)}
   .htx{flex:1;min-width:0}.htx b{font-size:12.5px;font-weight:650}
   .hmeta{color:var(--muted);font-size:11px;margin-top:2px}
   @media(max-width:820px){.qgrid{grid-template-columns:1fr}}
@@ -257,24 +233,11 @@
   .userpick{position:relative;flex:none}
   .userpick .me{color:var(--ink);font:inherit;min-width:0}
   .userpick .me:hover{border-color:var(--brand);color:var(--brand)}
-  .me .nm{font-weight:600;font-size:13px;line-height:1.15;white-space:nowrap}
   /* user / role-switcher menu — stack name over description, no cramped wrap */
   #userMenu{width:310px;z-index:140;background:#101812;box-shadow:0 18px 48px rgba(0,0,0,.62)}
   /* config rule editor */
   .lk{color:var(--info);cursor:pointer;font-weight:600}.lk:hover{text-decoration:underline}
-  .cfgmodal{position:fixed;z-index:121;top:50%;left:50%;transform:translate(-50%,-50%);width:min(920px,94vw);max-height:90vh;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);display:none}.cfgmodal.on{display:block}
   .wrap:has(.cfgpage-rule){max-width:1540px}
-  .cfgmodal .cmh{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line2);position:sticky;top:0;background:var(--panel);z-index:1}
-  .cfgmodal .cmb{padding:16px 18px;display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,360px);gap:18px;align-items:start}
-  .cfgmodal .cfgmatrix-head{position:static;border:1px solid var(--line2);border-radius:8px;margin-top:10px}
-  .cfgmodal .cfgsection-head{position:static;border-top:1px solid var(--line2);border-bottom:1px solid var(--line2)}
-  .cfgmodal .cfgimpact-head{border-bottom:1px solid var(--line2)}
-  .cfgtablewrap{min-width:0;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-gutter:stable}
-  @media(max-width:980px){.cfgmodal .cmb{grid-template-columns:1fr}}
-  .cfgform label{display:block;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0;margin:11px 0 4px}
-  .cfgform input,.cfgform select{width:100%;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:8px;padding:8px 10px;font:inherit;font-size:13px;outline:0}
-  .cfgform input:focus,.cfgform select:focus{border-color:var(--brand)}
-  .cfgform .rowf{display:flex;gap:8px}.cfgform .rowf>*{flex:1}
   .cfgchk{display:flex;flex-wrap:wrap;gap:7px;margin-top:4px}.cfgchk label{display:inline-flex;align-items:center;gap:6px;text-transform:none;font-weight:600;color:var(--ink);font-size:12px;margin:0;background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:6px 9px;cursor:pointer}
   .cfgpolicy-note{display:grid;gap:3px;margin-top:4px;padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--ink)}
   .cfgpolicy-note>span{font-size:10px;font-weight:800;text-transform:uppercase;color:var(--faint)}.cfgpolicy-note>b{font-size:13px;line-height:1.35;font-weight:650;color:var(--muted)}
@@ -282,7 +245,7 @@
   .cfgdate-popover{position:absolute;right:0;top:calc(100% + 8px);z-index:20;width:min(330px,88vw);padding:12px;background:var(--panel)}
   .cfgcalendar-head{display:flex;align-items:center;gap:10px;margin-bottom:9px}.cfgcalendar-head b{font-size:13px}.cfgcalendar-head input{width:142px;height:32px;margin-left:auto;font-size:12px}
   .cfgsafety-list{display:grid;gap:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg)}
-  @media(max-width:640px){.cfgform .rowf{flex-direction:column}.cfgchk label{flex:1 1 100%;max-width:100%;white-space:normal;line-height:1.25}.cfgdate-popover{left:0;right:auto;width:min(330px,92vw)}}
+  @media(max-width:640px){.cfgchk label{flex:1 1 100%;max-width:100%;white-space:normal;line-height:1.25}.cfgdate-popover{left:0;right:auto;width:min(330px,92vw)}}
   .cfgdsl-label{display:block;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0;margin-bottom:5px}
   .cfgmf{display:flex;gap:8px;align-items:center;padding:13px 18px;border-top:1px solid var(--line2);position:sticky;bottom:0;background:var(--panel);z-index:1}
   /* layout + sidebar */
@@ -300,15 +263,6 @@
   .nav .ic{width:17px;height:17px}
   .nav .ct{margin-left:auto;font-size:11px;font-weight:700;background:var(--danger);color:var(--danger-badge-ink);padding:1px 7px;border-radius:20px}
   /* Vertical group headers (Preventive Care / Procurement / Admin / Data Ops). */
-  .ggrp{display:flex;align-items:center;gap:11px;padding:9px 12px;margin-top:6px;border-radius:10px;cursor:pointer;color:var(--sidebar-ink);font-size:14px;font-weight:700;letter-spacing:0}
-  .ggrp:hover{background:var(--sidebar-2);color:var(--sidebar-ink2)}
-  .ggrp .ic{width:16px;height:16px;opacity:.85}
-  .leaf{display:flex;align-items:center;gap:9px;padding:7px 12px 7px 40px;border-radius:8px;cursor:pointer;color:var(--sidebar-ink);font-size:14px;font-weight:500;position:relative}
-  .leaf::before{content:"";position:absolute;left:23px;top:50%;width:5px;height:5px;border-radius:50%;background:currentColor;opacity:.32;transform:translateY(-50%)}
-  .leaf:hover{background:var(--sidebar-2);color:var(--sidebar-ink2)}
-  .leaf.on{background:linear-gradient(90deg,var(--brand-soft),transparent);color:var(--sidebar-ink2);font-weight:650;box-shadow:inset 2px 0 0 var(--brand)}
-  .leaf.on::before{background:var(--brand);opacity:1}
-  .parked .ggrp,.parked .leaf{opacity:.6}
   .grow{flex:1}
   /* main */
   .main{flex:1;min-width:0;min-height:0;overflow:auto}
@@ -362,7 +316,6 @@
   :root.light .btn.p[aria-disabled="true"],
   :root.light .btn.primary[aria-disabled="true"]{background:var(--panel);border-color:var(--line);color:var(--muted);opacity:.68}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow)}
-  .card.pad{padding:18px}
   .row{display:flex;align-items:center;flex-wrap:wrap}
   .gap{gap:10px}
   .mt{margin-top:14px}
@@ -383,30 +336,23 @@
     .brand b{font-size:15px}
     .search{order:3;flex:1 0 100%;max-width:none;padding:7px 10px}
     .userpick .me{max-width:148px}
-    .me .nm{overflow:hidden;text-overflow:ellipsis;max-width:92px}
     .iconbtn{width:36px;height:36px}
     .layout{display:block;min-height:0}
     .main{overflow:visible;width:100%;max-width:100%}
     .wrap{width:100%;max-width:100%;padding:14px 10px 48px}
-    .pagegrid,.grid,.card,.chartcard,.kpi{min-width:0;max-width:100%}
-    .card.pad{padding:14px}
+    .grid,.card,.kpi{min-width:0;max-width:100%}
     .card .hd{align-items:flex-start;flex-wrap:wrap;padding:12px 13px}
     .card .hd h3{white-space:normal;line-height:1.25}
     .card .hd > .small.muted{flex:1 1 100%}
     .card .bd{padding:12px 13px}
     .kpi{padding:12px 13px;border-radius:10px}
-    .kpi .val{font-size:22px;line-height:1.1;letter-spacing:0}
-    .kpi .lab,.kpi .dl,.kpi .muted.small{line-height:1.25}
+    .kpi .lab,.kpi .muted.small{line-height:1.25}
     .metricseg a{min-height:40px;display:inline-flex;align-items:center;padding:0 12px}
     .metricseg button{min-height:40px;display:inline-flex;align-items:center;padding:0 12px}
 
     .qgrid{grid-template-columns:1fr}
     .charts{column-width:auto;column-count:1}
-    .chartcard{padding:12px}
-
-    .chartcard svg{max-width:100%;height:auto}
-    .chartcard .lg{gap:8px 10px}
-    .main .feed-stock-tablewrap,.tablewrap,.twrap,.cfgtablewrap{
+    .tablewrap,.twrap{
       max-width:100%;
       overflow-x:auto;
       -webkit-overflow-scrolling:touch;
@@ -414,7 +360,6 @@
       touch-action:pan-x pan-y;
       scrollbar-gutter:stable
     }
-    .main .feed-stock-tablewrap{padding-right:0}
 
     .top-date-popover{right:auto;left:0;width:min(306px,calc(100vw - 24px))}
   }
@@ -504,18 +449,11 @@
   /* Sidebar+main two-column layout (e.g. Audit: span-of-control rail + activity trail). Fixed rail on
      desktop, STACKS on narrow so the wide table never gets pushed offscreen (an inline 288px/1fr style
      would override the responsive stack — use this class instead). */
-  .gridside{display:grid;gap:14px;grid-template-columns:288px 1fr;align-items:start}
-  @media(max-width:1080px){.gridside{grid-template-columns:1fr}}
   .kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:15px 16px;box-shadow:var(--shadow);position:relative;overflow:hidden}
   .kpi .lab{color:var(--muted);font-size:12px;font-weight:600;display:flex;align-items:center;gap:7px}
-  .kpi .val{font-size:26px;font-weight:740;letter-spacing:-.6px;margin-top:7px}
-  .kpi .val small{font-size:13px;color:var(--faint);font-weight:600}
-  .kpi .dl{margin-top:4px;font-size:12px;font-weight:650;color:color-mix(in srgb,var(--muted) 64%,var(--ink))}
   .people-availability-list{display:grid;gap:1px;background:var(--line2);border:1px solid var(--line2);border-radius:10px;overflow:hidden}
   .up{color:var(--ok)}.down{color:var(--danger)}
-  .acc{position:absolute;left:0;top:0;bottom:0;width:4px}
   /* Accordion/collapsible cards (vaccination plan rows) */
-  .pv{flex:1;min-width:0}.pv .nm{font-weight:600;font-size:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}.pv .sent{color:var(--muted);font-size:13px;margin-top:3px}
   .dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex:none}.dot.l{background:var(--warn)}.dot.k{background:var(--info)}
   /* everything clickable */
   .shed,.fitem{cursor:pointer}
@@ -523,33 +461,21 @@
   tbody tr{cursor:pointer}
   /* reusable table toolbar + pagination (auto-applied to every data table) */
   .tbar{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--line2);flex-wrap:wrap}
-  .tsearch{display:flex;align-items:center;gap:7px;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:6px 10px;color:var(--muted);min-width:200px;flex:1;max-width:300px}
-  .tsearch input{border:0;background:transparent;outline:0;font:inherit;color:var(--ink);width:100%}
   /* max-width: a native <select> sizes itself to its WIDEST OPTION, so one long
      option (e.g. "Mandela 2 - Part 10 . Coimbatore" once partition + park
      disambiguation landed) stretched the Shed control to 436px and wrapped the
      whole filter bar onto a second row. Option text must never drive layout. */
-  .tsize{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:6px 8px;font:inherit;font-size:12.5px;color:var(--ink);max-width:200px;min-height:40px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-  .tfoot{display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid var(--line2)}
   .pager{display:flex;gap:5px}
   .screen table{width:100%;border-collapse:collapse}
-  .table-fixed{table-layout:fixed}
-  .table-fixed th,.table-fixed td{min-width:0}
-  .main table.adherence-table{min-width:1180px}
-  .main table.adherence-table th:nth-child(3),.main table.adherence-table td:nth-child(3){min-width:160px}
-  .main table.adherence-table td:nth-child(3) .celllink{width:100%;max-width:100%;display:flex;flex-direction:column;align-items:flex-start;gap:4px;white-space:normal;overflow:hidden;overflow-wrap:normal;word-break:normal}
-  .main table.adherence-table .gap-detail{display:block;max-width:100%;margin-top:0;line-height:1.25;overflow-wrap:normal;word-break:normal}
   /* The Gap cell is a flex COLUMN, and a flex item's default `min-width:auto` refuses to shrink
      below its own min-content width -- so "medical defer: Operator assignment required" stayed one
      347px line inside a 192px cell and was clipped by the `overflow:hidden` above, with no ellipsis
      to say so. `white-space:normal` was already set; it could never take effect. The items may now
      shrink, so the sentence wraps at its spaces (word-break stays `normal`, so no word is split). */
-  .main table.adherence-table td:nth-child(3) .celllink>*{min-width:0;max-width:100%}
   /* ...and the Gap is a whole SENTENCE inside a chip -- "medical defer: Operator assignment
      required before execution". `.tag` is nowrap because a chip is a short label, which is right
      for every other chip and wrong for this one: a sentence that may not wrap can only be cut, and
      it was, at 334px inside a 166px cell. Only THIS cell's chip wraps. */
-  .main table.adherence-table td:nth-child(3) .celllink>.tag{white-space:normal;height:auto;min-height:0;display:inline-flex;align-items:flex-start}
   .main table.control-tower-gaps-table{min-width:920px}
   .main table.control-tower-gaps-table th:nth-child(1),.main table.control-tower-gaps-table td:nth-child(1),.main table.control-tower-gaps-table th:nth-child(2),.main table.control-tower-gaps-table td:nth-child(2){min-width:132px}
   /* The .twrap table wrapper OWNS horizontal scrolling for every wide table that sits in it
@@ -568,9 +494,6 @@
   .main table.people-table th:nth-child(6),.main table.people-table td:nth-child(6){min-width:90px}
   .main table.people-table th:nth-child(7),.main table.people-table td:nth-child(7){min-width:130px}
   .main table.people-table td .celllink{max-width:none;min-width:max-content}
-  .goat-identifier-grid{grid-template-columns:minmax(190px,1fr) minmax(190px,1fr) minmax(190px,1fr) minmax(150px,.8fr)}
-  @media(max-width:1080px){.goat-identifier-grid{grid-template-columns:repeat(2,minmax(190px,1fr))}}
-  @media(max-width:640px){.goat-identifier-grid{grid-template-columns:1fr}}
   /* Same single-line rule for the sales LOAD-WISE table: its cells are counts, money figures and
      short labels, and the global .celllink overflow-wrap:anywhere otherwise splits "91" into "9"
      and "1" and stacks "CPT" a letter per line. The .twrap owns the horizontal scroll. */
@@ -579,7 +502,6 @@
      the 3-letter farm code, the load number, and the ₹ per-kg rate character-by-character down
      the column. Short cells stay single-line; Feed (3) and Vendor (8) wrap at word boundaries
      only, with a floor so table auto-layout can't crush them; the twrap owns horizontal scroll. */
-  .main table.feed-purchases-table th,.main table.feed-purchases-table td,.main table.feed-purchases-table td .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}
   /* Animal purchases loads: same single-line rule ("CPT" split into "CP / T" and "E2E-132" wrapped
      the moment the table held five rows), the .twrap wrapper owns the horizontal scroll. */
   .main table.animal-purchase-loads-table th,.main table.animal-purchase-loads-table td,.main table.animal-purchase-loads-table td .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}
@@ -588,29 +510,6 @@
   .main table.procurement-load-goats-table th,.main table.procurement-load-goats-table td{white-space:nowrap;overflow-wrap:normal;word-break:normal}
   .main table.procurement-load-goats-table th:nth-child(1),.main table.procurement-load-goats-table td:nth-child(1){min-width:240px}
   .main table.procurement-load-goats-table th:nth-child(2),.main table.procurement-load-goats-table td:nth-child(2),.main table.procurement-load-goats-table th:nth-child(3),.main table.procurement-load-goats-table td:nth-child(3),.main table.procurement-load-goats-table th:nth-child(4),.main table.procurement-load-goats-table td:nth-child(4){min-width:160px}
-  .main table.feed-purchases-table td .celllink{max-width:none;min-width:max-content}
-  .main table.feed-purchases-table th:nth-child(3),.main table.feed-purchases-table td:nth-child(3),.main table.feed-purchases-table td:nth-child(3) .celllink,
-  .main table.feed-purchases-table th:nth-child(8),.main table.feed-purchases-table td:nth-child(8),.main table.feed-purchases-table td:nth-child(8) .celllink{white-space:normal;overflow-wrap:normal;word-break:normal}
-  .main table.feed-purchases-table td:nth-child(3),.main table.feed-purchases-table td:nth-child(8){min-width:200px}
-  .main table.procurement-vendors-table th,.main table.procurement-vendors-table td,.main table.procurement-vendors-table td .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}
-  .main table.procurement-vendors-table td .celllink{max-width:none;min-width:max-content}
-  .main table.procurement-vendors-table th:nth-child(1),.main table.procurement-vendors-table td:nth-child(1){min-width:180px}
-  .main table.procurement-vendors-table th:nth-child(5),.main table.procurement-vendors-table td:nth-child(5){min-width:90px}
-  @media(max-width:640px){
-    .main table.procurement-vendors-table{min-width:0;border-spacing:0 10px}
-    .main table.procurement-vendors-table thead{display:none!important}
-    .main table.procurement-vendors-table th{display:none!important;position:static!important}
-    .main table.procurement-vendors-table,.main table.procurement-vendors-table tbody,.main table.procurement-vendors-table tr,.main table.procurement-vendors-table td{display:block;width:100%}
-    .main table.procurement-vendors-table tr:not(.MuiTableRow-root){border:1px solid var(--line);border-radius:16px;background:var(--paper);box-shadow:var(--shadow-card);overflow:hidden}
-    .main table.procurement-vendors-table td:not(.MuiTableCell-root){min-width:0!important;border-bottom:1px solid var(--line2);padding:10px 14px}
-    .main table.procurement-vendors-table td:last-child{border-bottom:0}
-    .main table.procurement-vendors-table td .celllink{min-width:0;max-width:100%;white-space:normal}
-    .main table.procurement-vendors-table td:nth-child(n+2) .celllink{display:flex;align-items:center;justify-content:space-between;gap:12px}
-    .main table.procurement-vendors-table td:nth-child(2) .celllink::before{content:"Type";color:var(--muted);font-size:12px;font-weight:600}
-    .main table.procurement-vendors-table td:nth-child(3) .celllink::before{content:"Phone";color:var(--muted);font-size:12px;font-weight:600}
-    .main table.procurement-vendors-table td:nth-child(4) .celllink::before{content:"Location";color:var(--muted);font-size:12px;font-weight:600}
-    .main table.procurement-vendors-table td:nth-child(5) .celllink::before{content:"Status";color:var(--muted);font-size:12px;font-weight:600}
-  }
   /* Counts Breakdown census table (6 cols: Farm · Stage · Breed · Gender · Shed · Count).
      Keep every cell single-line: shed names ("Godel 1 - Part 3") and raw source stage labels
      ("ICU-Kid", "Kid Stage 2") otherwise wrap mid-value once a column narrows. The table owns
@@ -637,7 +536,6 @@
   .main table.counts-pens-table th:nth-child(7),.main table.counts-pens-table td:nth-child(7){width:13%}
   .main table.counts-pens-table th:nth-child(8),.main table.counts-pens-table td:nth-child(8){width:9%;text-align:right}
   .main table.counts-pens-table th{white-space:nowrap;overflow-wrap:normal;word-break:normal}
-  .main table.counts-pens-table .counts-pens-empty{position:sticky;left:0;width:min(calc(100vw - 80px),820px);max-width:min(calc(100vw - 80px),820px);white-space:normal;overflow-wrap:anywhere}
   .main table.counts-pens-table td{white-space:normal;overflow-wrap:anywhere}
   .main table.counts-pens-table td:nth-child(1),
   .main table.counts-pens-table td:nth-child(5),
@@ -663,7 +561,6 @@
      compared at a glance, which is the only reason these columns exist. */
   .main table.feed-table th.num,.main table.feed-table td.num{text-align:right;font-variant-numeric:tabular-nums}
   .main .tablewrap{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y;scrollbar-gutter:stable}
-  .main .feed-stock-tablewrap{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y;scrollbar-gutter:stable;padding-right:14px}
   /* Feed Analytics "Feed by shed" mix cell: one line per feed item with the
      item's chart colour dot, label left, kg right — a small aligned ledger
      instead of a chip pile. The kg column is tabular so amounts line up. */
@@ -735,7 +632,6 @@
      number and an info tag). So do not chase the last line by widening this column further: it costs
      a sideways scroll and returns zero density. 150px is the floor, not a fixed width — the column
      still grows if a longer feed item is authored. */
-  .main table.feed-table th.feed-wrap,.main table.feed-table td.feed-wrap{white-space:normal;overflow-wrap:normal;word-break:normal;min-width:150px}
   /* The EXPERIMENT ARM column, for the same reason as `.feed-wrap` and with a cap on top of it.
      An arm is a free-text trial name and the live data already contains a 55-character one
      ("Mixed (9 Goat F, 1 Sheep F, 5 Goat M) NEW - warmup 20:80"). Under the table's default nowrap
@@ -746,14 +642,9 @@
      names what to weigh out, whereas an arm is context and may safely run to a few lines. The floor
      keeps the two-word common case ("Sheep M NEW") on one line. */
   /* The session total is the number the operator came for; it never shrinks below its own value. */
-  .main table.feed-table th.feed-total,.main table.feed-table td.feed-total{min-width:132px}
   /* Below the widest layouts the table still scrolls, and on macOS the overlay scrollbar is
      invisible until touched — so a clipped column read as missing rather than as scrollable.
      A thin always-drawn scrollbar makes the affordance visible without stealing row height. */
-  .main .feed-scroll{scrollbar-width:thin;scrollbar-color:var(--line) transparent}
-  .main .feed-scroll::-webkit-scrollbar{height:10px}
-  .main .feed-scroll::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px}
-  .main .feed-scroll::-webkit-scrollbar-track{background:transparent}
   /* Headline KPIs sit inside the table card, between the filter bar and the header row, so they
      read as totals FOR the current filter rather than as a separate page-level summary. */
   @media(max-width:700px){
@@ -1015,28 +906,17 @@
   .fitem:last-child{border-bottom:0}
   .fic{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;flex:none}
   .fitem .tx{min-width:0;flex:1;overflow-wrap:anywhere;word-break:break-word}.fitem .tx b{font-weight:650}.fitem .mt{color:var(--muted);font-size:12px;margin-top:1px;overflow-wrap:anywhere;word-break:break-word}
-  .fitem .tm{color:var(--faint);font-size:11.5px;white-space:normal;overflow-wrap:anywhere;word-break:break-word}
   .lane{margin-bottom:18px}
   .tasks{display:grid;gap:11px;grid-template-columns:repeat(auto-fill,minmax(330px,1fr))}
 	  .subtabs{display:flex;gap:4px;background:var(--bg);border:1px solid var(--line);border-radius:11px;padding:4px;margin-bottom:18px;width:max-content;max-width:100%;overflow:auto}
 	  .subtabs button,.subtabs a{border:0;background:transparent;font:inherit;font-weight:650;color:var(--muted);padding:7px 13px;border-radius:8px;cursor:pointer;white-space:nowrap}
 	  .subtabs button.on,.subtabs a.on{background:var(--panel);color:var(--ink);box-shadow:var(--shadow)}
-	  .calview-tabs{overflow:visible;position:relative}
 	  .calpicker{position:relative}
 	  .calpicker summary{list-style:none;border:0;background:transparent;font:inherit;font-weight:650;color:var(--muted);padding:7px 13px;border-radius:8px;cursor:pointer;white-space:nowrap}
 	  .calpicker summary::-webkit-details-marker{display:none}
 	  .calpicker[open] summary{background:var(--panel);color:var(--ink);box-shadow:var(--shadow)}
 	  .calpicker:not([open]) .calpicker-popover{display:none}
 	  .calpicker-popover{position:absolute;right:0;top:calc(100% + 10px);z-index:85;width:min(372px,calc(100vw - 28px));background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:0 18px 48px rgba(0,0,0,.42);padding:14px}
-	  .calview-tabs .calpicker[open] summary{width:max-content}
-    .calendar-page-head .calview-tabs{width:max-content;max-width:100%;align-items:flex-start;background:transparent;border:0;padding:0;overflow:visible}
-    .calendar-page-head .calview-tabs .calpicker[open]{flex:0 0 auto;order:4;width:auto;margin-top:6px}
-    .calendar-page-head .calview-tabs .calpicker[open] .calpicker-popover{position:static;width:min(372px,100%);margin-top:10px;box-shadow:var(--shadow)}
-    @media(max-width:900px){
-      .calendar-page-head .calview-tabs{width:100%;max-width:100%;flex-wrap:wrap}
-	    .calview-tabs .calpicker[open]{flex:1 0 100%;order:2;width:100%}
-	    .calview-tabs .calpicker[open] .calpicker-popover{position:static;width:min(calc(100vw - 28px),372px);margin-top:10px;box-shadow:var(--shadow)}
-    }
 	  .calpicker-head{display:grid;grid-template-columns:40px minmax(0,1fr) 40px;align-items:center;gap:8px;margin-bottom:8px}
 	  .calpicker-note{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:10px;padding-top:9px;border-top:1px solid var(--line2);color:var(--muted);font-size:11px}
 	  .calpicker-note .sp{flex:1}
@@ -1046,14 +926,7 @@
 	  .chain{display:flex;flex-wrap:wrap;align-items:stretch;gap:14px 22px;overflow:auto;padding:2px}
   .sheds{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(178px,1fr))}
   .shed{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;box-shadow:var(--shadow)}
-  .shed .nm{font-weight:700;display:flex;align-items:center;gap:6px}
-  .shed .oc{font-size:12px;color:var(--muted);margin:8px 0 6px}
   .org{display:flex;flex-direction:column;gap:8px}
-  .veil{position:fixed;inset:0;background:rgba(0,0,0,.66);z-index:219;touch-action:none}
-
-  .dhd{display:flex;align-items:center;gap:11px;padding:16px 18px;background:var(--panel);border-bottom:1px solid var(--line)}
-  .dhd .x{margin-left:auto;cursor:pointer;color:var(--muted);width:32px;height:32px;display:grid;place-items:center;border-radius:8px}
-  .dhd .x:hover{background:var(--bg)}
   .metagrid{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line2);border:1px solid var(--line2);border-radius:11px;overflow:hidden}
   .metagrid div{background:var(--panel);padding:9px 12px}
   /* Vaccination execution rows: a table when the CARD is wide enough, stacked cards otherwise.
@@ -1128,7 +1001,6 @@
   .step .ct b{font-size:13.5px}
   .step .ct .d{color:var(--muted);font-size:12px;margin-top:2px}
   .step .vp{margin-top:6px}
-  .thumb{width:62px;height:46px;border-radius:8px;background:linear-gradient(135deg,#26384d,#33536f);display:grid;place-items:center;color:#fff;flex:none}
   .fld{margin-bottom:13px}
   .fld label:where(:not(.MuiFormLabel-root)){display:block;font-size:12px;font-weight:650;margin-bottom:5px;color:var(--ink)}
   .fld input,.fld select,.fld textarea{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:9px;font:inherit;background:var(--panel);outline:0;color:var(--ink)}
@@ -1142,8 +1014,6 @@
   .modal{position:fixed;z-index:220;top:50%;left:50%;transform:translate(-50%,-46%) scale(.97);opacity:0;pointer-events:none;width:620px;max-width:94vw;max-height:90vh;overflow:auto;background:var(--panel);border-radius:16px;box-shadow:0 24px 70px rgba(0,0,0,.5);transition:.2s}
   .modal.on{opacity:1;pointer-events:auto;transform:translate(-50%,-50%) scale(1)}
   .note{font-size:12px;color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:9px 12px}
-  .lenslink{font-size:12px;font-weight:650;color:var(--brand-d);background:var(--brand-soft);border:1px solid var(--line);padding:4px 10px;border-radius:7px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:5px;min-height:40px}
-  .lenslink:hover{border-color:var(--brand)}
   /* Mobile tap targets (>=40px): breadcrumb links keep their compact look
      but get a 40px hit area on touch-width viewports; notification-matrix checkboxes sit in a
      40px label hit area (checkbox itself stays native size). */
@@ -1151,7 +1021,6 @@
   .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:4px}
   .legend span{display:inline-flex;align-items:center;gap:6px}
   .sw{width:11px;height:11px;border-radius:3px;display:inline-block}
-  hr.sep{border:0;border-top:1px solid var(--line);margin:22px 0}
   .muted{color:var(--muted)} .small{font-size:12px} .b700{font-weight:700}
   .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--brand);color:var(--on-brand);padding:11px 18px;border-radius:11px;font-weight:700;font-size:13px;opacity:0;pointer-events:none;transition:.25s;z-index:90;box-shadow:0 10px 30px rgba(0,0,0,.4)}
   .toast.on{opacity:1;transform:translateX(-50%)}
@@ -1164,23 +1033,7 @@
   /* ---------- calendar / reminders ---------- */
   .rhythm{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
   .mode.plan{color:var(--info)}.mode.log{color:var(--amber)}.mode.exec{color:var(--brand-d)}.mode.rest{color:var(--muted)}
-  .agenda .dh{font-size:11px;font-weight:700;letter-spacing:.6px;color:var(--muted);text-transform:uppercase;margin:16px 2px 8px}
-  .agenda .dh.today{color:var(--brand-d)}
-  .agenda .dh + .ev{margin-top:0}
   /* Drive card: hug content, ring + animals + sheds + vaccines + status chips + owner footer, NO CTA */
-  .ev{display:inline-flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--brand);border-radius:10px;padding:10px 14px;width:fit-content;max-width:100%;cursor:pointer;margin-bottom:8px}
-  .ev:hover{border-color:var(--brand);transform:translateY(-1px)}
-  .ev.celllink{text-decoration:none;color:inherit;display:block}
-  .drivelink{display:block;width:fit-content;max-width:100%;text-decoration:none;color:inherit;margin-bottom:8px}
-  .drive-card{min-width:min(100%,360px);padding:10px 12px;gap:8px}
-  .drive-card .dhd{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:8px;padding-bottom:8px;border-bottom:1px solid var(--line2)}
-  .drive-card .dhd b{min-width:0;overflow-wrap:anywhere;line-height:1.25}
-  .drive-card .dhd span{white-space:nowrap}
-  .drive-card .dring{width:48px;height:48px}
-  .drive-card .vaccine-chip{display:inline-flex;align-items:center;max-width:140px;min-height:20px;padding:3px 7px;border:1px solid var(--line2);border-radius:6px;background:#1e2822;color:var(--muted);font-size:10.5px;font-weight:800;line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .drive-card .chips{margin-top:0;padding-top:0;border-top:0}
-  .dhd{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-  .dhd b{font-size:14px}
   .pill{font-size:10px;font-weight:700;padding:2px 6px;border-radius:5px;background:#1e2822;color:var(--muted)}
   .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;align-items:center}
   .sc{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600}
@@ -1194,13 +1047,9 @@
   .sc.over{color:var(--danger)}
   .sc.def,.sc.deferred{color:var(--purple)}
   /* Old event row styles (non-drive) */
-  .ev .et{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--muted);width:52px;flex:none;padding-top:1px}
-  .ev .em{color:var(--muted);font-size:12px;margin-top:2px}
   /* Ring SVG classes (class name deliberately NOT "ring" — collides with the Tailwind
      .ring utility which paints a 1px box-shadow square around the svg) */
-  .dring{flex:none}
   /* ownership matrix */
-  .chiprow{display:flex;flex-wrap:wrap;gap:6px}
   /* ---------- table containment (no page horizontal scroll) ---------- */
   .card .bd{overflow-x:auto;overscroll-behavior-x:contain;touch-action:pan-x pan-y}
   .screen th,.screen td{white-space:nowrap}
@@ -1212,7 +1061,6 @@
     /* Off-canvas nav rows stay >=40px tap targets on touch widths. */
     .main{height:100%;overflow:auto}
     .wrap{padding:16px 14px 56px}
-    .parkpick [data-park="ALL"]{display:none}
     /* THE NOTIFICATION BELL'S FOOTPRINT. Until this slice the bell was a DISABLED button that
        `.top .iconbtn[disabled]{display:none}` (below) deleted outright; live it is a real 36px
        control, and it is the item that tips this bar over. Measured in Chromium against this
@@ -1226,20 +1074,15 @@
        chip's "· all sheds" suffix (already dropped at <=560px, and spelled out inside the park
        menu) and the identity block's name/role lines (the first thing the account menu shows).
        Nothing becomes unreachable here; two labels get shorter. */
-    .top .me .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:76px}
     /* 561-760px needs a tighter squeeze than the rest of this block. Below 561px the phone block
        further down hides the identity text outright and caps the park chip at 118px; above 760px
        there is width to spare. In between, neither applied and the bell still bought a whole extra
        row: measured live at 561px, `.top` was 58px without the bell and 101px with it. These two
        caps are what close that gap -- same trade as above, two labels get shorter. */
-    @media(min-width:561px){
-      .top .me .nm{max-width:58px}
-    }
   }
   @media(max-width:560px){
     .top{gap:7px;padding:0 10px}
     .top .brand b{display:block;max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .me .nm{display:none}
     /* Narrow topbar must fit ~390px without compressing controls (no clipping) and keep >=40px tap
        targets. Keep the park scope visible: it is the only global park filter on pages that do not
        own a local park/farm control. Collapse the optional "all sheds" suffix instead. */
@@ -1247,7 +1090,6 @@
     .iconbtn{flex:none;width:40px;height:40px}
     /* Top-bar scope controls that stay visible on touch widths are real controls — >=40px tap targets.
        (.pscope chips are hidden above; the Company-wide/Park-wise toggle + legacy .parkbtn stay.) */
-    .parkpick a,.parkpick button{min-height:40px}
     .me{padding:3px;flex:none;min-height:40px}
     /* Standalone action/footer links (Action Center →, Protocol Adherence ledger →, table next-actions)
        become >=40px tap targets on touch widths. Inline prose links (.lk without .small) stay inline. */
@@ -1262,8 +1104,6 @@
     .celllink{min-width:40px}
     .main table td .celllink{display:flex;align-items:center;min-height:44px}
     .main table td .celllink.mono{font-size:12px}
-    .vr-sortlink{min-width:40px;min-height:40px;padding:0 4px}
-    .vr-rowlink{min-height:44px}
     .main table.shed-summary-table .shed-summary-row-link,
     .main table.shed-animal-roster-table .shed-animal-roster-row-link{min-height:40px}
     .schedule-vaccine-toggle{min-width:40px;min-height:40px;padding:8px 10px}
@@ -1272,11 +1112,9 @@
     .subtabs a,.subtabs button{min-height:40px}
     /* Form controls are real tap targets on touch widths — selects + text-like inputs >=40px (checkbox/
        radio keep their native size; their <label> wrapper carries the >=40px target instead). */
-    .tsearch input,.fld input,select,input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]){min-height:40px;box-sizing:border-box}
+    .fld input,select,input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]){min-height:40px;box-sizing:border-box}
     label:has(> input[type="checkbox"]),label:has(> input[type="radio"]){min-height:40px}
     .chip{display:inline-flex;align-items:center;justify-content:center;min-width:40px;min-height:40px}
-
-    .kpi .val{font-size:21px}
     .brand b{font-size:14px}
   }
   @media(max-width:1080px){ .audit-kpi-grid{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))} }
@@ -1375,7 +1213,6 @@
   .studio-node-decision .btn{white-space:nowrap;flex:none}
   .studio-node-start{border-top:3px solid var(--brand-d)}
   .studio-node-start b,.studio-node-finish b,.studio-node-fixed b,.studio-node-group b{-webkit-line-clamp:1}
-  .sop-inspection .acts .studio-view-toggle,.sop-feed .acts .studio-view-toggle{display:inline-flex;margin-right:8px}
   .studio-node-fixed{border-style:dashed;opacity:.85}
   .studio-node-group{border-top:3px solid #a78bfa}
   .studio-node-owner{align-self:flex-start;font-size:10px;padding:1px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted);background:var(--panel-2,var(--panel));white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
@@ -1532,10 +1369,7 @@
 .sub { color: var(--muted); font-size: 12.5px; max-width: 820px }
 .grid { display: grid; gap: 12px }
 .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 13px 14px; position: relative; overflow: hidden }
-.kpi .acc { position: absolute; top: 0; left: 0; width: 100%; height: 3px }
 .kpi .lab { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; display: flex; align-items: center; gap: 6px }
-.kpi .val { font-size: 26px; font-weight: 800; margin-top: 6px }
-.kpi .dl { font-size: 11px; color: color-mix(in srgb,var(--muted) 64%,var(--ink)); margin-top: 2px }
 /* Card = template MUI Card (Minimal_TypeScript_v7.7.0/next-ts, Card + Divider dashed): paper
    background, --r-xl 16 radius, --shadow-card, no visible border. Section head uses the same
    dashed divider the template puts between Card sub-blocks (borderStyle: 'dashed'). */
@@ -1589,36 +1423,17 @@ th:not(.MuiTableCell-root) { font-size: 10.5px; text-transform: uppercase; lette
 .lvitem .lvdays { font-size: 11px; color: var(--muted) }
 .lvitem.past { opacity: .55 }
 .lvempty { color: var(--faint); font-size: 12.5px; padding: 10px 0 }
-.scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, .55); display: none; align-items: center; justify-content: center; z-index: 150 }
-.scrim.on { display: flex }
-button.scrim{
-  display:block;
-  align-items:normal;
-  justify-content:normal;
-  z-index:210;
-  border:0;
-  padding:env(safe-area-inset-top) env(safe-area-inset-right) max(1px,env(safe-area-inset-bottom)) env(safe-area-inset-left);
-  background:rgba(6,12,9,.42);
-  -webkit-backdrop-filter:none;backdrop-filter:none;
-  opacity:0;
-  pointer-events:none;
-  cursor:default
-}
-button.scrim.on{display:block;opacity:1;pointer-events:auto}
 
 .modal { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); width: min(440px, 92vw); overflow: hidden }
 .modal .mh { display: flex; align-items: center; gap: 10px; padding: 16px 18px; border-bottom: 1px solid var(--line) }
 .modal .mh h3 { margin: 0; font-size: 15px }
 .modal .mh span { font-size: 11.5px; color: var(--muted) }
-.modal .mb { padding: 18px }
 .modal label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted) }
 .rangelab { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-size: 12.5px }
 .rangelab b { color: var(--brand) }
 .cal { border: 1px solid var(--line); border-radius: 12px; padding: 10px; background: var(--bg) }
 .cal-h { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px }
 .cal-h .mlab { font-weight: 700; font-size: 13.5px }
-.cal-nav { border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); width: 28px; height: 28px; border-radius: 8px; cursor: pointer; font-size: 14px; line-height: 1 }
-.cal-nav:hover { border-color: var(--brand) }
 .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px }
 .cal-dow { text-align: center; font-size: 10px; color: var(--faint); padding: 4px 0; text-transform: uppercase }
 .cal-day { aspect-ratio: 1; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--ink); font: inherit; font-size: 12.5px; cursor: pointer; display: grid; place-items: center }
@@ -1630,7 +1445,6 @@ button.scrim.on{display:block;opacity:1;pointer-events:auto}
 .cal-day.end { background: var(--brand); color:var(--on-brand); font-weight: 800 }
 .legendcal { display: flex; gap: 14px; font-size: 10.5px; color: var(--muted); margin-top: 10px }
 .legendcal i { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 5px; vertical-align: middle }
-.modal .mf { display: flex; justify-content: flex-end; gap: 9px; padding: 14px 18px; border-top: 1px solid var(--line); background: var(--panel-2) }
 .ctl { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end; margin: 8px 0 4px }
 .fld { display: flex; flex-direction: column; gap: 5px }
 .fld label:where(:not(.MuiFormLabel-root)) { font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted) }
@@ -1670,10 +1484,6 @@ select:disabled { opacity: .45 }
 #toast.show { opacity: 1; transform: translateX(-50%) translateY(0) }
 #toast.err { border-color: var(--danger); border-left-color: var(--danger) }
 /* Command Board */
-
-
-@media(max-width:640px){
-}
 
 
 /* Weights page bar-list boxes (the kit BarList root and its empty state carry these classes).
@@ -1737,20 +1547,6 @@ select:disabled { opacity: .45 }
 
 /* The Weights metric strip. The default 12px grid gap made six cards read as one
    slab; these are separate figures and want visible air between them. */
-.kpi-row{gap:16px}
-.kpi-row .kpi{padding:14px 16px}
-
-@media(max-width:1080px){.kpi-row{gap:12px}}
-.counts-empty-state>.counts-empty-copy{margin:6px 0 0;font-size:14px;line-height:1.55;white-space:normal!important;overflow:visible!important;text-overflow:clip!important;overflow-wrap:anywhere}
-.sales-loads-page .kpi-row{grid-template-columns:repeat(4,minmax(136px,1fr))}
-.sales-loads-page .kpi .val{overflow-wrap:normal;word-break:normal;white-space:nowrap;font-size:clamp(21px,4.8vw,26px)}
-.sales-loads-page .kpi .dl{line-height:1.35;color:color-mix(in srgb,var(--muted) 62%,var(--ink))}
-@media(max-width:820px){
-  .sales-loads-page .kpi-row{grid-template-columns:repeat(2,minmax(0,1fr))}
-}
-@media(max-width:420px){
-  .sales-loads-page .kpi-row{grid-template-columns:1fr}
-}
 
 /* The Weights page owns its own vertical rhythm. `.wrap` is block layout with no
    gap and its children carry no margins, so without this every section — the two
@@ -1798,14 +1594,6 @@ select:disabled { opacity: .45 }
    card grew to ~4700px tall. Inside `.tablewrap` (overflow-x:auto) the table is allowed to be
    wider than the phone, so give it a real floor and let the wrapper scroll, and never let a name
    wrap per character. */
-@media(max-width:760px){
-  /* 660 was not a real floor. The five FIXED columns alone are 496px (park 78 + sex 104 +
-     count 70 + basis 112 + value 132), which left 164px for the pen name AND the breed
-     together -- breed settled at 50px and ellipsised "Anantapur Sheep" away. Wrapping cannot
-     fix it: breed / sex / count pair up BY LINE INDEX, so a cell that wraps shifts every count
-     against the wrong breed. The floor now fits both names (the longest breed measures 114px) and the wrapper scrolls. */
-  
-}
 
 /* Feed by weight band (ADG Analytics, Weight-wise tab). The title's ⓘ reuses the Pen-wise
    legend's hint trigger (.wgl-hint / .wgl-i + template Tooltip, scoped there to .wgrouped), re-scoped
@@ -1927,10 +1715,6 @@ select:disabled { opacity: .45 }
    (mock: `.kpi .tick{opacity:0}` / `.kpi .tick.on{opacity:1}`). A permanently visible tick
    asserts liveness that is not being observed — including on a PAUSED board. */
 
-.lt-page .lt-grid{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:14px;align-items:start}
-.lt-page .lt-grid.lt-grid-solo{grid-template-columns:minmax(0,1fr)}
-@media(max-width:1080px){.lt-page .lt-grid{grid-template-columns:1fr}}
-
 .lt-page .lt-tablewrap{padding:0}
 /* A SIDEWAYS SCROLL THAT SAYS SO (Gate-1 #1). At 1440 the list now has the whole card and its six
    columns fit, but below ~1180px (and at phone width) the table is still wider than its box, and
@@ -1970,10 +1754,6 @@ select:disabled { opacity: .45 }
    the gap between the two rows. NO `backdrop-filter` and NO `transform` here: either would
    make this the containing block for the phone's `position:fixed` sheet (see the 760px
    block). At phone width only the scope bar stays pinned (see the 760px block). */
-.lt-page .lt-empty-state{display:flex;align-items:flex-start;gap:13px;padding:26px 24px;min-height:140px;background:linear-gradient(180deg,color-mix(in srgb,var(--panel-2) 48%,transparent),transparent)}
-.lt-page .lt-empty-state .ic{width:22px;height:22px;color:var(--brand);margin-top:1px}
-.lt-page .lt-empty-state b{display:block;font-size:15px;margin-bottom:5px}
-.lt-page .lt-empty-state p{max-width:620px;margin:0;color:var(--muted);font-size:13px;line-height:1.55}
 /* The no-hits empty state's way back (Gate-1 #2): "Clear the filters" is a real link and looks
    like one -- brand colour, underlined, 44px-tall hit box on a phone via padding. */
 
@@ -1983,10 +1763,6 @@ select:disabled { opacity: .45 }
 @keyframes lt-lp{0%,100%{opacity:1;box-shadow:0 0 0 0 color-mix(in srgb,var(--danger) 55%,transparent)}50%{opacity:.55;box-shadow:0 0 0 5px transparent}}
 
 /* Persistent filter bar */
-.lt-page .lt-fbar{position:sticky;top:0;z-index:12;display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;margin:0 0 14px;background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow)}
-.lt-page .lt-fsel{display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-size:12.5px;color:var(--muted)}
-.lt-page .lt-fsel select{border:0;background:transparent;outline:0;font:inherit;font-weight:650;color:var(--ink);cursor:pointer;max-width:210px}
-.lt-page .lt-fsel select option{background:var(--panel);color:var(--ink)}
 /* Wraps when it has to: a long note (the live tracker's "Park, vaccine, operator ... both") ran past
    the card's right edge at 1440 as one unbroken line. */
 .lt-page .lt-fnote{color:var(--faint);font-size:11px;margin-left:auto;white-space:normal;min-width:0;flex:0 1 auto;text-align:right}
@@ -2023,11 +1799,7 @@ select:disabled { opacity: .45 }
    ("Assignee · All", "Sort · Newest first", "Deadline · any"). This is the herd-signals
    `.fbar` / `.fsel` anatomy (`.fsel select{padding:0;line-height:normal}` is what keeps the
    native select from stretching its box to 47px). Tokens only, no new palette. */
-.wb .lt-fdrop>button{box-sizing:border-box;height:var(--lt-ctl);min-height:var(--lt-ctl);border-radius:8px;border:1px solid var(--line);background:var(--bg);padding-top:0;padding-bottom:0;font-size:12.5px}
 /* The person-picker slots: containers the bar owns so a different picker can drop in. */
-
-.wb .lt-fdrop{--lt-ctl:36px}
-.wb .lt-fdrop>button{padding:0 9px;display:inline-flex;align-items:center;gap:6px;font:inherit;font-weight:600;color:var(--ink);cursor:pointer}
 /* `display:contents`, not a nested flex box. As a box it was a second wrapping container INSIDE the
    bar, which is what stacked the controls into five rows (search alone with dead space above it,
    chips and the people selects on a second line, sort on a third, four raw date inputs on a fourth,
@@ -2049,62 +1821,25 @@ select:disabled { opacity: .45 }
    stacks, ONE dates disclosure, sort. The stack avatars are 24px here (the size the board's own
    menu rows use; its toolbar stack is 30px, its cards 22px) so two stacks of nine people fit
    beside a five-chip segment at 1440px; every other rule is the board's own, scoped by the `wb` class on the slot. */
-@media (min-width:761px){
-  
-  /* Widths at 1440 with the 28px stacks (Gate-1 #6): search 120 + segment 414 + two stacks of
-     116 + sort 181 + dates 133 + five 8px gaps = 1120 in a 1132px bar. The search floor and the
-     segment's padding each gave up a little so the bar stays ONE row with no filter applied. */
-  /* The two stacks are told apart by a small CAPTION over the avatars, drawn from the slot's own
-     `data-key` (the contract's "Assignee" / "Raised by") in the `.ltd-statuslab` treatment. It
-     sits inside the control's 40px (9px caption + 24px stack) so it costs the row no width.
-     The stack's own height rule above is released so the caption and the avatars share it. */
-  /* LEGIBLE INITIALS (Gate-1 #6). At 24px with a 10px overlap each circle showed 14px of itself
-     and the next circle's 2px border cut every letter in half ("D M D M A R" read as "D N C N A
-     R"). The Work Board's stack is the reference: 30px circles, 12px bold, 8px overlap, so 22px
-     of every circle stays visible. The same geometry here, one size down so two stacks still
-     sit beside a five-chip segment at 1440: 28px circles, 11px bold, 6px overlap -- 22px
-     visible per circle, the board's own figure. */
-}
 /* The ONE dates disclosure: both spans inside, each its own labelled group, ONE Apply and ONE
    Clear for the four fields. Each field is the console's themed calendar (`.move-date-*`): a
    caption above it that never wraps (one line, ellipsis), the button beneath reading the picked
    day as DD-MM-YYYY or "any". At desktop the two fields of a span sit side by side and the
    calendar overlays (the `to` calendar hangs off its right edge so it stays inside the popover's
    right-aligned box); in the phone sheet they stack and the calendar opens in flow. */
-.lt-page .lt-fdrop-pop.lt-fdrop-dates{min-width:352px;gap:12px}
-.lt-page .lt-fdrop-range{display:grid;gap:8px}
-.lt-page .lt-fdrop-range+.lt-fdrop-range{padding-top:12px;border-top:1px solid var(--line2)}
 /* Hung from the trigger's LEFT edge when the bar has wrapped and the trigger sits at the left. */
 
 /* ---- A DATE SPAN, collapsed. Four raw `dd/mm/yyyy` inputs across a row, plus a lone Apply
    beneath them, dominated a bar whose reader almost never touches a date. Each span is now one
    compact trigger that STATES its applied range, with the two inputs and the one Apply press
    inside. `.set` is the only signal that a span is narrowing the list from the closed state. */
-.lt-page .lt-fdrop,.wb .lt-fdrop{position:relative;display:inline-flex;flex:none}
-.lt-page .lt-fdrop>button{display:inline-flex;align-items:center;gap:6px;max-width:100%;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 9px;font:inherit;font-size:12.5px;font-weight:650;color:var(--muted);cursor:pointer}
-.lt-page .lt-fdrop>button>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.lt-page .lt-fdrop>button:hover{border-color:var(--brand);color:var(--ink)}
-.lt-page .lt-fdrop>button:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
-.lt-page .lt-fdrop>button.set{border-color:color-mix(in srgb,var(--brand) 55%,var(--line));background:color-mix(in srgb,var(--brand) 10%,var(--panel));color:var(--brand-d)}
-.lt-page .lt-fdrop-pop,.wb .lt-fdrop-pop{position:absolute;top:calc(100% + 6px);right:0;z-index:40;display:grid;gap:9px;min-width:240px;padding:11px;background:var(--panel);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow)}
-.lt-page .lt-fdrop-pop .lt-fsel{width:100%;justify-content:space-between}
-.lt-page .lt-fdrop-pop .lt-fsel input[type=date]{text-align:right}
-.lt-page .lt-fdrop-act{display:flex;align-items:center;justify-content:flex-end;gap:7px}
 
 /* ---- AN IGNORED URL PARAMETER, said out loud (`?view=list` is not `t_view`). */
-.lt-page .lt-aliasnote{display:flex;align-items:center;flex-wrap:wrap;gap:9px;margin:0 0 11px;padding:9px 12px;border:1px solid var(--line2);border-left:2px solid color-mix(in srgb,var(--warn) 55%,var(--line));border-radius:9px;background:color-mix(in srgb,var(--panel-2) 55%,transparent);color:var(--muted);font-size:12px;line-height:1.55}
-.lt-page .lt-aliasnote code{padding:1px 6px;border:1px solid var(--line);border-radius:5px;background:var(--bg);color:var(--ink);font-size:11.5px}
-.lt-page .lt-aliasnote .achip{margin-left:auto;text-decoration:none}
 
 /* THE APPLIED-FILTER ROW (Gate-1 #9): a full-width flex item of the bar, so the chips and
    "Clear" always sit together on their own line under the controls and never reflow the bar
    above them. On a phone it is a block inside the sheet's grid, where the same children keep
    their own phone rules. */
-.lt-page .lt-factive{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0;flex:1 1 auto}
-.lt-page .lt-factive .achip{max-width:100%;min-width:0}
-.lt-page .lt-factive .achip>button{display:inline-flex;align-items:center;justify-content:center;border:0;padding:0;background:transparent;color:inherit;font:inherit;line-height:1;opacity:.6;cursor:pointer;border-radius:4px}
-.lt-page .lt-factive .achip>button:hover{opacity:1}
-.lt-page .lt-factive .achip>button:focus-visible{outline:2px solid var(--brand);outline-offset:1px}
 /* The sheet's own header and opener exist only at phone width. */
 @media(max-width:760px){
   /* The backdrop blur reset (`none`) is load-bearing: the desktop bar's blur(8px) backdrop makes it
@@ -2121,7 +1856,6 @@ select:disabled { opacity: .45 }
   /* `vh` first as the fallback for engines without `dvh`, then `dvh`: the WhatsApp in-app browser
      retracts its chrome, so a `vh` box is measured against a viewport that is not the one the
      reader has and the bottom of the sheet becomes unreachable. */
-  .lt-page .lt-fscrim{z-index:150}
   /* TAP TARGETS, at the SAME breakpoint as the sheet (see the breakpoint note above).
      The status chips are this page's primary filter affordance and are `<a class="achip">`
      elements, which the app's generic phone touch block (`.main button,.btn,.btn.sm`) never
@@ -2243,10 +1977,6 @@ select:disabled { opacity: .45 }
 
 /* Sales cards: headings, captions and chip rows share the charts' 14px inset, and the bar
    charts breathe vertically (the breed chart sat flush under its header). */
-.main .sales-card .mt{padding-left:14px}
-.main .sales-card>p.muted.small,.main .sales-card .chips{padding-left:14px;padding-right:14px}
-.main .sales-card .chips{padding-top:2px;padding-bottom:4px}
-.main .sales-card .hbarlist{padding-top:10px;padding-bottom:12px}
 
 /* ============================================================================
    Herd Signals (/herd-signals) — BLE ear-tag telemetry admin surface.
@@ -2257,13 +1987,8 @@ select:disabled { opacity: .45 }
    ============================================================================ */
 
 .herd-signals-page .fbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:12px 14px;margin:0 0 18px;background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow)}
-.herd-signals-page .fsel{display:inline-flex;align-items:center;gap:8px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:12.5px;color:var(--muted);min-height:38px}
 /* A global form-control rule pads every bare <select> 8px 10px, which inflated each .fsel pill to
    47px against the mock's 32px and wrapped the filter bar and pager onto extra rows. */
-.herd-signals-page .fsel select{border:0;background:transparent;outline:0;font:inherit;font-weight:650;color:var(--ink);cursor:pointer;padding:0;line-height:normal}
-.herd-signals-page .fsel.search{flex:1 1 320px;min-width:220px}
-.herd-signals-page .fsel.search input{border:0;background:transparent;outline:0;font:inherit;color:var(--ink);flex:1;min-width:0;padding:0;line-height:normal}
-.herd-signals-page .fsel.search input::placeholder{color:var(--fg-faint);opacity:1}
 .herd-signals-page .fnote{color:var(--muted);font-size:11px;margin-left:auto;white-space:nowrap}
 .herd-signals-page .hd > .small.faint,
 .herd-signals-page table .faint{color:var(--muted)}
@@ -2354,10 +2079,8 @@ select:disabled { opacity: .45 }
 .herd-signals-page .pager{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:11px 15px;border-top:1px solid var(--line2);font-size:12px;color:var(--muted)}
 /* The rows-per-page pill is the one control the mock keeps in the card header instead; sized to the
    pager buttons so it cannot make this bar taller than the mock's 52px. */
-.herd-signals-page .pager .fsel{padding:4px 9px}
 /* A generic min-width floor stretched this 2-3 character select to 170px; the mock's rows-per-page
    control is a compact pill. */
-.herd-signals-page .pager .fsel select{min-width:0}
 .herd-signals-page .pager.pager-top{border-top:0;border-bottom:1px solid var(--line2)}
 .herd-signals-page .pager b{color:var(--ink);font-variant-numeric:tabular-nums}
 .herd-signals-page .pgbtn{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:8px;padding:5px 10px;font:inherit;font-size:12px;font-weight:650;cursor:pointer;text-decoration:none;display:inline-block}
@@ -2369,8 +2092,6 @@ select:disabled { opacity: .45 }
    marker class added alongside `btn` on exactly the two buttons herd-signals-table.tsx and
    herd-signals-drawer.tsx render (Clear filters / Expand / Retry) so those three can carry the
    mock's real values without touching the shared rule or any other screen. */
-.herd-signals-page .hs-btn{background:var(--panel);font-size:12.5px;font-weight:650;padding:7px 12px}
-.herd-signals-page .hs-btn.sm{padding:4px 9px;font-size:11.5px;border-radius:7px}
 
 
 .herd-signals-page .kv{display:grid;grid-template-columns:auto 1fr;gap:7px 12px;font-size:12.5px;align-items:baseline}
@@ -2464,11 +2185,6 @@ select:disabled { opacity: .45 }
 @media(max-width:760px){.herd-signals-page .grid2{grid-template-columns:1fr}}
 
 @media(max-width:640px){
-  
-  
-  .lt-page .lt-fbar{position:static;display:grid;grid-template-columns:1fr;gap:8px;padding:10px}
-  .lt-page .lt-fsel{width:100%;justify-content:space-between}
-  .lt-page .lt-fsel select{width:100%;max-width:100%;min-width:0;text-overflow:ellipsis}
   .lt-page .lt-fnote{margin-left:0;white-space:normal}
   
   
@@ -2481,12 +2197,8 @@ select:disabled { opacity: .45 }
   
   /* The shared bar turns position:static here, which drops it UNDER the positioned table card;
      the Pen dropdown hangs below the bar, so without this the card paints over it and eats taps. */
-  .lt-page .lt-fbar.cc-fbar{position:relative;z-index:20}
-  .herd-signals-page .fsel{min-width:0;max-width:100%;width:100%;justify-content:space-between}
-  .herd-signals-page .fsel select{width:100%;min-width:0;max-width:100%;text-overflow:ellipsis}
-  .herd-signals-page .fsel.search{flex:1 1 100%;min-width:0;width:100%}
   .herd-signals-page .pager{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-  .herd-signals-page .pager > span:not(.sp),.herd-signals-page .pager .fsel{grid-column:1 / -1}
+  .herd-signals-page .pager > span:not(.sp){grid-column:1 / -1}
   .herd-signals-page .pgbtn{text-align:center;min-height:38px}
   .herd-signals-page .fs{z-index:230}
   .herd-signals-page .fshd{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px 10px;padding:10px 12px}
@@ -2691,7 +2403,6 @@ select:disabled { opacity: .45 }
    rules under `.wb`; this is the same anatomy restated for the modal: a full-width 44px trigger,
    the list opening IN FLOW -- static, like inside the phone filter sheet -- so the modal body's
    scroller cannot clip it, 44px rows reading "Name — Title", and brand tokens only. */
-.prt-warn{color:var(--warn,#c98a16)}
 /* Shared with the routine drawer's "Who does it" (.prt): the same single-person picker, one anatomy. */
 :is(.lt-modal,.prt) .avs-single{position:relative;display:grid;grid-template-columns:1fr;width:100%}
 :is(.lt-modal,.prt) .avs-trigger{display:flex;align-items:center;gap:9px;width:100%;min-height:44px;padding:8px 11px;background:var(--panel);border:1px solid var(--line);border-radius:9px;font:inherit;font-size:13.5px;color:var(--ink);text-align:left;cursor:pointer}
@@ -2748,9 +2459,6 @@ select:disabled { opacity: .45 }
    mock uses, with the same values. */
 .wb .crumb{font-size:12.5px;color:var(--muted);margin-bottom:4px}
 .wb .tbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
-.wb .tsearch{display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:7px 10px;color:var(--muted);width:200px}
-.wb .tsearch input{border:0;background:transparent;outline:0;flex:1;font:inherit;color:var(--ink);min-width:0}
-.wb .tsearch .ic{width:14px;height:14px}
 .wb .avs{display:flex;align-items:center;position:relative}
 .wb .avs .more{margin-left:-8px;width:30px;height:30px;border-radius:50%;background:var(--panel-2);border:2px solid var(--panel);display:grid;place-items:center;font-size:11px;font-weight:700;color:var(--muted);cursor:pointer;padding:0;font-family:inherit;box-sizing:border-box;flex:0 0 30px}
 .wb .avs .more.on{border-color:var(--brand)}
@@ -2764,118 +2472,37 @@ input[type="checkbox"]:not(.lt-people-row input):not(.PrivateSwitchBase-input):f
 input[type="checkbox"]:not(.lt-people-row input):not(.PrivateSwitchBase-input):checked{background:var(--brand);border-color:var(--brand)}
 input[type="checkbox"]:not(.lt-people-row input):not(.PrivateSwitchBase-input):checked::after{content:"";width:14px;height:14px;background:var(--on-brand);-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center/contain no-repeat}
 input[type="checkbox"]:not(.lt-people-row input):not(.PrivateSwitchBase-input):disabled{opacity:.5;cursor:not-allowed}
-.wb .parkpick{display:flex;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:3px}
-.wb .parkpick a{border:0;background:transparent;padding:6px 12px;border-radius:7px;font:inherit;font-weight:600;color:var(--muted);text-decoration:none}
-.wb .parkpick a.on{background:var(--panel);color:var(--brand-d);box-shadow:var(--shadow)}
-.wb .datenav{display:flex;align-items:center;gap:4px;background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:3px}
-.wb .datenav a{border:0;background:transparent;color:var(--muted);font:inherit;font-weight:700;padding:5px 9px;border-radius:7px;text-decoration:none}
-.wb .datenav .d{font-weight:700;padding:0 6px;display:flex;align-items:center;gap:8px}
-.wb .datenav .d .ic{width:14px;height:14px;color:var(--muted)}
-.wb .sel{display:inline-flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:7px 10px;font:inherit;font-weight:600;font-size:12.5px;color:var(--ink);cursor:pointer;position:relative}
-.wb .sel>.ic{width:13px;height:13px;color:var(--faint)}
 .wb .etag{display:inline-block;font-size:10.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;padding:2px 7px;border-radius:5px;color:#fff}
-.wb .e-feed{background:#2F7A2A} .wb .e-health{background:#B3403C} .wb .e-vaccination{background:#2B66B8} .wb .e-weighing{background:#13816F} .wb .e-counts{background:#6E4FC4} .wb .e-procurement{background:#B5791A} .wb .e-milk{background:#33767A} .wb .e-pc_care{background:#2B66B8} .wb .e-verification{background:#5A6B7A} .wb .e-toxin{background:#B5791A} .wb .e-tasks{background:#6E4FC4} .wb .e-sales{background:#9A3F7A}
 .wb .etag.park{background:var(--panel-2);color:var(--muted);margin-left:4px}
-.wb .ti{width:14px;height:14px;border-radius:3px;display:grid;place-items:center;font-size:9px;color:var(--on-brand);background:var(--brand-d);flex:none}
-.wb .ti.p{background:var(--purple)}
 .wb .stack{display:inline-flex;align-items:center;flex:none}
 .wb .pager{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 2px;flex-wrap:wrap;font-size:12.5px;color:var(--muted)}
 .wb .pager b{color:var(--ink)}
-.wb .pgnav{display:flex;align-items:center;gap:10px}
-.wb .pgnav .more{font:inherit;font-size:12.5px;font-weight:700;padding:6px 10px;color:var(--brand);border:1px solid var(--line);border-radius:8px;background:var(--panel);text-decoration:none}
-.wb .pgnav .more[aria-disabled="true"]{opacity:.4;pointer-events:none}
 /* Phone width: the toolbar WRAPS, it never scrolls sideways. A sideways-scrolling toolbar clipped
    every dropdown opened inside it -- the Module and Assignee menus opened with zero size at 390px
    and the board could not be filtered from a phone (maintainer test 2026-09-25). Search takes the
    first row whole; the other controls flow under it at their own width. A menu opens from its
    control's RIGHT edge and never wider than the screen, so the Module menu (the last control on
    its row) stays on screen instead of running past the right edge. */
-@media (max-width:900px){.wb .tbar{flex-wrap:wrap}.wb .tbar>*{flex:none}.wb .tbar .tsearch{flex:1 1 100%;max-width:none}.wb .tbar .menu{left:0;right:auto;max-width:calc(100vw - 32px)}}
+@media (max-width:900px){.wb .tbar{flex-wrap:wrap}.wb .tbar>*{flex:none}.wb .tbar .menu{left:0;right:auto;max-width:calc(100vw - 32px)}}
 /* touch widths: the 40px tap target lives on the search box itself, not stacked on top of its padding */
-@media (max-width:560px){.wb .tsearch{min-height:40px;padding:0 10px}.wb .tsearch input{min-height:0}
+@media (max-width:560px){
   /* every toolbar control is a 40px tap target at phone width; the avatar stack keeps its 30px face
      and grows its hit area, the day arrows and park pick grow their box */
-  .wb .datenav,.wb .parkpick{padding:0}
-  .wb .datenav a{min-width:40px;min-height:40px;display:grid;place-items:center}
-  .wb .parkpick a,.wb .sel{min-height:40px;display:inline-flex;align-items:center}
   .wb .avs>.more{position:relative}.wb .avs>.more::after{content:"";position:absolute;inset:-5px;border-radius:50%}
-  .wb .avs>.more.assignee-empty::after{content:none}
-  .wb .pgnav .more{min-height:40px;display:inline-flex;align-items:center}}
+  .wb .avs>.more.assignee-empty::after{content:none}}
 @media (max-width:640px){
   .wb .crumb{font-size:12px;margin-bottom:2px}
   .wb .tbar{display:grid;grid-template-columns:1fr 1fr;gap:7px;overflow:visible;margin-bottom:10px;padding-bottom:0}
   .wb .tbar>*{min-width:0;width:100%;flex:none}
-  .wb .tsearch{grid-column:1 / -1;width:100%;height:44px;border-radius:10px;padding:0 11px;background:color-mix(in srgb,var(--panel) 82%,transparent)}
-  .wb .tsearch input{font-size:13px}
-  .wb .tsearch input::placeholder{color:var(--fg-faint);opacity:1}
   .wb .avs-single{grid-column:1 / -1}
   .wb .avs-single .avs-trigger{height:44px;min-height:44px;border-radius:10px;padding:8px 11px;font-size:12.5px}
-  .wb .parkpick{grid-column:1 / -1;border-radius:10px;background:color-mix(in srgb,var(--panel) 70%,var(--bg));overflow:hidden}
-  .wb .parkpick a{justify-content:center;min-height:44px;padding:0 10px;border-radius:8px;font-size:12.5px}
-  .wb .datenav{grid-column:1 / -1;border-radius:10px;height:44px;background:color-mix(in srgb,var(--panel) 80%,transparent)}
-  .wb .datenav .d{justify-content:center;gap:7px;font-size:13px;min-width:0;white-space:nowrap}
-  .wb .datenav .d .ic{width:13px;height:13px}
-  .wb .datenav a{min-width:44px;min-height:44px}
-  .wb .sel{grid-column:1 / -1;height:44px;border-radius:10px;padding:0 11px;font-size:12.5px;background:color-mix(in srgb,var(--panel) 82%,transparent)}
   .wb .etag{font-size:10.5px;letter-spacing:0;border-radius:7px;padding:4px 7px}
   .wb .etag.park{margin-left:2px}
 }
 
 /* issue view (Jira issue-view shape) */
-.wb-dialog .mh .bc{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);min-width:0;overflow-wrap:anywhere}
-.wb-dialog .mh .bc .ti{width:16px;height:16px;font-size:10px}
-.wb-dialog .mh .bc b{color:var(--ink)}
-.wb-dialog .mb>*{min-width:0}
-.wb-dialog .mb h2{margin:0 0 12px;font-size:22px;letter-spacing:-.3px;overflow-wrap:anywhere}
-.wb-dialog .sec{margin-top:22px}
-.wb-dialog .sec h4{margin:0 0 8px;font-size:14px;font-weight:700}
-.wb-dialog .desc{color:var(--ink);font-size:13.5px;line-height:1.55;overflow-wrap:anywhere}
-.wb-dialog .bigprog{margin:6px 0 4px}
-.wb-dialog .cnts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
-.wb-dialog .ct{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
-.wb-dialog .ct .l{font-size:10.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--faint)}
-.wb-dialog .ct .v{font-size:22px;font-weight:800;margin-top:2px;font-variant-numeric:tabular-nums;line-height:1.1}
-.wb-dialog .ct .v small{font-size:12px;color:var(--faint);font-weight:700;margin-left:4px}
-.wb-dialog .ct .s{font-size:11.5px;color:var(--muted);margin-top:4px}
-.wb-dialog .ct.ok .v{color:var(--brand)} .wb-dialog .ct.pend .v{color:var(--info)} .wb-dialog .ct.hot{border-color:color-mix(in srgb,var(--warn) 50%,var(--line))} .wb-dialog .ct.hot .v{color:var(--warn)}
-.wb-dialog .rail .actions{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center}
-.wb-dialog .status{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:9px;font-weight:700;font-size:13px;border:1px solid var(--line)}
-.wb-dialog .status.sm{padding:3px 9px;font-size:11px}
-.wb-dialog .status.todo{background:var(--panel-2);color:var(--ink)} .wb-dialog .status.in_progress{background:var(--infox);color:var(--info);border-color:transparent} .wb-dialog .status.in_review{background:var(--warnx);color:var(--warn);border-color:transparent} .wb-dialog .status.done{background:var(--okx);color:var(--brand);border-color:transparent}
-.wb-dialog .dets{border:1px solid var(--line);border-radius:12px;overflow:hidden}
-.wb-dialog .dets .dh{display:flex;align-items:center;gap:8px;padding:12px 14px;font-weight:700;border-bottom:1px solid var(--line2)}
-.wb-dialog .dets .dh .sp{flex:1}
-.wb-dialog .dets .dh .ic{width:15px;height:15px;color:var(--faint)}
-.wb-dialog .dets .kv{display:grid;grid-template-columns:120px 1fr;gap:12px;padding:9px 14px;align-items:center;font-size:13.5px}
-.wb-dialog .dets .kv .k{color:var(--muted);font-weight:600}
-.wb-dialog .dets .kv .v{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap;overflow-wrap:anywhere}
-.wb-dialog .flag{display:grid;gap:8px;margin-top:12px;border:1px solid var(--line);border-radius:12px;padding:12px 14px}
-.wb-dialog .flag input{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:8px 10px;font:inherit;color:inherit}
-.wb-dialog .note{font-size:12px;color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:9px 12px}
 /* issue view: subtask rows (mock .items/.it/.stp/.steps) */
-.wb-dialog .items{display:flex;flex-direction:column;gap:4px}
-.wb-dialog .it{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto auto;gap:10px;align-items:center;padding:7px 10px;border:1px solid var(--line2);border-radius:8px;font-size:13px;cursor:pointer;background:transparent;color:inherit;font-family:inherit;text-align:left;width:100%}
-.wb-dialog .it.hot{background:color-mix(in srgb,var(--warn) 10%,var(--panel))}
-.wb-dialog .it .nm{min-width:0;overflow-wrap:anywhere}
-.wb-dialog .it .nm b{font-weight:650}
-.wb-dialog .it .nm .s{color:var(--muted);font-size:11.5px;margin-left:6px}
-.wb-dialog .it .who{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap;max-width:180px;min-width:0}
-.wb-dialog .it .who .n{overflow:hidden;text-overflow:ellipsis}
-.wb-dialog .it .lk{color:var(--brand);font-weight:650;font-size:12px;text-decoration:none;white-space:nowrap}
-.wb-dialog .steps{margin:2px 0 6px 24px;border-left:2px solid var(--line);padding-left:12px;display:flex;flex-direction:column;gap:3px}
-.wb-dialog .step{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:6px 10px;border:1px solid var(--line2);border-radius:7px;font-size:12.5px;background:var(--bg)}
-.wb-dialog .step .n{min-width:0;overflow-wrap:anywhere}
-.wb-dialog .step .n b{font-weight:650}
-.wb-dialog .step .n .s{color:var(--muted);font-size:11.5px;margin-left:6px}
-.wb-dialog .step .arrow{color:var(--faint);font-size:11px;margin-right:4px}
-.wb-dialog .tag{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:7px;font-size:11px;font-weight:700;white-space:nowrap}
-.wb-dialog .pager{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 2px;flex-wrap:wrap;font-size:12.5px;color:var(--muted)}
-.wb-dialog .pager b{color:var(--ink)}
-.wb-dialog .pgnav{display:flex;align-items:center;gap:10px}
-.wb-dialog .pgnav .more{font:inherit;font-size:12.5px;font-weight:700;padding:6px 10px;color:var(--brand);border:1px solid var(--line);border-radius:8px;background:var(--panel);cursor:pointer}
-.wb-dialog .pgnav .more:disabled{opacity:.4;cursor:default}
 /* issue view at phone width: 40px tap targets (placed after the base rules so they win on equal specificity) */
-@media (max-width:560px){.wb-dialog .it{min-height:40px}.wb-dialog .pgnav .more{min-height:40px}}
 /* A card's bare empty line ("No sales match this view.", "No buyers on the board yet.") had no
    rule at all, so it sat flush against the card's left border in body ink while the chart
    empties beside it were padded and muted. Zero specificity: every page-scoped .empty wins. */
@@ -2888,8 +2515,6 @@ input[type="checkbox"]:not(.lt-people-row input):not(.PrivateSwitchBase-input):d
 .ap-lightbox-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .ap-lightbox-media{max-width:100%;max-height:calc(94vh - 70px);object-fit:contain;border-radius:10px;background:#000}
 /* Animal purchases: load + recorded-on filter bar over the animal list. */
-.ap-filter-bar{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:flex-end;margin-bottom:12px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--panel-2)}
-.ap-filter{display:flex;flex-direction:column;gap:4px;min-width:0}
 /* Native date/time pickers follow the console theme. The browser paints the popup calendar from
    color-scheme, not from our CSS, so without this every calendar opened white on the dark console. */
 input[type=date],input[type=datetime-local],input[type=time],input[type=month],input[type=week]{color-scheme:dark}
@@ -2925,9 +2550,6 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
    behaviour of `.lt-grid` is left exactly as it is.
    Since the drawer (`.ltd-drawer`, further down) a SELECTED task is rendered outside this grid, so
    this only ever matches the table's no-selection placeholder now. */
-@media(min-width:1180px){
-  .lt-page .lt-grid:has(.ltd-panel){grid-template-columns:minmax(340px,1fr) minmax(0,54%)}
-}
 
 .ltd-panel{container-type:inline-size;min-width:0;border:1px solid var(--line);border-radius:14px;background:var(--panel);overflow:hidden}
 /* The mention popup inside the composer has to escape the panel's box. */
@@ -3012,7 +2634,6 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 .ltd-composer .btn[aria-busy="true"]{opacity:.7;cursor:progress}
 /* Phones see Details directly under the title and status, not at the bottom of the activity
    feed: the deadline is the urgency signal on this screen and it must not be scrolled to. */
-@container (min-width:540px){.ltd-details{order:0;position:sticky;top:12px}}
 /* The deadline chip is `deadline-clock.tsx` in its compact form; only its box is nudged to sit
    flush in a Details row. Its colour and wording stay the backend's. */
 

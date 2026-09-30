@@ -29,6 +29,9 @@ assert.match(
   "herd signals mobile table card values must wrap instead of causing page-level overflow",
 );
 
+// The `.fsel` filter shells are gone from /herd-signals (template TextField selects); their dead rules
+// were deleted by the FIXJ-CI dead-selector sweep, so no assertion pins them any more.
+
 // The tag drawer is the template temporary drawer (MinimalDrawer via DetailDrawer): full width on a
 // phone ({ xs: 1, sm: 480 }), and its control row wraps (flexWrap) instead of page-scoped CSS.
 const drawerSource = readFileSync(new URL("./herd-signals-drawer.tsx", import.meta.url), "utf8");
@@ -54,17 +57,7 @@ assert.match(
   "herd signals fullscreen chart must use a phone-sized height",
 );
 
-assert.match(
-  css,
-  /@media\(max-width:640px\)\{[\s\S]*\.herd-signals-page \.fsel\{[^}]*min-width:0[^}]*max-width:100%[^}]*width:100%[^}]*\}/,
-  "herd signals mobile filter dropdown shells must clamp to the viewport",
-);
 
-assert.match(
-  css,
-  /@media\(max-width:640px\)\{[\s\S]*\.herd-signals-page \.fsel select\{[^}]*width:100%[^}]*min-width:0[^}]*max-width:100%[^}]*text-overflow:ellipsis[^}]*\}/,
-  "herd signals mobile dropdown selected values must ellipsize instead of widening the page",
-);
 
 assert.match(
   css,

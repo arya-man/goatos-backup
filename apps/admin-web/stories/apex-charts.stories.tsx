@@ -3,7 +3,6 @@ import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
 import { GroupedColumns, type GroupedDatum, type GroupedSeries } from "@/components/grouped-columns";
 import { SvgBars, SvgStackedBars } from "@/components/svg-bars";
-import { SvgColumnBars } from "@/components/svg-column-bars";
 import { MonthlyColumnsCard, SeriesLines, SeriesPie, StackedColumns } from "@/components/svg-series";
 import { HistoryChart } from "@/features/herd-signals/herd-signals-history-chart";
 import type { HerdSignalTimelineBucket } from "@/lib/api/herd-signals";
@@ -129,18 +128,6 @@ function All() {
               { key: "md", label: "Milk drinking", total: 98, segments: [{ key: "f", label: "Female", value: 10, colorVar: "var(--info)" }, { key: "m", label: "Male", value: 88, colorVar: "var(--amber)" }] },
               { key: "doe", label: "Doe", total: 40, segments: [{ key: "f", label: "Female", value: 40, colorVar: "var(--info)" }, { key: "m", label: "Male", value: 0, colorVar: "var(--amber)" }] },
             ]}
-          />
-        </Card>
-      </StateBlock>
-      <StateBlock label="SvgColumnBars (AnalyticsWebsiteVisits): 14-day trend with comparison, a zero day">
-        <Card sx={{ p: { xs: 2, sm: 3 } }}>
-          <CardHeader sx={{ p: 0, mb: 2 }} title="Reviews per day" />
-          <SvgColumnBars
-            chartLabel="Reviews per day"
-            valueNoun="Reviewed"
-            compareNoun="Rejected"
-            emptyLabel="No reviews"
-            data={DAYS.slice(0, 14).map((d, i) => ({ key: d, label: d.split("-").reverse().join("/"), value: i === 5 ? 0 : 20 + (i % 4) * 6, compareValue: i % 3 }))}
           />
         </Card>
       </StateBlock>
