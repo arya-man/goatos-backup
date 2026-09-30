@@ -4,7 +4,7 @@ import Card from "@mui/material/Card";
 import Stack from "@mui/material/Stack";
 import Divider from "@mui/material/Divider";
 
-import { Scrollbar } from "@/components/minimal/scrollbar";
+import Box from "@mui/material/Box";
 import type { IconifyName } from "@/components/minimal/iconify";
 import { InvoiceAnalytic } from "@/components/app/sections/invoice/invoice-analytic";
 
@@ -21,13 +21,16 @@ export type DLQAnalyticCell = { key: string; title: string; total: string; price
 export function DLQAnalytics({ cells }: { cells: DLQAnalyticCell[] }) {
   return (
     <Card>
-      <Scrollbar>
+      {/* Plain overflow box, not the SimpleBar Scrollbar: this strip is re-keyed on every tab click
+          and SimpleBar is 0px tall for its first frame, which moved the tabs below 88px.
+          guard: audit-strip-no-simplebar */}
+      <Box sx={{ overflowX: "auto", overscrollBehaviorX: "contain" }}>
         <Stack direction="row" divider={<Divider orientation="vertical" flexItem sx={{ borderStyle: "dashed" }} />} sx={{ py: 2 }}>
           {cells.map((cell) => (
             <InvoiceAnalytic key={cell.key} title={cell.title} total={typeof cell.price === "number" ? cell.price : 0} caption={cell.total || undefined} value={cell.price} percent={cell.percent} icon={cell.icon} color={`${cell.color}.main`} />
           ))}
         </Stack>
-      </Scrollbar>
+      </Box>
     </Card>
   );
 }

@@ -6,8 +6,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-test("audit-strip-no-simplebar: the analytics strip never mounts the SimpleBar Scrollbar", () => {
-  const src = readFileSync(new URL("./audit-analytics.tsx", import.meta.url), "utf8");
-  assert.doesNotMatch(src, /<Scrollbar\b|components\/minimal\/scrollbar/);
-  assert.match(src, /overflowX: "auto"/);
+test("audit-strip-no-simplebar: the analytics strips above URL-keyed tabs never mount the SimpleBar Scrollbar", () => {
+  for (const rel of ["./audit-analytics.tsx", "../operations-dlq/dlq-analytics.tsx"]) {
+    const src = readFileSync(new URL(rel, import.meta.url), "utf8");
+    assert.doesNotMatch(src, /<Scrollbar\b|components\/minimal\/scrollbar/, rel);
+    assert.match(src, /overflowX: "auto"/, rel);
+  }
 });
