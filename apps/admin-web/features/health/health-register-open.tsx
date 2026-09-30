@@ -2,7 +2,10 @@
 
 import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
-import { Pencil } from "lucide-react";
+import Button from "@mui/material/Button";
+import Typography from "@mui/material/Typography";
+
+import { Iconify } from "@/components/minimal/iconify";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
@@ -50,9 +53,11 @@ export function OpenRegisterDraftButton({
 
   return (
     <>
-      <button
+      <Button
         type="button"
-        className="btn ghost"
+        variant="outlined"
+        color="inherit"
+        startIcon={<Iconify icon="solar:pen-bold" aria-hidden="true" />}
         disabled={disabled}
         title={title}
         onClick={() =>
@@ -69,12 +74,12 @@ export function OpenRegisterDraftButton({
           })
         }
       >
-        <Pencil className="ic" aria-hidden="true" /> {copy(pageContract, "action.edit_register")}
-      </button>
+        {copy(pageContract, "action.edit_register")}
+      </Button>
       {error ? (
-        <div className="small" style={{ color: "var(--danger)" }}>
+        <Typography variant="body2" component="div" sx={{ color: "error.main" }}>
           {error}
-        </div>
+        </Typography>
       ) : null}
     </>
   );

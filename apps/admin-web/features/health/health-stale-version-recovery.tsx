@@ -4,6 +4,7 @@ import { useEffect } from "react";
 
 import { replaceLocalOverlayUrl } from "@/components/local-overlay-link";
 import Alert from "@mui/material/Alert";
+import Link from "@mui/material/Link";
 
 /**
  * The recovery half of a dead ?hc_version= / ?hc_register=.
@@ -52,11 +53,11 @@ export function StaleVersionNotice({
   listHref: string;
 }) {
   return (
-    <Alert severity="error" style={{ marginBottom: 16 }}><div>
+    <Alert severity="error" sx={{ mb: 2 }}><div>
         {message}{" "}
-        <a href={listHref} style={{ textDecoration: "underline", whiteSpace: "nowrap" }}>
+        <Link href={listHref} color="inherit" underline="always" sx={{ whiteSpace: "nowrap" }}>
           {linkLabel}
-        </a>
+        </Link>
       </div>
       <StaleVersionRecovery listHref={listHref} />
     </Alert>

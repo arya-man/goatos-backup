@@ -1,5 +1,9 @@
 "use client";
 
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
+import type { SxProps, Theme } from "@mui/material/styles";
+
 import { DataTable, columnsFromContract } from "@/components/data-table";
 import { Tag } from "@/components/ui-primitives";
 import type { AdminUiTableContract } from "@/lib/admin-ui-contract";
@@ -11,6 +15,30 @@ import type { AdminUiTableContract } from "@/lib/admin-ui-contract";
  * Rows arrive RESOLVED from the server component: figures are numbers so the table can sort
  * them, and every piece of copy is backend text handed down. Nothing below composes a sentence.
  */
+
+/**
+ * The table region: the DataTable already scrolls in the template Scrollbar, so this only names the
+ * region and gives the wide table its floor (was `.health-analytics-scroll` / `.health-analytics-table`
+ * in mesha-theme.css): one line per cell, the lead and attribution columns wrap.
+ */
+const TABLE_REGION_SX: SxProps<Theme> = {
+  minWidth: 0,
+  maxWidth: 1,
+  "& table": { width: 1, minWidth: { xs: 680, sm: 760 } },
+  "& th, & td": { whiteSpace: "nowrap", verticalAlign: "top" },
+  "& td:first-of-type, & td:nth-of-type(5)": { whiteSpace: "normal", overflowWrap: "anywhere" },
+};
+
+/** Machine keys (disease / rule codes) in the template monospace caption. */
+const MONO_SX = { fontFamily: "monospace" } as const;
+
+function TableRegion({ ariaLabel, children }: { ariaLabel: string; children: React.ReactNode }) {
+  return (
+    <Box tabIndex={0} role="region" aria-label={ariaLabel} sx={TABLE_REGION_SX}>
+      {children}
+    </Box>
+  );
+}
 
 const nf = (value: number) => value.toLocaleString("en-IN");
 const pct = (value: number) => `${value.toLocaleString("en-IN", { maximumFractionDigits: 1 })}%`;
@@ -41,8 +69,8 @@ export function DiseaseBoardTable({
     disease: {
       cell: (row) => (
         <div>
-          <b>{row.label}</b>
-          <div className="muted small mono">{row.key}</div>
+          <Typography variant="subtitle2" component="div">{row.label}</Typography>
+          <Typography variant="caption" component="div" sx={{ ...MONO_SX, color: "text.secondary" }}>{row.key}</Typography>
         </div>
       ),
       sortValue: (row) => row.label,
@@ -66,16 +94,15 @@ export function DiseaseBoardTable({
   });
 
   return (
-    <div className="health-analytics-scroll" tabIndex={0} role="region" aria-label={ariaLabel}>
+    <TableRegion ariaLabel={ariaLabel}>
       <DataTable
         columns={columns}
         data={rows}
         getRowId={(row) => row.key}
         ariaLabel={ariaLabel}
-        className="health-analytics-table"
         empty={empty}
       />
-    </div>
+    </TableRegion>
   );
 }
 
@@ -117,13 +144,13 @@ export function DeathsTable({
     animal: {
       cell: (row) => (
         <div>
-          <span className="mono">{row.animalLabel}</span>
-          <div className="muted small">{row.displayId}</div>
+          <Typography variant="body2" component="span" sx={MONO_SX}>{row.animalLabel}</Typography>
+          <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{row.displayId}</Typography>
         </div>
       ),
       sortValue: (row) => row.animalLabel,
     },
-    pen: { cell: (row) => row.pen || <span className="muted">{noDataLabel}</span>, sortValue: (row) => row.pen },
+    pen: { cell: (row) => row.pen || <Typography variant="body2" component="span" sx={{ color: "text.secondary" }}>{noDataLabel}</Typography>, sortValue: (row) => row.pen },
     // Sorted on the ISO value, never the rendered DD-MM-YYYY, which orders by day-of-month.
     date: { cell: (row) => row.date, sortValue: (row) => row.sortDate },
     age_band: { cell: (row) => row.ageBandLabel, sortValue: (row) => row.ageBandLabel },
@@ -138,7 +165,7 @@ export function DeathsTable({
                 causation, and the reader is owed the difference. */}
             <Tag tone={row.causeRecorded ? "teal" : "mut"}>{row.diseaseLabel}</Tag>
             {row.causeRecorded ? null : (
-              <div className="muted small">{inferredLabel}</div>
+              <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{inferredLabel}</Typography>
             )}
           </div>
         ) : (
@@ -147,23 +174,22 @@ export function DeathsTable({
       sortValue: (row) => (row.attributed ? row.diseaseLabel : row.attributionLabel),
     },
     days_treated: {
-      cell: (row) => (row.daysUnderTreatment === null ? <span className="muted">—</span> : nf(row.daysUnderTreatment)),
+      cell: (row) => (row.daysUnderTreatment === null ? <Typography variant="body2" component="span" sx={{ color: "text.secondary" }}>—</Typography> : nf(row.daysUnderTreatment)),
       meta: { align: "right" },
       sortValue: (row) => row.daysUnderTreatment ?? undefined,
     },
   });
 
   return (
-    <div className="health-analytics-scroll" tabIndex={0} role="region" aria-label={ariaLabel}>
+    <TableRegion ariaLabel={ariaLabel}>
       <DataTable
         columns={columns}
         data={rows}
         getRowId={(row) => row.goatId}
         ariaLabel={ariaLabel}
-        className="health-analytics-table"
         empty={empty}
       />
-    </div>
+    </TableRegion>
   );
 }
 
@@ -187,23 +213,22 @@ export function MedicinesTable({
   empty: React.ReactNode;
 }) {
   const columns = columnsFromContract<MedicineRow>(contract, {
-    medicine: { cell: (row) => <b>{row.name}</b>, sortValue: (row) => row.name },
+    medicine: { cell: (row) => <Typography variant="subtitle2" component="span">{row.name}</Typography>, sortValue: (row) => row.name },
     route: { cell: (row) => row.route, sortValue: (row) => row.route },
     doses: { cell: (row) => nf(row.doses), meta: { align: "right" }, sortValue: (row) => row.doses },
     animals: { cell: (row) => nf(row.animals), meta: { align: "right" }, sortValue: (row) => row.animals },
   });
 
   return (
-    <div className="health-analytics-scroll" tabIndex={0} role="region" aria-label={ariaLabel}>
+    <TableRegion ariaLabel={ariaLabel}>
       <DataTable
         columns={columns}
         data={rows}
         getRowId={(row) => row.key}
         ariaLabel={ariaLabel}
-        className="health-analytics-table"
         empty={empty}
       />
-    </div>
+    </TableRegion>
   );
 }
 
@@ -226,7 +251,7 @@ export function EngineRulesTable({
   empty: React.ReactNode;
 }) {
   const columns = columnsFromContract<EngineRuleRow>(contract, {
-    rule: { cell: (row) => <span className="mono">{row.key}</span>, sortValue: (row) => row.key },
+    rule: { cell: (row) => <Typography variant="body2" component="span" sx={MONO_SX}>{row.key}</Typography>, sortValue: (row) => row.key },
     proposed: { cell: (row) => nf(row.proposed), meta: { align: "right" }, sortValue: (row) => row.proposed },
     opened: { cell: (row) => nf(row.opened), meta: { align: "right" }, sortValue: (row) => row.opened },
     not_taken_up: {
@@ -241,15 +266,14 @@ export function EngineRulesTable({
   });
 
   return (
-    <div className="health-analytics-scroll" tabIndex={0} role="region" aria-label={ariaLabel}>
+    <TableRegion ariaLabel={ariaLabel}>
       <DataTable
         columns={columns}
         data={rows}
         getRowId={(row) => row.key}
         ariaLabel={ariaLabel}
-        className="health-analytics-table"
         empty={empty}
       />
-    </div>
+    </TableRegion>
   );
 }

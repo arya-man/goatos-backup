@@ -1,12 +1,11 @@
 import { redirect } from "next/navigation";
 
-import { ClipboardCheck, HeartPulse } from "lucide-react";
-
 import type { DateRangePickerLabels } from "@/components/date-range-picker";
 import { SegmentedLinks } from "@/components/segmented-links";
 import { SvgBars, type SvgBarDatum } from "@/components/svg-bars";
 import { WindowDateFilter } from "@/components/window-date-filter";
 import { TrendChart } from "@/components/app/trend-chart";
+import { Iconify } from "@/components/minimal/iconify";
 import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
 import type { KitTone } from "@/lib/tone";
@@ -415,7 +414,7 @@ export async function HealthAnalyticsPage({
         title={pageContract.title}
         crumbs={[{ label: copy(pageContract, "crumb", "Health") }, { label: pageContract.title }]}
         actions={
-          <LinkButton href="/health/config" variant="contained" color="primary" startIcon={<ClipboardCheck className="ic" aria-hidden="true" />}>
+          <LinkButton href="/health/config" variant="contained" color="primary" startIcon={<Iconify icon="solar:file-check-bold-duotone" aria-hidden="true" />}>
             {copy(pageContract, "action.manage_protocols", "Health config")}
           </LinkButton>
         }
@@ -463,7 +462,7 @@ export async function HealthAnalyticsPage({
       </Stack>
 
       {nothingRecorded ? (
-        <EmptyState icon={<HeartPulse className="ic" />} title={ha(pageContract, "empty.title")} />
+        <EmptyState title={ha(pageContract, "empty.title")} />
       ) : null}
 
       <UrlSuspense searchParams={sp} watch={WINDOW_WATCH} fallback={<HealthKpiSkeleton />}>

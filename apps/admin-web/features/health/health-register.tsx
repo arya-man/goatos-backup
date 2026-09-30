@@ -1,6 +1,9 @@
 import Table from "@mui/material/Table";
 import { InfoTip } from "@/components/app/info-tip";
-import TableHead from "@mui/material/TableHead";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
@@ -21,6 +24,8 @@ import { RegisterSheetControls, RegisterSheetHeaderControls } from "./health-reg
 import { Tag } from "@/components/ui-primitives";
 import { OpenRegisterDraftButton } from "./health-register-open";
 import Alert from "@mui/material/Alert";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { TableHeadCustom } from "@/components/app/table";
 
 // Health Config -> Diagnosis. The other half of the rulebook: the questions asked about a sick
 // animal, the findings each answer produces, and the illnesses those findings point to.
@@ -93,11 +98,11 @@ function SectionError({
 }) {
   if (!result || result.ok) return null;
   return (
-    <Alert severity="error" style={{ marginBottom: 16 }}><div>
-        <b>{copy(pageContract, "action.error_backend")}</b>
-        <div className="small muted">
+    <Alert severity="error" sx={{ mb: 2 }}><div>
+        <Typography variant="subtitle2" component="div">{copy(pageContract, "action.error_backend")}</Typography>
+        <Typography variant="body2" component="div" sx={{ color: "text.secondary" }}>
           {result.error.code ?? result.error.kind}&nbsp;{result.error.message}
-        </div>
+        </Typography>
       </div>
     </Alert>
   );
@@ -163,46 +168,43 @@ export async function HealthRegisterSection({
         />
       ) : null}
       <SectionError result={listResult} pageContract={pageContract} />
-      <section className="card" style={{ marginBottom: 16 }}>
-        <div className="hd">
-          <h3>{copy(pageContract, "section.registers.title")}</h3>
-          <InfoTip title={copy(pageContract, "note.how_it_works")} />
-          <span className="small muted">{copy(pageContract, "section.registers.caption")}</span>
-          <div className="sp" style={{ flex: 1 }} />
-          {/* The template is one file for every type, and what an upload does is one fact, so
-              both live here rather than repeating down the table. */}
-          <RegisterSheetHeaderControls pageContract={pageContract} />
-        </div>
+      <Card component="section" sx={{ mb: 2 }}>
+        <CardHeader
+          title={
+            <Stack direction="row" spacing={0.5} sx={{ alignItems: "center", flexWrap: "wrap" }}>
+              <span>{copy(pageContract, "section.registers.title")}</span>
+              <InfoTip title={copy(pageContract, "note.how_it_works")} />
+            </Stack>
+          }
+          subheader={copy(pageContract, "section.registers.caption")}
+          // The template is one file for every type, and what an upload does is one fact, so both
+          // live here rather than repeating down the table.
+          action={<RegisterSheetHeaderControls pageContract={pageContract} />}
+          sx={{ mb: 1, flexWrap: "wrap", gap: 1 }}
+        />
         <Caption>{copy(pageContract, "section.registers.note")}</Caption>
-        <div
-          className="bd health-scroll"
-          style={{ padding: 0, overflowX: "auto" }}
-          tabIndex={0}
-          role="group"
-          aria-label={copy(pageContract, "section.registers.aria")}
-        >
-          <Table className="feed-table" aria-label={copy(pageContract, "section.registers.aria")}>
-            <TableHead>
-              <TableRow>
-                {cols.map((col) => (
-                  <TableCell component="th" key={col}>{col}</TableCell>
-                ))}
-                <TableCell component="th">{copy(pageContract, "action.edit_register")}</TableCell>
-                <TableCell component="th">{copy(pageContract, "action.download_sheet")}</TableCell>
-              </TableRow>
-            </TableHead>
+        <Scrollbar tabIndex={0} role="group" aria-label={copy(pageContract, "section.registers.aria")}>
+          <Table aria-label={copy(pageContract, "section.registers.aria")} sx={{ minWidth: 720 }}>
+            <TableHeadCustom
+              headCells={[
+                ...cols.map((col, index) => ({ id: `c${index}`, label: col })),
+                { id: "edit", label: copy(pageContract, "action.edit_register") },
+                { id: "sheet", label: copy(pageContract, "action.download_sheet") },
+              ]}
+            />
             <TableBody>
               {rows.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={cols.length + 2}>
-                    <div
-                      className="muted small"
-                      style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}
+                    <Typography
+                      variant="body2"
+                      component="div"
+                      sx={{ color: "text.secondary", py: 2, px: 0.5, textAlign: "center" }}
                     >
                       {listResult?.ok
                         ? copy(pageContract, "empty.registers")
                         : copy(pageContract, "action.error_backend")}
-                    </div>
+                    </Typography>
                   </TableCell>
                 </TableRow>
               ) : (
@@ -214,7 +216,7 @@ export async function HealthRegisterSection({
                   return (
                     <TableRow key={row.animalClass}>
                       <TableCell>{className(row.animalClass, pageContract, row.typeLabel)}</TableCell>
-                      <TableCell className="muted">{shown?.register_label ?? ""}</TableCell>
+                      <TableCell sx={{ color: "text.secondary" }}>{shown?.register_label ?? ""}</TableCell>
                       <TableCell>
                         {row.live ? (
                           <Tag tone="ok">{copy(pageContract, "label.register_live")}</Tag>
@@ -228,9 +230,9 @@ export async function HealthRegisterSection({
                           </>
                         ) : null}
                       </TableCell>
-                      <TableCell style={{ fontVariantNumeric: "tabular-nums" }}>{shown?.question_count ?? 0}</TableCell>
-                      <TableCell style={{ fontVariantNumeric: "tabular-nums" }}>{shown?.rule_count ?? 0}</TableCell>
-                      <TableCell className="muted">
+                      <TableCell sx={{ fontVariantNumeric: "tabular-nums" }}>{shown?.question_count ?? 0}</TableCell>
+                      <TableCell sx={{ fontVariantNumeric: "tabular-nums" }}>{shown?.rule_count ?? 0}</TableCell>
+                      <TableCell sx={{ color: "text.secondary" }}>
                         {row.live?.published_at ? row.live.published_at.slice(0, 10) : ""}
                       </TableCell>
                       <TableCell>
@@ -266,8 +268,8 @@ export async function HealthRegisterSection({
               )}
             </TableBody>
           </Table>
-        </div>
-      </section>
+        </Scrollbar>
+      </Card>
     </>
   );
 }

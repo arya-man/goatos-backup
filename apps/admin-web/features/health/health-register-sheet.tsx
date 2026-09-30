@@ -2,7 +2,12 @@
 
 import { useRef, useState } from "react";
 import { InfoTip } from "@/components/app/info-tip";
-import { Download, Upload } from "lucide-react";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
+
+import { Iconify } from "@/components/minimal/iconify";
 
 import { copy, optionalCopy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
@@ -118,51 +123,69 @@ export function RegisterSheetControls({
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-        <a className="btn ghost" href={href("export", "xlsx")} aria-label={`${copy(pageContract, "action.download_sheet")} — ${typeLabel}`}>
-          <Download className="ic" aria-hidden="true" /> {copy(pageContract, "action.download_sheet")}
-        </a>
-        <a className="btn ghost" href={href("export", "json")} aria-label={`${copy(pageContract, "action.download_json")} — ${typeLabel}`}>
-          <Download className="ic" aria-hidden="true" /> {copy(pageContract, "action.download_json")}
-        </a>
-        <button
+    <Stack spacing={0.75}>
+      <Stack direction="row" spacing={0.75} useFlexGap sx={{ alignItems: "center", flexWrap: "wrap" }}>
+        <Button
+          component="a"
+          variant="outlined"
+          color="inherit"
+          size="small"
+          href={href("export", "xlsx")}
+          aria-label={`${copy(pageContract, "action.download_sheet")} — ${typeLabel}`}
+          startIcon={<Iconify icon="solar:download-bold" aria-hidden="true" />}
+        >
+          {copy(pageContract, "action.download_sheet")}
+        </Button>
+        <Button
+          component="a"
+          variant="outlined"
+          color="inherit"
+          size="small"
+          href={href("export", "json")}
+          aria-label={`${copy(pageContract, "action.download_json")} — ${typeLabel}`}
+          startIcon={<Iconify icon="solar:download-bold" aria-hidden="true" />}
+        >
+          {copy(pageContract, "action.download_json")}
+        </Button>
+        <Button
           type="button"
-          className="btn ghost"
+          variant="outlined"
+          color="inherit"
+          size="small"
           disabled={!mayWrite || busy}
           title={!mayWrite ? disabledReason : ""}
           onClick={() => fileInput.current?.click()}
+          startIcon={<Iconify icon="solar:import-bold" aria-hidden="true" />}
         >
-          <Upload className="ic" aria-hidden="true" /> {copy(pageContract, "action.upload_sheet")}
-        </button>
-        <input
-          ref={fileInput}
-          type="file"
-          accept=".csv,.xlsx,.json"
-          style={{ display: "none" }}
+          {copy(pageContract, "action.upload_sheet")}
+        </Button>
+        <input type="file" ref={fileInput} accept=".csv,.xlsx,.json" hidden
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) void upload(f);
           }}
         />
-      </div>
+      </Stack>
       {note ? (
-        <div className="small" style={{ color: "var(--ok, var(--accent))" }}>{note}</div>
+        <Typography variant="body2" component="div" sx={{ color: "success.main" }}>{note}</Typography>
       ) : null}
       {problems.length > 0 ? (
-        <ul className="small muted" style={{ margin: "2px 0 0 16px", lineHeight: 1.6, maxWidth: 620 }}>
+        <Box
+          component="ul"
+          sx={{ typography: "body2", color: "text.secondary", mt: 0.25, mb: 0, ml: 2, pl: 0, maxWidth: 620 }}
+        >
           {problems.slice(0, 12).map((p, i) => (
-            <li key={i} style={p.fatal === false ? undefined : { color: "var(--danger)" }}>
+            <Box component="li" key={i} sx={p.fatal === false ? undefined : { color: "error.main" }}>
               {p.path ? `${p.path}: ` : ""}
               {p.message}
-            </li>
+            </Box>
           ))}
           {problems.length > 12 ? (
             <li>{`+${problems.length - 12}`}</li>
           ) : null}
-        </ul>
+        </Box>
       ) : null}
-    </div>
+    </Stack>
   );
 }
 
@@ -180,13 +203,20 @@ export function RegisterSheetControls({
  */
 export function RegisterSheetHeaderControls({ pageContract }: { pageContract: AdminUiPageContract }) {
   return (
-    <span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
-      <a className="btn ghost" href={registerSheetHref(TEMPLATE_CLASS_PLACEHOLDER, "template", "xlsx")}>
-        <Download className="ic" aria-hidden="true" /> {copy(pageContract, "action.download_template")}
-      </a>
+    <Stack component="span" direction="row" spacing={1} sx={{ display: "inline-flex", alignItems: "center" }}>
+      <Button
+        component="a"
+        variant="outlined"
+        color="inherit"
+        size="small"
+        href={registerSheetHref(TEMPLATE_CLASS_PLACEHOLDER, "template", "xlsx")}
+        startIcon={<Iconify icon="solar:download-bold" aria-hidden="true" />}
+      >
+        {copy(pageContract, "action.download_template")}
+      </Button>
       {/* Opens LEFTWARD: this "i" sits at the right end of the card header, and `.card` clips
           its overflow, so a rightward panel was cut off mid-sentence. */}
       <InfoTip title={optionalCopy(pageContract, "note.sheet_writes_a_draft") ?? ""} />
-    </span>
+    </Stack>
   );
 }
