@@ -12,7 +12,7 @@ test("health-config tables scroll inside their own template TableContainer", () 
   // Template table anatomy: MUI TableContainer (overflow-x auto) owns the sideways scroll, so a
   // wide protocol table never scrolls the page on a phone.
   const src = read("./health/health-config.tsx");
-  const wrappers = src.match(/<TableContainer[\s\S]{0,200}?<Table sx=\{\{ minWidth: \d+ \}\}/g) ?? [];
+  const wrappers = src.match(/<TableContainer[\s\S]{0,200}?<Table sx=\{\{ minWidth: \d+(?:, \.\.\.STICKY_FIRST_COLUMN_SX)? \}\}/g) ?? [];
   assert.equal(wrappers.length, 2);
 });
 

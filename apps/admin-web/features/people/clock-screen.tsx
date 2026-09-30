@@ -33,7 +33,7 @@ import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { PaletteColorKey } from "@/theme/core";
 import { ClockEntryDrawer } from "./clock-entry-drawer";
-import { ThemedDatePicker } from "@/components/themed-date-picker";
+import { FormDateField } from "@/components/app/form-date-field";
 
 const PAGE_SIZE = 25;
 
@@ -171,8 +171,10 @@ export async function ClockScreen({
         >
           <input type="hidden" name="tab" value="clock" />
           {bucket ? <input type="hidden" name="bucket" value={bucket} /> : null}
-          <Box sx={{ flexShrink: 0 }}>
-            <ThemedDatePicker
+          {/* The template date field (floating label, DD/MM/YYYY) beside the other TextFields, not a
+              cramped summary button ("Date📅", J2 P2-11; guard: clock-date-field). */}
+          <Box sx={{ flexShrink: 0, width: { xs: 1, md: 200 } }}>
+            <FormDateField
               name="date"
               label={copy(pageContract, "clock.filter.date")}
               defaultValue={date}
