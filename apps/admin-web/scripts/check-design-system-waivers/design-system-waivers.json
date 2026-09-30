@@ -79,8 +79,6 @@
     "legacy-table-paint|app/frame.css|.card>.twrap th:first-child",
     "legacy-table-paint|app/frame.css|.feed-scroll td:first-child",
     "legacy-table-paint|app/frame.css|.feed-scroll th:first-child",
-    "legacy-table-paint|app/frame.css|.health-scroll td:first-child",
-    "legacy-table-paint|app/frame.css|.health-scroll th:first-child",
     "legacy-table-paint|app/frame.css|.kit-tablecard .tablewrap tbody tr:hover>td:first-child",
     "legacy-table-paint|app/frame.css|.kit-tablecard .tablewrap td:first-child",
     "legacy-table-paint|app/frame.css|.kit-tablecard .tablewrap th:first-child",
@@ -175,8 +173,6 @@
     "legacy-table-paint|app/frame.css|.card>.twrap th:first-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/frame.css|.feed-scroll td:first-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/frame.css|.feed-scroll th:first-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
-    "legacy-table-paint|app/frame.css|.health-scroll td:first-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
-    "legacy-table-paint|app/frame.css|.health-scroll th:first-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/frame.css|.kit-tablecard .tablewrap tbody tr:hover>td:first-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/frame.css|.kit-tablecard .tablewrap td:first-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
     "legacy-table-paint|app/frame.css|.kit-tablecard .tablewrap th:first-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts",
@@ -333,10 +329,6 @@
     },
     "raw-button|features/goat-passport/index.tsx": {
       "allowed": 1,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
-    },
-    "raw-button|features/health/health-register-editor.tsx": {
-      "allowed": 4,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
     },
     "raw-button|features/leadership-tasks/task-activity-composer.tsx": {
@@ -781,10 +773,6 @@
     },
     "raw-input|features/counts/herd-filters-modal-client.tsx": {
       "allowed": 1,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
-    },
-    "raw-input|features/health/health-register-editor.tsx": {
-      "allowed": 8,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
     },
     "raw-input|features/leadership-tasks/edit-task-modal.tsx": {
@@ -1255,10 +1243,6 @@
       "allowed": 7,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
     },
-    "raw-px|features/health/health-register-editor.tsx": {
-      "allowed": 29,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
-    },
     "raw-px|features/herd-signals/herd-signals-history-fullscreen.tsx": {
       "allowed": 1,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
@@ -1669,14 +1653,6 @@
     },
     "raw-radius|features/counts/herd-actions.css": {
       "allowed": 2,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
-    },
-    "raw-radius|features/health/health-config-editor.tsx": {
-      "allowed": 1,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
-    },
-    "raw-radius|features/health/health-register-editor.tsx": {
-      "allowed": 1,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
     },
     "raw-radius|features/leadership-tasks/leadership-tasks-kit.css": {

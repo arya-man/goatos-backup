@@ -2,7 +2,23 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useRef, useState, useTransition } from "react";
-import { AlertTriangle, Plus, Trash2, X } from "lucide-react";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Card from "@mui/material/Card";
+import CardContent from "@mui/material/CardContent";
+import CardHeader from "@mui/material/CardHeader";
+import Chip from "@mui/material/Chip";
+import IconButton from "@mui/material/IconButton";
+import ListSubheader from "@mui/material/ListSubheader";
+import MenuItem from "@mui/material/MenuItem";
+import Stack from "@mui/material/Stack";
+import Tab from "@mui/material/Tab";
+import Tabs from "@mui/material/Tabs";
+import TextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
+
+import { Iconify } from "@/components/minimal/iconify";
+import { Label } from "@/components/minimal/label";
 
 import { copy, optionalCopy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { Caption } from "@/components/app/caption";
@@ -90,6 +106,56 @@ function errorsFor(errors: HealthConfigFieldError[] | undefined, prefix: string)
   if (!errors) return [];
   return errors.filter((e) => e.field === prefix || e.field.startsWith(`${prefix}.`));
 }
+
+/** Secondary caption line (was `.small.muted`). */
+function Muted({ children, sx }: { children: React.ReactNode; sx?: object }) {
+  return (
+    <Typography variant="body2" component="span" sx={{ color: "text.secondary", ...sx }}>
+      {children}
+    </Typography>
+  );
+}
+
+/** An in-card empty line (was `.muted.small` with inline padding). */
+function EmptyLine({ children }: { children: React.ReactNode }) {
+  return (
+    <Typography variant="body2" component="div" sx={{ color: "text.secondary", py: 2, px: 0.5, textAlign: "center" }}>
+      {children}
+    </Typography>
+  );
+}
+
+/** The template "add a row" action under a list. */
+function AddButton({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+  return (
+    <Button
+      type="button"
+      variant="outlined"
+      color="inherit"
+      size="small"
+      startIcon={<Iconify icon="mingcute:add-line" aria-hidden="true" />}
+      onClick={onClick}
+      sx={{ alignSelf: "flex-start" }}
+    >
+      {children}
+    </Button>
+  );
+}
+
+/** Remove one row: a template IconButton with the trash icon, named by its aria-label. */
+function RemoveButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <IconButton type="button" aria-label={label} title={label} onClick={onClick} sx={{ color: "error.main" }}>
+      <Iconify icon="solar:trash-bin-trash-bold" aria-hidden="true" />
+    </IconButton>
+  );
+}
+
+/** A nested block inside a card (question / illness / answer): divider border, template radius. */
+const BLOCK_SX = { border: 1, borderColor: "divider", borderRadius: "var(--r-lg)" } as const;
+
+/** A labelled TextField that keeps the old `.fld` flex basis on its row. */
+const fieldSx = (flex: string) => ({ flex, minWidth: 0 });
 
 export function RegisterEditor({
   detail,
@@ -193,7 +259,7 @@ export function RegisterEditor({
       <ResultBand result={result} pageContract={pageContract} />
 
       {!mayWrite ? (
-        <Alert severity="error" style={{ marginBottom: 16 }}><div>{disabledReason}</div>
+        <Alert severity="error" sx={{ mb: 2 }}><div>{disabledReason}</div>
         </Alert>
       ) : null}
 
@@ -204,142 +270,144 @@ export function RegisterEditor({
         note={optionalCopy(pageContract, "note.register_warnings")}
       />
 
-      <div className="wftoolbar" style={{ gap: 8, marginBottom: 12 }}>
-        <button
-          type="button"
-          className={open === "questions" ? "btn" : "btn ghost"}
-          onClick={() => setOpen("questions")}
-        >
-          {copy(pageContract, "section.questions.title")} ({doc.questions.length})
-        </button>
-        <button
-          type="button"
-          className={open === "rules" ? "btn" : "btn ghost"}
-          onClick={() => setOpen("rules")}
-        >
-          {copy(pageContract, "section.rules.title")} ({doc.rules.length})
-        </button>
-        <div className="sp" style={{ flex: 1 }} />
-        <button type="button" className="btn" onClick={onSave} disabled={!editable || pending}>
+      <Stack
+        direction="row"
+        spacing={1}
+        useFlexGap
+        sx={{ alignItems: "center", flexWrap: "wrap", mb: 1.5 }}
+      >
+        {/* Client-state section switch (template Tabs + Label counts); not a URL tab. */}
+        <Tabs value={open} onChange={(_, next: SectionKey) => setOpen(next)} sx={{ minWidth: 0 }}>
+          <Tab
+            value="questions"
+            label={copy(pageContract, "section.questions.title")}
+            iconPosition="end"
+            icon={<Label variant={open === "questions" ? "filled" : "soft"}>{doc.questions.length}</Label>}
+          />
+          <Tab
+            value="rules"
+            label={copy(pageContract, "section.rules.title")}
+            iconPosition="end"
+            icon={<Label variant={open === "rules" ? "filled" : "soft"}>{doc.rules.length}</Label>}
+          />
+        </Tabs>
+        <Box sx={{ flex: 1 }} />
+        <Button type="button" variant="soft" color="primary" onClick={onSave} disabled={!editable || pending}>
           {copy(pageContract, "action.save_draft")}
-        </button>
-        <button type="button" className="btn primary" onClick={onPublish} disabled={!editable || pending}>
+        </Button>
+        <Button type="button" variant="contained" color="primary" onClick={onPublish} disabled={!editable || pending}>
           {copy(pageContract, "action.publish_register")}
-        </button>
-        <button type="button" className="btn ghost" onClick={onDiscard} disabled={!editable || pending}>
+        </Button>
+        <Button type="button" variant="outlined" color="inherit" onClick={onDiscard} disabled={!editable || pending}>
           {copy(pageContract, "action.discard_register_draft")}
-        </button>
-      </div>
+        </Button>
+      </Stack>
 
       {open === "questions" ? (
-        <section className="card" style={{ marginBottom: 16 }}>
-          <div className="hd">
-            <h3>{copy(pageContract, "section.questions.title")}</h3>
-            <span className="small muted">{copy(pageContract, "section.questions.caption")}</span>
-          </div>
+        <Card component="section" sx={{ mb: 2 }}>
+          <CardHeader
+            title={copy(pageContract, "section.questions.title")}
+            subheader={copy(pageContract, "section.questions.caption")}
+          />
           <Caption>{copy(pageContract, "note.questions_how")}</Caption>
-          <div className="bd" style={{ display: "grid", gap: 12 }}>
-            {doc.questions.length === 0 ? (
-              <div className="muted small" style={{ padding: "18px 4px", textAlign: "center" }}>
-                {copy(pageContract, "empty.questions")}
-              </div>
-            ) : (
-              doc.questions.map((q, i) => (
-                <QuestionRow
-                  key={`${q.id}-${i}`}
-                  question={q}
-                  index={i}
-                  editable={editable}
-                  pageContract={pageContract}
-                  signIndex={index}
-                  errors={errorsFor(fieldErrors, `questions.${i}`)}
-                  onChange={(patch) => patchQuestion(i, patch)}
-                  onAddToIllness={(token, ruleId) =>
+          <CardContent>
+            <Stack spacing={1.5}>
+              {doc.questions.length === 0 ? (
+                <EmptyLine>{copy(pageContract, "empty.questions")}</EmptyLine>
+              ) : (
+                doc.questions.map((q, i) => (
+                  <QuestionRow
+                    key={`${q.id}-${i}`}
+                    question={q}
+                    index={i}
+                    editable={editable}
+                    pageContract={pageContract}
+                    signIndex={index}
+                    errors={errorsFor(fieldErrors, `questions.${i}`)}
+                    onChange={(patch) => patchQuestion(i, patch)}
+                    onAddToIllness={(token, ruleId) =>
+                      setDoc((d) => ({
+                        ...d,
+                        rules: d.rules.map((r) =>
+                          r.id === ruleId ? withSignAdded(r, "probable", token) : r,
+                        ),
+                      }))
+                    }
+                    illnesses={doc.rules.map((r) => r.id).filter(Boolean)}
+                    onRemove={() =>
+                      setDoc((d) => ({ ...d, questions: d.questions.filter((_, k) => k !== i) }))
+                    }
+                  />
+                ))
+              )}
+              {editable ? (
+                <AddButton
+                  onClick={() =>
                     setDoc((d) => ({
                       ...d,
-                      rules: d.rules.map((r) =>
-                        r.id === ruleId ? withSignAdded(r, "probable", token) : r,
-                      ),
+                      questions: [
+                        ...d.questions,
+                        {
+                          id: "",
+                          kind: "choice",
+                          title: "",
+                          options: [
+                            { value: "no", label: copy(pageContract, "label.answer_no") },
+                            { value: "yes", label: copy(pageContract, "label.answer_yes"), emits: [] },
+                          ],
+                        },
+                      ],
                     }))
                   }
-                  illnesses={doc.rules.map((r) => r.id).filter(Boolean)}
-                  onRemove={() =>
-                    setDoc((d) => ({ ...d, questions: d.questions.filter((_, k) => k !== i) }))
-                  }
-                />
-              ))
-            )}
-            {editable ? (
-              <button
-                type="button"
-                className="btn ghost"
-                onClick={() =>
-                  setDoc((d) => ({
-                    ...d,
-                    questions: [
-                      ...d.questions,
-                      {
-                        id: "",
-                        kind: "choice",
-                        title: "",
-                        options: [
-                          { value: "no", label: copy(pageContract, "label.answer_no") },
-                          { value: "yes", label: copy(pageContract, "label.answer_yes"), emits: [] },
-                        ],
-                      },
-                    ],
-                  }))
-                }
-              >
-                <Plus className="ic" aria-hidden="true" /> {copy(pageContract, "action.add_question")}
-              </button>
-            ) : null}
-          </div>
-        </section>
+                >
+                  {copy(pageContract, "action.add_question")}
+                </AddButton>
+              ) : null}
+            </Stack>
+          </CardContent>
+        </Card>
       ) : (
-        <section className="card" style={{ marginBottom: 16 }}>
-          <div className="hd">
-            <h3>{copy(pageContract, "section.rules.title")}</h3>
-            <span className="small muted">{copy(pageContract, "section.rules.caption")}</span>
-          </div>
+        <Card component="section" sx={{ mb: 2 }}>
+          <CardHeader
+            title={copy(pageContract, "section.rules.title")}
+            subheader={copy(pageContract, "section.rules.caption")}
+          />
           <Caption>{copy(pageContract, "note.rules_how")}</Caption>
-          <div className="bd" style={{ display: "grid", gap: 12 }}>
-            {doc.rules.length === 0 ? (
-              <div className="muted small" style={{ padding: "18px 4px", textAlign: "center" }}>
-                {copy(pageContract, "empty.rules")}
-              </div>
-            ) : (
-              doc.rules.map((r, i) => (
-                <RuleRow
-                  key={`${r.id}-${i}`}
-                  rule={r}
-                  index={i}
-                  editable={editable}
-                  pageContract={pageContract}
-                  signIndex={index}
-                  choices={signChoices(doc)}
-                  errors={errorsFor(fieldErrors, `rules.${i}`)}
-                  onChange={(patch) => patchRule(i, patch)}
-                  onRemove={() => setDoc((d) => ({ ...d, rules: d.rules.filter((_, k) => k !== i) }))}
-                />
-              ))
-            )}
-            {editable ? (
-              <button
-                type="button"
-                className="btn ghost"
-                onClick={() =>
-                  setDoc((d) => ({
-                    ...d,
-                    rules: [...d.rules, { id: "", severity_base: 2, pathognomonic: [{ findings: [] }] }],
-                  }))
-                }
-              >
-                <Plus className="ic" aria-hidden="true" /> {copy(pageContract, "action.add_rule")}
-              </button>
-            ) : null}
-          </div>
-        </section>
+          <CardContent>
+            <Stack spacing={1.5}>
+              {doc.rules.length === 0 ? (
+                <EmptyLine>{copy(pageContract, "empty.rules")}</EmptyLine>
+              ) : (
+                doc.rules.map((r, i) => (
+                  <RuleRow
+                    key={`${r.id}-${i}`}
+                    rule={r}
+                    index={i}
+                    editable={editable}
+                    pageContract={pageContract}
+                    signIndex={index}
+                    choices={signChoices(doc)}
+                    errors={errorsFor(fieldErrors, `rules.${i}`)}
+                    onChange={(patch) => patchRule(i, patch)}
+                    onRemove={() => setDoc((d) => ({ ...d, rules: d.rules.filter((_, k) => k !== i) }))}
+                  />
+                ))
+              )}
+              {editable ? (
+                <AddButton
+                  onClick={() =>
+                    setDoc((d) => ({
+                      ...d,
+                      rules: [...d.rules, { id: "", severity_base: 2, pathognomonic: [{ findings: [] }] }],
+                    }))
+                  }
+                >
+                  {copy(pageContract, "action.add_rule")}
+                </AddButton>
+              ) : null}
+            </Stack>
+          </CardContent>
+        </Card>
       )}
     </>
   );
@@ -373,76 +441,71 @@ function QuestionRow({
     onChange({ options: options.map((o, k) => (k === i ? { ...o, ...patch } : o)) });
 
   return (
-    <div className="card" style={{ margin: 0, borderColor: errors.length ? "var(--danger)" : undefined }}>
-      <div className="bd" style={{ display: "grid", gap: 8 }}>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
-          <label className="fld" style={{ flex: "2 1 240px" }}>
-            <span>{copy(pageContract, "label.question_title")}</span>
-            <input
-              value={question.title}
-              disabled={!editable}
-              onChange={(e) => onChange({ title: e.target.value })}
-              aria-label={`${copy(pageContract, "label.question_title")} ${index + 1}`}
+    <Stack spacing={1} sx={{ ...BLOCK_SX, p: 2, borderColor: errors.length ? "error.main" : "divider" }}>
+      <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", alignItems: "flex-start" }}>
+        <TextField
+          size="small"
+          label={copy(pageContract, "label.question_title")}
+          value={question.title}
+          disabled={!editable}
+          onChange={(e) => onChange({ title: e.target.value })}
+          slotProps={{ htmlInput: { "aria-label": `${copy(pageContract, "label.question_title")} ${index + 1}` } }}
+          sx={fieldSx("2 1 240px")}
+        />
+        <TextField
+          size="small"
+          label={copy(pageContract, "label.question_id")}
+          value={question.id}
+          disabled={!editable}
+          onChange={(e) => onChange({ id: e.target.value })}
+          sx={fieldSx("1 1 140px")}
+        />
+        <TextField
+          select
+          size="small"
+          label={copy(pageContract, "label.question_kind")}
+          value={question.kind}
+          disabled={!editable}
+          onChange={(e) => onChange({ kind: e.target.value as HealthRegisterQuestion["kind"] })}
+          sx={fieldSx("1 1 150px")}
+        >
+          <MenuItem value="choice">{copy(pageContract, "label.kind.choice")}</MenuItem>
+          <MenuItem value="multi">{copy(pageContract, "label.kind.multi")}</MenuItem>
+          <MenuItem value="number">{copy(pageContract, "label.kind.number")}</MenuItem>
+        </TextField>
+        {editable ? <RemoveButton label={copy(pageContract, "action.remove_question")} onClick={onRemove} /> : null}
+      </Stack>
+
+      {question.kind === "number" ? (
+        <BandList question={question} editable={editable} onChange={onChange} pageContract={pageContract} />
+      ) : (
+        <Stack spacing={0.75}>
+          <Muted>{copy(pageContract, "label.answers")}</Muted>
+          {options.map((o, i) => (
+            <AnswerRow
+              key={`${o.value}-${i}`}
+              question={question}
+              option={o}
+              index={i}
+              editable={editable}
+              pageContract={pageContract}
+              signIndex={signIndex}
+              illnesses={illnesses}
+              onChange={(patch) => patchOption(i, patch)}
+              onAddToIllness={onAddToIllness}
+              onRemove={() => onChange({ options: options.filter((_, k) => k !== i) })}
             />
-          </label>
-          <label className="fld" style={{ flex: "1 1 140px" }}>
-            <span>{copy(pageContract, "label.question_id")}</span>
-            <input value={question.id} disabled={!editable} onChange={(e) => onChange({ id: e.target.value })} />
-          </label>
-          <label className="fld" style={{ flex: "1 1 150px" }}>
-            <span>{copy(pageContract, "label.question_kind")}</span>
-            <select
-              value={question.kind}
-              disabled={!editable}
-              onChange={(e) => onChange({ kind: e.target.value as HealthRegisterQuestion["kind"] })}
-            >
-              <option value="choice">{copy(pageContract, "label.kind.choice")}</option>
-              <option value="multi">{copy(pageContract, "label.kind.multi")}</option>
-              <option value="number">{copy(pageContract, "label.kind.number")}</option>
-            </select>
-          </label>
+          ))}
           {editable ? (
-            <button type="button" className="btn ghost" onClick={onRemove} aria-label={copy(pageContract, "action.remove_question")}>
-              <Trash2 className="ic" aria-hidden="true" />
-            </button>
+            <AddButton onClick={() => onChange({ options: [...options, { value: "", label: "", emits: [] }] })}>
+              {copy(pageContract, "action.add_answer")}
+            </AddButton>
           ) : null}
-        </div>
+        </Stack>
+      )}
 
-        {question.kind === "number" ? (
-          <BandList question={question} editable={editable} onChange={onChange} pageContract={pageContract} />
-        ) : (
-          <div style={{ display: "grid", gap: 6 }}>
-            <div className="small muted">{copy(pageContract, "label.answers")}</div>
-            {options.map((o, i) => (
-              <AnswerRow
-                key={`${o.value}-${i}`}
-                question={question}
-                option={o}
-                index={i}
-                editable={editable}
-                pageContract={pageContract}
-                signIndex={signIndex}
-                illnesses={illnesses}
-                onChange={(patch) => patchOption(i, patch)}
-                onAddToIllness={onAddToIllness}
-                onRemove={() => onChange({ options: options.filter((_, k) => k !== i) })}
-              />
-            ))}
-            {editable ? (
-              <button
-                type="button"
-                className="btn ghost"
-                onClick={() => onChange({ options: [...options, { value: "", label: "", emits: [] }] })}
-              >
-                <Plus className="ic" aria-hidden="true" /> {copy(pageContract, "action.add_answer")}
-              </button>
-            ) : null}
-          </div>
-        )}
-
-        <RowErrors errors={errors} />
-      </div>
-    </div>
+      <RowErrors errors={errors} />
+    </Stack>
   );
 }
 
@@ -483,77 +546,69 @@ function AnswerRow({
   const unlinked = illnesses.filter((id) => !pointsTo.includes(id));
 
   return (
-    <div
-      style={{
-        display: "grid",
-        gap: 6,
-        padding: "8px 10px",
-        borderRadius: 8,
-        border: "1px solid var(--line)",
-      }}
-    >
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-        <input
-          style={{ flex: "1 1 180px" }}
+    <Stack spacing={0.75} sx={{ ...BLOCK_SX, px: 1.25, py: 1 }}>
+      <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", alignItems: "center" }}>
+        <TextField
+          size="small"
+          label={copy(pageContract, "label.answer_label")}
           value={option.label}
           disabled={!editable}
           onChange={(e) => onChange({ label: e.target.value })}
-          aria-label={`${copy(pageContract, "label.answer_label")} ${index + 1}`}
+          slotProps={{ htmlInput: { "aria-label": `${copy(pageContract, "label.answer_label")} ${index + 1}` } }}
+          sx={fieldSx("1 1 180px")}
         />
-        <FormControlLabel className="small" disabled={!editable} control={<Checkbox checked={isSign} disabled={!editable} onChange={(e) =>
+        <FormControlLabel disabled={!editable} control={<Checkbox checked={isSign} disabled={!editable} onChange={(e) =>
               onChange({
                 // Ticking DERIVES the token; unticking drops it. An author never types one,
                 // and an answer that means nothing is wrong carries none -- which is what
                 // keeps "Eating normally" out of the evidence the engine reasons over.
                 emits: e.target.checked ? [derivedSign(question, option.value)] : [],
               })
-            } sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<>{copy(pageContract, isSign ? "label.is_a_sign" : "label.not_a_sign")}</>} />
+            } sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<>{copy(pageContract, isSign ? "label.is_a_sign" : "label.not_a_sign")}</>}
+          slotProps={{ typography: { variant: "body2" } }} />
         {editable ? (
-          <button
-            type="button"
-            className="btn ghost"
-            aria-label={`${copy(pageContract, "action.remove_answer")} ${index + 1}`}
-            onClick={onRemove}
-          >
-            <Trash2 className="ic" aria-hidden="true" />
-          </button>
+          <RemoveButton label={`${copy(pageContract, "action.remove_answer")} ${index + 1}`} onClick={onRemove} />
         ) : null}
-      </div>
+      </Stack>
 
       {isSign ? (
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-          <span className="small muted">{copy(pageContract, "label.used_by")}</span>
+        <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: "wrap", alignItems: "center" }}>
+          <Muted>{copy(pageContract, "label.used_by")}</Muted>
           {pointsTo.length === 0 ? (
-            <span className="small muted">{copy(pageContract, "label.used_by_none")}</span>
+            <Muted>{copy(pageContract, "label.used_by_none")}</Muted>
           ) : (
             pointsTo.map((id) => (
-              <span key={id} className="tag">
+              <Label key={id} variant="soft" color="default">
                 {illnessLabel(id)}
-              </span>
+              </Label>
             ))
           )}
           {editable && unlinked.length > 0 ? (
-            <select
+            <TextField
+              select
+              size="small"
+              label={copy(pageContract, "label.pick_sign")}
               value=""
-              aria-label={copy(pageContract, "label.pick_sign")}
               onChange={(e) => {
                 if (e.target.value) onAddToIllness(token, e.target.value);
               }}
+              slotProps={{ select: { displayEmpty: true } }}
+              sx={{ minWidth: 180 }}
             >
-              <option value="">{copy(pageContract, "action.add_rule")}</option>
+              <MenuItem value="">{copy(pageContract, "action.add_rule")}</MenuItem>
               {unlinked.map((id) => (
-                <option key={id} value={id}>
+                <MenuItem key={id} value={id}>
                   {illnessLabel(id)}
-                </option>
+                </MenuItem>
               ))}
-            </select>
+            </TextField>
           ) : null}
-          <span className="small muted" style={{ marginLeft: "auto", opacity: 0.6 }}>
+          <Typography variant="caption" component="span" sx={{ color: "text.disabled", ml: "auto" }}>
             {copy(pageContract, "label.advanced")}: {token}
-          </span>
-        </div>
+          </Typography>
+        </Stack>
       ) : null}
-    </div>
+    </Stack>
   );
 }
 
@@ -586,60 +641,54 @@ function BandList({
     return Number.isFinite(n) ? n : undefined;
   };
   return (
-    <div style={{ display: "grid", gap: 6 }}>
-      <div className="small muted">
+    <Stack spacing={0.75}>
+      <Muted>
         {copy(pageContract, "label.findings")} · {question.unit ?? ""}
-      </div>
+      </Muted>
       {bands.map((b, i) => (
-        <div key={i} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <Stack key={i} direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", alignItems: "flex-start" }}>
           {BAND_BOUNDS.map(({ bound, copyKey }) => (
-            <label key={bound} className="fld" style={{ flex: "0 1 100px" }}>
-              <span>{copy(pageContract, copyKey)}</span>
-              <input
-                value={b[bound] ?? ""}
-                disabled={!editable}
-                onChange={(e) =>
-                  onChange({
-                    bands: bands.map((x, k) => (k === i ? { ...x, [bound]: num(e.target.value) } : x)),
-                  })
-                }
-              />
-            </label>
+            <TextField
+              key={bound}
+              size="small"
+              label={copy(pageContract, copyKey)}
+              value={b[bound] ?? ""}
+              disabled={!editable}
+              onChange={(e) =>
+                onChange({
+                  bands: bands.map((x, k) => (k === i ? { ...x, [bound]: num(e.target.value) } : x)),
+                })
+              }
+              sx={fieldSx("0 1 100px")}
+            />
           ))}
-          <input
-            style={{ flex: "2 1 220px" }}
+          <TextField
+            size="small"
+            label={copy(pageContract, "label.findings")}
             value={joinTokens(b.emits)}
             disabled={!editable}
-            placeholder={copy(pageContract, "label.findings")}
             onChange={(e) =>
               onChange({
                 bands: bands.map((x, k) => (k === i ? { ...x, emits: splitTokens(e.target.value) } : x)),
               })
             }
-            aria-label={`${copy(pageContract, "label.findings")} ${i + 1}`}
+            slotProps={{ htmlInput: { "aria-label": `${copy(pageContract, "label.findings")} ${i + 1}` } }}
+            sx={fieldSx("2 1 220px")}
           />
           {editable ? (
-            <button
-              type="button"
-              className="btn ghost"
-              aria-label={`${copy(pageContract, "action.remove_band")} ${i + 1}`}
+            <RemoveButton
+              label={`${copy(pageContract, "action.remove_band")} ${i + 1}`}
               onClick={() => onChange({ bands: bands.filter((_, k) => k !== i) })}
-            >
-              <Trash2 className="ic" aria-hidden="true" />
-            </button>
+            />
           ) : null}
-        </div>
+        </Stack>
       ))}
       {editable ? (
-        <button
-          type="button"
-          className="btn ghost"
-          onClick={() => onChange({ bands: [...bands, { emits: [] }] })}
-        >
-          <Plus className="ic" aria-hidden="true" /> {copy(pageContract, "action.add_band")}
-        </button>
+        <AddButton onClick={() => onChange({ bands: [...bands, { emits: [] }] })}>
+          {copy(pageContract, "action.add_band")}
+        </AddButton>
       ) : null}
-    </div>
+    </Stack>
   );
 }
 
@@ -672,69 +721,65 @@ function RuleRow({
   const total = tiers.reduce((n, t) => n + (rule[t.key] ?? []).length, 0);
 
   return (
-    <div className="card" style={{ margin: 0, borderColor: errors.length ? "var(--danger)" : undefined }}>
-      <div className="bd" style={{ display: "grid", gap: 10 }}>
-        {rule.id ? <h4 style={{ margin: 0 }}>{illnessLabel(rule.id)}</h4> : null}
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
-          <label className="fld" style={{ flex: "1 1 180px" }}>
-            <span>{copy(pageContract, "label.rule_id")}</span>
-            <input value={rule.id} disabled={!editable} onChange={(e) => onChange({ id: e.target.value })} />
-          </label>
-          <label className="fld" style={{ flex: "1 1 180px" }}>
-            <span>{copy(pageContract, "label.treats")}</span>
-            <input
-              value={rule.treats ?? ""}
-              disabled={!editable}
-              placeholder={copy(pageContract, "label.field_action")}
-              onChange={(e) => onChange({ treats: e.target.value.trim() })}
-              aria-label={`${copy(pageContract, "label.treats")} ${index + 1}`}
-            />
-          </label>
-          <label className="fld" style={{ flex: "0 1 120px" }}>
-            <span>{copy(pageContract, "label.severity")}</span>
-            <input
-              value={rule.severity_base ?? ""}
-              disabled={!editable}
-              onChange={(e) => {
-                const t = e.target.value.trim();
-                const n = Number(t);
-                onChange({ severity_base: t === "" || !Number.isFinite(n) ? undefined : n });
-              }}
-            />
-          </label>
-          {editable ? (
-            <button
-              type="button"
-              className="btn ghost"
-              onClick={onRemove}
-              aria-label={copy(pageContract, "action.remove_rule")}
-            >
-              <Trash2 className="ic" aria-hidden="true" />
-            </button>
-          ) : null}
-        </div>
+    <Stack spacing={1.25} sx={{ ...BLOCK_SX, p: 2, borderColor: errors.length ? "error.main" : "divider" }}>
+      {rule.id ? <Typography variant="subtitle1" component="h4">{illnessLabel(rule.id)}</Typography> : null}
+      <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", alignItems: "flex-start" }}>
+        <TextField
+          size="small"
+          label={copy(pageContract, "label.rule_id")}
+          value={rule.id}
+          disabled={!editable}
+          onChange={(e) => onChange({ id: e.target.value })}
+          sx={fieldSx("1 1 180px")}
+        />
+        <TextField
+          size="small"
+          label={copy(pageContract, "label.treats")}
+          value={rule.treats ?? ""}
+          disabled={!editable}
+          placeholder={copy(pageContract, "label.field_action")}
+          onChange={(e) => onChange({ treats: e.target.value.trim() })}
+          slotProps={{
+            htmlInput: { "aria-label": `${copy(pageContract, "label.treats")} ${index + 1}` },
+            inputLabel: { shrink: true },
+          }}
+          sx={fieldSx("1 1 180px")}
+        />
+        <TextField
+          size="small"
+          label={copy(pageContract, "label.severity")}
+          value={rule.severity_base ?? ""}
+          disabled={!editable}
+          onChange={(e) => {
+            const t = e.target.value.trim();
+            const n = Number(t);
+            onChange({ severity_base: t === "" || !Number.isFinite(n) ? undefined : n });
+          }}
+          sx={fieldSx("0 1 120px")}
+        />
+        {editable ? <RemoveButton label={copy(pageContract, "action.remove_rule")} onClick={onRemove} /> : null}
+      </Stack>
 
-        {total === 0 ? (
-          <div className="small muted">{copy(pageContract, "label.no_conditions")}</div>
-        ) : null}
+      {total === 0 ? (
+        <Muted>{copy(pageContract, "label.no_conditions")}</Muted>
+      ) : null}
 
-        {tiers.map(({ key, label }) => (
-          <TierBlock
-            key={key}
-            tierKey={key}
-            label={label}
-            clauses={rule[key] ?? []}
-            editable={editable}
-            pageContract={pageContract}
-            signIndex={signIndex}
-            choices={choices}
-            onChange={(clauses) => onChange({ [key]: clauses } as Partial<HealthRegisterRule>)}
-          />
-        ))}
+      {tiers.map(({ key, label }) => (
+        <TierBlock
+          key={key}
+          tierKey={key}
+          label={label}
+          clauses={rule[key] ?? []}
+          editable={editable}
+          pageContract={pageContract}
+          signIndex={signIndex}
+          choices={choices}
+          onChange={(clauses) => onChange({ [key]: clauses } as Partial<HealthRegisterRule>)}
+        />
+      ))}
 
-        <RowErrors errors={errors} />
-      </div>
-    </div>
+      <RowErrors errors={errors} />
+    </Stack>
   );
 }
 
@@ -768,43 +813,46 @@ function TierBlock({
 }) {
   if (clauses.length === 0 && !editable) return null;
   return (
-    <div style={{ display: "grid", gap: 4 }}>
-      <div className="small muted">
+    <Stack spacing={0.5}>
+      <Muted>
         {label}
         {clauses.length > 1 ? ` — ${copy(pageContract, "label.any_one_confirms")}` : ""}
-      </div>
+      </Muted>
       {clauses.map((clause, i) => (
-        <div
+        <Stack
           key={`${tierKey}-${i}`}
-          style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", paddingLeft: 4 }}
+          direction="row"
+          spacing={0.75}
+          useFlexGap
+          sx={{ flexWrap: "wrap", alignItems: "center", pl: 0.5 }}
         >
           {(clause.findings ?? []).map((token, k) => (
-            <span key={`${token}-${k}`} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <Box key={`${token}-${k}`} component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5 }}>
               {k > 0 ? (
-                <span className="small muted">{copy(pageContract, "label.all_must_hold")}</span>
+                <Muted>{copy(pageContract, "label.all_must_hold")}</Muted>
               ) : null}
-              <span className="tag" title={token}>
-                {signLabel(token, signIndex)}
-                {editable ? (
-                  <button
-                    type="button"
-                    className="btn ghost sm"
-                    aria-label={`${copy(pageContract, "action.remove_clause")} ${k + 1}`}
-                    style={{ marginLeft: 4, padding: 0, lineHeight: 1 }}
-                    onClick={() => {
-                      const next = clause.findings.filter((_, j) => j !== k);
-                      onChange(
-                        next.length === 0
-                          ? clauses.filter((_, j) => j !== i)
-                          : clauses.map((c, j) => (j === i ? { ...c, findings: next } : c)),
-                      );
-                    }}
-                  >
-                    <X className="ic" aria-hidden="true" style={{ width: 12 }} />
-                  </button>
-                ) : null}
-              </span>
-            </span>
+              <Chip
+                size="small"
+                variant="soft"
+                title={token}
+                label={signLabel(token, signIndex)}
+                onDelete={
+                  editable
+                    ? () => {
+                        const next = clause.findings.filter((_, j) => j !== k);
+                        onChange(
+                          next.length === 0
+                            ? clauses.filter((_, j) => j !== i)
+                            : clauses.map((c, j) => (j === i ? { ...c, findings: next } : c)),
+                        );
+                      }
+                    : undefined
+                }
+                deleteIcon={
+                  <Iconify icon="solar:close-circle-bold" aria-label={`${copy(pageContract, "action.remove_clause")} ${k + 1}`} />
+                }
+              />
+            </Box>
           ))}
           {editable ? (
             <SignPicker
@@ -819,7 +867,7 @@ function TierBlock({
               }
             />
           ) : null}
-        </div>
+        </Stack>
       ))}
       {editable ? (
         <SignPicker
@@ -829,7 +877,7 @@ function TierBlock({
           onPick={(token) => onChange([...clauses, { findings: [token] }])}
         />
       ) : null}
-    </div>
+    </Stack>
   );
 }
 
@@ -852,37 +900,40 @@ function SignPicker({
   addLabel?: string;
 }) {
   return (
-    <select
+    <TextField
+      select
+      size="small"
+      label={addLabel ?? copy(pageContract, "label.pick_sign")}
       value=""
-      aria-label={addLabel ?? copy(pageContract, "label.pick_sign")}
       onChange={(e) => {
         if (e.target.value) onPick(e.target.value);
-        e.target.value = "";
       }}
-      style={{ maxWidth: 260 }}
+      slotProps={{ select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 360 } } } } } }}
+      sx={{ minWidth: 180, maxWidth: 260 }}
     >
-      <option value="">{addLabel ?? copy(pageContract, "label.pick_sign")}</option>
-      {[...choices.entries()].map(([questionId, rows]) => (
-        <optgroup key={questionId} label={rows[0]?.questionTitle || questionId}>
-          {rows.map((row) => (
-            <option key={row.token} value={row.token}>
-              {row.answerLabel}
-            </option>
-          ))}
-        </optgroup>
-      ))}
-    </select>
+      <MenuItem value="">{addLabel ?? copy(pageContract, "label.pick_sign")}</MenuItem>
+      {/* Grouped by question: MUI Select reads options as direct children, so each group is a
+          ListSubheader followed by its answers in one flat list (was a native optgroup). */}
+      {[...choices.entries()].flatMap(([questionId, rows]) => [
+        <ListSubheader key={`q-${questionId}`}>{rows[0]?.questionTitle || questionId}</ListSubheader>,
+        ...rows.map((row) => (
+          <MenuItem key={row.token} value={row.token}>
+            {row.answerLabel}
+          </MenuItem>
+        )),
+      ])}
+    </TextField>
   );
 }
 
 function RowErrors({ errors }: { errors: HealthConfigFieldError[] }) {
   if (errors.length === 0) return null;
   return (
-    <ul className="small" style={{ margin: 0, paddingLeft: 18, color: "var(--danger)" }}>
+    <Box component="ul" sx={{ typography: "body2", m: 0, pl: 2.25, color: "error.main" }}>
       {errors.map((e, i) => (
         <li key={`${e.field}-${i}`}>{e.message}</li>
       ))}
-    </ul>
+    </Box>
   );
 }
 
@@ -909,31 +960,29 @@ export function RegisterProblems({
   const allowed = useMemo(() => (problems ?? []).filter((p) => !p.fatal), [problems]);
   if (blocking.length === 0 && allowed.length === 0) return null;
   return (
-    <section className="card" style={{ marginBottom: 16 }}>
-      <div className="hd">
-        <h3>{heading}</h3>
-      </div>
-      <div className="bd">
+    <Card component="section" sx={{ mb: 2 }}>
+      <CardHeader title={heading} />
+      <CardContent>
         {note ? (
-          <p className="small muted" style={{ marginTop: 0, lineHeight: 1.6 }}>
+          <Typography variant="body2" sx={{ color: "text.secondary", mb: 1.5 }}>
             {note}
-          </p>
+          </Typography>
         ) : null}
         {blocking.length > 0 ? (
-          <ul className="small" style={{ margin: "0 0 10px", paddingLeft: 18, lineHeight: 1.7, color: "var(--danger)" }}>
+          <Box component="ul" sx={{ typography: "body2", mt: 0, mb: 1.25, pl: 2.25, color: "error.main" }}>
             {blocking.map((p, i) => (
               <li key={`${p.path}-${i}`}>{p.message}</li>
             ))}
-          </ul>
+          </Box>
         ) : null}
-        <ul className="small muted" style={{ margin: 0, paddingLeft: 18, lineHeight: 1.7 }}>
+        <Box component="ul" sx={{ typography: "body2", m: 0, pl: 2.25, color: "text.secondary" }}>
           {allowed.map((p, i) => (
             <li key={`${p.path}-${i}`}>{p.message}</li>
           ))}
-        </ul>
-      </div>
+        </Box>
+      </CardContent>
       <span hidden>{copy(pageContract, "label.warnings")}</span>
-    </section>
+    </Card>
   );
 }
 
@@ -947,17 +996,19 @@ function ResultBand({
   if (!result) return null;
   const text = optionalCopy(pageContract, result.messageKey) ?? result.detail ?? "";
   return (
-    <Alert severity={result.ok ? "success" : "error"} style={{ marginBottom: 16 }}>
-      {result.ok ? null : <AlertTriangle className="ic" aria-hidden="true" />}
+    // The Alert's own severity icon carries the warning glyph (no second warning icon inside it).
+    <Alert severity={result.ok ? "success" : "error"} sx={{ mb: 2 }}>
       <div>
-        <b>{text}</b>
-        {result.detail && !result.ok ? <div className="small muted">{result.detail}</div> : null}
+        <Typography variant="subtitle2" component="div">{text}</Typography>
+        {result.detail && !result.ok ? (
+          <Typography variant="body2" component="div" sx={{ color: "text.secondary" }}>{result.detail}</Typography>
+        ) : null}
         {result.warnings && result.warnings.length > 0 ? (
-          <ul className="small muted" style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+          <Box component="ul" sx={{ typography: "body2", color: "text.secondary", mt: 0.75, mb: 0, pl: 2.25 }}>
             {result.warnings.map((w, i) => (
               <li key={`${w.path}-${i}`}>{w.message}</li>
             ))}
-          </ul>
+          </Box>
         ) : null}
       </div>
     </Alert>
