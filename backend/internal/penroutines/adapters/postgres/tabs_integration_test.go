@@ -272,8 +272,12 @@ func TestPenRoutineTabStatusMatrix(t *testing.T) {
 	// Six tasks (2 pens x 3 days). Force one into each terminal / late state.
 	states := []string{domain.WorkStateCompleted, domain.WorkStateCanceled, domain.WorkStateDelayed}
 	for i, state := range states {
-		if _, err := repo.pool.Exec(ctx, `UPDATE pen_routine_tasks SET work_state = $2
-WHERE task_id = (SELECT task_id FROM pen_routine_tasks WHERE tenant_id = $1::uuid AND work_state = 'scheduled' ORDER BY due_business_date, task_id LIMIT 1)`, prTenant, state); err != nil {
+		// A completed task carries the matching status and who submitted it, as the table requires.
+		if _, err := repo.pool.Exec(ctx, `UPDATE pen_routine_tasks SET work_state = $2,
+  status = CASE WHEN $2 = 'completed' THEN 'completed' ELSE status END,
+  submitted_at = CASE WHEN $2 = 'completed' THEN now() ELSE submitted_at END,
+  submitted_by = CASE WHEN $2 = 'completed' THEN $3::uuid ELSE submitted_by END
+WHERE task_id = (SELECT task_id FROM pen_routine_tasks WHERE tenant_id = $1::uuid AND work_state = 'scheduled' ORDER BY due_business_date, task_id LIMIT 1)`, prTenant, state, prHead); err != nil {
 			t.Fatalf("state %d: %v", i, err)
 		}
 	}

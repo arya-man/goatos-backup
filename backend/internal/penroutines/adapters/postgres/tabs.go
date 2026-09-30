@@ -124,7 +124,7 @@ func (r *Repository) CreateTab(ctx context.Context, w ports.WriteParams, t domai
 	}
 	now := r.now().UTC()
 	var tabID string
-	if err := tx.QueryRow(ctx, sqlTabInsert, w.TenantID, key, t.Label, t.ModuleKey, t.IconKey, t.Filters, nullIfEmpty(w.ActorID), now).Scan(&tabID); err != nil {
+	if err := tx.QueryRow(ctx, sqlTabInsert, w.TenantID, key, t.Label, t.ModuleKey, t.IconKey, nonNilStrings(t.Filters), nullIfEmpty(w.ActorID), now).Scan(&tabID); err != nil {
 		return domain.Tab{}, fmt.Errorf("pen routine: create tab: %w", err)
 	}
 	if err := placeRoutines(ctx, tx, w.TenantID, tabID, t.RoutineIDs); err != nil {
@@ -175,7 +175,7 @@ func (r *Repository) UpdateTab(ctx context.Context, w ports.WriteParams, t domai
 	if t.RowVersion != 0 && t.RowVersion != before.RowVersion {
 		return domain.Tab{}, ports.ErrTabVersionConflict
 	}
-	tag, err := tx.Exec(ctx, sqlTabUpdate, w.TenantID, t.TabID, t.Label, t.ModuleKey, t.IconKey, t.Filters, nullIfEmpty(w.ActorID), r.now().UTC(), before.RowVersion)
+	tag, err := tx.Exec(ctx, sqlTabUpdate, w.TenantID, t.TabID, t.Label, t.ModuleKey, t.IconKey, nonNilStrings(t.Filters), nullIfEmpty(w.ActorID), r.now().UTC(), before.RowVersion)
 	if err != nil {
 		return domain.Tab{}, fmt.Errorf("pen routine: update tab: %w", err)
 	}
@@ -323,6 +323,15 @@ func placeRoutines(ctx context.Context, tx pgx.Tx, tenantID, tabID string, routi
 		return fmt.Errorf("%w: a routine on this tab is no longer available; reload and choose again", domain.ErrInvalidTab)
 	}
 	return nil
+}
+
+// nonNilStrings keeps an empty list an empty array: pgx binds a nil slice as NULL, and a tab with
+// no filters is a real choice ("just the list"), not a missing value.
+func nonNilStrings(in []string) []string {
+	if in == nil {
+		return []string{}
+	}
+	return in
 }
 
 func tabFingerprint(op, actorID, tabID string, rowVersion int, t domain.Tab) string {
