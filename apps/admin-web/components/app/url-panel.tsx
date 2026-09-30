@@ -11,11 +11,13 @@ import { URL_NAV_EVENT, changesWatchedParams, type UrlNavDetail } from "@/compon
 /** A navigation that never lands (a redirect elsewhere, a failed fetch) stops looking pending after this. */
 const GIVE_UP_MS = 8000;
 /**
- * The skeleton appears this long after the click when the answer has not landed yet. An answer
- * that is already cached (router cache, back/forward) lands inside it, so it shows directly with no
- * skeleton flash; anything slower is a skeleton well inside the 100ms a click may look idle.
+ * J3 P0-1 (root cause): the skeleton used to wait for a 30ms timer after the click. Under load the
+ * router transition kept the main thread busy past that timer, so the panel went `aria-busy` but
+ * never showed its skeleton: the old /people directory stayed under the Notifications tab for the
+ * whole wait (380ms here, 2.7s at 4x CPU). The skeleton now commits in the SAME urgent update as
+ * the pending state, with no timer between the click and the shimmer (Ravi: "just switch and show
+ * shimmer"). guard: url-panel-no-timer (components/app/url-panel.test.mjs) + r2 stale-panel.
  */
-export const URL_PANEL_SKELETON_DELAY_MS = 30;
 
 function navKeyOf(pathname: string | null, search: string): string {
   return `${pathname ?? "/"}?${search}`;
@@ -46,11 +48,10 @@ export function UrlPanel({
   const searchParams = useSearchParams();
   const here = navKeyOf(pathname, searchParams?.toString() ?? "");
   const [pendingFrom, setPendingFrom] = useState<string | null>(null);
-  const [shownFor, setShownFor] = useState<string | null>(null);
   const [targetValue, setTargetValue] = useState<string | null>(null);
   const shapeParam = fallbackBy?.param ?? "";
   const pending = pendingFrom !== null && pendingFrom === here;
-  const showFallback = pending && shownFor === pendingFrom;
+  const showFallback = pending;
   // The ROUTER's URL, not window.location: a canonical rewrite (`history.replaceState` with Next's
   // own state, components/canonical-url.tsx) moves window.location without moving useSearchParams,
   // and a key taken from window.location would then never match `here` (the weighing hang).
@@ -121,12 +122,8 @@ export function UrlPanel({
   useEffect(() => {
     if (!pending) return undefined;
     const from = pendingFrom;
-    const show = window.setTimeout(() => setShownFor(from), URL_PANEL_SKELETON_DELAY_MS);
     const giveUp = window.setTimeout(() => setPendingFrom((prev) => (prev === from ? null : prev)), GIVE_UP_MS);
-    return () => {
-      window.clearTimeout(show);
-      window.clearTimeout(giveUp);
-    };
+    return () => window.clearTimeout(giveUp);
   }, [pending, pendingFrom]);
 
   // `display: contents` makes the panel's children the page grid's items, so the page root's
