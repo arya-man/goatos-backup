@@ -183,7 +183,8 @@ func (r *Repository) CreateRound(ctx context.Context, p ports.CreateRoundParams)
 				sourceIDs = append(sourceIDs, src)
 			}
 		}
-		if _, err := tx.Exec(ctx, roundRepeatStampSQL, p.TenantID, newIDs, sourceIDs); err != nil {
+		boundStamp := sqlbind.MustBind(roundRepeatStampSQL, p.TenantID, newIDs, sourceIDs)
+		if _, err := tx.Exec(ctx, boundStamp.SQL(), boundStamp.Args()...); err != nil {
 			if isUniqueViolation(err) {
 				return ports.RoundRow{}, domain.ErrTaskAlreadyPlanned
 			}
