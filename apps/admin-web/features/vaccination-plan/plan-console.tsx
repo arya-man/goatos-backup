@@ -18,6 +18,7 @@ import { Label } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
 import { SvgColor } from "@/components/minimal/svg-color";
 import { Scrollbar } from "@/components/minimal/scrollbar";
+import { ActionAlert } from "@/components/app/action-alert";
 import { LinkButton } from "@/components/app/link-button";
 import { TableHeadCustom, TablePaginationLinks } from "@/components/app/table";
 
@@ -208,27 +209,27 @@ export function VaccinationPlanConsole({ searchParams, versions, catalog, change
             {draft ? (
               // Discarding destroys work that cannot be recovered, so it asks first, inline (a native
               // confirm is outside the design system and dismissed by automation).
-              <Alert
+              <ActionAlert
                 severity="warning"
-                action={
+                actions={
                   confirmingDiscard ? (
-                    <Stack direction="row" spacing={1}>
+                    <>
                       <Button size="small" color="inherit" onClick={() => setConfirmingDiscard(false)}>
                         Keep it
                       </Button>
                       <Button size="small" variant="contained" color="error" disabled={pending} onClick={() => onDiscard(draft.protocol_version_id)}>
                         {pending ? "Discarding…" : "Yes, discard it"}
                       </Button>
-                    </Stack>
+                    </>
                   ) : (
-                    <Stack direction="row" spacing={1}>
+                    <>
                       <Button size="small" color="inherit" disabled={pending} onClick={() => setConfirmingDiscard(true)}>
                         Discard it
                       </Button>
                       <LinkButton href={draftHref} size="small" variant="contained" color="warning">
                         Open the draft
                       </LinkButton>
-                    </Stack>
+                    </>
                   )
                 }
               >
@@ -241,7 +242,7 @@ export function VaccinationPlanConsole({ searchParams, versions, catalog, change
                     <b>A draft is waiting.</b> {draftLabel} — not live yet.
                   </>
                 )}
-              </Alert>
+              </ActionAlert>
             ) : null}
 
             {/* Template table card: CardHeader (eyebrow subheader + status Label), TableHeadCustom. */}

@@ -50,7 +50,9 @@ test("people overlays are required journeys with live selectors; opening never s
   // Legacy kit classes are gone from the people feature; a trigger that still names them silently skips.
   for (const step of overlayJourneys.people) assert.doesNotMatch(step.trigger, /\.(btn|ghost|iconbtn)\b/, `${step.id} uses a legacy class`);
   assert.match(read("features/people/person-access-launcher.tsx"), /aria-label=\{`\$\{copy\(pageContract, "access\.open"\)\} — /);
-  assert.match(read("features/people/people-add-button.tsx"), /component=\{LocalOverlayLink\}[\s\S]*aria-haspopup="dialog"/);
+  // On All People the drawer opens in place (LocalOverlayLink); the other desks navigate there with the
+  // drawer open (J3 P1-1: the action stays on every desk so the tab strip never moves).
+  assert.match(read("features/people/people-add-button.tsx"), /component=\{overlay \? LocalOverlayLink : Link\}[\s\S]*aria-haspopup="dialog"/);
   const runner = read("scripts/lib/overlay-journeys.mjs");
   assert.match(runner, /if \(step\.required\) throw new Error/);
   assert.match(runner, /page jumped on open/);

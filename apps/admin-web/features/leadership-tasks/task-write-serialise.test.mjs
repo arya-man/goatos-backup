@@ -121,8 +121,8 @@ test("T2: a patch older than the row is ignored everywhere (drawer, table, chips
 test("T2/T5: the detail is re-read on every open, and a failed read shows Retry, never a spinner", () => {
   const host = read("./task-drawer-host.tsx");
   assert.match(host, /setReadNonce\(\(n\) => n \+ 1\)/);
-  assert.match(host, /\[openID, readNonce, preview, staleReadKey, skipReadKey\]/);
-  assert.doesNotMatch(host, /details\[openID\] \|\| preview/, "a cached detail must not suppress the re-read");
+  assert.match(host, /\[openID, readNonce, staleReadKey, skipReadKey\]/);
+  assert.doesNotMatch(host, /if \(!openID \|\| details\[openID\]\)/, "a cached detail must not suppress the re-read");
   assert.doesNotMatch(host, /startTransition\(async/, "a rejected read inside a transition hits the error boundary");
   assert.match(host, /\.catch\(\(\) => \{\s*if \(!cancelled\) setReadFailed\(openID\);/);
   assert.match(host, /loadingDetail=\{!detailLoaded && !failed\}/);

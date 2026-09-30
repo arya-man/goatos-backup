@@ -37,7 +37,7 @@ import DialogActions from "@mui/material/DialogActions";
 import Typography from "@mui/material/Typography";
 import MuiTextField from "@mui/material/TextField";
 import { Caption } from "@/components/app/caption";
-import { ListCardSkeleton } from "@/components/app/skeletons";
+import { VaccinationDeskSkeleton, vaccinationDeskOpensOnChooser } from "./people-skeletons";
 import { KpiGrid } from "@/components/app/kpi-grid";
 import { KpiWidget } from "@/components/app/kpi-widget";
 import { Avatar } from "@/components/app/avatar";
@@ -832,7 +832,8 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
     );
   };
 
-  if (loading) return <ListCardSkeleton rows={5} />;
+  // Same shape as the tab-click fallback (people-skeletons): chooser card or roster, never a third shape.
+  if (loading) return <VaccinationDeskSkeleton chooser={vaccinationDeskOpensOnChooser(chosenParkId ?? initialParkId, parks.length)} />;
   if (error)
     return (
       <Box sx={{ p: 3 }}>

@@ -1,8 +1,7 @@
-// The fixture host (`/tasks-preview`) renders against `leadershipTasksFixtureContract` and has no
-// backend, so its `copy` map is the WHOLE answer. `copy()` THROWS on a fixed key it cannot
-// resolve, which makes a missing key a 500 at render -- caught by neither `tsc` nor the unit
-// suite. It happened: the copy contract moved to the backend, `COPY_FALLBACKS["leadership-tasks"]`
-// went with it, and the preview died on the first key it asked for (`crumb`).
+// `leadershipTasksFixtureContract` is the test-only copy of the Tasks page contract (the old
+// `/tasks-preview` fixture host that rendered it was removed on 2026-09-30). `copy()` THROWS on a
+// fixed key it cannot resolve, which makes a missing key a 500 at render -- caught by neither
+// `tsc` nor the unit suite -- so both the fixture and the backend map must carry every key.
 //
 // This resolves every key the feature's own source asks for, through the real `copy()`.
 import assert from "node:assert/strict";
@@ -21,7 +20,7 @@ const webRoot = join(here, "..", "..");
 // throws from the page's contract just the same: `components/worklist-pager.tsx` reads
 // `action.previous`, `action.next`, `pager.page` and `pager.rows`, and because the earlier version
 // of this guard only walked `readdirSync(here)`, all four were invisible to it -- the guard passed
-// green while /tasks-preview died on `action.previous`. So follow `@/components/...` imports
+// green while the page died on `action.previous`. So follow `@/components/...` imports
 // transitively out of the feature and scan those too.
 //
 // A key built at runtime (`sort.${option}`, `feedback.${code}`) is covered separately below,
@@ -39,13 +38,6 @@ const sources = [];
 const queue = [];
 for (const file of readdirSync(here)) {
   if (/\.tsx?$/.test(file)) queue.push(join(here, file));
-}
-// The fixture HOST renders the feature too, and may pull in shared components of its own.
-for (const hostDir of [join(webRoot, "app", "tasks-preview")]) {
-  if (!existsSync(hostDir)) continue;
-  for (const file of readdirSync(hostDir)) {
-    if (/\.tsx?$/.test(file)) queue.push(join(hostDir, file));
-  }
 }
 
 while (queue.length > 0) {
@@ -90,7 +82,7 @@ for (const key of ["action.previous", "action.next", "pager.page", "pager.rows"]
 for (const key of [...keys].sort()) {
   assert.doesNotThrow(
     () => copy(fixture, key),
-    `/tasks-preview cannot render: the fixture contract is missing copy key ${key}`,
+    `the fixture contract is missing copy key ${key}`,
   );
   assert.ok(copy(fixture, key).length > 0, `fixture copy key ${key} resolves to an empty string`);
 }
@@ -187,7 +179,7 @@ for (const code of ["task_raised", "task_updated", "task_edited", "note_added", 
 
 // The fixture's table mirrors the backend's `table("leadership-task-progress", ...)` column for
 // column. `LeadershipTask` has no priority field, so the urgency column is `days_left`; a fixture
-// on the retired `priority` key shows the preview a label the real page does not have.
+// on the retired `priority` key shows the tests a label the real page does not have.
 const columnKeys = fixture.tables[0].columns.map((column) => column.key);
 assert.deepEqual(
   columnKeys,

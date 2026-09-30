@@ -125,8 +125,7 @@ export function LeadershipTasksBoard({
    * The `return_to` a drop still carries (the in-place write ignores it; kept on the FormData so
    * the command shape matches the no-JS status form): THIS board, same scope, same page of the list, and NOT
    * selecting the dragged task — a drag is not a selection. `safeTaskReturnTo` in `actions.ts`
-   * refuses anything that is not `/tasks` exactly, so the preview host round-trips to the real
-   * desk rather than to its own fixture rows.
+   * refuses anything that is not `/tasks` exactly.
    */
   const returnTo = tasksHref(
     TASKS_PATHNAME,

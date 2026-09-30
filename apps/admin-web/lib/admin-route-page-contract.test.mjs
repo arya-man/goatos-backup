@@ -20,7 +20,7 @@ test("production admin product pages require backend page contracts", () => {
   }
 });
 
-test("production Tasks page uses live backend data, with fixtures confined to preview", () => {
+test("production Tasks page uses live backend data and never renders fixture rows", () => {
   const route = readFileSync(join(root, "app/(admin)/tasks/page.tsx"), "utf8");
   assert.match(
     route,
@@ -76,15 +76,11 @@ test("production Tasks page uses live backend data, with fixtures confined to pr
     join(root, "features/leadership-tasks/task-detail-panel.tsx"),
     "utf8",
   );
-  // Fixture rows reach the page READ-ONLY (judge P1, 2026-09-18): the preview drawer must never
-  // carry a live write affordance or fetch a fake id.
-  assert.match(
-    component,
-    /page \? rowsFromPage\(page\) : preview \? fixtureTasks\.map\(readOnlyRow\) : \[\]/,
-  );
-  assert.match(component, /canEdit: false, canComment: false, statusOptions: \[\]/, "readOnlyRow strips every write affordance");
-  assert.doesNotMatch(component, /page \? rowsFromPage\(page\) : fixtureTasks/);
-  assert.match(component, /<TaskDrawerHost\s+preview=\{preview\}/, "the drawer host is told it is in preview");
+  // The /tasks-preview fixture host is gone (2026-09-30): the page renders backend rows or none,
+  // and there is no preview mode left to smuggle fixture rows or a read-only drawer through.
+  assert.match(component, /page \? rowsFromPage\(page\) : \[\]/);
+  assert.doesNotMatch(component, /fixtureTasks/, "the page must never carry fixture task rows");
+  assert.doesNotMatch(component, /\bpreview\b/, "the page has no preview mode");
   // The scope is the card toolbar's first select (TR1-#41, one tab strip): one link option per
   // backend scope, announced through LinkSelect (useUrlNavigate), and its hrefs are built by the
   // feature's own URL helper so the rest of the filter state survives a scope change.
@@ -93,11 +89,6 @@ test("production Tasks page uses live backend data, with fixtures confined to pr
     component,
     /\[TASK_PARAM\.scope\]: key/,
     "scope tabs must navigate to the selected backend scope",
-  );
-  assert.match(
-    component,
-    /preview \?/,
-    "preview-only activity must stay behind the preview flag",
   );
   // The drawer is CLIENT-LOCAL (2026-09-18, evening): the page renders ONE drawer host and
   // hands it the deep-linked detail row (or null); the host opens the panel from a card click
@@ -130,9 +121,10 @@ test("production Tasks page uses live backend data, with fixtures confined to pr
   );
   assert.match(
     drawerHost,
-    /if \(!openID \|\| preview\) return;/,
-    "the host never fetches live detail in preview (it re-reads on every live open)",
+    /if \(!openID\) return;/,
+    "the host re-reads live detail on every open",
   );
+  assert.doesNotMatch(drawerHost, /\bpreview\b/, "the drawer host has no preview mode");
   // Production activity is the task's OWN feed and notes (`LeadershipTask.activity` /
   // `notes`), handed verbatim to the tabbed feed -- never invented on the client and never a
   // fixture. The panel hands the whole row to the in-place composer island, which seeds its

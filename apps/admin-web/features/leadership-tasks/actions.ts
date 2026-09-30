@@ -22,8 +22,8 @@ const PATHNAME = TASKS_PATHNAME;
 
 function redirectTarget(formData: FormData): URL {
   // The allowlist lives in task-url.ts and is unit-tested: it used to be a bare
-  // startsWith("/tasks"), which accepted the /tasks-preview FIXTURE host as the landing page for
-  // a live write.
+  // startsWith("/tasks"), which accepted any prefix sibling (e.g. `/tasks-foo`) as the landing
+  // page for a live write.
   return new URL(
     safeTaskReturnTo(
       formData.get("return_to") === null

@@ -49,7 +49,6 @@ export function TaskDrawerHost({
   ariaLabel,
   closeLabel,
   closeHref,
-  preview = false,
 }: {
   rows: TaskRow[];
   initialDetail: TaskRow | null;
@@ -62,8 +61,6 @@ export function TaskDrawerHost({
   closeLabel: string;
   /** The page's URL with `task=` dropped: what the address bar shows once the drawer is closed. */
   closeHref: string;
-  /** /tasks-preview: fixture rows are complete and read-only; nothing here may call a live action. */
-  preview?: boolean;
 }) {
   const [openID, setOpenID] = useState<string | null>(initialDetail?.id ?? params.selectedTaskID ?? null);
   // Detail rows (with notes + activity) by task id, from the deep-link render or a fetch here.
@@ -157,12 +154,12 @@ export function TaskDrawerHost({
   const openSummaryVersion = openID ? rows.find((row) => row.id === openID)?.rowVersion ?? 0 : 0;
   const openPatch = openID ? taskRowPatch(openID) : undefined;
   const openCachedVersion = openID && details[openID] ? withPatch(details[openID], openPatch).rowVersion : 0;
-  const cacheBehindList = !preview && openCachedVersion > 0 && openSummaryVersion > openCachedVersion;
+  const cacheBehindList = openCachedVersion > 0 && openSummaryVersion > openCachedVersion;
   const staleReadKey = cacheBehindList ? openSummaryVersion : 0;
 
   // ---------------------------------------------------------------- the detail read
   useEffect(() => {
-    if (!openID || preview) return;
+    if (!openID) return;
     if (skipReadKey === `${openID}|${readNonce}|${staleReadKey}`) return;
     let cancelled = false;
     // A plain promise with its own catch, NOT a transition: a rejected server action inside
@@ -186,7 +183,7 @@ export function TaskDrawerHost({
     return () => {
       cancelled = true;
     };
-  }, [openID, readNonce, preview, staleReadKey, skipReadKey]);
+  }, [openID, readNonce, staleReadKey, skipReadKey]);
 
   const retryRead = useCallback(() => {
     setReadFailed(null);
@@ -205,8 +202,7 @@ export function TaskDrawerHost({
   const picked = pickDrawerRow(cached ? withPatch(cached, patch) : undefined, summary ? withPatch(summary, patch) : null);
   if (!picked.row) return null;
   const detail = picked.row;
-  // Preview fixture rows are complete and never read live, so they are never "loading".
-  const detailLoaded = picked.detailLoaded || preview;
+  const detailLoaded = picked.detailLoaded;
   const failed = readFailed === openID;
 
   return (

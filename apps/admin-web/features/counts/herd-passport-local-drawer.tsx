@@ -115,9 +115,6 @@ function proofLabel(item: VaccinationPassportHistoryItem, pageContract: AdminUiP
   return <Tag tone="mut">{item.status}</Tag>;
 }
 
-function sourceObligationLabel(obligationId: string): string {
-  return obligationId.slice(0, 8);
-}
 
 function vaccineRowLabel(item: { display_label: string }): string {
   return item.display_label;
@@ -209,7 +206,8 @@ function HerdDrawerVaccinationBlock({
                         </TableCell>
                         <TableCell>{vaccineRowLabel(due)}</TableCell>
                         <TableCell><Tag tone={obligationTone(due.status)}>{due.status}</Tag></TableCell>
-                        <TableCell><Label variant="soft" color="primary" title={due.obligation_id}>{sourceObligationLabel(due.obligation_id)}</Label></TableCell>
+                        {/* Workflow: no workflow row is linked from the drawer; a dash, never the raw obligation id (J2 P1-4). */}
+                        <TableCell sx={{ color: "text.disabled" }}>—</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -227,7 +225,7 @@ function HerdDrawerVaccinationBlock({
               <DrawerTableScroll>
                 <Table size="small" sx={{ minWidth: 520 }}>
                   <TableHead>
-                    <TableRow>{historyCols.slice(0, 5).map((label) => <TableCell component="th" key={label}>{label}</TableCell>)}</TableRow>
+                    <TableRow>{historyCols.slice(0, 4).map((label) => <TableCell component="th" key={label}>{label}</TableCell>)}</TableRow>
                   </TableHead>
                   <TableBody>
                     {history.slice(0, DRAWER_ROW_LIMIT).map((h) => (
@@ -236,7 +234,6 @@ function HerdDrawerVaccinationBlock({
                         <TableCell>{vaccineRowLabel(h)}</TableCell>
                         <TableCell><Tag tone={historyTone(h.status)}>{h.status}</Tag></TableCell>
                         <TableCell>{proofLabel(h, pageContract)}</TableCell>
-                        <TableCell><Label variant="soft" color="primary" title={h.obligation_id}>{sourceObligationLabel(h.obligation_id)}</Label></TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -316,7 +313,7 @@ export function HerdPassportLocalDrawer({
       }
     >
       <DrawerMetaGrid>
-        <DrawerMetaItem label={cols[0]}><Label variant="soft" color="primary">{item.displayId}</Label></DrawerMetaItem>
+        <DrawerMetaItem label={cols[0]}>{item.displayId}</DrawerMetaItem>
         <DrawerMetaItem label={cols[1]}>{dash(item.tag1)}</DrawerMetaItem>
         <DrawerMetaItem label={cols[2]}>{dash(item.tag2)}</DrawerMetaItem>
         <DrawerMetaItem label={cols[3]}>{item.park}</DrawerMetaItem>

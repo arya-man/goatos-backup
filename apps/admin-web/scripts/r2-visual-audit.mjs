@@ -240,6 +240,31 @@ export function scrollJumped(scroll) {
   return !clamped;
 }
 
+/**
+ * panel-fallback-twin (J3 P1-2): the skeleton a same-route click swaps into a URL panel (at +150ms)
+ * must have the landed panel's shape: union-box IoU >= FALLBACK_TWIN_IOU. And the pressed control
+ * must not move more than FALLBACK_JUMP_PX at any 100ms sample of the transition (fallback-jump).
+ */
+export const FALLBACK_TWIN_IOU = 0.8;
+export const FALLBACK_JUMP_PX = 8;
+export function boxIou(a, b) {
+  if (!a || !b) return 1;
+  const ix = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x));
+  const iy = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+  const inter = ix * iy;
+  const uni = a.w * a.h + b.w * b.h - inter;
+  return uni > 0 ? inter / uni : 1;
+}
+export function fallbackTwinFails(watch) {
+  const out = [];
+  if (watch?.maxTargetShift > FALLBACK_JUMP_PX) out.push(["fallback-jump", `the pressed control moved ${watch.maxTargetShift}px during the transition (skeleton or header of another height)`]);
+  if (watch?.fallback) {
+    const iou = boxIou(watch.fallback.skeleton, watch.fallback.loaded);
+    if (iou < FALLBACK_TWIN_IOU) out.push(["fallback-shape", `the click-time panel skeleton does not match the landed panel (IoU ${iou.toFixed(2)}: ${watch.fallback.skeleton.w}x${watch.fallback.skeleton.h} vs ${watch.fallback.loaded.w}x${watch.fallback.loaded.h})`]);
+  }
+  return out;
+}
+
 // P0 = blocks the visual gate (make admin-web-visual-gate / npm run visual:gate).
 export const P0_PATTERNS = [
   /^interact\|[^|]+\|(skeleton-flash|full-reload)$/, // full-page skeleton flash / document reload on a tab / filter change
@@ -249,6 +274,9 @@ export const P0_PATTERNS = [
   // tab-scroll-kept (TR3-P1-3): a tab / filter click must not move the page scroll (clamping to a
   // shorter page's bottom excepted; scroll:false + a panel skeleton twin of the same height).
   /^interact\|[^|]+\|scroll-jump$/,
+  // panel-fallback-twin (J3 P1-1/P1-2): the pressed control stays put through the transition and
+  // the click-time panel skeleton has the landed panel's shape (1440 dark AND 390 dark).
+  /^interact\|[^|]+\|(fallback-jump|fallback-shape)$/,
   /^dark-bright-bg\|/,
   /^off-palette\|/,
   /^chart-black\|/, // a chart series / legend mark whose colour never resolved (paints black)
@@ -770,19 +798,30 @@ function r2PageLib() {
     // option, a tab), is the pressed control selected, and is the panel its skeleton or already the
     // answer? A panel still showing the old content without a skeleton is the "hang".
     const target = id ? document.querySelector(`[data-r2-i="${id}"]`) : null;
-    const panelSkel = "[data-url-panel-pending], [data-panel-skeleton], [data-skel], .MuiSkeleton-root";
+    w.target = target;
+    w.maxTargetShift = 0;
     w.onClick = () => {
       const t0 = performance.now();
       // tab-scroll-kept: where the page and the pressed control sat at the moment of the (last) click,
       // AFTER any pre-scroll that brought the control into view.
       w.clickScroll = scrollY;
       w.clickTop = target && target.isConnected ? target.getBoundingClientRect().top : null;
+      w.clickDocTop = target && target.isConnected ? docRect(target).top : null;
       setTimeout(() => {
         const r = root();
         const landed = location.href !== w.url0;
-        const skel = !!r.querySelector(panelSkel);
+        // stale-panel-scoped (J3 P0-1): the panel that went aria-busy must itself show its skeleton
+        // (data-url-panel-pending). Any skeleton elsewhere on the page (an unrelated streaming card)
+        // no longer counts, which is how the /people Notifications hang passed as "flaky".
+        const busy = [...r.querySelectorAll("[data-url-panel][aria-busy=true]")];
+        const skel = busy.length ? busy.every((p) => p.hasAttribute("data-url-panel-pending")) : !!r.querySelector("[data-url-panel-pending], [data-panel-skeleton]");
         const sel = target && target.isConnected ? target.getAttribute("aria-selected") === "true" || target.classList.contains("Mui-selected") || target.getAttribute("aria-pressed") === "true" || target.getAttribute("aria-current") === "page" : null;
-        w.early.push({ ms: Math.round(performance.now() - t0), landed, skel, selected: sel });
+        // panel-fallback-twin (J3 P1-2): the skeleton a click swapped in, as the union box of the
+        // pending panels' visible children, to compare with the same panels once the answer landed.
+        const pending = busy.filter((p) => p.hasAttribute("data-url-panel-pending"));
+        w.fallbackPanels = pending;
+        w.fallbackBox = pending.length ? unionBox(pending) : null;
+        w.early.push({ ms: Math.round(performance.now() - t0), landed, skel, selected: sel, busy: busy.length });
       }, 150);
     };
     document.addEventListener("click", w.onClick, true);
@@ -800,6 +839,10 @@ function r2PageLib() {
       const cov = tot ? hit / tot : 0;
       w.maxSkel = Math.max(w.maxSkel, cov);
       if (header && !header.isConnected) { w.headerGone = true; if (cov > 0.05) w.skelWhileHeaderGone = true; }
+      // fallback-jump (J3 P1-1/P1-2): the pressed control must stay under the finger for the whole
+      // transition, not just after it settles (a skeleton of another height moved the /vaccination
+      // pen tabs 60px down and back; a header action on one desk only moved the /people strip).
+      if (w.clickDocTop != null && target && target.isConnected) w.maxTargetShift = Math.max(w.maxTargetShift, Math.abs(docRect(target).top - w.clickDocTop));
       if (tabs && !tabs.isConnected) w.tabsGone = true;
     };
     w.timer = setInterval(sample, 100);
@@ -807,12 +850,25 @@ function r2PageLib() {
     window.__r2w = w;
     return { header: header ? sig(header) : null, tabs: tabs ? sig(tabs) : null };
   }
+  /** Union box (doc coords, clipped to the visible viewport: what the thumb sees) of the visible children of `display: contents` panels. */
+  function unionBox(panels) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    const flat = (c) => (getComputedStyle(c).display === "contents" ? [...c.children].flatMap(flat) : [c]);
+    for (const p of panels) for (const c of [...p.children].flatMap(flat)) {
+      const b = c.getBoundingClientRect();
+      if (b.width < 4 || b.height < 4) continue;
+      if (b.top >= innerHeight || b.bottom <= 0) continue;
+      x0 = Math.min(x0, b.left); y0 = Math.min(y0, Math.max(b.top, 0) + scrollY); x1 = Math.max(x1, b.right); y1 = Math.max(y1, Math.min(b.bottom, innerHeight) + scrollY);
+    }
+    return x1 > x0 && y1 > y0 ? { x: Math.round(x0), y: Math.round(y0), w: Math.round(x1 - x0), h: Math.round(y1 - y0) } : null;
+  }
   function readWatch() {
     const w = window.__r2w; if (!w) return null;
+    const landedBox = w.fallbackPanels && w.fallbackPanels.every((p) => p.isConnected) ? unionBox(w.fallbackPanels) : null;
     clearInterval(w.timer); try { w.po?.disconnect(); } catch {}
     document.removeEventListener("click", w.onClick, true);
     const shift = (el, r) => { if (!el || !el.isConnected || !r) return 0; const n = docRect(el); return Math.max(Math.abs(n.top - r.top), Math.abs(n.left - r.left)); };
-    return { maxSkel: Math.round(w.maxSkel * 100) / 100, headerGone: w.headerGone || (w.header ? !w.header.isConnected : false), tabsGone: w.tabsGone || (w.tabs ? !w.tabs.isConnected : false), cls: Math.round(w.cls * 1000) / 1000, headerShift: Math.round(shift(w.header, w.headerRect)), tabsShift: Math.round(shift(w.tabs, w.tabsRect)), skelWhileHeaderGone: w.skelWhileHeaderGone, urlChanged: location.href !== w.url0, url: location.href, samples: w.samples, early: w.early.length ? w.early[w.early.length - 1] : null, scroll: w.clickScroll == null ? null : { clickScroll: Math.round(w.clickScroll), nowScroll: Math.round(scrollY), maxScroll: Math.round(document.documentElement.scrollHeight - innerHeight) } };
+    return { maxSkel: Math.round(w.maxSkel * 100) / 100, headerGone: w.headerGone || (w.header ? !w.header.isConnected : false), tabsGone: w.tabsGone || (w.tabs ? !w.tabs.isConnected : false), cls: Math.round(w.cls * 1000) / 1000, headerShift: Math.round(shift(w.header, w.headerRect)), tabsShift: Math.round(shift(w.tabs, w.tabsRect)), skelWhileHeaderGone: w.skelWhileHeaderGone, urlChanged: location.href !== w.url0, url: location.href, samples: w.samples, early: w.early.length ? w.early[w.early.length - 1] : null, maxTargetShift: Math.round(w.maxTargetShift || 0), fallback: w.fallbackBox && landedBox ? { skeleton: w.fallbackBox, loaded: landedBox } : null, scroll: w.clickScroll == null ? null : { clickScroll: Math.round(w.clickScroll), nowScroll: Math.round(scrollY), maxScroll: Math.round(document.documentElement.scrollHeight - innerHeight) } };
   }
 
   /** Tab + filter candidates in the content column (marked with data-r2-i). */
@@ -938,6 +994,9 @@ async function main() {
   // page without its loading twin).
   const skeletonProfiles = args["skeleton-profiles"] ? String(args["skeleton-profiles"]).split(",").map((l) => PROFILES.find((p) => p.label === l.trim())).filter(Boolean)
     : fast ? ["1440-dark", "390-dark"].map((l) => PROFILES.find((p) => p.label === l)).filter(Boolean) : [PROFILES[0]];
+  // interact-390 (J3 CI gap 4): tab / filter interactions run at 1440 dark AND 390 dark (touch taps);
+  // /people's header jump and the /vaccination pen-tab skeleton jump were phone-only.
+  const interactProfiles = (args["interact-profiles"] ? String(args["interact-profiles"]).split(",") : ["1440-dark", "390-dark"]).map((l) => PROFILES.find((p) => p.label === l.trim())).filter(Boolean);
   const checks = new Set(args.checks ? String(args.checks).split(",") : fast ? ["scan", "interact"] : ALL_CHECKS);
   const only = args.only ? String(args.only).split(",").map((s) => s.trim()).filter(Boolean) : null;
   const exactRoutes = args.routes ? String(args.routes).split(",").map((s) => s.trim()).filter(Boolean) : null;
@@ -1287,8 +1346,7 @@ async function main() {
     }
   }
 
-  async function interactJob(route, path) {
-    const profile = PROFILES[0];
+  async function interactJob(route, path, profile = PROFILES[0]) {
     const ctx = await newContext(profile, false);
     const info = routeInfo.get(route.route);
     try {
@@ -1326,6 +1384,9 @@ async function main() {
             await loc.click({ timeout: 4000 });
             const opt = page.locator("[role=listbox] [role=option]:not([aria-selected=true]):not(.Mui-disabled)").first();
             await opt.click({ timeout: 3000 });
+          } else if (profile.mobile) {
+            // 390: a finger tap (touch events + the synthesized click), as a phone user presses it.
+            await loc.tap({ timeout: 3000 }).catch(async () => { await loc.evaluate((el) => el.click()); });
           } else {
             await loc.click({ timeout: 3000 }).catch(async () => { await loc.evaluate((el) => el.click()); });
           }
@@ -1359,6 +1420,7 @@ async function main() {
           if (cur.kind === "tab" && w.early.selected === false) fails.push(["tab-not-selected", "the pressed tab was not selected within 150ms"]);
           if (!w.early.landed && !w.early.skel) fails.push(["stale-panel", "150ms after the click the panel still showed the old content without a skeleton (the tab transition hangs)"]);
         }
+        if (!reloaded && !routeChange) fails.push(...fallbackTwinFails(w));
         let evidence = null;
         if (fails.length) evidence = rel(await contactSheet(frames, join(outDir, "frames", `${slug(route.route)}__${done}_${cur.kind}.jpg`)).catch(() => null));
         for (const [code, msg] of fails) add({ check: "interact", pattern: `interact|${kindLabel}|${code}`, label: `${kindLabel} click → ${msg.replace(/ \(.*\)$| \d+(\.\d+)?px$| [\d.]+$/, "")}`, route: route.route, profile: profile.label, detail: `"${cur.label}" ${cur.href ?? ""} → ${msg}`, evidence });
@@ -1520,7 +1582,7 @@ async function main() {
   }
   const jobsFor = (route, path) => {
     const js = [];
-    if (checks.has("interact")) js.push({ name: "interact", route: route.route, run: () => interactJob(route, path) });
+    if (checks.has("interact")) for (const p of interactProfiles) js.push({ name: p === PROFILES[0] ? "interact" : `interact ${p.label}`, route: route.route, run: () => interactJob(route, path, p) });
     if (checks.has("drawers")) js.push({ name: "drawers", route: route.route, run: () => drawerJob(route, path) });
     if (checks.has("skeleton") || skeletonTouched?.has(route.route)) for (const p of skeletonProfiles) js.push({ name: `skeleton ${p.label}`, route: route.route, run: () => skeletonJob(route, path, p) });
     if (checks.has("scan") || checks.has("sbs")) for (const p of PROFILES) js.push({ name: `scan ${p.label}`, route: route.route, run: () => scanJob(route, path, p) });
@@ -1534,7 +1596,8 @@ async function main() {
     if (r.redirectOnly) jobsA.push({ name: "scan 1440-dark", route: r.route, run: () => scanJob(r, r.route, PROFILES[0]) });
     else jobsA.push(...jobsFor(r, r.route));
   }
-  jobsA.sort((a, b) => (a.name === "interact" ? 0 : a.name === "drawers" ? 1 : 2) - (b.name === "interact" ? 0 : b.name === "drawers" ? 1 : 2));
+  const jobRank = (j) => (j.name.startsWith("interact") ? 0 : j.name === "drawers" ? 1 : 2);
+  jobsA.sort((a, b) => jobRank(a) - jobRank(b));
   log(`phase A: ${staticRoutes.length} static routes, ${jobsA.length} jobs, concurrency ${concurrency}`);
   await pool(jobsA);
 

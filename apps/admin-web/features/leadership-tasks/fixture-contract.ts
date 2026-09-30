@@ -1,19 +1,19 @@
 import type { AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 /**
- * The page contract the FIXTURE host (`app/tasks-preview`) renders against.
+ * A test-only copy of the live Tasks page contract, used by the feature's unit tests
+ * (fixture-contract / task-activity-feed / task-board-rail). No route renders it; the old
+ * `/tasks-preview` fixture host was removed on 2026-09-30.
  *
  * `route_id` is the live `leadership-tasks` on purpose. The copy below mirrors the backend's
- * `pageSpecificCopy("leadership-tasks")` map, so the preview cannot show wording the real screen
- * does not have — which is the whole point of a fixture host. The table shape mirrors
- * `backend/internal/adminui/app/service.go`'s
- * `table("leadership-task-progress", …)` column for column, so a column set that drifts on the
- * backend shows up as a preview that stops rendering rather than as a silent difference.
+ * `pageSpecificCopy("leadership-tasks")` map, and the table shape mirrors
+ * `backend/internal/adminui/app/service.go`'s `table("leadership-task-progress", …)` column for
+ * column, so the tests exercise the wording and columns the real screen has.
  */
 export const leadershipTasksFixtureContract: AdminUiPageContract = {
   route_id: "leadership-tasks",
-  href: "/tasks-preview",
-  path_pattern: "/tasks-preview",
+  href: "/tasks",
+  path_pattern: "/tasks",
   title: "Tasks",
   subtitle: "Tasks raised across CXOs, directors and park heads, with notes and attachments.",
   surface_kind: "monitoring-screen",
@@ -58,12 +58,11 @@ export const leadershipTasksFixtureContract: AdminUiPageContract = {
    *
    * It is spelled out here because the copy contract moved to the backend and
    * `COPY_FALLBACKS["leadership-tasks"]` in `lib/admin-ui-contract.ts` went with it. The live
-   * /tasks page gets this map from the backend; the fixture host has no backend, and `copy()`
-   * THROWS on a fixed key it cannot resolve — so with the fallback gone and `copy: {}` here,
-   * /tasks-preview stopped rendering at the first key it asked for (`crumb`).
+   * /tasks page gets this map from the backend; the tests have no backend, and `copy()` THROWS
+   * on a fixed key it cannot resolve, so every key the feature reads must be spelled out here.
    *
-   * Keep it in step with the Go map above by hand: a value that drifts shows the preview wording
-   * the real screen does not have, which is the one thing a fixture host must never do.
+   * Keep it in step with the Go map above by hand: a value that drifts makes the tests pass on
+   * wording the real screen does not have.
    */
   copy: {
     "crumb": "Operations",

@@ -7,11 +7,13 @@ import Button from "@mui/material/Button";
 
 import { Iconify } from "@/components/minimal/iconify";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
+import Link from "@/components/no-prefetch-link";
 
-export function PeopleAddButton({ href, label }: { href: string; label: string }) {
+/** `overlay`: the drawer is on this page (All People), so the open never costs a route request. */
+export function PeopleAddButton({ href, label, overlay = true }: { href: string; label: string; overlay?: boolean }) {
   return (
     <Button
-      component={LocalOverlayLink}
+      component={overlay ? LocalOverlayLink : Link}
       href={href}
       scroll={false}
       aria-haspopup="dialog"

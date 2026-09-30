@@ -10,6 +10,7 @@ import { PeopleBoard } from "./people-board";
 import { PeopleAddButton } from "./people-add-button";
 import { ClockScreen } from "./clock-screen";
 import { NotificationsScreen } from "./notifications-screen";
+import { VaccinationDeskSkeleton, vaccinationDeskOpensOnChooser } from "./people-skeletons";
 import { getAdminWebBootstrap } from "@/lib/api/server";
 
 const VaccinationOperatorsScreen = async ({
@@ -57,6 +58,13 @@ export async function PeoplePage({
 
   const park = one(searchParams, "park");
   const initialParkId = park && park !== "all" ? park : undefined;
+  // The Vaccination desk's skeleton follows what it will land on (chooser card or roster).
+  const bootstrap = await getAdminWebBootstrap();
+  const parkCount = bootstrap.ok ? bootstrap.data.top_bar.park_selector.options.length : 0;
+  const deskSkeleton: Record<string, ReactNode> = {
+    ...DESK_SKELETON,
+    vaccination: <VaccinationDeskSkeleton chooser={vaccinationDeskOpensOnChooser(initialParkId, parkCount)} />,
+  };
 
   return (
     <div className="kit-enter screen on">
@@ -65,7 +73,7 @@ export async function PeoplePage({
         <PageHeader
           title={pageContract.title}
           crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
-          actions={active === "all" ? <PeopleAddButton href={addPersonHref(searchParams)} label={copy(pageContract, "action.add_person")} /> : undefined}
+          actions={<PeopleAddButton href={addPersonHref(searchParams, active)} label={copy(pageContract, "action.add_person")} overlay={active === "all"} />}
         />
       </div>
 
@@ -86,7 +94,7 @@ export async function PeoplePage({
           measured height, so the tab strip above it never moves under the pointer. */}
       {/* Each desk streams (guard: url-keyed-panel): a tab click shows the clicked desk's skeleton in
           the same frame; header and strip stay on screen. */}
-      <UrlSuspense searchParams={searchParams} watch={["tab", "park"]} fallback={DESK_SKELETON[active] ?? DESK_SKELETON.all} fallbackBy={{ param: "tab", shapes: { ...DESK_SKELETON, "": DESK_SKELETON.all } }}>
+      <UrlSuspense searchParams={searchParams} watch={["tab", "park"]} fallback={deskSkeleton[active] ?? deskSkeleton.all} fallbackBy={{ param: "tab", shapes: { ...deskSkeleton, "": deskSkeleton.all } }}>
       <TabPanel tabKey={active}>
         {active === "vaccination" ? (
           <VaccinationOperatorsScreen initialParkId={initialParkId} pageContract={pageContract} />
@@ -106,13 +114,24 @@ export async function PeoplePage({
 /** Each desk's skeleton, from the shared blocks. */
 const DESK_SKELETON: Record<string, ReactNode> = {
   all: <TableSkeleton columns={6} rows={10} header={false} tabs={<TabsSkeleton count={4} counts />} toolbar={<FilterCardSkeleton inCard fields={[200, 200, "search"]} />} />,
-  vaccination: <PanelSkeleton kpis={4} table={10} />,
   clock: <PanelSkeleton kpis={3} table={10} />,
   notifications: <PanelSkeleton table={8} />,
 };
 
-function addPersonHref(sp: RouteSearchParams): string {
+/**
+ * "Add person" stays on EVERY desk (J3 P1-1: rendering it only on All People collapsed the header row
+ * and moved the tab strip ~60px under the thumb). On All People it opens the drawer in place; on the
+ * other desks it navigates to All People with the drawer open (the drawer lives on the directory).
+ * guard: people-header-action-every-desk (features/people/people-page-header.test.mjs)
+ */
+function addPersonHref(sp: RouteSearchParams, active: string): string {
   const query = new URLSearchParams();
+  if (active !== "all") {
+    const park = one(sp, "park");
+    if (park) query.set("park", park);
+    query.set("person", "new");
+    return `/people?${query.toString()}`;
+  }
   for (const [key, value] of Object.entries(sp)) {
     const single = Array.isArray(value) ? value[0] : value;
     if (single) query.set(key, single);

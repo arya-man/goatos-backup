@@ -1048,11 +1048,26 @@ export async function WeighingWeightsPage({
                 ],
                 // Axis: the breed on one line, its head count under it. Held on one line the four
                 // labels overlapped and Apex turned them 45 degrees, cutting "Anantapur Sheep (14 …".
+                // On a phone four two-line labels share ~60px each and ran into each other
+                // ("SirohiAnantapur Sheep", J3 P1-4): there the axis names the breed alone, turned
+                // 45 degrees and trimmed (the head count stays in the tooltip note).
+                // guard: axis-label-overlap (r2-visual-audit scan at 390)
                 options: {
                   xaxis: {
                     categories: gainThresholdRows.map((row) => [row.breed, `${row.animals.toLocaleString("en-IN")} ${gainKidsLabel}`]),
                     labels: { rotate: 0, hideOverlappingLabels: false },
                   },
+                  responsive: [
+                    {
+                      breakpoint: 600,
+                      options: {
+                        xaxis: {
+                          categories: gainThresholdRows.map((row) => row.breed),
+                          labels: { rotate: -45, rotateAlways: true, trim: true, maxHeight: 72, hideOverlappingLabels: false },
+                        },
+                      },
+                    },
+                  ],
                 },
               }}
               sx={{ height: 1 }}

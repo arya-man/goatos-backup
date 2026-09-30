@@ -8,7 +8,6 @@ import Button from "@mui/material/Button";
 import Link from "@/components/no-prefetch-link";
 import type { SegmentedOption } from "@/components/segmented-links";
 import { WorklistPager } from "@/components/worklist-pager";
-import { Label } from "@/components/minimal/label";
 import { EmptyContent } from "@/components/minimal/empty-content";
 import {
   copy,
@@ -49,7 +48,7 @@ import { personOptions, rowFromTask, rowsFromPage, type TaskRow } from "./task-r
 import { TaskDrawerHost } from "./task-drawer-host";
 import { TaskViewBody, TaskViewProvider, TaskViewToggle } from "./task-view-switch";
 import { TaskFeedbackBanner } from "./task-feedback-banner";
-import { TASK_VIEW_ALIAS, TASK_VIEWS, TASKS_PATHNAME, TASKS_PREVIEW_PATHNAME } from "./task-url";
+import { TASK_VIEW_ALIAS, TASK_VIEWS, TASKS_PATHNAME } from "./task-url";
 import { withCancelledRows } from "./task-detail-pick";
 
 const TABLE_ID = "leadership-task-progress";
@@ -72,8 +71,6 @@ export function LeadershipTasksPage({
   page,
   pageContract,
   searchParams,
-  preview = false,
-  selectedTaskID: selectedTaskIDProp,
   selectedTask,
   assignees = [],
   cancelledRows = [],
@@ -81,9 +78,6 @@ export function LeadershipTasksPage({
   page?: LeadershipTaskPage | null;
   pageContract: AdminUiPageContract;
   searchParams?: RouteSearchParams;
-  preview?: boolean;
-  /** Only the fixture host passes this; the live page reads it off the URL. */
-  selectedTaskID?: string;
   /** The selected task from the DETAIL read (full notes + activity), fetched by the route in
    *  parallel with the list when `task=` is in the URL. The list rows carry no activity, so
    *  the drawer is fed from here; a task not on the current page still opens. */
@@ -96,21 +90,17 @@ export function LeadershipTasksPage({
   const tableContract = table(pageContract, TABLE_ID);
   const pageSizeOptions = tablePageSizes(pageContract, TABLE_ID);
   const params = parseTasksParams(sp, pageSizeOptions);
-  const basePath = preview ? TASKS_PREVIEW_PATHNAME : TASKS_PATHNAME;
+  const basePath = TASKS_PATHNAME;
 
-  // Preview rows are READ-ONLY on purpose: no status moves, no comment, no edit, so the fixture
-  // drawer can never call a live action with a fake id (judge P1, 2026-09-18).
-  const tasks = page ? rowsFromPage(page) : preview ? fixtureTasks.map(readOnlyRow) : [];
+  const tasks = page ? rowsFromPage(page) : [];
   // A failed list read still gets the scope strip: the three scopes are a fixed vocabulary
   // (task-url TASK_SCOPES), so the reader can switch to a scope that loads instead of staring at
   // a dead toolbar. Labels come from the contract; counts are unknown, so none are shown.
   const scopes = page?.scopes?.length
     ? page.scopes
-    : preview
-      ? fixtureScopes
-      : fixtureScopes.map((scope) => ({ ...scope, label: copy(pageContract, `scope.${scope.key}`, scope.label), count: undefined as unknown as number, total: undefined }));
-  const readFailed = !page && !preview;
-  const selectedTaskID = selectedTaskIDProp ?? params.selectedTaskID;
+    : fixtureScopes.map((scope) => ({ ...scope, label: copy(pageContract, `scope.${scope.key}`, scope.label), count: undefined as unknown as number, total: undefined }));
+  const readFailed = !page;
+  const selectedTaskID = params.selectedTaskID;
   const selected = selectedTaskID
     ? selectedTask && selectedTask.task_id === selectedTaskID
       ? rowFromTask(selectedTask)
@@ -236,7 +226,6 @@ export function LeadershipTasksPage({
   // detail row from the server so the first paint already carries the feed.
   const detailPanel = (
     <TaskDrawerHost
-      preview={preview}
       rows={boardTasks}
       initialDetail={selectedTask && selected ? selected : null}
       pageContract={pageContract}
@@ -356,8 +345,6 @@ export function LeadershipTasksPage({
                 returnTo={`${TASKS_PATHNAME}?scope=assigned_by_me`}
                 pageContract={pageContract}
               />
-            ) : preview ? (
-              <Label variant="soft" color="success">{copy(pageContract, "state.can_raise")}</Label>
             ) : null}
           </>
         }
@@ -401,7 +388,7 @@ export function LeadershipTasksPage({
 
       {/* The list READ failed (nothing to show in either view): one proper error state with a
           retry. The scope select in the card toolbar keeps the other scopes one click away. */}
-      {!page && !preview ? (
+      {readFailed ? (
         <Alert severity="error" role="alert" sx={{ mb: 3 }} action={<RetryButton label={copy(pageContract, "action.retry", "Retry")} />}>
           {copy(pageContract, "state.unavailable_tasks")}
         </Alert>
@@ -464,127 +451,9 @@ export function LeadershipTasksPage({
 
 
 
-function readOnlyRow(row: TaskRow): TaskRow {
-  return { ...row, canEdit: false, canComment: false, statusOptions: [] };
-}
-
-// ---------------------------------------------------------------- fixture rows for /tasks-preview
-const fixtureTasks: TaskRow[] = [
-  {
-    id: "11111111-1111-4111-8111-111111111111",
-    number: "#18",
-    title: "Check CPT west fence repair before evening close",
-    body: "Confirm the west fence patch before close and attach the completion proof.",
-    comment: "Park team acknowledged.",
-    canComment: true,
-    canEdit: true,
-    rowVersion: 4,
-    status: "in_progress",
-    statusLabel: "In progress",
-    statusOptions: [{ key: "done", label: "Done" }],
-    assignee: "Satish",
-    assigneeRole: "Park Head",
-    raisedBy: "Manju",
-    raisedByUserID: "22222222-2222-4222-8222-222222222222",
-    assigneeUserID: "33333333-3333-4333-8333-333333333333",
-    age: "Today",
-    attachments: 3,
-    evidence: "video, voice note",
-    attachmentKinds: ["video", "audio"],
-    attachmentRows: [],
-    notes: [],
-    activityHasMore: false,
-    activityNextBefore: "",
-    activity: [
-      {
-        id: "a1111111-1111-4111-8111-111111111111",
-        kind: "status_changed",
-        occurred_at: "2026-09-14T09:12:00+05:30",
-        occurred_label: "14/09/2026 09:12",
-        actor_user_id: "33333333-3333-4333-8333-333333333333",
-        actor_name: "Satish",
-        actor_initials: "S",
-        from_label: "To do",
-        to_label: "In progress",
-        from_value: "open",
-        to_value: "in_progress",
-        note_id: "",
-        summary: "Satish changed the status To do → In progress",
-      },
-      {
-        id: "a1111111-1111-4111-8111-111111111112",
-        kind: "created",
-        occurred_at: "2026-09-14T08:40:00+05:30",
-        occurred_label: "14/09/2026 08:40",
-        actor_user_id: "22222222-2222-4222-8222-222222222222",
-        actor_name: "Manju",
-        actor_initials: "M",
-        from_label: "",
-        to_label: "",
-        from_value: "",
-        to_value: "",
-        note_id: "",
-        summary: "Manju created the task",
-      },
-    ],
-    daysLeft: 4,
-    daysLeftLabel: "4 days left",
-    deadlineTone: "ok",
-    deadlineLabel: "18/09/2026 17:00",
-    deadlineStateLabel: "Due in 4 days",
-    deadlineAt: "2026-09-18T17:00:00+05:30",
-  },
-  {
-    id: "44444444-4444-4444-8444-444444444444",
-    number: "#17",
-    title: "Confirm director handoff for feed unloading delay",
-    body: "Capture what delayed unloading and who owns the next checkpoint.",
-    comment: "Waiting for vendor note.",
-    canComment: true,
-    canEdit: false,
-    rowVersion: 2,
-    status: "open",
-    statusLabel: "To do",
-    statusOptions: [{ key: "in_progress", label: "In progress" }],
-    assignee: "Manohar",
-    assigneeRole: "Feed Director",
-    raisedBy: "Ravi",
-    raisedByUserID: "55555555-5555-4555-8555-555555555555",
-    assigneeUserID: "66666666-6666-4666-8666-666666666666",
-    age: "Today",
-    attachments: 2,
-    evidence: "note, file",
-    attachmentKinds: ["file"],
-    attachmentRows: [],
-    notes: [],
-    activityHasMore: false,
-    activityNextBefore: "",
-    activity: [
-      {
-        id: "a4444444-4444-4444-8444-444444444441",
-        kind: "created",
-        occurred_at: "2026-09-06T11:05:00+05:30",
-        occurred_label: "06/09/2026 11:05",
-        actor_user_id: "55555555-5555-4555-8555-555555555555",
-        actor_name: "Ravi",
-        actor_initials: "R",
-        from_label: "",
-        to_label: "",
-        from_value: "",
-        to_value: "",
-        note_id: "",
-        summary: "Ravi created the task",
-      },
-    ],
-    daysLeft: -4,
-    daysLeftLabel: "4 days over",
-    deadlineTone: "over",
-    deadlineLabel: "10/09/2026 12:00",
-    deadlineStateLabel: "Overdue by 4 days",
-    deadlineAt: "2026-09-10T12:00:00+05:30",
-  },
-];
-
+// ---------------------------------------------------------------- scope fallback
+// The fixed scope vocabulary shown when the list read fails (labels re-read from the contract,
+// counts dropped above).
 const fixtureScopes: NonNullable<LeadershipTaskPage["scopes"]> = [
   {
     key: "assigned_to_me",

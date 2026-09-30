@@ -70,9 +70,25 @@ must import (as `@/<module>`). A mapped page that stops importing one of its sec
 | `/counts/mortality` | Analytics overview (`/dashboard/analytics`) with Ecommerce KPI widgets + list tables | `features/counts/mortality.tsx`, `features/counts/mortality-tables.tsx` | `components/minimal/sections/overview/e-commerce/ecommerce-widget-summary`, `components/minimal/sections/overview/analytics/analytics-website-visits`, `components/minimal/label`, `components/minimal/scrollbar`, `components/minimal/empty-content` | Header; window date filter; 6 KPIs → EcommerceWidgetSummary in KpiGrid (deaths / kids / adults with the monthly series); deaths by month → stacked AnalyticsWebsiteVisits; rate + share breakdowns → Card + CardHeader + Scrollbar table (neutral head band, template LinearProgress bar, soft basis Labels), two a row from lg; cross tabs full width with heat cells + neutral totals footer; recent deaths → Card + CardHeader count Label + DataTable + TablePaginationLinks; errors → Alert / EmptyContent |
 | `/weighing/weights` | Ecommerce overview (`/dashboard/ecommerce`) + Banking/Analytics chart cards + list tables | `features/weighing/weights.tsx`, `features/weighing/metric-chart.tsx`, `features/weighing/growth-director.tsx`, `components/app/conversion-rates-card.tsx` | `components/minimal/sections/overview/e-commerce/ecommerce-widget-summary`, `components/minimal/sections/overview/course/course-widget-summary`, `components/minimal/sections/overview/e-commerce/ecommerce-sale-by-gender`, `components/app/sections/overview/banking/banking-balance-statistics`, `components/minimal/sections/overview/analytics/analytics-conversion-rates`, `components/app/sections/overview/e-commerce/ecommerce-sales-overview`, `components/minimal/label` | Header + Download drawer; WorklistFilters card; 4 KPIs (sm 6 / lg 3): park gain → EcommerceWidgetSummary (weekly gain sparkline, "last week"), kids weighed / total / average weight → CourseWidgetSummary (no weekly series); sale-ready lines → EcommerceSaleByGender ring (lg 4); breed-wise gain bands → BankingBalanceStatistics (lg 8, Chart/Table URL switch); daily gain / weight by breed (lg 6), sex and stage (lg 3) → AnalyticsConversionRates with CardHeader metric select; pens, loads, losing-weight → template table cards with soft Labels + pager; Growth Director → InvoiceAnalytic strip, EcommerceSalesOverview road-to-sale bands, fair-fight intro + cohort standings (EcommerceSalesOverview) in the right rail |
 | `/vaccination/plan/edit` | product/view/product-edit-view (new/edit form) | `features/vaccination-plan/plan-editor.tsx`, `features/vaccination-plan/anchor-panel.tsx`, `features/vaccination-plan/duration-field.tsx` | `components/minimal/label`, `components/minimal/iconify`, `components/app/table`, `components/minimal/scrollbar`, `components/minimal/custom-popover` | Header (draft Label, Back outlined); scope strip Card (avatar icon + label/value cells, dashed dividers); Grid md 4 selector column (Vaccines / Plan settings Cards with ListItemButton rows, rounded initials avatars, Add a vaccine) beside md 8 form column (vaccine Card: CardHeader + class Label + Switch, anchor table (TableHeadCustom) in an outlined Paper, dose rows as outlined Papers with soft tag Labels and soft duration Buttons opening the template CustomPopover, deadline bar, repeat presets as Chips; proof radio cards; impact dashed strip + Alert); pinned action Paper; Add vaccine / leave confirm as MUI Dialogs |
+| `/calendar/drive/[eventId]` | order/view/order-details-view (detail header + table cards) | `features/calendar/calendar-drive-detail.tsx` | `components/minimal/label`, `components/minimal/scrollbar`, `components/app/page-header` | Back-title header; drive facts Card; animal roster table Card (Scrollbar + soft Labels) |
 
 Pages in this table are also held by `page-template-no-pastel`: no `KpiCard variant="tint"/"gradient"`
 or `AnalyticsWidgetSummary` in their feature files.
+
+## Routes with no template page of their own
+
+`page-template-map-coverage` (design:guard, p0) requires every `page.tsx` under `app/` to be named in
+this file: in the table above, or here with the reason it has no template page.
+
+| Route | Why | Renders |
+|---|---|---|
+| `/` | Landing redirect | redirects to the landing page (ADG Analytics, `/weighing/analytics`) or the first published page; the parked Control Tower renders only behind the `?lens=control-tower` deep link (no sidebar entry; not yet converted, owner-less) |
+| `/actions` | Compatibility redirect | `redirect("/verify")` with the query kept |
+| `/verification` | Compatibility redirect | `redirect("/verify")` |
+| `/procurement` | Vertical root redirect | `redirect("/procurement/source-entry")` |
+| `/sales` | Vertical root redirect (retired board, 2026-09-11) | `redirect("/sales/sold")` with the query kept |
+| `/login` | Auth, outside the dashboard shell | template auth-split layout (`layouts/auth-split`) + FormHead + Google sign-in |
+| `/auth/action` | Auth, outside the dashboard shell | template auth-split layout + password reset action |
 
 ## Block detail
 

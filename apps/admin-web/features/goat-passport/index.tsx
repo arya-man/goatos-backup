@@ -21,6 +21,7 @@ import ListItemText from "@mui/material/ListItemText";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
+import { EmptyState } from "@/components/app/empty-state";
 import { dateTime, dash, humanizeEnum, joinParts, shortId } from "@/lib/format";
 import { PageHeader } from "@/components/app/page-header";
 import { Tag, type Tone } from "@/components/ui-primitives";
@@ -318,9 +319,9 @@ export async function GoatPassportPage({
         sx={{ mb: 3 }}
       />
       {goat.identifiers.length === 0 ? (
-        <Typography variant="body2" sx={{ px: 3, pb: 3, color: "text.secondary" }}>
-          {copy(pageContract, "empty.identifiers")}
-        </Typography>
+        <Box sx={{ px: 3, pb: 3 }}>
+          <EmptyState title={copy(pageContract, "empty.identifiers")} />
+        </Box>
       ) : (
         <Scrollbar>
           <Table sx={{ minWidth: 760 }} aria-label={copy(pageContract, "table.identifiers.aria")}>
@@ -401,9 +402,8 @@ export async function GoatPassportPage({
       <CardHeader title={copy(pageContract, "section.evidence.title")} action={<Label variant="soft">{goat.evidence_refs.length}</Label>} />
       <DividedStack flexItem={false} spacing={2.5} sx={{ p: 3 }}>
         {goat.evidence_refs.length === 0 ? (
-          <Typography variant="body2" sx={{ color: "text.secondary" }}>
-            {copy(pageContract, "empty.evidence")}
-          </Typography>
+          // Template empty state (EmptyContent), never a bare text line (J2 P1-3).
+          <EmptyState title={copy(pageContract, "empty.evidence")} />
         ) : (
           goat.evidence_refs.map((evidence) => (
             <Box key={`${evidence.evidence_type}-${evidence.evidence_id}`} sx={{ display: "flex", alignItems: "center", gap: 2, minWidth: 0 }}>
@@ -412,12 +412,9 @@ export async function GoatPassportPage({
               </Avatar>
               <ListItemText
                 primary={humanizeEnum(evidence.evidence_type)}
-                secondary={
-                  <>
-                    <Box component="span" sx={{ ...mono, display: "block", overflowWrap: "anywhere" }}>{evidence.evidence_id}</Box>
-                    {dash(evidence.description ?? evidence.source_system)}
-                  </>
-                }
+                // The evidence id is a record key (often the goat UUID): kept as the hover title,
+                // never printed as text (J2 P1-4; guard: raw-id-text).
+                secondary={<Box component="span" title={evidence.evidence_id}>{dash(evidence.description ?? evidence.source_system)}</Box>}
                 slotProps={{ primary: { sx: { typography: "subtitle2" } }, secondary: { component: "span", sx: { typography: "body2" } } }}
                 sx={{ minWidth: 0 }}
               />
@@ -435,23 +432,24 @@ export async function GoatPassportPage({
       <Box sx={{ mt: 0.5, typography: "body2" }}>{timeline.error.message}</Box>
     </Alert>
   ) : timelineItems.length === 0 ? (
+    // No raw table name as the subheader (`goat_identity_events`, J2 P1-3; guard: raw-id-text) and the
+    // template empty state inside the card.
     <MuiCard aria-label={copy(pageContract, "section.timeline.title")}>
-      <CardHeader title={copy(pageContract, "section.timeline.title")} subheader={copy(pageContract, "label.identity_events_table")} />
-      <Typography variant="body2" sx={{ p: 3, color: "text.secondary" }}>
-        {copy(pageContract, "empty.timeline")}
-      </Typography>
+      <CardHeader title={copy(pageContract, "section.timeline.title")} />
+      <Box sx={{ p: 3 }}>
+        <EmptyState title={copy(pageContract, "empty.timeline")} />
+      </Box>
     </MuiCard>
   ) : (
     <OrderDetailsHistory
       aria-label={copy(pageContract, "section.timeline.title")}
       title={copy(pageContract, "section.timeline.title")}
-      action={<Typography variant="caption" sx={{ color: "text.secondary" }}>{copy(pageContract, "label.identity_events_table")}</Typography>}
       timeline={timelineItems.map((event, index) => ({
         key: event.event_id,
         tone: index === 0 ? "primary" : "grey",
         title: `${humanizeEnum(event.event_type)} · ${humanizeEnum(event.actor_type)}`,
         time: `${copy(pageContract, "label.occurred")} ${dateTime(event.occurred_at)} · ${copy(pageContract, "label.recorded")} ${dateTime(event.recorded_at)}`,
-        body: `${copy(pageContract, "label.evidence")} ${event.evidence_refs.length} · ${event.decision_id ? `${copy(pageContract, "label.decision")} ${shortId(event.decision_id)}` : copy(pageContract, "label.no_decision")}`,
+        body: `${copy(pageContract, "label.evidence")} ${event.evidence_refs.length} · ${event.decision_id ? copy(pageContract, "label.decision") : copy(pageContract, "label.no_decision")}`,
       }))}
     />
   );

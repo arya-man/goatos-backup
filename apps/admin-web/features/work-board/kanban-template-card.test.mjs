@@ -29,13 +29,14 @@ test("guard: kanban-template-card -- empty columns are the bare template list", 
   assert.match(board, /className="sr-only">\{copy\(pageContract, "lane\.empty"\)\}/);
 });
 
-test("guard: tasks-new-task-reason -- a disabled New task says why", () => {
-  // TR1-#24: /tasks "New task" rendered grey with no reason when the assignees read came back
-  // empty; a reviewer read it as a broken style. Disabled stays, but the reason is on hover + tap.
+test("guard: tasks-new-task-reason -- no dead New task: without assignees the slot shows the reason as text", () => {
+  // TR1-#24 put the reason in a tap tooltip on a grey button; J2 P1-1 (DECIDED no dead controls):
+  // a disabled primary is still a dead control. Without assignable people the action slot renders
+  // the backend reason as visible text, and the button renders only when it can open the dialog.
   const modal = read("../leadership-tasks/new-task-modal.tsx");
-  assert.match(modal, /<Tooltip title=\{assignees\.length \? "" : text\("new\.no_assignees"/);
-  assert.match(modal, /enterTouchDelay=\{0\}/, "opens on tap in the webview");
-  assert.match(modal, /disabled=\{!assignees\.length\}/);
+  assert.match(modal, /\{assignees\.length \? \(\s*<Button/, "New task renders only when someone can be assigned");
+  assert.doesNotMatch(modal, /disabled=\{!assignees\.length\}/, "never a disabled New task");
+  assert.match(modal, /text\("new\.no_assignees"/, "the reason is visible text from the contract");
   const service = read("../../../../backend/internal/adminui/app/service.go");
   assert.match(service, /"new\.no_assignees":/, "backend owns the reason copy");
 });

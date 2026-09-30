@@ -219,6 +219,7 @@ const CHECKS = {
   "template-verbatim": { tier: "p0", why: "every file mapped in docs/design/template-sources.json (components/minimal/**, layouts/**) equals its MUI Minimal template source byte-for-byte except import paths and a \"use client\" line (sha256 of the normalised template source is stored there; refresh with node scripts/refresh-template-hashes.mjs). Product behaviour (URL links, data shapes, copy) goes in components/app adapters or feature files that pass props to the verbatim template component; a hand-made component never wears a template path. Existing drift: docs/design/template-verbatim-baseline.json, shrink-only" },
   "feature-server-fn-sx": { tier: "p0", why: "a feature/app module without 'use client' passes a function sx ((theme) => …) to an MUI part: as a Server Component the function cannot cross to the client part (\"Functions cannot be passed directly to Client Components\") and the route crashes to \"Something went wrong\" (/goats/[id], FJ1 P0-1). Move the themed block into a 'use client' file or use an object sx with theme vars" },
   "section-server-fn-sx": { tier: "p0", why: "a template section under components/minimal/sections/ that styles with a function sx ((theme) => …) must start with 'use client': a Server Component page renders it, and a function prop cannot cross to the client MUI part (\"Functions cannot be passed directly to Client Components\", the whole page falls back to client rendering or 500s)" },
+  "page-template-map-coverage": { tier: "p0", why: "every page under app/ (app/(admin)/**, /login, /auth/**) has a row in docs/design/page-template-map.md: a mapped row naming its template page, or a row in the \"Routes with no template page of their own\" table (redirect-only / auth) saying why. An unmapped page drifts unseen (J2 P1-2: /tasks-preview shipped a fake shell nobody mapped)" },
   "page-template-map": { tier: "p0", why: "every route row in docs/design/page-template-map.md names the feature files that render it and the template section modules they must compose; a mapped page that stops importing one of its template sections (or maps to a file that no longer exists) has drifted back to hand-made UI" },
   "legacy-kit-import": { tier: "p0", why: "the hand-built components/kit is retired; import the template (components/minimal), MUI, or a components/app behaviour wrapper instead — components/kit must not come back" },
   "server-element-prop": { tier: "p0", why: "a SERVER module passes a JSX element in an MUI prop that MUI clones (Stack divider, Tab/Chip icon, Chip avatar/deleteIcon, Checkbox/Radio checkedIcon): it arrives as a lazy RSC reference while its client chunk loads, cloneElement yields an undefined type and the page crashes on some loads (FJ1 P0-1 /goats/[goat_id]); use components/app/divided-stack (client) or move the element into a \"use client\" leaf" },
@@ -649,6 +650,28 @@ function runGuard(root, { themeDiff }) {
           if (!spec.test(imports)) findings.push(finding("page-template-map", mapRel, index + 1, `${route}: none of ${files.join(", ")} imports @/${mod}`));
         }
       });
+      // page-template-map-coverage: every page.tsx under app/ has a row (mapped or declared unmapped).
+      const listed = new Set();
+      for (const line of readFileSync(mapFile, "utf8").split("\n")) {
+        const first = line.split("|")[1]?.trim() ?? "";
+        for (const m of first.matchAll(/`(\/[^`]*)`/g)) listed.add(m[1]);
+      }
+      const appRoot = join(root, "app");
+      const pages = [];
+      const walkPages = (dir, segs) => {
+        if (!existsSync(dir)) return;
+        for (const name of readdirSync(dir)) {
+          const full = join(dir, name);
+          if (statSync(full).isDirectory()) {
+            if (name.startsWith("_") || name.startsWith("@") || (segs.length === 0 && name === "api")) continue;
+            walkPages(full, /^\(.*\)$/.test(name) ? segs : [...segs, name]);
+          } else if (/^page\.(tsx|ts|jsx|js)$/.test(name)) pages.push({ route: `/${segs.join("/")}`, file: relative(root, full) });
+        }
+      };
+      walkPages(appRoot, []);
+      for (const page of pages) {
+        if (!listed.has(page.route)) findings.push(finding("page-template-map-coverage", mapRel, 1, `${page.route} (${page.file}) has no row in page-template-map.md`));
+      }
     }
   }
 
@@ -1354,6 +1377,11 @@ async function selfTest() {
   const wantVerbatim = ["components/minimal/tpl-drift.tsx:", "components/minimal/tpl-edited.tsx:", "components/minimal/tpl-pkg.tsx:", "docs/design/template-verbatim-baseline.json:healed"];
   if (verbatimHits.join("|") !== wantVerbatim.join("|")) {
     console.error(`design_system_self_test=FAIL template-verbatim flagged=${verbatimHits.join(",") || "none"} (want ${wantVerbatim.join(",")})`);
+    process.exit(1);
+  }
+  const coverage = findings.filter((f) => f.check === "page-template-map-coverage").map((f) => f.snippet);
+  if (!coverage.some((m) => m.startsWith("/tabbed ")) || coverage.some((m) => m.startsWith("/foo "))) {
+    console.error(`design_system_self_test=FAIL page-template-map-coverage flagged=${coverage.join(" | ") || "none"} (want /tabbed flagged, /foo not)`);
     process.exit(1);
   }
   const sepHits = findings.filter((f) => f.check === "server-element-prop").map((f) => `${f.file}:${f.line}`);

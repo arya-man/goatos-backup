@@ -11,6 +11,7 @@ import CardHeader from "@mui/material/CardHeader";
 import Paper from "@mui/material/Paper";
 import Typography from "@mui/material/Typography";
 import { Label, type LabelColor } from "@/components/minimal/label";
+import { EmptyState } from "@/components/app/empty-state";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { TableHeadCustom } from "@/components/app/table";
 import {
@@ -19,7 +20,7 @@ import {
   type VaccinationPassportHistoryItem,
 } from "@/lib/api/server";
 import { fmtDate, humanizeEnum } from "@/lib/format";
-import { copy, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, table, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 function statusColor(status: string): LabelColor {
   if (status === "accepted") return "success";
@@ -44,9 +45,12 @@ function realWorkflowRowId(rowId: string | undefined): string | null {
   if (!trimmed || trimmed.startsWith("obligation:")) return null;
   return trimmed;
 }
-function sourceObligationLabel(obligationId: string): string {
-  return obligationId.slice(0, 8);
-}
+/** Contract history columns that only ever held a raw obligation id. */
+const HISTORY_ID_COLUMNS = new Set(["source_obligation", "workflow"]);
+const HISTORY_CELL_SX: Record<string, object | undefined> = {
+  administered: { whiteSpace: "nowrap" },
+  route: { color: "text.secondary" },
+};
 
 function vaccineRowLabel(item: { display_label: string }): string {
   return item.display_label;
@@ -80,7 +84,10 @@ export async function VaccinationPassportSection({ goatId, pageContract }: { goa
   const open = p.open_obligations ?? [];
   const placeholder = copy(pageContract, "label.placeholder");
   const openHead = tableLabels(pageContract, "vaccination-open-obligations").map((label, index) => ({ id: `o${index}`, label }));
-  const historyHead = tableLabels(pageContract, "vaccination-history").map((label, index) => ({ id: `h${index}`, label }));
+  // History columns follow the contract by KEY. The obligation / workflow columns carried raw ids
+  // (`cee6e124`) and no history row names a workflow, so they are not drawn (J2 P1-4).
+  const historyColumns = table(pageContract, "vaccination-history").columns.filter((column) => column.visible && !HISTORY_ID_COLUMNS.has(column.key));
+  const historyHead = historyColumns.map((column) => ({ id: column.key, label: column.label }));
   const stats = [
     {
       key: "next",
@@ -91,6 +98,22 @@ export async function VaccinationPassportSection({ goatId, pageContract }: { goa
     { key: "open", label: copy(pageContract, "vaccination.open_obligations"), value: String(open.length), extra: null },
     { key: "last", label: copy(pageContract, "vaccination.last_accepted"), value: p.last_accepted ? fmtDate(p.last_accepted.administered_at) : placeholder, extra: null },
   ];
+  const historyCell = (key: string, h: VaccinationPassportHistoryItem): React.ReactNode => {
+    switch (key) {
+      case "administered":
+        return fmtDate(h.administered_at);
+      case "vaccine":
+        return vaccineRowLabel(h);
+      case "route":
+        return h.route_site || placeholder;
+      case "status":
+        return <Label color={statusColor(h.status)}>{humanizeEnum(h.status)}</Label>;
+      case "proof":
+        return proofLabel(h, pageContract);
+      default:
+        return placeholder;
+    }
+  };
   const blockTitle = (text: string) => (
     <Typography variant="overline" component="h3" sx={{ display: "block", px: 3, pt: 3, pb: 1.5, color: "text.secondary" }}>
       {text}
@@ -133,9 +156,9 @@ export async function VaccinationPassportSection({ goatId, pageContract }: { goa
 
       {blockTitle(copy(pageContract, "vaccination.open_due_rows"))}
       {open.length === 0 ? (
-        <Typography variant="body2" sx={{ px: 3, pb: 2, color: "text.secondary" }}>
-          {copy(pageContract, "vaccination.empty_open")}
-        </Typography>
+        <Box sx={{ px: 3, pb: 2 }}>
+          <EmptyState title={copy(pageContract, "vaccination.empty_open")} />
+        </Box>
       ) : (
         <Scrollbar>
           <Table sx={{ minWidth: 640 }} aria-label={copy(pageContract, "vaccination.open_due_rows")}>
@@ -163,9 +186,8 @@ export async function VaccinationPassportSection({ goatId, pageContract }: { goa
                           {copy(pageContract, "action.open_workflow")} →
                         </LinkButton>
                       ) : (
-                        <Box component="span" sx={{ fontFamily: "monospace" }} title={due.obligation_id}>
-                          {sourceObligationLabel(due.obligation_id)}
-                        </Box>
+                        // No workflow row yet: a dash, never the obligation hash (J2 P1-4; guard: raw-id-text).
+                        <Box component="span" sx={{ color: "text.disabled" }}>—</Box>
                       )}
                     </TableCell>
                     <TableCell>
@@ -187,9 +209,9 @@ export async function VaccinationPassportSection({ goatId, pageContract }: { goa
 
       {blockTitle(copy(pageContract, "vaccination.history"))}
       {history.length === 0 ? (
-        <Typography variant="body2" sx={{ px: 3, pb: 3, color: "text.secondary" }}>
-          {copy(pageContract, "vaccination.empty_history")}
-        </Typography>
+        <Box sx={{ px: 3, pb: 3 }}>
+          <EmptyState title={copy(pageContract, "vaccination.empty_history")} />
+        </Box>
       ) : (
         <Scrollbar>
           <Table sx={{ minWidth: 760 }} aria-label={copy(pageContract, "table.vaccination.aria")}>
@@ -197,21 +219,11 @@ export async function VaccinationPassportSection({ goatId, pageContract }: { goa
             <TableBody>
               {history.map((h) => (
                 <TableRow hover key={h.completion_id}>
-                  <TableCell sx={{ whiteSpace: "nowrap" }}>{fmtDate(h.administered_at)}</TableCell>
-                  <TableCell>{vaccineRowLabel(h)}</TableCell>
-                  <TableCell sx={{ color: "text.secondary" }}>{h.route_site || placeholder}</TableCell>
-                  <TableCell>
-                    <Label color={statusColor(h.status)}>{humanizeEnum(h.status)}</Label>
-                  </TableCell>
-                  <TableCell>{proofLabel(h, pageContract)}</TableCell>
-                  <TableCell>
-                    <Box component="span" sx={{ fontFamily: "monospace" }}>{h.obligation_id.slice(0, 8)}</Box>
-                  </TableCell>
-                  <TableCell>
-                    <Box component="span" sx={{ fontFamily: "monospace" }} title={h.obligation_id}>
-                      {sourceObligationLabel(h.obligation_id)}
-                    </Box>
-                  </TableCell>
+                  {historyColumns.map((column) => (
+                    <TableCell key={column.key} sx={HISTORY_CELL_SX[column.key]}>
+                      {historyCell(column.key, h)}
+                    </TableCell>
+                  ))}
                 </TableRow>
               ))}
             </TableBody>

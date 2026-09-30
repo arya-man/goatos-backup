@@ -228,16 +228,15 @@ export function normalizeTaskDateRange(from: string | undefined, to: string | un
 }
 
 export const TASKS_PATHNAME = "/tasks";
-export const TASKS_PREVIEW_PATHNAME = "/tasks-preview";
 const DEFAULT_RETURN_TO = `${TASKS_PATHNAME}?scope=assigned_by_me`;
 
 /**
  * Where a write is allowed to send the browser afterwards.
  *
- * `startsWith("/tasks")` was the old test and it accepted `/tasks-preview` — the FIXTURE host —
- * as the landing page for a live write, so a real status change could return to a screen made of
- * fixture rows and look like it had done nothing. The path must be `/tasks` exactly, optionally
- * with a query; `/tasks-preview`, `/tasks/anything` and every off-site form fall back.
+ * `startsWith("/tasks")` was the old test and it accepted any sibling path that merely shares the
+ * prefix (e.g. `/tasks-foo`) as the landing page for a live write. The path must be `/tasks`
+ * exactly, optionally with a query; prefix siblings, `/tasks/anything` and every off-site form
+ * fall back.
  */
 export function safeTaskReturnTo(raw: string | undefined): string {
   const value = (raw ?? "").trim();

@@ -234,3 +234,14 @@ test("guard: skeleton-page-wrapper-selector - the block walk descends through pa
   assert.match(src, /if \(el\.matches\(PAGE_WRAPPER_SELECTOR\)\) return false;/);
   for (const sel of [".minimal__layout__main__content", ".screen", "[data-skel-root]"]) assert.ok(PAGE_WRAPPER_SELECTOR.includes(sel));
 });
+
+// panel-fallback-twin (J3 P1-1/P1-2): the pressed control must stay put through a tab / filter
+// transition, and the click-time panel skeleton must have the landed panel's shape.
+test("guard: panel-fallback-twin - fallbackTwinFails flags a jump and a mis-shaped skeleton", async () => {
+  const { fallbackTwinFails, isP0 } = await import("./r2-visual-audit.mjs");
+  const box = (y, h) => ({ x: 0, y, w: 358, h });
+  assert.deepEqual(fallbackTwinFails({ maxTargetShift: 3, fallback: { skeleton: box(300, 600), loaded: box(300, 620) } }), []);
+  assert.deepEqual(fallbackTwinFails({ maxTargetShift: 60, fallback: null }).map((f) => f[0]), ["fallback-jump"]);
+  assert.deepEqual(fallbackTwinFails({ maxTargetShift: 0, fallback: { skeleton: box(240, 300), loaded: box(300, 900) } }).map((f) => f[0]), ["fallback-shape"]);
+  assert.ok(isP0("interact|Tab|fallback-jump") && isP0("interact|Filter link|fallback-shape") && isP0("interact|Tab|stale-panel"));
+});

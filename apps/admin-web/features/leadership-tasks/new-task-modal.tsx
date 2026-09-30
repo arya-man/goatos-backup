@@ -2,16 +2,15 @@
 
 import { FileText, Image, Mic, Plus, X } from "lucide-react";
 import { useCallback, useId, useRef, useState } from "react";
-import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Dialog from "@mui/material/Dialog";
 import DialogContent from "@mui/material/DialogContent";
 import DialogTitle from "@mui/material/DialogTitle";
 import IconButton from "@mui/material/IconButton";
 import TextField from "@mui/material/TextField";
-import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 
+import { Iconify } from "@/components/minimal/iconify";
 import { AssigneePicker } from "@/components/assignee-picker";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { LeadershipTaskAssignee } from "@/lib/api/server";
@@ -101,26 +100,33 @@ export function NewTaskModal({
 
   return (
     <>
-      {/* No assignable people (the assignees read came back empty): the button stays disabled,
-          and says WHY on hover and on tap -- never a silent grey control (TR1-#24,
-          guard: tasks-new-task-reason). */}
-      <Tooltip title={assignees.length ? "" : text("new.no_assignees", "No one can be given a task from here yet.")} enterTouchDelay={0} leaveTouchDelay={4000}>
-        <Box component="span" sx={{ display: "inline-flex" }}>
-          <Button
-            ref={openerRef}
-            type="button"
-            variant="contained"
-            color="primary"
-            onClick={openModal}
-            disabled={!assignees.length}
-            startIcon={<Plus className="ic" aria-hidden="true" />}
-            aria-haspopup="dialog"
-            aria-expanded={open}
-          >
-            {text("new.open", "New task")}
-          </Button>
-        </Box>
-      </Tooltip>
+      {/* No assignable people (the assignees read came back empty): no grey, dead "New task" (DECIDED
+          no-dead-controls; J2 P1-1). The action slot shows the backend reason as visible text instead,
+          so nobody has to hover or tap to learn why there is nothing to press
+          (guard: tasks-new-task-reason). */}
+      {assignees.length ? (
+        <Button
+          ref={openerRef}
+          type="button"
+          variant="contained"
+          color="primary"
+          onClick={openModal}
+          startIcon={<Plus className="ic" aria-hidden="true" />}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+        >
+          {text("new.open", "New task")}
+        </Button>
+      ) : (
+        <Typography
+          variant="body2"
+          role="note"
+          sx={{ color: "text.secondary", display: "inline-flex", alignItems: "center", gap: 0.75, minHeight: "var(--tap-min)" }}
+        >
+          <Iconify icon="eva:info-outline" width={18} sx={{ flexShrink: 0 }} />
+          {text("new.no_assignees", "No one can be given a task from here yet.")}
+        </Typography>
+      )}
       <Dialog
         open={open}
         onClose={closeModal}

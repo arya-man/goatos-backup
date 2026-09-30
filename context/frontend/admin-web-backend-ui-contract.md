@@ -29,9 +29,9 @@ apps/admin-web/lib/api/server.ts#getAdminWebBootstrap
 apps/admin-web/features/**/*
 ```
 
-Documented exception, 2026-09-08: `features/leadership-tasks/` and
-`app/tasks-preview/` still contain local mock/preview visible copy while the
-first live Tasks route lands. The production route fetches
+Documented exception, 2026-09-08: `features/leadership-tasks/` still contains
+local visible copy while the first live Tasks route lands (the `app/tasks-preview/`
+fixture host was deleted 2026-09-30, J2 P1-2). The production route fetches
 `AdminWebPageContract` before rendering, but the screen copy needs a follow-up
 contract-key migration before the literal guard can scan it.
 
