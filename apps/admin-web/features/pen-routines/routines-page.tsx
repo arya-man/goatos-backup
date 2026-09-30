@@ -10,7 +10,7 @@ import Avatar from "@mui/material/Avatar";
 import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
 import { listOrEmpty } from "@/lib/list-or-empty";
-import { ListChecks } from "lucide-react";
+import { PageRoot } from "@/components/app/page-root";
 
 import Link from "@/components/no-prefetch-link";
 import Card from "@mui/material/Card";
@@ -279,7 +279,7 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
       id: "new",
       eyebrow: c("drawer.routine.title"),
       title: c("drawer.routine.create_title"),
-      icon: <ListChecks className="ic" aria-hidden="true" />,
+      icon: <Iconify icon="solar:list-bold" aria-hidden="true" />,
       body: <RoutineDrawerForm pageContract={pageContract} parks={parks} catalog={data.catalog} catalogParkId={catalogParkId} parkHrefs={createParkHrefs} canEdit={canCreate} canSetStatus={false} listHref={listHref} formId="prt-form-new" />,
       footer: <RoutineSaveFooter key="save" formId="prt-form-new" saveLabel={c("action.save")} canSave={canCreate} />,
     });
@@ -290,7 +290,7 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
       id: routine.routine_id,
       eyebrow: c("drawer.routine.title"),
       title: canEdit ? c("drawer.routine.edit_title") : routine.name,
-      icon: <ListChecks className="ic" aria-hidden="true" />,
+      icon: <Iconify icon="solar:list-bold" aria-hidden="true" />,
       body: (
         <RoutineDrawerForm
           pageContract={pageContract}
@@ -414,7 +414,7 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
   ];
 
   return (
-    <Box className="screen on routines-page">
+    <PageRoot>
       <PageHeader
         title={pageContract.title}
         crumbs={[{ label: c("crumb") }, { label: pageContract.title }]}
@@ -451,7 +451,7 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
         ) : null}
         </UrlSuspense>
 
-        <Card className="kit-tablecard" aria-label={routinesTable.title}>
+        <Card aria-label={routinesTable.title}>
             <RoutinesDenseScope>
             <CardHeader
               sx={ROUTINES_CARD_HEADER_SX}
@@ -537,7 +537,7 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
             </RoutinesDenseScope>
           </Card>
 
-        <Card className="kit-tablecard" aria-label={tasksTable.title}>
+        <Card aria-label={tasksTable.title}>
             <RoutinesDenseScope>
             <CardHeader
               sx={ROUTINES_CARD_HEADER_SX}
@@ -638,7 +638,7 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
       </Stack>
 
       <LocalOverlayDrawer items={drawerItems} selectionKey={PARAM_EDIT} initialSelectedId={one(sp, PARAM_EDIT)} closeHref={listHref} ariaLabel={c("drawer.routine.title")} closeLabel={c("action.close")} />
-    </Box>
+    </PageRoot>
   );
 }
 

@@ -9,7 +9,7 @@ import { ROUTINES_CARD_HEADER_SX, ROUTINES_TOOLBAR_FIELDS, ROUTINE_TILE_SIZE, TA
  */
 export default function Loading() {
   return (
-    <PageSkeleton className="routines-page">
+    <PageSkeleton root="page-root">
       <PageHeaderSkeleton crumbs={false} titleWidth={140} actionWidths={[129]} />
       <StackSkeleton>
         <KpiRowSkeleton count={5} size={ROUTINE_TILE_SIZE} />
