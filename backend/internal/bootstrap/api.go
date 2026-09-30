@@ -604,6 +604,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// carries the requester's leave beside their clockings.
 	leaveService := workforceapp.NewLeaveService(workforceRepo, workforceRepo)
 	leaveHandler := workforcehttp.NewLeaveHandler(leaveService, log)
+	// HRMS Timetable (maintainer request 2026-09-30): who works which shift at each park.
+	timetableHandler := workforcehttp.NewTimetableHandler(workforceapp.NewTimetableService(workforceRepo), log)
 	clockService := workforceapp.NewClockService(workforceRepo, workforceRepo, workforceRepo).WithLeave(leaveService)
 	clockHandler := workforcehttp.NewClockHandler(clockService, log)
 	proofStorage, err := buildProofStorage()
@@ -1536,6 +1538,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	browserpushhttp.Register(protectedMux, browserPushHandler)
 	workforcehttp.RegisterClock(protectedMux, clockHandler)
 	workforcehttp.RegisterLeave(protectedMux, leaveHandler)
+	workforcehttp.RegisterTimetable(protectedMux, timetableHandler)
 	proofhttp.Register(protectedMux, proofHandler)
 	sophttp.Register(protectedMux, sopHandler)
 	protocolhttp.Register(protectedMux, protocolHandler)

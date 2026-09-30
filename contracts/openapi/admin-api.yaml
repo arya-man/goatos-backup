@@ -3738,6 +3738,163 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /admin/workforce/timetable:
+    get:
+      tags:
+        - People
+      operationId: getWorkforceTimetable
+      summary: People / HRMS > Timetable — one park's shifts, their hours, and who works which shift.
+      description: >-
+        One park at a time (maintainer request 2026-09-30). The park's shifts come from the
+        farm's shift list with that park's hours (a shift with no stored hours reads "Not set").
+        People are the park's ACTIVE members by home park, keyset-paged on name; total_people,
+        unassigned_count and each shift's people_count are whole-park aggregates over the same
+        member set (grain person, buckets disjoint) and never move with the page. An empty
+        park_id opens the first park in park-code order. Every label is backend-composed.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: shift
+          in: query
+          required: false
+          description: A shift code, or "unassigned"; empty lists everyone.
+          schema:
+            type: string
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: The park's timetable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkforceTimetable"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          description: The park is not one of the farm's active parks (unknown_park).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin/workforce/timetable/parks/{park_id}/shifts/{shift_code}:
+    put:
+      tags:
+        - People
+      operationId: setWorkforceParkShiftTiming
+      summary: Set one shift's working hours at one park (HR and the CEO/CXO).
+      description: >-
+        Minutes after IST midnight. start_minute 0..1439; end_minute 1..1440, never equal to
+        the start and never without a start; an end earlier than the start crosses midnight.
+        A null end leaves the end unset; both null clears the timing. Fenced on row_version (0
+        for a timing never stored); an exact replay of the stored values succeeds and writes
+        nothing; a stale version with different values is 409 timetable_version_conflict.
+      parameters:
+        - name: park_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: shift_code
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ShiftTimingUpdate"
+      responses:
+        "200":
+          description: The stored timing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShiftTimingResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          description: The hours, the park or the shift are not valid (shift_start_out_of_range, shift_end_out_of_range, shift_end_without_start, shift_empty, unknown_park, unknown_shift).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin/workforce/timetable/people/{person_id}/shift:
+    put:
+      tags:
+        - People
+      operationId: setWorkforceMemberShift
+      summary: Put a person on a shift, or take them off every shift (HR and the CEO/CXO).
+      description: >-
+        An empty shift_code clears the person's shift. The person's working hours are their
+        shift's hours at their home park. Fenced on row_version (0 for a person with no
+        shift); an exact replay succeeds and writes nothing.
+      parameters:
+        - name: person_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MemberShiftUpdate"
+      responses:
+        "200":
+          description: The person's row after the write.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemberShiftResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          description: The shift is not on the farm's shift list (unknown_shift).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /admin/workforce/clock-entries:
     get:
       tags:
@@ -13016,6 +13173,136 @@ components:
           type: string
         row_version:
           type: integer
+    WorkforceTimetable:
+      type: object
+      additionalProperties: false
+      required: [parks, park_id, park_label, shifts, shift_filter, total_people, unassigned_count, people, next_cursor, trace_id]
+      properties:
+        parks:
+          type: array
+          items:
+            $ref: "#/components/schemas/TimetablePark"
+        park_id:
+          type: string
+        park_label:
+          type: string
+        shifts:
+          type: array
+          items:
+            $ref: "#/components/schemas/TimetableShift"
+        shift_filter:
+          type: string
+        total_people:
+          type: integer
+        unassigned_count:
+          type: integer
+        people:
+          type: array
+          items:
+            $ref: "#/components/schemas/TimetablePerson"
+        next_cursor:
+          type: string
+        trace_id:
+          type: string
+    TimetablePark:
+      type: object
+      additionalProperties: false
+      required: [park_id, label]
+      properties:
+        park_id:
+          type: string
+        label:
+          type: string
+    TimetableShift:
+      type: object
+      additionalProperties: false
+      required: [shift_code, label, start_minute, end_minute, timing_label, is_set, people_count, row_version]
+      properties:
+        shift_code:
+          type: string
+        label:
+          type: string
+        start_minute:
+          type:
+            - integer
+            - "null"
+        end_minute:
+          type:
+            - integer
+            - "null"
+        timing_label:
+          type: string
+        is_set:
+          type: boolean
+        people_count:
+          type: integer
+        row_version:
+          type: integer
+    TimetablePerson:
+      type: object
+      additionalProperties: false
+      required: [person_id, display_name, designation, department, shift_code, shift_label, timing_label, row_version]
+      properties:
+        person_id:
+          type: string
+        display_name:
+          type: string
+        designation:
+          type: string
+        department:
+          type: string
+        shift_code:
+          type: string
+        shift_label:
+          type: string
+        timing_label:
+          type: string
+        row_version:
+          type: integer
+    ShiftTimingUpdate:
+      type: object
+      additionalProperties: false
+      required: [start_minute, end_minute, row_version]
+      properties:
+        start_minute:
+          type:
+            - integer
+            - "null"
+        end_minute:
+          type:
+            - integer
+            - "null"
+        row_version:
+          type: integer
+    ShiftTimingResponse:
+      type: object
+      additionalProperties: false
+      required: [park_id, shift, trace_id]
+      properties:
+        park_id:
+          type: string
+        shift:
+          $ref: "#/components/schemas/TimetableShift"
+        trace_id:
+          type: string
+    MemberShiftUpdate:
+      type: object
+      additionalProperties: false
+      required: [shift_code, row_version]
+      properties:
+        shift_code:
+          type: string
+        row_version:
+          type: integer
+    MemberShiftResponse:
+      type: object
+      additionalProperties: false
+      required: [person, trace_id]
+      properties:
+        person:
+          $ref: "#/components/schemas/TimetablePerson"
+        trace_id:
+          type: string
     LeaveApprovalConfigResponse:
       type: object
       additionalProperties: false

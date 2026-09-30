@@ -1786,6 +1786,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/workforce/timetable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * People / HRMS > Timetable — one park's shifts, their hours, and who works which shift.
+         * @description One park at a time (maintainer request 2026-09-30). The park's shifts come from the farm's shift list with that park's hours (a shift with no stored hours reads "Not set"). People are the park's ACTIVE members by home park, keyset-paged on name; total_people, unassigned_count and each shift's people_count are whole-park aggregates over the same member set (grain person, buckets disjoint) and never move with the page. An empty park_id opens the first park in park-code order. Every label is backend-composed.
+         */
+        get: operations["getWorkforceTimetable"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/workforce/timetable/parks/{park_id}/shifts/{shift_code}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set one shift's working hours at one park (HR and the CEO/CXO).
+         * @description Minutes after IST midnight. start_minute 0..1439; end_minute 1..1440, never equal to the start and never without a start; an end earlier than the start crosses midnight. A null end leaves the end unset; both null clears the timing. Fenced on row_version (0 for a timing never stored); an exact replay of the stored values succeeds and writes nothing; a stale version with different values is 409 timetable_version_conflict.
+         */
+        put: operations["setWorkforceParkShiftTiming"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/workforce/timetable/people/{person_id}/shift": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put a person on a shift, or take them off every shift (HR and the CEO/CXO).
+         * @description An empty shift_code clears the person's shift. The person's working hours are their shift's hours at their home park. Fenced on row_version (0 for a person with no shift); an exact replay succeeds and writes nothing.
+         */
+        put: operations["setWorkforceMemberShift"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/workforce/clock-entries": {
         parameters: {
             query?: never;
@@ -5060,6 +5120,60 @@ export interface components {
             updated_at?: string;
             updated_by_name?: string;
             row_version: number;
+        };
+        WorkforceTimetable: {
+            parks: components["schemas"]["TimetablePark"][];
+            park_id: string;
+            park_label: string;
+            shifts: components["schemas"]["TimetableShift"][];
+            shift_filter: string;
+            total_people: number;
+            unassigned_count: number;
+            people: components["schemas"]["TimetablePerson"][];
+            next_cursor: string;
+            trace_id: string;
+        };
+        TimetablePark: {
+            park_id: string;
+            label: string;
+        };
+        TimetableShift: {
+            shift_code: string;
+            label: string;
+            start_minute: number | null;
+            end_minute: number | null;
+            timing_label: string;
+            is_set: boolean;
+            people_count: number;
+            row_version: number;
+        };
+        TimetablePerson: {
+            person_id: string;
+            display_name: string;
+            designation: string;
+            department: string;
+            shift_code: string;
+            shift_label: string;
+            timing_label: string;
+            row_version: number;
+        };
+        ShiftTimingUpdate: {
+            start_minute: number | null;
+            end_minute: number | null;
+            row_version: number;
+        };
+        ShiftTimingResponse: {
+            park_id: string;
+            shift: components["schemas"]["TimetableShift"];
+            trace_id: string;
+        };
+        MemberShiftUpdate: {
+            shift_code: string;
+            row_version: number;
+        };
+        MemberShiftResponse: {
+            person: components["schemas"]["TimetablePerson"];
+            trace_id: string;
         };
         LeaveApprovalConfigResponse: {
             config: components["schemas"]["LeaveApprovalConfig"];
@@ -9452,6 +9566,127 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getWorkforceTimetable: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                /** @description A shift code, or "unassigned"; empty lists everyone. */
+                shift?: string;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The park's timetable. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkforceTimetable"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The park is not one of the farm's active parks (unknown_park). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    setWorkforceParkShiftTiming: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                park_id: string;
+                shift_code: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShiftTimingUpdate"];
+            };
+        };
+        responses: {
+            /** @description The stored timing. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShiftTimingResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            /** @description The hours, the park or the shift are not valid (shift_start_out_of_range, shift_end_out_of_range, shift_end_without_start, shift_empty, unknown_park, unknown_shift). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    setWorkforceMemberShift: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                person_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemberShiftUpdate"];
+            };
+        };
+        responses: {
+            /** @description The person's row after the write. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberShiftResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["WriteConflict"];
+            /** @description The shift is not on the farm's shift list (unknown_shift). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
             500: components["responses"]["ServerError"];
         };
     };
