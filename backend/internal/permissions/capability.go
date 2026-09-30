@@ -766,6 +766,19 @@ var moduleCapabilities = []ModuleCapability{
 		},
 	},
 	{
+		// HRMS enquiries on the phone (maintainer decisions 2026-09-30): the park head fills the
+		// enquiry an approved death in their park opens -- names who was responsible and a
+		// violation for each. Its own module so it is a per-person tick like every other phone
+		// module; it renders as a card on the Tasks module's "For me" tab.
+		Key:      "enquiries",
+		Label:    "Enquiries",
+		Blurb:    "Filling the enquiry a death in your park opens: who was responsible, and the violation.",
+		Surfaces: []string{SurfaceMobile},
+		Levels: map[string][]string{
+			LevelDo: {EnquiryFill},
+		},
+	},
+	{
 		// The landed cost of a purchased ANIMAL load, entered on the Sales page's load-wise
 		// section (maintainer decision 2026-08-31, docs/decisions/sales-loadwise.md). Its own
 		// module for the same reason feed_purchases is: this is supplier money, and folding it

@@ -238,6 +238,7 @@ func buildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	penroutinesapp.NewPendingVerificationHandler(penroutinesverificationbridge.New(verificationService), logger).WithTaskReader(penRoutinesRepo).Register(bus)
 	// One shared list for every bus process (docs/decisions/sop-driven-herd-operations.md).
 	eventwiring.RegisterWorkflowConsumers(bus, workflowService, logger)
+	eventwiring.RegisterHRMSConsumers(bus, pool, pgCfg.QueryTimeout, logger)
 	captureEnqueuer, captureReviews := eventwiring.NewCountsCaptureStores(pool, pgCfg.QueryTimeout)
 	eventwiring.RegisterCountsCaptureConsumers(bus, captureEnqueuer, captureReviews, workflowService)
 	identityapp.NewSaleFailedReleaseHandler(identityRepo).Register(bus)

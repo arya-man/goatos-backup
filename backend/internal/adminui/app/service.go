@@ -261,9 +261,16 @@ func navigation() domain.NavigationContract {
 					navLeafDomain("leave", "Leave", "/leave", "admin.people", nil),
 					// Violations (maintainer decisions 2026-09-30): a violation recorded against a person
 					// with a fine in rupees; the types are authored on the HRMS SOP.
+					// Enquiries (maintainer decisions 2026-09-30): opened by a farm event (first: an
+					// approved death); the park head fills it on the phone, HR here.
+					navLeafDomain("people-enquiries", "Enquiries", "/people/enquiries", "admin.people", nil),
 					navLeafDomain("people-violations", "Violations", "/people/violations", "admin.people", nil),
 					navLeafDomain("people-notifications", "Notifications", "/people/notifications", "admin.people", nil),
 					navLeafDomain("people-vaccination", "Vaccination operators", "/people/vaccination", "admin.people", nil),
+					// HRMS SOP (maintainer instruction 2026-09-30: "every violation type, everything is
+					// SOP driven"): the violation types, their fines and each enquiry's questions and
+					// deadline. HR authors it (hrms.sop.author) -- this SOP and no other.
+					navLeafDomain("people-sops", "HRMS SOP", "/people/sops", "admin.people", nil),
 				},
 			},
 			{
@@ -367,7 +374,10 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/people", Label: "People", Match: "exact"},
 		{Pattern: "/people/clock", Label: "Clock in / out", Match: "exact"},
 		{Pattern: "/people/timetable", Label: "Timetable", Match: "exact"},
+		{Pattern: "/people/enquiries", Label: "Enquiries", Match: "exact"},
+		{Pattern: "/people/enquiries/{enquiry_id}", Label: "Enquiry", Match: "pattern"},
 		{Pattern: "/people/violations", Label: "Violations", Match: "exact"},
+		{Pattern: "/people/sops", Label: "HRMS SOP", Match: "exact"},
 		{Pattern: "/people/notifications", Label: "Notifications", Match: "exact"},
 		{Pattern: "/people/vaccination", Label: "Vaccination operators", Match: "exact"},
 		{Pattern: "/goats/{goat_id}", Label: "Goat Passport", Match: "pattern"},
@@ -1119,6 +1129,12 @@ func pages() []domain.PageContract {
 			[]domain.TableContract{
 				tableP("timetable-people", "People", "/admin/workforce/timetable", []string{"person", "designation", "department", "shift", "work_timings"}, "person_id", []int{50}),
 			}),
+		// Enquiries (maintainer decisions 2026-09-30): the list, and one enquiry's report.
+		page("people-enquiries", "/people/enquiries", "/people/enquiries", "Enquiries", "Enquiries opened by farm events. The park head fills each one; HR can fill it here", "authority-screen",
+			[]domain.TableContract{
+				tableP("enquiries", "Enquiries", "/admin/workforce/enquiries", []string{"enquiry", "park", "opened", "due", "status"}, "enquiry_id", []int{25}),
+			}),
+		page("people-enquiry", "/people/enquiries/{enquiry_id}", "/people/enquiries/{enquiry_id}", "Enquiry", "One enquiry's report: what happened, and who was responsible", "record-drilldown", nil),
 		// Violations (maintainer decisions 2026-09-30): the per-person totals for the filter and
 		// every recorded violation. Final when recorded; a mistaken one is withdrawn, never deleted.
 		page("people-violations", "/people/violations", "/people/violations", "Violations", "Violations recorded against each person, and the fine for each", "authority-screen",
@@ -1166,6 +1182,10 @@ func pages() []domain.PageContract {
 		// SALES SOP (maintainer instruction 2026-09-19, docs/decisions/sales-sop.md): the steps a
 		// recorded sale owes -- tag the animals, load them, the money -- and the designation that
 		// does each, authored here and run by the tasks engine as one workflow per sale.
+		// HRMS SOP (2026-09-30): the violation types and enquiries document, scoped to the hrms.
+		// code prefix. Same sop-library contract as every module SOP page.
+		page("people-sops", "/people/sops", "/people/sops", "HRMS SOP", "The violation types and their fines, and the enquiries farm events open.", "module-surface",
+			[]domain.TableContract{table("sop-library", "HRMS SOPs", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
 		page("sales-sops", "/sales/sops", "/sales/sops", "Sales SOP", "What happens after a sale is recorded (tagging, loading, the money) and who does each step.", "module-surface",
 			[]domain.TableContract{table("sop-library", "Sales SOPs", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
 		// PROCUREMENT SOP (maintainer decision 2026-09-14): the animal-purchase inspection --
@@ -2271,6 +2291,60 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.empty_placeholder":          "—",
 			"section.work_board.aria":          "Action Center work board",
 			"error.unavailable_prefix":         "Workflow record unavailable",
+		}
+	case "people-enquiries", "people-enquiry":
+		// HRMS Enquiries (maintainer decisions 2026-09-30). The enquiry's title, subject line,
+		// questions, violation types and every date come from the read (the pinned HRMS SOP).
+		return map[string]string{
+			"crumb":                   "HRMS",
+			"filter.park":             "Park",
+			"filter.park_all":         "All parks",
+			"filter.status":           "Status",
+			"filter.status.all":       "All",
+			"filter.status.open":      "Open",
+			"filter.status.overdue":   "Overdue",
+			"filter.status.submitted": "Submitted",
+			"summary.open":            "Open",
+			"summary.overdue":         "Overdue",
+			"summary.submitted":       "Submitted",
+			"list.title":              "Enquiries",
+			"list.empty":              "No enquiries for this filter.",
+			"column.enquiry":          "Enquiry",
+			"column.park":             "Park",
+			"column.opened":           "Opened",
+			"column.due":              "Due",
+			"column.status":           "Status",
+			"action.open":             "Open",
+			"action.fill":             "Fill report",
+			"detail.back":             "All enquiries",
+			"detail.happened":         "Happened on",
+			"detail.opened":           "Opened",
+			"detail.due":              "Due",
+			"detail.submitted":        "Submitted by %s on %s",
+			"detail.report":           "Report",
+			"detail.responsible":      "Who was responsible",
+			"detail.responsible_hint": "Add each person responsible and the violation. Leave it empty if nobody was.",
+			"detail.add_person":       "Add a person",
+			"detail.remove":           "Remove",
+			"detail.person":           "Person",
+			"detail.person_choose":    "Choose a person",
+			"detail.type":             "Violation",
+			"detail.type_choose":      "Choose a violation",
+			"detail.fine":             "Fine (₹)",
+			"detail.note":             "Note",
+			"detail.nobody":           "Nobody was penalised.",
+			"detail.recorded":         "Violations recorded",
+			"detail.no_types":         "No violation types are published yet. Add them on HRMS SOP to penalise anyone.",
+			"detail.yes":              "Yes",
+			"detail.no":               "No",
+			"detail.required":         "Required",
+			"action.submit":           "Submit report",
+			"action.submitting":       "Submitting…",
+			"action.submitted":        "Report submitted",
+			"action.failed":           "Could not submit. Try again.",
+			"pager.next":              "Next",
+			"pager.first":             "Back to the start",
+			"disabled.enquiry_write":  "Your current role can read enquiries but not fill them.",
 		}
 	case "people-violations":
 		// HRMS Violations (maintainer decisions 2026-09-30). The violation types, their default
@@ -9051,7 +9125,7 @@ func pageSpecificCopy(id string) map[string]string {
 		}
 	// Vaccination is deliberately absent: its SOP page is gone, and its content lives on
 	// the vaccination plan console. milk and weighing arrived on main meanwhile and stay.
-	case "counts-sops", "feed-sops", "milk-sops", "weighing-sops", "procurement-sops", "configuration-work-instructions", "sales-sops", "pc-care-sops":
+	case "counts-sops", "feed-sops", "milk-sops", "weighing-sops", "procurement-sops", "configuration-work-instructions", "sales-sops", "pc-care-sops", "people-sops":
 		m := map[string]string{
 			"filter.search_label":                     "Search SOPs",
 			"filter.search_placeholder":               "Search SOP name, trigger, step, or proof...",
@@ -9452,6 +9526,21 @@ func pageSpecificCopy(id string) map[string]string {
 			m["vendor_form.subtitle"] = "What is asked when a supplier is added or edited on the buying side of the register, page by page. Each question names its kind and whether it is compulsory. Publishing applies to suppliers added or edited from then on, on the web and on the phone."
 			m["vendor_form.notice.capture_kept"] = "Name, type, state and status stay compulsory; the locked questions are the supply register's own columns. Everything else -- wording, order, pages, extra questions -- is yours to change."
 			m["vendor_form.drawer.title"] = "What the form asks, page by page"
+		case "people-sops":
+			for k, v := range hrmsSOPEditorCopy() {
+				m[k] = v
+			}
+			m["crumb"] = "HRMS"
+			m["filter.domain.current"] = "This page shows the HRMS SOP (violation types, enquiries)"
+			m["modal.builder.domain_aria"] = "Domain — locked to HRMS"
+			m["modal.builder.domain_title"] = "Domain is locked to HRMS on this page"
+			m["modal.builder.domain_label"] = "HRMS"
+			m["modal.builder.default_name"] = "Violations and enquiries"
+			m["modal.builder.placeholder.name"] = "Violations and enquiries"
+			m["modal.builder.policy_label"] = "HRMS policy"
+			m["modal.builder.eyebrow"] = "SOP · HRMS"
+			m["empty.title"] = "No HRMS SOP yet"
+			m["empty.body"] = "The violation types and enquiries are authored here."
 		case "milk-sops":
 			m["crumb"] = "Milk"
 			m["filter.domain.current"] = "This page shows Milk SOPs (preparation, feeding)"
@@ -10331,7 +10420,7 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 		return withGenericOptionGroups(configOptionGroups())
 	// Vaccination is deliberately absent: its SOP page is gone, and its content lives on
 	// the vaccination plan console. milk and weighing arrived on main meanwhile and stay.
-	case "milk-sops":
+	case "milk-sops", "people-sops":
 		return withGenericOptionGroups(sopOptionGroupsFor(id))
 	case "counts-sops":
 		// SHIFTING SOP + HERD OPERATIONS CAPTURE CARD (2026-09-16): the shifting cards editor and the
@@ -10854,6 +10943,10 @@ var sopSeedStepsByModule = map[string][]domain.Option{
 		option("animal_id_scan", "Scan the animal", "", ""),
 		option("video_proof", "Record the dose being given", "", ""),
 		option("yesno", "Did the animal take the full dose?", "", ""),
+	},
+	// The HRMS SOP is one document edited in its own editor; a new one starts from a note.
+	"people-sops": {
+		option("text", "What happened", "", ""),
 	},
 	// A new Sales SOP starts from what a sale owes, not an animal scan.
 	"sales-sops": {
@@ -12950,5 +13043,49 @@ func addHerdOpsCaptureCardCopy(m map[string]string) {
 		"action.edit_capture_form":   "Edit capture form",
 	} {
 		m[k] = v
+	}
+}
+
+// hrmsSOPEditorCopy is every word the HRMS SOP editor shows (2026-09-30): the violation types
+// list, the enquiries and their questions, publish. The document itself is the backend's
+// (internal/hrmssop); the page renders it.
+func hrmsSOPEditorCopy() map[string]string {
+	return map[string]string{
+		"hsop.title":                 "Violations and enquiries",
+		"hsop.subtitle":              "Every list here is authored: add, rename or retire a violation type, change a fine, change what an enquiry asks. Publishing applies to what is recorded next; what was recorded keeps the version it used.",
+		"hsop.types.title":           "Violation types",
+		"hsop.types.hint":            "The violations a person can be penalised for, and the fine each starts with. The fine can still be changed when one is recorded.",
+		"hsop.types.empty":           "No violation types yet. Add the first one.",
+		"hsop.types.add":             "Add violation type",
+		"hsop.types.name":            "Name",
+		"hsop.types.fine":            "Default fine (₹)",
+		"hsop.types.active":          "In use",
+		"hsop.types.retired":         "Retired",
+		"hsop.types.remove":          "Remove",
+		"hsop.enquiries.title":       "Enquiries",
+		"hsop.enquiries.hint":        "What a farm event opens: who fills it is the park head of that park (HR can fill it on the web), within the deadline.",
+		"hsop.enquiries.add":         "Add enquiry",
+		"hsop.enquiries.event":       "Opened by",
+		"hsop.enquiries.name":        "Name",
+		"hsop.enquiries.due":         "Deadline (hours)",
+		"hsop.enquiries.remove":      "Remove enquiry",
+		"hsop.questions.title":       "Questions",
+		"hsop.questions.add":         "Add question",
+		"hsop.questions.text":        "Question",
+		"hsop.questions.kind":        "Answer",
+		"hsop.questions.kind.text":   "Text",
+		"hsop.questions.kind.yes_no": "Yes / No",
+		"hsop.questions.required":    "Required",
+		"hsop.questions.remove":      "Remove",
+		"hsop.event.animal_death":    "Animal death (when approved)",
+		"hsop.save":                  "Save draft",
+		"hsop.publish":               "Publish",
+		"hsop.saving":                "Saving…",
+		"hsop.published":             "Published version %d",
+		"hsop.saved":                 "Draft saved",
+		"hsop.failed":                "Could not save.",
+		"hsop.cancel":                "Close",
+		"hsop.version":               "Version %d in force",
+		"hsop.edit":                  "Edit",
 	}
 }

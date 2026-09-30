@@ -607,8 +607,13 @@ const (
 	// violation types, their fines and the enquiry questions (maintainer answer 2026-09-30)
 	// without being handed every other module's SOP through sop.write / sop.publish.
 	HRMSSOPAuthor = "hrms.sop.author"
-	RosterRead    = "roster.read"
-	RosterManage  = "roster.manage"
+	// EnquiryFill lets a park head see and fill the enquiries of the parks they head, from the
+	// phone (maintainer decisions 2026-09-30: an approved death opens one; the park head names the
+	// people responsible and a violation for each). HR and the CEO fill on the web through
+	// WorkforceViolationsWrite. Park scope is applied by the workforce service, not the route.
+	EnquiryFill  = "workforce.enquiry.fill"
+	RosterRead   = "roster.read"
+	RosterManage = "roster.manage"
 	// CountsWrite gates the app-tier Counts write surface: an operator recording a shifting
 	// (movement) event, a birth, or a death from the phone (/app/counts/*).
 	//
@@ -1014,6 +1019,9 @@ var rolePermissions = map[string]map[string]struct{}{
 		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
 		RosterRead: {}, RosterManage: {},
 		CountsWrite: {},
+		// HRMS enquiries (maintainer decisions 2026-09-30): the park head fills the enquiry a
+		// death in their park opens, on the phone.
+		EnquiryFill: {},
 		// Leave requests (maintainer decision 2026-09-10): the park head signs the park-head
 		// line of their own park's leave requests. This is NOT the counts approval authority
 		// removed below -- a different request kind, decided in the same Approvals module.

@@ -1035,7 +1035,7 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			if out[i].RouteID == "feed-analytics" {
 				out[i].OptionGroups = compileFeedAnalyticsOptionGroups(out[i].OptionGroups, input)
 			}
-		case "counts-sops", "feed-sops", "milk-sops", "weighing-sops", "procurement-sops", "configuration-work-instructions", "sales-sops", "pc-care-sops":
+		case "counts-sops", "feed-sops", "milk-sops", "weighing-sops", "procurement-sops", "configuration-work-instructions", "sales-sops", "pc-care-sops", "people-sops":
 			// SOP-DRIVEN HERD OPERATIONS (2026-09-13): the follow-up step editor's task types are
 			// tenant registry rows, never constants in contract code -- same injection path feed
 			// items use. sop_task_type_answer_kinds is the metadata twin keyed on the same keys.
@@ -1135,6 +1135,8 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			out[i].Controls = compileTimetableControls(out[i].Controls, input, out[i].Copy)
 		case "people-violations":
 			out[i].Controls = compileViolationControls(out[i].Controls, input, out[i].Copy)
+		case "people-enquiries", "people-enquiry":
+			out[i].Controls = compileEnquiryControls(out[i].Controls, input, out[i].Copy)
 		case "counts-breakdown":
 			out[i].Controls = compileCountsBreakdownControls(out[i].Controls, input, out[i].Copy)
 			// The breed catalog for the inline breed correction, injected the same way Feed's
@@ -1811,6 +1813,25 @@ func compilePeopleControls(controls []domain.Control, input BootstrapInput, copy
 		Enabled:        clockAllowed,
 		DisabledReason: clockReason,
 		Action:         "GET /admin/workforce/clock-entries",
+	})
+}
+
+// compileEnquiryControls: WorkforceViolationsRead opens the enquiry pages; only
+// WorkforceViolationsWrite (HR, the CEO/CXO) submits a report from the web -- the park head
+// submits from the phone on EnquiryFill.
+func compileEnquiryControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
+	allowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.WorkforceViolationsWrite})
+	reason := ""
+	if !allowed {
+		reason = controlCopy(copy, "disabled.enquiry_write", "Your current role can read enquiries but not fill them.")
+	}
+	return upsertControl(controls, domain.Control{
+		ID:             "submit_enquiry",
+		Label:          controlCopy(copy, "action.submit", "Submit report"),
+		Kind:           "primary_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "POST /admin/workforce/enquiries/{enquiry_id}/submit",
 	})
 }
 
@@ -2763,8 +2784,12 @@ func permissionsForNav(id string) []string {
 		return []string{permissions.OperatorsRead, permissions.ClockPresenceRead}
 	case "people-timetable":
 		return []string{permissions.WorkforceTimetableRead}
-	case "people-violations":
+	case "people-violations", "people-enquiries":
 		return []string{permissions.WorkforceViolationsRead}
+	case "people-sops":
+		// The HRMS SOP page opens on the HRMS author permission, not sop.read: HR holds the
+		// former and none of the latter (2026-09-30). The CEO holds both.
+		return []string{permissions.HRMSSOPAuthor}
 	case "audit-log":
 		return []string{permissions.OperatorsViewAudit}
 	case "dlq-center":

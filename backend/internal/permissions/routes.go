@@ -221,6 +221,14 @@ var protectedRoutes = []Route{
 	{OperationID: "listWorkforceViolations", Method: "GET", Pattern: "/admin/workforce/violations", Permissions: []string{WorkforceViolationsRead}},
 	{OperationID: "recordWorkforceViolation", Method: "POST", Pattern: "/admin/workforce/violations", Permissions: []string{WorkforceViolationsWrite}},
 	{OperationID: "withdrawWorkforceViolation", Method: "POST", Pattern: "/admin/workforce/violations/{violation_id}/withdraw", Permissions: []string{WorkforceViolationsWrite}},
+	// Enquiries (2026-09-30): HR / the CEO on the web; the park head on the phone (park scope is
+	// the service's). The phone routes also admit HR/CEO so one client can serve both.
+	{OperationID: "listWorkforceEnquiries", Method: "GET", Pattern: "/admin/workforce/enquiries", Permissions: []string{WorkforceViolationsRead}},
+	{OperationID: "getWorkforceEnquiry", Method: "GET", Pattern: "/admin/workforce/enquiries/{enquiry_id}", Permissions: []string{WorkforceViolationsRead}},
+	{OperationID: "submitWorkforceEnquiry", Method: "POST", Pattern: "/admin/workforce/enquiries/{enquiry_id}/submit", Permissions: []string{WorkforceViolationsWrite}},
+	{OperationID: "listAppEnquiries", Method: "GET", Pattern: "/app/enquiries", AnyPermissions: []string{EnquiryFill, WorkforceViolationsRead}},
+	{OperationID: "getAppEnquiry", Method: "GET", Pattern: "/app/enquiries/{enquiry_id}", AnyPermissions: []string{EnquiryFill, WorkforceViolationsRead}},
+	{OperationID: "submitAppEnquiry", Method: "POST", Pattern: "/app/enquiries/{enquiry_id}/submit", AnyPermissions: []string{EnquiryFill, WorkforceViolationsWrite}},
 	// Mobile live remote-config poll (docs/mobile/backend-driven-config.md): ETag/revision +
 	// cache_policy, presentation feature flags/owned-module registry, and bounded client runtime
 	// knobs. Same AppBootstrap "any authenticated app principal" gate as /app/bootstrap.

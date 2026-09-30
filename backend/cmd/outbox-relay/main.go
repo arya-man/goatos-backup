@@ -260,6 +260,7 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		// so without these an approved birth/death opens no follow-up work locally.
 		relayWorkflowService := eventwiring.NewWorkflowConsumerService(pool, pgCfg.QueryTimeout, logger)
 		eventwiring.RegisterWorkflowConsumers(bus, relayWorkflowService, logger)
+		eventwiring.RegisterHRMSConsumers(bus, pool, pgCfg.QueryTimeout, logger)
 		captureEnqueuer, captureReviews := eventwiring.NewCountsCaptureStores(pool, pgCfg.QueryTimeout)
 		eventwiring.RegisterCountsCaptureConsumers(bus, captureEnqueuer, captureReviews, relayWorkflowService)
 		eventwiring.RegisterSaleReleaseConsumers(bus, pool, pgCfg.QueryTimeout)

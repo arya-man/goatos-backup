@@ -178,7 +178,9 @@ var modulePages = []ModulePage{
 	{Key: "people", Module: "people", Label: "People", Href: "/people", Permissions: []string{OperatorsRead}},
 	{Key: "people-clock", Module: "people", Label: "Clock in / out", Href: "/people/clock", Permissions: []string{OperatorsRead, ClockPresenceRead}},
 	{Key: "people-timetable", Module: "timetable", Label: "Timetable", Href: "/people/timetable", Permissions: []string{WorkforceTimetableRead}},
+	{Key: "people-enquiries", Module: "violations", Label: "Enquiries", Href: "/people/enquiries", Permissions: []string{WorkforceViolationsRead}},
 	{Key: "people-violations", Module: "violations", Label: "Violations", Href: "/people/violations", Permissions: []string{WorkforceViolationsRead}},
+	{Key: "people-sops", Module: "violations", Label: "HRMS SOP", Href: "/people/sops", Permissions: []string{HRMSSOPAuthor}},
 	{Key: "people-notifications", Module: "people", Label: "Notifications", Href: "/people/notifications", Permissions: []string{OperatorsRead}},
 	{Key: "people-vaccination", Module: "people", Label: "Vaccination operators", Href: "/people/vaccination", Permissions: []string{OperatorsRead}},
 
@@ -240,6 +242,8 @@ var moduleRoutePrefixes = map[string]string{
 	"/people":                       "people",
 	"/people/timetable":             "timetable",
 	"/people/violations":            "violations",
+	"/people/enquiries":             "violations",
+	"/people/sops":                  "violations",
 	"/leave":                        "leave_approvals",
 	"/work-board":                   "work_board",
 	"/alerts":                       "alerts",

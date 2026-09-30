@@ -99,6 +99,8 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		// Leave approvals (maintainer decision 2026-09-10): the park head signs their park's
 		// leave from the PHONE Approvals module; park heads hold no admin-web bootstrap.
 		one(assign("leave_approvals", SurfaceMobile, LevelOversee)),
+		// HRMS enquiries (2026-09-30): the park head fills their park's enquiries on the phone.
+		one(assign("enquiries", SurfaceMobile, LevelDo)),
 		one(assign("vaccination", SurfaceMobile, LevelView, LevelOversee)),
 		one(assign("counts", SurfaceMobile, LevelView, LevelDo)),
 		one(assign("milk", SurfaceMobile, LevelDo)),

@@ -200,7 +200,66 @@ INSERT INTO public.designation_module_defaults_violations_backfill (designation_
 SELECT designation_code FROM inserted
 ON CONFLICT DO NOTHING;
 
+-- PARK HEADS FILL ENQUIRIES ON THE PHONE (same decision): the mobile `enquiries` module at do,
+-- for every park head already migrated, and as the park-head job default. Ledgered likewise.
+CREATE TABLE IF NOT EXISTS public.person_module_access_enquiries_backfill (
+  tenant_id           uuid NOT NULL,
+  workforce_member_id uuid NOT NULL,
+  PRIMARY KEY (tenant_id, workforce_member_id)
+);
+
+WITH inserted AS (
+  INSERT INTO public.person_module_access (tenant_id, workforce_member_id, surface, module_key, capabilities, updated_at, pages)
+  SELECT DISTINCT m.tenant_id, m.workforce_member_id, 'mobile', 'enquiries', ARRAY['do']::text[], now(), '{}'::text[]
+  FROM public.workforce_members m
+  JOIN public.user_scope_grants g
+    ON g.tenant_id = m.tenant_id
+   AND g.user_id = m.user_id
+   AND g.status = 'active'
+   AND (g.valid_to IS NULL OR g.valid_to > now())
+   AND g.role = 'park_head'
+  WHERE m.status = 'active'
+    AND m.user_id IS NOT NULL
+    AND EXISTS (
+      SELECT 1 FROM public.person_access pa
+      WHERE pa.tenant_id = m.tenant_id
+        AND pa.workforce_member_id = m.workforce_member_id
+    )
+  ON CONFLICT (tenant_id, workforce_member_id, surface, module_key) DO NOTHING
+  RETURNING tenant_id, workforce_member_id
+)
+INSERT INTO public.person_module_access_enquiries_backfill (tenant_id, workforce_member_id)
+SELECT tenant_id, workforce_member_id FROM inserted
+ON CONFLICT DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS public.designation_module_defaults_enquiries_backfill (
+  designation_code text PRIMARY KEY
+);
+
+WITH inserted AS (
+  INSERT INTO public.designation_module_defaults (designation_code, surface, module_key, capabilities, pages)
+  SELECT d.designation_code, 'mobile', 'enquiries', ARRAY['do']::text[], '{}'::text[]
+  FROM public.designation_catalog d
+  WHERE d.designation_code = 'park_head'
+  ON CONFLICT (designation_code, surface, module_key) DO NOTHING
+  RETURNING designation_code
+)
+INSERT INTO public.designation_module_defaults_enquiries_backfill (designation_code)
+SELECT designation_code FROM inserted
+ON CONFLICT DO NOTHING;
+
 -- +goose Down
+DELETE FROM public.designation_module_defaults d
+USING public.designation_module_defaults_enquiries_backfill b
+WHERE d.designation_code = b.designation_code AND d.surface = 'mobile' AND d.module_key = 'enquiries';
+DROP TABLE IF EXISTS public.designation_module_defaults_enquiries_backfill;
+
+DELETE FROM public.person_module_access p
+USING public.person_module_access_enquiries_backfill b
+WHERE p.tenant_id = b.tenant_id AND p.workforce_member_id = b.workforce_member_id
+  AND p.surface = 'mobile' AND p.module_key = 'enquiries';
+DROP TABLE IF EXISTS public.person_module_access_enquiries_backfill;
+
 DELETE FROM public.designation_module_defaults d
 USING public.designation_module_defaults_violations_backfill b
 WHERE d.designation_code = b.designation_code AND d.surface = 'web' AND d.module_key = 'violations';

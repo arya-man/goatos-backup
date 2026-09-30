@@ -193,6 +193,7 @@ func buildDomainBusOn(bus eventbus.Bus, pool *pgxpool.Pool, queryTimeout time.Du
 	// every bus so approved births/deaths always open their follow-up work.
 	consumerWorkflowService := eventwiring.NewWorkflowConsumerService(pool, queryTimeout, logger)
 	eventwiring.RegisterWorkflowConsumers(bus, consumerWorkflowService, logger)
+	eventwiring.RegisterHRMSConsumers(bus, pool, queryTimeout, logger)
 	captureEnqueuer, captureReviews := eventwiring.NewCountsCaptureStores(pool, queryTimeout)
 	eventwiring.RegisterCountsCaptureConsumers(bus, captureEnqueuer, captureReviews, consumerWorkflowService)
 	eventwiring.RegisterSaleReleaseConsumers(bus, pool, queryTimeout)

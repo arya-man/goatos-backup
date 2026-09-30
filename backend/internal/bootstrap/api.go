@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	hrmssoppg "github.com/vgoats/goatos/backend/internal/hrmssop/adapters/postgres"
 	hrmssopapp "github.com/vgoats/goatos/backend/internal/hrmssop/app"
 	"log/slog"
 	"net/http"
@@ -607,6 +608,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	leaveHandler := workforcehttp.NewLeaveHandler(leaveService, log)
 	// HRMS Timetable (maintainer request 2026-09-30): who works which shift at each park.
 	timetableHandler := workforcehttp.NewTimetableHandler(workforceapp.NewTimetableService(workforceRepo), log)
+	// HRMS violations and enquiries (2026-09-30): the HRMS SOP authors every list; an approved
+	// death opens an enquiry (wired on the bus below).
+	disciplineService := workforceapp.NewDisciplineService(workforceRepo, workforceRepo, hrmssoppg.NewSource(pool, cfg.Postgres.QueryTimeout), log)
+	disciplineHandler := workforcehttp.NewDisciplineHandler(disciplineService, log)
 	clockService := workforceapp.NewClockService(workforceRepo, workforceRepo, workforceRepo).WithLeave(leaveService)
 	clockHandler := workforcehttp.NewClockHandler(clockService, log)
 	proofStorage, err := buildProofStorage()
@@ -1385,6 +1390,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// Birth/death workflow consumers: same single-registration pattern (internal/eventwiring), also
 	// called by cmd/outbox-relay, cmd/domain-event-consumer, domainconsumer/wiring, and kernelstages.
 	eventwiring.RegisterWorkflowConsumers(bus, tasksWorkflowService, log)
+	eventwiring.RegisterHRMSConsumers(bus, pool, cfg.Postgres.QueryTimeout, log)
 	// SOP capture card: the birth report's own proofs -> verifier, verdict -> approval row.
 	eventwiring.RegisterCountsCaptureConsumers(bus, countsbridge.NewBirthCaptureVerificationEnqueuer(verificationService), countsApprovalRepo, tasksWorkflowService)
 	// A failed sale releases its tagged animals back into the herd (2026-09-25).
@@ -1543,6 +1549,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	workforcehttp.RegisterClock(protectedMux, clockHandler)
 	workforcehttp.RegisterLeave(protectedMux, leaveHandler)
 	workforcehttp.RegisterTimetable(protectedMux, timetableHandler)
+	workforcehttp.RegisterDiscipline(protectedMux, disciplineHandler)
 	proofhttp.Register(protectedMux, proofHandler)
 	sophttp.Register(protectedMux, sopHandler)
 	protocolhttp.Register(protectedMux, protocolHandler)
