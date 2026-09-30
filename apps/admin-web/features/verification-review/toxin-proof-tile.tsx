@@ -99,10 +99,11 @@ export function ToxinProofTile({
             inset: 0,
             flexDirection: "column",
             gap: 1.25,
-            color: "common.white",
-            bgcolor: "grey.900",
+            // Template neutral surface (reads as a tile in dark and light), not the black media stage.
+            color: "text.primary",
+            bgcolor: "background.neutral",
             transition: (theme) => theme.transitions.create("background-color"),
-            "&:hover": { bgcolor: "grey.800" },
+            "&:hover": { bgcolor: "action.hover" },
           }}
         >
           <Iconify icon="solar:play-circle-bold" width={48} sx={{ color: "primary.light" }} />
