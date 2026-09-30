@@ -62,6 +62,8 @@ class AnalyticsContractTest {
         assertEquals("pen_routine_submit", AnalyticsEventsPenRoutines.SUBMIT)
         assertEquals("pen_routine_submit_failed", AnalyticsEventsPenRoutines.SUBMIT_FAILED)
         assertEquals("pen_routine_failure", AnalyticsEventsPenRoutines.FAILURE)
+        assertEquals("pen_routine_filter_changed", AnalyticsEventsPenRoutines.FILTER_CHANGED)
+        assertEquals("tab_key", AnalyticsEventsPenRoutines.Params.TAB_KEY)
     }
 
     @Test

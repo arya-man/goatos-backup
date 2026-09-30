@@ -37,53 +37,69 @@ import java.time.LocalDate
  * The FILTER BAR itself: row one is the Pending / Completed pills carrying the backend's
  * whole-filter counts, row two is the Date and Pen controls. Tapping Date or Pen opens the
  * matching sheet, which the host renders ([WorklistDateWindowSheet], [WorklistPenSheet]).
+ *
+ * [showStatus] / [showDate] / [showPen] let a host offer only the controls its list supports (a
+ * web-authored pen-routine tab names its own filters, 2026-10-01); a control not shown takes no
+ * room. A null [window] means "no date narrowing" and reads "All dates".
  */
 @Composable
 fun WorklistFilterBar(
     status: WorklistStatus,
     pendingCount: Int,
     completedCount: Int,
-    window: WorklistDateWindow,
+    window: WorklistDateWindow?,
     today: LocalDate,
     pen: WorklistPen?,
     onSelectStatus: (WorklistStatus) -> Unit,
     onOpenDate: () -> Unit,
     onOpenPen: () -> Unit,
     modifier: Modifier = Modifier,
+    showStatus: Boolean = true,
+    showDate: Boolean = true,
+    showPen: Boolean = true,
 ) {
     Column(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            WorklistStatusPill(
-                label = stringResource(R.string.filters_status_pending_fmt, pendingCount),
-                selected = status == WorklistStatus.PENDING,
-                onClick = { onSelectStatus(WorklistStatus.PENDING) },
-            )
-            WorklistStatusPill(
-                label = stringResource(R.string.filters_status_completed_fmt, completedCount),
-                selected = status == WorklistStatus.COMPLETED,
-                onClick = { onSelectStatus(WorklistStatus.COMPLETED) },
-            )
+        if (showStatus) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                WorklistStatusPill(
+                    label = stringResource(R.string.filters_status_pending_fmt, pendingCount),
+                    selected = status == WorklistStatus.PENDING,
+                    onClick = { onSelectStatus(WorklistStatus.PENDING) },
+                )
+                WorklistStatusPill(
+                    label = stringResource(R.string.filters_status_completed_fmt, completedCount),
+                    selected = status == WorklistStatus.COMPLETED,
+                    onClick = { onSelectStatus(WorklistStatus.COMPLETED) },
+                )
+            }
         }
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            WorklistFieldPill(
-                icon = MeshaIcons.Calendar,
-                label = stringResource(R.string.filters_date_label),
-                value = window.displayLabel(today, stringResource(R.string.filters_today)),
-                active = true,
-                contentDescription = stringResource(R.string.filters_open_date),
-                onClick = onOpenDate,
-                modifier = Modifier.weight(1.25f),
-            )
-            WorklistFieldPill(
-                icon = MeshaIcons.Home,
-                label = stringResource(R.string.filters_pen_label),
-                value = pen?.label ?: stringResource(R.string.filters_all_pens),
-                active = pen != null,
-                contentDescription = stringResource(R.string.filters_open_pen),
-                onClick = onOpenPen,
-                modifier = Modifier.weight(1f),
-            )
+        if (showStatus && (showDate || showPen)) Spacer(Modifier.height(8.dp))
+        if (showDate || showPen) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (showDate) {
+                    WorklistFieldPill(
+                        icon = MeshaIcons.Calendar,
+                        label = stringResource(R.string.filters_date_label),
+                        value = window?.displayLabel(today, stringResource(R.string.filters_today))
+                            ?: stringResource(R.string.filters_all_dates),
+                        active = window != null,
+                        contentDescription = stringResource(R.string.filters_open_date),
+                        onClick = onOpenDate,
+                        modifier = Modifier.weight(1.25f),
+                    )
+                }
+                if (showPen) {
+                    WorklistFieldPill(
+                        icon = MeshaIcons.Home,
+                        label = stringResource(R.string.filters_pen_label),
+                        value = pen?.label ?: stringResource(R.string.filters_all_pens),
+                        active = pen != null,
+                        contentDescription = stringResource(R.string.filters_open_pen),
+                        onClick = onOpenPen,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
         }
     }
 }

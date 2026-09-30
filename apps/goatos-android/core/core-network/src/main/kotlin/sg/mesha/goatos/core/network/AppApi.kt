@@ -453,6 +453,12 @@ data class NavItemDto(
      * two tabs carry two numbers -- unseen asks on Raised by me, pens still owed on For me.
      */
     @SerialName("badge_count") val badgeCount: Int = 0,
+    /**
+     * An icon key from the backend's closed set (penroutines/domain TabIcons), carried ONLY by a
+     * phone tab authored on the web; blank on every other item, which keeps drawing its glyph from
+     * its key. Defaulted so a bootstrap cached before this field existed still decodes.
+     */
+    @SerialName("icon") val icon: String = "",
 )
 
 /** Identity of the bootstrapped principal (BootstrapActor). */
@@ -1970,11 +1976,20 @@ interface AppApi {
      * GET /app/pen-routines — the caller's own routine tasks, keyset-paged (maintainer instruction
      * 2026-09-16, docs/decisions/pen-routines.md). [filter] is a backend filter KEY
      * (`todo` | `done`); blank means the backend default.
+     *
+     * [tab] names a web-authored phone tab (maintainer instruction 2026-10-01): the list narrows to
+     * the routines placed on it and the page carries the tab's label and filters. [dueFrom] /
+     * [dueTo] are an inclusive ISO business-date window; [pen] is a `pen_options[].value` token.
+     * Every null is simply omitted, so the Routines list sends exactly what it always sent.
      */
     suspend fun getPenRoutines(
         filter: String? = null,
         limit: Int? = null,
         cursor: String? = null,
+        tab: String? = null,
+        dueFrom: String? = null,
+        dueTo: String? = null,
+        pen: String? = null,
     ): PenRoutinePageDto
 
     /** GET /app/pen-routines/{task_id}. */
@@ -3741,6 +3756,10 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         filter: String?,
         limit: Int?,
         cursor: String?,
+        tab: String?,
+        dueFrom: String?,
+        dueTo: String?,
+        pen: String?,
     ): PenRoutinePageDto = PenRoutinePageDto(title = "Routines")
 
     override suspend fun getPenRoutine(taskId: String): PenRoutineDetailDto =
@@ -3918,4 +3937,5 @@ fun BootstrapDto.toNavState(): NavState {
     )
 }
 
-private fun NavItemDto.toNavItem(): NavItem = NavItem(key = key, label = label, href = href, badgeCount = badgeCount)
+private fun NavItemDto.toNavItem(): NavItem =
+    NavItem(key = key, label = label, href = href, badgeCount = badgeCount, icon = icon)

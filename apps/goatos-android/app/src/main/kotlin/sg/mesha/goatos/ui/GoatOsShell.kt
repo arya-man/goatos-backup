@@ -4,7 +4,13 @@ import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -28,7 +34,9 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.NavigationBarDefaults
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Surface
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -50,6 +58,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -188,6 +197,14 @@ class ShellModuleViewModel @Inject constructor(
 fun GoatOsShell(navState: NavState) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
+    // The route the shell matches against the backend-composed bar. For every destination this is
+    // its registered route, as before; for the one parameterized L0 root -- a web-authored pen
+    // routine tab (2026-10-01) -- it is the CONCRETE href, since the bar item it must select, and
+    // the root set it must belong to, carry the concrete `/pen-routines/tab/<key>`.
+    val shellRoute = shellRouteOf(
+        backStackEntry?.destination?.route,
+        backStackEntry?.arguments?.getString(Routes.PEN_ROUTINE_TAB_KEY_ARG),
+    )
 
     // Cold-start / pre-auth notification-tap deep-link (docs: FCM push slice). A tap can arrive
     // before this NavHost even exists (MainActivity writes into PendingNavigation as soon as the
@@ -337,9 +354,9 @@ fun GoatOsShell(navState: NavState) {
         pushNavVm.consume()
     }
 
-    LaunchedEffect(visibleNavState, selectedModuleKey, backStackEntry?.destination?.route) {
+    LaunchedEffect(visibleNavState, selectedModuleKey, shellRoute) {
         val selected = visibleNavState.availableModules().firstOrNull { it.key == selectedModuleKey }
-        val currentBaseRoute = backStackEntry?.destination?.route?.routeBase()
+        val currentBaseRoute = shellRoute?.routeBase()
         val allTopLevelRoutes = visibleNavState.availableModules().flatMap { module -> module.navItems.map { it.href } }
         if (
             selected != null &&
@@ -353,7 +370,7 @@ fun GoatOsShell(navState: NavState) {
 
     GoatOsShellChrome(
         navState = visibleNavState,
-        currentRoute = backStackEntry?.destination?.route,
+        currentRoute = shellRoute,
         onNavigate = navigate,
         drawerProfile = DrawerProfile(profile.name, profile.roleLabel, profile.initials),
         languageLabel = languageLabel(AppLocaleState.tag),
@@ -725,72 +742,114 @@ private fun MeshaNavBar(
         unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
         unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
     )
-    NavigationBar(
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        tonalElevation = 0.dp,
-    ) {
-        val currentBaseRoute = currentRoute?.routeBase()
-        // Backend-composed, MODULE-SCOPED destinations. Labels render verbatim: bootstrap_copy.go
-        // already localizes them (en/hi/kn/te), so re-translating client-side would both violate
-        // the golden frontend rule and actively mislabel items (the backend calls the vaccination
-        // module's own tab "Stock", not "Vaccination").
-        items.forEach { item ->
-            // Compare BASE to BASE. `currentBaseRoute` is already stripped at '?', but a
-            // backend-composed href can carry a query -- the verifier's tabs are
-            // "/verify?module=vaccination&category=vaccination_proof". Comparing the stripped
-            // route against the UNstripped href never matched, so the verifier's bottom bar
-            // highlighted NOTHING and they could not tell which screen they were on, while
-            // operator/CEO (whose hrefs carry no query) looked fine. Same mismatch also kept the
-            // double-tap guard armed forever for those tabs.
-            val isSelected = currentBaseRoute == item.href.routeBase()
-            NavigationBarItem(
-                selected = isSelected,
-                onClick = {
-                    if (!isSelected) onSelect(item.href)
-                },
-                icon = {
-                    val badge = badges[item.href.routeBase()] ?: 0
-                    if (badge > 0) {
-                        BadgedBox(
-                            badge = {
-                                Badge(containerColor = MeshaColors.Brand, contentColor = MeshaColors.OnBrand) {
-                                    Text(badgeLabel(badge), style = MeshaType.dayName)
-                                }
-                            },
-                        ) {
-                            Icon(
-                                imageVector = MeshaIcons.forNavKey(item.key),
-                                contentDescription = item.label,
-                                modifier = Modifier.size(24.dp),
-                            )
-                        }
-                    } else {
-                        Icon(
-                            imageVector = MeshaIcons.forNavKey(item.key),
-                            contentDescription = item.label,
-                            modifier = Modifier.size(24.dp),
-                        )
+    val currentBaseRoute = currentRoute?.routeBase()
+    // Compare BASE to BASE. `currentBaseRoute` is already stripped at '?', but a backend-composed
+    // href can carry a query -- the verifier's tabs are
+    // "/verify?module=vaccination&category=vaccination_proof". Comparing the stripped route against
+    // the UNstripped href never matched, so the verifier's bottom bar highlighted NOTHING and they
+    // could not tell which screen they were on, while operator/CEO (whose hrefs carry no query)
+    // looked fine. Same mismatch also kept the double-tap guard armed forever for those tabs.
+    val selectedIndex = items.indexOfFirst { currentBaseRoute == it.href.routeBase() }
+    // Backend-composed, MODULE-SCOPED destinations. Labels render verbatim: bootstrap_copy.go
+    // already localizes them (en/hi/kn/te), so re-translating client-side would both violate the
+    // golden frontend rule and actively mislabel items (the backend calls the vaccination module's
+    // own tab "Stock", not "Vaccination").
+    val item: @Composable RowScope.(NavItem, Boolean) -> Unit = { navItem, isSelected ->
+        NavigationBarItem(
+            selected = isSelected,
+            onClick = {
+                if (!isSelected) onSelect(navItem.href)
+            },
+            icon = {
+                val badge = badges[navItem.href.routeBase()] ?: 0
+                // A web-authored tab names its icon from a closed set; every other item draws the
+                // glyph for its key, as it always has (MeshaIcons.forNavItem).
+                val glyph = MeshaIcons.forNavItem(navItem.key, navItem.icon)
+                if (badge > 0) {
+                    BadgedBox(
+                        badge = {
+                            Badge(containerColor = MeshaColors.Brand, contentColor = MeshaColors.OnBrand) {
+                                Text(badgeLabel(badge), style = MeshaType.dayName)
+                            }
+                        },
+                    ) {
+                        Icon(imageVector = glyph, contentDescription = navItem.label, modifier = Modifier.size(24.dp))
                     }
-                },
-                // Five-tab modules have narrow slots, so keep backend labels one-line and centered
-                // with a smaller fixed size instead of letting a long title crowd the bar.
-                label = {
-                    Text(
-                        item.label,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 11.sp,
-                        lineHeight = 12.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                },
-                colors = itemColors,
-            )
+                } else {
+                    Icon(imageVector = glyph, contentDescription = navItem.label, modifier = Modifier.size(24.dp))
+                }
+            },
+            // Narrow slots, so keep backend labels one-line and centered with a smaller fixed size
+            // instead of letting a long title crowd the bar.
+            label = {
+                Text(
+                    navItem.label,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 11.sp,
+                    lineHeight = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            colors = itemColors,
+        )
+    }
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        // A web-authored pen-routine tab (2026-10-01) can push a module's bar past what a phone
+        // fits: PC Care already carries six. An M3 item's active pill is 64dp wide, so once the
+        // equal share drops below that the pills overlap their neighbours and the labels collapse
+        // to a letter. Up to the fit the bar is exactly the NavigationBar it always was; past it
+        // every item keeps a readable fixed width and the ROW scrolls sideways inside the bar (the
+        // page body never does), bringing the selected item into view.
+        if (items.isEmpty() || maxWidth / items.size >= NAV_BAR_MIN_ITEM_WIDTH) {
+            NavigationBar(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                tonalElevation = 0.dp,
+            ) {
+                items.forEachIndexed { index, navItem -> item(navItem, index == selectedIndex) }
+            }
+        } else {
+            val scroll = rememberScrollState()
+            val density = LocalDensity.current
+            LaunchedEffect(selectedIndex, items.size) {
+                if (selectedIndex >= 0) {
+                    val itemPx = with(density) { NAV_BAR_SCROLL_ITEM_WIDTH.roundToPx() }
+                    scroll.animateScrollTo((selectedIndex * itemPx - itemPx).coerceAtLeast(0))
+                }
+            }
+            Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, tonalElevation = 0.dp) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .windowInsetsPadding(NavigationBarDefaults.windowInsets)
+                        .defaultMinSize(minHeight = NAV_BAR_HEIGHT)
+                        .horizontalScroll(scroll)
+                        .selectableGroup(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    items.forEachIndexed { index, navItem ->
+                        // Each item gets its own bounded RowScope, so NavigationBarItem's own
+                        // weight(1f) fills a fixed slot instead of an unbounded scrolling row.
+                        Row(modifier = Modifier.width(NAV_BAR_SCROLL_ITEM_WIDTH)) {
+                            item(navItem, index == selectedIndex)
+                        }
+                    }
+                }
+            }
         }
     }
 }
+
+/** The narrowest share an M3 bar item can take before its 64dp active pill overlaps a neighbour. */
+private val NAV_BAR_MIN_ITEM_WIDTH = 64.dp
+
+/** A scrolling bar item's fixed width: the pill plus room for a short label. */
+private val NAV_BAR_SCROLL_ITEM_WIDTH = 72.dp
+
+/** M3 NavigationBar's own container height, kept when the row scrolls. */
+private val NAV_BAR_HEIGHT = 80.dp
 
 private fun String.routeBase(): String = substringBefore('?')
 

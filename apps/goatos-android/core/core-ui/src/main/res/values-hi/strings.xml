@@ -5,6 +5,7 @@
     <string name="filters_date_label">तारीख</string>
     <string name="filters_pen_label">बाड़ा</string>
     <string name="filters_all_pens">सभी बाड़े</string>
+    <string name="filters_all_dates">सभी तारीखें</string>
     <string name="filters_today">आज</string>
     <string name="filters_next_7_days">अगले 7 दिन</string>
     <string name="filters_next_30_days">अगले 30 दिन</string>

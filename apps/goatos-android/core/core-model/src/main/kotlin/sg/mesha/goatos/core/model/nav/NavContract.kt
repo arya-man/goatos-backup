@@ -29,6 +29,9 @@ data class NavItem(
     val href: String,
     /** Backend-owned attention count for THIS bar item; 0 renders nothing. */
     val badgeCount: Int = 0,
+    /** A closed-set icon key the backend names for a web-authored phone tab; blank otherwise
+     *  (the bar then draws the glyph for [key], as it always has). */
+    val icon: String = "",
 )
 
 /** Whether a module is built and enterable, or advertised roadmap (mirrors BootstrapModule.Status). */

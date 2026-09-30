@@ -13,7 +13,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
@@ -28,13 +28,36 @@ import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.PenRoutineDetailDto
 import sg.mesha.goatos.core.network.dto.PenRoutineTaskDto
 import sg.mesha.goatos.core.network.dto.PenRoutineFilterDto
+import sg.mesha.goatos.core.network.dto.PenRoutinePenOptionDto
+import sg.mesha.goatos.core.network.dto.PenRoutineTabDto
 
 /** One screen-page of routine tasks — bounds BOTH the network request and the Room window
  *  (docs/decisions/mobile-data-fetch-anti-patterns.md). */
 const val PEN_ROUTINE_PAGE_SIZE = 20
 
-/** How many distinct filter scopes keep their cached list rows. */
-private const val PEN_ROUTINE_CACHED_QUERIES = 4
+/**
+ * How many distinct list scopes keep their cached rows. A scope is one tab (the Routines list or a
+ * web-authored phone tab) x one filter selection, so this holds a couple of tabs warm at once.
+ */
+private const val PEN_ROUTINE_CACHED_QUERIES = 8
+
+/** How many tabs keep their page facts (title, chips, pen options) in memory. */
+private const val PEN_ROUTINE_META_TABS = 8
+
+/**
+ * One list request. [tab] blank = the Routines list; a key = a web-authored phone tab (maintainer
+ * instruction 2026-10-01). [filter] is the backend status KEY ("" = backend default), [dueFrom] /
+ * [dueTo] an inclusive ISO business-date window ("" = no narrowing), [pen] a `pen_options[].value`
+ * token ("" = every pen). Every field is part of the Room cache key, so two tabs -- or two filter
+ * selections on one tab -- never read each other's rows.
+ */
+data class PenRoutineQuery(
+    val filter: String = "",
+    val tab: String = "",
+    val dueFrom: String = "",
+    val dueTo: String = "",
+    val pen: String = "",
+)
 
 /** Bump whenever the cached row JSON changes shape incompatibly. */
 private const val PEN_ROUTINE_CACHE_SHAPE = "routine-v1"
@@ -48,6 +71,10 @@ data class PenRoutinePageMeta(
     val title: String = "",
     val filters: List<PenRoutineFilterDto> = emptyList(),
     val openCount: Int = 0,
+    /** The web-authored tab the page was opened from; null on the Routines list. */
+    val tab: PenRoutineTabDto? = null,
+    /** The pens the tab's Pen filter offers (empty unless it offers one). */
+    val penOptions: List<PenRoutinePenOptionDto> = emptyList(),
 )
 
 /**
@@ -59,14 +86,17 @@ data class PenRoutinePageMeta(
  * [persistServerDetail].
  */
 interface PenRoutinesRepository {
-    /** The paged task list for one backend filter KEY ("" = the backend default). */
-    fun tasks(filter: String): Flow<PagingData<PenRoutineTaskDto>>
+    /** The paged task list for one [PenRoutineQuery] (a tab and its filter selection). */
+    fun tasks(query: PenRoutineQuery): Flow<PagingData<PenRoutineTaskDto>>
 
-    /** Backend-composed page facts from the LAST list refresh. */
-    val pageMeta: StateFlow<PenRoutinePageMeta>
+    /**
+     * Backend-composed page facts from the LAST list refresh of ONE tab ("" = the Routines list),
+     * so a web-authored tab never shows the Routines title or another tab's chips.
+     */
+    fun pageMeta(tab: String): Flow<PenRoutinePageMeta>
 
     /** Drops one scope's freshness marker so the next pager refetches instead of TTL-skipping. */
-    suspend fun invalidateTasks(filter: String)
+    suspend fun invalidateTasks(query: PenRoutineQuery)
 
     /** Room-first task detail; null while nothing is cached yet. */
     fun observeTask(taskId: String): Flow<PenRoutineTaskDto?>
@@ -89,12 +119,23 @@ class DefaultPenRoutinesRepository(
     private val clock: () -> Long = { System.currentTimeMillis() },
 ) : PenRoutinesRepository {
 
-    private val _pageMeta = MutableStateFlow(PenRoutinePageMeta())
-    override val pageMeta: StateFlow<PenRoutinePageMeta> = _pageMeta
+    /** Page facts per tab key, bounded to [PEN_ROUTINE_META_TABS] (oldest refresh dropped first). */
+    private val metaByTab = MutableStateFlow<Map<String, PenRoutinePageMeta>>(emptyMap())
+
+    override fun pageMeta(tab: String): Flow<PenRoutinePageMeta> =
+        metaByTab.map { it[tab] ?: PenRoutinePageMeta() }.distinctUntilChanged()
+
+    private fun publishMeta(tab: String, meta: PenRoutinePageMeta) {
+        val next = LinkedHashMap(metaByTab.value)
+        next.remove(tab)
+        next[tab] = meta
+        while (next.size > PEN_ROUTINE_META_TABS) next.remove(next.keys.first())
+        metaByTab.value = next
+    }
 
     @OptIn(ExperimentalPagingApi::class)
-    override fun tasks(filter: String): Flow<PagingData<PenRoutineTaskDto>> {
-        val key = scopeKey(filter)
+    override fun tasks(query: PenRoutineQuery): Flow<PagingData<PenRoutineTaskDto>> {
+        val key = penRoutineScopeKey(query)
         return Pager(
             config = PagingConfig(
                 pageSize = PEN_ROUTINE_PAGE_SIZE,
@@ -104,12 +145,12 @@ class DefaultPenRoutinesRepository(
                 maxSize = PEN_ROUTINE_PAGE_SIZE * 3,
             ),
             remoteMediator = PenRoutineRemoteMediator(
-                filter = filter,
+                query = query,
                 api = api,
                 database = database,
                 json = json,
                 clock = clock,
-                onMeta = { meta -> _pageMeta.value = meta },
+                onMeta = { meta -> publishMeta(query.tab, meta) },
             ),
             pagingSourceFactory = { database.penRoutineItemDao().pagingSource(key) },
         ).flow
@@ -118,8 +159,8 @@ class DefaultPenRoutinesRepository(
             .flowOn(Dispatchers.Default)
     }
 
-    override suspend fun invalidateTasks(filter: String) {
-        database.penRoutineRemoteKeyDao().delete(scopeKey(filter))
+    override suspend fun invalidateTasks(query: PenRoutineQuery) {
+        database.penRoutineRemoteKeyDao().delete(penRoutineScopeKey(query))
     }
 
     override fun observeTask(taskId: String): Flow<PenRoutineTaskDto?> =
@@ -188,9 +229,6 @@ class DefaultPenRoutinesRepository(
         detailDao.enforceCacheBounds()
     }
 
-    private fun scopeKey(filter: String): String =
-        cacheKey(PEN_ROUTINE_CACHE_SHAPE, "pen-routines", filter, PEN_ROUTINE_PAGE_SIZE.toString())
-
     private companion object {
         const val LOG_TAG = "GoatOsPenRoutines"
     }
@@ -204,14 +242,14 @@ class DefaultPenRoutinesRepository(
  */
 @OptIn(ExperimentalPagingApi::class)
 private class PenRoutineRemoteMediator(
-    private val filter: String,
+    private val query: PenRoutineQuery,
     private val api: AppApi,
     private val database: GoatDatabase,
     private val json: Json,
     private val clock: () -> Long,
     private val onMeta: (PenRoutinePageMeta) -> Unit,
 ) : RemoteMediator<Int, PenRoutineItemEntity>() {
-    private val queryKey = cacheKey(PEN_ROUTINE_CACHE_SHAPE, "pen-routines", filter, PEN_ROUTINE_PAGE_SIZE.toString())
+    private val queryKey = penRoutineScopeKey(query)
 
     override suspend fun initialize(): InitializeAction = InitializeAction.LAUNCH_INITIAL_REFRESH
 
@@ -233,14 +271,26 @@ private class PenRoutineRemoteMediator(
         }
         return try {
             val response = api.getPenRoutines(
-                filter = filter.ifBlank { null },
+                filter = query.filter.ifBlank { null },
                 limit = PEN_ROUTINE_PAGE_SIZE,
                 cursor = cursor,
+                tab = query.tab.ifBlank { null },
+                dueFrom = query.dueFrom.ifBlank { null },
+                dueTo = query.dueTo.ifBlank { null },
+                pen = query.pen.ifBlank { null },
             )
             if (loadType == LoadType.REFRESH) {
                 // Page facts ride the refresh only: counts are whole-list, so an APPEND page
                 // fetched long after the user last looked must not overwrite them.
-                onMeta(PenRoutinePageMeta(title = response.title, filters = response.filters, openCount = response.openCount))
+                onMeta(
+                    PenRoutinePageMeta(
+                        title = response.title,
+                        filters = response.filters,
+                        openCount = response.openCount,
+                        tab = response.tab,
+                        penOptions = response.penOptions,
+                    ),
+                )
             }
             val nextCursor = response.nextCursor?.takeIf { it.isNotBlank() }
             // A cursor that did not ADVANCE is also the end, or an echoing backend would spin
@@ -286,4 +336,18 @@ private class PenRoutineRemoteMediator(
             MediatorResult.Error(error)
         }
     }
+}
+
+/**
+ * The Room scope key of one list request. The Routines list with no narrowing keeps the key it
+ * always had, byte for byte, so an upgrade does not orphan its cached rows; a tab or a date/pen
+ * narrowing appends labelled segments so no two scopes can collide.
+ */
+internal fun penRoutineScopeKey(query: PenRoutineQuery): String {
+    val base = listOf(PEN_ROUTINE_CACHE_SHAPE, "pen-routines", query.filter, PEN_ROUTINE_PAGE_SIZE.toString())
+    val narrowed = query.tab.isNotBlank() || query.dueFrom.isNotBlank() || query.dueTo.isNotBlank() || query.pen.isNotBlank()
+    if (!narrowed) return cacheKey(*base.toTypedArray())
+    return cacheKey(
+        *(base + listOf("tab=${query.tab}", "from=${query.dueFrom}", "to=${query.dueTo}", "pen=${query.pen}")).toTypedArray(),
+    )
 }

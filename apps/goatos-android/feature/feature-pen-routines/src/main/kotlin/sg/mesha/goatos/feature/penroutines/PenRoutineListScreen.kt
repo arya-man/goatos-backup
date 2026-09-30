@@ -23,6 +23,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,6 +46,10 @@ import sg.mesha.goatos.core.ui.EmptyTone
 import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncIconButton
 import sg.mesha.goatos.core.ui.SyncStatusIndicator
+import sg.mesha.goatos.core.ui.filters.WorklistDateWindowSheet
+import sg.mesha.goatos.core.ui.filters.WorklistFilterBar
+import sg.mesha.goatos.core.ui.filters.WorklistPenSheet
+import sg.mesha.goatos.core.ui.filters.WorklistStatus
 
 /**
  * The Routines L0 list (`/pen-routines`, maintainer instruction 2026-09-16): the park head's own
@@ -77,7 +85,11 @@ fun PenRoutineListScreen(
                 )
             },
         )
-        if (state.filters.isNotEmpty()) {
+        val tabFilters = state.tabFilters
+        if (tabFilters != null) {
+            // A web-authored tab: the shared worklist bar, drawing only the controls the tab names.
+            PenRoutineTabFilterBar(filters = tabFilters, onEvent = onEvent)
+        } else if (state.filters.isNotEmpty()) {
             PenRoutineFilterRow(filters = state.filters, onEvent = onEvent)
         }
         LazyColumn(
@@ -114,6 +126,68 @@ fun PenRoutineListScreen(
                 }
             }
         }
+    }
+}
+
+/**
+ * The filter bar of a web-authored tab (maintainer instruction 2026-10-01): the SAME shared
+ * worklist controls Weighing and PC Care use. Status maps to the backend's `todo` / `done` keys;
+ * the sheets report the chosen window / pen and the ViewModel turns them into the request.
+ */
+@Composable
+private fun PenRoutineTabFilterBar(
+    filters: PenRoutineTabFiltersUi,
+    onEvent: (PenRoutineListEvent) -> Unit,
+) {
+    if (!filters.showStatus && !filters.showDate && !filters.showPen) return
+    var dateSheetOpen by rememberSaveable { mutableStateOf(false) }
+    var penSheetOpen by rememberSaveable { mutableStateOf(false) }
+    WorklistFilterBar(
+        status = filters.status,
+        pendingCount = filters.pendingCount,
+        completedCount = filters.completedCount,
+        window = filters.window,
+        today = filters.today,
+        pen = filters.pen,
+        onSelectStatus = { status ->
+            onEvent(
+                PenRoutineListEvent.SelectFilter(
+                    if (status == WorklistStatus.COMPLETED) PEN_ROUTINE_FILTER_DONE else PEN_ROUTINE_FILTER_TODO,
+                ),
+            )
+        },
+        onOpenDate = { dateSheetOpen = true },
+        onOpenPen = { penSheetOpen = true },
+        modifier = Modifier.padding(vertical = 8.dp),
+        showStatus = filters.showStatus,
+        showDate = filters.showDate,
+        showPen = filters.showPen,
+    )
+    if (dateSheetOpen) {
+        WorklistDateWindowSheet(
+            initial = filters.window,
+            today = filters.today,
+            onApply = { window ->
+                dateSheetOpen = false
+                onEvent(PenRoutineListEvent.SelectDateWindow(window))
+            },
+            onDismiss = { dateSheetOpen = false },
+            onClear = {
+                dateSheetOpen = false
+                onEvent(PenRoutineListEvent.SelectDateWindow(null))
+            },
+        )
+    }
+    if (penSheetOpen) {
+        WorklistPenSheet(
+            options = filters.penOptions,
+            selected = filters.pen,
+            onSelect = { pen ->
+                penSheetOpen = false
+                onEvent(PenRoutineListEvent.SelectPen(pen))
+            },
+            onDismiss = { penSheetOpen = false },
+        )
     }
 }
 

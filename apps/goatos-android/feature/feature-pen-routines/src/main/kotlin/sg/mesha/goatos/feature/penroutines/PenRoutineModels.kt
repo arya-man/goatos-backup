@@ -5,6 +5,11 @@ package sg.mesha.goatos.feature.penroutines
 // check-in, capture, upload and submit.
 
 import androidx.compose.runtime.Immutable
+import sg.mesha.goatos.core.ui.filters.WorklistDateWindow
+import sg.mesha.goatos.core.ui.filters.WorklistPen
+import sg.mesha.goatos.core.ui.filters.WorklistPenOption
+import sg.mesha.goatos.core.ui.filters.WorklistStatus
+import java.time.LocalDate
 
 /**
  * UI models for the Routines module (maintainer instruction 2026-09-16,
@@ -299,10 +304,46 @@ data class PenRoutineListUiState(
     val emptyMessage: String? = null,
     val isErrorEmpty: Boolean = false,
     val filters: List<PenRoutineFilterUi> = emptyList(),
+    /**
+     * Set ONLY on a web-authored phone tab (maintainer instruction 2026-10-01): which of the shared
+     * worklist controls that tab offers, and their current values. Null on the Routines list, which
+     * keeps its own backend chip row exactly as before.
+     */
+    val tabFilters: PenRoutineTabFiltersUi? = null,
+)
+
+/**
+ * The filter bar of a web-authored tab. [showStatus] / [showDate] / [showPen] come from the tab's
+ * own `filters` list (backend-owned); a control the tab does not name is not drawn. The counts are
+ * the backend's whole-list chip counts, never a page-local sum. [window] null = no date narrowing.
+ */
+@Immutable
+data class PenRoutineTabFiltersUi(
+    val showStatus: Boolean,
+    val showDate: Boolean,
+    val showPen: Boolean,
+    val status: WorklistStatus = WorklistStatus.PENDING,
+    val pendingCount: Int = 0,
+    val completedCount: Int = 0,
+    val window: WorklistDateWindow? = null,
+    /** The Asia/Kolkata business date the date sheet opens on. */
+    val today: LocalDate,
+    val pen: WorklistPen? = null,
+    val penOptions: List<WorklistPenOption> = emptyList(),
 )
 
 sealed interface PenRoutineListEvent {
     data object Refresh : PenRoutineListEvent
     data class SelectFilter(val key: String) : PenRoutineListEvent
     data class OpenTask(val taskId: String) : PenRoutineListEvent
+
+    /** A tab's Date control: a window, or null to drop the date narrowing. */
+    data class SelectDateWindow(val window: WorklistDateWindow?) : PenRoutineListEvent
+
+    /** A tab's Pen control: one pen, or null for every pen. */
+    data class SelectPen(val pen: WorklistPen?) : PenRoutineListEvent
 }
+
+/** The backend's status filter KEYS for the routine list (`GET /app/pen-routines?filter=`). */
+const val PEN_ROUTINE_FILTER_TODO = "todo"
+const val PEN_ROUTINE_FILTER_DONE = "done"

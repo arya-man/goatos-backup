@@ -558,4 +558,57 @@ object MeshaIcons {
         "work_board" -> ClipboardCheck
         else -> Module
     }
+
+    /**
+     * The glyph for a web-authored phone tab's icon key (a pen routine tab, maintainer instruction
+     * 2026-10-01), or null when the key is blank or not in the closed set -- the caller then falls
+     * back to [forNavKey] on the item's own key, so an icon a newer backend adds never crashes and
+     * never borrows another tab's mark silently.
+     *
+     * The keys MIRROR the backend's closed set `TabIcons` in
+     * `backend/internal/penroutines/domain/tab.go` byte for byte; `MeshaTabIconTest` pins the list,
+     * so adding a key on the backend without a glyph here is a red test, not a blank tile.
+     */
+    fun forTabIcon(key: String?): ImageVector? = when (key?.trim()?.lowercase()) {
+        "routine" -> Routine
+        "clipboard_check" -> ClipboardCheck
+        "check_circle" -> CheckCircle
+        "camera" -> Camera
+        "video" -> Video
+        "photo" -> Photo
+        "calendar" -> Calendar
+        "clock" -> Clock
+        "bell" -> Bell
+        "eye" -> Eye
+        "home" -> Home
+        "pen_visit" -> PenVisit
+        "goat" -> Goat
+        "health" -> Health
+        "pc_care" -> PcCare
+        "syringe" -> Syringe
+        "vaccine" -> Vaccine
+        "deworming" -> Deworming
+        "anti_protozoan" -> AntiProtozoan
+        "tick" -> Tick
+        "hoof_trimming" -> HoofTrimming
+        "hair_trimming" -> HairTrimming
+        "fumigation" -> Fumigation
+        "feed" -> Feed
+        "water" -> Water
+        "package" -> Package
+        "truck" -> Truck
+        "store" -> Store
+        "milk" -> MilkPreparation
+        "breeding" -> Breeding
+        "birth" -> Birth
+        "bar_chart" -> BarChart
+        "document" -> Document
+        "tasks" -> Tasks
+        "warn" -> Warn
+        else -> null
+    }
+
+    /** A bar/drawer item's glyph: its authored tab icon when it carries a known one, else the
+     *  glyph for its key -- the ONE resolution both the bottom bar and the drawer use. */
+    fun forNavItem(key: String, icon: String?): ImageVector = forTabIcon(icon) ?: forNavKey(key)
 }

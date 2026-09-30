@@ -12,6 +12,7 @@ import kotlinx.serialization.json.Json
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -20,6 +21,12 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsEventsPenRoutines
 import sg.mesha.goatos.core.analytics.NoopCrashReporter
 import sg.mesha.goatos.core.data.PenRoutinePageMeta
+import sg.mesha.goatos.core.data.PenRoutineQuery
+import sg.mesha.goatos.core.network.dto.PenRoutinePenOptionDto
+import sg.mesha.goatos.core.network.dto.PenRoutineTabDto
+import sg.mesha.goatos.core.ui.filters.WorklistDateWindow
+import sg.mesha.goatos.core.ui.filters.WorklistStatus
+import java.time.LocalDate
 import sg.mesha.goatos.core.network.dto.PEN_ROUTINE_SCOPE_ALL_PENS
 import sg.mesha.goatos.core.network.dto.PEN_ROUTINE_SCOPE_PARK
 import sg.mesha.goatos.core.network.dto.PenRoutineTaskDto
@@ -152,6 +159,94 @@ class PenRoutineListViewModelTest {
         val failure = analytics.events.single { it.name == AnalyticsEventsPenRoutines.FAILURE }
         assertEquals("socket closed", failure.props[AnalyticsEvents.Params.REASON])
         assertTrue(analytics.events.any { it.name == AnalyticsEventsPenRoutines.LIST_OPENED })
+        stateJob.cancel()
+    }
+
+    @Test
+    fun `a tab-bound list asks for its tab, titles itself from the tab and draws only its filters`() = runTest(dispatcher) {
+        val repository = FakePenRoutinesRepository()
+        val analytics = RecordingAnalytics()
+        val vm = PenRoutineListViewModel(repository, RecordingPenRoutineSyncRepository(), analytics, NoopCrashReporter())
+        vm.today = { LocalDate.of(2026, 10, 1) }
+        vm.bind("Fumigation", "fumigation")
+        val stateJob = backgroundScope.launch { vm.state.collect {} }
+        val rowsJob = backgroundScope.launch { vm.rows.collect {} }
+        advanceUntilIdle()
+
+        // Before a page lands: the bar item's label; the request already names the tab, unnarrowed.
+        assertEquals("Fumigation", vm.state.value.title)
+        assertEquals(PenRoutineQuery(tab = "fumigation"), repository.requestedQueries.last())
+        assertTrue("no Routines request leaked from the tab", repository.requestedQueries.none { it.tab.isBlank() })
+
+        // Another tab's page facts never reach this one.
+        repository.emitPageMeta(PenRoutinePageMeta(title = "Routines", filters = penRoutineFilters()), tab = "")
+        repository.emitPageMeta(
+            PenRoutinePageMeta(
+                title = "Fumigation rounds",
+                filters = penRoutineFilters(selected = "todo"),
+                tab = PenRoutineTabDto(key = "fumigation", label = "Fumigation rounds", filters = listOf("status", "pen")),
+                penOptions = listOf(
+                    PenRoutinePenOptionDto(
+                        value = "shed-castro|2",
+                        shedId = "shed-castro",
+                        partitionLabel = "2",
+                        label = "Castro 2",
+                        operationalLocationDisplay = "Castro 2",
+                        parkName = "Coimbatore",
+                        count = 3,
+                    ),
+                ),
+            ),
+            tab = "fumigation",
+        )
+        advanceUntilIdle()
+
+        val state = vm.state.value
+        assertEquals("Fumigation rounds", state.title)
+        val bar = requireNotNull(state.tabFilters)
+        assertTrue(bar.showStatus)
+        assertFalse("date is not offered by this tab", bar.showDate)
+        assertTrue(bar.showPen)
+        assertEquals(4, bar.pendingCount)
+        assertEquals(9, bar.completedCount)
+        assertEquals(WorklistStatus.PENDING, bar.status)
+        assertEquals(listOf("Castro 2"), bar.penOptions.map { it.label })
+
+        // Status -> the backend's done key; pen -> the option's own token; date -> ISO window.
+        vm.onEvent(PenRoutineListEvent.SelectFilter("done"))
+        vm.onEvent(PenRoutineListEvent.SelectPen(bar.penOptions.single().pen))
+        vm.onEvent(PenRoutineListEvent.SelectDateWindow(WorklistDateWindow(LocalDate.of(2026, 9, 28), LocalDate.of(2026, 10, 1))))
+        advanceUntilIdle()
+        assertEquals(
+            PenRoutineQuery(filter = "done", tab = "fumigation", dueFrom = "2026-09-28", dueTo = "2026-10-01", pen = "shed-castro|2"),
+            repository.requestedQueries.last(),
+        )
+        assertEquals(WorklistStatus.COMPLETED, vm.state.value.tabFilters?.status)
+
+        // Clearing the date drops it from the request again.
+        vm.onEvent(PenRoutineListEvent.SelectDateWindow(null))
+        advanceUntilIdle()
+        assertEquals("", repository.requestedQueries.last().dueFrom)
+
+        val filterEvents = analytics.events.filter { it.name == AnalyticsEventsPenRoutines.FILTER_CHANGED }
+        assertEquals(listOf("status", "pen", "date", "date"), filterEvents.map { it.props[AnalyticsEvents.Params.KIND] })
+        assertTrue(filterEvents.all { it.props[AnalyticsEventsPenRoutines.Params.TAB_KEY] == "fumigation" })
+        rowsJob.cancel()
+        stateJob.cancel()
+    }
+
+    @Test
+    fun `the Routines list has no tab bar and requests exactly what it always did`() = runTest(dispatcher) {
+        val repository = FakePenRoutinesRepository()
+        val vm = PenRoutineListViewModel(repository, RecordingPenRoutineSyncRepository(), RecordingAnalytics(), NoopCrashReporter())
+        vm.bind("Routines")
+        val stateJob = backgroundScope.launch { vm.state.collect {} }
+        val rowsJob = backgroundScope.launch { vm.rows.collect {} }
+        repository.emitPageMeta(PenRoutinePageMeta(title = "Routines", filters = penRoutineFilters()))
+        advanceUntilIdle()
+        assertNull(vm.state.value.tabFilters)
+        assertEquals(PenRoutineQuery(), repository.requestedQueries.last())
+        rowsJob.cancel()
         stateJob.cancel()
     }
 }

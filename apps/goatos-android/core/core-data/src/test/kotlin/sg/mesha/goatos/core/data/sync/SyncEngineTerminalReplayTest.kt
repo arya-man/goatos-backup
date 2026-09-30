@@ -102,9 +102,9 @@ class SyncEngineTerminalReplayTest {
     private class CountingPenRoutines : sg.mesha.goatos.core.data.PenRoutinesRepository {
         var persisted = 0
         val rowVersions = mutableListOf<Int>()
-        override fun tasks(filter: String): Flow<PagingData<sg.mesha.goatos.core.network.dto.PenRoutineTaskDto>> = flowOf(PagingData.empty())
-        override val pageMeta: StateFlow<sg.mesha.goatos.core.data.PenRoutinePageMeta> = MutableStateFlow(sg.mesha.goatos.core.data.PenRoutinePageMeta())
-        override suspend fun invalidateTasks(filter: String) = Unit
+        override fun tasks(query: sg.mesha.goatos.core.data.PenRoutineQuery): Flow<PagingData<sg.mesha.goatos.core.network.dto.PenRoutineTaskDto>> = flowOf(PagingData.empty())
+        override fun pageMeta(tab: String): Flow<sg.mesha.goatos.core.data.PenRoutinePageMeta> = flowOf(sg.mesha.goatos.core.data.PenRoutinePageMeta())
+        override suspend fun invalidateTasks(query: sg.mesha.goatos.core.data.PenRoutineQuery) = Unit
         override fun observeTask(taskId: String): Flow<sg.mesha.goatos.core.network.dto.PenRoutineTaskDto?> = flowOf(null)
         override suspend fun refreshTask(taskId: String) = Unit
         override suspend fun persistServerDetail(detail: sg.mesha.goatos.core.network.dto.PenRoutineDetailDto) {

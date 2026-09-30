@@ -172,7 +172,51 @@ data class PenRoutinePageDto(
     @SerialName("filters") val filters: List<PenRoutineFilterDto> = emptyList(),
     /** Whole-list count of tasks still owed by the caller; never a page-local sum. */
     @SerialName("open_count") val openCount: Int = 0,
+    /**
+     * The web-authored phone tab this page was opened from (maintainer instruction 2026-10-01);
+     * present ONLY when the request named `tab`. Absent on the Routines list and on an older
+     * server, so it defaults to null.
+     */
+    @SerialName("tab") val tab: PenRoutineTabDto? = null,
+    /**
+     * The pens the Pen filter may offer, with the backend's whole-list count per pen. Empty unless
+     * the tab offers the pen filter, and on an older server that predates the field.
+     */
+    @SerialName("pen_options") val penOptions: List<PenRoutinePenOptionDto> = emptyList(),
     @SerialName("trace_id") val traceId: String = "",
+)
+
+/** The filter kinds a web-authored tab may offer, in the backend's own vocabulary. */
+const val PEN_ROUTINE_TAB_FILTER_STATUS = "status"
+const val PEN_ROUTINE_TAB_FILTER_DATE = "date"
+const val PEN_ROUTINE_TAB_FILTER_PEN = "pen"
+
+/**
+ * A web-authored phone tab (backend penroutines/domain Tab): its key, its label (the page title,
+ * rendered VERBATIM) and the filters it offers, in display order.
+ */
+@Serializable
+data class PenRoutineTabDto(
+    @SerialName("key") val key: String = "",
+    @SerialName("label") val label: String = "",
+    /** Any of [PEN_ROUTINE_TAB_FILTER_STATUS], [PEN_ROUTINE_TAB_FILTER_DATE], [PEN_ROUTINE_TAB_FILTER_PEN]. */
+    @SerialName("filters") val filters: List<String> = emptyList(),
+)
+
+/**
+ * One pen the Pen filter can offer. [value] is the opaque token the list request echoes back as
+ * `pen=` ("<shed_id>|<partition_label>"); [label] is the backend-composed pen name, VERBATIM.
+ */
+@Serializable
+data class PenRoutinePenOptionDto(
+    @SerialName("value") val value: String = "",
+    @SerialName("shed_id") val shedId: String = "",
+    @SerialName("partition_label") val partitionLabel: String = "",
+    @SerialName("label") val label: String = "",
+    /** The backend-composed pen name (same value as [label]); preferred for display when present. */
+    @SerialName("operational_location_display") val operationalLocationDisplay: String = "",
+    @SerialName("park_name") val parkName: String = "",
+    @SerialName("count") val count: Int = 0,
 )
 
 /**

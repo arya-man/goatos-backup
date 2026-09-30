@@ -5,6 +5,7 @@
     <string name="filters_date_label">ದಿನಾಂಕ</string>
     <string name="filters_pen_label">ಪೆನ್</string>
     <string name="filters_all_pens">ಎಲ್ಲಾ ಪೆನ್‌ಗಳು</string>
+    <string name="filters_all_dates">ಎಲ್ಲಾ ದಿನಾಂಕಗಳು</string>
     <string name="filters_today">ಇಂದು</string>
     <string name="filters_next_7_days">ಮುಂದಿನ 7 ದಿನ</string>
     <string name="filters_next_30_days">ಮುಂದಿನ 30 ದಿನ</string>

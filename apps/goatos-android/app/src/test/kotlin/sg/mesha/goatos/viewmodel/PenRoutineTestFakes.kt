@@ -12,6 +12,7 @@ import sg.mesha.goatos.core.common.clock.MockLocationVerdict
 import sg.mesha.goatos.core.data.ClockPunchFacts
 import sg.mesha.goatos.core.data.ClockPunchFactsProvider
 import sg.mesha.goatos.core.data.PenRoutinePageMeta
+import sg.mesha.goatos.core.data.PenRoutineQuery
 import sg.mesha.goatos.core.data.PenRoutinesRepository
 import sg.mesha.goatos.core.data.sync.FeedSlotProofSourcePayload
 import sg.mesha.goatos.core.data.sync.PenRoutineSubmitProof
@@ -39,11 +40,12 @@ class FakePenRoutinesRepository(
     private val pages: List<PenRoutineTaskDto> = emptyList(),
 ) : PenRoutinesRepository {
     private val detail = MutableStateFlow(initialDetail)
-    private val _pageMeta = MutableStateFlow(PenRoutinePageMeta())
-    override val pageMeta: StateFlow<PenRoutinePageMeta> = _pageMeta
+    private val metaByTab = MutableStateFlow<Map<String, PenRoutinePageMeta>>(emptyMap())
 
     val requestedFilters = mutableListOf<String>()
+    val requestedQueries = mutableListOf<PenRoutineQuery>()
     val invalidatedFilters = mutableListOf<String>()
+    val invalidatedQueries = mutableListOf<PenRoutineQuery>()
     var refreshDetailCalls: Int = 0
         private set
     val persistedDetails = mutableListOf<PenRoutineDetailDto>()
@@ -53,17 +55,23 @@ class FakePenRoutinesRepository(
         detail.value = next
     }
 
-    fun emitPageMeta(next: PenRoutinePageMeta) {
-        _pageMeta.value = next
+    /** A list refresh of [tab] ("" = the Routines list) landing its page facts. */
+    fun emitPageMeta(next: PenRoutinePageMeta, tab: String = "") {
+        metaByTab.value = metaByTab.value + (tab to next)
     }
 
-    override fun tasks(filter: String): Flow<PagingData<PenRoutineTaskDto>> {
-        requestedFilters += filter
+    override fun pageMeta(tab: String): Flow<PenRoutinePageMeta> =
+        metaByTab.map { it[tab] ?: PenRoutinePageMeta() }
+
+    override fun tasks(query: PenRoutineQuery): Flow<PagingData<PenRoutineTaskDto>> {
+        requestedFilters += query.filter
+        requestedQueries += query
         return flowOf(PagingData.from(pages))
     }
 
-    override suspend fun invalidateTasks(filter: String) {
-        invalidatedFilters += filter
+    override suspend fun invalidateTasks(query: PenRoutineQuery) {
+        invalidatedFilters += query.filter
+        invalidatedQueries += query
     }
 
     override fun observeTask(taskId: String): Flow<PenRoutineTaskDto?> =

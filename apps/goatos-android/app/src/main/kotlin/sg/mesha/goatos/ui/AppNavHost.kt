@@ -871,6 +871,29 @@ object Routes {
 
     fun penRoutineRoute(taskId: String): String = "/pen-routines/${Uri.encode(taskId)}"
 
+    // Web-authored phone tabs (maintainer instruction 2026-10-01): the CEO defines a "simple task"
+    // tab on the web -- a label, the module whose bar carries it, an icon -- and places routines on
+    // it. The backend composes it as a bar item `{key:"routine_tab_<key>", href:"/pen-routines/tab/<key>"}`.
+    // ONE parameterized L0 root hosts EVERY such tab with the same list screen; no tab ever gets
+    // code of its own. Three path segments, so it can never collide with the two-segment task
+    // drill `/pen-routines/{task_id}` above.
+    const val PEN_ROUTINE_TAB_KEY_ARG = "tab_key"
+    const val PEN_ROUTINE_TAB = "/pen-routines/tab/{$PEN_ROUTINE_TAB_KEY_ARG}"
+    private const val PEN_ROUTINE_TAB_PREFIX = "/pen-routines/tab/"
+
+    /** Mirrors the backend's tab key rule (penroutines/domain tab.go). */
+    private val penRoutineTabKeyPattern = Regex("^[a-z][a-z0-9_]{1,39}$")
+
+    fun penRoutineTabRoute(tabKey: String): String = "$PEN_ROUTINE_TAB_PREFIX$tabKey"
+
+    /** The tab key a concrete `/pen-routines/tab/<key>` href names, or null for anything else. */
+    fun penRoutineTabKeyFromHref(href: String): String? {
+        val base = href.substringBefore('?').trimEnd('/')
+        if (!base.startsWith(PEN_ROUTINE_TAB_PREFIX)) return null
+        val key = base.removePrefix(PEN_ROUTINE_TAB_PREFIX)
+        return key.takeIf { penRoutineTabKeyPattern.matches(it) }
+    }
+
     /** The task id a `/pen-routines/<id>` push href names, or null for anything else. */
     fun penRoutineIdFromHref(href: String): String? {
         val base = href.substringBefore('?').trimEnd('/')
@@ -4582,6 +4605,51 @@ fun AppNavHost(
                                 launchSingleTop = true
                             }
                         }
+                        // Date / pen controls exist only on a web-authored tab; never emitted here.
+                        is PenRoutineListEvent.SelectDateWindow,
+                        is PenRoutineListEvent.SelectPen,
+                        -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
+        // A web-authored phone tab (maintainer instruction 2026-10-01): the SAME list screen bound
+        // to the tab key the route carries. An L0 root (supportedRootDestinations recognises the
+        // concrete href), so the bar and the drawer stay on it. Its rows open the same task drill.
+        composable(
+            route = Routes.PEN_ROUTINE_TAB,
+            arguments = listOf(navArgument(Routes.PEN_ROUTINE_TAB_KEY_ARG) { type = NavType.StringType }),
+        ) { entry ->
+            val tabKey = entry.arguments?.getString(Routes.PEN_ROUTINE_TAB_KEY_ARG).orEmpty()
+            val vm: PenRoutineListViewModel = hiltViewModel()
+            // The bar item's own backend label is the title until the page's title lands.
+            val navLabel = navState.labelForHref(Routes.penRoutineTabRoute(tabKey))
+            LaunchedEffect(vm, tabKey, navLabel) { vm.bind(navLabel, tabKey) }
+            val state by vm.state.collectAsStateWithLifecycle()
+            val rows = vm.rows.collectAsLazyPagingItems()
+            val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
+            val appendError = (rows.loadState.append as? LoadState.Error)?.error
+            LaunchedEffect(refreshError, appendError) {
+                (refreshError ?: appendError)?.let(vm::onRowsLoadFailed)
+            }
+            PenRoutineListScreen(
+                state = state,
+                rows = rows,
+                onEvent = { event ->
+                    when (event) {
+                        PenRoutineListEvent.Refresh -> {
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
+                        is PenRoutineListEvent.OpenTask -> {
+                            vm.onEvent(event)
+                            navController.navigate(Routes.penRoutineRoute(event.taskId)) {
+                                launchSingleTop = true
+                            }
+                        }
+                        // Status, date and pen each re-scope the pager; the new scope refetches.
+                        else -> vm.onEvent(event)
                     }
                 },
             )
@@ -5317,9 +5385,13 @@ internal fun startDestinationFor(navState: NavState): String {
     // Clock In / Out now that attendance sits at the top of the drawer
     // (maintainer ask 2026-08-28): the drawer is only the fallback for a
     // principal whose bar composed empty of hosted roots (e.g. clock-only).
-    navState.items.firstOrNull { isRootDestination(it.href) }?.href?.let { return it }
+    // A web-authored tab is never the NavHost START destination: the graph's start is a route
+    // string, and a parameterized pattern would need its argument resolved at graph build time.
+    // Tabs are inserted after a module's own items, so this only skips one when nothing else fits.
+    navState.items.firstOrNull { isRootDestination(it.href) && Routes.penRoutineTabKeyFromHref(it.href) == null }
+        ?.href?.let { return it }
     return navState.availableModules().firstOrNull()?.href
-        ?.takeIf { isRootDestination(it) }
+        ?.takeIf { isRootDestination(it) && Routes.penRoutineTabKeyFromHref(it) == null }
         ?: Routes.CALENDAR
 }
 
@@ -5458,6 +5530,9 @@ internal fun pushTargetRoute(target: String?): String? {
     Routes.leadershipTaskIdFromHref(target)?.let { return Routes.leadershipTaskRoute(it) }
     // A push naming ONE pen visit (`/pen-visits/{task_id}`) opens that visit.
     Routes.penVisitIdFromHref(target)?.let { return Routes.penVisitRoute(it) }
+    // A push naming a web-authored tab (`/pen-routines/tab/<key>`) opens that tab; checked BEFORE
+    // the task drill so the tab path is never read as a task id.
+    Routes.penRoutineTabKeyFromHref(target)?.let { return Routes.penRoutineTabRoute(it) }
     // A push naming ONE routine task (`/pen-routines/{task_id}`) opens that task.
     Routes.penRoutineIdFromHref(target)?.let { return Routes.penRoutineRoute(it) }
     // An `animal_purchase_decided` push names ONE load: open that load, where the decision chip is.
@@ -5499,9 +5574,32 @@ internal fun workBoardWorkflowRoute(rowKey: String?): String? {
     return Routes.birthWorkflowRoute(parts[2])
 }
 
-/** True when [route] is a module landing the backend must have granted this person. */
-internal fun isRootDestination(route: String): Boolean =
-    route.substringBefore('?').trimEnd('/') in supportedRootDestinations
+/**
+ * True when [route] is a module landing the backend must have granted this person. A concrete
+ * web-authored tab href (`/pen-routines/tab/<key>`) is one: its pattern is registered, and the
+ * grant check then compares the CONCRETE href against the bar the backend composed.
+ */
+internal fun isRootDestination(route: String): Boolean {
+    val base = route.substringBefore('?').trimEnd('/')
+    return base in supportedRootDestinations || Routes.penRoutineTabKeyFromHref(base) != null
+}
+
+/**
+ * The route the SHELL reasons about for a back-stack entry: the destination's route, except that
+ * the one parameterized L0 root -- a web-authored tab -- resolves to its CONCRETE href, because the
+ * backend-composed bar item it must match (selection, root chrome, module ownership) is concrete.
+ * Every other destination keeps its pattern, exactly as before.
+ */
+internal fun shellRouteOf(destinationRoute: String?, tabKey: String?): String? =
+    if (destinationRoute == Routes.PEN_ROUTINE_TAB && !tabKey.isNullOrBlank()) {
+        Routes.penRoutineTabRoute(tabKey)
+    } else {
+        destinationRoute
+    }
+
+/** The backend label of the bar item whose href is [href]; blank when none carries it. */
+internal fun NavState.labelForHref(href: String): String =
+    (items + modules.flatMap { it.navItems }).firstOrNull { it.href == href }?.label.orEmpty()
 
 /**
  * Whether the backend actually gave this person the module landing [route] names. Only meaningful

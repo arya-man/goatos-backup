@@ -56,14 +56,20 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorklistDateWindowSheet(
-    initial: WorklistDateWindow,
+    initial: WorklistDateWindow?,
     today: LocalDate,
     onApply: (WorklistDateWindow) -> Unit,
     onDismiss: () -> Unit,
+    /**
+     * What Clear does. Null (every existing host) keeps the shipped behaviour -- apply the default
+     * window. A host whose list starts UNNARROWED (a web-authored pen-routine tab) passes its own
+     * "drop the date filter" here, so Clear returns to what the reader first saw.
+     */
+    onClear: (() -> Unit)? = null,
 ) {
-    var from by remember { mutableStateOf<LocalDate?>(initial.from) }
-    var to by remember { mutableStateOf<LocalDate?>(initial.to) }
-    var month by remember { mutableStateOf(YearMonth.from(initial.from)) }
+    var from by remember { mutableStateOf<LocalDate?>(initial?.from) }
+    var to by remember { mutableStateOf<LocalDate?>(initial?.to) }
+    var month by remember { mutableStateOf(YearMonth.from(initial?.from ?: today)) }
 
     fun tap(day: LocalDate) {
         val start = from
@@ -127,7 +133,7 @@ fun WorklistDateWindowSheet(
                     label = stringResource(R.string.filters_clear),
                     primary = false,
                     modifier = Modifier.weight(1f),
-                ) { onApply(WorklistDateWindow.default(today)) }
+                ) { onClear?.invoke() ?: onApply(WorklistDateWindow.default(today)) }
                 SheetButton(
                     label = stringResource(R.string.filters_apply),
                     primary = true,

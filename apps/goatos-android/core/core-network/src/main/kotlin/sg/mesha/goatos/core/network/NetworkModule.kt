@@ -1414,6 +1414,10 @@ interface AppApiService {
         @Query("filter") filter: String?,
         @Query("limit") limit: Int?,
         @Query("cursor") cursor: String?,
+        @Query("tab") tab: String? = null,
+        @Query("due_from") dueFrom: String? = null,
+        @Query("due_to") dueTo: String? = null,
+        @Query("pen") pen: String? = null,
     ): PenRoutinePageDto
 
     @GET("app/pen-routines/{task_id}")
@@ -2724,7 +2728,11 @@ class RetrofitAppApi(
         filter: String?,
         limit: Int?,
         cursor: String?,
-    ): PenRoutinePageDto = service.getPenRoutines(filter, limit, cursor)
+        tab: String?,
+        dueFrom: String?,
+        dueTo: String?,
+        pen: String?,
+    ): PenRoutinePageDto = service.getPenRoutines(filter, limit, cursor, tab, dueFrom, dueTo, pen)
 
     override suspend fun getPenRoutine(taskId: String): PenRoutineDetailDto = service.getPenRoutine(taskId)
 

@@ -38,4 +38,17 @@ object AnalyticsEventsPenRoutines {
      * `CrashReporter.recordException` on the same path.
      */
     const val FAILURE = "pen_routine_failure"
+
+    /**
+     * A filter changed on a routine list (maintainer instruction 2026-10-01): [AnalyticsEvents.Params.KIND]
+     * is `status` | `date` | `pen`, and [Params.TAB_KEY] names the web-authored tab when there is
+     * one. Never the chosen value — which pen or which dates is not needed to see whether the
+     * filters are used.
+     */
+    const val FILTER_CHANGED = "pen_routine_filter_changed"
+
+    object Params {
+        /** The web-authored phone tab's key (`^[a-z][a-z0-9_]{1,39}$`, a bounded vocabulary). */
+        const val TAB_KEY = "tab_key"
+    }
 }

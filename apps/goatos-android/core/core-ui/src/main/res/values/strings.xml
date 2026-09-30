@@ -11,6 +11,7 @@
     <string name="filters_date_label">Date</string>
     <string name="filters_pen_label">Pen</string>
     <string name="filters_all_pens">All pens</string>
+    <string name="filters_all_dates">All dates</string>
     <string name="filters_today">Today</string>
     <string name="filters_next_7_days">Next 7 days</string>
     <string name="filters_next_30_days">Next 30 days</string>
