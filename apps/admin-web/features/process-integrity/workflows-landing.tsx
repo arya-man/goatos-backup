@@ -201,7 +201,7 @@ export async function VaccinationWorkflowsPage({
   const activePct = activeWorkflow && activeWorkflow.expected_count > 0 ? Math.round((activeWorkflow.completed_count / activeWorkflow.expected_count) * 100) : 0;
 
   return (
-    <div className="screen on">
+    <Stack spacing={3}>
       <PageHeader title={pageContract.title} crumbs={crumbItems} />
 
       {!countsResult.ok || !result.ok ? (
@@ -272,14 +272,15 @@ export async function VaccinationWorkflowsPage({
                       return (
                         <TableRow key={row.row_id} hover selected={isActive}>
                           <TableCell sx={{ minWidth: 220 }}>
-                            <Link
+                            <Box
+                              component={Link}
                               href={hrefPreservingWorkflowPage(PATH, sp, row.row_id)}
                               scroll={false}
                               className="wfrow"
                               aria-current={isActive ? "true" : undefined}
                               aria-label={`${copy(pageContract, "action.open_record")} ${title}`}
                               title={`${title} · ${where} · ${optionLabel(pageContract, "work_state_filter_chips", row.work_state)}`}
-                              style={{ color: "inherit", textDecoration: "none", display: "block" }}
+                              sx={{ color: "inherit", textDecoration: "none", display: "block" }}
                             >
                               <Box component="span" sx={{ display: "flex", alignItems: "center", gap: 2 }}>
                               <Box component="span" sx={{ width: 10, height: 10, borderRadius: "50%", flexShrink: 0, bgcolor: TONE_SWATCH[optionTone(pageContract, "severity_chips", row.severity) as Tone] }} />
@@ -289,7 +290,7 @@ export async function VaccinationWorkflowsPage({
                                 <LinearProgress variant="determinate" value={pct} sx={{ mt: 1, height: 4, maxWidth: 200 }} aria-hidden="true" />
                               </Box>
                               </Box>
-                            </Link>
+                            </Box>
                           </TableCell>
                           <TableCell sx={{ whiteSpace: "nowrap" }}>{stageLabel(row.animal_stage)}</TableCell>
                           <TableCell sx={{ whiteSpace: "nowrap" }}>{row.owner?.operator_name || "—"}</TableCell>
@@ -397,7 +398,7 @@ export async function VaccinationWorkflowsPage({
           </UrlSuspense>
         </Grid>
       </Grid>
-    </div>
+    </Stack>
   );
 }
 

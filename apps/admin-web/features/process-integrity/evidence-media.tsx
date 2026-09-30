@@ -1,5 +1,8 @@
-import { ExternalLink } from "lucide-react";
-import { Tag } from "@/components/ui-primitives";
+import Box from "@mui/material/Box";
+import Link from "@mui/material/Link";
+import { Iconify } from "@/components/minimal/iconify";
+import { Label } from "@/components/minimal/label";
+import { Tag, TONE_COLOR } from "@/components/ui-primitives";
 import type { ProcessIntegrityEvidence } from "@/lib/api/server";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { Tone } from "./process-integrity";
@@ -30,14 +33,15 @@ export function EvidenceMedia({ evidence, pageContract, tone = "ok" }: { evidenc
   const media = evidence.media ?? [];
   if (media.length > 0) {
     return (
-      <span className="evidence-media">
+      <Box component="span" data-testid="evidence-media" sx={{ display: "inline-flex", flexWrap: "wrap", gap: 0.5 }}>
         {media.map((item, index) => (
-          <a key={item.proof_id || `${item.download_url}-${index}`} href={item.download_url} target="_blank" rel="noreferrer" className={`tag t-${tone}`}>
-            {mediaLabel(pageContract, item)}
-            <ExternalLink className="ic" aria-hidden="true" />
-          </a>
+          <Link key={item.proof_id || `${item.download_url}-${index}`} href={item.download_url} target="_blank" rel="noreferrer" underline="none">
+            <Label variant="soft" color={TONE_COLOR[tone] ?? "default"} endIcon={<Iconify icon="eva:external-link-fill" aria-hidden="true" />} sx={{ cursor: "pointer" }}>
+              {mediaLabel(pageContract, item)}
+            </Label>
+          </Link>
         ))}
-      </span>
+      </Box>
     );
   }
 
@@ -57,5 +61,5 @@ export function EvidenceMedia({ evidence, pageContract, tone = "ok" }: { evidenc
     );
   }
 
-  return <span className="muted">-</span>;
+  return <Box component="span" sx={{ color: "text.disabled" }}>-</Box>;
 }

@@ -8,7 +8,7 @@ import { useLocalOverlaySelection } from "@/components/local-overlay-link";
 import { Tag } from "@/components/ui-primitives";
 import { copy, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { AdherenceRow } from "@/lib/api/server";
-import { Syringe } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import type { Tone } from "./process-integrity";
 import { EvidenceMedia } from "./evidence-media";
 
@@ -80,7 +80,7 @@ function AdherenceRecordDrawer({
       onClose={closeDrawer}
       title={record.expectedTitle}
       eyebrow={copy(pageContract, "drawer.record.eyebrow")}
-      icon={<Syringe aria-hidden="true" />}
+      icon={<Iconify icon="solar:medical-kit-bold" width={24} aria-hidden="true" />}
       ariaLabel={copy(pageContract, "drawer.record.aria")}
       closeLabel={copy(pageContract, "drawer.record.close_label")}
       footer={

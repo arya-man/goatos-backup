@@ -1,37 +1,34 @@
-import { Check, Video } from "lucide-react";
-import { Tag } from "@/components/ui-primitives";
+import Step from "@mui/material/Step";
+import StepContent from "@mui/material/StepContent";
+import StepLabel from "@mui/material/StepLabel";
+import Stepper from "@mui/material/Stepper";
+import Typography from "@mui/material/Typography";
+import { Iconify } from "@/components/minimal/iconify";
+import { Label } from "@/components/minimal/label";
 import type { SopStep } from "@/features/preventive-care-vaccination";
 
 // SopChecklist renders an SOP's procedure steps as the mock's drawer checklist (numbered/checked circles,
 // step description, "video proof required" pill) — NOT the obligation lifecycle chain (that is the
 // Workflow record's stepper). `doneThrough` is derived from the obligation's computed states: steps below
-// it are done, the step at it is current. Same `.stepper` anatomy as the mock #taskDrawer checklist.
+// it are done, the step at it is current. Template anatomy: MUI vertical Stepper with every step expanded.
 export function SopChecklist({ steps, doneThrough }: { steps: SopStep[]; doneThrough: number }) {
   return (
-    <div className="stepper">
-      {steps.map((s, i) => {
-        const done = i < doneThrough;
-        const cur = i === doneThrough;
-        return (
-          <div key={s.title} className={`step${done ? " done" : ""}${cur ? " cur" : ""}`}>
-            <div className="ln" />
-            <div className="no">
-              {done ? <Check className="ic" style={{ width: 14, strokeWidth: 2.4 }} aria-hidden="true" /> : i + 1}
-            </div>
-            <div className="ct">
-              <b>{s.title}</b>
-              <div className="d">{s.detail}</div>
-              {s.videoProof ? (
-                <div className="vp">
-                  <Tag tone="pur">
-                    <Video className="ic" style={{ width: 12 }} aria-hidden="true" /> video proof required
-                  </Tag>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        );
-      })}
-    </div>
+    <Stepper activeStep={doneThrough} orientation="vertical" data-testid="sop-checklist">
+      {steps.map((s, i) => (
+        <Step key={s.title} completed={i < doneThrough} expanded>
+          <StepLabel>
+            <Typography variant="subtitle2" component="span">{s.title}</Typography>
+          </StepLabel>
+          <StepContent>
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>{s.detail}</Typography>
+            {s.videoProof ? (
+              <Label color="secondary" sx={{ mt: 1 }} startIcon={<Iconify icon="solar:videocamera-record-bold" />}>
+                video proof required
+              </Label>
+            ) : null}
+          </StepContent>
+        </Step>
+      ))}
+    </Stepper>
   );
 }

@@ -12,7 +12,8 @@ import { VACCINATION_DRIVE_SOP_STEPS } from "@/lib/vaccination-sop-steps";
 import { copy, optionGroup, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ActionCenterObligation, ProcessIntegritySeverity } from "@/lib/api/server";
 import { fmtDate } from "@/lib/format";
-import { GitBranch, ShieldCheck, Syringe } from "lucide-react";
+import Box from "@mui/material/Box";
+import { Iconify } from "@/components/minimal/iconify";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { rejectCompletionAction, verifyCompletionAction } from "./actions";
 import { type Tone } from "./process-integrity";
@@ -191,11 +192,11 @@ function ActionForm({
   const canReview = hasReviewHandle(taskId, rowVersion);
   return (
     <form action={action}>
-      <input type="hidden" name="completion_id" value={completionId} />
-      {taskId ? <input type="hidden" name="task_id" value={taskId} /> : null}
-      {rowVersion ? <input type="hidden" name="row_version" value={rowVersion} /> : null}
-      <input type="hidden" name="return_to" value={returnTo} />
-      {reason ? <input type="hidden" name="reason" value={reason} /> : null}
+      <Box component="input" type="hidden" name="completion_id" value={completionId} />
+      {taskId ? <Box component="input" type="hidden" name="task_id" value={taskId} /> : null}
+      {rowVersion ? <Box component="input" type="hidden" name="row_version" value={rowVersion} /> : null}
+      <Box component="input" type="hidden" name="return_to" value={returnTo} />
+      {reason ? <Box component="input" type="hidden" name="reason" value={reason} /> : null}
       <Button type="submit" variant="outlined" color="inherit" disabled={!canReview} aria-disabled={!canReview || undefined}>
         {children}
       </Button>
@@ -247,7 +248,7 @@ function ActionCenterRowDrawer({
       onClose={closeDrawer}
       title={title}
       eyebrow={copy(pageContract, "drawer.work_item.eyebrow")}
-      icon={<Syringe aria-hidden="true" />}
+      icon={<Iconify icon="solar:medical-kit-bold" width={24} aria-hidden="true" />}
       ariaLabel={copy(pageContract, "drawer.work_item.aria")}
       closeLabel={copy(pageContract, "drawer.work_item.close_label")}
       paperTestId="action-center-drawer"
@@ -300,9 +301,9 @@ function ActionCenterRowDrawer({
 
       <DrawerBlock title={copy(pageContract, "drawer.linked_title")}>
         <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
-          {linkChip(workflowHref, <GitBranch size={16} aria-hidden="true" />, copy(pageContract, "drawer.link.workflow_record"), "info")}
-          {linkChip("/protocol-adherence", <ShieldCheck size={16} aria-hidden="true" />, copy(pageContract, "drawer.link.adherence"), "warning")}
-          {linkChip("/vaccination", <Syringe size={16} aria-hidden="true" />, copy(pageContract, "drawer.link.vaccination"), "secondary")}
+          {linkChip(workflowHref, <Iconify icon="solar:bill-list-bold" width={16} aria-hidden="true" />, copy(pageContract, "drawer.link.workflow_record"), "info")}
+          {linkChip("/protocol-adherence", <Iconify icon="solar:shield-check-bold" width={16} aria-hidden="true" />, copy(pageContract, "drawer.link.adherence"), "warning")}
+          {linkChip("/vaccination", <Iconify icon="solar:medical-kit-bold" width={16} aria-hidden="true" />, copy(pageContract, "drawer.link.vaccination"), "secondary")}
         </Stack>
       </DrawerBlock>
     </DetailDrawer>

@@ -7,6 +7,7 @@ import type { ReactNode } from "react";
 import type { Theme } from "@mui/material/styles";
 import type { PaletteColorKey } from "@/theme/core";
 
+import Box from "@mui/material/Box";
 import Link from "@/components/no-prefetch-link";
 import { KanbanItemRoot } from "@/components/app/kanban";
 import { CourseWidgetSummary } from "@/components/minimal/sections/overview/course/course-widget-summary";
@@ -33,9 +34,9 @@ export function ActionCenterQuickTile({
   icon: string;
 }) {
   return (
-    <Link href={href} scroll={false} aria-pressed={on} style={{ display: "block", height: "100%", color: "inherit", textDecoration: "none" }}>
+    <Box component={Link} href={href} scroll={false} aria-pressed={on} sx={{ display: "block", height: "100%", color: "inherit", textDecoration: "none" }}>
       <CourseWidgetSummary title={title} total={total} color={color} icon={icon} sx={[{ height: 1 }, on ? SELECTED_TILE_SX : false]} />
-    </Link>
+    </Box>
   );
 }
 

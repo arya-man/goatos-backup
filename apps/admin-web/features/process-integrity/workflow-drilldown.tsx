@@ -121,7 +121,7 @@ export async function VaccinationWorkflowDrilldownPage({
 
   if (!result.ok) {
     return (
-      <div className="screen on">
+      <Stack spacing={3}>
         <OrderDetailsToolbar title={pageContract.title || copy(pageContract, "fallback.title")} subtitle={copy(pageContract, "crumb")} backHref={backHref} backLabel={backLabel} />
         <Alert severity="error" role="alert">
           <b>{copy(pageContract, "error.row_unavailable", "This workflow record could not be opened.")}</b>
@@ -132,7 +132,7 @@ export async function VaccinationWorkflowDrilldownPage({
             {backLabel}
           </LinkButton>
         </Box>
-      </div>
+      </Stack>
     );
   }
 
@@ -155,7 +155,7 @@ export async function VaccinationWorkflowDrilldownPage({
   );
 
   return (
-    <div className="screen on">
+    <Stack spacing={3}>
       <OrderDetailsToolbar
         title={title}
         status={optionLabel(pageContract, "work_state_filter_chips", row.work_state)}
@@ -234,6 +234,6 @@ export async function VaccinationWorkflowDrilldownPage({
           </Card>
         </Grid>
       </Grid>
-    </div>
+    </Stack>
   );
 }

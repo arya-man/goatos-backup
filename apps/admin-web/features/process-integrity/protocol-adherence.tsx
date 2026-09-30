@@ -315,7 +315,7 @@ export async function ProtocolAdherencePage({
   const head = ledgerLabels.map((label, index) => ({ id: `c${index}`, label, width: LEDGER_WIDTHS[index] }));
 
   return (
-    <Box className="screen on">
+    <Stack spacing={3}>
       <PageHeader
         title={pageContract.title}
         crumbs={crumbItems}
@@ -510,7 +510,7 @@ export async function ProtocolAdherencePage({
         initialSelectedRowId={initialSelectedRowId}
         pageContract={pageContract}
       />
-    </Box>
+    </Stack>
   );
 }
 
