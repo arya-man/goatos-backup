@@ -39,8 +39,12 @@ import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
 import sg.mesha.goatos.core.network.dto.ViolationPersonOptionDto
 import sg.mesha.goatos.core.network.dto.ViolationTypeOptionDto
 import sg.mesha.goatos.core.network.dto.ViolationsPageDto
+import sg.mesha.goatos.core.network.dto.MonthOptionDto
+import sg.mesha.goatos.core.network.dto.ViolationDto
+import sg.mesha.goatos.core.network.dto.ViolationSummaryDto
 import sg.mesha.goatos.feature.penvisits.EnquiryReportEvent
 import sg.mesha.goatos.feature.penvisits.RecordViolationEvent
+import sg.mesha.goatos.feature.penvisits.ViolationsListEvent
 
 /**
  * HRMS on the phone (maintainer decisions 2026-09-30): the For me enquiries + record entry follow
@@ -64,14 +68,14 @@ class HrmsViewModelsTest {
         vm.refresh()
         assertTrue(vm.state.value.showEnquiries)
         assertEquals(listOf("enq-1"), vm.state.value.enquiries.map { it.enquiryId })
-        assertFalse("a 403 on violations hides Record a violation", vm.state.value.canRecordViolation)
+        assertFalse("a 403 on violations hides Record a violation", vm.state.value.showViolations)
 
         repo.enquiries = Result.failure(HrmsAccessDenied(RuntimeException("403")))
         repo.violations = Result.success(ViolationsPageDto())
         vm.refresh()
         assertFalse(vm.state.value.showEnquiries)
         assertTrue(vm.state.value.enquiries.isEmpty())
-        assertTrue(vm.state.value.canRecordViolation)
+        assertTrue(vm.state.value.showViolations)
     }
 
     @Test
@@ -124,7 +128,7 @@ class HrmsViewModelsTest {
         vm.onEvent(EnquiryReportEvent.AddPerson)
         vm.onEvent(EnquiryReportEvent.SetPerson(0, "p-amit"))
         vm.onEvent(EnquiryReportEvent.SetType(0, "negligence"))
-        assertEquals("the fine starts at the type's default", "500", vm.state.value.penalties[0].fine)
+        assertEquals("picking a violation never fills in money", "", vm.state.value.penalties[0].fine)
         vm.onEvent(EnquiryReportEvent.SetFine(0, "750"))
         vm.onEvent(EnquiryReportEvent.Submit)
 
@@ -162,7 +166,7 @@ class HrmsViewModelsTest {
     }
 
     @Test
-    fun recordViolationStartsAtTheDefaultFineAndSendsToday() = runTest {
+    fun recordViolationNeverPricesTheMistakeAndSendsToday() = runTest {
         val repo = FakeDisciplineRepository()
         val sync = FakeHrmsSyncRepository()
         val vm = RecordViolationViewModel(repo, sync, NoopAddAnalyticsPort(), NoopAddCrashReporter(), SavedStateHandle())
@@ -172,15 +176,39 @@ class HrmsViewModelsTest {
 
         vm.onEvent(RecordViolationEvent.SetPerson("p-amit"))
         vm.onEvent(RecordViolationEvent.SetType("negligence"))
-        assertEquals("500", vm.state.value.fine)
+        assertEquals("picking a violation never fills in money", "", vm.state.value.fine)
         vm.onEvent(RecordViolationEvent.Submit)
         val sent = requireNotNull(repo.recorded)
-        assertEquals(500, sent.fineRupees)
+        assertNull("blank fine is no fine", sent.fineRupees)
         assertEquals(vm.state.value.days.first().key, sent.occurredOn)
 
         sync.item.value = item(SyncItemStatus.SUCCEEDED)
         assertTrue(vm.state.value.done)
         assertFalse(vm.state.value.queuedOffline)
+    }
+
+    @Test
+    fun violationsListShowsTheBackendsMonthTotalsAndAppendsPages() = runTest {
+        val repo = PagedViolationsRepository()
+        val vm = ViolationsListViewModel(repo, NoopAddAnalyticsPort(), NoopAddCrashReporter())
+        vm.onEvent(ViolationsListEvent.Refresh)
+        var s = vm.state.value
+        assertEquals("2026-09", s.month)
+        assertEquals(listOf("v1", "v2"), s.rows.map { it.listKey })
+        // The month's totals are the backend's whole-month figures, never summed from one page.
+        assertEquals(5, s.count)
+        assertEquals("₹2,600", s.fineLabel)
+        assertTrue(s.rows[1].withdrawn)
+
+        vm.onEvent(ViolationsListEvent.LoadMore)
+        assertEquals(listOf("v1", "v2", "v3"), vm.state.value.rows.map { it.listKey })
+        vm.onEvent(ViolationsListEvent.LoadMore) // no further page: nothing requested
+        assertEquals(2, repo.calls.size)
+
+        vm.onEvent(ViolationsListEvent.SelectMonth("2026-08"))
+        s = vm.state.value
+        assertEquals("2026-08", repo.calls.last().first)
+        assertEquals(listOf("a1"), s.rows.map { it.listKey })
     }
 
     private fun reportVm(repo: FakeDisciplineRepository, sync: FakeHrmsSyncRepository) = EnquiryReportViewModel(
@@ -228,7 +256,7 @@ private fun detail(submitted: Boolean = false) = EnquiryDetailDto(
     } else {
         kotlinx.serialization.json.JsonObject(emptyMap())
     },
-    types = listOf(ViolationTypeOptionDto(key = "negligence", title = "Negligence", defaultFine = 500, defaultFineLabel = "₹500")),
+    types = listOf(ViolationTypeOptionDto(key = "negligence", title = "Negligence")),
     people = listOf(ViolationPersonOptionDto(personId = "p-amit", name = "Amit Kumar", designation = "Operator")),
     canSubmit = !submitted,
 )
@@ -239,7 +267,7 @@ private class FakeDisciplineRepository(
     var detail: EnquiryDetailDto = detail()
     var violations: Result<ViolationsPageDto> = Result.success(
         ViolationsPageDto(
-            types = listOf(ViolationTypeOptionDto(key = "negligence", title = "Negligence", defaultFine = 500, defaultFineLabel = "₹500")),
+            types = listOf(ViolationTypeOptionDto(key = "negligence", title = "Negligence")),
             people = listOf(ViolationPersonOptionDto(personId = "p-amit", name = "Amit Kumar")),
         ),
     )
@@ -249,7 +277,7 @@ private class FakeDisciplineRepository(
 
     override suspend fun fetchOpenEnquiries(): Result<EnquiryPageDto> = enquiries
     override suspend fun fetchEnquiry(enquiryId: String): Result<EnquiryDetailDto> = Result.success(detail)
-    override suspend fun fetchViolations(): Result<ViolationsPageDto> = violations
+    override suspend fun fetchViolations(month: String?, cursor: String?): Result<ViolationsPageDto> = violations
     override suspend fun submitEnquiry(enquiryId: String, idempotencyKey: String, request: SubmitEnquiryRequestDto): AppResult<String> {
         submitted = request
         lastKey = idempotencyKey
@@ -260,6 +288,32 @@ private class FakeDisciplineRepository(
         lastKey = idempotencyKey
         return AppResult.Ok("outbox-1")
     }
+}
+
+private class PagedViolationsRepository : DisciplineRepository {
+    val calls = mutableListOf<Pair<String?, String?>>()
+    override suspend fun fetchOpenEnquiries(): Result<EnquiryPageDto> = Result.success(EnquiryPageDto())
+    override suspend fun fetchEnquiry(enquiryId: String): Result<EnquiryDetailDto> = Result.success(detail())
+    override suspend fun fetchViolations(month: String?, cursor: String?): Result<ViolationsPageDto> {
+        calls += month to cursor
+        val months = listOf(MonthOptionDto("2026-09", "Sep 2026"), MonthOptionDto("2026-08", "Aug 2026"))
+        val summary = ViolationSummaryDto(count = 5, fineRupees = 2600, fineLabel = "₹2,600", people = 4)
+        return Result.success(
+            when {
+                month == "2026-08" -> ViolationsPageDto(months = months, month = "2026-08", items = listOf(ViolationDto(violationId = "a1")))
+                cursor == "c2" -> ViolationsPageDto(months = months, month = "2026-09", summary = summary, items = listOf(ViolationDto(violationId = "v2"), ViolationDto(violationId = "v3")))
+                else -> ViolationsPageDto(
+                    months = months,
+                    month = "2026-09",
+                    summary = summary,
+                    items = listOf(ViolationDto(violationId = "v1"), ViolationDto(violationId = "v2", status = "withdrawn")),
+                    nextCursor = "c2",
+                )
+            },
+        )
+    }
+    override suspend fun submitEnquiry(enquiryId: String, idempotencyKey: String, request: SubmitEnquiryRequestDto): AppResult<String> = error("unused")
+    override suspend fun recordViolation(idempotencyKey: String, request: RecordViolationRequestDto): AppResult<String> = error("unused")
 }
 
 private class FakeHrmsSyncRepository : SyncRepository {

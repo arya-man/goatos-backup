@@ -71,12 +71,18 @@ data class EnquiryQuestionDto(
     @SerialName("required") val required: Boolean = false,
 )
 
+/** An authored violation type. It carries no fine: a mistake and its money are separate. */
 @Serializable
 data class ViolationTypeOptionDto(
     @SerialName("key") val key: String = "",
     @SerialName("title") val title: String = "",
-    @SerialName("default_fine") val defaultFine: Int = 0,
-    @SerialName("default_fine_label") val defaultFineLabel: String = "",
+)
+
+/** One month the violations list can show ("Sep 2026": a month heading, not a date). */
+@Serializable
+data class MonthOptionDto(
+    @SerialName("key") val key: String = "",
+    @SerialName("label") val label: String = "",
 )
 
 @Serializable
@@ -104,6 +110,8 @@ data class ViolationDto(
     @SerialName("note") val note: String = "",
     @SerialName("source_label") val sourceLabel: String = "",
     @SerialName("recorded_by_name") val recordedByName: String = "",
+    @SerialName("recorded_at_label") val recordedAtLabel: String = "",
+    @SerialName("withdraw_reason") val withdrawReason: String = "",
     @SerialName("status") val status: String = "",
     @SerialName("status_label") val statusLabel: String = "",
     @SerialName("row_version") val rowVersion: Int = 0,
@@ -148,6 +156,7 @@ data class ViolationSummaryDto(
 @Serializable
 data class ViolationsPageDto(
     @SerialName("parks") val parks: List<ViolationParkDto> = emptyList(),
+    @SerialName("months") val months: List<MonthOptionDto> = emptyList(),
     @SerialName("month") val month: String = "",
     @SerialName("summary") val summary: ViolationSummaryDto = ViolationSummaryDto(),
     @SerialName("items") val items: List<ViolationDto> = emptyList(),

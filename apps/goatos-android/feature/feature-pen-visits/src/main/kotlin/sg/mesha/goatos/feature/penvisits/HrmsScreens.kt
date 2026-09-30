@@ -6,6 +6,14 @@ package sg.mesha.goatos.feature.penvisits
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import sg.mesha.goatos.core.ui.RefreshOnResume
+import sg.mesha.goatos.core.ui.SyncIconButton
+import sg.mesha.goatos.core.ui.SyncStatusIndicator
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -60,9 +68,9 @@ import sg.mesha.goatos.core.ui.EmptyTone
  * the server said this is not the person's (403) -- the tab then reads exactly as before.
  */
 fun LazyListScope.forMeHrmsItems(hrms: ForMeHrmsUi, onEvent: (ForMeHrmsEvent) -> Unit) {
-    if (hrms.canRecordViolation) {
-        item(key = "hrms_record_violation") {
-            RecordViolationEntry(onClick = { onEvent(ForMeHrmsEvent.RecordViolation) })
+    if (hrms.showViolations) {
+        item(key = "hrms_violations") {
+            ViolationsEntry(onClick = { onEvent(ForMeHrmsEvent.OpenViolations) })
         }
     }
     if (hrms.showEnquiries && hrms.enquiries.isNotEmpty()) {
@@ -76,7 +84,7 @@ fun LazyListScope.forMeHrmsItems(hrms: ForMeHrmsUi, onEvent: (ForMeHrmsEvent) ->
             EnquiryCard(card) { onEvent(ForMeHrmsEvent.OpenEnquiry(card.enquiryId)) }
         }
     }
-    if (!hrms.penVisitsDenied && (hrms.canRecordViolation || hrms.enquiries.isNotEmpty())) {
+    if (!hrms.penVisitsDenied && (hrms.showViolations || hrms.enquiries.isNotEmpty())) {
         item(key = "hrms_pen_visits_label") {
             MeshaSectionLabel(
                 text = stringResource(R.string.hrms_pen_visits_section),
@@ -87,7 +95,7 @@ fun LazyListScope.forMeHrmsItems(hrms: ForMeHrmsUi, onEvent: (ForMeHrmsEvent) ->
 }
 
 @Composable
-private fun RecordViolationEntry(onClick: () -> Unit) {
+private fun ViolationsEntry(onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -101,9 +109,9 @@ private fun RecordViolationEntry(onClick: () -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(MeshaIcons.Plus, contentDescription = null, tint = MeshaColors.BrandD, modifier = Modifier.size(20.dp))
+        Icon(MeshaIcons.Warn, contentDescription = null, tint = MeshaColors.BrandD, modifier = Modifier.size(20.dp))
         Text(
-            text = stringResource(R.string.hrms_record_violation),
+            text = stringResource(R.string.hrms_violations),
             color = MeshaColors.BrandD,
             style = MeshaType.bodyStrong,
             modifier = Modifier.weight(1f),
@@ -573,3 +581,159 @@ private fun Unavailable(title: String, onRetry: () -> Unit) {
 
 private const val MAX_TEXT = 2000
 private const val MAX_FINE_DIGITS = 7
+
+/**
+ * The park head's violations (L1 drill of For me): the month's recorded and withdrawn violations
+ * in the parks they head, newest first, with the month's totals and the way to record another.
+ * Paged ~20 rows with a PASSIVE loading footer, never a "Load more" button.
+ */
+@Composable
+fun ViolationsListScreen(
+    state: ViolationsListUiState,
+    onEvent: (ViolationsListEvent) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    RefreshOnResume { onEvent(ViolationsListEvent.Refresh) }
+    Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
+        MeshaScreenHeader(
+            title = stringResource(R.string.hrms_violations),
+            onBack = { onEvent(ViolationsListEvent.Back) },
+            below = {
+                SyncStatusIndicator(
+                    isRefreshing = state.isRefreshing,
+                    lastSyncedAt = state.lastSyncedAt,
+                    hasData = state.rows.isNotEmpty() || !state.loading,
+                    refreshFailedLabel = if (state.refreshFailed) stringResource(R.string.hrms_violations_refresh_failed) else null,
+                )
+            },
+            actions = {
+                SyncIconButton(
+                    isSyncing = state.isRefreshing,
+                    onSync = { onEvent(ViolationsListEvent.Refresh) },
+                    contentDescription = stringResource(R.string.pen_visits_action_refresh),
+                )
+            },
+        )
+        when {
+            state.loading -> Loading()
+            state.unavailable -> Unavailable(stringResource(R.string.hrms_violation_unavailable)) { onEvent(ViolationsListEvent.Refresh) }
+            else -> ViolationsListBody(state, onEvent)
+        }
+    }
+}
+
+@Composable
+private fun ViolationsListBody(state: ViolationsListUiState, onEvent: (ViolationsListEvent) -> Unit) {
+    val listState = rememberLazyListState()
+    // Prefetch the next page while the reader is ~3 rows from the end: the footer only spins.
+    val nearEnd by remember {
+        derivedStateOf {
+            val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            last >= listState.layoutInfo.totalItemsCount - 3
+        }
+    }
+    LaunchedEffect(nearEnd, state.rows.size) {
+        if (nearEnd) onEvent(ViolationsListEvent.LoadMore)
+    }
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        if (state.canRecord) {
+            item(key = "record") {
+                MeshaPrimaryButton(
+                    text = stringResource(R.string.hrms_record_violation),
+                    enabled = true,
+                    onClick = { onEvent(ViolationsListEvent.Record) },
+                )
+            }
+        }
+        if (state.months.isNotEmpty()) {
+            item(key = "months") {
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    state.months.forEach { m -> // compose-guard:ignore: at most twelve backend month chips
+                        ChoiceChip(m.label, selected = m.key == state.month) { onEvent(ViolationsListEvent.SelectMonth(m.key)) }
+                    }
+                }
+            }
+        }
+        item(key = "summary") {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                SummaryTile(stringResource(R.string.hrms_summary_violations), state.count.toString(), Modifier.weight(1f))
+                SummaryTile(stringResource(R.string.hrms_summary_fines), state.fineLabel.ifBlank { "—" }, Modifier.weight(1f))
+                SummaryTile(stringResource(R.string.hrms_summary_people), state.people.toString(), Modifier.weight(1f))
+            }
+        }
+        if (state.rows.isEmpty()) {
+            item(key = "empty") {
+                EmptyState(
+                    title = stringResource(R.string.hrms_violations_empty),
+                    modifier = Modifier.fillMaxWidth(),
+                    icon = MeshaIcons.CheckCircle,
+                    tone = EmptyTone.Neutral,
+                )
+            }
+        }
+        itemsIndexed(state.rows, key = { _, row -> row.listKey }) { _, row -> ViolationRow(row) }
+        if (state.loadingMore) {
+            item(key = "loading_footer") {
+                Box(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = MeshaColors.BrandD)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SummaryTile(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(14.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(label, color = MeshaColors.Faint, style = MeshaType.caption, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(value, color = MeshaColors.Ink, style = MeshaType.cardTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun ViolationRow(row: ViolationRowUi) {
+    MeshaCard {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    row.personName,
+                    color = if (row.withdrawn) MeshaColors.Muted else MeshaColors.Ink,
+                    style = MeshaType.bodyStrong,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(row.fineLabel, color = if (row.withdrawn) MeshaColors.Faint else MeshaColors.Ink, style = MeshaType.bodyStrong)
+            }
+            if (row.designation.isNotBlank()) {
+                Text(row.designation, color = MeshaColors.Faint, style = MeshaType.caption, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Text(row.typeLabel, color = MeshaColors.Muted, style = MeshaType.body)
+            Text(
+                listOf(row.dateLabel, row.sourceLabel, row.recordedByName).filter { it.isNotBlank() }.joinToString(" · "),
+                color = MeshaColors.Faint,
+                style = MeshaType.caption,
+            )
+            if (row.note.isNotBlank()) Text(row.note, color = MeshaColors.Muted, style = MeshaType.caption)
+            if (row.withdrawn) {
+                MeshaStatusPill(label = row.statusLabel, tone = MeshaTone.Muted)
+                if (row.withdrawReason.isNotBlank()) Text(row.withdrawReason, color = MeshaColors.Faint, style = MeshaType.caption)
+            }
+        }
+    }
+}

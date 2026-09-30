@@ -28,21 +28,22 @@ data class EnquiryCardUi(
 )
 
 /**
- * The HRMS part of the For me tab. [showEnquiries] / [canRecordViolation] are the SERVER's answer
+ * The HRMS part of the For me tab. [showEnquiries] / [showViolations] are the SERVER's answer
  * (a 403 hides the part), never a role check here.
  */
 @Immutable
 data class ForMeHrmsUi(
     val showEnquiries: Boolean = false,
     val enquiries: List<EnquiryCardUi> = emptyList(),
-    val canRecordViolation: Boolean = false,
+    /** The park's violations are this person's to see and record (the server's answer). */
+    val showViolations: Boolean = false,
     /** The pen-visit list is not this person's (403): render the HRMS part alone, no pen error. */
     val penVisitsDenied: Boolean = false,
 )
 
 sealed interface ForMeHrmsEvent {
     data class OpenEnquiry(val enquiryId: String) : ForMeHrmsEvent
-    data object RecordViolation : ForMeHrmsEvent
+    data object OpenViolations : ForMeHrmsEvent
 }
 
 /** One option in a picker: a person or a violation type. [detail] is a quiet second line. */
@@ -57,7 +58,7 @@ data class ChoiceUi(
 data class PenaltyDraftUi(
     val personId: String = "",
     val typeKey: String = "",
-    /** Digits only; blank means "the type's default fine". */
+    /** Digits only; blank means no fine. A violation type never fills this in. */
     val fine: String = "",
     val note: String = "",
 )
@@ -154,4 +155,48 @@ sealed interface RecordViolationEvent {
     data class SetNote(val value: String) : RecordViolationEvent
     data object Submit : RecordViolationEvent
     data object RecordAnother : RecordViolationEvent
+}
+
+/** One violation in the park head's list. Every word is backend copy, verbatim. */
+@Immutable
+data class ViolationRowUi(
+    val listKey: String,
+    val personName: String,
+    val designation: String,
+    val typeLabel: String,
+    val fineLabel: String,
+    val dateLabel: String,
+    val sourceLabel: String,
+    val recordedByName: String,
+    val note: String,
+    val statusLabel: String,
+    val withdrawn: Boolean,
+    val withdrawReason: String,
+)
+
+/** The park head's violations: one month at a time, newest first, ~20 rows a page. */
+@Immutable
+data class ViolationsListUiState(
+    val loading: Boolean = true,
+    val unavailable: Boolean = false,
+    val isRefreshing: Boolean = false,
+    val refreshFailed: Boolean = false,
+    val lastSyncedAt: Long? = null,
+    val months: List<ChoiceUi> = emptyList(),
+    val month: String = "",
+    /** Recorded violations in the month (withdrawn ones are listed but never counted). */
+    val count: Int = 0,
+    val fineLabel: String = "",
+    val people: Int = 0,
+    val rows: List<ViolationRowUi> = emptyList(),
+    val loadingMore: Boolean = false,
+    val canRecord: Boolean = false,
+)
+
+sealed interface ViolationsListEvent {
+    data object Back : ViolationsListEvent
+    data object Refresh : ViolationsListEvent
+    data object LoadMore : ViolationsListEvent
+    data object Record : ViolationsListEvent
+    data class SelectMonth(val key: String) : ViolationsListEvent
 }

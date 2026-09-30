@@ -89,7 +89,7 @@ fun PenVisitListScreen(
         // blank page (it needs no page facts from the server).
         // Pen visits are not this person's (403): nothing to say about them. If the HRMS part is
         // empty too, the tab says there is nothing for them -- never a load error.
-        val hrmsEmpty = hrms.enquiries.isEmpty() && !hrms.canRecordViolation
+        val hrmsEmpty = hrms.enquiries.isEmpty() && !hrms.showViolations
         val emptyTitle = when {
             hrms.penVisitsDenied -> if (hrmsEmpty) stringResource(R.string.hrms_nothing_for_you) else null
             state.isErrorEmpty -> stringResource(R.string.pen_visits_list_unavailable)

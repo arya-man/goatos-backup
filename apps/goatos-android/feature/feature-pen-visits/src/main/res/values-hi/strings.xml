@@ -42,7 +42,7 @@
     <string name="hrms_violation">उल्लंघन</string>
     <string name="hrms_violation_choose">उल्लंघन चुनें</string>
     <string name="hrms_fine">जुर्माना (₹)</string>
-    <string name="hrms_fine_default">उल्लंघन का सामान्य जुर्माना</string>
+    <string name="hrms_fine_default">कोई जुर्माना नहीं</string>
     <string name="hrms_note">नोट (वैकल्पिक)</string>
     <string name="hrms_when">कब</string>
     <string name="hrms_record">उल्लंघन दर्ज करें</string>
@@ -53,4 +53,10 @@
     <string name="hrms_answer_required">हर ज़रूरी सवाल का जवाब दें।</string>
     <string name="hrms_penalty_incomplete">हर पंक्ति के लिए व्यक्ति और उल्लंघन चुनें, या उसे हटाएँ।</string>
     <string name="hrms_penalty_twice">एक ही व्यक्ति दो बार जोड़ा गया है।</string>
+    <string name="hrms_violations">उल्लंघन</string>
+    <string name="hrms_violations_refresh_failed">रीफ़्रेश नहीं हो सका · सहेजे गए उल्लंघन दिख रहे हैं</string>
+    <string name="hrms_summary_violations">उल्लंघन</string>
+    <string name="hrms_summary_fines">जुर्माना</string>
+    <string name="hrms_summary_people">लोग</string>
+    <string name="hrms_violations_empty">इस महीने कोई उल्लंघन नहीं।</string>
 </resources>

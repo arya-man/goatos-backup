@@ -15,6 +15,9 @@ object AnalyticsEventsHrms {
     /** The report was queued on the outbox; [AnalyticsEvents.Params.COUNT] = people penalised. */
     const val ENQUIRY_SUBMITTED = "hrms_enquiry_submitted"
 
+    /** The park head's violations list was opened. */
+    const val VIOLATIONS_VIEWED = "hrms_violations_viewed"
+
     /** The Record violation form was opened. */
     const val VIOLATION_FORM_OPENED = "hrms_violation_form_opened"
 

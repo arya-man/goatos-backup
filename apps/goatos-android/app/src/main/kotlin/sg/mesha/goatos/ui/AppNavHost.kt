@@ -111,6 +111,9 @@ import sg.mesha.goatos.feature.penvisits.EnquiryReportEvent
 import sg.mesha.goatos.feature.penvisits.EnquiryReportScreen
 import sg.mesha.goatos.feature.penvisits.ForMeHrmsEvent
 import sg.mesha.goatos.feature.penvisits.RecordViolationEvent
+import sg.mesha.goatos.feature.penvisits.ViolationsListEvent
+import sg.mesha.goatos.feature.penvisits.ViolationsListScreen
+import sg.mesha.goatos.viewmodel.ViolationsListViewModel
 import sg.mesha.goatos.feature.penvisits.RecordViolationScreen
 import sg.mesha.goatos.viewmodel.EnquiryReportViewModel
 import sg.mesha.goatos.viewmodel.ForMeHrmsViewModel
@@ -870,6 +873,7 @@ object Routes {
     const val PEN_VISIT_ENQUIRY_ID_ARG = "enquiry_id"
     const val PEN_VISIT_ENQUIRY = "/pen-visits/enquiries/{$PEN_VISIT_ENQUIRY_ID_ARG}"
     const val PEN_VISIT_VIOLATION_NEW = "/pen-visits/violations/new"
+    const val PEN_VISIT_VIOLATIONS = "/pen-visits/violations/all"
 
     fun penVisitEnquiryRoute(enquiryId: String): String = "/pen-visits/enquiries/${Uri.encode(enquiryId)}"
 
@@ -4543,8 +4547,8 @@ fun AppNavHost(
                     when (event) {
                         is ForMeHrmsEvent.OpenEnquiry ->
                             navController.navigate(Routes.penVisitEnquiryRoute(event.enquiryId)) { launchSingleTop = true }
-                        ForMeHrmsEvent.RecordViolation ->
-                            navController.navigate(Routes.PEN_VISIT_VIOLATION_NEW) { launchSingleTop = true }
+                        ForMeHrmsEvent.OpenViolations ->
+                            navController.navigate(Routes.PEN_VISIT_VIOLATIONS) { launchSingleTop = true }
                     }
                 },
                 onEvent = { event ->
@@ -4611,6 +4615,22 @@ fun AppNavHost(
                 onEvent = { event ->
                     when (event) {
                         EnquiryReportEvent.Back -> navController.popBackStack()
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
+        composable(Routes.PEN_VISIT_VIOLATIONS) {
+            val vm: ViolationsListViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            ViolationsListScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        ViolationsListEvent.Back -> navController.popBackStack()
+                        ViolationsListEvent.Record ->
+                            navController.navigate(Routes.PEN_VISIT_VIOLATION_NEW) { launchSingleTop = true }
                         else -> vm.onEvent(event)
                     }
                 },

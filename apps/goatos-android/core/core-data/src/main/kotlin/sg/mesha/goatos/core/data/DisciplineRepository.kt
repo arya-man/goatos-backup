@@ -32,7 +32,11 @@ interface DisciplineRepository {
 
     suspend fun fetchEnquiry(enquiryId: String): Result<EnquiryDetailDto>
 
-    suspend fun fetchViolations(): Result<ViolationsPageDto>
+    /**
+     * One page of a month's violations in the caller's parks (plus the record form's options).
+     * [month] null = the current month; the FIRST page of each month is Room-cached.
+     */
+    suspend fun fetchViolations(month: String? = null, cursor: String? = null): Result<ViolationsPageDto>
 
     suspend fun submitEnquiry(enquiryId: String, idempotencyKey: String, request: SubmitEnquiryRequestDto): AppResult<String>
 
@@ -55,8 +59,12 @@ class DefaultDisciplineRepository(
     override suspend fun fetchEnquiry(enquiryId: String): Result<EnquiryDetailDto> = // offline-first-guard:ignore: network-first with Room blob-cache write on success and cache fallback on failure via the upsert()/readBlob() helpers
         cached("enquiry:$enquiryId", EnquiryDetailDto.serializer()) { api.getEnquiry(enquiryId) }
 
-    override suspend fun fetchViolations(): Result<ViolationsPageDto> = // offline-first-guard:ignore: network-first with Room blob-cache write on success and cache fallback on failure via the upsert()/readBlob() helpers
-        cached(VIOLATIONS_KEY, ViolationsPageDto.serializer()) { api.listViolations(limit = PAGE_SIZE) }
+    override suspend fun fetchViolations(month: String?, cursor: String?): Result<ViolationsPageDto> { // offline-first-guard:ignore: network-first with Room blob-cache write on success and cache fallback on failure via the upsert()/readBlob() helpers
+        // Only a month's FIRST page is cached -- the offline fallback is the list as last seen,
+        // never an accumulation of every page ever fetched.
+        if (!cursor.isNullOrBlank()) return runCatching { api.listViolations(month = month, limit = PAGE_SIZE, cursor = cursor) }
+        return cached("$VIOLATIONS_KEY:${month.orEmpty()}", ViolationsPageDto.serializer()) { api.listViolations(month = month, limit = PAGE_SIZE) }
+    }
 
     override suspend fun submitEnquiry(enquiryId: String, idempotencyKey: String, request: SubmitEnquiryRequestDto): AppResult<String> =
         syncRepository.enqueueEnquirySubmit(enquiryId = enquiryId, idempotencyKey = idempotencyKey, request = request)

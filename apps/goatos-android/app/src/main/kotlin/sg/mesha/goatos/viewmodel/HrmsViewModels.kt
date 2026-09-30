@@ -34,6 +34,7 @@ import sg.mesha.goatos.core.network.dto.EnquiryDto
 import sg.mesha.goatos.core.network.dto.EnquiryPenaltyDto
 import sg.mesha.goatos.core.network.dto.RecordViolationRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitEnquiryRequestDto
+import sg.mesha.goatos.core.network.dto.ViolationDto
 import sg.mesha.goatos.core.network.dto.ViolationPersonOptionDto
 import sg.mesha.goatos.core.network.dto.ViolationTypeOptionDto
 import sg.mesha.goatos.feature.penvisits.ChoiceUi
@@ -46,6 +47,9 @@ import sg.mesha.goatos.feature.penvisits.PenaltyDraftUi
 import sg.mesha.goatos.feature.penvisits.RecordViolationEvent
 import sg.mesha.goatos.feature.penvisits.RecordViolationUiState
 import sg.mesha.goatos.feature.penvisits.RecordedViolationUi
+import sg.mesha.goatos.feature.penvisits.ViolationRowUi
+import sg.mesha.goatos.feature.penvisits.ViolationsListEvent
+import sg.mesha.goatos.feature.penvisits.ViolationsListUiState
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
@@ -75,7 +79,8 @@ internal fun EnquiryDto.toCardUi(): EnquiryCardUi = EnquiryCardUi(
 internal fun ViolationPersonOptionDto.toChoice(): ChoiceUi =
     ChoiceUi(key = personId, label = name, detail = listOf(designation, parkLabel).filter { it.isNotBlank() }.joinToString(" · "))
 
-internal fun ViolationTypeOptionDto.toChoice(): ChoiceUi = ChoiceUi(key = key, label = title, detail = defaultFineLabel)
+// A type carries no money (maintainer, 2026-09-30): its choice shows the mistake only.
+internal fun ViolationTypeOptionDto.toChoice(): ChoiceUi = ChoiceUi(key = key, label = title)
 
 /** The HRMS part of the For me tab. */
 @HiltViewModel
@@ -99,8 +104,8 @@ class ForMeHrmsViewModel @Inject constructor(
                 }
                 .onFailure { failure -> onReadFailure(failure, "enquiries") { _state.update { it.copy(showEnquiries = false, enquiries = emptyList()) } } }
             repo.fetchViolations()
-                .onSuccess { _state.update { it.copy(canRecordViolation = true) } }
-                .onFailure { failure -> onReadFailure(failure, "violations") { _state.update { it.copy(canRecordViolation = false) } } }
+                .onSuccess { _state.update { it.copy(showViolations = true) } }
+                .onFailure { failure -> onReadFailure(failure, "violations") { _state.update { it.copy(showViolations = false) } } }
         }
     }
 
@@ -139,7 +144,6 @@ class EnquiryReportViewModel @Inject constructor(
     val localError: StateFlow<HrmsLocalError?> = _localError.asStateFlow()
     private var rowVersion = 0
     private var watch: Job? = null
-    private val defaultFines = mutableMapOf<String, Int>()
 
     init {
         analytics.track(AnalyticsEventsHrms.ENQUIRY_OPENED, mapOf("enquiry_id" to enquiryId))
@@ -157,10 +161,8 @@ class EnquiryReportViewModel @Inject constructor(
             EnquiryReportEvent.AddPerson -> _state.update { it.copy(penalties = it.penalties + PenaltyDraftUi(), message = "") }
             is EnquiryReportEvent.RemovePerson -> _state.update { s -> s.copy(penalties = s.penalties.filterIndexed { i, _ -> i != event.index }, message = "") }
             is EnquiryReportEvent.SetPerson -> editPenalty(event.index) { it.copy(personId = event.personId) }
-            is EnquiryReportEvent.SetType -> editPenalty(event.index) { p ->
-                // The fine starts at the type's default; the park head may change it.
-                p.copy(typeKey = event.typeKey, fine = defaultFines[event.typeKey]?.toString() ?: p.fine)
-            }
+            // The violation and its fine are separate choices: picking one never fills the other.
+            is EnquiryReportEvent.SetType -> editPenalty(event.index) { it.copy(typeKey = event.typeKey) }
             is EnquiryReportEvent.SetFine -> editPenalty(event.index) { it.copy(fine = event.value) }
             is EnquiryReportEvent.SetNote -> editPenalty(event.index) { it.copy(note = event.value) }
             EnquiryReportEvent.Submit -> submit()
@@ -189,8 +191,6 @@ class EnquiryReportViewModel @Inject constructor(
     private fun apply(dto: EnquiryDetailDto) {
         val e = dto.enquiry
         rowVersion = e.rowVersion
-        defaultFines.clear()
-        dto.types.forEach { defaultFines[it.key] = it.defaultFine }
         val submitted = !dto.canSubmit
         _state.update { previous ->
             val drafts = previous.questions.associateBy { it.id }
@@ -333,7 +333,6 @@ class RecordViolationViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(RecordViolationUiState(day = today().toString(), days = days()))
     val state: StateFlow<RecordViolationUiState> = _state.asStateFlow()
-    private val defaultFines = mutableMapOf<String, Int>()
     private var watch: Job? = null
 
     init {
@@ -347,9 +346,7 @@ class RecordViolationViewModel @Inject constructor(
             RecordViolationEvent.Back -> Unit
             RecordViolationEvent.Retry -> load()
             is RecordViolationEvent.SetPerson -> _state.update { it.copy(personId = event.personId, message = "") }
-            is RecordViolationEvent.SetType -> _state.update {
-                it.copy(typeKey = event.typeKey, fine = defaultFines[event.typeKey]?.toString() ?: it.fine, message = "")
-            }
+            is RecordViolationEvent.SetType -> _state.update { it.copy(typeKey = event.typeKey, message = "") }
             is RecordViolationEvent.SetFine -> _state.update { it.copy(fine = event.value, message = "") }
             is RecordViolationEvent.SetDay -> _state.update { it.copy(day = event.day, message = "") }
             is RecordViolationEvent.SetNote -> _state.update { it.copy(note = event.value, message = "") }
@@ -365,8 +362,6 @@ class RecordViolationViewModel @Inject constructor(
         viewModelScope.launch {
             repo.fetchViolations()
                 .onSuccess { page ->
-                    defaultFines.clear()
-                    page.types.forEach { defaultFines[it.key] = it.defaultFine }
                     _state.update { it.copy(loading = false, people = page.people.map { p -> p.toChoice() }, types = page.types.map { t -> t.toChoice() }) }
                 }
                 .onFailure { failure ->
@@ -445,6 +440,109 @@ class RecordViolationViewModel @Inject constructor(
         }
     }
 }
+
+/**
+ * The park head's violations (route `/pen-visits/violations/all`): one month at a time, first page
+ * Room-cached by the repository, later pages appended as the reader scrolls. Every word on a row is
+ * backend copy; the month's totals are the backend's whole-month summary, never summed here.
+ */
+@HiltViewModel
+class ViolationsListViewModel @Inject constructor(
+    private val repo: DisciplineRepository,
+    private val analytics: AnalyticsPort,
+    private val crashReporter: CrashReporter,
+) : ViewModel() {
+
+    private val _state = MutableStateFlow(ViolationsListUiState())
+    val state: StateFlow<ViolationsListUiState> = _state.asStateFlow()
+    private var month: String? = null
+    private var nextCursor = ""
+    private var loading: Job? = null
+
+    init {
+        analytics.track(AnalyticsEventsHrms.VIOLATIONS_VIEWED)
+    }
+
+    fun onEvent(event: ViolationsListEvent) {
+        when (event) {
+            ViolationsListEvent.Refresh -> load(reset = false)
+            ViolationsListEvent.LoadMore -> loadMore()
+            is ViolationsListEvent.SelectMonth -> if (event.key != _state.value.month) {
+                month = event.key
+                _state.update { it.copy(month = event.key, rows = emptyList()) }
+                load(reset = true)
+            }
+            ViolationsListEvent.Back, ViolationsListEvent.Record -> Unit
+        }
+    }
+
+    private fun load(reset: Boolean) {
+        loading?.cancel()
+        _state.update { it.copy(isRefreshing = true, loading = reset || (it.loading && it.rows.isEmpty())) }
+        loading = viewModelScope.launch {
+            repo.fetchViolations(month = month)
+                .onSuccess { page ->
+                    nextCursor = page.nextCursor
+                    _state.update {
+                        it.copy(
+                            loading = false,
+                            unavailable = false,
+                            isRefreshing = false,
+                            refreshFailed = false,
+                            lastSyncedAt = System.currentTimeMillis(),
+                            months = page.months.map { m -> ChoiceUi(key = m.key, label = m.label) },
+                            month = page.month,
+                            count = page.summary.count,
+                            fineLabel = page.summary.fineLabel,
+                            people = page.summary.people,
+                            rows = page.items.map { v -> v.toRowUi() },
+                            canRecord = page.types.isNotEmpty() && page.people.isNotEmpty(),
+                        )
+                    }
+                }
+                .onFailure { failure ->
+                    crashReporter.recordException(failure, "hrms violations read failed")
+                    analytics.track(AnalyticsEventsHrms.FAILURE, mapOf(AnalyticsEvents.Params.REASON to (failure.message ?: "violations").take(MAX_REASON)))
+                    _state.update { it.copy(loading = false, isRefreshing = false, refreshFailed = true, unavailable = it.rows.isEmpty() && it.months.isEmpty()) }
+                }
+        }
+    }
+
+    private fun loadMore() {
+        if (nextCursor.isBlank() || _state.value.loadingMore || loading?.isActive == true) return
+        val cursor = nextCursor
+        _state.update { it.copy(loadingMore = true) }
+        loading = viewModelScope.launch {
+            repo.fetchViolations(month = month, cursor = cursor)
+                .onSuccess { page ->
+                    nextCursor = page.nextCursor
+                    _state.update { s ->
+                        val seen = s.rows.map { it.listKey }.toSet()
+                        s.copy(loadingMore = false, rows = s.rows + page.items.map { it.toRowUi() }.filter { it.listKey !in seen })
+                    }
+                }
+                .onFailure { failure ->
+                    crashReporter.recordException(failure, "hrms violations page failed")
+                    _state.update { it.copy(loadingMore = false) }
+                }
+        }
+    }
+}
+
+internal fun ViolationDto.toRowUi(): ViolationRowUi = ViolationRowUi(
+    listKey = violationId,
+    personName = personName,
+    designation = designation,
+    typeLabel = typeLabel,
+    fineLabel = fineLabel,
+    dateLabel = occurredOnLabel,
+    sourceLabel = sourceLabel,
+    recordedByName = recordedByName,
+    note = note,
+    statusLabel = statusLabel,
+    withdrawn = status == "withdrawn",
+    withdrawReason = withdrawReason,
+)
 
 private const val DRAIN_GRACE_MS = 6_000L
 private const val MAX_REASON = 120

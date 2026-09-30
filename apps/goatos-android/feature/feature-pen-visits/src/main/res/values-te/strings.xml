@@ -42,7 +42,7 @@
     <string name="hrms_violation">ఉల్లంఘన</string>
     <string name="hrms_violation_choose">ఉల్లంఘన ఎంచుకోండి</string>
     <string name="hrms_fine">జరిమానా (₹)</string>
-    <string name="hrms_fine_default">ఉల్లంఘన యొక్క సాధారణ జరిమానా</string>
+    <string name="hrms_fine_default">జరిమానా లేదు</string>
     <string name="hrms_note">గమనిక (ఐచ్ఛికం)</string>
     <string name="hrms_when">ఎప్పుడు</string>
     <string name="hrms_record">ఉల్లంఘన నమోదు చేయండి</string>
@@ -53,4 +53,10 @@
     <string name="hrms_answer_required">ప్రతి తప్పనిసరి ప్రశ్నకు సమాధానం ఇవ్వండి.</string>
     <string name="hrms_penalty_incomplete">ప్రతి వరుసకు వ్యక్తిని, ఉల్లంఘనను ఎంచుకోండి, లేదా దాన్ని తీసివేయండి.</string>
     <string name="hrms_penalty_twice">ఒకే వ్యక్తిని రెండుసార్లు చేర్చారు.</string>
+    <string name="hrms_violations">ఉల్లంఘనలు</string>
+    <string name="hrms_violations_refresh_failed">రిఫ్రెష్ కాలేదు · సేవ్ చేసిన ఉల్లంఘనలు చూపిస్తున్నాం</string>
+    <string name="hrms_summary_violations">ఉల్లంఘనలు</string>
+    <string name="hrms_summary_fines">జరిమానాలు</string>
+    <string name="hrms_summary_people">వ్యక్తులు</string>
+    <string name="hrms_violations_empty">ఈ నెలలో ఉల్లంఘనలు లేవు.</string>
 </resources>

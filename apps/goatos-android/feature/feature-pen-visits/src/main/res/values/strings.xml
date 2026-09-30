@@ -51,7 +51,7 @@
     <string name="hrms_violation">Violation</string>
     <string name="hrms_violation_choose">Choose a violation</string>
     <string name="hrms_fine">Fine (₹)</string>
-    <string name="hrms_fine_default">The violation\'s usual fine</string>
+    <string name="hrms_fine_default">No fine</string>
     <string name="hrms_note">Note (optional)</string>
     <string name="hrms_when">When</string>
     <string name="hrms_record">Record violation</string>
@@ -62,4 +62,10 @@
     <string name="hrms_answer_required">Answer every required question.</string>
     <string name="hrms_penalty_incomplete">Choose a person and a violation for each row, or remove it.</string>
     <string name="hrms_penalty_twice">The same person is added twice.</string>
+    <string name="hrms_violations">Violations</string>
+    <string name="hrms_violations_refresh_failed">Couldn\'t refresh · showing saved violations</string>
+    <string name="hrms_summary_violations">Violations</string>
+    <string name="hrms_summary_fines">Fines</string>
+    <string name="hrms_summary_people">People</string>
+    <string name="hrms_violations_empty">No violations this month.</string>
 </resources>

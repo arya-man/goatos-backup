@@ -42,7 +42,7 @@
     <string name="hrms_violation">ಉಲ್ಲಂಘನೆ</string>
     <string name="hrms_violation_choose">ಉಲ್ಲಂಘನೆ ಆರಿಸಿ</string>
     <string name="hrms_fine">ದಂಡ (₹)</string>
-    <string name="hrms_fine_default">ಉಲ್ಲಂಘನೆಯ ಸಾಮಾನ್ಯ ದಂಡ</string>
+    <string name="hrms_fine_default">ದಂಡ ಇಲ್ಲ</string>
     <string name="hrms_note">ಟಿಪ್ಪಣಿ (ಐಚ್ಛಿಕ)</string>
     <string name="hrms_when">ಯಾವಾಗ</string>
     <string name="hrms_record">ಉಲ್ಲಂಘನೆ ದಾಖಲಿಸಿ</string>
@@ -53,4 +53,10 @@
     <string name="hrms_answer_required">ಪ್ರತಿ ಕಡ್ಡಾಯ ಪ್ರಶ್ನೆಗೆ ಉತ್ತರಿಸಿ.</string>
     <string name="hrms_penalty_incomplete">ಪ್ರತಿ ಸಾಲಿಗೆ ವ್ಯಕ್ತಿ ಮತ್ತು ಉಲ್ಲಂಘನೆ ಆರಿಸಿ, ಅಥವಾ ಅದನ್ನು ತೆಗೆದುಹಾಕಿ.</string>
     <string name="hrms_penalty_twice">ಒಂದೇ ವ್ಯಕ್ತಿಯನ್ನು ಎರಡು ಬಾರಿ ಸೇರಿಸಲಾಗಿದೆ.</string>
+    <string name="hrms_violations">ಉಲ್ಲಂಘನೆಗಳು</string>
+    <string name="hrms_violations_refresh_failed">ರಿಫ್ರೆಶ್ ಆಗಲಿಲ್ಲ · ಉಳಿಸಿದ ಉಲ್ಲಂಘನೆಗಳು ತೋರುತ್ತಿವೆ</string>
+    <string name="hrms_summary_violations">ಉಲ್ಲಂಘನೆಗಳು</string>
+    <string name="hrms_summary_fines">ದಂಡ</string>
+    <string name="hrms_summary_people">ಜನರು</string>
+    <string name="hrms_violations_empty">ಈ ತಿಂಗಳು ಯಾವುದೇ ಉಲ್ಲಂಘನೆ ಇಲ್ಲ.</string>
 </resources>
