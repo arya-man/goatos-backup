@@ -3,7 +3,6 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const drawerSource = readFileSync(new URL("./verification-review-drawer.tsx", import.meta.url), "utf8");
-const cssSource = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
 
 test("unresolved proof media renders as a player tile, not a form button", () => {
   assert.doesNotMatch(
@@ -11,14 +10,16 @@ test("unresolved proof media renders as a player tile, not a form button", () =>
     /className="btn vr-media-open"/,
     "the unresolved media affordance must not inherit generic button styling",
   );
+  // Template ButtonBase tile in sx (no legacy .vr-media-open rule): it fills the 16:9 stage and
+  // carries a centred play/file mark.
   assert.match(
-    cssSource,
-    /\.vr-media-open\{[^}]*position:absolute;inset:0/,
+    drawerSource,
+    /const MEDIA_OPEN_SX: SxProps<Theme> = \{\s*position: "absolute",\s*inset: 0,/,
     "the unresolved media affordance should fill the 16:9 player stage",
   );
   assert.match(
-    cssSource,
-    /\.vr-media-open-mark/,
+    drawerSource,
+    /<ButtonBase className="vr-media-open" sx=\{MEDIA_OPEN_SX\}[\s\S]{0,120}sx=\{MEDIA_OPEN_MARK_SX\}/,
     "the player tile should carry a centered play/image affordance",
   );
 });

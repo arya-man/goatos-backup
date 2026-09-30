@@ -263,7 +263,7 @@ export async function VerificationReviewPage({
   const allStatusOption = statuses.find((option) => !option.status);
 
   return (
-    <div className="screen on">
+    <Stack spacing={3} sx={{ minWidth: 0 }}>
         <PageHeader
           title={pageContract.title}
           crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
@@ -342,7 +342,7 @@ export async function VerificationReviewPage({
                   filterHiddenInputs={
                     <>
                       {hiddenInputs(sp, [VIDEO_LOG_PARK_KEY, VIDEO_LOG_SHED_KEY, VIDEO_LOG_QUERY_KEY])}
-                      <input type="hidden" name={VIDEO_LOG_PANEL_SELECTION_KEY} value={VIDEO_LOG_PANEL_ID} />
+                      <Box component="input" type="hidden" name={VIDEO_LOG_PANEL_SELECTION_KEY} value={VIDEO_LOG_PANEL_ID} />
                     </>
                   }
                   clearHref={hrefWith(sp, {
@@ -484,7 +484,7 @@ export async function VerificationReviewPage({
       >
         {/* Template InvoiceListView list card: status Tabs with Label counts, the toolbar row, the
             table bleeding to the card edge, the pagination footer. */}
-        <Card className="vr-board" aria-label={copy(pageContract, "board.title")} sx={{ minWidth: 0 }}>
+        <Card aria-label={copy(pageContract, "board.title")} sx={{ minWidth: 0 }}>
           {statuses.length ? (
             // Status tabs predate the oversight rollout and render for every role, verifier included.
             <TemplateTabs
@@ -630,17 +630,14 @@ export async function VerificationReviewPage({
           </Box>
           </Form>
 
-          <Box className="vr-results-zone" aria-live="polite" aria-busy="false" sx={{ position: "relative" }}>
-            <div className="vr-results-loading" aria-hidden="true">
-              <span />
-              <span />
-              <span />
-              <span />
-            </div>
+          {/* The results swap to the shared TableSkeleton inside UrlSuspense on every module /
+              status / date / pager change (the module select's router.replace announces itself), so
+              the board never paints a hand-drawn loading veil over stale rows. */}
+          <Box className="vr-results" aria-live="polite" aria-busy="false" sx={{ position: "relative", minHeight: 190 }}>
 
             <UrlSuspense searchParams={sp} watch={QUEUE_WATCH} fallback={<TableSkeleton bare header={false} columns={columns.length || QUEUE_COLUMNS} rows={QUEUE_LIMIT} />}>
             <Scrollbar>
-              <Table className="vr-table" aria-label={tableContract.title} sx={{ minWidth: 960 }}>
+              <Table className="vr-queue-table" aria-label={tableContract.title} sx={{ minWidth: 960 }}>
                 <VrQueueHead
                   orderBy="captured_at"
                   order={sort === "captured_at_desc" ? "desc" : "asc"}
@@ -688,7 +685,6 @@ export async function VerificationReviewPage({
                 Every label stays backend-owned (pagination.previous / position / next). */}
             {queue.ok && (queue.data.next_cursor || trail.length) ? (
               <TablePaginationLinks
-                className="pager"
                 page={trail.length}
                 rowsPerPage={20}
                 count={-1}
@@ -742,7 +738,7 @@ export async function VerificationReviewPage({
         pageContract={pageContract}
         statusLabels={statusLabelRecord}
       />
-    </div>
+    </Stack>
   );
 }
 
@@ -756,7 +752,7 @@ const STATUS_ICON: Record<string, IconifyName> = {
 // The whole row opens the review overlay AND resolves the first proof immediately: this is the
 // verifier's explicit tap on that evidence row, not an automatic list-preview load. Keeping this
 // intent on every cell avoids the two-click "open drawer, then open video" trap.
-const ROW_LINK_STYLE = { display: "block", color: "inherit", textDecoration: "none" } as const;
+const ROW_LINK_SX = { display: "block", color: "inherit", textDecoration: "none" } as const;
 
 function QueueRow({
   item,
@@ -775,9 +771,9 @@ function QueueRow({
   const playHref = hrefWith(searchParams, { vi_row: item.item_id, vi_play: "1", va_status: null, va_code: null, va_fields: null, va_entries: null });
   const leadMedia = item.media.find((media) => media.thumbnail_url) ?? item.media[0];
   const cell = (children: React.ReactNode) => (
-    <LocalOverlayLink href={playHref} scroll={false} style={ROW_LINK_STYLE}>
+    <Box component={LocalOverlayLink} href={playHref} scroll={false} sx={ROW_LINK_SX}>
       {children}
-    </LocalOverlayLink>
+    </Box>
   );
   const muted = { color: "text.secondary", whiteSpace: "nowrap" } as const;
   return (
@@ -1046,9 +1042,9 @@ function hiddenInputs(params: RouteSearchParams, exclude: string[]) {
   return Object.entries(params).flatMap(([key, value]) => {
     if (exclude.includes(key)) return [];
     if (Array.isArray(value)) {
-      return value.filter(Boolean).map((item) => <input key={`${key}:${item}`} type="hidden" name={key} value={item} />);
+      return value.filter(Boolean).map((item) => <Box component="input" key={`${key}:${item}`} type="hidden" name={key} value={item} />);
     }
-    return value ? [<input key={key} type="hidden" name={key} value={value} />] : [];
+    return value ? [<Box component="input" key={key} type="hidden" name={key} value={value} />] : [];
   });
 }
 

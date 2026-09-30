@@ -18,6 +18,7 @@ import { ToxinReviewList } from "./toxin-review-list";
 import Alert from "@mui/material/Alert";
 import { PageHeader } from "@/components/app/page-header";
 import Card from "@mui/material/Card";
+import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import { TemplateTabs } from "@/components/app/template-tabs";
 import { TablePaginationLinks } from "@/components/app/table";
@@ -43,12 +44,12 @@ export function ToxinReviewScreen({
   // The shell renders from the search params alone (no await), so switching to the Toxin tab paints
   // the header + tabs at once and only the list waits on GET /toxin/review behind its skeleton.
   return (
-    <div className="screen on">
+    <Stack spacing={3} sx={{ minWidth: 0 }}>
       <PageHeader title={pageContract.title} crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]} />
 
       {/* Template list card (InvoiceListView): the Tabs row carries the way back to the verification
           queue and the active Toxin tab, then the table and the pagination footer. */}
-      <Card className="vr-board" aria-label={copy(pageContract, "board.title")} sx={{ minWidth: 0 }}>
+      <Card aria-label={copy(pageContract, "board.title")} sx={{ minWidth: 0 }}>
         <TemplateTabs
           ariaLabel={toxinLabel}
           value="toxin"
@@ -63,7 +64,7 @@ export function ToxinReviewScreen({
           <ToxinReviewPanel searchParams={sp} pageContract={pageContract} />
         </UrlSuspense>
       </Card>
-    </div>
+    </Stack>
   );
 }
 
@@ -103,7 +104,6 @@ async function ToxinReviewPanel({
         // Keyset cursors only read forward; "back" returns to the first page rather than growing a
         // trail — the review backlog is expected to stay shallow.
         <TablePaginationLinks
-          className="pager"
           page={cursor ? 1 : 0}
           rowsPerPage={20}
           count={-1}

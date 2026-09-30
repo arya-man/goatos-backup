@@ -9,6 +9,7 @@ import type { ReactNode } from "react";
 // A GET form through next/form: Apply is a soft navigation (the drawer stays on screen), not a document reload.
 import Form from "next/form";
 
+import MuiLink from "@mui/material/Link";
 import Link from "@/components/no-prefetch-link";
 import Button from "@mui/material/Button";
 import TextField from "@mui/material/TextField";
@@ -368,9 +369,9 @@ function DaySummary({
                 <TableCell>
                   <Box sx={{ typography: "subtitle2" }}>
                     {href ? (
-                      <Link href={href} style={{ color: "inherit" }}>
+                      <MuiLink component={Link} href={href} color="inherit">
                         {display}
-                      </Link>
+                      </MuiLink>
                     ) : (
                       display
                     )}
@@ -463,9 +464,9 @@ function ShedDetail({
                       <TableCell rowSpan={row.proofs.length}>
                         <Box sx={{ typography: "subtitle2" }}>
                           {href ? (
-                            <Link href={href} style={{ color: "inherit" }}>
+                            <MuiLink component={Link} href={href} color="inherit">
                               {categoryLabel || moduleLabel}
-                            </Link>
+                            </MuiLink>
                           ) : (
                             categoryLabel || moduleLabel
                           )}

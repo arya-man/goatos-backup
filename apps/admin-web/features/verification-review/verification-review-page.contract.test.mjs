@@ -176,7 +176,7 @@ test("module backlog rows link to the queue by the backend nav_module key", () =
   );
   // A module the registry cannot map must stay a plain card rather than link somewhere that quietly
   // drops the filter.
-  assert.match(analytics, /label: href \? \([\s\S]*?<Link href=\{href\}[\s\S]*?\) : \(\s*name\s*\)/);
+  assert.match(analytics, /label: href \? \([\s\S]*?<MuiLink component=\{Link\} href=\{href\}[\s\S]*?\) : \(\s*name\s*\)/);
   // The page builds those hrefs with the same reset the module chips use: a keyset cursor from the
   // previous filter points into a different sequence.
   assert.match(

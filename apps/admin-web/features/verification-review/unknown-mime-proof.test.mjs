@@ -15,12 +15,12 @@ test("an unknown-kind proof renders an Open proof tile, not the missing-media st
   const imageBranch = drawerSource.indexOf(') : activeMedia?.mime_type?.startsWith("image/") ? (');
   assert.ok(imageBranch > 0, "the image branch must exist");
   const unknownBranch = drawerSource.indexOf('text("drawer.media.open")', imageBranch);
-  const emptyFallback = drawerSource.indexOf('<div className="vr-player-empty">{text("drawer.media.empty")}</div>', imageBranch);
+  const emptyFallback = drawerSource.indexOf('<Box className="vr-player-empty" sx={PLAYER_EMPTY_SX}>{text("drawer.media.empty")}</Box>', imageBranch);
   assert.ok(unknownBranch > imageBranch, "after video and image, a present proof of unknown kind must offer the backend's Open proof copy");
   assert.ok(emptyFallback > unknownBranch, "the empty state stays the LAST branch, reached only when there is no active proof at all");
   assert.match(
     drawerSource,
-    /className="vr-media-open"[\s\S]{0,200}onClick=\{resolveActiveMedia\}[\s\S]{0,400}text\("drawer\.media\.open"\)/,
+    /className="vr-media-open" sx=\{MEDIA_OPEN_SX\} onClick=\{resolveActiveMedia\}[\s\S]{0,400}text\("drawer\.media\.open"\)/,
     "the tile resolves the proof link on click, exactly like the video tile",
   );
   assert.match(
@@ -33,7 +33,7 @@ test("an unknown-kind proof renders an Open proof tile, not the missing-media st
 test("the proof switcher never promises a clip for a proof of unknown kind", () => {
   assert.match(
     drawerSource,
-    /media\.mime_type\?\.startsWith\("image\/"\)\s*\?\s*\(\s*<ImageIcon[\s\S]{0,120}\)\s*:\s*media\.mime_type\?\.startsWith\("video\/"\)\s*\?\s*\(\s*<PlayCircle[\s\S]{0,120}\)\s*:\s*\(\s*<FileIcon/,
+    /media\.mime_type\?\.startsWith\("image\/"\)\s*\?\s*\(\s*<Iconify icon="solar:gallery-wide-bold"[\s\S]{0,120}\)\s*:\s*media\.mime_type\?\.startsWith\("video\/"\)\s*\?\s*\(\s*<Iconify icon="solar:play-circle-bold"[\s\S]{0,120}\)\s*:\s*\(\s*<Iconify icon="solar:file-text-bold"/,
     "an unknown-kind proof chip shows a neutral file icon, not a play badge",
   );
 });

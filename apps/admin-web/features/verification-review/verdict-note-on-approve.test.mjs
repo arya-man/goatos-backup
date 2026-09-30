@@ -17,7 +17,7 @@ test("the note box is always rendered, not revealed only by Reject", () => {
     /display:\s*rejecting\s*\?\s*"grid"\s*:\s*"none"/,
     "the reason field must not be hidden until Reject is pressed -- an approval can carry a note too",
   );
-  assert.match(drawerSource, /<textarea[\s\S]{0,200}name="reason"/, "the verdict form keeps its reason textarea");
+  assert.match(drawerSource, /<TextField\s+fullWidth\s+multiline[\s\S]{0,200}name="reason"/, "the verdict form keeps its reason field (template multiline TextField)");
 });
 
 test("the server action sends the note on an approve when one was typed", () => {

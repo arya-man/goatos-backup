@@ -171,7 +171,7 @@ test("guard: no-card-in-card -- stacked phone rows are divider rows, never borde
   }
   // Pre-existing offenders (ratchet: this list only shrinks; follow-up to convert each like
   // .vplan / .herd-signals-page): verify board, toxin review, vendors, full schedule.
-  const KNOWN = ["vr-table", "toxin-review-table", "procurement-vendors-table", "full-vaccine-schedule-table"];
+  const KNOWN = ["toxin-review-table", "procurement-vendors-table", "full-vaccine-schedule-table"];
   const fresh = offenders.filter((line) => !KNOWN.some((cls) => line.includes(`table.${cls} tr`)));
   assert.deepEqual(fresh, [], `phone table rows: border-bottom divider only:\n${fresh.join("\n")}`);
   // sx half (R3SP 2026-09-27: /procurement/animal-purchases + /source-entry phone loads drew each

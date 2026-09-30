@@ -50,9 +50,9 @@ export async function Randomization({
   // action): one row per module, dashed dividers between rows, the save as the header action.
   return (
     <form action={setVerificationSamplingPoliciesAction}>
-      <input type="hidden" name="return_to" value={returnTo} />
+      <Box component="input" type="hidden" name="return_to" value={returnTo} />
       {/* Part of every save's idempotency identity -- see the action. */}
-      <input type="hidden" name="business_date" value={businessDate} />
+      <Box component="input" type="hidden" name="business_date" value={businessDate} />
       <Card>
         <CardHeader
           title={
@@ -116,7 +116,7 @@ export async function Randomization({
 
                 {row.waivable ? (
                   <Box sx={{ mt: 2 }}>
-                    <input type="hidden" name={`current__${row.category}`} value={row.sample_percent} />
+                    <Box component="input" type="hidden" name={`current__${row.category}`} value={row.sample_percent} />
                     {/* defaultValue, never value: an uncontrolled field in a server-action form.
                         No client-side clamp, and blank is NOT coerced to 0 -- the sheet's action
                         refuses it and the backend owns the range. */}

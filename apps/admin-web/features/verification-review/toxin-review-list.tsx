@@ -39,7 +39,7 @@ import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import type { Theme } from "@mui/material/styles";
-import { X } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import { DrawerBlock } from "@/components/app/detail-drawer";
 
 export function ToxinReviewList({
@@ -232,7 +232,7 @@ function ToxinDrawer({
           <Typography variant="body2" sx={{ color: "text.secondary" }}>{row.statusChip}</Typography>
         </Box>
         <IconButton aria-label={copy(pageContract, "drawer.close_label")} onClick={onClose} sx={{ mt: -0.5, mr: -1 }}>
-          <X size={20} aria-hidden="true" />
+          <Iconify icon="mingcute:close-line" width={20} aria-hidden="true" />
         </IconButton>
       </DialogTitle>
       <DialogContent dividers sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
@@ -312,9 +312,9 @@ function ToxinDrawer({
               // the loaded row_version as the optimistic-concurrency fence. The buttons live in
               // DialogActions and submit this form through the `form` attribute.
               <Box component="form" id={VERDICT_FORM_ID} action={recordToxinVerdictAction}>
-                <input type="hidden" name="task_id" value={task.task_id} />
-                <input type="hidden" name="row_version" value={String(task.row_version)} />
-                <input type="hidden" name="return_to" value={returnTo} />
+                <Box component="input" type="hidden" name="task_id" value={task.task_id} />
+                <Box component="input" type="hidden" name="row_version" value={String(task.row_version)} />
+                <Box component="input" type="hidden" name="return_to" value={returnTo} />
                 <TextField
                   id="toxin-reject-reason"
                   name="reason"

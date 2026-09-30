@@ -6,6 +6,7 @@ import Table from "@mui/material/Table";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
+import MuiLink from "@mui/material/Link";
 import Link from "@/components/no-prefetch-link";
 import { Label } from "@/components/minimal/label";
 import { Scrollbar } from "@/components/minimal/scrollbar";
@@ -158,9 +159,9 @@ export async function OversightAnalytics({
     return {
       key: row.module,
       label: href ? (
-        <Link href={href} title={copy(pageContract, "oversight_analytics.open_module_queue")} style={{ color: "inherit" }}>
+        <MuiLink component={Link} href={href} title={copy(pageContract, "oversight_analytics.open_module_queue")} color="inherit">
           {name}
-        </Link>
+        </MuiLink>
       ) : (
         name
       ),

@@ -4,7 +4,7 @@ import { LocalOverlayLink, useLocalOverlaySelection } from "@/components/local-o
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import Button from "@mui/material/Button";
 import { DetailDrawer } from "@/components/app/detail-drawer";
-import { BarChart3 } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import type { ReactNode } from "react";
 import { ANALYTICS_PANEL_ID, ANALYTICS_PANEL_SELECTION_KEY } from "./analytics-panel-params";
 
@@ -55,7 +55,7 @@ export function AnalyticsPanel({
         scroll={false}
         // Secondary header action: outlined like Randomization; the header has no primary action (TR1-#35).
         variant="outlined" color="inherit"
-        startIcon={<BarChart3 size={18} aria-hidden="true" />}
+        startIcon={<Iconify icon="solar:chart-square-outline" width={18} aria-hidden="true" />}
         className="vr-analytics-btn"
       >
         {copy(pageContract, "oversight_analytics.open")}

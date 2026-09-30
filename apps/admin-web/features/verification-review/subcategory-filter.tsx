@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import Box from "@mui/material/Box";
 import Select from "@mui/material/Select";
 import MenuItem from "@mui/material/MenuItem";
 import Checkbox from "@mui/material/Checkbox";
@@ -55,7 +56,7 @@ export function SubcategoryFilter({
         ))}
       </Select>
       {selected.map((category) => (
-        <input key={category} type="hidden" name="category" value={category} />
+        <Box component="input" key={category} type="hidden" name="category" value={category} />
       ))}
     </FormControl>
   );

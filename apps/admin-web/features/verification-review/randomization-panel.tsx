@@ -4,7 +4,7 @@ import { LocalOverlayLink, useLocalOverlaySelection } from "@/components/local-o
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import Button from "@mui/material/Button";
 import { DetailDrawer } from "@/components/app/detail-drawer";
-import { Shuffle } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import type { ReactNode } from "react";
 import { RANDOMIZATION_PANEL_ID, RANDOMIZATION_PANEL_SELECTION_KEY } from "./randomization-panel-params";
 
@@ -51,7 +51,7 @@ export function RandomizationPanel({
         replace
         scroll={false}
         variant="outlined" color="inherit"
-        startIcon={<Shuffle size={18} aria-hidden="true" />}
+        startIcon={<Iconify icon="solar:transfer-horizontal-bold-duotone" width={18} aria-hidden="true" />}
         className="vr-randomization-btn"
       >
         {copy(pageContract, "randomization.open")}

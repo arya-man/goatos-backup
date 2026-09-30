@@ -5,7 +5,6 @@ import {
   LOCAL_OVERLAY_URL_CHANGE_EVENT,
   replaceLocalOverlayUrl,
 } from "@/components/local-overlay-link";
-import { FileIcon, ImageIcon, Maximize, Minimize, PlayCircle, X } from "lucide-react";
 import { Fragment, useCallback, useEffect, useRef, useState, useMemo, useTransition } from "react";
 
 import { controlEnabled, copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -22,6 +21,10 @@ import FormControlLabel from "@mui/material/FormControlLabel";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
+import ButtonBase from "@mui/material/ButtonBase";
+import Chip from "@mui/material/Chip";
+import Stack from "@mui/material/Stack";
+import TextField from "@mui/material/TextField";
 import Dialog from "@mui/material/Dialog";
 import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
@@ -30,6 +33,9 @@ import IconButton from "@mui/material/IconButton";
 import Typography from "@mui/material/Typography";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import type { Theme } from "@mui/material/styles";
+import type { SxProps } from "@mui/material/styles";
+import { varAlpha } from "minimal-shared/utils";
+import { Iconify } from "@/components/minimal/iconify";
 
 /* The re-assign roster machinery that used to live here is GONE with the authority panels it fed.
    It was originally an unconditional SSR fetch of 500 staff positions on every Actions page load,
@@ -617,14 +623,14 @@ function VerificationReviewDrawerPanel({
             <Typography variant="body2" sx={{ color: "text.secondary" }}>{actionTypeLabel}</Typography>
           </Box>
           <IconButton ref={closeButtonRef} aria-label={text("drawer.close_label")} onClick={onClose} sx={{ mt: -0.5, mr: -1 }}>
-            <X size={20} aria-hidden="true" />
+            <Iconify icon="mingcute:close-line" width={20} aria-hidden="true" />
           </IconButton>
         </DialogTitle>
 
-        <DialogContent dividers className="vr-review-body" sx={{ display: "flex", flexDirection: "column", gap: 1.75, "& > *": { flexShrink: 0 } }}>
+        <DialogContent dividers sx={{ display: "flex", flexDirection: "column", gap: 1.75, "& > *": { flexShrink: 0 } }}>
           <VerificationReviewActionTelemetry status={feedback.status} code={feedback.code} />
           {feedback.status ? (
-            <Alert severity={feedback.status === "success" ? "success" : "warning"} style={{ marginBottom: 12 }}>
+            <Alert severity={feedback.status === "success" ? "success" : "warning"}>
               {/* The raw server code (missing_reason, permission_denied, ...) is an internal token
                   and must not be the sentence a verifier reads. Resolve it to backend-owned copy,
                   falling back to the generic failure line rather than leaking the token. */}
@@ -634,18 +640,18 @@ function VerificationReviewDrawerPanel({
           ) : null}
 
           {!hasEvidence && (
-            <div className="warnbox" style={{ marginBottom: 14 }}>
+            <Alert severity="warning">
               <b>{text("verdict.disabled_no_evidence")}</b>
-            </div>
+            </Alert>
           )}
 
           {/* Media Player: Large, centered, capped at 44vh */}
           {item.media.length === 0 ? (
-            <div className="vr-player" ref={playerRef} style={{ background: "var(--panel-2)", justifyContent: "center" }}>
-              <div className="vr-player-empty">{text("drawer.media.empty")}</div>
-            </div>
+            <Box ref={playerRef} sx={{ ...PLAYER_SX, bgcolor: "background.neutral", justifyContent: "center" }}>
+              <Box className="vr-player-empty" sx={PLAYER_EMPTY_SX}>{text("drawer.media.empty")}</Box>
+            </Box>
           ) : (
-            <div className="vr-player" ref={playerRef}>
+            <Box ref={playerRef} sx={PLAYER_SX}>
               {/* A proof is not always a video. Feed distribution's WATER proof is
                   explicitly photo-or-video (docs/decisions/feed-distribution-verification.md),
                   so an image/* proof is a valid capture and must render as a picture.
@@ -665,20 +671,20 @@ function VerificationReviewDrawerPanel({
                     eventBuffer={eventBuffer}
                     // Backend-owned copy for the double-speed control; the player renders it and
                     // composes none of it. It only appears on clips longer than 20 seconds.
-	                    speedLabels={{
+                    speedLabels={{
                       normal: text("player.speed_normal"),
                       fast: text("player.speed_fast"),
                       hint: text("player.speed_hint"),
-	                    }}
-	                    autoPlay={playIntent}
-	                  />
-	                ) : (
-	                  <button type="button" className="vr-media-open" onClick={resolveActiveMedia} disabled={mediaPending}>
-	                    <span className="vr-media-open-mark"><PlayCircle className="ic" aria-hidden="true" /></span>
-	                    {text("drawer.media.play_video")}
-	                  </button>
-	                )
-	              ) : activeMedia?.mime_type?.startsWith("image/") ? (
+                    }}
+                    autoPlay={playIntent}
+                  />
+                ) : (
+                  <ButtonBase className="vr-media-open" sx={MEDIA_OPEN_SX} onClick={resolveActiveMedia} disabled={mediaPending}>
+                    <Box component="span" sx={MEDIA_OPEN_MARK_SX}><Iconify icon="solar:play-circle-bold" width={26} aria-hidden="true" /></Box>
+                    {text("drawer.media.play_video")}
+                  </ButtonBase>
+                )
+              ) : activeMedia?.mime_type?.startsWith("image/") ? (
                 resolvedMediaUrls[activeMedia.proof_id] ? (
                   // The photo is PINNED to the stage (absolute + inset 0) and letterboxed with contain,
                   // so a portrait feed-weight photo shows whole instead of a cropped top third (main
@@ -688,9 +694,9 @@ function VerificationReviewDrawerPanel({
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={resolvedMediaUrls[activeMedia.proof_id]} alt={activeMedia.label || subjectHeading || text("drawer.media.title")} />
                   </Box>
-	                ) : (
-	                  <div className="vr-player-empty">{text("drawer.media.loading_photo")}</div>
-	                )
+                ) : (
+                  <Box className="vr-player-empty" sx={PLAYER_EMPTY_SX}>{text("drawer.media.loading_photo")}</Box>
+                )
               ) : activeMedia ? (
                 /* A proof of UNKNOWN kind: an `either` SOP slot the proof register could not type,
                    or an attachment. The backend leaves its mime blank rather than guessing a player,
@@ -698,82 +704,83 @@ function VerificationReviewDrawerPanel({
                    missing-media state. Resolved on click, one proof, like the video tile. */
                 resolvedMediaUrls[activeMedia.proof_id] ? (
                   // admin-proof-media-egress:ignore reviewer clicked open for this one proof; the link was resolved by server action after the click.
-                  <a key={activeMedia.proof_id} className="vr-media-open" href={resolvedMediaUrls[activeMedia.proof_id]} target="_blank" rel="noreferrer">
-                    <span className="vr-media-open-mark"><FileIcon className="ic" aria-hidden="true" /></span>
+                  <ButtonBase component="a" key={activeMedia.proof_id} className="vr-media-open" sx={MEDIA_OPEN_SX} href={resolvedMediaUrls[activeMedia.proof_id]} target="_blank" rel="noreferrer">
+                    <Box component="span" sx={MEDIA_OPEN_MARK_SX}><Iconify icon="solar:file-text-bold" width={26} aria-hidden="true" /></Box>
                     {text("drawer.media.open")}
-                  </a>
+                  </ButtonBase>
                 ) : (
-                  <button type="button" className="vr-media-open" onClick={resolveActiveMedia} disabled={mediaPending}>
-                    <span className="vr-media-open-mark"><FileIcon className="ic" aria-hidden="true" /></span>
+                  <ButtonBase className="vr-media-open" sx={MEDIA_OPEN_SX} onClick={resolveActiveMedia} disabled={mediaPending}>
+                    <Box component="span" sx={MEDIA_OPEN_MARK_SX}><Iconify icon="solar:file-text-bold" width={26} aria-hidden="true" /></Box>
                     {text("drawer.media.open")}
-                  </button>
+                  </ButtonBase>
                 )
               ) : (
-                <div className="vr-player-empty">{text("drawer.media.empty")}</div>
+                <Box className="vr-player-empty" sx={PLAYER_EMPTY_SX}>{text("drawer.media.empty")}</Box>
               )}
               {activeMedia && mediaErrorProofId === activeMedia.proof_id ? (
-                <div className="muted small">{text("drawer.media.empty")}</div>
+                <Typography variant="caption" sx={{ color: "text.secondary" }}>{text("drawer.media.empty")}</Typography>
               ) : null}
-              <button
-                type="button"
-                className="vr-fsbtn"
+              <IconButton
                 onClick={toggleFullscreen}
                 aria-label={text("drawer.media.fullscreen_label")}
                 title={text("drawer.media.fullscreen_label")}
+                sx={FULLSCREEN_BUTTON_SX}
               >
-                {isFullscreen ? <Minimize className="ic" /> : <Maximize className="ic" />}
-              </button>
-            </div>
+                <Iconify icon={isFullscreen ? "solar:quit-full-screen-square-outline" : "solar:full-screen-square-outline"} width={18} aria-hidden="true" />
+              </IconButton>
+            </Box>
           )}
 
           {/* Proof Switcher: Only when 2+ media */}
           {item.media.length > 1 ? (
-            <div className="vr-proofstrip">
+            <Stack direction="row" sx={{ flexWrap: "wrap", gap: 1 }}>
               {item.media.map((media, index) => (
-                <button
+                <Chip
                   key={media.proof_id}
-                  type="button"
-                  className={`vr-pthumb${index === mediaIndex ? " on" : ""}`}
+                  clickable
+                  variant={index === mediaIndex ? "soft" : "outlined"}
+                  color={index === mediaIndex ? "primary" : "default"}
                   onClick={() => setMediaIndex(index)}
-                >
-                  {/* The icon states what the chip switches TO. A play badge on a photo
-                      proof promises a clip that does not exist. */}
-                  {media.mime_type?.startsWith("image/") ? (
-                    <ImageIcon className="ic" />
-                  ) : media.mime_type?.startsWith("video/") ? (
-                    <PlayCircle className="ic" />
-                  ) : (
-                    <FileIcon className="ic" />
-                  )}
-                  {media.label || shortId(media.proof_id)}
-                </button>
+                  /* The icon states what the chip switches TO. A play badge on a photo
+                     proof promises a clip that does not exist. */
+                  icon={
+                    media.mime_type?.startsWith("image/") ? (
+                      <Iconify icon="solar:gallery-wide-bold" width={16} />
+                    ) : media.mime_type?.startsWith("video/") ? (
+                      <Iconify icon="solar:play-circle-bold" width={16} />
+                    ) : (
+                      <Iconify icon="solar:file-text-bold" width={16} />
+                    )
+                  }
+                  label={media.label || shortId(media.proof_id)}
+                />
               ))}
-            </div>
+            </Stack>
           ) : null}
 
           {/* Facts Grid: Mock anatomy with label/value pairs */}
-          <div className="vr-facts">
-            <div className="vr-fact">
+          <Box sx={FACTS_SX}>
+            <Box className="vr-fact" sx={FACT_SX}>
               <b>{text("drawer.meta.operator")}</b>
               {renderLabelOrFallback(item.operator_name)}
-            </div>
-            <div className="vr-fact">
+            </Box>
+            <Box className="vr-fact" sx={FACT_SX}>
               <b>{text("drawer.meta.captured")}</b>
               {fmtDateTime(item.captured_at)}
-            </div>
-            <div className="vr-fact">
+            </Box>
+            <Box className="vr-fact" sx={FACT_SX}>
               <b>{text("drawer.meta.shed")}</b>
               {renderLabelOrFallback(item.operational_location_display || item.shed_label)}
-            </div>
-            <div className="vr-fact">
+            </Box>
+            <Box className="vr-fact" sx={FACT_SX}>
               <b>{text("drawer.meta.park")}</b>
               {renderLabelOrFallback(item.park_label)}
-            </div>
+            </Box>
             {item.verified_by_name && (
-              <div className="vr-fact">
+              <Box className="vr-fact" sx={FACT_SX}>
                 <b>{text("drawer.meta.verified_by")}</b>
                 {renderLabelOrFallback(item.verified_by_name)}
-              </div>
+              </Box>
             )}
             {/* Producer-attached context: what the reviewed work was claimed/expected to be —
                 e.g. the milk litres and citric acid grams the operator entered with a milk
@@ -785,33 +792,33 @@ function VerificationReviewDrawerPanel({
             {(item.context_rows ?? []).map((row, index, rows) =>
               row.label?.trim() && row.value?.trim() ? (
                 <Fragment key={`ctx:${index}:${row.label}`}>
-                  {contextRowGroupStart(rows, index) ? <div className="vr-fact-group">{contextRowGroupStart(rows, index)}</div> : null}
-                  <div className="vr-fact">
+                  {contextRowGroupStart(rows, index) ? <Box className="vr-fact-group" sx={FACT_GROUP_SX}>{contextRowGroupStart(rows, index)}</Box> : null}
+                  <Box className="vr-fact" sx={FACT_SX}>
                     <b>{row.label}</b>
                     {row.value}
-                  </div>
+                  </Box>
                 </Fragment>
               ) : null
             )}
             {/* Each proof's recorded answer */}
             {item.media.map((media) =>
               media.answer ? (
-                <div key={media.proof_id} className="vr-fact">
+                <Box key={media.proof_id} className="vr-fact" sx={FACT_SX}>
                   <b>{media.label || text("drawer.media.title")}</b>
                   {media.answer}
-                </div>
+                </Box>
               ) : null
             )}
             {/* The verifier's own words on this verdict: a rejection's reason, or the optional
                 note she left on an approval (maintainer request 2026-09-08). Same stored field,
                 shown for either decision. */}
             {item.verdict_reason && (
-              <div className="vr-fact">
+              <Box className="vr-fact" sx={FACT_SX}>
                 <b>{text("drawer.meta.reason")}</b>
                 {item.verdict_reason}
-              </div>
+              </Box>
             )}
-          </div>
+          </Box>
 
           {/* THE APPROVE CARRIES THE NUMBER (maintainer decision 2026-08-20, replacing the
               separate save forms of the 2026-08-17 weighing and 2026-08-18 wastage decisions).
@@ -831,12 +838,10 @@ function VerificationReviewDrawerPanel({
               animal's proof does not. Gated on the same record_verdict control as the verdict:
               correcting the number the evidence shows belongs to the person judging the evidence. */}
           {mayReview && correction ? (
-            <div
-              style={{ display: "grid", gap: 8, marginBottom: 14, paddingBottom: 14, borderBottom: "1px solid var(--line)" }}
-            >
+            <Box sx={{ display: "grid", gap: 2, pb: 2, borderBottom: 1, borderColor: "divider" }}>
               <div>
-                <b>{correction.title}</b>
-                <div className="small muted">{correction.help}</div>
+                <Typography variant="subtitle2">{correction.title}</Typography>
+                <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{correction.help}</Typography>
               </div>
               {perFieldEntry ? (
                 /* BLIND PER-ITEM ENTRY (maintainer decision 2026-08-21): one labelled box per feed
@@ -846,55 +851,44 @@ function VerificationReviewDrawerPanel({
                    box is filled. The intended-vs-entered comparison surfaces only on the
                    leadership feed analytics execution view, never here. */
                 correctionFields.map((field) => (
-                  <label key={`${item.item_id}:${field.key}`} className="fld" style={{ marginBottom: 0 }}>
-                    <span>{field.label}</span>
-                    <input
-                      form="verdict-form"
-                      type="number"
-                      name={`measurement_entry:${field.key}`}
-                      step="0.001"
-                      min="0"
-                      max="100000"
-                      inputMode="decimal"
-                      value={entriesForItem[field.key] ?? ""}
-                      onChange={(e) => setEntryValue(field.key, e.target.value)}
-                      disabled={verdictSettled}
-                    />
-                    {activeVarianceWarnings[field.key] ? (
-                      /* Direction only, backend-owned copy keyed by the field error's code
-                         (above_plan / below_plan). Never the planned figure, never the gap. */
-                      <div className="note" data-variance-warning={field.key}>
-                        {text(`verdict.variance.${activeVarianceWarnings[field.key]}`)}
-                      </div>
-                    ) : null}
-                  </label>
+                  <TextField
+                    key={`${item.item_id}:${field.key}`}
+                    fullWidth
+                    type="number"
+                    label={field.label}
+                    name={`measurement_entry:${field.key}`}
+                    value={entriesForItem[field.key] ?? ""}
+                    onChange={(e) => setEntryValue(field.key, e.target.value)}
+                    disabled={verdictSettled}
+                    /* Direction only, backend-owned copy keyed by the field error's code
+                       (above_plan / below_plan). Never the planned figure, never the gap. */
+                    helperText={activeVarianceWarnings[field.key] ? text(`verdict.variance.${activeVarianceWarnings[field.key]}`) : undefined}
+                    slotProps={{
+                      htmlInput: { form: "verdict-form", step: "0.001", min: "0", max: "100000", inputMode: "decimal" },
+                      formHelperText: activeVarianceWarnings[field.key] ? ({ "data-variance-warning": field.key } as object) : undefined,
+                    }}
+                  />
                 ))
               ) : (
-                <label className="fld" style={{ marginBottom: 0 }}>
-                  <span>{correction.value_label}</span>
-                  {/* min is 0, never 0.001: for wastage an empty trough is a real, good measurement
-                      and zero must stay enterable. Deliberately NOT `required` -- the field is
-                      optional for weighing, and where it IS required the Accept button below carries
-                      the rule, so she is never blocked by a browser message on a form she also uses
-                      to Reject. */}
-                  <input
-                    form="verdict-form"
-                    type="number"
-                    name="measurement_value"
-                    step="0.001"
-                    min="0"
-                    max="100000"
-                    inputMode="decimal"
-                    value={measurementValue}
-                    onChange={(e) => setMeasurementValue(e.target.value)}
-                    disabled={verdictSettled}
-                  />
-                </label>
+                /* min is 0, never 0.001: for wastage an empty trough is a real, good measurement
+                   and zero must stay enterable. Deliberately NOT `required` -- the field is
+                   optional for weighing, and where it IS required the Accept button below carries
+                   the rule, so she is never blocked by a browser message on a form she also uses
+                   to Reject. */
+                <TextField
+                  fullWidth
+                  type="number"
+                  label={correction.value_label}
+                  name="measurement_value"
+                  value={measurementValue}
+                  onChange={(e) => setMeasurementValue(e.target.value)}
+                  disabled={verdictSettled}
+                  slotProps={{ htmlInput: { form: "verdict-form", step: "0.001", min: "0", max: "100000", inputMode: "decimal" } }}
+                />
               )}
               {Object.keys(activeVarianceWarnings).length > 0 ? (
                 /* The second Accept carries this confirmation; keep Accept held until it is ticked. */
                 <FormControlLabel
-                  className="fld"
                   disabled={verdictSettled}
                   control={
                     <Checkbox
@@ -911,78 +905,78 @@ function VerificationReviewDrawerPanel({
                 />
               ) : null}
               {correction.count_label ? (
-                <label className="fld" style={{ marginBottom: 0 }}>
-                  <span>{correction.count_label}</span>
-                  {/* Blank means "leave the recorded count alone", which is the normal case -- she
-                      is usually fixing a mistyped total, not a miscount. */}
-                  <input
-                    /* Uncontrolled, so it needs a key to be REMOUNTED on an item switch -- see
-                       measurement above: a head count left in the DOM would be sent with the next
-                       animal's Accept. */
-                    key={item.item_id}
-                    form="verdict-form"
-                    type="number"
-                    name="measurement_count"
-                    step="1"
-                    min="1"
-                    max="100000"
-                    inputMode="numeric"
-                    disabled={verdictSettled}
-                  />
-                </label>
+                /* Blank means "leave the recorded count alone", which is the normal case -- she
+                   is usually fixing a mistyped total, not a miscount. Uncontrolled, so it needs a
+                   key to be REMOUNTED on an item switch -- see measurement above: a head count
+                   left in the DOM would be sent with the next animal's Accept. */
+                <TextField
+                  key={item.item_id}
+                  fullWidth
+                  type="number"
+                  label={correction.count_label}
+                  name="measurement_count"
+                  disabled={verdictSettled}
+                  slotProps={{ htmlInput: { form: "verdict-form", step: "1", min: "1", max: "100000", inputMode: "numeric" } }}
+                />
               ) : null}
               {measurementReasonSupported ? (
-                <label className="fld" style={{ marginBottom: 0 }}>
-                  <span>{text("verdict.reason_label")}</span>
-                  <textarea key={item.item_id} form="verdict-form" name="measurement_reason" rows={2} disabled={verdictSettled} />
-                </label>
+                <TextField
+                  key={item.item_id}
+                  fullWidth
+                  multiline
+                  minRows={2}
+                  label={text("verdict.reason_label")}
+                  name="measurement_reason"
+                  disabled={verdictSettled}
+                  slotProps={{ htmlInput: { form: "verdict-form" } }}
+                />
               ) : null}
               {/* Named the same way the button below is: an Accept she cannot press needs to say
                   why, or it reads as a broken screen. */}
-              {measurementMissing ? <div className="note">{text("verdict.disabled_measurement_required")}</div> : null}
-              {!measurementMissing && varianceUnconfirmed ? <div className="note">{text("verdict.disabled_variance_unconfirmed")}</div> : null}
-            </div>
+              {measurementMissing ? <Alert severity="info">{text("verdict.disabled_measurement_required")}</Alert> : null}
+              {!measurementMissing && varianceUnconfirmed ? <Alert severity="info">{text("verdict.disabled_variance_unconfirmed")}</Alert> : null}
+            </Box>
           ) : null}
 
           {mayReview ? (
-            <form id="verdict-form" action={recordVerificationVerdictAction} onSubmit={handleVerdictSubmit} style={{ display: "grid", gap: 8 }}>
-                  <input type="hidden" name="item_id" value={item.item_id} />
+            <Box component="form" id="verdict-form" action={recordVerificationVerdictAction} onSubmit={handleVerdictSubmit} sx={{ display: "grid", gap: 1 }}>
+                  <Box component="input" type="hidden" name="item_id" value={item.item_id} />
                   {/* Guards THIS item's row: a verdict recorded elsewhere since render makes the
                       submit 409 instead of silently overwriting the other reviewer's decision. */}
-                  <input type="hidden" name="row_version" value={item.row_version} />
-                  <input type="hidden" name="return_to" value={returnTo} />
+                  <Box component="input" type="hidden" name="row_version" value={item.row_version} />
+                  <Box component="input" type="hidden" name="return_to" value={returnTo} />
                   {/* Lets an APPROVAL advance straight to the next video (see the action). Sent for
                       both decisions but read only on approve — a rejection keeps its current
                       return, because the verifier may still be mid-thought on the reason. */}
-                  <input type="hidden" name="next_row" value={nextRowId} />
-                  <input type="hidden" name="next_cursor" value={nextCursor} />
-                  <input type="hidden" name="next_trail" value={nextTrail} />
-                  {correction ? <input type="hidden" name="measurement_ref_type" value={correction.ref_type} /> : null}
+                  <Box component="input" type="hidden" name="next_row" value={nextRowId} />
+                  <Box component="input" type="hidden" name="next_cursor" value={nextCursor} />
+                  <Box component="input" type="hidden" name="next_trail" value={nextTrail} />
+                  {correction ? <Box component="input" type="hidden" name="measurement_ref_type" value={correction.ref_type} /> : null}
                   {/* Always shown (maintainer request 2026-09-08): a verifier may leave a note on
                       an ACCEPTED video too, so the box no longer waits for Reject to reveal it.
-                      Reject still needs it filled; Accept sends it only when something was typed. */}
-                  <label className="fld" style={{ marginBottom: 0 }}>
-                    <span>{text("verdict.reason_label")}</span>
-                    {/* Deliberately not `required`: the same field is mandatory for Reject and
-                        optional for Approve, so the rule lives in the server action and the backend
-                        (422), not in a per-button HTML attribute. */}
-                    <textarea
-                      ref={reasonRef}
-                      name="reason"
-                      rows={2}
-                      placeholder={text("verdict.reason_placeholder")}
-                      disabled={verdictSettled}
-                      value={reason}
-                      onChange={(e) => setReason(e.target.value)}
-                    />
-                  </label>
-                  <div className="small muted">{text("verdict.reason_required")}</div>
-                  {verdictSettled ? <div className="note">{text("verdict.disabled_not_pending")}</div> : null}
-                  {!hasEvidence ? <div className="note">{text("verdict.disabled_no_evidence")}</div> : null}
+                      Reject still needs it filled; Accept sends it only when something was typed.
+                      Deliberately not `required`: the same field is mandatory for Reject and
+                      optional for Approve, so the rule lives in the server action and the backend
+                      (422), not in a per-button HTML attribute. */}
+                  <TextField
+                    fullWidth
+                    multiline
+                    minRows={2}
+                    inputRef={reasonRef}
+                    name="reason"
+                    label={text("verdict.reason_label")}
+                    placeholder={text("verdict.reason_placeholder")}
+                    disabled={verdictSettled}
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    helperText={text("verdict.reason_required")}
+                  />
+                  {verdictSettled ? <Alert severity="info">{text("verdict.disabled_not_pending")}</Alert> : null}
+                  {!hasEvidence ? <Alert severity="info">{text("verdict.disabled_no_evidence")}</Alert> : null}
                   {/* Reject stays available: she can always send an unreadable clip back, and it is
                       the ONLY correct move when the number cannot be read at all. Only Accept is
                       held. */}
-            </form>
+            </Box>
           ) : null}
 
           {/* The authority half -- Rework, Re-assign, Penalty note -- was REMOVED from this screen
@@ -1134,3 +1128,97 @@ const PROOF_PHOTO_SX = {
   cursor: "zoom-in",
   "& img": { position: "absolute", inset: 0, width: "100%", height: "100%", display: "block", objectFit: "contain", bgcolor: "common.black" },
 } as const;
+
+// The 16:9 proof stage, capped at 44vh. position:absolute + inset:0 is what pins the video TO the
+// stage: with plain width/height 100% the height does not resolve against an aspect-ratio parent,
+// so a 720x1280 portrait proof rendered at its intrinsic size and overflowed the stage. Pinned,
+// portrait letterboxes and landscape fills the rectangle.
+const PLAYER_SX = {
+  position: "relative",
+  width: 1,
+  aspectRatio: "16 / 9",
+  maxHeight: "44vh",
+  display: "flex",
+  flexDirection: "column",
+  overflow: "hidden",
+  borderRadius: "var(--r-lg)",
+  border: 1,
+  borderColor: "divider",
+  bgcolor: "common.black",
+  "& video": { position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", bgcolor: "common.black" },
+  "&:fullscreen": { maxHeight: "none", width: "100vw", height: "100dvh", borderRadius: 0, border: 0 },
+} as const;
+
+const PLAYER_EMPTY_SX: SxProps<Theme> = { display: "grid", placeItems: "center", height: 1, typography: "body2", color: "text.secondary" };
+
+// The unresolved-proof tile fills the stage; one tap resolves (and plays) the proof.
+const MEDIA_OPEN_SX: SxProps<Theme> = {
+  position: "absolute",
+  inset: 0,
+  display: "grid",
+  placeItems: "center",
+  alignContent: "center",
+  gap: 1.5,
+  typography: "subtitle1",
+  fontWeight: "fontWeightBold",
+  color: "common.white",
+  bgcolor: "grey.900",
+  "&:hover": { bgcolor: "grey.800" },
+  "&.Mui-disabled": { cursor: "wait", opacity: 0.78 },
+};
+
+const MEDIA_OPEN_MARK_SX: SxProps<Theme> = (theme) => ({
+  width: 54,
+  height: 54,
+  display: "grid",
+  placeItems: "center",
+  borderRadius: "50%",
+  color: "primary.light",
+  bgcolor: varAlpha(theme.vars.palette.primary.mainChannel, 0.18),
+  border: `1px solid ${varAlpha(theme.vars.palette.primary.mainChannel, 0.48)}`,
+});
+
+const FULLSCREEN_BUTTON_SX: SxProps<Theme> = (theme) => ({
+  position: "absolute",
+  right: 10,
+  bottom: 10,
+  zIndex: 2,
+  width: { xs: 44, sm: 36 },
+  height: { xs: 44, sm: 36 },
+  borderRadius: "var(--r-sm)",
+  color: "common.white",
+  bgcolor: varAlpha(theme.vars.palette.common.blackChannel, 0.5),
+  "&:hover": { bgcolor: varAlpha(theme.vars.palette.common.blackChannel, 0.72) },
+});
+
+// Facts: a hairline grid of label/value cells (the verifier mock's .facts anatomy).
+const FACTS_SX: SxProps<Theme> = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))",
+  gap: "1px",
+  overflow: "hidden",
+  borderRadius: "var(--r-lg)",
+  border: 1,
+  borderColor: "divider",
+  bgcolor: "divider",
+};
+
+const FACT_SX: SxProps<Theme> = {
+  px: 1.75,
+  py: 1.5,
+  bgcolor: "background.neutral",
+  typography: "body2",
+  fontWeight: "fontWeightSemiBold",
+  overflowWrap: "anywhere",
+  "& > b": { display: "block", mb: 0.5, typography: "overline", color: "text.disabled" },
+};
+
+const FACT_GROUP_SX: SxProps<Theme> = {
+  gridColumn: "1 / -1",
+  px: 1.75,
+  pt: 1.25,
+  pb: 0.75,
+  bgcolor: "background.paper",
+  typography: "overline",
+  color: "text.secondary",
+};

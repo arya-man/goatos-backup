@@ -42,7 +42,7 @@ test("an image proof renders as a picture, not as the missing-media state", () =
 
 test("the image branch is decided before the missing-media fallback", () => {
   const imageBranch = drawerSource.indexOf('activeMedia?.mime_type?.startsWith("image/")');
-  const emptyFallback = drawerSource.indexOf('<div className="vr-player-empty">{text("drawer.media.empty")}</div>', imageBranch);
+  const emptyFallback = drawerSource.indexOf('<Box className="vr-player-empty" sx={PLAYER_EMPTY_SX}>{text("drawer.media.empty")}</Box>', imageBranch);
   assert.ok(imageBranch > 0, "image branch must exist");
   assert.ok(
     emptyFallback > imageBranch,
@@ -64,7 +64,7 @@ test("the proof switcher chip names the kind of proof it opens", () => {
   // play badge on the photo chip promises a clip that does not exist.
   assert.match(
     drawerSource,
-    /media\.mime_type\?\.startsWith\("image\/"\)[\s\S]{0,120}<ImageIcon/,
+    /media\.mime_type\?\.startsWith\("image\/"\)[\s\S]{0,120}<Iconify icon="solar:gallery-wide-bold"/,
     "an image proof's switcher chip must carry the image icon, not the play icon",
   );
 });

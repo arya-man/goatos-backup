@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import Button from "@mui/material/Button";
 import type { ReviewEventBuffer } from "./review-events";
 import { WatchTracker } from "./player-telemetry";
 
@@ -197,15 +198,17 @@ export const ReviewVideoPlayer = React.forwardRef<
           <source src={src} type={mimeType} />
         </video>
         {mayDoubleSpeed ? (
-          <button
-            type="button"
-            className="btn"
+          <Button
+            size="small"
+            variant="contained"
+            color="inherit"
             onClick={() => setIsDoubleSpeed((on) => !on)}
             aria-pressed={isDoubleSpeed}
             title={speedLabels.hint}
+            sx={{ position: "absolute", top: 10, right: 10, zIndex: 2, minHeight: { xs: 44, sm: 30 } }}
           >
             {isDoubleSpeed ? speedLabels.fast : speedLabels.normal}
-          </button>
+          </Button>
         ) : null}
       </div>
     );

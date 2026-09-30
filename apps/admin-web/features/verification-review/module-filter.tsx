@@ -2,6 +2,7 @@
 
 import { MODULE_FILTER_WIDTH } from "./verification-layout";
 import { useEffect, useRef, useState } from "react";
+import Box from "@mui/material/Box";
 import MenuItem from "@mui/material/MenuItem";
 import TextField from "@mui/material/TextField";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -35,7 +36,6 @@ export function ModuleFilter({
   const selected = optimistic?.navKey === navKey ? optimistic.key : selectedModuleKey;
   const busy = optimistic?.navKey === navKey;
   const restoreTo = useRef<number | null>(null);
-  const busyStartedAt = useRef<number | null>(null);
 
   useEffect(() => {
     if (busy) return undefined;
@@ -45,31 +45,6 @@ export function ModuleFilter({
     window.scrollTo({ top: target, behavior: "instant" as ScrollBehavior });
     return undefined;
   }, [busy]);
-
-  useEffect(() => {
-    if (busy) {
-      busyStartedAt.current = performance.now();
-      document.body.dataset.vrModuleLoading = "1";
-      return undefined;
-    }
-
-    const startedAt = busyStartedAt.current;
-    busyStartedAt.current = null;
-    if (startedAt === null) {
-      delete document.body.dataset.vrModuleLoading;
-      return undefined;
-    }
-
-    const remaining = Math.max(0, 420 - (performance.now() - startedAt));
-    const timeout = window.setTimeout(() => {
-      delete document.body.dataset.vrModuleLoading;
-    }, remaining);
-    return () => window.clearTimeout(timeout);
-  }, [busy]);
-
-  useEffect(() => () => {
-    delete document.body.dataset.vrModuleLoading;
-  }, []);
 
   useEffect(() => {
     if (!busy) return undefined;
@@ -83,8 +58,6 @@ export function ModuleFilter({
   function navigate(key: string, href: string) {
     if (key === selected) return;
     restoreTo.current = window.scrollY;
-    busyStartedAt.current = performance.now();
-    document.body.dataset.vrModuleLoading = "1";
     setOptimistic({ key, navKey });
     router.replace(href, { scroll: false });
   }
@@ -100,7 +73,9 @@ export function ModuleFilter({
     ...(toxinOption ? [{ value: "toxin", label: toxinOption.label }] : []),
   ];
   return (
-    <div className={`vr-module-legend${busy ? " busy" : ""}`} role="group" aria-label={ariaLabel} aria-busy={busy}>
+    // While the pick is in flight the queue below is already its UrlSuspense TableSkeleton; the
+    // select only shows the optimistic value and a progress cursor.
+    <Box role="group" aria-label={ariaLabel} aria-busy={busy} sx={{ cursor: busy ? "progress" : undefined }}>
       <TextField
         select
         label={ariaLabel}
@@ -119,6 +94,6 @@ export function ModuleFilter({
           </MenuItem>
         ))}
       </TextField>
-    </div>
+    </Box>
   );
 }

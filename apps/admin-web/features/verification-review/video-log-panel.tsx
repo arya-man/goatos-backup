@@ -4,7 +4,7 @@ import { LocalOverlayLink, useLocalOverlaySelection } from "@/components/local-o
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import Button from "@mui/material/Button";
 import { DetailDrawer } from "@/components/app/detail-drawer";
-import { Clock } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import type { ReactNode } from "react";
 import { VIDEO_LOG_PANEL_ID, VIDEO_LOG_PANEL_SELECTION_KEY } from "./video-log-params";
 
@@ -60,7 +60,7 @@ export function VideoLogPanel({
         scroll={false}
         // Secondary header action: outlined like Randomization; the header has no primary action (TR1-#35).
         variant="outlined" color="inherit"
-        startIcon={<Clock size={18} aria-hidden="true" />}
+        startIcon={<Iconify icon="solar:clock-circle-outline" width={18} aria-hidden="true" />}
         className="vr-videolog-btn"
       >
         {copy(pageContract, "video_log.open")}

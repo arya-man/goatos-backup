@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import Box from "@mui/material/Box";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
 import ListSubheader from "@mui/material/ListSubheader";
@@ -37,7 +38,7 @@ export function VrFormSelect({
   const [value, setValue] = useState(defaultValue ?? "");
   return (
     <div id={id} className={className}>
-      <input type="hidden" name={name} value={value} />
+      <Box component="input" type="hidden" name={name} value={value} />
       <TextField
         select
         label={label}
