@@ -58,7 +58,20 @@ export function readZones(root) {
   return JSON.parse(readFileSync(file, "utf8")).zones ?? [];
 }
 
-export function zoneFiles(root, zones) {
+/**
+ * J1B P2-3 (FIXJ7): the zones cover everything under app/, components/, features/ and layouts/;
+ * `exempt` ({ path-or-prefix: reason }) names what stays outside: the verbatim template
+ * (components/minimal/, layouts/template/) and the few files that still carry a baselined construct.
+ * Exemptions only SHRINK: an exempt FILE that is clean now fails (`stale exemption`) until removed.
+ */
+export function readExempt(root) {
+  const file = join(root, ZONES_FILE);
+  if (!existsSync(file)) return {};
+  return JSON.parse(readFileSync(file, "utf8")).exempt ?? {};
+}
+const isExempt = (rel, exempt) => Object.keys(exempt).some((e) => (e.endsWith("/") ? rel.startsWith(e) : rel === e));
+
+export function zoneFiles(root, zones, exempt = {}) {
   const files = new Set();
   for (const zone of zones) {
     const abs = join(root, zone);
@@ -67,6 +80,7 @@ export function zoneFiles(root, zones) {
     for (const f of list) {
       const r = rel(root, f);
       if (!/\.(tsx|ts)$/.test(r) || /\.(test|stories|spec)\.[tj]sx?$/.test(r) || r.endsWith(".d.ts")) continue;
+      if (isExempt(r, exempt)) continue;
       files.add(r);
     }
   }
@@ -110,9 +124,19 @@ export function legacyFreeZoneFindings(root) {
   const zones = readZones(root);
   const out = [];
   for (const zone of zones) if (!existsSync(join(root, zone))) out.push({ file: ZONES_FILE, line: 1, snippet: `zone "${zone}" does not exist (rename the entry with the file; zones never shrink)` });
-  const files = zoneFiles(root, zones);
-  if (!files.length) return out;
+  const exempt = readExempt(root);
+  const files = zoneFiles(root, zones, exempt);
   const selectors = legacySelectors(root);
   for (const file of files) out.push(...legacyZoneFindingsFor(file, readFileSync(join(root, file), "utf8"), selectors));
+  // A file exemption that has no finding left is stale: the file joins the zones (exemptions shrink).
+  for (const [entry, reason] of Object.entries(exempt)) {
+    if (!reason || typeof reason !== "string") out.push({ file: ZONES_FILE, line: 1, snippet: `exemption "${entry}" has no reason` });
+    if (entry.endsWith("/")) continue;
+    const abs = join(root, entry);
+    if (!existsSync(abs)) { out.push({ file: ZONES_FILE, line: 1, snippet: `exempt file "${entry}" does not exist: remove the exemption` }); continue; }
+    if (!legacyZoneFindingsFor(entry, readFileSync(abs, "utf8"), selectors).length) {
+      out.push({ file: ZONES_FILE, line: 1, snippet: `stale exemption "${entry}": the file is clean now, remove it from "exempt" (exemptions only shrink)` });
+    }
+  }
   return out;
 }

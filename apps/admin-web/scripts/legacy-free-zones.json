@@ -1,6 +1,7 @@
 {
-  "//": "Files fully on the MUI Minimal template (guard legacy-free-zone, scripts/lib/legacy-free-zones.mjs). Add a file or a directory prefix (ending in /) once it has no legacy class, style={}, native control, lucide icon, .css import or colour literal. Zones only grow.",
+  "//": "Files fully on the MUI Minimal template (guard legacy-free-zone, scripts/lib/legacy-free-zones.mjs). Add a file or a directory prefix (ending in /) once it has no legacy class, style={}, native control, lucide icon, .css import or colour literal. Zones only grow. J1B P2-3 (FIXJ7): app/, components/, features/ and layouts/ are zones as a whole; `exempt` lists what stays outside with its reason, and a clean exempt file fails as a stale exemption (exemptions only shrink).",
   "zones": [
+    "app/",
     "app/(admin)/alerts/",
     "app/(admin)/approvals/",
     "app/(admin)/calendar/",
@@ -37,6 +38,7 @@
     "app/(admin)/work-board/",
     "app/(admin)/workflows/",
     "app/not-found.tsx",
+    "components/",
     "components/admin-shell.tsx",
     "components/analytics-export.tsx",
     "components/app/action-alert.tsx",
@@ -76,6 +78,7 @@
     "components/ui-primitives.tsx",
     "components/worklist-filters.tsx",
     "components/worklist-pager.tsx",
+    "features/",
     "features/alerts/",
     "features/approvals/",
     "features/calendar/",
@@ -184,7 +187,19 @@
     "features/verification-review/",
     "features/weighing/",
     "features/work-board/",
+    "layouts/",
     "layouts/app/dashboard/layout.tsx",
     "theme/app-baseline.tsx"
-  ]
+  ],
+  "exempt": {
+    "components/minimal/": "verbatim MUI Minimal template (guard template-verbatim owns it)",
+    "layouts/template/": "verbatim MUI Minimal template layouts (guard template-verbatim owns them)",
+    "app/layout.tsx": "root layout imports the font, token, template scrollbar and chart stylesheets (the only global CSS left)",
+    "app/global-error.tsx": "replaces the root layout, so it imports the same font / token stylesheets itself",
+    "components/app/empty-state.tsx": "baselined inline-style-prop (pass-through style for the template EmptyContent)",
+    "components/app/progress-bar.tsx": "baselined inline-style-prop (template progress width pass-through)",
+    "components/app/upload-file.tsx": "baselined inline-style-prop (hidden input inside the template upload area)",
+    "components/auth/new-password-icon.tsx": "baselined inline-style-prop (template SVG icon)",
+    "components/confirm-submit-button.tsx": "baselined native-control: the hidden submitter <button hidden>"
+  }
 }

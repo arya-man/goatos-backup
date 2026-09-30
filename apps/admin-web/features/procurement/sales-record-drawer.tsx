@@ -891,19 +891,21 @@ function PaymentRow({
       <TableRow aria-busy={busy}>
         <TableCell sx={{ whiteSpace: "nowrap" }}>
           {canUpdate ? (
-            <TextField
-              size="small"
-              type="date"
-              required
-              defaultValue={payment.received_on}
-              slotProps={{
-                htmlInput: {
-                  form: editFormId,
-                  name: "received_on",
-                  "aria-label": copy(pageContract, "payments.column.received_on"),
-                },
-              }}
-            />
+            // J1B P2-5 (FIXJ7): the template MUI X DatePicker (DD/MM/YYYY), not the browser's
+            // native date input; the ISO day still posts with the row's hidden edit form.
+            <Box sx={{ minWidth: 160 }}>
+              <ThemedDatePicker
+                name="received_on"
+                form={editFormId}
+                size="small"
+                label={copy(pageContract, "payments.column.received_on")}
+                defaultValue={payment.received_on}
+                required
+                previousMonthLabel={copy(pageContract, "date.prev_month", "Previous month")}
+                nextMonthLabel={copy(pageContract, "date.next_month", "Next month")}
+                invalidDateText={copy(pageContract, "date.invalid", "Pick a valid date")}
+              />
+            </Box>
           ) : (
             fmtDate(payment.received_on)
           )}
