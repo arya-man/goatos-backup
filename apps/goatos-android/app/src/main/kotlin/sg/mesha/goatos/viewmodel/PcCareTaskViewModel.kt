@@ -34,6 +34,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.analytics.ProofPreviewActionTrace
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.common.datetime.GoatOsDates
 import sg.mesha.goatos.core.data.CaptureDraftRepository
 import sg.mesha.goatos.core.data.CaptureFlow
 import sg.mesha.goatos.core.data.PcCareRepository
@@ -2403,8 +2404,16 @@ class PcCareTaskViewModel @Inject constructor(
             title = pcCareTaskTitle(detail),
             locationDisplay = detail?.let { d -> d.taskLabel.ifBlank { d.operationalLocationDisplay.ifBlank { d.shedLabel } } }.orEmpty(),
             parkLabel = detail?.parkLabel.orEmpty(),
-            dateLabel = detail?.plannedBusinessDate.orEmpty(),
+            // DD/MM/YYYY on screen (the farm-wide date rule); the wire date stays ISO.
+            dateLabel = GoatOsDates.fromWireDate(detail?.plannedBusinessDate),
             assigneeLine = detail?.assigneeNames.orEmpty().joinToString(", "),
+            // Pen work shows the card's instruction (the fumigation dosage); the per-animal and
+            // removal faces keep their existing layout.
+            instruction = if (pcCareIsPenProof(detail)) {
+                detail?.sop?.categories?.get(detail.category)?.instruction.orEmpty()
+            } else {
+                ""
+            },
             isLocked = locked,
             lockNotice = when {
                 detail?.status == PC_CARE_STATUS_COMPLETED -> "Checked and approved"

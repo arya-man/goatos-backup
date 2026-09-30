@@ -155,6 +155,11 @@ data class PcCareTaskUiState(
     val parkLabel: String = "",
     val dateLabel: String = "",
     val assigneeLine: String = "",
+    /**
+     * The PINNED card's instruction for this work (PC CARE SOP), rendered verbatim above the
+     * captures -- on fumigation it is the dosage the operator mixes. Blank renders nothing.
+     */
+    val instruction: String = "",
     /** True once the task is in review or already approved — the screen is read-only. */
     val isLocked: Boolean = false,
     /** Farm copy for the lock ("In review" / "Approved"); blank while unlocked. */
