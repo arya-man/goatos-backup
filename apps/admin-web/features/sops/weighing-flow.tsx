@@ -2,7 +2,7 @@
 
 import { EmptyState } from "@/components/app/empty-state";
 
-import { GitBranch, Lock, Plus, MousePointerClick } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import { useMemo, type ReactNode } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -169,14 +169,14 @@ export function WeighingFlow({
     if (node.kind === "decision") {
       return (
         <span className="studio-node-kind">
-          <GitBranch size={12} /> {copy(pc, "wsop.flow.decision")}
+          <Iconify icon="solar:transfer-horizontal-bold-duotone" width={12} /> {copy(pc, "wsop.flow.decision")}
         </span>
       );
     }
     if (node.kind === "fixed") {
       return (
         <>
-          <span className="studio-node-kind"><Lock size={11} /> {copy(pc, "wsop.capture.individual.locked_short")}</span>
+          <span className="studio-node-kind"><Iconify icon="solar:lock-password-outline" width={11} /> {copy(pc, "wsop.capture.individual.locked_short")}</span>
           <b>{copy(pc, d.fixed!)}</b>
           <span className="muted small">{copy(pc, `${d.fixed}_hint`)}</span>
         </>
@@ -192,10 +192,10 @@ export function WeighingFlow({
           <b>{title}</b>
           <span className="studio-node-actions">
             <button type="button" className="btn sm ghost" onClick={() => onInsert({ list: slots, index: rows[slots].length })} data-testid={`flow-add-${slots}`}>
-              <Plus size={12} /> {copy(pc, "wsop.flow.add_capture")}
+              <Iconify icon="mingcute:add-line" width={12} /> {copy(pc, "wsop.flow.add_capture")}
             </button>
             <button type="button" className="btn sm ghost" onClick={() => onInsert({ list: questions, index: rows[questions].length })} data-testid={`flow-add-${questions}`}>
-              <Plus size={12} /> {copy(pc, "wsop.flow.add_question")}
+              <Iconify icon="mingcute:add-line" width={12} /> {copy(pc, "wsop.flow.add_question")}
             </button>
           </span>
         </>
@@ -232,7 +232,7 @@ export function WeighingFlow({
         <div className="hd">
           <h3>{copy(pc, "studio.flow.properties")}</h3>
         </div>
-        {selected ? renderCard(selected) : <EmptyState title={copy(pc, "studio.flow.none_selected")} icon={<MousePointerClick className="ic" />} style={{ padding: 16 }} />}
+        {selected ? renderCard(selected) : <EmptyState title={copy(pc, "studio.flow.none_selected")} icon={<Iconify icon="eva:diagonal-arrow-left-down-fill" />} style={{ padding: 16 }} />}
       </aside>
     </div>
   );

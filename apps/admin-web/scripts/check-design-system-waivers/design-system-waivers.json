@@ -1,6 +1,6 @@
 {
   "note": "Accepted design-system debt. Every entry is a KNOWN violation of .agents/skills/design-system/SKILL.md that a future change must not multiply. Shrink this list; never grow it to land a change. P0 checks (foreign-palette, theme-token-drift, google-fonts-link) can never be waived.",
-  "updated_at": "2026-09-30T02:52:19.224Z",
+  "updated_at": "2026-09-30T03:27:41.989Z",
   "waived": [
     "f2-literal|features/counts/counts-summary-cards.ts|fattening: [\"F2\", \"F2-Male\", \"F2-Female\", \"Fattening\", \"Fattening male\", \"Fattening female\"],",
     "f2-literal|lib/admin-ui-contract.ts|{ key: \"F2\", label: \"Fattening\", title: \"\", tone: \"\", enabled: true, disabled_reason: \"\" },",
@@ -188,7 +188,7 @@
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: inline style={…} prop; use the theme sx. Shrink-only per file"
     },
     "inline-style-prop|features/calendar/calendar-drive-detail.tsx": {
-      "allowed": 2,
+      "allowed": 1,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: inline style={…} prop; use the theme sx. Shrink-only per file"
     },
     "inline-style-prop|features/calendar/calendar-event-drawer.tsx": {
@@ -215,10 +215,6 @@
       "allowed": 1,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: inline style={…} prop; use the theme sx. Shrink-only per file"
     },
-    "inline-style-prop|features/leadership-tasks/new-task-modal.tsx": {
-      "allowed": 1,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: inline style={…} prop; use the theme sx. Shrink-only per file"
-    },
     "inline-style-prop|features/leadership-tasks/task-board-dnd.tsx": {
       "allowed": 1,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: inline style={…} prop; use the theme sx. Shrink-only per file"
@@ -228,11 +224,11 @@
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: inline style={…} prop; use the theme sx. Shrink-only per file"
     },
     "inline-style-prop|features/leadership-tasks/task-table.tsx": {
-      "allowed": 2,
+      "allowed": 1,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: inline style={…} prop; use the theme sx. Shrink-only per file"
     },
     "inline-style-prop|features/leave/leave-config-panel.tsx": {
-      "allowed": 4,
+      "allowed": 3,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: inline style={…} prop; use the theme sx. Shrink-only per file"
     },
     "inline-style-prop|features/leave/leave-toolbar.tsx": {
@@ -296,7 +292,7 @@
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: inline style={…} prop; use the theme sx. Shrink-only per file"
     },
     "inline-style-prop|features/sops/sop-library.tsx": {
-      "allowed": 8,
+      "allowed": 6,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: inline style={…} prop; use the theme sx. Shrink-only per file"
     },
     "inline-style-prop|features/sops/toxin-flow.tsx": {
@@ -456,15 +452,11 @@
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
     },
     "legacy-class-use|features/calendar/calendar-drive-detail.tsx": {
-      "allowed": 19,
+      "allowed": 14,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
     },
     "legacy-class-use|features/feed/feed-completion-table.tsx": {
       "allowed": 12,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
-    },
-    "legacy-class-use|features/feed/feed-direction.tsx": {
-      "allowed": 1,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
     },
     "legacy-class-use|features/feed/feed-follow-up.tsx": {
@@ -477,10 +469,6 @@
     },
     "legacy-class-use|features/feed/feed-lifecycle.tsx": {
       "allowed": 2,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
-    },
-    "legacy-class-use|features/feed/feed-packing.tsx": {
-      "allowed": 1,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
     },
     "legacy-class-use|features/feed/feed-pen-columns.tsx": {
@@ -508,7 +496,7 @@
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
     },
     "legacy-class-use|features/leadership-tasks/edit-task-modal.tsx": {
-      "allowed": 19,
+      "allowed": 17,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
     },
     "legacy-class-use|features/leadership-tasks/leadership-tasks-table.tsx": {
@@ -516,15 +504,15 @@
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
     },
     "legacy-class-use|features/leadership-tasks/new-task-modal.tsx": {
-      "allowed": 23,
+      "allowed": 19,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
     },
     "legacy-class-use|features/leadership-tasks/task-activity-composer.tsx": {
-      "allowed": 15,
+      "allowed": 13,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
     },
     "legacy-class-use|features/leadership-tasks/task-activity-feed.tsx": {
-      "allowed": 23,
+      "allowed": 22,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
     },
     "legacy-class-use|features/leadership-tasks/task-board-dnd.tsx": {
@@ -544,15 +532,15 @@
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
     },
     "legacy-class-use|features/leadership-tasks/task-table.tsx": {
-      "allowed": 29,
+      "allowed": 28,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
     },
     "legacy-class-use|features/leadership-tasks/task-write-forms.tsx": {
-      "allowed": 20,
+      "allowed": 17,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
     },
     "legacy-class-use|features/leave/leave-config-panel.tsx": {
-      "allowed": 4,
+      "allowed": 3,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
     },
     "legacy-class-use|features/leave/leave-page.tsx": {
@@ -580,11 +568,11 @@
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
     },
     "legacy-class-use|features/notifications/push-settings.tsx": {
-      "allowed": 27,
+      "allowed": 25,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
     },
     "legacy-class-use|features/pen-routines/routine-drawer.tsx": {
-      "allowed": 8,
+      "allowed": 1,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
     },
     "legacy-class-use|features/pen-routines/routines-chrome.tsx": {
@@ -592,7 +580,7 @@
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
     },
     "legacy-class-use|features/pen-routines/routines-page.tsx": {
-      "allowed": 6,
+      "allowed": 4,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
     },
     "legacy-class-use|features/people/people-page.tsx": {
@@ -608,7 +596,7 @@
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
     },
     "legacy-class-use|features/sops/feed-flow.tsx": {
-      "allowed": 28,
+      "allowed": 27,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
     },
     "legacy-class-use|features/sops/feed-summary.tsx": {
@@ -620,7 +608,7 @@
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
     },
     "legacy-class-use|features/sops/followup-flow.tsx": {
-      "allowed": 20,
+      "allowed": 19,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
     },
     "legacy-class-use|features/sops/followup-summary.tsx": {
@@ -644,7 +632,7 @@
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
     },
     "legacy-class-use|features/sops/sop-library.tsx": {
-      "allowed": 20,
+      "allowed": 16,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
     },
     "legacy-class-use|features/sops/toxin-flow.tsx": {
@@ -656,7 +644,7 @@
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
     },
     "legacy-class-use|features/sops/weighing-flow.tsx": {
-      "allowed": 29,
+      "allowed": 28,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a className token a legacy stylesheet defines (frame / minimal-theme / mesha-theme / globals / feature .css); build with template sections + MUI + theme sx. Shrink-only per file"
     },
     "legacy-class-use|features/sops/weighing-summary.tsx": {
@@ -732,7 +720,7 @@
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a style rule in a legacy stylesheet or CSS module; style through template components + theme sx. Rule count per stylesheet is shrink-only, a new stylesheet has 0"
     },
     "legacy-css-rules|features/notifications/notification-panel.css": {
-      "allowed": 88,
+      "allowed": 84,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a style rule in a legacy stylesheet or CSS module; style through template components + theme sx. Rule count per stylesheet is shrink-only, a new stylesheet has 0"
     },
     "legacy-css-rules|layouts/mesha-layout.css": {
@@ -742,18 +730,6 @@
     "legacy-css-rules|layouts/shell-skeleton.css": {
       "allowed": 21,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a style rule in a legacy stylesheet or CSS module; style through template components + theme sx. Rule count per stylesheet is shrink-only, a new stylesheet has 0"
-    },
-    "lucide-import|app/global-error.tsx": {
-      "allowed": 1,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|app/login/page.tsx": {
-      "allowed": 1,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|app/not-found.tsx": {
-      "allowed": 1,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
     },
     "lucide-import|components/admin-shell.tsx": {
       "allowed": 1,
@@ -796,130 +772,6 @@
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
     },
     "lucide-import|components/themed-date-picker.tsx": {
-      "allowed": 1,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/approvals/approvals-drawer.tsx": {
-      "allowed": 1,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/calendar/calendar-contract.ts": {
-      "allowed": 10,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/calendar/calendar-drive-detail.tsx": {
-      "allowed": 3,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/calendar/calendar-event-drawer.tsx": {
-      "allowed": 3,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/feed/feed-direction.tsx": {
-      "allowed": 1,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/feed/feed-lifecycle.tsx": {
-      "allowed": 8,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/feed/feed-packing.tsx": {
-      "allowed": 1,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/leadership-tasks/edit-task-modal.tsx": {
-      "allowed": 6,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/leadership-tasks/new-task-modal.tsx": {
-      "allowed": 5,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/leadership-tasks/task-activity-composer.tsx": {
-      "allowed": 1,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/leadership-tasks/task-activity-feed.tsx": {
-      "allowed": 1,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/leadership-tasks/task-table.tsx": {
-      "allowed": 7,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/leadership-tasks/task-write-forms.tsx": {
-      "allowed": 3,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/leave/leave-config-panel.tsx": {
-      "allowed": 1,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/leave/leave-reject-dialog.tsx": {
-      "allowed": 1,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/leave/leave-toolbar.tsx": {
-      "allowed": 2,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/notifications/notification-panel.tsx": {
-      "allowed": 17,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/notifications/push-settings.tsx": {
-      "allowed": 2,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/pen-routines/routine-drawer.tsx": {
-      "allowed": 5,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/pen-routines/routines-chrome.tsx": {
-      "allowed": 2,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/pen-routines/routines-page.tsx": {
-      "allowed": 1,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/sops/feed-flow.tsx": {
-      "allowed": 3,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/sops/flow-canvas.tsx": {
-      "allowed": 3,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/sops/followup-flow.tsx": {
-      "allowed": 3,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/sops/pc-care-flow.tsx": {
-      "allowed": 2,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/sops/sop-library.tsx": {
-      "allowed": 16,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/sops/toxin-flow.tsx": {
-      "allowed": 2,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/sops/weighing-flow.tsx": {
-      "allowed": 4,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/weighing/feed-weight-band-exits-drawer.tsx": {
-      "allowed": 1,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/weighing/weights-assumptions.tsx": {
-      "allowed": 2,
-      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
-    },
-    "lucide-import|features/weighing/weights-export.tsx": {
       "allowed": 1,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file"
     },
@@ -1452,7 +1304,7 @@
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
     },
     "raw-px|features/notifications/notification-panel.css": {
-      "allowed": 36,
+      "allowed": 34,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
     },
     "raw-px|features/operations-audit/audit-log.tsx": {

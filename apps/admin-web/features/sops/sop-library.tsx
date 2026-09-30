@@ -4,24 +4,6 @@ import { Tag } from "@/components/ui-primitives";
 
 import { useCallback, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import {
-  BookText,
-  Calendar,
-  Camera,
-  Check,
-  Columns3,
-  Download,
-  Hash,
-  List,
-  ListChecks,
-  MapPin,
-  NotebookPen,
-  Plus,
-  ScanLine,
-  Type as TypeIcon,
-  Video,
-  X,
-} from "lucide-react";
 import { type SopCardView } from "./sop-derive";
 import { FollowUpStepsSummary } from "./followup-summary";
 import { InspectionSummary } from "./inspection-summary";
@@ -34,7 +16,7 @@ import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
 import DialogActions from "@mui/material/DialogActions";
 import IconButton from "@mui/material/IconButton";
-import { Iconify } from "@/components/minimal/iconify";
+import { Iconify, type IconifyName } from "@/components/minimal/iconify";
 import { RowMenu } from "@/components/app/row-menu";
 import { FilterBar } from "@/components/app/filter-bar";
 import Link from "@mui/material/Link";
@@ -65,17 +47,17 @@ import { CARDS_PER_PAGE, SOP_HEADER_LAYOUT } from "./sop-library-layout";
 // The New SOP builder is a dedicated full-page surface at <module SOP page>?compose=1 — the same
 // route as the module page (never a nested /new page). Legacy `?new=1` deep-links resolve to it too.
 
-const FIELD_ICON: Record<string, React.ElementType> = {
-  text: TypeIcon,
-  number: Hash,
-  date_time: Calendar,
-  select: List,
-  multiselect: ListChecks,
-  goat_lookup: ScanLine,
-  animal_id_scan: ScanLine,
-  location_picker: MapPin,
-  photo_proof: Camera,
-  video_proof: Video,
+const FIELD_ICON: Record<string, IconifyName> = {
+  text: "solar:file-text-bold",
+  number: "solar:tag-horizontal-bold-duotone",
+  date_time: "solar:calendar-date-bold",
+  select: "solar:list-bold",
+  multiselect: "solar:bill-list-bold-duotone",
+  goat_lookup: "carbon:center-to-fit",
+  animal_id_scan: "carbon:center-to-fit",
+  location_picker: "mingcute:location-fill",
+  photo_proof: "solar:camera-add-bold",
+  video_proof: "solar:videocamera-record-bold",
 };
 
 type FacetId = "domain" | "trigger" | "counts" | "gates";
@@ -246,7 +228,7 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
         actions={
           <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1, flexWrap: "wrap", "& .wt-assumptions-control": { display: "contents" } }}>
             {extraNode}
-            <Button variant="contained" color="primary" startIcon={<Plus size={18} />} onClick={openBuilder}>
+            <Button variant="contained" color="primary" startIcon={<Iconify icon="mingcute:add-line" width={18} />} onClick={openBuilder}>
               {copy(pageContract, "action.new_sop")}
             </Button>
           </Box>
@@ -274,9 +256,9 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
               <RowMenu
                 ariaLabel={copy(pageContract, "action.more")}
                 actions={[
-                  { label: copy(pageContract, "action.columns"), icon: <Columns3 size={15} />, onSelect: () => setColumnsOpen(true) },
-                  { label: copy(pageContract, "action.export", "Export"), icon: <Download size={15} />, onSelect: exportCsv },
-                  { label: copy(pageContract, "action.reset_filters", "Reset filters"), icon: <X size={15} />, onSelect: clearAll, disabled: activeChips.length === 0 },
+                  { label: copy(pageContract, "action.columns"), icon: <Iconify icon="ic:round-view-module" width={15} />, onSelect: () => setColumnsOpen(true) },
+                  { label: copy(pageContract, "action.export", "Export"), icon: <Iconify icon="solar:download-bold" width={15} />, onSelect: exportCsv },
+                  { label: copy(pageContract, "action.reset_filters", "Reset filters"), icon: <Iconify icon="mingcute:close-line" width={15} />, onSelect: clearAll, disabled: activeChips.length === 0 },
                 ]}
               />
             </>
@@ -300,7 +282,7 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
                     chip.clear();
                     setRequestedPage(1);
                   }}
-                  deleteIcon={<X aria-label={`${copy(pageContract, "action.remove_filter")}: ${chip.label}`} role="button" />}
+                  deleteIcon={<Iconify icon="mingcute:close-line" aria-label={`${copy(pageContract, "action.remove_filter")}: ${chip.label}`} role="button" />}
                 />
               ))}
               {activeChips.length > 0 ? (
@@ -384,7 +366,7 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
           title={copy(pageContract, "empty.title")}
           description={copy(pageContract, "empty.body")}
           action={
-            <Button variant="contained" color="primary" startIcon={<Plus size={18} />} sx={{ mt: 2 }} onClick={openBuilder}>
+            <Button variant="contained" color="primary" startIcon={<Iconify icon="mingcute:add-line" width={18} />} sx={{ mt: 2 }} onClick={openBuilder}>
               {copy(pageContract, "action.new_sop")}
             </Button>
           }
@@ -412,7 +394,7 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
       {/* Columns: which facet rows the cards carry. Presentation only. */}
       <Dialog fullWidth maxWidth="xs" open={columnsOpen} onClose={() => setColumnsOpen(false)} slotProps={{ paper: { "aria-label": copy(pageContract, "action.columns") } }}>
         <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-          <Columns3 className="ic" aria-hidden="true" />
+          <Iconify icon="ic:round-view-module" />
           {copy(pageContract, "action.columns")}
         </DialogTitle>
         <DialogContent sx={DLG_BODY_SX}>
@@ -517,7 +499,7 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, onEditCapture, ed
       <Dialog fullWidth fullScreen={fullScreen} maxWidth="md" open onClose={onClose} slotProps={{ paper: { "aria-label": `${copy(pageContract, "modal.detail.aria")} ${view.name}` } }}>
         <DialogTitle component="div" sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
           <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand)", width: 32, height: 32, borderRadius: 9 }}>
-            <BookText className="ic" />
+            <Iconify icon="solar:notebook-bold-duotone" />
           </span>
           <div>
             <div className="mono muted" style={{ fontSize: 11 }}>
@@ -534,10 +516,10 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, onEditCapture, ed
           {/* Spec §8 meta card: a titled block with an edit affordance, not a bare k/v grid. */}
           <Paper variant="outlined" sx={{ overflow: "hidden", mb: 1.5, "& .metagrid": { p: 1.75 } }}>
             <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 1.75, py: 1.25, bgcolor: "background.neutral", borderBottom: 1, borderColor: "divider", typography: "subtitle2" }}>
-              <BookText className="ic" style={{ width: 14 }} aria-hidden="true" />
+              <Iconify icon="solar:notebook-bold-duotone" width={14} />
               <span>{copy(pageContract, "label.details")}</span>
               <Box sx={{ flex: 1 }} />
-              <Button color="primary" variant="text" size="small" startIcon={<NotebookPen size={14} />} onClick={onEdit} disabled={editPending}>
+              <Button color="primary" variant="text" size="small" startIcon={<Iconify icon="solar:notes-bold-duotone" width={14} />} onClick={onEdit} disabled={editPending}>
                 {copy(pageContract, "action.edit", "Edit")}
               </Button>
             </Box>
@@ -588,11 +570,10 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, onEditCapture, ed
           {view.fields.length > 0 ? (
             <div className="htl">
               {view.fields.map((f, i) => {
-                const Icon = FIELD_ICON[f.type] ?? Check;
                 return (
                   <div className="hrow" key={`${f.label}-${i}`}>
                     <span className="fic" style={{ width: 24, height: 24, background: "var(--bg)", color: "var(--muted)" }}>
-                      <Icon className="ic" style={{ width: 13 }} />
+                      <Iconify icon={FIELD_ICON[f.type] ?? "eva:checkmark-fill"} width={13} />
                     </span>
                     <div className="htx">
                       <b>
@@ -630,11 +611,11 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, onEditCapture, ed
           </Button>
           <div className="sp" style={{ flex: 1 }} />
           {isCaptureCardCode(view.code) && view.hasVersion && onEditCapture ? (
-            <Button color="primary" variant="outlined" startIcon={<NotebookPen size={16} />} onClick={onEditCapture} disabled={editPending}>
+            <Button color="primary" variant="outlined" startIcon={<Iconify icon="solar:notes-bold-duotone" width={16} />} onClick={onEditCapture} disabled={editPending}>
               {copy(pageContract, "action.edit_capture_form")}
             </Button>
           ) : null}
-          <Button variant="contained" color="primary" startIcon={<NotebookPen size={16} />} onClick={onEdit} disabled={editPending} loading={editPending}>
+          <Button variant="contained" color="primary" startIcon={<Iconify icon="solar:notes-bold-duotone" width={16} />} onClick={onEdit} disabled={editPending} loading={editPending}>
             {editPending
               ? copy(pageContract, "action.opening_editor")
               : view.followUpStepCount > 0

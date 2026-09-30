@@ -2,7 +2,7 @@
 
 import { EmptyState } from "@/components/app/empty-state";
 
-import { GitBranch, Plus, MousePointerClick } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import { useMemo, type ReactNode } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -92,7 +92,7 @@ export function FollowUpFlow({
       return (
         <>
           <span className="studio-node-kind">
-            <GitBranch size={12} /> {copy(pc, "studio.flow.decision")}
+            <Iconify icon="solar:transfer-horizontal-bold-duotone" width={12} /> {copy(pc, "studio.flow.decision")}
           </span>
           <button
             type="button"
@@ -103,7 +103,7 @@ export function FollowUpFlow({
             }}
             data-testid={`flow-add-branch-${s.key}`}
           >
-            <Plus size={12} /> {copy(pc, "studio.flow.add_branch")}
+            <Iconify icon="mingcute:add-line" width={12} /> {copy(pc, "studio.flow.add_branch")}
           </button>
         </>
       );
@@ -134,7 +134,7 @@ export function FollowUpFlow({
               }}
               data-testid={`flow-add-branch-${s.key}`}
             >
-              <Plus size={12} /> {copy(pc, "studio.flow.add_branch")}
+              <Iconify icon="mingcute:add-line" width={12} /> {copy(pc, "studio.flow.add_branch")}
             </button>
           </span>
         ) : null}
@@ -149,7 +149,7 @@ export function FollowUpFlow({
         <div className="hd">
           <h3>{copy(pc, "studio.flow.properties")}</h3>
         </div>
-        {selected ? renderCard(selected, selectedIndex) : <EmptyState title={copy(pc, "studio.flow.none_selected")} icon={<MousePointerClick className="ic" />} style={{ padding: 16 }} />}
+        {selected ? renderCard(selected, selectedIndex) : <EmptyState title={copy(pc, "studio.flow.none_selected")} icon={<Iconify icon="eva:diagonal-arrow-left-down-fill" />} style={{ padding: 16 }} />}
       </aside>
     </div>
   );

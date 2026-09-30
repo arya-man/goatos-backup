@@ -1,6 +1,6 @@
 "use client";
 
-import { Minus, Plus, Scan } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -76,16 +76,16 @@ export function FlowCanvas<T, I>({
     <div className="studio-flow-canvas-wrap">
       <div className="studio-flow-toolbar">
         <button type="button" className="btn sm ghost" onClick={() => setZoom((z) => Math.max(0.35, Math.round((z - 0.1) * 100) / 100))} aria-label={copy(pc, "studio.flow.zoom_out")}>
-          <Minus size={14} />
+          <Iconify icon="mingcute:minimize-line" width={14} />
         </button>
         <span className="muted small" data-testid="flow-zoom">
           {Math.round(zoom * 100)}%
         </span>
         <button type="button" className="btn sm ghost" onClick={() => setZoom((z) => Math.min(1.5, Math.round((z + 0.1) * 100) / 100))} aria-label={copy(pc, "studio.flow.zoom_in")}>
-          <Plus size={14} />
+          <Iconify icon="mingcute:add-line" width={14} />
         </button>
         <button type="button" className="btn sm ghost" onClick={fit}>
-          <Scan size={14} /> {copy(pc, "studio.flow.fit")}
+          <Iconify icon="carbon:fit-to-screen" width={14} /> {copy(pc, "studio.flow.fit")}
         </button>
         <span className="muted small studio-flow-hint">{hint ?? copy(pc, "studio.flow.select_hint")}</span>
       </div>

@@ -26,25 +26,7 @@ import Tooltip from "@mui/material/Tooltip";
 import { isPushCapable } from "@/lib/push-capable";
 import Link from "@/components/no-prefetch-link";
 import { Suspense, lazy, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import {
-  AlertTriangle,
-  AtSign,
-  Bell,
-  BellOff,
-  CalendarClock,
-  Check,
-  CheckCheck,
-  ClipboardList,
-  Clock,
-  HeartPulse,
-  Inbox,
-  MessageSquare,
-  Scale,
-  Settings,
-  Truck,
-  User,
-  Wheat,
-} from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import { cx } from "@/lib/tone";
 import { IconBadge } from "@/components/app/icon-badge";
 import { NotificationRowsSkeleton } from "./notification-skeleton";
@@ -63,19 +45,19 @@ import {
 import "./notification-panel.css";
 
 const ICONS: Record<NotificationIconName, ReactNode> = {
-  bell: <Bell />,
-  clock: <Clock />,
-  check: <Check />,
-  "at-sign": <AtSign />,
-  message: <MessageSquare />,
-  clipboard: <ClipboardList />,
-  "heart-pulse": <HeartPulse />,
-  wheat: <Wheat />,
-  truck: <Truck />,
-  scale: <Scale />,
-  calendar: <CalendarClock />,
-  alert: <AlertTriangle />,
-  user: <User />,
+  bell: <Iconify icon="solar:bell-bing-bold" />,
+  clock: <Iconify icon="solar:clock-circle-bold" />,
+  check: <Iconify icon="eva:checkmark-fill" />,
+  "at-sign": <Iconify icon="solar:letter-bold" />,
+  message: <Iconify icon="solar:chat-round-dots-bold" />,
+  clipboard: <Iconify icon="solar:bill-list-bold" />,
+  "heart-pulse": <Iconify icon="solar:medical-kit-bold" />,
+  wheat: <Iconify icon="custom:fast-food-fill" />,
+  truck: <Iconify icon="carbon:delivery" />,
+  scale: <Iconify icon="solar:dumbbell-large-minimalistic-bold" />,
+  calendar: <Iconify icon="solar:sort-by-time-bold-duotone" />,
+  alert: <Iconify icon="solar:danger-triangle-bold" />,
+  user: <Iconify icon="solar:user-rounded-bold" />,
 };
 
 /** The ⚙ section, fetched the first time it is opened (it carries `firebase/messaging`). */
@@ -175,7 +157,7 @@ export function NotificationPanel({
     </Tooltip>
   );
 
-  const emptyIcon = !feed.available ? <BellOff /> : tab === "unread" ? <CheckCheck /> : <Inbox />;
+  const emptyIcon = !feed.available ? <Iconify icon="solar:bell-off-bold" /> : tab === "unread" ? <Iconify icon="eva:done-all-fill" /> : <Iconify icon="solar:inbox-bold" />;
   const emptyText = !feed.available ? centreCopy.unavailable : tab === "unread" ? centreCopy.emptyUnread : centreCopy.empty;
 
   return (
@@ -183,8 +165,8 @@ export function NotificationPanel({
       {/* The title and the close button are the template drawer header (MinimalDrawer in the bell);
           this row carries the centre's own actions. */}
       <div className="nc-head">
-        {iconButton(centreCopy.markAllRead, <CheckCheck size={20} aria-hidden="true" />, onMarkAllRead, busy || !hasUnread, "primary")}
-        {showPush ? iconButton(centreCopy.settings, <Settings size={20} aria-hidden="true" />, () => setPushOpen((v) => !v), false, "default", pushOpen) : null}
+        {iconButton(centreCopy.markAllRead, <Iconify icon="eva:done-all-fill" width={20} />, onMarkAllRead, busy || !hasUnread, "primary")}
+        {showPush ? iconButton(centreCopy.settings, <Iconify icon="solar:settings-bold" width={20} />, () => setPushOpen((v) => !v), false, "default", pushOpen) : null}
       </div>
 
       {showPush && pushOpen ? (
@@ -212,7 +194,7 @@ export function NotificationPanel({
 
       {errorCode ? (
         <div className="nc-error" role="alert">
-          <AlertTriangle aria-hidden="true" />
+          <Iconify icon="solar:danger-triangle-bold" />
           <span>{centreCopy.error}</span>
           <button type="button" className="nc-error-retry" onClick={onRefresh} disabled={loading}>
             {centreCopy.refresh}
@@ -357,7 +339,7 @@ function NotificationRow({
           <>
             <span className="nc-dot" aria-hidden="true" />
             <button type="button" className="nc-ibtn nc-ibtn-row" onClick={() => onMarkRead(item.notification_request_id)} disabled={busy} title={centreCopy.markRead} aria-label={centreCopy.markRead}>
-              <Check aria-hidden="true" />
+              <Iconify icon="eva:checkmark-fill" />
             </button>
           </>
         )}
