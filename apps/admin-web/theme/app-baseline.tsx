@@ -5,6 +5,7 @@ import GlobalStyles from '@mui/material/GlobalStyles';
 import { layoutClasses } from '@/layouts/core/classes';
 
 import { MESHA_TOKENS_DARK, MESHA_TOKENS_LIGHT } from './mesha-tokens';
+import { PHONE_STICKY_EDGES_QUERY, phoneStickyEdgeCells } from '@/components/app/table/sticky-first-column';
 
 // ----------------------------------------------------------------------
 
@@ -27,7 +28,10 @@ import { MESHA_TOKENS_DARK, MESHA_TOKENS_LIGHT } from './mesha-tokens';
  *    card instead of crushing (the template tables that set their own min width win).
  * 5. The Dense switch of server-paged tables (DenseToggleAuto, ProcurementTableFooter) marks its
  *    table host `data-dense`; its body cells take MUI's small-table padding.
- * 6. Route progress affordances the shell toggles on <html> / links (`route-busy`,
+ * 6. Phones: the first (identity) and last (action) cells of every page-content table stay pinned
+ *    while it scrolls sideways (components/app/table/sticky-first-column; was minimal-theme.css
+ *    `.tablewrap` :first-child/:last-child, J3B N-P1-1; guard sticky-edges-phone).
+ * 7. Route progress affordances the shell toggles on <html> / links (`route-busy`,
  *    `data-route-pending`) and the theme hand-off (`theme-switching`), plus reduced motion.
  */
 const CONTENT = `.${layoutClasses.content}`;
@@ -35,7 +39,7 @@ const CONTENT = `.${layoutClasses.content}`;
 export function AppBaseline() {
   return (
     <GlobalStyles
-      styles={{
+      styles={(theme) => ({
         ':root': { ...MESHA_TOKENS_DARK, colorScheme: 'dark' },
         ':root.light': { ...MESHA_TOKENS_LIGHT, colorScheme: 'light' },
         '*, *::before, *::after': { boxSizing: 'border-box' },
@@ -56,7 +60,10 @@ export function AppBaseline() {
           outline: '2px solid color-mix(in srgb, var(--primary) 80%, transparent)',
           outlineOffset: 2,
         },
-        '@media (max-width: 640px)': {
+        // One phone block: the sticky table edges share the input rules' 640px query (a second
+        // 640px media key would replace this one).
+        [PHONE_STICKY_EDGES_QUERY]: {
+          ...phoneStickyEdgeCells(`${CONTENT} table`, theme),
           'input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select, textarea': { fontSize: 16 },
           '[role="dialog"] input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"])': { minHeight: 'var(--tap-min)' },
         },
@@ -106,7 +113,7 @@ export function AppBaseline() {
             scrollBehavior: 'auto !important',
           },
         },
-      }}
+      })}
     />
   );
 }

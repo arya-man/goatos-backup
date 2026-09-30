@@ -10,6 +10,7 @@ export {
   HeadingSkeleton,
   KanbanSkeleton,
   StackSkeleton,
+  StackedRowsSkeleton,
   StatGridCardSkeleton,
   ToolbarSkeleton,
   ChartCardSkeleton,

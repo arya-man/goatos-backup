@@ -247,3 +247,21 @@ test("guard: panel-fallback-twin - fallbackTwinFails flags a jump and a mis-shap
   assert.deepEqual(fallbackTwinFails({ maxTargetShift: 0, fallback: { skeleton: { ...box(300, 390), table: true }, loaded: { ...box(300, 192), table: true } } }), []);
   assert.ok(isP0("interact|Tab|fallback-jump") && isP0("interact|Filter link|fallback-shape") && isP0("interact|Tab|stale-panel"));
 });
+
+// guard: pager-tap + fallback-outside (FIXJ11, J3B N-P1-2 / N-P1-3 / P2-2)
+test("guard: pager-tap - a pager that leaves the thumb or a mis-shaped rows skeleton fails, P0", async () => {
+  const { pagerFails, outsidePanelFails, PAGER_JUMP_PX, isP0 } = await import("./r2-visual-audit.mjs");
+  const box = (y, h, w = 358) => ({ x: 16, y, w, h });
+  assert.equal(PAGER_JUMP_PX, 40);
+  // the pager stayed put and the skeleton has the rows' shape
+  assert.deepEqual(pagerFails({ maxPagerShift: 12, maxTargetShift: 900, fallback: { skeleton: box(0, 700), loaded: box(0, 720) } }), [], "doc offsets of the arrow do not count for a pager");
+  // /people: scroll 2232 -> 1078 while the cards were a desktop table skeleton
+  assert.deepEqual(pagerFails({ maxPagerShift: 1154, scroll: { clickScroll: 2232, nowScroll: 923 } }).map((f) => f[0]), ["pager-jump"]);
+  // /counts/breakdown page 2: 78px taller rows above the pager
+  assert.deepEqual(pagerFails({ maxPagerShift: 78 }).map((f) => f[0]), ["pager-jump"]);
+  // a 6-column table skeleton standing in for a phone card list (IoU < 0.8)
+  assert.deepEqual(pagerFails({ maxPagerShift: 0, fallback: { skeleton: box(0, 200, 358), loaded: box(0, 844, 358) } }).map((f) => f[0]), ["pager-shape"]);
+  assert.deepEqual(outsidePanelFails({ outside: null }), []);
+  assert.deepEqual(outsidePanelFails({ outside: "div.MuiCardHeader-root" }).map((f) => f[0]), ["fallback-outside"]);
+  assert.ok(isP0("interact|Pager|pager-jump") && isP0("interact|Pager|pager-shape") && isP0("interact|Tab|fallback-outside"));
+});

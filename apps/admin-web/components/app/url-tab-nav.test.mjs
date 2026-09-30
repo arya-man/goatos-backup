@@ -54,6 +54,29 @@ test("an ALL_PARAMS panel suspends on any param change but the ignored ones, and
   assert.equal(changesWatchedParams("/weighing/analytics?tab=breed&park=a&sex=all", here, watch, ignore), true, "a param that appears counts");
   assert.equal(changesWatchedParams("/weighing/analytics?park=a&tab=breed&wt_export=1", here, watch, ignore), false);
   assert.equal(changesWatchedParams("/weighing/weights?tab=shed", here, watch, ignore), false, "another route is not this panel's navigation");
-  assert.equal(watchedParamsKey({ tab: "breed", park: "a", drawer: "x" }, watch, ignore), "park=a&tab=breed");
+  assert.equal(watchedParamsKey({ tab: "breed", park: "a", drawer: "x" }, watch, ignore), "park=a&scope_mode=park&tab=breed", "the scope pair is always keyed (scope-default-equivalent)");
   assert.equal(watchedParamsKey("?park=a&tab=breed", watch, ignore), watchedParamsKey({ tab: "breed", park: "a" }, watch, ignore));
+});
+
+// guard: scope-default-equivalent (FIXJ11, J3B N-P1-3). scopeHref spells `scope_mode=company` out on
+// every link; on a page opened without it (/vaccination), a pen status tab must not look like a
+// scope change to the inventory / command-board panels above the pen table (they swapped to their
+// skeletons and re-keyed: CLS 3.17).
+test("the default top-bar scope spelled out is the same panel key; a real scope change is not", async () => {
+  const { watchedParamsKey, changesWatchedParams } = await import("./url-tab-nav.ts");
+  const scope = ["park", "scope_mode"];
+  assert.equal(watchedParamsKey("", scope), watchedParamsKey("scope_mode=company", scope));
+  assert.equal(watchedParamsKey("park=all", scope), watchedParamsKey("scope_mode=company", scope));
+  assert.equal(watchedParamsKey("park=p1", scope), watchedParamsKey("scope_mode=park&park=p1", scope));
+  assert.notEqual(watchedParamsKey("", scope), watchedParamsKey("scope_mode=park&park=p1", scope));
+  assert.notEqual(watchedParamsKey("scope_mode=company", scope), watchedParamsKey("scope_mode=park", scope));
+  const here = { href: "http://x.test/vaccination" };
+  assert.equal(changesWatchedParams("/vaccination?scope_mode=company&sheds_status=overdue&sheds_page=1#sheds", here, scope), false, "pen tab leaves the scope panels alone");
+  assert.equal(changesWatchedParams("/vaccination?scope_mode=company&sheds_status=overdue", here, ["sheds_status", ...scope]), true, "the pen table still suspends");
+  assert.equal(changesWatchedParams("/vaccination?scope_mode=park&park=p1", here, scope), true, "a park pick still suspends");
+  // ALL_PARAMS panels: a param present on one side only still counts, but the spelled-out default does not.
+  assert.equal(changesWatchedParams("/counts/herd?scope_mode=company", { href: "http://x.test/counts/herd" }, ["*"]), false);
+  assert.equal(changesWatchedParams("/counts/herd?scope_mode=company&cursor=abc", { href: "http://x.test/counts/herd" }, ["*"]), true);
+  // ...and the SERVER key (UrlSuspense's Suspense key) agrees, so the boundary is not re-keyed on landing.
+  assert.equal(watchedParamsKey({ status: "active" }, ["*"]), watchedParamsKey({ status: "active", scope_mode: "company" }, ["*"]));
 });

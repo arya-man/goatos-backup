@@ -277,6 +277,34 @@ export function fallbackTwinFails(watch) {
   return out;
 }
 
+/**
+ * pager-tap (FIXJ11, J3B N-P1-2 + P2-2): at 390 the reader taps a pager's Next with the pager
+ * under the thumb. Through the whole page change (every 100ms sample, and once settled) the pager
+ * stays within PAGER_JUMP_PX of where it was tapped (while the pager itself is swapped out, the
+ * page scroll must stay within it), and the click-time skeleton has the landed rows' shape
+ * (IoU >= FALLBACK_TWIN_IOU). /people swapped its phone cards for a 6-column desktop table skeleton
+ * and dropped the reader 1150px; the /vaccination pen table and the herd register skeleton rows were
+ * shorter than the loaded rows; /counts/breakdown's page 2 grew 78px under the thumb.
+ */
+export const PAGER_JUMP_PX = 40;
+export function pagerFails(watch) {
+  const out = [];
+  if (!watch) return out;
+  if (watch.maxPagerShift > PAGER_JUMP_PX) out.push(["pager-jump", `the pager moved ${watch.maxPagerShift}px under the thumb during the page change (scroll ${watch.scroll?.clickScroll} -> ${watch.scroll?.nowScroll})`]);
+  for (const [code, msg] of fallbackTwinFails({ ...watch, maxTargetShift: 0 })) if (code === "fallback-shape") out.push(["pager-shape", msg]);
+  return out;
+}
+
+/**
+ * fallback-outside (FIXJ11, J3B N-P1-3): a control inside a card only ever swaps panels inside
+ * that card. A URL panel OUTSIDE the pressed control's card that goes pending during the
+ * transition (the /vaccination inventory card above the pen table turned into a table skeleton on
+ * a pen status tab) is a layout shift the reader did not ask for.
+ */
+export function outsidePanelFails(watch) {
+  return watch?.outside ? [["fallback-outside", `a panel outside the pressed control's card swapped to its skeleton (${watch.outside})`]] : [];
+}
+
 // P0 = blocks the visual gate (make admin-web-visual-gate / npm run visual:gate).
 export const P0_PATTERNS = [
   /^interact\|[^|]+\|(skeleton-flash|full-reload)$/, // full-page skeleton flash / document reload on a tab / filter change
@@ -289,6 +317,9 @@ export const P0_PATTERNS = [
   // panel-fallback-twin (J3 P1-1/P1-2): the pressed control stays put through the transition and
   // the click-time panel skeleton has the landed panel's shape (1440 dark AND 390 dark).
   /^interact\|[^|]+\|(fallback-jump|fallback-shape)$/,
+  // pager-tap + fallback-outside (FIXJ11): 390 pager taps keep the pager under the thumb with a
+  // skeleton of the rows' shape; no card outside the pressed control's card swaps to a skeleton.
+  /^interact\|[^|]+\|(pager-jump|pager-shape|fallback-outside)$/,
   /^dark-bright-bg\|/,
   /^off-palette\|/,
   /^chart-black\|/, // a chart series / legend mark whose colour never resolved (paints black)
@@ -476,6 +507,7 @@ function r2PageLib() {
   const ROOT = ".minimal__layout__main__content, main";
   const PAGE_WRAPPER_SELECTOR = "main, .minimal__layout__main__content, [data-page-column], .screen, [data-page-root], [data-skel-root]";
   const SKEL = ".MuiSkeleton-root, [data-skeleton], [class*='skeleton'], [class*='Skeleton']";
+  const PAGER_SEL = "[data-pager], .MuiTablePagination-root";
   let lastMutation = performance.now();
   const startObserver = () => {
     try { new MutationObserver(() => { lastMutation = performance.now(); }).observe(document.documentElement, { childList: true, subtree: true, attributes: true, characterData: true }); } catch {}
@@ -812,6 +844,27 @@ function r2PageLib() {
     const target = id ? document.querySelector(`[data-r2-i="${id}"]`) : null;
     w.target = target;
     w.maxTargetShift = 0;
+    // pager-tap: the pager root the tapped arrow sits in, and its index among the page's pagers
+    // (re-found by index while the pager itself is swapped out, when the pager count is unchanged).
+    const pagers = () => [...root().querySelectorAll(PAGER_SEL)].filter((p) => !p.parentElement?.closest(PAGER_SEL));
+    const pagerRoot = target && target.getAttribute("data-r2-kind") === "pager" ? target.closest(PAGER_SEL) : null;
+    w.pager = !!pagerRoot;
+    w.maxPagerShift = 0;
+    const pagerIndex = pagerRoot ? pagers().indexOf(pagerRoot) : -1;
+    const pagerCount = pagerRoot ? pagers().length : 0;
+    w.pagerTop = () => {
+      const now = pagers();
+      const el = pagerRoot && pagerRoot.isConnected ? pagerRoot : now.length === pagerCount ? now[pagerIndex] : null;
+      return el ? el.getBoundingClientRect().top : null;
+    };
+    w.pagerShift = () => {
+      if (!w.pager || w.clickPagerTop == null) return 0;
+      const top = w.pagerTop();
+      return Math.round(top != null ? Math.abs(top - w.clickPagerTop) : Math.abs(scrollY - w.clickScroll));
+    };
+    // fallback-outside: the pressed control's own card; pending panels outside it are a defect.
+    w.targetCard = target ? target.closest(".MuiCard-root") : null;
+    w.outside = null;
     w.onClick = () => {
       const t0 = performance.now();
       // tab-scroll-kept: where the page and the pressed control sat at the moment of the (last) click,
@@ -819,6 +872,7 @@ function r2PageLib() {
       w.clickScroll = scrollY;
       w.clickTop = target && target.isConnected ? target.getBoundingClientRect().top : null;
       w.clickDocTop = target && target.isConnected ? docRect(target).top : null;
+      w.clickPagerTop = w.pager ? w.pagerTop() : null;
       setTimeout(() => {
         const r = root();
         const landed = location.href !== w.url0;
@@ -855,6 +909,15 @@ function r2PageLib() {
       // transition, not just after it settles (a skeleton of another height moved the /vaccination
       // pen tabs 60px down and back; a header action on one desk only moved the /people strip).
       if (w.clickDocTop != null && target && target.isConnected) w.maxTargetShift = Math.max(w.maxTargetShift, Math.abs(docRect(target).top - w.clickDocTop));
+      if (w.pager) w.maxPagerShift = Math.max(w.maxPagerShift, w.pagerShift());
+      if (w.targetCard && w.clickScroll != null && !w.outside) {
+        for (const p of root().querySelectorAll("[data-url-panel][data-url-panel-pending]")) {
+          if (w.targetCard.contains(p) || p.contains(w.targetCard)) continue;
+          const first = [...p.querySelectorAll("*")].find((c) => c.getBoundingClientRect().height > 4);
+          w.outside = first ? sig(first) : "panel";
+          break;
+        }
+      }
       if (tabs && !tabs.isConnected) w.tabsGone = true;
     };
     w.timer = setInterval(sample, 100);
@@ -879,15 +942,16 @@ function r2PageLib() {
   function readWatch() {
     const w = window.__r2w; if (!w) return null;
     const landedBox = w.fallbackPanels && w.fallbackPanels.every((p) => p.isConnected) ? unionBox(w.fallbackPanels) : null;
+    if (w.pager) w.maxPagerShift = Math.max(w.maxPagerShift, w.pagerShift());
     clearInterval(w.timer); try { w.po?.disconnect(); } catch {}
     document.removeEventListener("click", w.onClick, true);
     const shift = (el, r) => { if (!el || !el.isConnected || !r) return 0; const n = docRect(el); return Math.max(Math.abs(n.top - r.top), Math.abs(n.left - r.left)); };
-    return { maxSkel: Math.round(w.maxSkel * 100) / 100, headerGone: w.headerGone || (w.header ? !w.header.isConnected : false), tabsGone: w.tabsGone || (w.tabs ? !w.tabs.isConnected : false), cls: Math.round(w.cls * 1000) / 1000, headerShift: Math.round(shift(w.header, w.headerRect)), tabsShift: Math.round(shift(w.tabs, w.tabsRect)), skelWhileHeaderGone: w.skelWhileHeaderGone, urlChanged: location.href !== w.url0, url: location.href, samples: w.samples, early: w.early.length ? w.early[w.early.length - 1] : null, maxTargetShift: Math.round(w.maxTargetShift || 0), fallback: w.fallbackBox && landedBox ? { skeleton: w.fallbackBox, loaded: landedBox } : null, scroll: w.clickScroll == null ? null : { clickScroll: Math.round(w.clickScroll), nowScroll: Math.round(scrollY), maxScroll: Math.round(document.documentElement.scrollHeight - innerHeight) } };
+    return { maxSkel: Math.round(w.maxSkel * 100) / 100, headerGone: w.headerGone || (w.header ? !w.header.isConnected : false), tabsGone: w.tabsGone || (w.tabs ? !w.tabs.isConnected : false), cls: Math.round(w.cls * 1000) / 1000, headerShift: Math.round(shift(w.header, w.headerRect)), tabsShift: Math.round(shift(w.tabs, w.tabsRect)), skelWhileHeaderGone: w.skelWhileHeaderGone, urlChanged: location.href !== w.url0, url: location.href, samples: w.samples, early: w.early.length ? w.early[w.early.length - 1] : null, maxTargetShift: Math.round(w.maxTargetShift || 0), pager: w.pager, maxPagerShift: Math.round(w.maxPagerShift || 0), outside: w.outside, fallback: w.fallbackBox && landedBox ? { skeleton: w.fallbackBox, loaded: landedBox } : null, scroll: w.clickScroll == null ? null : { clickScroll: Math.round(w.clickScroll), nowScroll: Math.round(scrollY), maxScroll: Math.round(document.documentElement.scrollHeight - innerHeight) } };
   }
 
   /** Tab + filter candidates in the content column (marked with data-r2-i). */
-  function interactionCandidates(maxTabs, maxFilters) {
-    document.querySelectorAll("[data-r2-i]").forEach((e) => e.removeAttribute("data-r2-i"));
+  function interactionCandidates(maxTabs, maxFilters, maxPagers = 0) {
+    document.querySelectorAll("[data-r2-i]").forEach((e) => { e.removeAttribute("data-r2-i"); e.removeAttribute("data-r2-kind"); });
     const r0 = root(); const out = []; let i = 0;
     const mark = (el, c) => { el.setAttribute("data-r2-i", String(++i)); out.push({ ...c, id: String(i), label: (el.innerText || el.getAttribute("aria-label") || "").trim().replace(/\s+/g, " ").slice(0, 40) }); };
     const inView = (el) => { const b = el.getBoundingClientRect(); return b.width > 0 && b.height > 0 && visible(el); };
@@ -915,6 +979,18 @@ function r2PageLib() {
       if (t >= 2) break;
       if (el.closest("table, [role=dialog]") || !inView(el) || DESTRUCTIVE_RE.test(el.innerText || "")) continue;
       mark(el, { kind: "filter-toggle" }); t++;
+    }
+    // pager-tap (390): the Next arrow of the first pagers that can advance (one per pager).
+    let pg = 0;
+    const seenPagers = new Set();
+    for (const el of r0.querySelectorAll(`:is(${PAGER_SEL}) :is(a, button)[aria-label]`)) {
+      if (pg >= maxPagers) break;
+      const pager = el.closest(PAGER_SEL);
+      const label = el.getAttribute("aria-label") || "";
+      if (seenPagers.has(pager) || !/next/i.test(label) || el.matches(".Mui-disabled, [disabled], [aria-disabled=true]") || el.closest("[role=dialog]") || !visible(el)) continue;
+      seenPagers.add(pager);
+      el.setAttribute("data-r2-kind", "pager");
+      mark(el, { kind: "pager", href: el.getAttribute("href") }); pg++;
     }
     return out;
   }
@@ -1069,6 +1145,9 @@ async function main() {
     });
     await ctx.addInitScript(([keys, theme]) => { try { for (const k of keys) localStorage.setItem(k, theme); } catch {} }, [forTemplate ? [TEMPLATE_THEME_KEY] : OUR_THEME_KEYS, profile.theme]);
     await ctx.addInitScript(r2PageLib);
+    // R2_ABORT_NON_GET=1: a context-level guard for audits against a shared API (every non-GET
+    // request, server actions included, is aborted before it leaves the browser).
+    if (process.env.R2_ABORT_NON_GET === "1" && !forTemplate) await ctx.route("**/*", (r) => (["GET", "HEAD"].includes(r.request().method()) ? r.fallback() : r.abort().catch(() => {})));
     return ctx;
   };
 
@@ -1372,18 +1451,26 @@ async function main() {
       let frames = [];
       client.on("Page.screencastFrame", ({ data, sessionId }) => { frames.push(data); client.send("Page.screencastFrameAck", { sessionId }).catch(() => {}); });
       await page.waitForFunction(() => window.__r2lib.quiet(800), null, { timeout: 5000, polling: 200 }).catch(() => {});
-      const first = await safeEval(page, ([t, f]) => window.__r2lib.interactionCandidates(t, f), [6, maxInteractions], []);
+      // pager-tap (FIXJ11): pagers are tapped at phone width only (the thumb case).
+      const maxPagers = profile.mobile ? 2 : 0;
+      const first = await safeEval(page, ([t, f, pg]) => window.__r2lib.interactionCandidates(t, f, pg), [6, maxInteractions, maxPagers], []);
       const tabs = first.filter((c) => c.kind === "tab");
       if (process.env.R2_DEBUG) log("candidates", route.route, JSON.stringify(first), await page.evaluate(() => [...document.querySelectorAll("[role=tab]")].map((t) => `${t.getAttribute("aria-selected")}:${t.checkVisibility({ opacityProperty: true, visibilityProperty: true })}:${!!t.closest(".minimal__layout__main__content, main")}`).join(" ")));
-      const filters = first.filter((c) => c.kind !== "tab");
+      const filters = first.filter((c) => c.kind !== "tab" && c.kind !== "pager");
+      const pagerCands = first.filter((c) => c.kind === "pager");
       let done = 0; const results = [];
-      const run = async (cand, reloadFirst) => {
-        if (done >= maxInteractions) return;
+      const run = async (cand, reloadFirst, uncapped = false) => {
+        if (done >= maxInteractions && !uncapped) return;
         if (reloadFirst) await gotoSettled(page, url);
-        const now = await safeEval(page, ([t, f]) => window.__r2lib.interactionCandidates(t, f), [6, maxInteractions], []);
+        const now = await safeEval(page, ([t, f, pg]) => window.__r2lib.interactionCandidates(t, f, pg), [6, maxInteractions, maxPagers], []);
         const cur = now.find((c) => c.kind === cand.kind && c.label === cand.label && (c.href ?? null) === (cand.href ?? null)) || now.find((c) => c.kind === cand.kind && c.label === cand.label);
         if (!cur) return;
         done++;
+        // pager-tap: the reader scrolled down to the pager; it sits mid-screen under the thumb.
+        if (cur.kind === "pager") {
+          await page.locator(`[data-r2-i="${cur.id}"]`).evaluate((el) => el.scrollIntoView({ block: "center" })).catch(() => {});
+          await sleep(400);
+        }
         if (!(await safeEval(page, (id) => !!window.__r2lib.armWatch(id), cur.id, false))) return;
         frames = [];
         await client.send("Page.startScreencast", { format: "jpeg", quality: 50, maxWidth: 720, everyNthFrame: 1 }).catch(() => {});
@@ -1419,7 +1506,8 @@ async function main() {
         const reloaded = !w;
         if (reloaded) w = { maxSkel: 0, headerGone: true, tabsGone: true, cls: 0, headerShift: 0, tabsShift: 0, skelWhileHeaderGone: false, url: page.url(), urlChanged: page.url() !== url };
         const routeChange = w.urlChanged && new URL(w.url).pathname !== new URL(url).pathname;
-        const kindLabel = cur.kind === "tab" ? (routeChange ? "Route tab" : "Tab") : cur.kind === "filter-link" ? "Filter link" : cur.kind === "filter-toggle" ? "Filter toggle/chip" : "Filter select";
+        const kindLabel = cur.kind === "tab" ? (routeChange ? "Route tab" : "Tab") : cur.kind === "pager" ? "Pager" : cur.kind === "filter-link" ? "Filter link" : cur.kind === "filter-toggle" ? "Filter toggle/chip" : "Filter select";
+        const isPager = cur.kind === "pager";
         const fails = [];
         if (reloaded) fails.push(["full-reload", "full document reload (whole page, shell and header re-render)"]);
         else if (w.maxSkel >= 0.45 || w.skelWhileHeaderGone) fails.push(["skeleton-flash", `full-page skeleton flash (${Math.round(w.maxSkel * 100)}% of the content column)`]);
@@ -1427,14 +1515,17 @@ async function main() {
         if (w.tabsGone && !reloaded) fails.push(["tabs-remount", "tabs remounted"]);
         if (!w.headerGone && (w.headerShift > 4 || w.tabsShift > 4)) fails.push(["layout-jump", `header/tabs moved ${Math.max(w.headerShift, w.tabsShift)}px`]);
         if (w.cls > 0.1) fails.push(["layout-shift", `layout shift ${w.cls}`]);
-        if (!reloaded && !routeChange && scrollJumped(w.scroll)) fails.push(["scroll-jump", `the page scrolled ${Math.abs(w.scroll.nowScroll - w.scroll.clickScroll)}px after the click (scroll ${w.scroll.clickScroll} -> ${w.scroll.nowScroll})`]);
+        if (!reloaded && !routeChange && !isPager && scrollJumped(w.scroll)) fails.push(["scroll-jump", `the page scrolled ${Math.abs(w.scroll.nowScroll - w.scroll.clickScroll)}px after the click (scroll ${w.scroll.clickScroll} -> ${w.scroll.nowScroll})`]);
         // url-keyed-panel: a same-route navigation must move the tab and show the panel skeleton
         // (or the answer) within 150ms — never the old panel frozen under a new tab.
         if (!reloaded && w.urlChanged && !routeChange && w.early) {
           if (cur.kind === "tab" && w.early.selected === false) fails.push(["tab-not-selected", "the pressed tab was not selected within 150ms"]);
           if (!w.early.landed && !w.early.skel) fails.push(["stale-panel", "150ms after the click the panel still showed the old content without a skeleton (the tab transition hangs)"]);
         }
-        if (!reloaded && !routeChange) fails.push(...fallbackTwinFails(w));
+        // A pager is judged by where the pager sits under the thumb (pager-jump, 40px) and by the
+        // rows' skeleton shape (pager-shape), not by the page's doc offsets.
+        if (!reloaded && !routeChange) fails.push(...(isPager ? pagerFails(w) : fallbackTwinFails(w)));
+        if (!reloaded && !routeChange) fails.push(...outsidePanelFails(w));
         let evidence = null;
         if (fails.length) evidence = rel(await contactSheet(frames, join(outDir, "frames", `${slug(route.route)}__${done}_${cur.kind}.jpg`)).catch(() => null));
         for (const [code, msg] of fails) add({ check: "interact", pattern: `interact|${kindLabel}|${code}`, label: `${kindLabel} click → ${msg.replace(/ \(.*\)$| \d+(\.\d+)?px$| [\d.]+$/, "")}`, route: route.route, profile: profile.label, detail: `"${cur.label}" ${cur.href ?? ""} → ${msg}`, evidence });
@@ -1453,6 +1544,9 @@ async function main() {
       }
       let firstFilter = true;
       for (const f of filters) { await run(f, page.url() !== url || (firstFilter && triedTabs.size > 0)); firstFilter = false; }
+      // pager-tap: every 390 pager tap runs on a fresh load (outside the interaction cap: the
+      // pager is the one control every list has, and the one no other gate tapped).
+      for (const pg of pagerCands) await run(pg, true, true);
       info.interactions = results;
     } finally { await ctx.close(); }
   }

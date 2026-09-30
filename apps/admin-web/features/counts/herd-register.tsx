@@ -367,7 +367,7 @@ export async function HerdRegisterPage({
         {/* The footer's dense switch is the one piece of client state this server table needs, so
             the table rides into DenseTable as a server subtree rather than the page going client. */}
         {/* The herd rows + pager: the card header and filters stay mounted. */}
-        <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={HERD_PANEL_IGNORE} fallback={<TableSkeleton bare header={false} columns={headCols.length || 9} rows={pageSize} />}>
+        <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={HERD_PANEL_IGNORE} fallback={<TableSkeleton bare header={false} lead="avatar" columns={headCols.length || 9} rows={pageSize} />}>
         <DenseTable
           pagination={{
             page: Math.max(0, page - 1),

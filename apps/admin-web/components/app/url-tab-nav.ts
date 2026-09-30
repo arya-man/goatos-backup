@@ -50,21 +50,36 @@ function paramKeys(search: SearchLike): string[] {
   return Object.keys(search).filter((key) => search[key] != null);
 }
 
+const PARK_PARAM = "park";
+const SCOPE_MODE_PARAM = "scope_mode";
+
 /**
  * Every value of each watched param, in a stable order: the identity of a URL-keyed panel.
  * `watch` may contain `ALL_PARAMS` ("*"): every param present on either side, minus `ignore`
  * (drawer / overlay / export params that never change the panel's data).
  */
 export function watchedParamsKey(search: SearchLike, watch: readonly string[], ignore: readonly string[] = [], extra: readonly string[] = []): string {
-  const read = (key: string): string[] => {
+  const raw = (key: string): string[] => {
     if (typeof search === "string" || search instanceof URLSearchParams) {
       return (typeof search === "string" ? new URLSearchParams(search) : search).getAll(key);
     }
     const value = search[key];
     return value == null ? [] : Array.isArray(value) ? value : [value];
   };
+  // scope-default-equivalent (FIXJ11, J3B N-P1-3): the top-bar scope is read the way lib/scope
+  // parseScope reads it, so a link that only spells the default out is the SAME panel. scopeHref
+  // always writes `scope_mode=company`; on /vaccination opened without it, a pen status tab href
+  // "changed" park/scope_mode, and every scope-keyed card above the pen table (inventory tasks,
+  // command board) swapped to its skeleton and re-keyed (CLS 3.17). `park=all` = no park;
+  // `scope_mode` absent = "park" when a park is set, else "company".
+  const read = (key: string): string[] => {
+    if (key === PARK_PARAM) return raw(PARK_PARAM).filter((v) => v !== "" && v !== "all");
+    if (key === SCOPE_MODE_PARAM) return [read(PARK_PARAM).length > 0 || raw(SCOPE_MODE_PARAM).includes("park") ? "park" : "company"];
+    return raw(key);
+  };
   const keys = watch.includes(ALL_PARAMS)
-    ? [...new Set([...watch.filter((key) => key !== ALL_PARAMS), ...paramKeys(search), ...extra])].filter((key) => !ignore.includes(key)).sort()
+    ? // The scope pair is always part of an ALL_PARAMS key, so its spelled-out default keys the same.
+      [...new Set([...watch.filter((key) => key !== ALL_PARAMS), ...paramKeys(search), ...extra, PARK_PARAM, SCOPE_MODE_PARAM])].filter((key) => !ignore.includes(key)).sort()
     : [...watch];
   return keys.map((key) => `${key}=${read(key).join(",")}`).join("&");
 }

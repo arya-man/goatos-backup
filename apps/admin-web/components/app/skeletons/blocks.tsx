@@ -550,7 +550,7 @@ export function ChartCardSkeleton({ height = 300, subheader = false, action = fa
 }
 
 /** Rows as a placeholder table body: the page's column count, `rows` per page. */
-function SkeletonTableBody({ columns, rows, dense }: { columns: number; rows: number; dense?: boolean }) {
+function SkeletonTableBody({ columns, rows, dense, lead }: { columns: number; rows: number; dense?: boolean; lead?: "avatar" | "two-line" }) {
   return (
     <Box sx={{ overflow: "hidden", minWidth: 0 }}>
       <Table size={dense ? "small" : "medium"} sx={{ tableLayout: "fixed", width: 1, minWidth: "0 !important" }}>
@@ -568,7 +568,23 @@ function SkeletonTableBody({ columns, rows, dense }: { columns: number; rows: nu
             <TableRow key={r}>
               {Array.from({ length: columns }, (_, c) => (
                 <TableCell key={c}>
-                  <Skeleton variant="text" width={c === 0 ? "76%" : wobble(r * 3 + c)} />
+                  {c === 0 && lead === "avatar" ? (
+                    // Template user row lead: 40px avatar, then the name (subtitle2) over a caption line.
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 2, minWidth: 0 }}>
+                      <Skeleton variant="circular" width={40} height={40} sx={{ flexShrink: 0 }} />
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <SkeletonLine variant="subtitle2" width="70%" />
+                        <SkeletonLine variant="body2" width="90%" />
+                      </Box>
+                    </Box>
+                  ) : c === 0 && lead === "two-line" ? (
+                    <Box sx={{ minWidth: 0 }}>
+                      <SkeletonLine variant="subtitle2" width="76%" />
+                      <SkeletonLine variant="body2" width="52%" />
+                    </Box>
+                  ) : (
+                    <Skeleton variant="text" width={c === 0 ? "76%" : wobble(r * 3 + c)} />
+                  )}
                 </TableCell>
               ))}
             </TableRow>
@@ -610,9 +626,15 @@ export function TableSkeleton({
   pager = true,
   dense = false,
   bare = false,
+  hideBelow,
+  lead,
   id,
   children,
 }: {
+  /** Not drawn below this breakpoint (the page shows a stacked phone list there: StackedRowsSkeleton). */
+  hideBelow?: "sm" | "md";
+  /** The first column's shape: "avatar" = the template user row (40px avatar + two lines); "two-line" = a name over a caption line (a pen over its park). Rows then have the loaded rows' height. */
+  lead?: "avatar" | "two-line";
   /** The section's anchor id, so a hash link lands on the placeholder while the section streams. */
   id?: string;
   columns: number;
@@ -637,14 +659,15 @@ export function TableSkeleton({
       {toolbar}
       {children}
       <Box sx={{ pt: header && !toolbar && !tabs && !children ? 3 : 0 }}>
-        <SkeletonTableBody columns={columns} rows={rows} dense={dense} />
+        <SkeletonTableBody columns={columns} rows={rows} dense={dense} lead={lead} />
       </Box>
       {pager ? <PagerSkeleton /> : null}
     </>
   );
-  if (bare) return <div id={id} data-skel="table">{body}</div>;
+  const display = hideBelow ? { xs: "none", [hideBelow]: "block" } : undefined;
+  if (bare) return <Box id={id} data-skel="table" sx={display ? { display } : undefined}>{body}</Box>;
   return (
-    <Card id={id} aria-hidden="true" data-skel="table" sx={{ overflow: "hidden" }}>
+    <Card id={id} aria-hidden="true" data-skel="table" sx={{ overflow: "hidden", ...(display ? { display } : {}) }}>
       {body}
     </Card>
   );
@@ -792,6 +815,58 @@ export function ListRowsSkeleton({ rows = 5, avatar = true, trailing = true, spa
         </Box>
       ))}
     </Stack>
+  );
+}
+
+/**
+ * Phone twin of a list that stacks below sm (one divider row per record instead of a table clipped
+ * at the card edge, e.g. the /people directory): each row is a subtitle2 name with an optional soft
+ * Label beside it, `lines` body2 lines, an optional Label line, and an optional 44px trailing action,
+ * on the page's own row padding (pl 2, pr 1, py 1.25, divider below). Shown only below `sm` unless
+ * `always`, so one fallback can pair it with the table twin from sm (FIXJ11, J3B N-P1-2: the /people
+ * pager showed a 6-column desktop table skeleton on phones and dropped the reader 1150px).
+ */
+export function StackedRowsSkeleton({
+  rows,
+  headLabel = false,
+  lines = 1,
+  tailLabel = false,
+  trailing = false,
+  always = false,
+}: {
+  rows: number;
+  /** A soft Label beside the name (a status). */
+  headLabel?: boolean;
+  /** body2 lines under the name. */
+  lines?: number;
+  /** A soft Label line last (a clock-in chip). */
+  tailLabel?: boolean;
+  /** A 44px trailing IconButton (row action). */
+  trailing?: boolean;
+  always?: boolean;
+}) {
+  return (
+    <Box aria-hidden="true" data-skel="rows" sx={{ display: always ? "block" : { xs: "block", sm: "none" }, borderTop: 1, borderColor: "divider" }}>
+      {Array.from({ length: rows }, (_, i) => (
+        <Box key={i} sx={{ display: "flex", alignItems: "center", gap: 1, pl: 2, pr: 1, py: 1.25, borderBottom: 1, borderColor: "divider" }}>
+          <Stack spacing={0.5} sx={{ flex: "1 1 auto", minWidth: 0, minHeight: "var(--tap-min)", justifyContent: "center" }}>
+            <Stack direction="row" spacing={1} sx={{ alignItems: "center", minWidth: 0 }}>
+              <SkeletonLine variant="subtitle2" width={wobble(i, 34, 24)} />
+              {headLabel ? <Skeleton variant="rounded" width={56} height={24} sx={{ flexShrink: 0 }} /> : null}
+            </Stack>
+            {Array.from({ length: lines }, (_, l) => (
+              <SkeletonLine key={l} variant="body2" width={wobble(i + l + 1, 52, 30)} />
+            ))}
+            {tailLabel ? <Skeleton variant="rounded" width={112} height={24} /> : null}
+          </Stack>
+          {trailing ? (
+            <Box sx={{ width: "var(--tap-min)", height: "var(--tap-min)", flexShrink: 0, display: "grid", placeItems: "center" }}>
+              <Skeleton variant="circular" width={20} height={20} />
+            </Box>
+          ) : null}
+        </Box>
+      ))}
+    </Box>
   );
 }
 

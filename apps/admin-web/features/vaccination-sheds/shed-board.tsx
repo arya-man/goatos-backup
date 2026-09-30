@@ -247,7 +247,7 @@ export async function VaccinationShedBoard({
 
       {/* The pen table (guard: url-keyed-panel): a status / capacity / search / page click swaps it
           to its skeleton at once; the section header, search and pill strips stay on screen. */}
-      <UrlSuspense searchParams={searchParams ?? {}} watch={SHED_TABLE_WATCH} fallback={<TableSkeleton columns={shedBoardColumns(pageContract)} rows={SHED_BOARD_PAGE_SIZE} />}>
+      <UrlSuspense searchParams={searchParams ?? {}} watch={SHED_TABLE_WATCH} fallback={<TableSkeleton bare header={false} lead="two-line" columns={shedBoardColumns(pageContract)} rows={pageSize} />}>
       <TabPanel tabKey={`${statusFilter ?? "all"}|${capacityFilter ?? "all"}`}>
       {!result.ok ? (
         <Alert severity="error" sx={{ mx: 2.5, mb: 2.5 }}>
@@ -415,7 +415,9 @@ export async function VaccinationShedBoard({
 // cell content sits above it without taking the click, and the checkbox / ⋮ cells stay on top.
 const ROW_LINK_SX = { position: "absolute", inset: 0, zIndex: 1 } as const;
 const CELL_CONTENT_SX = { position: "relative", zIndex: 2, pointerEvents: "none", display: "block", minWidth: 0 } as const;
-const ROW_CONTROL_SX = { position: "relative", zIndex: 3 } as const;
+// The checkbox (first) and ⋮ (last) cells sit above the stretched row link; on phones they are the
+// table's pinned edges (AppBaseline sticky-edges-phone: left / right 0 + paper), so `sticky` there.
+const ROW_CONTROL_SX = { position: { xs: "sticky", sm: "relative" }, zIndex: 3 } as const;
 
 /** The params the pen table reads. */
 const SHED_TABLE_WATCH = ["sheds_status", "sheds_capacity", "sheds_q", "sheds_page", "sheds_limit", "park", "scope_mode"] as const;

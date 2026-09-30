@@ -1,4 +1,5 @@
 import Box from "@mui/material/Box";
+import { visuallyHidden } from "@mui/utils";
 import { PageRoot } from "@/components/app/page-root";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
@@ -94,7 +95,10 @@ function DoneCell({ done, date, label, pageContract }: { done: boolean; date?: s
   );
 }
 
-const visuallyHidden = { border: 0, clip: "rect(0 0 0 0)", height: 1, width: 1, margin: -1, overflow: "hidden", padding: 0, position: "absolute", whiteSpace: "nowrap" } as const;
+// The MUI visually-hidden style (1px box). A hand-rolled `{ height: 1, width: 1, margin: -1 }` in sx
+// reads 1 as 100% and -1 as a -8px spacing step: every "Not done" label was a full-cell absolute box
+// hanging 19px under the last row, so the table's sideways scroller also scrolled 19px vertically
+// and ate the first vertical swipe (J3B P2-1; r2 `table-scroll|table-scroll-trap`).
 
 export async function CareCoverageBoard({
   searchParams,
