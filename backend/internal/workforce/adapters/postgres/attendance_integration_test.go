@@ -281,3 +281,28 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, '2026-09-29', '2026-09-29', 'Sick', 'pendi
 		t.Fatalf("a holiday raised %d violations", onHoliday)
 	}
 }
+
+// Date shift: a violation belongs to the day it HAPPENED, not the day it was recorded, and a leave
+// that spans a month boundary is split across both months -- the per-person totals must never move
+// a fact into the month someone got round to typing it.
+func TestPersonTotalsDateShiftCountsTheDayItHappenedWithDockerPostgres(t *testing.T) {
+	f := dsSeed(t)
+	f.exec(`INSERT INTO workforce_violations (tenant_id, workforce_member_id, park_id, type_key, type_label, fine_rupees, occurred_on, source, sop_version, recorded_by, recorded_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'late', 'Late to shift', 150, '2026-08-31', 'manual', 2, $4::uuid, '2026-09-02 10:00+05:30')`, dsTenant, dsMember(0), dsCPT, dsHRUser)
+	f.exec(`INSERT INTO workforce_leave_requests (tenant_id, workforce_member_id, park_id, starts_on, ends_on, reason, status,
+  raised_by_user_id, idempotency_key, request_fingerprint)
+VALUES ($1::uuid, $2::uuid, $3::uuid, '2026-08-30', '2026-09-02', 'x', 'pending', $2::uuid, 'lv-shift-1', 'fp')`, dsTenant, dsMember(0), dsCPT)
+	for _, c := range []struct {
+		month          string
+		count, fine, d int
+	}{{"2026-08", 1, 150, 2}, {"2026-09", 0, 0, 2}} {
+		page, err := f.svc.Violations(f.ctx, dsTenant, dsHR, "", c.month, "", "", "", 0, "t")
+		if err != nil || len(page.ByPerson) != 1 {
+			t.Fatalf("%s by person = %+v %v", c.month, page.ByPerson, err)
+		}
+		p := page.ByPerson[0]
+		if p.Count != c.count || p.FineRupees != c.fine || p.LeavePendingDays != c.d {
+			t.Fatalf("%s: Amit = %+v, want %d violations, ₹%d, %d days applied", c.month, p, c.count, c.fine, c.d)
+		}
+	}
+}
