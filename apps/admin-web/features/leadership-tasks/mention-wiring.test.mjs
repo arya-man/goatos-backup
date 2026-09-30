@@ -6,7 +6,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
-const commentForm = read("./task-write-forms.tsx");
+// The composer is the in-place Activity composer (the retired `TaskCommentForm` in
+// task-write-forms.tsx had no caller and was deleted with FIXJ3).
+const commentForm = read("./task-activity-composer.tsx");
 const actions = read("./actions.ts");
 // The composer lives in the selected-task RAIL, which moved out of the page into its own
 // component when the status board landed (2026-09-18). The candidate list still has to be handed

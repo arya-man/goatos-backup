@@ -2,7 +2,7 @@
 
 import { FOUR_LANE_COLUMN_WIDTH } from "@/components/app/kanban/board-layout";
 import { visuallyHidden } from "@mui/utils";
-import { useCallback, useRef, useState, useTransition, type CSSProperties } from "react";
+import { useCallback, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import {
   DndContext,
@@ -404,7 +404,7 @@ export function TaskBoardColumns({
                     ) : column.emptyMessage ? (
                       // An empty template column is the bare list: the message is for screen
                       // readers only, never a dashed "Nothing here" box (TR1-#24).
-                      <Box component="li" className="ltb-colempty sr-only">
+                      <Box component="li" className="ltb-colempty" sx={visuallyHidden}>
                         {column.emptyMessage}
                       </Box>
                     ) : null}
@@ -487,12 +487,10 @@ function DraggableTaskCard({
 }
 
 /** The overlay wrapper only carries the grabbing hand; the card inside draws the template lift. */
-const OVERLAY_STYLE: CSSProperties = { cursor: "grabbing" };
-
 function BoardDragOverlay({ children }: { children: React.ReactNode }) {
   const overlay = (
-    <DragOverlay className="ltb-drag-overlay" style={OVERLAY_STYLE} zIndex={1500}>
-      {children}
+    <DragOverlay className="ltb-drag-overlay" zIndex={1500}>
+      {children ? <Box sx={{ cursor: "grabbing" }}>{children}</Box> : null}
     </DragOverlay>
   );
   return typeof document === "undefined" ? overlay : createPortal(overlay, document.body);

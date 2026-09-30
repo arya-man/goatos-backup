@@ -35,10 +35,14 @@
  * MOBILE (390px, WhatsApp in-app webview): see the picker module; the popup lives inside this
  * component's own relative wrapper so it cannot overflow the viewport.
  *
- * STYLING: existing shared classes only (`.fld`, `.pm-hint`).
+ * STYLING: the template outlined multiline TextField (label, helper line = the backend's hint), in a
+ * relative Box the popup anchors to. The textarea is the TextField's own `<textarea>` (its
+ * `inputRef`), still named and uncontrolled-by-the-form.
  */
 
 import { lazy, Suspense, useCallback, useId, useMemo, useRef, useState } from "react";
+import Box from "@mui/material/Box";
+import TextField from "@mui/material/TextField";
 import type { MentionComposerCopy } from "./notification-copy";
 import {
   MENTION_TRIGGER,
@@ -68,6 +72,7 @@ export function MentionTextarea({
   required = false,
   placeholder,
   textareaId,
+  label,
   onValueChange,
 }: {
   /** The textarea's form field name, e.g. the comment body. */
@@ -86,6 +91,8 @@ export function MentionTextarea({
   /** Backend-owned copy from the caller's page contract. */
   placeholder?: string;
   textareaId?: string;
+  /** The field's visible label (the TextField label), from the caller's page contract. */
+  label?: string;
   /** Fires on every keystroke and every pick, with both halves of the value. */
   onValueChange?: (value: MentionValue) => void;
 }) {
@@ -177,31 +184,31 @@ export function MentionTextarea({
   const mentionedIds = useMemo(() => selectedMentionUserIds(text, selections), [selections, text]);
 
   return (
-    <div className="fld" style={{ position: "relative" }}>
-      <textarea
-        ref={textareaRef}
+    <Box sx={{ position: "relative", minWidth: 0 }}>
+      <TextField
+        inputRef={textareaRef}
         id={fieldId}
         name={name}
+        label={label}
+        multiline
         rows={rows}
-        maxLength={maxLength}
+        fullWidth
         required={required}
         placeholder={placeholder}
         value={text}
-        role="combobox"
-        aria-expanded={popup.open}
-        aria-controls={listId}
-        aria-autocomplete="list"
-        aria-activedescendant={popup.activeDescendant}
-        onChange={(event) =>
-          syncFromField(event.target.value, event.target.selectionStart ?? event.target.value.length)
-        }
+        helperText={composerCopy.hint}
+        onChange={(event) => {
+          const field = event.target as HTMLTextAreaElement;
+          syncFromField(field.value, field.selectionStart ?? field.value.length);
+        }}
         onKeyDown={(event) => {
           // The picker gets first refusal on navigation keys while its popup is open; everything
           // else, and every key at all before the chunk lands, behaves like a plain textarea.
-          keyHandlerRef.current?.(event);
+          keyHandlerRef.current?.(event as unknown as React.KeyboardEvent<HTMLTextAreaElement>);
         }}
         onClick={(event) => {
-          const field = event.currentTarget;
+          const field = event.target as HTMLTextAreaElement;
+          if (field.tagName !== "TEXTAREA") return;
           setCaret(field.selectionStart ?? field.value.length);
           setSuppressed(false);
           if (field.value.includes(MENTION_TRIGGER)) setPickerWanted(true);
@@ -211,10 +218,19 @@ export function MentionTextarea({
           // onMouseDown so the pick lands before focus leaves.
           setSuppressed(true);
         }}
+        slotProps={{
+          inputLabel: { shrink: true },
+          htmlInput: {
+            maxLength,
+            role: "combobox",
+            "aria-expanded": popup.open,
+            "aria-controls": listId,
+            "aria-autocomplete": "list",
+            "aria-activedescendant": popup.activeDescendant,
+          },
+          formHelperText: { sx: { mx: 0 } },
+        }}
       />
-      <span className="pm-hint" style={{ display: "block", padding: "2px 0 0", border: 0, margin: 0 }}>
-        {composerCopy.hint}
-      </span>
 
       {/* The ids that actually travel. Comma-separated so a Server Action can read one field.
           Server-rendered with the textarea, so the pair is always posted together. */}
@@ -241,6 +257,6 @@ export function MentionTextarea({
           />
         </Suspense>
       ) : null}
-    </div>
+    </Box>
   );
 }

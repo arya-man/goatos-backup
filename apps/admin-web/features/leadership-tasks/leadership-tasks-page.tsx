@@ -32,8 +32,6 @@ import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import { KanbanSkeleton, TableSkeleton } from "@/components/app/skeletons";
 import { RetryButton } from "@/components/app/retry-button";
 import { NewTaskModal } from "./new-task-modal";
-// The New task / Edit task dialog fields (`.lt-modal .fld` label anatomy) still read this sheet.
-import "./leadership-tasks-kit.css";
 import {
   hasTaskFilters,
   hasTaskNarrowing,

@@ -98,7 +98,7 @@ export function TaskDetailPanel({
 
   if (!detail) {
     return (
-      <Box component="aside" className="ltd-panel ltd-panel-empty" aria-label={copy(pageContract, "section.selected.title")} sx={{ p: 3 }}>
+      <Box component="aside" className="ltd-panel" data-ltd-empty-panel="true" aria-label={copy(pageContract, "section.selected.title")} sx={{ p: 3 }}>
         <EmptyContent
           title={copy(pageContract, "empty.selected")}
           description={[
@@ -158,14 +158,14 @@ export function TaskDetailPanel({
         <Box component="span" sx={{ flexGrow: 1 }} />
         <Box className="ltd-top-actions" sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
           {detail.canEdit ? (
-            <span data-testid="ltd-edit" style={{ display: "contents" }}>
+            <Box component="span" data-testid="ltd-edit" sx={{ display: "contents" }}>
               <EditTaskModal
                 task={detail}
                 pageContract={pageContract}
                 action={editLeadershipTaskAction}
                 returnTo={returnTo}
               />
-            </span>
+            </Box>
           ) : null}
           {/* In the drawer (onClose given) the template drawer header owns the one close button. */}
           {onClose ? null : (

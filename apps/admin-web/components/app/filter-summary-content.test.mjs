@@ -18,8 +18,9 @@ const walk = (dir) => {
 };
 walk(join(root, "features"));
 walk(join(root, "components"));
-// Always has visible content ("{shown} / {total}" count line), so the strip is never empty.
-const ALWAYS_CONTENT = new Set(["features/leadership-tasks/task-table.tsx"]);
+// Files whose summary always has visible content (none left: the dead /tasks TaskTable, whose
+// "{shown} / {total}" line was the one entry, was deleted with FIXJ3).
+const ALWAYS_CONTENT = new Set([]);
 
 export function unconditionalSummaries(src) {
   if (!src.includes("<FilterBar")) return 0;

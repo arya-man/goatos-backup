@@ -1,7 +1,7 @@
 "use client";
 
-import { FileText, Image, Mic, Plus, X } from "lucide-react";
 import { useCallback, useId, useRef, useState } from "react";
+import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Dialog from "@mui/material/Dialog";
 import DialogContent from "@mui/material/DialogContent";
@@ -10,11 +10,13 @@ import IconButton from "@mui/material/IconButton";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 
-import { Iconify } from "@/components/minimal/iconify";
 import { AssigneePicker } from "@/components/assignee-picker";
+import { ASSIGNEE_FIELD_SX } from "@/components/app/assignee-field-sx";
+import { Iconify } from "@/components/minimal/iconify";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { LeadershipTaskAssignee } from "@/lib/api/server";
 import { useBackCloses } from "@/components/use-back-closes";
+import { TaskAttachmentPickers, TaskField, type TaskAttachmentPicker } from "./task-form-parts";
 import { TaskDeadlineFields } from "./task-write-forms";
 
 /**
@@ -77,24 +79,19 @@ export function NewTaskModal({
 
   useBackCloses(open, closeModal);
 
-  const pickers: Array<{
-    key: string;
-    label: string;
-    accept: string;
-    icon: typeof Mic;
-  }> = [
-    { key: "voice", label: text("picker.voice", "Voice note"), accept: "audio/*", icon: Mic },
+  const pickers: TaskAttachmentPicker[] = [
+    { key: "voice", label: text("picker.voice", "Voice note"), accept: "audio/*", icon: "solar:microphone-bold" },
     {
       key: "media",
       label: text("picker.media", "Photo or video"),
       accept: "image/*,video/*",
-      icon: Image,
+      icon: "solar:gallery-add-bold",
     },
     {
       key: "file",
       label: text("picker.file", "File"),
       accept: ".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt",
-      icon: FileText,
+      icon: "solar:file-text-bold",
     },
   ];
 
@@ -111,7 +108,7 @@ export function NewTaskModal({
           variant="contained"
           color="primary"
           onClick={openModal}
-          startIcon={<Plus className="ic" aria-hidden="true" />}
+          startIcon={<Iconify icon="mingcute:add-line" aria-hidden="true" />}
           aria-haspopup="dialog"
           aria-expanded={open}
         >
@@ -135,153 +132,132 @@ export function NewTaskModal({
         scroll="paper"
         aria-labelledby={headingId}
         slotProps={{
+          // `lt-modal` / `lt-modal-hd` are test hooks only (no stylesheet defines them).
           paper: { className: "lt-modal" },
           // The "For" picker is the first field: focus lands on it once the dialog has entered.
           transition: { onEntered: () => forRef.current?.querySelector<HTMLElement>("[aria-expanded]")?.focus() },
         }}
       >
-            <DialogTitle component="div" className="lt-modal-hd">
-              <Plus className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-              <Typography variant="h6" component="h3" id={headingId} sx={{ flexGrow: 1 }}>{text("new.title", "New task")}</Typography>
-              <IconButton
-                type="button"
-                onClick={closeModal}
-                aria-label={text("action.close", "Close")}
-              >
-                <X className="ic" aria-hidden="true" />
-              </IconButton>
-            </DialogTitle>
-            <DialogContent dividers sx={{ pt: 1 }}>
-            <form
-              action={action}
-              className="lt-modal-bd"
-              onSubmit={(event) => {
-                // The person is the one required field the browser cannot check itself (a hidden
-                // input is never validated), so the form checks it and says so in place.
-                if (!assigneeId) {
-                  event.preventDefault();
-                  setAssigneeMissing(true);
-                  forRef.current?.querySelector<HTMLElement>("[aria-expanded]")?.focus();
-                  return;
-                }
-                // The deadline is three parts (day, hour, minute) and the day picker is a hidden
-                // input the browser cannot check, so the form checks all three and says so in one
-                // sentence under the field, instead of the browser's bubble on the Hour box.
-                const data = new FormData(event.currentTarget);
-                const blank = ["deadline_date", "deadline_hour", "deadline_minute"].some(
-                  (key) => String(data.get(key) ?? "").trim() === "",
-                );
-                if (blank) {
-                  event.preventDefault();
-                  setDeadlineMissing(true);
-                  // Scrolled to, not focused: focusing the day field opens its calendar, which
-                  // adds a second red line under the field.
-                  event.currentTarget.querySelector<HTMLElement>(".lt-deadline")?.scrollIntoView({ block: "nearest" });
-                  return;
-                }
-                setDeadlineMissing(false);
-              }}
-            >
-              <input type="hidden" name="idempotency_key" value={idempotencyKey} />
-              <input type="hidden" name="return_to" value={returnTo} />
-              <div className="fld lt-for" ref={forRef}>
-                <span className="lt-fld-label">{text("new.for_field", "For")}</span>
-                <AssigneePicker
-                  mode="single"
-                  name="assignee_user_id"
-                  labels={{
-                    label: text("new.for_field", "For"),
-                    placeholder: text("new.for_placeholder", "Choose who this is for"),
-                    search: text("filter.people_search", "Type a name"),
-                    none: text("filter.people_no_matches", "Nobody by that name."),
-                  }}
-                  owners={assignees.map((assignee) => ({
-                    id: assignee.user_id,
-                    name: assignee.name,
-                    title: assignee.title,
-                  }))}
-                  selected={assigneeId || undefined}
-                  onSelect={(next) => {
-                    setAssigneeId(next ?? "");
-                    if (next) setAssigneeMissing(false);
-                  }}
-                  invalid={assigneeMissing}
-                  describedBy={assigneeMissing ? assigneeErrorId : undefined}
-                />
-                {assigneeMissing ? (
-                  <small id={assigneeErrorId} className="lt-fnote" role="alert">
-                    {text("feedback.missing_assignee", "Choose who the task is for.")}
-                  </small>
-                ) : chosen ? (
-                  <small className="lt-assignee-hint">
-                    {text("new.assigned_to", "Assigned to")} <b>{chosen.name}</b>
-                    {chosen.title ? <> — {chosen.title}</> : null}
-                  </small>
-                ) : null}
-              </div>
-              <div className="fld">
-                <TextField
-                  fullWidth
-                  name="title"
-                  label={text("new.title_field", "Title")}
-                  required
-                  value={title}
-                  onChange={(event) => setTitle(event.target.value)}
-                  slotProps={{ htmlInput: { maxLength: 80 }, inputLabel: { shrink: true } }}
-                />
-                <small className="lt-counter">{title.length} / 80</small>
-              </div>
-              <div className="fld">
-                <TextField
-                  fullWidth
-                  multiline
-                  rows={4}
-                  name="body"
-                  label={text("new.body_field", "Brief")}
-                  slotProps={{ htmlInput: { maxLength: 4000 }, inputLabel: { shrink: true } }}
-                />
-              </div>
-              <TaskDeadlineFields
-                pageContract={pageContract}
-                defaultLocal=""
-                min={deadlineMin.slice(0, 10) || undefined}
-                required
-                missing={deadlineMissing}
-                label={text("new.deadline_field", "Deadline")}
-                hint={text("new.deadline_hint", "Date and time the task is due, farm clock (IST).")}
+        <DialogTitle component="div" className="lt-modal-hd" sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+          <Iconify icon="mingcute:add-line" aria-hidden="true" sx={{ color: "primary.main", flex: "none" }} />
+          <Typography variant="h6" component="h3" id={headingId} sx={{ flexGrow: 1 }}>{text("new.title", "New task")}</Typography>
+          <IconButton
+            type="button"
+            onClick={closeModal}
+            aria-label={text("action.close", "Close")}
+            sx={{ mr: -1 }}
+          >
+            <Iconify icon="mingcute:close-line" aria-hidden="true" />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Box
+            component="form"
+            action={action}
+            sx={{ display: "grid", gap: "var(--sp-3)", py: 1 }}
+            onSubmit={(event: React.FormEvent<HTMLFormElement>) => {
+              // The person is the one required field the browser cannot check itself (a hidden
+              // input is never validated), so the form checks it and says so in place.
+              if (!assigneeId) {
+                event.preventDefault();
+                setAssigneeMissing(true);
+                forRef.current?.querySelector<HTMLElement>("[aria-expanded]")?.focus();
+                return;
+              }
+              // The deadline is three parts (day, hour, minute) and the day picker is a hidden
+              // input the browser cannot check, so the form checks all three and says so in one
+              // sentence under the field, instead of the browser's bubble on the Hour box.
+              const data = new FormData(event.currentTarget);
+              const blank = ["deadline_date", "deadline_hour", "deadline_minute"].some(
+                (key) => String(data.get(key) ?? "").trim() === "",
+              );
+              if (blank) {
+                event.preventDefault();
+                setDeadlineMissing(true);
+                // Scrolled to, not focused: focusing the day field opens its calendar, which
+                // adds a second red line under the field.
+                event.currentTarget.querySelector<HTMLElement>(".lt-deadline")?.scrollIntoView({ block: "nearest" });
+                return;
+              }
+              setDeadlineMissing(false);
+            }}
+          >
+            <input type="hidden" name="idempotency_key" value={idempotencyKey} />
+            <input type="hidden" name="return_to" value={returnTo} />
+            <TaskField label={text("new.for_field", "For")} ref={forRef} sx={ASSIGNEE_FIELD_SX}>
+              <AssigneePicker
+                mode="single"
+                name="assignee_user_id"
+                labels={{
+                  label: text("new.for_field", "For"),
+                  placeholder: text("new.for_placeholder", "Choose who this is for"),
+                  search: text("filter.people_search", "Type a name"),
+                  none: text("filter.people_no_matches", "Nobody by that name."),
+                }}
+                owners={assignees.map((assignee) => ({
+                  id: assignee.user_id,
+                  name: assignee.name,
+                  title: assignee.title,
+                }))}
+                selected={assigneeId || undefined}
+                onSelect={(next) => {
+                  setAssigneeId(next ?? "");
+                  if (next) setAssigneeMissing(false);
+                }}
+                invalid={assigneeMissing}
+                describedBy={assigneeMissing ? assigneeErrorId : undefined}
               />
-              <div className="fld">
-                <span className="lt-fld-label">{text("new.attachments", "Attachments")}</span>
-                <div className="lt-pickers">
-                  {pickers.map((picker) => {
-                    const Icon = picker.icon;
-                    const count = picked[picker.key] ?? 0;
-                    return (
-                      <label key={picker.key} className="btn lt-picker">
-                        <Icon className="ic" aria-hidden="true" />
-                        <span className="lt-picker-label">{picker.label}</span>
-                        {count ? <span className="cbq">{count}</span> : null}
-                        <input type="file"
-                          name="attachment_file"
-                          multiple
-                          accept={picker.accept}
-                          onChange={(event) =>
-                            setPicked((prev) => ({
-                              ...prev,
-                              [picker.key]: event.target.files?.length ?? 0,
-                            }))
-                          }
-                        />
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-              <Button type="submit" variant="contained" color="primary" className="lt-send">
-                {text("new.send", "Send")}
-              </Button>
-            </form>
-            </DialogContent>
+              {assigneeMissing ? (
+                <Typography id={assigneeErrorId} variant="caption" role="alert" sx={{ color: "error.main" }}>
+                  {text("feedback.missing_assignee", "Choose who the task is for.")}
+                </Typography>
+              ) : chosen ? (
+                <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                  {text("new.assigned_to", "Assigned to")}{" "}
+                  <Box component="b" sx={{ color: "text.primary" }}>{chosen.name}</Box>
+                  {chosen.title ? <> — {chosen.title}</> : null}
+                </Typography>
+              ) : null}
+            </TaskField>
+            <TextField
+              fullWidth
+              name="title"
+              label={text("new.title_field", "Title")}
+              required
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              helperText={`${title.length} / 80`}
+              slotProps={{ htmlInput: { maxLength: 80 }, inputLabel: { shrink: true }, formHelperText: { sx: { textAlign: "right", mx: 0 } } }}
+            />
+            <TextField
+              fullWidth
+              multiline
+              rows={4}
+              name="body"
+              label={text("new.body_field", "Brief")}
+              slotProps={{ htmlInput: { maxLength: 4000 }, inputLabel: { shrink: true } }}
+            />
+            <TaskDeadlineFields
+              pageContract={pageContract}
+              defaultLocal=""
+              min={deadlineMin.slice(0, 10) || undefined}
+              required
+              missing={deadlineMissing}
+              label={text("new.deadline_field", "Deadline")}
+              hint={text("new.deadline_hint", "Date and time the task is due, farm clock (IST).")}
+            />
+            <TaskField label={text("new.attachments", "Attachments")}>
+              <TaskAttachmentPickers
+                pickers={pickers}
+                counts={picked}
+                onPicked={(key, count) => setPicked((prev) => ({ ...prev, [key]: count }))}
+              />
+            </TaskField>
+            <Button type="submit" variant="contained" color="primary" size="large" fullWidth>
+              {text("new.send", "Send")}
+            </Button>
+          </Box>
+        </DialogContent>
       </Dialog>
     </>
   );
