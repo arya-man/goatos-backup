@@ -71,6 +71,7 @@ export function WeightsExportControl({
   parks,
   sheds,
   initialParkId,
+  initialSex,
   initialFrom,
   initialTo,
   origin,
@@ -84,6 +85,8 @@ export function WeightsExportControl({
   sheds: WeightsExportShed[];
   /** The page's current park filter, so the drawer opens on the scope the reader is looking at. */
   initialParkId: string;
+  /** The page's current Sex filter ("" = every kid), so the drawer opens on what the reader sees. */
+  initialSex: string;
   /** The page's selected window, both ends "YYYY-MM-DD" Asia/Kolkata business dates. */
   initialFrom: string;
   initialTo: string;
@@ -103,7 +106,7 @@ export function WeightsExportControl({
   const [from, setFrom] = useState(initialFrom);
   const [to, setTo] = useState(initialTo);
   const [parkId, setParkId] = useState(initialParkId);
-  const [sex, setSex] = useState("");
+  const [sex, setSex] = useState(initialSex);
   // Empty set = every shed ("All pens"), which is also what the backend receives.
   const [selectedSheds, setSelectedSheds] = useState<ReadonlySet<string>>(new Set());
   const [failed, setFailed] = useState(false);
@@ -111,8 +114,10 @@ export function WeightsExportControl({
 
   // EVERY OPENING starts from the page's period and park as they are now (maintainer request
   // 2026-09-24). useState read them once, at the first render, so after the reader changed the
-  // page's period the drawer still offered the old one. Sex is NOT carried over: the drawer owns
-  // its own Sex select, starting on every kid (maintainer decision 2026-09-07).
+  // page's period the drawer still offered the old one. Sex follows the page too (maintainer
+  // request 2026-09-28, superseding the 2026-09-07 "drawer starts on All"): a page filtered to
+  // Male opens a drawer on Male, a page on All opens it on All, and the drawer's own select can
+  // still change it before the download.
   // Adjusted while rendering on the closed -> open edge (React's documented pattern for state that
   // follows a prop), so the reader can still change anything inside the drawer before downloading.
   const [wasOpen, setWasOpen] = useState(open);
@@ -122,7 +127,7 @@ export function WeightsExportControl({
       setFrom(initialFrom);
       setTo(initialTo);
       setParkId(initialParkId);
-      setSex("");
+      setSex(initialSex);
       setSelectedSheds(new Set());
       setFailed(false);
     }

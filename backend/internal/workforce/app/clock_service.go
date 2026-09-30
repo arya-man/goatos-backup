@@ -288,10 +288,14 @@ func (s *ClockService) Presence(ctx context.Context, tenantID string, params por
 		Summary:      page.Summary,
 		Rows:         []domain.ClockPresenceRow{},
 		NextCursor:   page.NextCursor,
-		Designations: clockDesignationOptions(),
 		Copy:         copyMap,
 		TraceID:      traceID,
 	}
+	designations, err := s.repo.ListClockDesignations(ctx)
+	if err != nil {
+		return nil, err
+	}
+	resp.Designations = designations
 	catalog, err := s.people.PeopleCatalog(ctx, tenantID)
 	if err != nil {
 		return nil, err
@@ -341,7 +345,7 @@ func (s *ClockService) AdminEntries(ctx context.Context, tenantID string, params
 	copyMap := clockCopyFor(localeTag)
 	items := make([]domain.ClockEntry, 0, len(page.Rows))
 	for _, raw := range page.Rows {
-		designation := designationLabel(raw.RoleHint, raw.DesignationGrade, copyMap)
+		designation := designationLabel(raw.DesignationLabel, raw.RoleHint, raw.DesignationGrade, copyMap)
 		var parkLabel *string
 		if raw.ParkLabel != "" {
 			pl := raw.ParkLabel
@@ -368,12 +372,16 @@ func (s *ClockService) AdminEntries(ctx context.Context, tenantID string, params
 	if err != nil {
 		return nil, err
 	}
+	designations, err := s.repo.ListClockDesignations(ctx)
+	if err != nil {
+		return nil, err
+	}
 	return &domain.ClockEntriesListResponse{
 		Summary:      page.Summary,
 		Items:        items,
 		NextCursor:   page.NextCursor,
 		Parks:        catalog.Parks,
-		Designations: clockDesignationOptions(),
+		Designations: designations,
 		TraceID:      traceID,
 	}, nil
 }
@@ -404,7 +412,7 @@ func (s *ClockService) composePersonDay(detail ports.ClockPersonDay, businessDat
 	}
 	resp := &domain.ClockPersonDayResponse{
 		PersonName:   detail.Person.PersonName,
-		Designation:  designationLabel(detail.Person.RoleHint, detail.Person.DesignationGrade, copyMap),
+		Designation:  designationLabel(detail.Person.DesignationLabel, detail.Person.RoleHint, detail.Person.DesignationGrade, copyMap),
 		BusinessDate: businessDate,
 		Events:       []domain.ClockEventDetail{},
 		RecentDays:   []domain.ClockEntry{},
@@ -417,7 +425,7 @@ func (s *ClockService) composePersonDay(detail ports.ClockPersonDay, businessDat
 	}
 	if detail.Entry != nil {
 		entry := s.composeEntry(*detail.Entry, detail.Person.PersonName,
-			designationLabel(detail.Person.RoleHint, detail.Person.DesignationGrade, copyMap),
+			designationLabel(detail.Person.DesignationLabel, detail.Person.RoleHint, detail.Person.DesignationGrade, copyMap),
 			detail.Person.RoleHint, resp.ParkLabel, optionalString(detail.Person.DepartmentLabel), copyMap)
 		resp.Entry = &entry
 	}
@@ -536,7 +544,7 @@ func (s *ClockService) composePresenceRow(raw ports.ClockPresenceRawRow, busines
 	row := domain.ClockPresenceRow{
 		WorkforceMemberID: raw.WorkforceMemberID,
 		PersonName:        raw.PersonName,
-		Designation:       designationLabel(raw.RoleHint, raw.DesignationGrade, copyMap),
+		Designation:       designationLabel(raw.DesignationLabel, raw.RoleHint, raw.DesignationGrade, copyMap),
 		Bucket:            "not_clocked_in",
 		Flags:             []domain.ClockFlag{},
 	}
@@ -583,12 +591,25 @@ func hoursLabel(minutes int) string {
 // designationLabel prefers the HR grade when set (leadership) and otherwise
 // names the job (role hint), so the presence board reads "Director" for a CXO
 // and "Operator" for field staff.
-func designationLabel(roleHint, grade string, copyMap map[string]string) string {
+// designationLabel is the person's designation as a reader sees it. The designation ticked on
+// People / HRMS ("Feed Manager", from designation_catalog) wins; the HR grade and then the
+// role hint are only the fallback for somebody with no designation set. The role hint is NOT
+// a designation any more -- 000394 left it as "operator" on purpose for installed phones, and
+// reading it first is what kept "Operator" on the People, Clock and Leave screens.
+func designationLabel(catalogLabel, roleHint, grade string, copyMap map[string]string) string {
+	if catalogLabel != "" {
+		return catalogLabel
+	}
 	if grade != "" {
 		if label, ok := copyMap["grade."+grade]; ok {
 			return label
 		}
 		return grade
+	}
+	// "operator" is a retired designation (000394), kept on the hint only for installed phones.
+	// Somebody with nothing else set shows no designation rather than a job nobody holds.
+	if roleHint == "operator" {
+		return ""
 	}
 	if label, ok := copyMap["role."+roleHint]; ok {
 		return label
@@ -601,19 +622,6 @@ func designationLabel(roleHint, grade string, copyMap map[string]string) string 
 // words for yields "" -- the drawer then shows no role line rather than a raw code.
 func roleHintLabel(roleHint, localeTag string) string {
 	return clockCopyFor(localeTag)["role."+strings.TrimSpace(roleHint)]
-}
-
-// designationOptions is the designation filter vocabulary: the role-hint CHECK
-// set on workforce_members. IDs are filter values; labels are English catalog
-// copy (the admin surface language), matching the people board's tabs.
-func clockDesignationOptions() []domain.PeopleCatalogOption {
-	en := clockCopyFor("en")
-	hints := []string{"operator", "park_head", "pc_director", "verifier", "supervisor", "admin", "other"}
-	out := make([]domain.PeopleCatalogOption, 0, len(hints))
-	for _, h := range hints {
-		out = append(out, domain.PeopleCatalogOption{ID: h, Code: h, Label: en["role."+h]})
-	}
-	return out
 }
 
 // clockCopyFor is the backend-owned copy catalog for the clock module, per

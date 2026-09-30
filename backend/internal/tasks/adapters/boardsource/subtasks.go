@@ -20,7 +20,7 @@ import (
 //
 // READ-ONLY and REPORTING-ONLY: nothing here gates an answer, a completion or a verdict.
 
-// projection-review: membership=the workflow_actions of the ONE workflow_instances row named by (tenant_id, park_id, workflow_id) that the row read would show on that day for this lane (the same baseWhere), canceled steps excluded; group_key=(workflow_id, action_key), one step is one subtask (workflow_actions_natural_uq); join_cardinality=workforce_members filtered to status='active' on the partial-unique (tenant_id, user_id) index (at most 1); pagination=keyset on the rank-led subtask key, applied in Go over the bounded step list, total = the whole list; scope=tenant_id, park_id, the day predicate, the lane's module set and workflow_id.
+// projection-review: membership=the workflow_actions of the ONE workflow_instances row named by (tenant_id, park_id, workflow_id) that the row read would show on that day for this lane (the same baseWhere), canceled and skipped steps excluded (a skipped step is off the taken path and never owed, the same rule RecomputeCard counts by); group_key=(workflow_id, action_key), one step is one subtask (workflow_actions_natural_uq); join_cardinality=workforce_members filtered to status='active' on the partial-unique (tenant_id, user_id) index (at most 1); pagination=keyset on the rank-led subtask key, applied in Go over the bounded step list, total = the whole list; scope=tenant_id, park_id, the day predicate, the lane's module set and workflow_id.
 func subtaskSQL() string {
 	return `
 SELECT wa.action_id::text, wa.seq, wa.title, wa.status, wa.due_at, wa.completed_at,
@@ -28,7 +28,7 @@ SELECT wa.action_id::text, wa.seq, wa.title, wa.status, wa.due_at, wa.completed_
        (wa.requires_video OR wa.proof_min_videos > 0 OR wa.proof_min_photos > 0),
        COALESCE(wa.completed_by::text, ''), COALESCE(m.workforce_member_id::text, ''), COALESCE(m.display_name, '')
 FROM workflow_instances wi
-JOIN workflow_actions wa ON wa.workflow_id = wi.workflow_id AND wa.status <> 'canceled'
+JOIN workflow_actions wa ON wa.workflow_id = wi.workflow_id AND wa.status NOT IN ('canceled', 'skipped')
 LEFT JOIN workforce_members m
   ON m.tenant_id = wi.tenant_id AND m.user_id = wa.completed_by AND m.status = 'active'
 WHERE ` + baseWhere() + `

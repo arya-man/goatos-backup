@@ -32,7 +32,7 @@ import { OrderDetailsHistory } from "@/components/app/sections/order/order-detai
 import { PassportTabs } from "./passport-tabs";
 import { firstAuthRequiredError, getGoatPassport, getGoatTimeline } from "@/lib/api/server";
 import { hrefWithoutAction, one, type RouteSearchParams } from "@/lib/search-params";
-import { actionFeedbackCopy, copy, optionGroup, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { actionFeedbackCopy, copy, optionGroup, optionalOption, readableOptionKey, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { addIdentifierAction, retireIdentifierAction } from "./actions";
 import { PassportConfirmSubmitButton, PassportFormCheckbox, PassportFormSelect } from "./passport-form-controls";
 import TextField from "@mui/material/TextField";
@@ -152,6 +152,12 @@ function tabHref(pathname: string, sp: RouteSearchParams, tab: PassportTab): str
   return qs ? `${pathname}?${qs}` : pathname;
 }
 
+/** A status in words: the tenant's own label from status_definitions, never the stored key (`non_pregnant`). */
+function statusLabel(pageContract: AdminUiPageContract, groupId: string, value: string | null | undefined): string {
+  if (!value) return dash(value);
+  return optionalOption(pageContract, groupId, value)?.label ?? readableOptionKey(value);
+}
+
 export async function GoatPassportPage({
   goatId,
   searchParams = {},
@@ -227,8 +233,8 @@ export async function GoatPassportPage({
         {dash(goat.summary.location_path.operational_location_display)}
       </Typography>
       <Stack direction="row" spacing={1} sx={{ mt: 5, justifyContent: "center", flexWrap: "wrap" }}>
-        <Tag tone={lifecycleTone(lifecycle)}>{humanizeEnum(lifecycle)}</Tag>
-        {health ? <Tag tone={healthTone(health)}>{humanizeEnum(health)}</Tag> : null}
+        <Tag tone={lifecycleTone(lifecycle)}>{statusLabel(pageContract, "herd_lifecycle", lifecycle)}</Tag>
+        {health ? <Tag tone={healthTone(health)}>{statusLabel(pageContract, "herd_health", health)}</Tag> : null}
       </Stack>
       {goat.merged_into_goat_id ? (
         <Typography variant="caption" component="div" sx={{ mt: 3, color: "text.secondary" }}>
@@ -258,9 +264,9 @@ export async function GoatPassportPage({
         {readOnly("tag1", copy(pageContract, "label.tag_1"), goat.summary.animal_identifier_1)}
         {readOnly("tag2", copy(pageContract, "label.tag_2"), goat.summary.animal_identifier_2)}
         {readOnly("location", copy(pageContract, "label.location"), goat.summary.location_path.operational_location_display, { full: true })}
-        {readOnly("lifecycle", copy(pageContract, "label.lifecycle"), lifecycle ? humanizeEnum(lifecycle) : null)}
-        {readOnly("health", copy(pageContract, "label.health"), health ? humanizeEnum(health) : null)}
-        {readOnly("repro", copy(pageContract, "label.reproductive"), goat.summary.reproductive_status ? humanizeEnum(goat.summary.reproductive_status) : null)}
+        {readOnly("lifecycle", copy(pageContract, "label.lifecycle"), lifecycle ? statusLabel(pageContract, "herd_lifecycle", lifecycle) : null)}
+        {readOnly("health", copy(pageContract, "label.health"), health ? statusLabel(pageContract, "herd_health", health) : null)}
+        {readOnly("repro", copy(pageContract, "label.reproductive"), goat.summary.reproductive_status ? statusLabel(pageContract, "herd_reproductive", goat.summary.reproductive_status) : null)}
         {readOnly("cohort", copy(pageContract, "label.growth_cohort"), goat.summary.growth_cohort_tag)}
         {readOnly("management", copy(pageContract, "label.management"), goat.summary.management_stage)}
       </Box>

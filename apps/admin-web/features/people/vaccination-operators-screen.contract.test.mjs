@@ -112,3 +112,13 @@ test("the screen names its park from the backend park list, never a literal", ()
   assert.match(source, /parks\.find\(\(p\) => p\.parkId === parkId\)/, "the scoped park is looked up in the backend park list");
   assert.match(hrmsSource, /top_bar\.park_selector\.options/, "the park list is the backend-compiled top-bar park list");
 });
+
+// Once a multi-park actor has chosen a park, the loaded screen must still let them switch: the
+// backend's park list is kept (not discarded with the chooser) and offered as a Park select that
+// reloads the screen for the park picked. Before this, the only way back was a full page reload.
+test("a multi-park actor can switch park after choosing one", () => {
+  assert.match(source, /setParkOptions\(result\.parks\)/, "the backend park list must be kept after the chooser");
+  assert.ok(!/setParkOptions\(null\)/.test(source), "choosing a park must not discard the park list");
+  assert.match(source, /id="vaccination-operators-park"/, "the loaded screen must render a Park switch");
+  assert.match(source, /onChange=\{\(e\) => \{\s*if \(e\.target\.value && e\.target\.value !== parkId\) setChosenParkId\(e\.target\.value\)/, "switching must reload through the same backend-resolved path");
+});

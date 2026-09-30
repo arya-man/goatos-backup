@@ -106,6 +106,14 @@ interface OutboxDao {
             "AND NOT (candidate.opType IN ('SALES_DEAL_PAYMENT_WRITE', 'SALES_DEAL_STATUS_SET') " +
             "  AND older.opType IN ('SALES_DEAL_PAYMENT_WRITE', 'SALES_DEAL_STATUS_SET') " +
             "  AND (older.conflict = 1 OR older.attemptCount >= older.maxAttempts)) " +
+            // A verifier's verdict on one item is the same shape as a birth report: the server's
+            // one-time "check the video again" refusal (422 measurement_confirmation_required) is
+            // terminal, and her confirmed approve goes out under a fresh key in the SAME lane (the
+            // item id). Held behind the refused row it sat queued forever with the screen spinning
+            // on "Submitting..." (phone E2E 2026-09-28). The new verdict REPLACES the refused one;
+            // TERMINAL older rows only, so a verdict still in backoff keeps its order.
+            "AND NOT (candidate.opType = 'VERIFICATION_VERDICT' AND older.opType = 'VERIFICATION_VERDICT' " +
+            "  AND (older.conflict = 1 OR older.attemptCount >= older.maxAttempts)) " +
             "AND NOT (candidate.opType = 'PROOF_UPLOAD' AND older.opType = 'PROOF_UPLOAD') " +
             "AND NOT (candidate.opType = older.opType AND candidate.opType IN ('WEIGHING_ANIMAL_OBSERVATION', 'WEIGHING_SHED_OBSERVATION')) " +
             "AND NOT (older.opType IN ('PC_CARE_SLOT_REGISTER', 'PC_CARE_TASK_PROOF_REGISTER', 'HEALTH_STEP_PROOF_REGISTER') " +

@@ -1353,3 +1353,27 @@ func TestTopBarNotificationsControlIsEnabledWithARealLabel(t *testing.T) {
 		t.Fatalf("an enabled control must not carry a disabled reason (the shell would show it as the tooltip), got %q", bell.DisabledReason)
 	}
 }
+
+// The Goat Passport page's Summary renders lifecycle, health and reproductive status in words
+// (the stored key `non_pregnant` reached a phone on 2026-09-28), so its contract must carry the
+// same three status_definitions vocabularies the Herd Register already gets.
+func TestGoatPassportContractCarriesStatusWords(t *testing.T) {
+	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		ActorID:  "00000000-0000-4000-8000-000000000099",
+		Grants: []permissions.ActiveGrant{
+			{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+		},
+	})
+	page := optionalPageByRouteID(resp.Pages, "goat-passport")
+	if page == nil {
+		t.Fatal("CEO must receive the goat-passport page contract")
+	}
+	optionGroupByID(t, page.OptionGroups, "herd_lifecycle") // present; the fake family is empty
+	if len(optionGroupByID(t, page.OptionGroups, "herd_health").Options) == 0 {
+		t.Fatal("goat-passport herd_health carries no status words")
+	}
+	if got := optionGroupByID(t, page.OptionGroups, "herd_reproductive").Options[0].Key; got != "pregnant" {
+		t.Fatalf("herd_reproductive must come from status_definitions, got %q", got)
+	}
+}

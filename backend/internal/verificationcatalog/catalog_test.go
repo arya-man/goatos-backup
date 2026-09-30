@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	feeddirectiondomain "github.com/vgoats/goatos/backend/internal/feeddirection/domain"
 	weighingdomain "github.com/vgoats/goatos/backend/internal/weighing/domain"
 )
 
@@ -148,5 +149,58 @@ func TestSamplingLockMigrationNamesTheRealWeighingCategory(t *testing.T) {
 	// The module key is a different token and must never be the one deleted on.
 	if strings.Contains(sql, "WHERE category = 'weighing';") {
 		t.Fatal("migration deletes on the navigation module key 'weighing', which matches no row")
+	}
+}
+
+// THE DISTRIBUTION VERIFIER RECORDS THE TOTAL FEED (maintainer decision 2026-09-28). The operator
+// photographs the scale; the verifier's approve must carry what it reads, and an unreadable reading
+// is a rejection. Carried as one per-item field so both clients' blind box and confirm step serve it.
+func TestFeedDistributionApproveRequiresTheVerifiersTotalFeedReading(t *testing.T) {
+	spec := FeedDistribution.MeasurementCorrection
+	if spec == nil {
+		t.Fatal("feed distribution must declare the total feed the verifier records")
+	}
+	if !spec.RequiredForApprove {
+		t.Fatal("a distribution approve must carry the verifier's total feed reading")
+	}
+	if !spec.PerItemFields {
+		t.Fatal("the total rides the per-item field path so the clients' blind box and confirm step serve it")
+	}
+	if spec.CountLabel != "" {
+		t.Fatalf("distribution must offer no head-count field, got %q", spec.CountLabel)
+	}
+}
+
+// Requiring the reading locks distribution sampling at 100%: an unwatched video auto-approved by the
+// closeout would complete a pen-session with no total recorded.
+func TestFeedDistributionSamplingIsLockedBecauseTheVerifierIsTheDataSource(t *testing.T) {
+	if FeedDistribution.SamplingWaivable() {
+		t.Fatal("feed distribution must not be waivable once its approve carries the total feed")
+	}
+	if !FeedTransport.SamplingWaivable() {
+		t.Fatal("feed transport declares no measurement and must stay samplable")
+	}
+}
+
+// Migration 000455 names the category, and the one box it gives the items already waiting, as SQL
+// literals. Pin both to the Go constants so a rename cannot leave the migration deleting nothing or
+// backfilling a box the applier does not recognise.
+func TestDistributionSamplingLockMigrationNamesTheRealCategory(t *testing.T) {
+	path := filepath.Join("..", "..", "migrations", "postgres", "000455_feed_distribution_verifier_total_feed.sql")
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	sql := string(body)
+	if want := "WHERE category = '" + feeddirectiondomain.VerificationCategoryFeed + "';"; !strings.Contains(sql, want) {
+		t.Fatalf("migration must delete sampling rows with %q", want)
+	}
+	if strings.Contains(sql, "WHERE category = 'feed_direction';") {
+		t.Fatal("migration deletes on the navigation module key, which matches no row")
+	}
+	wantField := `[{"key": "` + feeddirectiondomain.DistributionTotalFeedKey + `", "label": "` +
+		feeddirectiondomain.DistributionTotalFeedLabel + `"}]`
+	if !strings.Contains(sql, wantField) {
+		t.Fatalf("migration must backfill pending items with %s", wantField)
 	}
 }

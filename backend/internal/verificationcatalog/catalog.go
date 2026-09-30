@@ -153,9 +153,24 @@ var MilkFeeding = domain.CategoryDefinition{
 
 var FeedDistribution = domain.CategoryDefinition{
 	Vertical: feeddirectiondomain.VerificationVerticalFeed, Module: feeddirectiondomain.VerificationModuleFeed,
-	Category:         feeddirectiondomain.VerificationCategoryFeed,
-	ExpectedMedia:    []string{"photo", "video", "video"},
-	MediaLabels:      []string{"Feed weight photo", "Feed distribution video", "Water distribution video"},
+	Category:      feeddirectiondomain.VerificationCategoryFeed,
+	ExpectedMedia: []string{"photo", "video", "video"},
+	MediaLabels:   []string{"Feed weight photo", "Feed distribution video", "Water distribution video"},
+	MeasurementCorrection: &domain.MeasurementCorrectionSpec{
+		Title:       "Record the total feed",
+		Help:        "Read the feed weight on the scale in the photo or video and enter the total feed given to this pen. The feed is mixed, so enter one combined weight.",
+		ValueLabel:  "Total feed given (kg)",
+		SubmitLabel: "Save total feed",
+		// The number is BORN on her screen (maintainer decision 2026-09-28): the operator
+		// photographs the scale, the verifier records what it reads. An unreadable reading is a
+		// rejection, never a guess -- and requiring it locks distribution sampling at 100%
+		// (SamplingWaivable), which migration 000455 makes true for stored policies too.
+		RequiredForApprove: true,
+		// Carried as ONE per-item field ("total_feed") so both clients' blind entry box and the
+		// warn-not-tell confirmation serve it unchanged. The rule (5% of the planned pen-session
+		// total) lives in the producer's applier, never here.
+		PerItemFields: true,
+	},
 	NavigationModule: "feed_direction", NavigationModuleLabel: "Feed",
 	PageKey: "feed_distribution", PageLabel: "Feed Distribution", PageOrder: 1,
 }

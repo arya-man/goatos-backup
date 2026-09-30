@@ -417,7 +417,7 @@ func (s *LeaveService) composeLeave(row ports.LeaveRequestRow, viewerMemberID st
 		LeaveRequestID:    row.LeaveRequestID,
 		WorkforceMemberID: row.WorkforceMemberID,
 		PersonName:        row.PersonName,
-		Designation:       designationLabel(row.RoleHint, row.DesignationGrade, clockCopyFor("en")),
+		Designation:       designationLabel(row.DesignationLabel, row.RoleHint, row.DesignationGrade, clockCopyFor("en")),
 		StartsOn:          row.StartsOn,
 		EndsOn:            row.EndsOn,
 		DayCount:          leaveDays(row.StartsOn, row.EndsOn),

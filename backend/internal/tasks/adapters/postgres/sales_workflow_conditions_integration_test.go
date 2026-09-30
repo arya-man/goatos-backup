@@ -324,3 +324,70 @@ WHERE wi.tenant_id = $1::uuid AND wi.subject_ref_id = $2::uuid`, wfTenant, deals
 }
 
 func intPtr(v int) *int { return &v }
+
+// republishSaleSteps retires the published sales.deal version and publishes the given steps as
+// the next one -- what Publish SOP on /sales/sops leaves behind.
+func republishSaleSteps(t *testing.T, repo *Repository, version int, steps string) {
+	t.Helper()
+	ctx := t.Context()
+	followUp := `{"schema_version":"goatos.sop-followup.v1","tracks":[{"key":"sales_deal","module":"sales","label":"Sale","subject":"sale","steps":` + steps + `}]}`
+	if _, err := repo.pool.Exec(ctx, `
+UPDATE sop_versions v SET status = 'retired' FROM sop_definitions sd
+WHERE sd.tenant_id = v.tenant_id AND sd.sop_id = v.sop_id AND sd.code = 'sales.deal' AND v.tenant_id = $1::uuid AND v.status = 'published'`, wfTenant); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.pool.Exec(ctx, `
+INSERT INTO sop_versions (tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy, compatibility, validation_report, published_at)
+SELECT sd.tenant_id, sd.sop_id, $2::int, 'Sale v' || $2::int::text, 'published',
+       jsonb_build_object('schema_version', 'goatos.sop-form.v1', 'sop_code', 'sales.deal', 'title', 'Sale',
+                          'fields', jsonb_build_array(), 'follow_up', $3::jsonb),
+       '{"subject_scope": "task", "types": ["video", "photo"], "required": false, "minimum_count": 0, "verify_before_apply": false, "approval_before_apply": false}'::jsonb,
+       '{"min_app_version": "0.2.0"}'::jsonb, '{"valid": true, "errors": [], "warnings": []}'::jsonb, now()
+FROM sop_definitions sd WHERE sd.tenant_id = $1::uuid AND sd.code = 'sales.deal'`, wfTenant, version, followUp); err != nil {
+		t.Fatalf("publish v%d: %v", version, err)
+	}
+}
+
+const tagStepJSON = `{"key":"tag_animals","task_type":"sale_tag_animals","title":"Tag the animals sold","detail":"Scan or type the tag of every animal on this sale, enter its weight, and confirm.","proof":{},"schedule":{"kind":"immediately"},"owner":"park_head","when":"sale_has_animals"}`
+
+// TestSaleSOPPerKindStepsOnRealPostgres (maintainer decision 2026-09-28): the maintainer's SOP --
+// tag the animals when the sale has animals, enter the weight sold when it has none -- opens the
+// right single step per kind of sale; a tag-only SOP opens NOTHING for a manure sale (no row, no
+// card) instead of failing the open.
+func TestSaleSOPPerKindStepsOnRealPostgres(t *testing.T) {
+	repo, _, ctx := newWorkflowRepo(t)
+	publishV1SaleSOPAndApply000443(t, repo)
+	republishSaleSteps(t, repo, 2, `[`+tagStepJSON+`,{"key":"weight_sold","task_type":"record_number","title":"Enter the weight sold","detail":"","proof":{},"schedule":{"kind":"immediately"},"owner":"park_head","when":"sale_has_no_animals"}]`)
+	no, yes := false, true
+	cases := []struct {
+		deal       string
+		hasAnimals *bool
+		kinds      []string
+		want       string
+	}{
+		{"5a1e5a1e-0000-4000-8000-00000000b001", &yes, []string{"animal"}, "tag_animals"},
+		{"5a1e5a1e-0000-4000-8000-00000000b002", &no, []string{"other"}, "weight_sold"},
+		{"5a1e5a1e-0000-4000-8000-00000000b003", &no, []string{"feed"}, "weight_sold"},
+	}
+	for _, c := range cases {
+		ref := c.deal
+		if _, err := repo.OpenWorkflow(ctx, ports.OpenWorkflowCommand{TenantID: wfTenant, TemplateKey: domain.TemplateKeySalesDeal,
+			EventAt: wfEventAt, SubjectRefID: &ref, SaleHasAnimals: c.hasAnimals, SaleKinds: c.kinds}); err != nil {
+			t.Fatalf("open %s: %v", c.deal, err)
+		}
+		if _, keys := saleActionKeys(t, repo, c.deal); strings.Join(keys, ",") != c.want {
+			t.Fatalf("deal %s (%v) opened %v, want %s", c.deal, c.kinds, keys, c.want)
+		}
+	}
+
+	republishSaleSteps(t, repo, 3, `[`+tagStepJSON+`]`)
+	manure := "5a1e5a1e-0000-4000-8000-00000000b004"
+	_, err := repo.OpenWorkflow(ctx, ports.OpenWorkflowCommand{TenantID: wfTenant, TemplateKey: domain.TemplateKeySalesDeal,
+		EventAt: wfEventAt, SubjectRefID: &manure, SaleHasAnimals: &no, SaleKinds: []string{"other"}})
+	if !errors.Is(err, domain.ErrNothingOwed) {
+		t.Fatalf("manure sale on a tag-only SOP: err = %v, want ErrNothingOwed", err)
+	}
+	if _, err := repo.WorkflowIDBySubjectRef(ctx, wfTenant, domain.TemplateKeySalesDeal, manure); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("no workflow may be written for a sale owing nothing, got err %v", err)
+	}
+}

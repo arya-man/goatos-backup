@@ -666,3 +666,84 @@ the approve — mutation-tested by disabling the predicate),
 `TestPackingPlannedQuantitiesAndConfirmColumns` (real Postgres: snapshot-first, sheet fallback,
 columns), the admin-web `packing-variance-confirm.test.mjs`, and the Android
 `VerifyDetailViewModelAnalyticsTest` confirm pair plus the outbox upgrade-crash test.
+
+## The distribution verifier RECORDS THE TOTAL FEED — 2026-09-28
+
+Maintainer decision 2026-09-28. The distribution verifier used to only LOOK at the operator's feed
+weight photo (the scale, captured before the feed is given out — migration `000151`). She now TYPES
+what it reads: the distribution item carries **one** entry box, **"Total feed given (kg)"**, and
+Accept/Approve is held until it is filled. An unreadable scale is a rejection, never a guess.
+
+**One combined number, never one per feed item.** Distribution is not packing: by the time the feed
+reaches the trough the items are MIXED, so the verifier verifies the combined quantity for the pen.
+The maintainer said so in as many words ("we won't have per quantity, it will be mixed").
+
+What the maintainer chose, each offered against its alternative:
+
+- **Warn, don't tell — at 5% of the plan.** The planned pen-session total is never shown. A reading
+  more than **5%** away from it is refused ONCE with a direction only ("More than 5% above/below the
+  plan. Check the video again."), and lands when she ticks the confirmation — the 2026-09-09 packing
+  shape. The band is a PERCENTAGE, not packing's 500 g: a pen-session total runs from a few kilograms
+  to a few hundred, so a fixed 500 g would flag nearly every large pen on an honest reading. "No
+  check" and "show her the plan" were offered and declined; 10% and a fixed 1 kg were offered for
+  the band and declined.
+- **Sampling locked at 100%.** Requiring the reading makes `feed_distribution` non-waivable
+  (`SamplingWaivable` derives from `RequiredForApprove`), and the maintainer accepted that every
+  distribution video must now be watched and weighed.
+
+Mechanics:
+
+- **Rides the per-item path with ONE field.** `verificationcatalog.FeedDistribution` declares a
+  `MeasurementCorrection` with `RequiredForApprove` and `PerItemFields`, and every new item is
+  enqueued with the single field `{key: "total_feed", label: "Total feed given (kg)"}`
+  (`feeddirection/domain.DistributionTotalFeedKey` / `DistributionTotalFeedLabel`). That is what lets
+  both clients' existing blind box, Approve hold and "I checked the video again" step serve it with
+  no client change. The RULE lives only in `DistributionMeasurementApplier`.
+- **The plan.** `DistributionPlannedFeedKg`: the same pen-session's **packed-against snapshot**
+  (summed), because that bag is what the crew carried to the trough — unless the bag is in `rework`,
+  whose snapshot is known stale — else the **frozen issued sheet** for the pen-session summed over
+  every feed item. No positive plan checks nothing (a percentage of zero is undefined).
+- **Where the number lands.** On the completion row itself (migration `000455`):
+  `verified_feed_kg`, `verified_planned_feed_kg`, `verified_feed_variance_acknowledged`,
+  `verified_feed_recorded_by/_at`, audited as `feed.distribution.total_feed_recorded`. A **rework
+  re-submit clears all five**, so a reading taken off a rejected video can never let the fresh item
+  approve blank. A slipped digit above `MaxDistributionTotalFeedKg` (20 000 kg) is a 422 field
+  error, never a server error.
+- **Deploy-day.** Migration `000455` also deletes every stored `feed_distribution` sampling row (the
+  000384 lesson: a stored row would keep narrowing the queue while the closeout no longer settles the
+  undrawn items), and gives every **pending** distribution item the box — `measurement_fields` is
+  composed at enqueue, so without the backfill the items already waiting would read as
+  judge-the-video approves. Decided items keep what they were decided on.
+- **Copy.** The phone renders the producer's own sentences. The admin-web banner keyed by the shared
+  refusal code (`feedback.measurement_confirmation_required`) now names no tolerance, and the line
+  under the box carries the exact band per producer code (`verdict.variance.total_above_plan` /
+  `total_below_plan` beside packing's `above_plan` / `below_plan`), pinned equal to the producer's
+  sentences by `TestVerificationVarianceCopyMatchesTheProducersSentences`.
+
+**Two phone defects the device run found, both in the SHARED confirm step (packing had them too).**
+Neither was visible to the unit tests, which fake the outbox; both reproduced on the Realme phone on
+2026-09-28 against a real API:
+
+1. **The confirmed approve could never be sent.** The outbox holds a lane (the item id) behind an
+   older FAILED row, terminal ones included. The server's one-time refusal is terminal (a 422
+   conflict), so the approve she re-sent after ticking "I checked the video again" sat QUEUED behind
+   it forever and the screen spun on "Submitting...". `OutboxDao.eligibleForDrain` now lets a
+   `VERIFICATION_VERDICT` REPLACE a terminally refused verdict in its lane, the same exemption a
+   corrected birth report and a sale receipt already have; a verdict still in backoff keeps holding.
+   Pinned by `OutboxSameMillisecondOrderTest` (red before the change, green after).
+2. **The confirm dialog hid the answer.** After the refusal the "Approve this proof?" dialog stayed
+   open with its button back to "Confirm approve", covering the tick on the card, so the natural
+   second tap re-sent the SAME unconfirmed approve. The dialog now closes once the approve it started
+   has resolved, landed or refused (`VerifyDetailScreen`).
+
+NOT done here, deliberately: the reading is recorded and audited but no leadership read shows
+entered-vs-planned distribution yet (packing's execution view is the model when it is asked for).
+
+Pinned by `TestDistributionEntryVarianceIsFivePercentOfThePlanEitherSide`,
+`TestDistributionVarianceCodesAreNotPackingCodes`, the six `distribution_measurement_applier_test.go`
+cases, `TestFeedDistributionApproveRequiresTheVerifiersTotalFeedReading` and
+`TestFeedDistributionSamplingIsLockedBecauseTheVerifierIsTheDataSource` (each mutation-tested by
+setting `RequiredForApprove: false`), `TestDistributionSamplingLockMigrationNamesTheRealCategory`,
+and on real Postgres `TestDistributionVerifiedFeedPlanRecordAndReworkClear` (mutation-tested twice:
+dropping the rework clear, and trusting a bag in rework as the plan — each turns it red) and
+`TestDistributionPlannedFeedKgWithNoSheetIsNotAPlanOfZero`.

@@ -680,11 +680,14 @@ function VerificationReviewDrawerPanel({
 	                )
 	              ) : activeMedia?.mime_type?.startsWith("image/") ? (
                 resolvedMediaUrls[activeMedia.proof_id] ? (
+                  // The photo is PINNED to the stage (absolute + inset 0) and letterboxed with contain,
+                  // so a portrait feed-weight photo shows whole instead of a cropped top third (main
+                  // cbce4dbf7). sx, not legacy CSS (guard: verify-proof-photo-pinned).
                   // admin-proof-media-egress:ignore reviewer clicked open for this one image proof; no image bytes move on drawer render.
-                  <a key={activeMedia.proof_id} href={resolvedMediaUrls[activeMedia.proof_id]} target="_blank" rel="noreferrer" className="vr-image-link">
+                  <Box component="a" key={activeMedia.proof_id} href={resolvedMediaUrls[activeMedia.proof_id]} target="_blank" rel="noreferrer" sx={PROOF_PHOTO_SX}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img className="vr-image-proof" src={resolvedMediaUrls[activeMedia.proof_id]} alt={activeMedia.label || subjectHeading || text("drawer.media.title")} />
-                  </a>
+                    <img src={resolvedMediaUrls[activeMedia.proof_id]} alt={activeMedia.label || subjectHeading || text("drawer.media.title")} />
+                  </Box>
 	                ) : (
 	                  <div className="vr-player-empty">{text("drawer.media.loading_photo")}</div>
 	                )
@@ -1120,3 +1123,14 @@ function hrefWithRow(params: RouteSearchParams, itemId: string): string {
   next.set("vi_row", itemId);
   return `${PATHNAME}?${next.toString()}`;
 }
+
+// The verify drawer's photo proof: the link fills the stage and the image is pinned inside it.
+const PROOF_PHOTO_SX = {
+  position: "absolute",
+  inset: 0,
+  display: "grid",
+  placeItems: "center",
+  bgcolor: "common.black",
+  cursor: "zoom-in",
+  "& img": { position: "absolute", inset: 0, width: "100%", height: "100%", display: "block", objectFit: "contain", bgcolor: "common.black" },
+} as const;

@@ -415,3 +415,73 @@ func TestCreatePersonAcceptsTheBreedingDirectorRoleHintWithDockerPostgres(t *tes
 		t.Fatalf("primary_role_hint = %q, want breeding_director", hint)
 	}
 }
+
+// Marking a person inactive on People / HRMS must take them off every roster that reads seats. It
+// used to revoke their logins and leave their seats active, so an operator who had left the park
+// (Darshan Talwar on STG, inactive since 2026-08-24) still showed on the Vaccination operators
+// roster with a live vaccination seat and five live pen-manager seats.
+func TestDeactivatingAPersonEndsTheirSeatsAndReplansVaccination(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool := pgtest.StartPostgres(t, ctx)
+	repo := NewRepository(pool, 5*time.Second)
+	seedPeoplePark(t, ctx, pool)
+
+	const pen = "92000000-0000-4000-8000-000000000031"
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status, parent_location_id)
+VALUES ($1::uuid, $2::uuid, 'shed', 'PPL-G1', 'Godel 1', 'active', $3::uuid)`, pen, peopleTenant, peoplePark); err != nil {
+		t.Fatalf("seed pen: %v", err)
+	}
+	person, err := repo.CreatePerson(ctx, peopleCreateCommand("people-seat-end-key-1"))
+	if err != nil {
+		t.Fatalf("create person: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_positions (tenant_id, workforce_member_id, scope_type, scope_id, position_code, position_tier, backup_group_code, vaccination_daily_animal_cap)
+VALUES ($1::uuid, $2::uuid, 'center', $3::uuid, 'vaccination_operator_idem', 'manager', NULL, 200),
+       ($1::uuid, $2::uuid, 'shed',   $4::uuid, 'shed_manager',              'manager', 'manager_backup', NULL)`,
+		peopleTenant, person.PersonID, peoplePark, pen); err != nil {
+		t.Fatalf("seed seats: %v", err)
+	}
+
+	deactivated, err := repo.SetOperatorStatus(ctx, ports.StatusCommand{
+		TenantID: peopleTenant, ActorID: peopleActor, OperatorID: person.PersonID,
+		Reason: "left the park", RowVersion: person.RowVersion, Status: "inactive",
+	})
+	if err != nil {
+		t.Fatalf("deactivate: %v", err)
+	}
+
+	var active, endedWithEnd, rosterEvents int
+	if err := pool.QueryRow(ctx, `
+SELECT
+  (SELECT count(*) FROM workforce_positions WHERE tenant_id = $1::uuid AND workforce_member_id = $2::uuid AND status = 'active'),
+  (SELECT count(*) FROM workforce_positions WHERE tenant_id = $1::uuid AND workforce_member_id = $2::uuid AND status = 'ended' AND valid_to IS NOT NULL),
+  (SELECT count(*) FROM outbox_messages WHERE tenant_id = $1::uuid AND event_type = 'vaccination.roster.changed' AND aggregate_id = $3::uuid)`,
+		peopleTenant, person.PersonID, peoplePark).Scan(&active, &endedWithEnd, &rosterEvents); err != nil {
+		t.Fatalf("read seats: %v", err)
+	}
+	if active != 0 || endedWithEnd != 2 {
+		t.Fatalf("deactivating must end every seat the person holds: active=%d ended=%d, want 0/2", active, endedWithEnd)
+	}
+	if rosterEvents != 1 {
+		t.Fatalf("the park the person operated vaccination in must get exactly one vaccination.roster.changed, got %d", rosterEvents)
+	}
+
+	// Reactivating restores logins but not seats: somebody coming back is re-seated deliberately.
+	if _, err := repo.SetOperatorStatus(ctx, ports.StatusCommand{
+		TenantID: peopleTenant, ActorID: peopleActor, OperatorID: person.PersonID,
+		Reason: "rejoined", RowVersion: deactivated.RowVersion, Status: "active",
+	}); err != nil {
+		t.Fatalf("reactivate: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM workforce_positions WHERE tenant_id = $1::uuid AND workforce_member_id = $2::uuid AND status = 'active'`,
+		peopleTenant, person.PersonID).Scan(&active); err != nil {
+		t.Fatalf("read seats after reactivate: %v", err)
+	}
+	if active != 0 {
+		t.Fatalf("reactivation must not silently restore seats, got %d active", active)
+	}
+}

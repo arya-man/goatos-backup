@@ -16,7 +16,6 @@
   "internal/counts/adapters/postgres/feed_projected_counts.go|unverified-dynamic-bind": 1,
   "internal/counts/adapters/postgres/shifting_destinations.go|unverified-dynamic-bind": 1,
   "internal/countssop/adapters/postgres/capture_card_source.go|unverified-dynamic-bind": 1,
-  "internal/feeddirection/adapters/postgres/distribution_completions.go|unverified-dynamic-bind": 1,
   "internal/feeddirection/adapters/postgres/packing_completions.go|unverified-dynamic-bind": 3,
   "internal/feeddirection/adapters/postgres/wastage_completions.go|unverified-dynamic-bind": 4,
   "internal/feedsop/adapters/postgres/rules_source.go|unverified-dynamic-bind": 1,
@@ -43,8 +42,5 @@
   "internal/weighingsop/adapters/postgres/rules_source.go|unverified-dynamic-bind": 1,
   "internal/workforce/adapters/http/leave_handler.go|unverified-dynamic-bind": 1,
   "internal/workforce/adapters/postgres/idempotency.go|unverified-dynamic-bind": 2,
-  "internal/workforce/adapters/postgres/leave_repository.go|unverified-dynamic-bind": 1,
-  "internal/workforce/adapters/postgres/people_repository.go|unverified-dynamic-bind": 3,
-  "internal/workforce/adapters/postgres/repository.go|unverified-dynamic-bind": 11,
   "internal/workforce/adapters/postgres/roster_repository.go|unverified-dynamic-bind": 8
 }

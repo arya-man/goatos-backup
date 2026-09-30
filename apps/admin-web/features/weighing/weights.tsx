@@ -926,6 +926,7 @@ export async function WeighingWeightsPage({
             parks={parks.map((park) => ({ park_id: park.park_id, name: park.name }))}
             sheds={exportSheds}
             initialParkId={parkFilter}
+            initialSex={sexFilter}
             initialFrom={window.from}
             initialTo={window.to}
             origin={originFilter}

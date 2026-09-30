@@ -110,7 +110,7 @@ The overall target was that backend+web goes from about 31 to about 17-19 min, a
 - A fast mode that writes a landing receipt.
 - Reusing earlier image tags for components that did not change. That breaks exact-SHA provenance.
 - Using the Gradle daemon or configuration cache on the receipt path.
-- Dropping `--rerun-tasks` from full paparazzi.
+- Dropping `--rerun-tasks` from full paparazzi. (Superseded 2026-09-28: replaced by task-level `--rerun`, which keeps the staleness protection; see `docs/progress/ci-15min-landing-20260928.md`.)
 - Touching `normal_observability_deploy` / `smoke_grafana_dashboards`. They cost about 4.3 min or more of the rollout. That is a follow-up for the session moving them to mesha-ops.
 
 ## Open decisions

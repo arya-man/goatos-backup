@@ -41,6 +41,7 @@ type LeaveRequestRow struct {
 	PersonName        string
 	RoleHint          string
 	DesignationGrade  string
+	DesignationLabel  string
 	ParkID            string
 	ParkLabel         string
 	StartsOn          string

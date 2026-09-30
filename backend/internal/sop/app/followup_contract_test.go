@@ -189,13 +189,14 @@ func TestSalesSOPContract(t *testing.T) {
 	if r := report(seeded); !r.Valid {
 		t.Fatalf("seeded sale document refused: %+v", r.Errors)
 	}
-	// A sale track whose EVERY step needs animals would open a manure sale with nothing to do.
-	allConditioned := seededFollowUpDSL(t, tasksdomain.SOPCodeSalesDeal)
-	for _, st := range steps(t, allConditioned, 0) {
-		st.(map[string]any)["when"] = tasksdomain.StepWhenSaleHasAnimals
-	}
-	if r := report(allConditioned); r.Valid {
-		t.Fatal("a sale track whose every step needs animals must be refused")
+	// A sale track whose EVERY step needs animals now PUBLISHES (maintainer decision 2026-09-28):
+	// the maintainer's own SOP is "tag the animals sold" alone, and a manure sale on it opens no
+	// task (tasks/domain.ErrNothingOwed) rather than refusing the document.
+	tagOnly := seededFollowUpDSL(t, tasksdomain.SOPCodeSalesDeal)
+	tagOnlyTrack := tagOnly["follow_up"].(map[string]any)["tracks"].([]any)[0].(map[string]any)
+	tagOnlyTrack["steps"] = steps(t, tagOnly, 0)[:1]
+	if r := report(tagOnly); !r.Valid {
+		t.Fatalf("a sale SOP of just the tag-animals step must publish: %+v", r.Errors)
 	}
 	if !FollowUpRequired(tasksdomain.SOPCodeSalesDeal) {
 		t.Fatal("sales.deal must require a follow_up section")

@@ -167,6 +167,21 @@ error CODE on the outbox row (`lastErrorCode`, `OUTBOX_MIGRATION_4_5`) so the sc
 code, never on the sentence. Canonical prose: the same decision doc -> "THE VERIFIER IS WARNED, NOT
 TOLD".
 
+Confirmed THE DISTRIBUTION VERIFIER RECORDS THE TOTAL FEED rule (maintainer decision 2026-09-28,
+applying the approve-carries-the-number and warned-not-told rules to feed DISTRIBUTION): the
+distribution item carries ONE blind entry box, "Total feed given (kg)" (key `total_feed`), and
+Approve is held until it is filled -- the feed is MIXED by the trough, so it is one combined weight
+per pen-session, NEVER one per feed item; do not "align" it with packing's per-item boxes. A reading
+more than 5% of the planned pen-session total away (the same pen-session's packed-against snapshot
+unless that bag is in rework, else the frozen sheet summed over every item) is warned once with a
+direction only (codes `total_above_plan` / `total_below_plan`, distinct from packing's so the web
+copy keyed by code never says "500 g"). The tolerance is a PERCENTAGE on purpose
+(`DistributionEntryConfirmTolerancePct`); do not merge it with packing's 0.5 kg. The reading lands on
+`feed_distribution_completions.verified_feed_*` (migration `000455`) and a rework re-submit CLEARS it.
+Requiring it locks `feed_distribution` sampling at 100%; 000455 deleted the stored sampling rows and
+gave pending items the box. Canonical prose: the same decision doc -> "The distribution verifier
+RECORDS THE TOTAL FEED".
+
 Confirmed BIRTH EVIDENCE IS REVIEWED PER RECORDED STEP (maintainer decision 2026-09-16,
 SUPERSEDING the one-bundle-per-track half of the 2026-07-28 birth rule): every video the operator
 records on a kid or mother track -- each immediate step, each scheduled colostrum feed, Tag the kid,

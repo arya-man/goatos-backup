@@ -68,3 +68,13 @@ test("the proof switcher chip names the kind of proof it opens", () => {
     "an image proof's switcher chip must carry the image icon, not the play icon",
   );
 });
+
+// guard: verify-proof-photo-pinned (SYNC merge of main cbce4dbf7). A plain height:100% image in the
+// grid link resolved against an auto row, so a portrait photo rendered at its intrinsic height and
+// the stage cropped it. The photo is pinned (absolute + inset 0) and contained, in sx.
+test("the verify drawer photo is pinned to the stage and contained, in sx", () => {
+  const drawer = readFileSync(new URL("./verification-review-drawer.tsx", import.meta.url), "utf8");
+  assert.match(drawer, /<Box component="a" key=\{activeMedia\.proof_id\}[^>]*sx=\{PROOF_PHOTO_SX\}/);
+  assert.match(drawer, /const PROOF_PHOTO_SX = \{[\s\S]*?"& img": \{ position: "absolute", inset: 0, width: "100%", height: "100%", display: "block", objectFit: "contain"/);
+  assert.doesNotMatch(drawer, /vr-image-(proof|link)/);
+});

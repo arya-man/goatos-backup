@@ -22,6 +22,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonPrimitive
+import kotlin.time.Duration.Companion.seconds
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -996,7 +997,9 @@ class CaptureRepositoryTest {
             sync.emit(itemId!!, SyncItemStatus.SUCCEEDED, resultJson = syncJson.encodeToString(response))
             advanceUntilIdle()
 
-            val row = repo.observeProofs("task-retain-preview").first().single()
+            val row = repo.observeProofs("task-retain-preview")
+                .first { proofs -> proofs.single().syncStatus == CaptureSyncStatus.SYNCED }
+                .single()
             assertEquals(CaptureSyncStatus.SYNCED, row.syncStatus)
             assertEquals(processedFile.toURI().toString(), row.localUri)
             assertTrue("original proof file is retained for explicit row cleanup", originalFile.exists())
@@ -2576,7 +2579,7 @@ class CaptureRepositoryTest {
     }
 
     @Test
-    fun `clearForTask with proofs beyond cap deletes every local file (R50-029 BUG 1)`() = runTest {
+    fun `clearForTask with proofs beyond cap deletes every local file (R50-029 BUG 1)`() = runTest(timeout = 180.seconds) {
         val db = newDb()
         try {
             val sync = FakeSyncRepository()

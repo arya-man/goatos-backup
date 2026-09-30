@@ -14,12 +14,17 @@ import (
 )
 
 type fakeClockRepo struct {
-	lastPunch  *ports.ClockPunchCommand
-	punchEntry ports.ClockEntryRow
-	punchErr   error
-	day        *ports.ClockEntryRow
-	recent     []ports.ClockEntryRow
-	page       ports.ClockPresencePage
+	lastPunch    *ports.ClockPunchCommand
+	punchEntry   ports.ClockEntryRow
+	punchErr     error
+	day          *ports.ClockEntryRow
+	recent       []ports.ClockEntryRow
+	page         ports.ClockPresencePage
+	designations []domain.PeopleCatalogOption
+}
+
+func (f *fakeClockRepo) ListClockDesignations(context.Context) ([]domain.PeopleCatalogOption, error) {
+	return f.designations, nil
 }
 
 func (f *fakeClockRepo) RecordClockPunch(_ context.Context, cmd ports.ClockPunchCommand) (ports.ClockPunchRecord, error) {
@@ -488,4 +493,38 @@ func moduleKeysOf(modules []domain.BootstrapModule) []string {
 
 func (fakeClockPeople) SetPersonTitle(context.Context, string, string, string, string, int) (domain.PersonSummary, error) {
 	return domain.PersonSummary{}, nil
+}
+
+// The designation a reader sees is the one ticked on People / HRMS. 000394 moved every ground
+// operator onto a manager designation but left primary_role_hint = 'operator' for installed
+// phones, and this label read the hint (or the bare grade) first -- so the People, Clock and
+// Leave screens kept saying "Operator" for people who are Feed Managers.
+func TestPresenceNamesTheDesignationNotTheRetiredRoleHint(t *testing.T) {
+	repo := &fakeClockRepo{
+		designations: []domain.PeopleCatalogOption{{ID: "manager_feed", Code: "manager_feed", Label: "Feed Manager"}},
+		page: ports.ClockPresencePage{Rows: []ports.ClockPresenceRawRow{
+			{WorkforceMemberID: "m1", PersonName: "Bipin", RoleHint: "operator", DesignationGrade: "manager", DesignationLabel: "Feed Manager"},
+			{WorkforceMemberID: "m2", PersonName: "Avishek", RoleHint: "health_director", DesignationGrade: "director"},
+			{WorkforceMemberID: "m3", PersonName: "Tapas", RoleHint: "operator"},
+		}},
+	}
+	resp, err := newClockServiceForTest(repo).Presence(context.Background(), "t1", ports.ClockPresenceParams{}, "en", "trace")
+	if err != nil {
+		t.Fatalf("Presence() error=%v", err)
+	}
+	copyMap := clockCopyFor("en")
+	want := []string{"Feed Manager", copyMap["grade.director"], ""}
+	for i, row := range resp.Rows {
+		if row.Designation != want[i] {
+			t.Fatalf("row %d (%s): designation = %q, want %q", i, row.PersonName, row.Designation, want[i])
+		}
+	}
+	if len(resp.Designations) != 1 || resp.Designations[0].Code != "manager_feed" {
+		t.Fatalf("the designation filter must offer the catalog's designations, got %+v", resp.Designations)
+	}
+	for _, d := range resp.Designations {
+		if d.Code == "operator" {
+			t.Fatal("the designation filter must not offer the retired operator")
+		}
+	}
 }

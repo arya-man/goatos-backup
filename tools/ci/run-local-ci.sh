@@ -473,9 +473,9 @@ run_android_screenshots() {
   local filter_args
   if ! ci_full_suite && filter_args="$(android_screenshot_gradle_filter_args)"; then
     echo "ci-local: Android screenshot scope mapped to targeted Paparazzi filters: ${filter_args}"
-    step_cached "android screenshots (targeted)" bash -c "cd apps/goatos-android && mkdir -p app/build/test-results/testDevDebugUnitTest/binary && touch app/build/test-results/testDevDebugUnitTest/binary/in-progress-results-generic.bin && ./gradlew :app:verifyPaparazziDevDebug --no-daemon --console=plain --no-configuration-cache --build-cache --max-workers=$(android_gradle_workers) -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process ${filter_args}"
+    step_cached "android screenshots (targeted)" bash -c "cd apps/goatos-android && mkdir -p app/build/test-results/testDevDebugUnitTest/binary && touch app/build/test-results/testDevDebugUnitTest/binary/in-progress-results-generic.bin && ./gradlew :app:verifyPaparazziDevDebug --rerun --no-daemon --console=plain --no-configuration-cache --build-cache --max-workers=$(android_gradle_workers) -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process ${filter_args}"
   else
-    step_cached "android screenshots" bash -c 'cd apps/goatos-android && mkdir -p app/build/test-results/testDevDebugUnitTest/binary && touch app/build/test-results/testDevDebugUnitTest/binary/in-progress-results-generic.bin && ./gradlew :app:verifyPaparazziDevDebug --no-daemon --console=plain --no-configuration-cache --rerun-tasks --max-workers=1 -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process'
+    step_cached "android screenshots" bash -c "cd apps/goatos-android && mkdir -p app/build/test-results/testDevDebugUnitTest/binary && touch app/build/test-results/testDevDebugUnitTest/binary/in-progress-results-generic.bin && ./gradlew :app:verifyPaparazziDevDebug --rerun --no-daemon --console=plain --no-configuration-cache --build-cache --max-workers=$(android_gradle_workers) -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process"
   fi
 }
 
@@ -1167,6 +1167,15 @@ run_guardrails() {
 }
 
 run_job() {
+  # Android is the landing's critical path (Gradle, 7-14 min); every other job is
+  # shorter. On 2026-09-28 the four other jobs ran beside it at the same priority
+  # and admin-web lint went 39 s -> 677 s, go vet -> 466 s, while Android slowed to
+  # 699 s. Lower the CPU priority of the non-Android jobs (their children inherit
+  # it) so the long pole gets the cores first. Width, order and verdicts are
+  # unchanged. GOATOS_CI_NICE_OTHERS=0 turns it off.
+  if [ "$1" != android ] && [ "${GOATOS_CI_NICE_OTHERS:-1}" != 0 ]; then
+    renice -n 10 -p "$(exec sh -c 'echo $PPID')" >/dev/null 2>&1 || true
+  fi
   case "$1" in
     docs-only) run_docs_only ;;
     common)    run_common ;;

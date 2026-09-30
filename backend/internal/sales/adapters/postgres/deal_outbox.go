@@ -69,6 +69,7 @@ func emitSaleRecorded(ctx context.Context, tx pgx.Tx, tenantID, actorID, idempot
 		// the sale. False for a manure / feed / other-item sale and for an animal line with no head
 		// count; the workflow then opens with its payment steps only.
 		"has_live_animals": write.HasLiveAnimals(),
+		"line_kinds":       write.LineKinds(),
 	}
 	return insertSalesDealEvent(ctx, tx, salesDealEvent{
 		tenantID: tenantID, actorID: actorID, dealID: dealID, parkID: parkID, farm: write.Farm,

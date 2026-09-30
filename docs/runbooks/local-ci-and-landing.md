@@ -269,9 +269,9 @@ Do not "discover" and delete these:
 
 | Flag | Verdict | Named cause |
 |---|---|---|
-| `--rerun-tasks` (Paparazzi) | **KEEP** | Added in `6569960b5` with `./gradlew --stop` + `rm -rf */build`; `8d1f97b4f` removed the `rm -rf`, leaving this as the sole staleness protection. Failure mode is `UP-TO-DATE` — the gate passes without running. |
+| `--rerun` (Paparazzi, task-level) | **KEEP** | Replaced `--rerun-tasks` on 2026-09-28. The staleness risk from `6569960b5` is `UP-TO-DATE` — the gate passes without running. `:app:verifyPaparazziDevDebug --rerun` forces the screenshot task itself to execute; `--rerun-tasks` also recompiled every module and, with `--max-workers=1`, took PR #451's proof to 2333 s. `check-android-screenshot-proof.sh` fails on `--rerun-tasks`, `--max-workers=1`, or a missing `--rerun`. |
 | `--no-daemon`, `--no-configuration-cache`, `-Dkotlin.daemon.enabled=false`, `-Dkotlin.compiler.execution.strategy=in-process`, `-Pkotlin...` | **KEEP** | `f2fb96a1b` "Stabilize Android CI Kotlin tasks", `aa6104a3b` "Stabilize Android lint in local CI", plus the Firebase Perf ASM vs. unit-test Flow-fake issue. `gradle.properties` enables the configuration cache; CI overrides it deliberately (Paparazzi alpha, Hilt+KSP, google-services, Crashlytics, Firebase Perf, Baseline Profile — a textbook CC-blocker set). |
-| `--max-workers=1` | **KEEP, NEEDS-PROOF** | Blame is silent. Not the same as "no reason". Measure its cost via the timings TSV before proposing removal. |
+| `--max-workers=1` | **REMOVED** | Compile lane dropped it in `9ebe28efe`; the screenshot lane on 2026-09-28 (measured: see `docs/progress/ci-15min-landing-20260928.md`). |
 
 ---
 

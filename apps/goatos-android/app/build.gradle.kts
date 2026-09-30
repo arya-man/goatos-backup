@@ -469,9 +469,17 @@ val runningPaparazzi = gradle.startParameter.taskNames.any {
     it.contains("Paparazzi", ignoreCase = true)
 }
 
+// A Paparazzi run executes only the screenshot classes. Every other devDebug unit test is a
+// duplicate of testStgReleaseUnitTest (which excludes screenshots) and ran in the compile lane
+// already; running all 216 classes here, one JVM each, is what took the proof to 39 min.
+// forkEvery = 1 stays (per-class isolation, 602a32711); the forks now run side by side.
+// GOATOS_PAPARAZZI_FORKS lowers the parallelism on a memory-starved machine.
 tasks.withType<Test>().configureEach {
     if (runningPaparazzi && name == "testDevDebugUnitTest") {
+        filter.includeTestsMatching("sg.mesha.goatos.ui.*ScreenshotTest")
         forkEvery = 1
+        maxParallelForks = (System.getenv("GOATOS_PAPARAZZI_FORKS")?.toIntOrNull() ?: 4).coerceAtLeast(1)
+        maxHeapSize = "2g"
     }
 }
 

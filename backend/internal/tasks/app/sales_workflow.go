@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
@@ -39,6 +40,9 @@ type salesDealRecordedPayload struct {
 	// POINTER on purpose: an event written before the key existed (still in the outbox on deploy)
 	// decodes as nil and opens exactly as it did before -- with every step.
 	HasLiveAnimals *bool `json:"has_live_animals"`
+	// LineKinds decides the per-kind conditions (`sale_has_feed`, `sale_has_other`; maintainer
+	// decision 2026-09-28). Absent on an older event: those steps are then left out.
+	LineKinds []string `json:"line_kinds"`
 }
 
 // dealStatusFailed is the sales ledger's failed-deal word (sales/domain.StatusDealFailed). The
@@ -92,10 +96,17 @@ func (h *SaleRecordedWorkflowHandler) HandleEvent(ctx context.Context, e eventbu
 		EventAt:        eventAt,
 		ParkID:         strings.TrimSpace(p.ParkID),
 		SaleHasAnimals: p.HasLiveAnimals,
+		SaleKinds:      p.LineKinds,
 		// The sale's work is owed on the sale's own day: a sale planned for a later day is not
 		// overdue the moment it is recorded (2026-09-26). Dated today or earlier: the recording.
 		ClockAnchor: domain.SaleClockAnchor(eventAt, p.SaleDate),
 	})
+	if errors.Is(err, domain.ErrNothingOwed) {
+		// The published Sales SOP keeps no step for this kind of sale (a manure sale on an SOP that
+		// only tags animals): nothing is owed on it, so no card opens. Not a failure -- a retry
+		// would decide the same.
+		return nil
+	}
 	return err
 }
 

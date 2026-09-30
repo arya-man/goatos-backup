@@ -98,17 +98,34 @@ test("the verdict is idempotent, version-fenced, and reject requires a reason", 
   assert.match(listSource, /disabled=\{!reason\.trim\(\)\}/);
 });
 
-// The strip-photo remains reviewable, but the toxin drawer must not render it through <img src>
-// during detail hydration. That old shape starts a proof-media download just because a drawer is
-// visible. The safe shape is an explicit open link to the backend proof route.
-test("the strip photo is an explicit open link, not an auto-fetching image", () => {
-  const anchor = listSource.indexOf("toxin.drawer.strip_photo");
-  assert.ok(anchor > 0, "strip photo section must still render");
-  const stripSection = listSource.slice(Math.max(0, anchor - 400), anchor + 700);
-  assert.match(stripSection, /<MuiLink href=/);
-  assert.match(stripSection, /drawer\.media\.open/);
-  assert.doesNotMatch(stripSection, /<img\b/);
-  assert.doesNotMatch(stripSection, /vr-image-proof/);
+// Proofs are ON SCREEN when the drawer opens (maintainer request 2026-09-28, under
+// docs/decisions/proof-photo-shown-on-open.md): the strip photo renders as an image straight away,
+// and a video is a player tile whose <video> mounts only after the reviewer presses play -- no
+// video bytes move on render. Both read the backend proof ROUTE, never a signed URL.
+const tileSource = readFileSync(new URL("./toxin-proof-tile.tsx", import.meta.url), "utf8");
+
+test("each step's proof renders in place, not as an open-in-new-tab link", () => {
+  assert.match(listSource, /<ToxinProofTile/);
+  assert.match(listSource, /step\.kind === "photo_reading" \? "photo" : "video"/);
+  assert.doesNotMatch(listSource, /drawer\.media\.open/, "no step may fall back to an Open proof link");
+});
+
+test("the photo shows on open; the video mounts only after play", () => {
+  assert.match(tileSource, /<img src=\{src\}/);
+  const videoAt = tileSource.indexOf("<video src=");
+  assert.ok(videoAt > 0);
+  // The <video> sits in the `playing` branch; before play there is only the button.
+  assert.match(tileSource.slice(0, videoAt), /\{playing \? \(/);
+  assert.match(tileSource, /setPlaying\(true\)/);
+});
+
+test("the strip photo is not shown twice when it is the read-the-strip step's own proof", () => {
+  assert.match(listSource, /!task\.steps\.some\(\(step\) => step\.proof_ref === task\.strip_photo_ref\)/);
+});
+
+test("the drawer still resolves proof ROUTES, never signed URLs, while loading", () => {
+  assert.match(actionsSource, /getProofDownloadRoute\(ref\)/);
+  assert.doesNotMatch(actionsSource, /getProofDownloadUrl\(/);
 });
 
 // guard: toxin-panel-suspense (R3OPS-3). Switching to the Toxin tab or paging it must not blank the
@@ -129,4 +146,16 @@ test("video log drawer seeds its park filter from the page park", () => {
   const log = readFileSync(new URL("./video-log.tsx", import.meta.url), "utf8");
   assert.match(page, /parkFilter=\{one\(sp, VIDEO_LOG_PARK_KEY\) \|\| scope\.parkId \|\| undefined\}/);
   assert.match(log, /parkId=\{parkFilter \|\| parkId\}/, "the CSV download follows the same park");
+});
+
+// guard: toxin-proof-tile-sx (SYNC merge of main a222fbdd4). Main shipped the in-place proof tile
+// with new .toxin-proof rules in app/mesha-theme.css; legacy CSS may only shrink, so the tile is
+// template MUI + sx: no className on it, no .toxin-proof rule in the legacy theme, and the play
+// press stays a real button filling the fixed 4:3 stage (>= 44px tap, no dead control).
+test("the toxin proof tile is MUI + sx, never legacy CSS", () => {
+  const theme = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
+  assert.doesNotMatch(tileSource, /className=/, "the tile uses sx, not legacy classes");
+  assert.doesNotMatch(theme, /\.toxin-proof/, "no .toxin-proof rule may live in mesha-theme.css");
+  assert.match(tileSource, /aspectRatio: "4 \/ 3"/, "a fixed stage, never the clip's intrinsic size");
+  assert.match(tileSource, /<ButtonBase[\s\S]*?inset: 0/, "the play press fills the stage");
 });

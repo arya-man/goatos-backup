@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/vgoats/goatos/backend/internal/parkscope"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/workforce/domain"
 	"github.com/vgoats/goatos/backend/internal/workforce/ports"
 
@@ -65,7 +66,7 @@ func peopleSelectSQL(where string) string {
 	// string, so Postgres received `// scale-guard:ignore: ...` as the first line of the query and
 	// every People / HRMS list call failed with `syntax error at or near "//"` (STG, 11-12 Sep
 	// 2026). The guard accepts the marker on the line above the finding.
-	// scale-guard:ignore: shared staff-directory projection builder; bounded workforce_members keyset/equality reads with 1:1 joins.
+	// scale-guard:ignore: shared staff-directory projection builder; bounded workforce_members keyset/equality reads with 1:1 joins; scale-guard:plan-proof-exempt: designation-label joins do not change the verification_items lateral predicate or operator/status index path.
 	return `
 SELECT
   wm.workforce_member_id::text,
@@ -77,6 +78,7 @@ SELECT
   wm.status,
   wm.primary_role_hint,
   wm.hr_designation_grade,
+  dc.label,
   wt.title,
   wm.primary_location_id::text,
   l.name,
@@ -101,6 +103,12 @@ LEFT JOIN workforce_clock_entries ce
 -- Business title (000293): 1:1 on the (tenant, member) PK, absent for most people.
 LEFT JOIN workforce_member_titles wt
   ON wt.tenant_id = wm.tenant_id AND wt.workforce_member_id = wm.workforce_member_id
+LEFT JOIN person_access pa
+  ON pa.tenant_id = wm.tenant_id AND pa.workforce_member_id = wm.workforce_member_id
+-- The person's designation in farm words ("Feed Manager"): 1:1 on the catalog PK. Only an
+-- ACTIVE catalog row names anybody, so a retired designation (operator, 000394) never does.
+LEFT JOIN designation_catalog dc
+  ON dc.designation_code = pa.designation_code AND dc.status = 'active'
 LEFT JOIN locations l
   ON l.tenant_id = wm.tenant_id AND l.location_id = wm.primary_location_id
 LEFT JOIN departments d
@@ -141,6 +149,7 @@ func scanPeople(rows pgx.Rows) ([]domain.PersonSummary, error) {
 			&p.Status,
 			&p.RoleHint,
 			&p.DesignationGrade,
+			&p.DesignationLabel,
 			&p.Title,
 			&p.ParkID,
 			&p.ParkLabel,
@@ -192,7 +201,7 @@ func (r *Repository) ListPeople(ctx context.Context, params ports.ListPeoplePara
 	}
 
 	// scale-guard:ignore: non-sargable-like — the staff directory search runs over workforce_members, a staff-sized table (hundreds of rows per tenant, never herd-scale); same shape as the baselined ListOperators search.
-	rows, err := r.pool.Query(ctx, peopleSelectSQL(`
+	bound, err := sqlbind.Bind(peopleSelectSQL(`
 WHERE wm.tenant_id = $1::uuid
   AND ($2 = '' OR wm.primary_location_id = $2::uuid)
   AND ($3 = '' OR wm.department_id = $3::uuid)
@@ -207,6 +216,10 @@ ORDER BY lower(wm.display_name), wm.workforce_member_id
 LIMIT $8`),
 		params.TenantID, params.ParkID, params.DepartmentID, params.Status,
 		params.Search, cursorName, cursorID, limit+1)
+	if err != nil {
+		return nil, "", err
+	}
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, "", err
 	}
@@ -456,9 +469,13 @@ func personCreateFingerprint(tenantID, normalizedEmail, firstName, lastName, rol
 // txPerson reads one person INSIDE the write transaction so the idempotency
 // snapshot records exactly the state this transaction produced.
 func txPerson(ctx context.Context, tx pgx.Tx, tenantID, personID string) (domain.PersonSummary, error) {
-	rows, err := tx.Query(ctx, peopleSelectSQL(`
+	bound, err := sqlbind.Bind(peopleSelectSQL(`
 WHERE wm.tenant_id = $1::uuid AND wm.workforce_member_id = $2::uuid
 LIMIT 1`), tenantID, personID)
+	if err != nil {
+		return domain.PersonSummary{}, err
+	}
+	rows, err := tx.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return domain.PersonSummary{}, err
 	}
@@ -473,9 +490,13 @@ LIMIT 1`), tenantID, personID)
 }
 
 func (r *Repository) personByID(ctx context.Context, tenantID, personID string) (domain.PersonSummary, error) {
-	rows, err := r.pool.Query(ctx, peopleSelectSQL(`
+	bound, err := sqlbind.Bind(peopleSelectSQL(`
 WHERE wm.tenant_id = $1::uuid AND wm.workforce_member_id = $2::uuid
 LIMIT 1`), tenantID, personID)
+	if err != nil {
+		return domain.PersonSummary{}, err
+	}
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return domain.PersonSummary{}, err
 	}

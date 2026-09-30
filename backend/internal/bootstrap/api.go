@@ -1125,6 +1125,17 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	}
 	feedDirectionService.WithDistributionVerificationEnqueuer(
 		feeddirectionverificationbridge.New(verificationService))
+	// THE DISTRIBUTION VERIFIER RECORDS THE TOTAL FEED (maintainer decision 2026-09-28): the item
+	// carries one blind "Total feed given (kg)" box and her approve carries the reading, written
+	// onto feed_distribution_completions through the producer's own store BEFORE the verdict, and
+	// checked against the planned pen-session total (warned once, direction only, past 5%).
+	if err := verificationService.RegisterMeasurementApplier(
+		feeddirectiondomain.VerificationCategoryFeed,
+		feeddirectionverificationbridge.NewDistributionMeasurementApplier(feedDirectionRepo),
+	); err != nil {
+		pool.Close()
+		return nil, err
+	}
 	// Feed PACKING verification (maintainer decision, 2026-07-26, SUPERSEDING the "packing stays instant"
 	// rule): a feed PACKING session is completed only after a verifier approves the operator's ONE
 	// mandatory packing video, so packing is a verification producer too. Same feed module as

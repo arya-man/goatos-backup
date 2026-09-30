@@ -25,6 +25,7 @@ import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ToxinTask } from "@/lib/api/server";
 import { fmtDateTime } from "@/lib/format";
 import { loadToxinTaskDetailAction, recordToxinVerdictAction, type ToxinDetailLoad } from "./toxin-actions";
+import { ToxinProofTile } from "./toxin-proof-tile";
 import { toxinReviewRows, type ToxinReviewRow } from "./toxin-rows";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
@@ -34,7 +35,6 @@ import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
 import DialogTitle from "@mui/material/DialogTitle";
 import IconButton from "@mui/material/IconButton";
-import MuiLink from "@mui/material/Link";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import useMediaQuery from "@mui/material/useMediaQuery";
@@ -257,27 +257,43 @@ function ToxinDrawer({
                       <Box sx={{ display: "flex", gap: 1.25, flexWrap: "wrap", typography: "caption", color: "text.secondary" }}>
                         {step.completed_by ? <span>{step.completed_by}</span> : null}
                         {step.completed_at ? <span>{fmtDateTime(step.completed_at)}</span> : null}
-                        {/* A resolvable proof gets a backend proof route; an unresolved one
-                            honestly shows only who did the step and when — see
-                            loadToxinTaskDetailAction's bounded resolver and its limitation note. */}
-                        {proofUrl ? (
-                          <MuiLink href={proofUrl} target="_blank" rel="noreferrer">
-                            {copy(pageContract, "drawer.media.open")}
-                          </MuiLink>
-                        ) : null}
                       </Box>
+                      {/* The proof is ON SCREEN under its step, not a link to a new tab: the
+                          strip photo shows at once, a video is a player tile that plays in place
+                          when pressed. An unresolved proof honestly shows only who did the step
+                          and when -- see loadToxinTaskDetailAction's bounded resolver. */}
+                      {proofUrl && step.proof_ref ? (
+                        // admin-proof-media-egress:ignore one toxin test's own proofs in its opened drawer: a photo shows on open (proof-photo-shown-on-open), a video mounts only after play inside ToxinProofTile.
+                        <ToxinProofTile
+                          key={step.proof_ref}
+                          kind={step.kind === "photo_reading" ? "photo" : "video"}
+                          src={proofUrl}
+                          proofRef={step.proof_ref}
+                          label={step.title}
+                          playLabel={copy(pageContract, "drawer.media.play_video")}
+                        />
+                      ) : null}
                     </li>
                   );
                 })}
               </Box>
             </DrawerBlock>
 
-            {task.strip_photo_ref ? (
+            {/* The strip photo is normally the "Read the strip" step's own proof, already shown
+                under that step; a separate section would show the same picture twice. It renders
+                here only when it is NOT one of the steps' proofs. */}
+            {task.strip_photo_ref && !task.steps.some((step) => step.proof_ref === task.strip_photo_ref) ? (
               <DrawerBlock title={text("toxin.drawer.strip_photo")}>
                 {loaded?.proofUrls[task.strip_photo_ref] ? (
-                  <MuiLink href={loaded.proofUrls[task.strip_photo_ref] ?? undefined} target="_blank" rel="noreferrer" variant="body2">
-                    {copy(pageContract, "drawer.media.open")}
-                  </MuiLink>
+                  // admin-proof-media-egress:ignore the opened test's one strip photo, shown on open (proof-photo-shown-on-open).
+                  <ToxinProofTile
+                    key={task.strip_photo_ref}
+                    kind="photo"
+                    src={loaded.proofUrls[task.strip_photo_ref] ?? ""}
+                    proofRef={task.strip_photo_ref}
+                    label={text("toxin.drawer.strip_photo")}
+                    playLabel={copy(pageContract, "drawer.media.play_video")}
+                  />
                 ) : (
                   <Typography variant="body2" sx={{ color: "text.secondary" }}>{copy(pageContract, "drawer.media.empty")}</Typography>
                 )}

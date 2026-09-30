@@ -33,7 +33,7 @@ runner (03:00 IST). Nothing was deleted; it moved.
 | Android compile | `:app:compileStgReleaseKotlin` (all modules :app uses), 6 workers, shared build cache | same |
 | Android unit | `:app` + changed library modules + their dependents (`tools/ci/android-gradle-scope.mjs`) | every module |
 | Android lint | `:app:lintStgRelease` when `app/**`, `core-designsystem`, any `res/` or build logic changed; else changed library modules' `lintRelease` | every module + `:app` |
-| Paparazzi | diff-mapped on an Android UI diff (`ci-local-screenshots`) | full `--rerun-tasks` (nightly: `GOATOS_RUN_ANDROID_SCREENSHOTS=1`) |
+| Paparazzi | diff-mapped on an Android UI diff (`ci-local-screenshots`) | full: all `*ScreenshotTest` classes, task-level `--rerun`, forks in parallel (nightly: `GOATOS_RUN_ANDROID_SCREENSHOTS=1`) |
 | (library-only change) | the library's own `lintRelease`, not `:app` lint: no module has a lint config/baseline and `:app` lint never set `checkDependencies`, so this is the same rules on the changed code | |
 | config-cache guard, benchmark compile | Android build-logic diff only | always |
 | backend govulncheck | `backend/go.mod`/`go.sum` diff only | always |

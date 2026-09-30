@@ -366,7 +366,7 @@ today's behaviour; and the lock saves **nothing** on a solo landing.
 
 | Flag | Named cause |
 |---|---|
-| `--rerun-tasks` (Paparazzi) | Added in `6569960b5` alongside `./gradlew --stop` + `rm -rf */build`; `8d1f97b4f` removed the `rm -rf`, leaving this as the **sole** staleness protection. Failure mode is `UP-TO-DATE` — the gate passes without running |
+| `--rerun` (Paparazzi, task-level; was `--rerun-tasks` until 2026-09-28) | Staleness cause from `6569960b5`: failure mode is `UP-TO-DATE` — the gate passes without running. Task-level `--rerun` keeps that protection without recompiling every module. Guarded by `check-android-screenshot-proof.sh` |
 | `--no-daemon`, `--no-configuration-cache`, `-Dkotlin.daemon.enabled=false`, `-D/-Pkotlin.compiler.execution.strategy=in-process` | `f2fb96a1b` "Stabilize Android CI Kotlin tasks", `aa6104a3b` "Stabilize Android lint in local CI", plus the Firebase Perf ASM vs. unit-test Flow-fake issue. `gradle.properties` enables the configuration cache; CI overrides it **deliberately** — the plugin set (Paparazzi alpha, Hilt+KSP, google-services, Crashlytics, Firebase Perf, Baseline Profile) is a textbook config-cache blocker list |
 
 ---

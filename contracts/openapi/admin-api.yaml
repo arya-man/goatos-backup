@@ -6435,6 +6435,7 @@ components:
         - status
         - role_hint
         - designation_grade
+        - designation_label
         - title
         - park_id
         - park_label
@@ -6487,6 +6488,12 @@ components:
             - string
             - "null"
           maxLength: 40
+        designation_label:
+          description: The person's designation in farm words ("Feed Manager"), from the designation ticked on People / HRMS; null when no active designation is set. This, not role_hint, is the designation a reader sees.
+          type:
+            - string
+            - "null"
+          maxLength: 120
         title:
           description: The person's business title ("CEO", "Preventive Care Director"), edited on People / HRMS; null when none is set.
           type:

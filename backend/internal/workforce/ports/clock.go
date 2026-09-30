@@ -84,8 +84,9 @@ type ClockPresenceParams struct {
 	TenantID     string
 	BusinessDate string
 	ParkID       string
-	// RoleHint filters on workforce_members.primary_role_hint (the
-	// "designation" filter both surfaces expose).
+	// RoleHint is the "designation" filter both surfaces expose. It matches the
+	// person's designation code (person_access) and, for a filter value an older
+	// client still holds, workforce_members.primary_role_hint.
 	RoleHint string
 	// Bucket narrows to working | clocked_out | not_clocked_in | flagged.
 	Bucket string
@@ -108,10 +109,13 @@ type ClockPresenceRawRow struct {
 	PersonName        string
 	RoleHint          string
 	DesignationGrade  string
-	ParkID            string
-	ParkLabel         string
-	DepartmentLabel   string
-	Entry             *ClockEntryRow
+	// DesignationLabel is the person's designation from designation_catalog
+	// ("Feed Manager"); "" when none is set.
+	DesignationLabel string
+	ParkID           string
+	ParkLabel        string
+	DepartmentLabel  string
+	Entry            *ClockEntryRow
 }
 
 // ClockEntryRow is the raw pairing row before label composition.
@@ -165,6 +169,9 @@ type ClockPersonDay struct {
 // ClockRepository is the attendance port, implemented by the same postgres
 // Repository as the operator/people ports.
 type ClockRepository interface {
+	// ListClockDesignations is the designation filter vocabulary: the ACTIVE
+	// designation_catalog rows, in catalog order (id/code = designation_code).
+	ListClockDesignations(ctx context.Context) ([]domain.PeopleCatalogOption, error)
 	// RecordClockPunch runs ONE transaction: idempotency reservation, event
 	// insert, entry insert/close, auto-close of this member's stale open
 	// entries from earlier days, idempotency completion. An exact replay

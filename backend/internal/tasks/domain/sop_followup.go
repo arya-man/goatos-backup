@@ -114,7 +114,32 @@ const (
 	// stamped as work nobody can finish. Only a SALE track may carry it: no other opener knows
 	// whether a sale has animals.
 	StepWhenSaleHasAnimals = "sale_has_animals"
+	// The per-kind sale conditions (maintainer decision 2026-09-28). A sale of manure or feed owes
+	// its own work -- the weight that left the farm -- and none of the animal steps, so a step can
+	// be kept for exactly the sales that need it:
+	//   sale_has_no_animals  no line has an animal head count (the complement of sale_has_animals)
+	//   sale_has_feed        a line sells a `feed` product
+	//   sale_has_other       a line sells an `other` product (manure, or a farm-added item)
+	// The kinds are sales/domain's closed product-kind set; a product the farm adds on Configuration
+	// -> Items and settings takes a kind, so it is covered without a new condition.
+	StepWhenSaleHasNoAnimals = "sale_has_no_animals"
+	StepWhenSaleHasFeed      = "sale_has_feed"
+	StepWhenSaleHasOther     = "sale_has_other"
 )
+
+// ErrNothingOwed is a follow-up track whose every step the opening context left out -- a manure
+// sale on a Sales SOP that only tags animals. It is not a broken document: the opener opens NO
+// workflow for it rather than failing (maintainer decision 2026-09-28).
+var ErrNothingOwed = errors.New("tasks: no step of this track applies to this opening")
+
+// IsSaleStepCondition reports a condition only a sale track may carry.
+func IsSaleStepCondition(when string) bool {
+	switch when {
+	case StepWhenSaleHasAnimals, StepWhenSaleHasNoAnimals, StepWhenSaleHasFeed, StepWhenSaleHasOther:
+		return true
+	}
+	return false
+}
 
 // Sentinel errors for a follow_up section that cannot be compiled. Publishing validates the same
 // rules (sop/app validateFollowUp) so an unusable document never becomes the published version.
@@ -297,6 +322,19 @@ type CompileOptions struct {
 	// the deal's lines; every other opener leaves it true (the condition is refused outside a
 	// sale track, so it never decides anything there).
 	SaleHasAnimals bool
+	// SaleKinds is the product kinds on the sale's lines (sales.deal.recorded `line_kinds`). Nil
+	// when the event predates the key: the per-kind conditions then keep nothing, and the opening
+	// behaves exactly as before them.
+	SaleKinds []string
+}
+
+func (o CompileOptions) saleHasKind(kind string) bool {
+	for _, k := range o.SaleKinds {
+		if k == kind {
+			return true
+		}
+	}
+	return false
 }
 
 // includesStep reports whether the opening context keeps a step with this condition.
@@ -306,6 +344,12 @@ func (o CompileOptions) includesStep(when string) bool {
 		return o.NeedsShedPlacement
 	case StepWhenSaleHasAnimals:
 		return o.SaleHasAnimals
+	case StepWhenSaleHasNoAnimals:
+		return !o.SaleHasAnimals
+	case StepWhenSaleHasFeed:
+		return o.saleHasKind("feed")
+	case StepWhenSaleHasOther:
+		return o.saleHasKind("other")
 	}
 	return true
 }
@@ -365,20 +409,9 @@ func ValidateFollowUp(d FollowUpDSL, taskTypes map[string]FollowUpTaskTy) []stri
 		if len(t.Steps) == 0 {
 			add("%s.steps: at least one step is required", p)
 		}
-		if t.Module == ModuleSales && len(t.Steps) > 0 {
-			// A sale with no animals must still open with SOMETHING to do (the money); a track whose
-			// every step needs animals would compile to nothing for a manure sale.
-			unconditioned := false
-			for _, s := range t.Steps {
-				if s.When != StepWhenSaleHasAnimals {
-					unconditioned = true
-					break
-				}
-			}
-			if !unconditioned {
-				add("%s.steps: at least one step must run whether or not the sale has animals", p)
-			}
-		}
+		// A sale track no longer has to keep an "Always" step (maintainer decision 2026-09-28): a
+		// sale the conditions leave with no step -- a manure sale on an SOP that only tags animals --
+		// opens no workflow at all (ErrNothingOwed), which is the honest answer for it.
 		seenSteps := map[string]struct{}{}
 		answerKinds := map[string]stepAnswer{}
 		for si, s := range t.Steps {
@@ -493,7 +526,7 @@ func ValidateFollowUp(d FollowUpDSL, taskTypes map[string]FollowUpTaskTy) []stri
 			}
 			switch s.When {
 			case StepWhenAlways, StepWhenKidPenUnresolved:
-			case StepWhenSaleHasAnimals:
+			case StepWhenSaleHasAnimals, StepWhenSaleHasNoAnimals, StepWhenSaleHasFeed, StepWhenSaleHasOther:
 				if t.Module != ModuleSales {
 					add("%s.when: %q only applies to a sale's steps", sp, s.When)
 				}
@@ -707,6 +740,10 @@ func CompileTrack(track FollowUpTrack, taskTypes map[string]FollowUpTaskTy, opts
 		}
 	}
 	if len(out.Actions) == 0 {
+		if len(dropped) > 0 {
+			// Every step was left out by its condition: nothing is owed on this opening.
+			return Template{}, fmt.Errorf("%w: track %q", ErrNothingOwed, track.Key)
+		}
 		return Template{}, fmt.Errorf("%w: track %q compiled to no steps", ErrFollowUpInvalid, track.Key)
 	}
 	return out, nil

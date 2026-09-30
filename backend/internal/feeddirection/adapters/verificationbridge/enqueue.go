@@ -60,15 +60,19 @@ func (e *Enqueuer) EnqueueFeedDistributionVerification(ctx context.Context, in f
 		// A blank weight ref is DROPPED rather than sent as an empty entry: a grandfathered row
 		// (migration 000151) re-enqueued after a rework verdict genuinely has no weight photo, and an
 		// empty string would reach the verifier as a media slot that can never load.
-		MediaRefs:      refs,
-		MediaMeta:      meta,
-		ContextRows:    answerRows(in.ContextRows),
-		OperatorID:     ptrIfSet(in.OperatorID),
-		ShedID:         ptrIfSet(in.ShedID),
-		PartitionLabel: ptrIfSet(in.PartitionLabel),
-		ParkID:         ptrIfSet(in.ParkID),
-		CapturedAt:     in.CapturedAt,
-		IdempotencyKey: in.IdempotencyKey,
+		MediaRefs: refs,
+		MediaMeta: meta,
+		// ONE blind entry box, "Total feed given (kg)" (maintainer decision 2026-09-28): the
+		// verifier types the combined weight she reads off the weight photo / video, and her
+		// approve carries it (DistributionMeasurementApplier). No planned figure rides the item.
+		MeasurementFields: distributionMeasurementFields(),
+		ContextRows:       answerRows(in.ContextRows),
+		OperatorID:        ptrIfSet(in.OperatorID),
+		ShedID:            ptrIfSet(in.ShedID),
+		PartitionLabel:    ptrIfSet(in.PartitionLabel),
+		ParkID:            ptrIfSet(in.ParkID),
+		CapturedAt:        in.CapturedAt,
+		IdempotencyKey:    in.IdempotencyKey,
 	})
 	return err
 }

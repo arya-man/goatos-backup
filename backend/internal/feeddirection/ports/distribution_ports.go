@@ -234,3 +234,50 @@ type DistributionCompletionStore interface {
 	// and stale-guarded: a re-delivered verdict on a non-pending row is a no-op.
 	BounceDistributionForRework(ctx context.Context, p BounceDistributionParams) (bool, error)
 }
+
+// THE DISTRIBUTION VERIFIER RECORDS THE TOTAL FEED (maintainer decision 2026-09-28). The verifier
+// types the combined feed weight she reads off the weight photo / distribution video, and her approve
+// carries it. Kept on its OWN narrow store interface rather than widened onto
+// DistributionCompletionStore: the reading is the verifier's act on one completion, reached only
+// through the verification measurement seam, and must not be reachable from the operator's write path.
+
+var (
+	// ErrDistributionCompletionNotFound is returned when a verifier reading names a completion that
+	// does not exist for the tenant.
+	ErrDistributionCompletionNotFound = errors.New("feeddirection: distribution completion not found")
+	// ErrDistributionFeedOutOfRange is returned when a verifier-entered total is not a usable weight
+	// (negative, not a number, or above domain.MaxDistributionTotalFeedKg).
+	ErrDistributionFeedOutOfRange = errors.New("feeddirection: distribution total feed out of range")
+)
+
+// RecordDistributionVerifiedFeedParams stores the verifier's combined feed reading for one
+// distribution completion. REPLACE semantics: a replayed approve rewrites the same values.
+type RecordDistributionVerifiedFeedParams struct {
+	TenantID     string
+	CompletionID string
+	EnteredKg    float64
+	// PlannedKg is the pen-session total the reading was checked against at approve time; nil when
+	// no plan was readable. Frozen on the row so the record says what she was warned against.
+	PlannedKg *float64
+	// VarianceAcknowledged is true ONLY when the reading sat more than the confirm tolerance away
+	// from PlannedKg and the verifier then confirmed it.
+	VarianceAcknowledged bool
+	RecordedBy           string
+	IdempotencyKey       string
+	TraceID              string
+}
+
+// DistributionFeedReadingStore is the verifier-reading half of the distribution completion store.
+type DistributionFeedReadingStore interface {
+	// DistributionPlannedFeedKg is the planned combined feed for the completion's pen-session:
+	// the packed-against snapshot of the SAME pen-session's packing bag when one exists, else the
+	// frozen issued sheet summed over every feed item. ok=false when no positive plan is readable.
+	// ErrDistributionCompletionNotFound for an unknown completion.
+	DistributionPlannedFeedKg(ctx context.Context, tenantID, completionID string) (plannedKg float64, ok bool, err error)
+	// RecordDistributionVerifiedFeed writes the reading onto the completion row, with an audit row,
+	// in one transaction.
+	RecordDistributionVerifiedFeed(ctx context.Context, p RecordDistributionVerifiedFeedParams) error
+	// DistributionVerifiedFeedRecorded reports whether the completion's CURRENT submission already
+	// carries a reading.
+	DistributionVerifiedFeedRecorded(ctx context.Context, tenantID, completionID string) (bool, error)
+}

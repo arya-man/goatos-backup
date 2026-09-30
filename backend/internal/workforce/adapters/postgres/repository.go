@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/vgoats/goatos/backend/internal/permissions"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"strings"
 	"time"
 
@@ -50,7 +51,7 @@ func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
 func (r *Repository) ListOperators(ctx context.Context, params ports.ListOperatorsParams) ([]domain.OperatorProfile, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, operatorSelectSQL(`
+	rows, err := queryBound(ctx, r.pool, operatorSelectSQL(`
 WHERE wm.tenant_id = $1::uuid
   AND ($2 = '' OR wm.status = $2)
   AND ($3 = '' OR wm.primary_role_hint = $3)
@@ -115,7 +116,7 @@ RETURNING workforce_member_id::text`,
 func (r *Repository) GetOperator(ctx context.Context, tenantID, operatorID string) (domain.OperatorProfile, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, operatorSelectSQL(`
+	rows, err := queryBound(ctx, r.pool, operatorSelectSQL(`
 WHERE wm.tenant_id = $1::uuid
   AND wm.workforce_member_id = $2::uuid
 LIMIT 1`), tenantID, operatorID)
@@ -210,6 +211,9 @@ WHERE tenant_id = $1::uuid
 				return domain.OperatorProfile{}, err
 			}
 		}
+		if err := endSeatsOfDeactivatedMember(ctx, tx, cmd.TenantID, cmd.ActorID, operatorID); err != nil {
+			return domain.OperatorProfile{}, err
+		}
 		if email.Valid && strings.TrimSpace(email.String) != "" {
 			if _, err := tx.Exec(ctx, `
 UPDATE auth_allowed_emails
@@ -258,7 +262,7 @@ DO UPDATE SET status = 'active', updated_at = now(), created_by = EXCLUDED.creat
 func (r *Repository) ListGrants(ctx context.Context, tenantID, operatorID string) ([]domain.GrantSummary, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, grantsSQL(`
+	rows, err := queryBound(ctx, r.pool, grantsSQL(`
 JOIN workforce_members wm
   ON wm.tenant_id = usg.tenant_id
  AND wm.user_id = usg.user_id
@@ -329,7 +333,7 @@ WHERE tenant_id = $1::uuid AND user_id = $2::uuid AND role = $3 AND status = 'ac
 				return nil, mapWriteErr(err)
 			}
 		}
-		rows, err := tx.Query(ctx, grantsSQL(`
+		rows, err := queryBound(ctx, tx, grantsSQL(`
 WHERE usg.tenant_id = $1::uuid AND usg.user_id = $2::uuid AND usg.role = $3 AND usg.status = 'active'
   AND usg.scope_type IN ('tenant', 'park')
   AND usg.valid_from <= now()
@@ -349,7 +353,7 @@ INSERT INTO user_scope_grants (
 )
 RETURNING grant_id::text`, cmd.TenantID, userID, cmd.Body.Role, scopeType, scopeID, ptrValue(cmd.Body.ValidTo), cmd.ActorID).Scan(&grantID)
 		if err == nil {
-			rows, queryErr := tx.Query(ctx, grantsSQL(`
+			rows, queryErr := queryBound(ctx, tx, grantsSQL(`
 WHERE usg.grant_id = $1::uuid`), grantID)
 			if queryErr != nil {
 				err = queryErr
@@ -468,7 +472,7 @@ WHERE tenant_id = $1::uuid
 func (r *Repository) ListCapabilities(ctx context.Context, tenantID, operatorID string) ([]domain.CapabilityAssignment, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, capabilitiesSQL(`
+	rows, err := queryBound(ctx, r.pool, capabilitiesSQL(`
 WHERE wmc.tenant_id = $1::uuid
   AND wmc.workforce_member_id = $2::uuid
   AND (wmc.valid_to IS NULL OR wmc.valid_to > now())
@@ -643,7 +647,7 @@ LIMIT 100`, tenantID, userID)
 func (r *Repository) ListDevices(ctx context.Context, tenantID, operatorID string) ([]domain.DeviceSummary, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, devicesSQL(`
+	rows, err := queryBound(ctx, r.pool, devicesSQL(`
 WHERE tenant_id = $1::uuid
   AND workforce_member_id = $2::uuid
 ORDER BY status, last_seen_at DESC
@@ -767,7 +771,7 @@ func (r *Repository) RejectSourceCandidate(ctx context.Context, cmd ports.Reject
 func (r *Repository) GetMemberForActor(ctx context.Context, tenantID, actorID string) (domain.OperatorProfile, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, operatorSelectSQL(`
+	rows, err := queryBound(ctx, r.pool, operatorSelectSQL(`
 WHERE wm.tenant_id = $1::uuid
   AND wm.user_id = $2::uuid
 LIMIT 1`), tenantID, actorID)
@@ -787,7 +791,7 @@ LIMIT 1`), tenantID, actorID)
 func (r *Repository) ListActiveGrantsForActor(ctx context.Context, tenantID, actorID string) ([]domain.GrantSummary, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, grantsSQL(`
+	rows, err := queryBound(ctx, r.pool, grantsSQL(`
 WHERE usg.tenant_id = $1::uuid
   AND usg.user_id = $2::uuid
   AND usg.status = 'active'
@@ -1036,7 +1040,7 @@ WHERE tenant_id = $1::uuid
 func (r *Repository) GetDeviceForActor(ctx context.Context, tenantID, actorID, deviceID string) (domain.DeviceSummary, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, devicesSQL(`
+	rows, err := queryBound(ctx, r.pool, devicesSQL(`
 JOIN workforce_members wm
   ON wm.tenant_id = d.tenant_id
  AND wm.workforce_member_id = d.workforce_member_id
@@ -1112,10 +1116,14 @@ WHERE tenant_id = $1::uuid
 }
 
 func (r *Repository) getMemberForActorTx(ctx context.Context, tx pgx.Tx, tenantID, actorID string) (domain.OperatorProfile, error) {
-	rows, err := tx.Query(ctx, operatorSelectSQL(`
+	bound, err := sqlbind.Bind(operatorSelectSQL(`
 WHERE wm.tenant_id = $1::uuid
   AND wm.user_id = $2::uuid
 LIMIT 1`), tenantID, actorID)
+	if err != nil {
+		return domain.OperatorProfile{}, err
+	}
+	rows, err := tx.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return domain.OperatorProfile{}, err
 	}

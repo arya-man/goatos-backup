@@ -32,6 +32,9 @@ type OpenWorkflowCommand struct {
 	// 2026-09-25). Nil = true: every other template, and a sale event written before the fact
 	// was carried, compiles every step.
 	SaleHasAnimals *bool
+	// SaleKinds is the sale lines' product kinds, for the per-kind step conditions (2026-09-28).
+	// Nil on every other template and on a sale event written before the key existed.
+	SaleKinds []string
 	// ClockAnchor is the instant the steps' due times count from, when it is not EventAt: a sale
 	// planned for a later day counts from that day (domain.SaleClockAnchor). Zero = EventAt, which
 	// is every other workflow. The workflow's event_at stays the recording moment either way.

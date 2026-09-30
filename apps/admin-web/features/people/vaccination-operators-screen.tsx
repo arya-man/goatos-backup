@@ -37,6 +37,7 @@ import { KpiWidget } from "@/components/app/kpi-widget";
 import { Avatar } from "@/components/app/avatar";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
+import Stack from "@mui/material/Stack";
 import IconButton from "@mui/material/IconButton";
 import { Iconify } from "@/components/minimal/iconify";
 import { MinimalDrawer } from "@/components/app/drawer";
@@ -161,6 +162,10 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
   // A park-scoped actor never sees these and never clicks anything (parkChoices stays null).
   const [parkChoices, setParkChoices] = useState<ParkScopeOption[] | null>(null);
   const [parkChoiceMessage, setParkChoiceMessage] = useState('');
+  // The same backend-owned park list, KEPT after a park is chosen: the loaded screen offers it as a
+  // Park switch so a multi-park actor can move between parks without leaving the page. Null for a
+  // park-scoped actor, who has nothing to switch to.
+  const [parkOptions, setParkOptions] = useState<ParkScopeOption[] | null>(null);
   // The park the actor picked. There is deliberately NO local default: a pre-selected park would be
   // this screen inventing scope, which is the defect BUG-019 is about.
   const [chosenParkId, setChosenParkId] = useState<string | null>(null);
@@ -235,6 +240,7 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
         if (!alive) return;
         if (result.state === 'needs_park_selection') {
           setParkChoices(result.parks);
+          setParkOptions(result.parks);
           setParkChoiceMessage(result.message);
           setParkId(null);
           setError(null);
@@ -877,8 +883,32 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
 
   return (
     <section className="screen on" data-screen="vaccination-operators">
-      {/* The People page carries the title; this line names the park the screen is scoped to. */}
-      {scopedParkLabel ? <Caption>{scopedParkLabel}</Caption> : null}
+      {/* The People page carries the title; this row names the park the screen is scoped to and,
+          for a multi-park actor, keeps the backend park list as a Park switch (main 6259f5aed). */}
+      {scopedParkLabel || (parkOptions && parkOptions.length > 1 && parkId) ? (
+        <Stack direction="row" spacing={2} sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', rowGap: 1.5, mb: 3 }}>
+          {scopedParkLabel ? <Caption>{scopedParkLabel}</Caption> : <span />}
+          {parkOptions && parkOptions.length > 1 && parkId ? (
+            <MuiTextField
+              select
+              id="vaccination-operators-park"
+              label="Park"
+              value={parkId}
+              onChange={(e) => {
+                if (e.target.value && e.target.value !== parkId) setChosenParkId(e.target.value);
+              }}
+              sx={{ minWidth: { xs: 1, sm: 220 }, maxWidth: 1 }}
+              slotProps={{ inputLabel: { shrink: true }, htmlInput: { 'aria-label': 'Park scope' }, select: { MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+            >
+              {parkOptions.map((park) => (
+                <MenuItem key={park.parkId} value={park.parkId}>
+                  {park.code ? `${park.code} · ${park.name}` : park.name}
+                </MenuItem>
+              ))}
+            </MuiTextField>
+          ) : null}
+        </Stack>
+      ) : null}
 
       {/* KPI Row */}
       <KpiGrid min={210}>

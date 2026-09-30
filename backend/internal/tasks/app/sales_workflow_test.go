@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -164,5 +166,35 @@ func TestPlannedSaleClockAnchorsOnTheSaleDate(t *testing.T) {
 	_ = h.HandleEvent(context.Background(), eventbus.Event{Type: EventSalesDealStatusChanged, TenantID: "tenant", Key: "deal-9", Payload: raw})
 	if len(repo.saleReanchors) != 1 {
 		t.Fatalf("a close without a date must not re-anchor, got %v", repo.saleReanchors)
+	}
+}
+
+// nothingOwedRepo compiles every sale to "no step applies" -- a manure sale on a tag-only SOP.
+type nothingOwedRepo struct{ *openRecorder }
+
+func (r *nothingOwedRepo) OpenWorkflow(_ context.Context, cmd ports.OpenWorkflowCommand) (bool, error) {
+	r.opened = append(r.opened, cmd)
+	return false, fmt.Errorf("%w: track %q", domain.ErrNothingOwed, "sales_deal")
+}
+
+// TestSaleRecordedCarriesItsLineKindsAndASaleOwingNothingOpensNothing (maintainer decision
+// 2026-09-28): the per-kind conditions read line_kinds off the event, and a sale no step of the
+// published SOP applies to opens no card -- the handler succeeds rather than failing the event
+// into retries and the DLQ, since a retry would decide exactly the same.
+func TestSaleRecordedCarriesItsLineKindsAndASaleOwingNothingOpensNothing(t *testing.T) {
+	raw, _ := json.Marshal(map[string]any{"sales_deal_id": "deal-2", "status": "Deal Closed", "has_live_animals": false, "line_kinds": []string{"feed", "other"}})
+	ev := eventbus.Event{Type: EventSalesDealRecorded, TenantID: "tenant", Key: "deal-2", Payload: raw, OccurredAt: time.Date(2026, 9, 28, 9, 0, 0, 0, time.UTC)}
+
+	rec := &openRecorder{fakeRepo: newFakeRepo(), byRef: map[string]string{}}
+	if err := NewSaleRecordedWorkflowHandler(NewService(rec, nil)).HandleEvent(context.Background(), ev); err != nil {
+		t.Fatalf("recorded handler: %v", err)
+	}
+	if len(rec.opened) != 1 || !reflect.DeepEqual(rec.opened[0].SaleKinds, []string{"feed", "other"}) {
+		t.Fatalf("line_kinds must reach the compile, got %+v", rec.opened)
+	}
+
+	none := &nothingOwedRepo{openRecorder: &openRecorder{fakeRepo: newFakeRepo(), byRef: map[string]string{}}}
+	if err := NewSaleRecordedWorkflowHandler(NewService(none, nil)).HandleEvent(context.Background(), ev); err != nil {
+		t.Fatalf("a sale owing nothing must not fail the event, got %v", err)
 	}
 }

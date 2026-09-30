@@ -1,4 +1,6 @@
 "use client";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
 
 import { DataTable, columnsFromContract } from "@/components/data-table";
 import { Label } from "@/components/minimal/label";
@@ -51,10 +53,12 @@ export function RecentDeathsTable({
     died_on: { cell: (row) => row.diedOn, sortValue: (row) => row.sortDate },
     tag: {
       cell: (row) => (
-        <div>
-          <span className="mono">{row.tag || row.displayId}</span>
-          {row.tag ? <div className="muted small">{row.displayId}</div> : null}
-        </div>
+        // An animal's tag is one token (`TEMP-CBE-CASTRO01-003`): a phone must never break it at
+        // its hyphens (main 3b259ea96); the table pans inside its own scroll box instead.
+        <Box sx={{ whiteSpace: "nowrap" }}>
+          <Typography component="div" variant="subtitle2" sx={{ fontFamily: "monospace" }}>{row.tag || row.displayId}</Typography>
+          {row.tag ? <Typography component="div" variant="caption" sx={{ color: "text.secondary" }}>{row.displayId}</Typography> : null}
+        </Box>
       ),
       sortValue: (row) => row.tag || row.displayId,
     },

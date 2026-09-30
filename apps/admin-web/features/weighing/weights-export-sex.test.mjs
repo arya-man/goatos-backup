@@ -13,11 +13,12 @@ const contract = readFileSync(
   "utf8",
 );
 
-// The Download weights drawer carries its OWN Sex select (maintainer, 2026-09-07). It starts on
-// every kid and ignores the page's Sex filter: the file is a separate selection, and a reader
-// filtered to Male on screen still expects the download to follow what they pick in the drawer.
-test("the export drawer owns a Sex select that starts on every kid", () => {
-  assert.match(drawer, /const \[sex, setSex\] = useState\(""\)/);
+// The Download weights drawer carries its own Sex select, and it STARTS ON THE PAGE'S Sex filter
+// (maintainer request 2026-09-28, superseding the 2026-09-07 "starts on every kid"): a page on All
+// opens the drawer on All, a page on Male opens it on Male, and the reader may still change it.
+test("the export drawer owns a Sex select that starts on the page's sex", () => {
+  assert.match(drawer, /const \[sex, setSex\] = useState\(initialSex\)/);
+  assert.doesNotMatch(drawer, /const \[sex, setSex\] = useState\(""\)/);
   assert.match(drawer, /<TextField\s+select\s+id="wt-export-sex"\s+value=\{sex\}/);
   for (const key of ["export.sex.label", "export.sex.all"]) {
     assert.match(drawer, new RegExp(`copy\\(pageContract, "${key}"\\)`), key);
@@ -26,19 +27,17 @@ test("the export drawer owns a Sex select that starts on every kid", () => {
   // typed into the drawer.
   assert.match(drawer, /weightsSexChoices\(pageContract\)\.map/);
   assert.doesNotMatch(drawer, /<option value="male">/);
-  // The choice travels to the backend export exactly as the page filter used to.
+  // The choice travels to the backend export exactly as the page filter does.
   assert.match(drawer, /sex: sex \|\| undefined/);
   assert.match(action, /sex: input\.sex/);
 });
 
-test("the drawer never inherits the page's Sex filter", () => {
-  // No `sex` prop on the drawer, and no host passes one.
-  assert.doesNotMatch(drawer, /^\s+sex\??: string;/m);
-  assert.doesNotMatch(drawer, /^\s+sex,\s*$/m);
+test("every host hands the drawer the page's resolved Sex filter", () => {
   for (const [file, source] of hosts) {
     const wiring = source.slice(source.indexOf("<WeightsExportControl"));
     const props = wiring.slice(0, wiring.indexOf("/>"));
-    assert.doesNotMatch(props, /\bsex=/, `${file} passes the page sex into the drawer`);
+    // sexFilter is the RESOLVED page value ("" = All), the same one the page's own reads use.
+    assert.match(props, /initialSex=\{sexFilter\}/, `${file} must pass the page sex into the drawer`);
     // Origin and the weighing mode still travel from the page.
     assert.match(props, /origin=\{originFilter\}/, file);
   }
@@ -52,8 +51,8 @@ test("the drawer's Sex copy is backend-owned", () => {
 
 // Every opening starts from the page's period and park AS THEY ARE NOW (maintainer request
 // 2026-09-24): useState read them once, so after the reader changed the page's period the drawer
-// still offered the old one. Sex keeps its own select, reset to every kid on each opening.
+// still offered the old one. Sex is reset to the page's current Sex on each opening too.
 test("each opening of the drawer takes the page's current period and park", () => {
   assert.match(drawer, /if \(open !== wasOpen\) \{/);
-  assert.match(drawer, /setFrom\(initialFrom\);\s*setTo\(initialTo\);\s*setParkId\(initialParkId\);\s*setSex\(""\);/);
+  assert.match(drawer, /setFrom\(initialFrom\);\s*setTo\(initialTo\);\s*setParkId\(initialParkId\);\s*setSex\(initialSex\);/);
 });
