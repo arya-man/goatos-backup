@@ -7,7 +7,7 @@ import { varAlpha } from "minimal-shared/utils";
  * the template input radius and grey-500 20% border, primary ring when open / focused, error
  * border when the host's required check failed). Put it on the Box that holds the picker. Used by
  * the /tasks New task dialog ("For") and the routine drawer ("Who does it"); it replaced the
- * `:is(.lt-modal,.prt) .avs-*` rules in mesha-theme.css.
+ * `.lt-modal` / `.prt` `.avs-*` rules in mesha-theme.css (deleted).
  */
 export const ASSIGNEE_FIELD_SX: SxProps<Theme> = (theme) => ({
   "& .avs-single": { position: "relative", display: "grid", gridTemplateColumns: "1fr", width: 1 },
