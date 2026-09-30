@@ -3,6 +3,7 @@ import { UrlSuspense } from "@/components/app/url-suspense";
 import { PanelSkeleton } from "@/components/app/panel-skeleton";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import TableBody from "@mui/material/TableBody";
+import TableContainer from "@mui/material/TableContainer";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import Link from "@/components/no-prefetch-link";
@@ -378,7 +379,7 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
             {result.ok ? (hasAlertFilters ? copy(pageContract, "empty.open_gaps_filtered") : copy(pageContract, "empty.open_gaps_detail")) : copy(pageContract, "empty.open_gaps_unavailable")}
           </Typography>
         ) : (
-          <Box sx={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "table.open_gaps.aria")}>
+          <TableContainer tabIndex={0} role="group" aria-label={copy(pageContract, "table.open_gaps.aria")}>
             <Table sx={{ minWidth: 920, "& td:nth-of-type(-n+2), & th:nth-of-type(-n+2)": { minWidth: 132 } }}>
               <TableHeadCustom headCells={openGapLabels.map((label, index) => ({ id: `c${index}`, label }))} />
               <TableBody>
@@ -421,7 +422,7 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
                 })}
               </TableBody>
             </Table>
-          </Box>
+          </TableContainer>
         )}
         <VaccinationTablePager
           pageContract={pageContract}

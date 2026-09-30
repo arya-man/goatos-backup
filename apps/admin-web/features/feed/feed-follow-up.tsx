@@ -4,6 +4,7 @@ import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
 import Table from "@mui/material/Table";
 import TableBody from "@mui/material/TableBody";
+import TableContainer from "@mui/material/TableContainer";
 import Typography from "@mui/material/Typography";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
@@ -94,7 +95,7 @@ export function FeedFollowUpTab({
           <EmptyState title={fa(pageContract, "followup.empty")} />
         </Box>
       ) : (
-        <Box sx={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={fa(pageContract, "followup.table.title")}>
+        <TableContainer tabIndex={0} role="group" aria-label={fa(pageContract, "followup.table.title")}>
           <Table sx={{ "& td": { verticalAlign: "top" } }}>
             <TableHeadCustom
               headCells={[
@@ -117,7 +118,7 @@ export function FeedFollowUpTab({
               ))}
             </TableBody>
           </Table>
-        </Box>
+        </TableContainer>
       )}
     </Card>
   );

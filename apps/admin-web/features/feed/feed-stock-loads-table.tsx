@@ -5,6 +5,7 @@ import CardHeader from "@mui/material/CardHeader";
 import Typography from "@mui/material/Typography";
 import { TableHeadCustom } from "@/components/app/table";
 import TableBody from "@mui/material/TableBody";
+import TableContainer from "@mui/material/TableContainer";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import { Tag, type Tone } from "@/components/ui-primitives";
@@ -94,7 +95,7 @@ export function FeedStockLoadsTable({
         </Typography>
       ) : (
         <>
-          <Box sx={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={fl("loads.title")}>
+          <TableContainer tabIndex={0} role="group" aria-label={fl("loads.title")}>
             {/* Ten columns: a tighter cell pad and a wrapping header keep the check column on screen. */}
             <Table size="small" sx={{ "& th, & td": { px: 1 }, "& th": { whiteSpace: "normal", lineHeight: 1.2 }, "& td": { fontVariantNumeric: "tabular-nums" } }}>
               <TableHeadCustom
@@ -161,7 +162,7 @@ export function FeedStockLoadsTable({
                 ))}
               </TableBody>
             </Table>
-          </Box>
+          </TableContainer>
 
           <FeedPager
             pageContract={pageContract}
