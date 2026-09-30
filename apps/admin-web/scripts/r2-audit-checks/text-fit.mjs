@@ -175,6 +175,29 @@ export function probeFieldWidths(scopeSel) {
   return out;
 }
 
+/**
+ * In-page probe (serialisable): in a DRAWER that has a template footer row, a form's primary
+ * (contained Save / Create / Submit / Update) sits in the scrolling body instead of the footer
+ * (J2B P2-12: Edit park put Save + Cancel in the body and Close in the footer). Returns
+ * [{ kind: "primary-in-body", detail }].
+ */
+export function probeDrawerPrimaryPlacement(scopeSel) {
+  const out = [];
+  const paper = document.querySelector(scopeSel);
+  if (!paper || !paper.matches(".MuiDrawer-paper")) return out;
+  const body = paper.querySelector('[class*="scrollbar__root"], [data-simplebar]');
+  const footer = paper.lastElementChild;
+  if (!body || !footer || footer.contains(body) || !footer.querySelector(".MuiButton-root")) return out;
+  for (const btn of body.querySelectorAll(".MuiButton-contained")) {
+    const r = btn.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0 || getComputedStyle(btn).visibility === "hidden") continue;
+    const text = (btn.innerText || "").trim().replace(/\s+/g, " ");
+    if (!/^(save|create|submit|update)\b/i.test(text) || btn.closest("[data-footer-exempt]")) continue;
+    out.push({ kind: "primary-in-body", detail: `"${text.slice(0, 40)}" is in the drawer body; the drawer has a footer row` });
+  }
+  return out;
+}
+
 const LABELS = {
   "button-label-wrap": "Button label breaks onto several lines",
   "axis-label-overlap": "Chart axis labels overlap",
