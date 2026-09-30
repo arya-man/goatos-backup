@@ -29,6 +29,15 @@
   `GOATOS_REQUIRE_DOCKER=1` may make an explicitly requested DB run fail closed,
   but it must never opt a default run into Postgres by itself.
 
+- **Admin-web push gate (every branch) + skip ledger (FIXJ-CI, 2026-09-30)**: the
+  pre-push hook (`tools/agent-hooks/pre-push.hook`, installed by `make ai-setup`) runs
+  `tools/ci/admin-web-push-gate.sh` on every push to any branch that changes an admin-web
+  input: design:guard, typecheck, npm test, next build, visual gate. Missing guard files fail
+  the push. Lane-skipping flags (`GOATOS_SKIP_ADMIN_WEB_VISUAL_GATE`, `GOATOS_FAST_LOCAL_CI`,
+  `GOATOS_CI_ONLY_STEP`, `GOATOS_ADMIN_WEB_BASE_URL` for the visual gate) need
+  `GOATOS_SKIP_REASON="..."` and are recorded in the skip ledger (`tools/ci/goatos-skip-ledger.sh`).
+  Details: `apps/admin-web/AGENTS.md` "Local CI is strict".
+
 - **Exact-SHA local-CI push gate (main)**: Only a complete green `make ci-local`
   on the exact commit SHA authorizes a push to `main`. The pre-push hook installed by
   `make ai-setup` enforces this via a machine-local SHA-bound receipt
