@@ -14,7 +14,7 @@ const view = read("./command-board-view.tsx");
 const board = read("./command-board.tsx");
 const cards = read("./command-board-cards.tsx");
 const skeleton = read("./vaccination-skeletons.tsx");
-const css = [legacyCss("mesha-theme", "frame", "minimal-theme"), read("../../app/globals.css")].join("\n");
+const css = [legacyCss("mesha-theme", "frame", "minimal-theme"), legacyCss("app/globals.css")].join("\n");
 
 test("vaccination-template-anatomy: the command board renders no legacy cbm classes or raw controls", () => {
   for (const [name, src] of [["command-board-view.tsx", view], ["command-board.tsx", board], ["command-board-cards.tsx", cards]]) {

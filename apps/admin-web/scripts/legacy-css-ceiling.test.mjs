@@ -46,7 +46,7 @@ test("the deleted legacy stylesheets stay absent, have no ceiling and are import
   assert.deepEqual(offenders, [], `the deleted legacy stylesheets are still imported: ${offenders.join(", ")}`);
 });
 
-const DELETED_NAMES = ["frame.css", "minimal-theme.css", "mesha-theme.css", "mesha-layout.css"];
+const DELETED_NAMES = ["frame.css", "minimal-theme.css", "mesha-theme.css", "mesha-layout.css", "globals.css"];
 /** `file: name` for every import / @import / require of a deleted stylesheet under root. */
 export function importsOfDeleted(root) {
   const out = [];
@@ -80,8 +80,13 @@ test("importsOfDeleted self-test: finds a CSS @import and a TS import, ignores a
   }
 });
 
-test("globals.css keeps an explicit rule ceiling", () => {
-  assert.ok(ratchet["legacy-css-rules|app/globals.css"], "app/globals.css has no legacy-css-rules ceiling");
+// FIXJ7 (J1B P1-1): app/globals.css only carried Tailwind (`@import "tailwindcss"`, preflight,
+// `@apply border-border`) and a hand scrollbar. It is deleted; the scrollbar and the template's
+// ul / img baseline are MUI CssBaseline overrides (theme/core/components/css-baseline.tsx) and
+// design:guard `tailwind-banned` keeps Tailwind out.
+test("globals.css (the Tailwind entry) stays deleted with no ceiling", () => {
+  assert.ok(!existsSync(new URL("../app/globals.css", import.meta.url)), "app/globals.css is back: global styles are MUI CssBaseline overrides");
+  assert.equal(ratchet["legacy-css-rules|app/globals.css"], undefined, "app/globals.css still has a legacy-css-rules ceiling");
 });
 
 test("the Mesha palette tokens are theme values", () => {

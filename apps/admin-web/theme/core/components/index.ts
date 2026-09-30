@@ -38,11 +38,13 @@ import { iconButton } from './button-icon';
 import { breadcrumbs } from './breadcrumbs';
 import { buttonGroup } from './button-group';
 import { autocomplete } from './autocomplete';
+import { cssBaseline } from './css-baseline';
 import { toggleButton } from './button-toggle';
 
 // ----------------------------------------------------------------------
 
 export const components: Components<Theme> = {
+  ...cssBaseline,
   ...card,
   ...link,
   ...tabs,
