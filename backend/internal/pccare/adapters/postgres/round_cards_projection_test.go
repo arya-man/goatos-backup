@@ -90,6 +90,17 @@ func TestRoundCardsOneToManyAssigneesDoNotInflateThePenCount(t *testing.T) {
 func TestRoundCardsMultipleDimensionsPaginationParkScopeStatusMatrixUsesOperationalLocationDisplay(t *testing.T) {
 	ctx := context.Background()
 	repo, _ := setupPCCareDB(t, ctx)
+	// The pens this test plans must exist in the pen catalog (the round create checks it); the
+	// fixture never seeded them, so the test failed at CreateRound on main before it asserted
+	// anything. Both a worded partition (Part 1/2) and a NUMBERED one (1/2) are catalogued: the
+	// numbered pair is how the farm's Castro 1 and Castro 2 are stored.
+	if _, err := repo.pool.Exec(ctx, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+SELECT $1::uuid, $2::uuid, v.label, v.norm, 'active', 'manual'
+FROM (VALUES ('Part 1', '1p'), ('Part 2', '2p'), ('1', '1'), ('2', '2')) AS v(label, norm)
+ON CONFLICT DO NOTHING`, pcTenant, pcShedA); err != nil {
+		t.Fatalf("seed pen catalog: %v", err)
+	}
 
 	round, err := repo.CreateRound(ctx, ports.CreateRoundParams{
 		TenantID: pcTenant, Category: domain.CategoryDeworming, ParkID: pcPark,
@@ -116,6 +127,32 @@ func TestRoundCardsMultipleDimensionsPaginationParkScopeStatusMatrixUsesOperatio
 	}
 	if !slices.Contains(card.PenLabels, "Castro - Part 1") || !slices.Contains(card.PenLabels, "Castro - Part 2") {
 		t.Fatalf("pen labels = %v, want operational location display labels", card.PenLabels)
+	}
+
+	// NUMBERED pens compose with a space, never a dash (2026-09-30, seen on the phone as
+	// "Castro - 1 · Castro - 2"): the card must read exactly what every other screen reads.
+	numbered, err := repo.CreateRound(ctx, ports.CreateRoundParams{
+		TenantID: pcTenant, Category: domain.CategoryDeworming, ParkID: pcPark,
+		Pens:                []domain.RoundPen{{ShedID: pcShedA, PartitionLabel: "1"}, {ShedID: pcShedA, PartitionLabel: "2"}},
+		PlannedBusinessDate: pcBusinessDay(2026, 9, 18),
+		AssigneeUserIDs:     []string{pcOperator1},
+		IdempotencyKey:      "round-cards-numbered-pens",
+		CreatedBy:           pcVerifier, ActorID: pcVerifier,
+	})
+	if err != nil {
+		t.Fatalf("CreateRound numbered: %v", err)
+	}
+	// Page one is still the first round (planned earlier); its cursor walks to the numbered one.
+	first := listActiveCards(t, ctx, repo, 1, "")
+	if len(first.Cards) != 1 || first.Cards[0].RoundID != round.RoundID || first.NextCursor == "" {
+		t.Fatalf("page one = %+v cursor %q, want the first round and a cursor", first.Cards, first.NextCursor)
+	}
+	next := listActiveCards(t, ctx, repo, 1, first.NextCursor)
+	if len(next.Cards) != 1 || next.Cards[0].RoundID != numbered.RoundID {
+		t.Fatalf("second page cards = %+v, want only round %s", next.Cards, numbered.RoundID)
+	}
+	if got := next.Cards[0].PenLabels; !slices.Equal(got, []string{"Castro 1", "Castro 2"}) {
+		t.Fatalf("numbered pen labels = %q, want [Castro 1 Castro 2]", got)
 	}
 	if card.Status != domain.StatusOpen {
 		t.Fatalf("status = %q, want open", card.Status)
