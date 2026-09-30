@@ -12,7 +12,8 @@ import { LinkButton } from "@/components/app/link-button";
 import { DetailDrawer, DrawerBlock, DrawerMetaGrid, DrawerMetaItem, DrawerTableScroll } from "@/components/app/detail-drawer";
 import { Caption } from "@/components/app/caption";
 import { useLocalOverlaySelection } from "@/components/local-overlay-link";
-import { Syringe } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
+import { Label } from "@/components/minimal/label";
 import { useEffect, useRef, useState } from "react";
 
 import { Tag } from "@/components/ui-primitives";
@@ -161,7 +162,7 @@ function HerdDrawerVaccinationBlock({
     <DrawerBlock
       title={
         <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 1 }}>
-          <Syringe size={16} aria-hidden="true" />
+          <Iconify icon="solar:medical-kit-bold" width={16} aria-hidden="true" />
           {copy(pageContract, "section.vaccination.title")}
         </Box>
       }
@@ -208,7 +209,7 @@ function HerdDrawerVaccinationBlock({
                         </TableCell>
                         <TableCell>{vaccineRowLabel(due)}</TableCell>
                         <TableCell><Tag tone={obligationTone(due.status)}>{due.status}</Tag></TableCell>
-                        <TableCell><span className="gid" title={due.obligation_id}>{sourceObligationLabel(due.obligation_id)}</span></TableCell>
+                        <TableCell><Label variant="soft" color="primary" title={due.obligation_id}>{sourceObligationLabel(due.obligation_id)}</Label></TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -235,7 +236,7 @@ function HerdDrawerVaccinationBlock({
                         <TableCell>{vaccineRowLabel(h)}</TableCell>
                         <TableCell><Tag tone={historyTone(h.status)}>{h.status}</Tag></TableCell>
                         <TableCell>{proofLabel(h, pageContract)}</TableCell>
-                        <TableCell><span className="gid" title={h.obligation_id}>{sourceObligationLabel(h.obligation_id)}</span></TableCell>
+                        <TableCell><Label variant="soft" color="primary" title={h.obligation_id}>{sourceObligationLabel(h.obligation_id)}</Label></TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -315,7 +316,7 @@ export function HerdPassportLocalDrawer({
       }
     >
       <DrawerMetaGrid>
-        <DrawerMetaItem label={cols[0]}><span className="gid">{item.displayId}</span></DrawerMetaItem>
+        <DrawerMetaItem label={cols[0]}><Label variant="soft" color="primary">{item.displayId}</Label></DrawerMetaItem>
         <DrawerMetaItem label={cols[1]}>{dash(item.tag1)}</DrawerMetaItem>
         <DrawerMetaItem label={cols[2]}>{dash(item.tag2)}</DrawerMetaItem>
         <DrawerMetaItem label={cols[3]}>{item.park}</DrawerMetaItem>

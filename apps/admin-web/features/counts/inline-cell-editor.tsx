@@ -21,6 +21,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
+import ButtonBase from "@mui/material/ButtonBase";
 import MenuItem from "@mui/material/MenuItem";
 import MenuList from "@mui/material/MenuList";
 import TextField from "@mui/material/TextField";
@@ -59,6 +60,23 @@ type Phase =
   | { kind: "checking"; value: string }
   | { kind: "confirming"; value: string; preview: InlinePreview }
   | { kind: "failed"; message: string };
+
+
+const EMPTY_SX = { color: "text.secondary", typography: "caption" } as const;
+
+/** The cell value IS the control: reads as the plain value, 44px tap box, focus ring on keyboard. */
+const VALUE_BUTTON_SX = {
+  font: "inherit",
+  color: "inherit",
+  textAlign: "left",
+  borderRadius: "var(--r-sm)",
+  minWidth: "var(--tap-min)",
+  minHeight: "var(--tap-min)",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "flex-start",
+  "&.Mui-focusVisible": { outline: 2, outlineStyle: "solid", outlineColor: "primary.main", outlineOffset: 2 },
+} as const;
 
 export function InlineCellEditor({
   pageContract,
@@ -164,16 +182,17 @@ export function InlineCellEditor({
     // that comes and goes reads as a broken screen rather than a withheld one.
     return (
       <span title={disabledReason} aria-disabled="true">
-        {current ? (renderCurrent?.(current) ?? current) : <span className="muted small">{emptyLabel}</span>}
+        {current ? (renderCurrent?.(current) ?? current) : <Box component="span" sx={EMPTY_SX}>{emptyLabel}</Box>}
       </span>
     );
   }
 
   return (
-    <div className="tagedit">
-      <button
+    <Box component="span" sx={{ position: "relative", display: "inline-block" }}>
+      <ButtonBase
         type="button"
-        className="tagedit-value"
+        disableRipple
+        sx={VALUE_BUTTON_SX}
         onClick={(event) => toggleOpen(event.currentTarget)}
         onKeyDown={(event) => {
           if (event.key !== "Enter" && event.key !== " ") return;
@@ -184,8 +203,8 @@ export function InlineCellEditor({
         aria-haspopup="dialog"
         title={copy(pageContract, "action.retag.hint")}
       >
-        {current ? (renderCurrent?.(current) ?? current) : <span className="muted small">{emptyLabel}</span>}
-      </button>
+        {current ? (renderCurrent?.(current) ?? current) : <Box component="span" sx={EMPTY_SX}>{emptyLabel}</Box>}
+      </ButtonBase>
 
       <CustomPopover
         open={open}
@@ -294,6 +313,6 @@ export function InlineCellEditor({
           ) : null}
         </Box>
       </CustomPopover>
-    </div>
+    </Box>
   );
 }

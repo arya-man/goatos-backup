@@ -3,6 +3,10 @@ import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
+import Card from "@mui/material/Card";
+import CardContent from "@mui/material/CardContent";
+import CardHeader from "@mui/material/CardHeader";
+import { Scrollbar } from "@/components/minimal/scrollbar";
 import { GroupedColumns, type GroupedSeries } from "@/components/grouped-columns";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { CountsBreakdownResponse } from "@/lib/api/server";
@@ -78,12 +82,9 @@ export function CountsBreakdownLoads({
   ] as const;
 
   return (
-    <section className="card" aria-label={copy(pageContract, "section.loads.aria")} style={{ marginTop: 16 }}>
-      <div className="hd">
-        <h3>{copy(pageContract, "section.loads.title")}</h3>
-        <span className="small muted">{copy(pageContract, "section.loads.caption")}</span>
-      </div>
-      <div className="bd">
+    <Card component="section" aria-label={copy(pageContract, "section.loads.aria")}>
+      <CardHeader title={copy(pageContract, "section.loads.title")} subheader={copy(pageContract, "section.loads.caption")} />
+      <CardContent>
         <GroupedColumns
           series={series}
           chartLabel={copy(pageContract, "chart.loads.aria")}
@@ -104,16 +105,16 @@ export function CountsBreakdownLoads({
             };
           })}
         />
-      </div>
+      </CardContent>
       {loads.length > 0 ? (
-        <div className="bd" style={{ padding: 0, overflowX: "auto" }}>
-          <Table className="tbl" aria-label={copy(pageContract, "table.loads.aria")}>
+        <Scrollbar>
+          <Table aria-label={copy(pageContract, "table.loads.aria")} sx={{ minWidth: 720 }}>
             <TableHead>
               <TableRow>
                 {columns.map((key) => (
                   <TableCell component="th"
                     key={key}
-                    style={key.endsWith("purchased") || key.endsWith("on_farm") || key.endsWith("male") ? { textAlign: "right" } : undefined}
+                    align={key.endsWith("purchased") || key.endsWith("on_farm") || key.endsWith("male") ? "right" : undefined}
                   >
                     {copy(pageContract, key)}
                   </TableCell>
@@ -123,23 +124,19 @@ export function CountsBreakdownLoads({
             <TableBody>
               {loads.map((load) => (
                 <TableRow key={load.load_id}>
-                  <TableCell>
-                    <b>{loadTitle(load)}</b>
-                  </TableCell>
-                  <TableCell className="muted">{load.vendor_name || "—"}</TableCell>
-                  <TableCell className="muted">{fmtDate(load.purchase_date || undefined)}</TableCell>
-                  <TableCell style={{ textAlign: "right" }}>{load.purchased}</TableCell>
-                  <TableCell style={{ textAlign: "right" }}>
-                    <b>{load.on_farm}</b>
-                  </TableCell>
-                  <TableCell style={{ textAlign: "right" }}>{countFor(load.sexes, maleKey)}</TableCell>
-                  <TableCell style={{ textAlign: "right" }}>{countFor(load.sexes, femaleKey)}</TableCell>
+                  <TableCell sx={{ typography: "subtitle2" }}>{loadTitle(load)}</TableCell>
+                  <TableCell sx={{ color: "text.secondary" }}>{load.vendor_name || "—"}</TableCell>
+                  <TableCell sx={{ color: "text.secondary" }}>{fmtDate(load.purchase_date || undefined)}</TableCell>
+                  <TableCell align="right">{load.purchased}</TableCell>
+                  <TableCell align="right" sx={{ typography: "subtitle2" }}>{load.on_farm}</TableCell>
+                  <TableCell align="right">{countFor(load.sexes, maleKey)}</TableCell>
+                  <TableCell align="right">{countFor(load.sexes, femaleKey)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
-        </div>
+        </Scrollbar>
       ) : null}
-    </section>
+    </Card>
   );
 }

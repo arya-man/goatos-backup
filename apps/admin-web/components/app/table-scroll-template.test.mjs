@@ -28,9 +28,6 @@ export function bareTableScrollers(source) {
 // Shrink-only allowance (2026-09-28). Remove an entry when its file is converted.
 const ALLOWED = {
   "features/control-tower/index.tsx": 2,
-  "features/counts/counts-breakdown-loads.tsx": 1,
-  "features/counts/herd-actions-ui.tsx": 5,
-  "features/counts/herd-passport-vaccination.tsx": 2,
   "features/preventive-care-vaccination/command-board-view.tsx": 11,
   "features/procurement/load-forms.tsx": 1,
 };

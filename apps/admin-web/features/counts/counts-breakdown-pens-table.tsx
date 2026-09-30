@@ -75,6 +75,20 @@ function sliceOf(row: GrainRow): CensusSlice {
   };
 }
 
+const PENS_TABLE_SX = {
+  minWidth: 0,
+  "& table": { minWidth: 860, tableLayout: "fixed" },
+  "& th": { whiteSpace: "nowrap", overflowWrap: "normal", wordBreak: "normal" },
+  "& td": { whiteSpace: "normal", overflowWrap: "anywhere" },
+  "& th:nth-of-type(1), & td:nth-of-type(1)": { width: "8%" },
+  "& th:nth-of-type(2), & td:nth-of-type(2)": { width: "18%" },
+  "& th:nth-of-type(3), & td:nth-of-type(3), & th:nth-of-type(4), & td:nth-of-type(4)": { width: "14%" },
+  "& th:nth-of-type(5), & td:nth-of-type(5)": { width: "11%" },
+  "& th:nth-of-type(6), & td:nth-of-type(6), & th:nth-of-type(7), & td:nth-of-type(7)": { width: "13%" },
+  "& th:nth-of-type(8), & td:nth-of-type(8)": { width: "9%", textAlign: "right" },
+  "& td:nth-of-type(1), & td:nth-of-type(5), & td:nth-of-type(6), & td:nth-of-type(7), & td:nth-of-type(8)": { whiteSpace: "nowrap", overflowWrap: "normal" },
+} as const;
+
 export function CountsBreakdownPensTable({
   contract,
   pageContract,
@@ -314,8 +328,10 @@ export function CountsBreakdownPensTable({
           {everyOpen ? copy(pageContract, "action.collapse_all") : copy(pageContract, "action.expand_all")}
         </Button>
       </Box>
+      {/* One line per pen: fixed column shares so the pen line and its opened combinations share one grid; heads,
+          farm and the figure columns stay on one line, names wrap at word breaks. */}
+      <Box sx={PENS_TABLE_SX}>
       <DataTable
-        className="counts-breakdown-table counts-pens-table"
         ariaLabel={ariaLabel}
         columns={columns}
         data={pens}
@@ -404,6 +420,7 @@ export function CountsBreakdownPensTable({
             }),
         }}
       />
+      </Box>
     </>
   );
 }

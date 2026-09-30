@@ -587,48 +587,7 @@
     .main table.procurement-vendors-table td:nth-child(4) .celllink::before{content:"Location";color:var(--muted);font-size:12px;font-weight:600}
     .main table.procurement-vendors-table td:nth-child(5) .celllink::before{content:"Status";color:var(--muted);font-size:12px;font-weight:600}
   }
-  /* Counts Breakdown census table (6 cols: Farm · Stage · Breed · Gender · Shed · Count).
-     Keep every cell single-line: shed names ("Godel 1 - Part 3") and raw source stage labels
-     ("ICU-Kid", "Kid Stage 2") otherwise wrap mid-value once a column narrows. The table owns
-     horizontal scrolling, so nowrap never clips content. */
-  .main table.counts-breakdown-table{min-width:820px}
-  .main table.counts-breakdown-table th,.main table.counts-breakdown-table td{white-space:nowrap;overflow-wrap:normal;word-break:normal}
-  .main table.counts-breakdown-table th:nth-child(1),.main table.counts-breakdown-table td:nth-child(1),.main table.counts-breakdown-table th:nth-child(5),.main table.counts-breakdown-table td:nth-child(5){min-width:150px}
-  .main table.counts-breakdown-table th:nth-child(2),.main table.counts-breakdown-table td:nth-child(2),.main table.counts-breakdown-table th:nth-child(3),.main table.counts-breakdown-table td:nth-child(3){min-width:130px}
-  .main table.counts-breakdown-table th:nth-child(4),.main table.counts-breakdown-table td:nth-child(4){min-width:90px}
-  .main table.counts-breakdown-table th:nth-child(6),.main table.counts-breakdown-table td:nth-child(6){min-width:80px}
-  /* Total row reads as a summary band, not another data row. */
-  .main table.counts-breakdown-table tfoot th:not(.MuiTableCell-root){border-top:1px solid var(--line);background:var(--panel-2);font-weight:700}
-  /* Counts Breakdown PEN table (7 cols: Farm · Pen · Stage · Breed · Gender · Kids·Adults · Count).
-     One line per pen; the line is the affordance that opens the exact split beneath it. Column
-     widths are its own, so the nth-child rules above (the 6-col combination layout) are reset. */
-  .main table.counts-pens-table{min-width:860px;table-layout:fixed}
-  .main table.counts-pens-table th:nth-child(n),.main table.counts-pens-table td:nth-child(n){min-width:0}
-  .main table.counts-pens-table th:nth-child(1),.main table.counts-pens-table td:nth-child(1){width:8%}
-  .main table.counts-pens-table th:nth-child(2),.main table.counts-pens-table td:nth-child(2){width:18%}
-  .main table.counts-pens-table th:nth-child(3),.main table.counts-pens-table td:nth-child(3){width:14%}
-  .main table.counts-pens-table th:nth-child(4),.main table.counts-pens-table td:nth-child(4){width:14%}
-  .main table.counts-pens-table th:nth-child(5),.main table.counts-pens-table td:nth-child(5){width:11%}
-  .main table.counts-pens-table th:nth-child(6),.main table.counts-pens-table td:nth-child(6){width:13%}
-  .main table.counts-pens-table th:nth-child(7),.main table.counts-pens-table td:nth-child(7){width:13%}
-  .main table.counts-pens-table th:nth-child(8),.main table.counts-pens-table td:nth-child(8){width:9%;text-align:right}
-  .main table.counts-pens-table th{white-space:nowrap;overflow-wrap:normal;word-break:normal}
-  .main table.counts-pens-table .counts-pens-empty{position:sticky;left:0;width:min(calc(100vw - 80px),820px);max-width:min(calc(100vw - 80px),820px);white-space:normal;overflow-wrap:anywhere}
-  .main table.counts-pens-table td{white-space:normal;overflow-wrap:anywhere}
-  .main table.counts-pens-table td:nth-child(1),
-  .main table.counts-pens-table td:nth-child(5),
-  .main table.counts-pens-table td:nth-child(6),
-  .main table.counts-pens-table td:nth-child(7),
-  .main table.counts-pens-table td:nth-child(8){white-space:nowrap;overflow-wrap:normal}
-  /* Counts Breakdown inline tag editor. A same-page popover: local open/closed state, no navigation,
-     so opening it never re-runs the route. Anchored to its own cell rather than the viewport so it
-     stays with the row while the table scrolls horizontally. */
-  .tagedit{position:relative;display:inline-block}
-  .tagedit-value{background:none;border:0;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer;text-align:left;border-radius:6px;min-width:40px;min-height:40px;display:inline-flex;align-items:center}
-  .tagedit-value:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
-  /* Tag first, its descriptive name under it: the tag is what lands in the cell, the name is only
-     there to help someone who does not yet know the vocabulary. */
-  /* Feed Direction / Packing / Config tables. Same nowrap contract as the breakdown table above
+  /* Feed Direction / Packing / Config tables. Same nowrap contract as the other ledgers
      (failure mode 4b): the table owns horizontal scrolling, so short business values such as
      "F2-Male", "0.000", "Dry Masoor Bhusa" or a wall-clock time never wrap mid-value. */
   .main table.feed-table{min-width:900px}
@@ -730,12 +689,6 @@
   .main .feed-scroll::-webkit-scrollbar{height:10px}
   .main .feed-scroll::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px}
   .main .feed-scroll::-webkit-scrollbar-track{background:transparent}
-  /* Headline KPIs sit inside the table card, between the filter bar and the header row, so they
-     read as totals FOR the current filter rather than as a separate page-level summary. */
-  @media(max-width:700px){
-    .main .counts-breakdown-card .hd{align-items:flex-start;flex-direction:column;gap:4px}
-    .main .counts-breakdown-card .hd .small{margin-left:0!important;line-height:1.35}
-  }
 
   .main table.health-analytics-table{width:100%;min-width:760px}
   .main table.health-analytics-table th,

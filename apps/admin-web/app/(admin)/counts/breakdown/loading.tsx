@@ -8,7 +8,7 @@ import { BreakdownChartsSkeleton, BreakdownKpiSkeleton } from "@/features/counts
  */
 export default function Loading() {
   return (
-    <PageSkeleton gap={3} root="" className="counts-breakdown-page">
+    <PageSkeleton gap={3} root="">
       <PageHeaderSkeleton crumbLink={false} />
       <BreakdownKpiSkeleton />
       <TableSkeleton columns={BD_TABLE.columns} rows={BD_TABLE.rows} header={false} toolbar={<FilterCardSkeleton inCard fields={BD_FILTER_FIELDS} />} />

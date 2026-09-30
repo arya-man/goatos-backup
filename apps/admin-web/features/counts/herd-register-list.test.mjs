@@ -15,7 +15,10 @@ test("herd-register-list-anatomy: tabs, URL sort, lead cell, table in card", () 
   assert.match(page, /<UrlSortHead\b[\s\S]*?sortHrefs=/, "Display ID head sorts by URL");
   assert.match(page, /searchGoats\(\{[^}]*order/, "the sort reaches the backend");
   assert.match(page, /<Avatar\b/, "avatar lead cell");
-  assert.match(page, /<Scrollbar\b[\s\S]*?<Table sx=\{\{ minWidth: 960/, "table scrolls inside the card");
+  assert.match(page, /<Scrollbar\b[\s\S]*?<Table sx=\{HERD_TABLE_SX\}/, "table scrolls inside the card");
+  assert.match(page, /const HERD_TABLE_SX = \{\s*minWidth: 960,/, "the table keeps the template 960 floor");
+  // FIXJ2 COUNTS: cells link through sx on the table (no legacy .celllink / .muted classes).
+  assert.doesNotMatch(page, /className=/, "the herd register renders no legacy class");
   assert.doesNotMatch(page, /herd-register-table/, "no legacy table class");
   assert.doesNotMatch(css, /herd-register-table/, "legacy min-width rules deleted");
   assert.doesNotMatch(page, /onSelectAllRows|<Checkbox/, "no checkbox column without a bulk action");

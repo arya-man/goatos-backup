@@ -10,15 +10,13 @@ import TableCell from "@mui/material/TableCell";
 // actions) over the Mesha theme. Single create posts a real server action (createGoatAction) and redirects
 // with a banner; bulk calls real preview/commit server actions and holds ONLY the backend's response as
 // transient UI state. No fixtures, no fake totals, no client-only business mutation.
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useFormStatus } from "react-dom";
 import { useRouter } from "next/navigation";
-import { Check, Download, Plus, SquarePen, Upload, X } from "lucide-react";
 
 import { FormSelect } from "@/components/form-select";
 import { Tag, type Tone } from "@/components/ui-primitives";
 import { RowMenu } from "@/components/app/row-menu";
-import "./herd-actions.css";
 import type { LocationOption } from "@/lib/api/herd-locations";
 import type { AdminGoatBulkResponse, CreateAdminGoatRequest } from "@/lib/api/server";
 import { copy, optionalOptionGroup, optionGroup, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -37,15 +35,23 @@ import {
 import { csvCell, isSpreadsheetFile, parseCSVRecords, sheetImportAccept, spreadsheetArrayBufferToCSV, stableCSVContentHash } from "./herd-import-utils";
 import { ThemedDatePicker } from "@/components/themed-date-picker";
 import Alert from "@mui/material/Alert";
+import AlertTitle from "@mui/material/AlertTitle";
 import Button from "@mui/material/Button";
 import Checkbox from "@mui/material/Checkbox";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
 import Dialog from "@mui/material/Dialog";
+import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
 import DialogTitle from "@mui/material/DialogTitle";
 import IconButton from "@mui/material/IconButton";
+import Stack from "@mui/material/Stack";
+import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
+import { Iconify } from "@/components/minimal/iconify";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { UploadFile } from "@/components/app/upload-file";
 import { useBackCloses } from "@/components/use-back-closes";
 
 export type HerdAnimalStageOption = {
@@ -171,13 +177,22 @@ function mergeShedCommitResult(preview: ShedImportResponse, committed: ShedImpor
 }
 
 // ---- Dialog shell: template MUI Dialog (portal above the FAB, focus trap + restore, Escape/scrim close,
-// body scroll lock). Browser Back closes it too (the open state is component state, not a URL). ----
+// body scroll lock). Browser Back closes it too (the open state is component state, not a URL). A form
+// dialog is the template quick-edit anatomy: the form wraps DialogContent + DialogActions, so the
+// footer buttons stay pinned under the scrolling fields and the submit button still sees the form. ----
+type DialogForm = {
+  action: (formData: FormData) => void | Promise<void>;
+  onSubmit: () => void;
+};
+
 export function HerdActionDialog({
   open,
   onClose,
   closeLabel,
   title,
   maxWidth = 760,
+  form,
+  actions,
   children,
 }: {
   open: boolean;
@@ -187,9 +202,21 @@ export function HerdActionDialog({
   subtitle?: string;
   /** Widest the dialog gets; always clamped to the viewport. */
   maxWidth?: number;
+  /** Server action form wrapping the content and the footer actions. */
+  form?: DialogForm;
+  /** Template DialogActions row (Cancel + primary). */
+  actions?: React.ReactNode;
   children: React.ReactNode;
 }) {
   useBackCloses(open, onClose);
+  const body = (
+    <>
+      <DialogContent dividers sx={{ pt: 1 }}>
+        <Stack spacing={2.5} sx={{ py: 2 }}>{children}</Stack>
+      </DialogContent>
+      {actions ? <DialogActions sx={{ gap: 1, flexWrap: "wrap" }}>{actions}</DialogActions> : null}
+    </>
+  );
   return (
     <Dialog
       open={open}
@@ -197,19 +224,30 @@ export function HerdActionDialog({
       fullWidth
       maxWidth={false}
       scroll="paper"
-      slotProps={{ paper: { className: "hr-dialog", "aria-label": title, sx: { width: 1, maxWidth } } as object }}
+      slotProps={{ paper: { "aria-label": title, sx: { width: 1, maxWidth } } as object }}
     >
       <DialogTitle component="div" sx={{ display: "flex", alignItems: "center", gap: 1.5, pr: 1 }}>
         <Box component="span" aria-hidden="true" sx={{ display: "inline-flex", color: "primary.main" }}>
-          <Plus className="ic" />
+          <Iconify icon="mingcute:add-line" />
         </Box>
         {/* Title only: the page-contract subtitle stays unrendered (no prose under titles), as before. */}
         <Typography variant="h6" component="h3" sx={{ flexGrow: 1, minWidth: 0 }}>{title}</Typography>
         <IconButton onClick={onClose} aria-label={closeLabel}>
-          <X className="ic" aria-hidden="true" />
+          <Iconify icon="mingcute:close-line" aria-hidden="true" />
         </IconButton>
       </DialogTitle>
-      <DialogContent dividers className="hr-dialog-bd" sx={{ pt: 1 }}>{children}</DialogContent>
+      {form ? (
+        <Box
+          component="form"
+          action={form.action}
+          onSubmit={form.onSubmit}
+          sx={{ display: "flex", flexDirection: "column", flex: "1 1 auto", minHeight: 0 }}
+        >
+          {body}
+        </Box>
+      ) : (
+        body
+      )}
     </Dialog>
   );
 }
@@ -217,14 +255,190 @@ export function HerdActionDialog({
 function SubmitButton({ pageContract, children }: { pageContract: AdminUiPageContract; children: React.ReactNode }) {
   const { pending } = useFormStatus();
   return (
-    <button type="submit" className="btn p" disabled={pending} aria-busy={pending}>
+    <Button type="submit" variant="contained" color="primary" disabled={pending} aria-busy={pending}>
       {pending ? copy(pageContract, "action.working") : children}
-    </button>
+    </Button>
   );
 }
 
-function Row({ children }: { children: React.ReactNode }) {
-  return <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>{children}</div>;
+function CancelButton({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+  return (
+    <Button type="button" variant="outlined" color="inherit" onClick={onClick}>
+      {children}
+    </Button>
+  );
+}
+
+/** Template quick-edit field grid: one column on phones, `columns` from sm. */
+function FieldGrid({ columns = 2, children }: { columns?: number; children: React.ReactNode }) {
+  return (
+    <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: `repeat(${columns}, minmax(0, 1fr))` } }}>
+      {children}
+    </Box>
+  );
+}
+
+/** Outlined template text field with its label floating over the control (never a label above it). */
+function Field({
+  id,
+  name,
+  label,
+  placeholder,
+  required,
+  type,
+  defaultValue,
+  htmlInput,
+}: {
+  id: string;
+  name: string;
+  label: string;
+  placeholder?: string;
+  required?: boolean;
+  type?: string;
+  defaultValue?: string | number;
+  htmlInput?: Record<string, unknown>;
+}) {
+  return (
+    <TextField
+      id={id}
+      name={name}
+      label={label}
+      placeholder={placeholder}
+      required={required}
+      type={type}
+      defaultValue={defaultValue}
+      fullWidth
+      slotProps={{ inputLabel: { shrink: true }, htmlInput }}
+    />
+  );
+}
+
+/** The app date field (ThemedDatePicker) under a caption naming it, so a picked date keeps its name. */
+function DateField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <Stack spacing={0.75} sx={{ minWidth: 0 }}>
+      <Typography variant="caption" component="span" sx={{ color: "text.secondary", fontWeight: "fontWeightSemiBold" }}>
+        {label}
+      </Typography>
+      {children}
+    </Stack>
+  );
+}
+
+function ErrorAlert({ title, body }: { title: string; body: React.ReactNode }) {
+  return (
+    <Alert severity="error">
+      <AlertTitle>{title}</AlertTitle>
+      {body}
+    </Alert>
+  );
+}
+
+function Note({ children }: { children: React.ReactNode }) {
+  return (
+    <Typography variant="body2" sx={{ color: "text.secondary" }}>
+      {children}
+    </Typography>
+  );
+}
+
+const MUTED_CELL = { color: "text.secondary" } as const;
+const MONO_FIELD = { "& textarea": { fontFamily: "monospace", typography: "caption" } } as const;
+
+/** Import results: the template table card (Scrollbar + Table) inside the dialog. */
+function ImportResultsTable({ head, children }: { head: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <Card variant="outlined">
+      <Scrollbar>
+        <Table size="small" sx={{ minWidth: 640 }}>
+          <TableHead>
+            <TableRow>{head}</TableRow>
+          </TableHead>
+          <TableBody>{children}</TableBody>
+        </Table>
+      </Scrollbar>
+    </Card>
+  );
+}
+
+/** Step 1 of both import dialogs: download the template, upload or paste the sheet, preview. */
+function ImportSource({
+  pageContract,
+  columns,
+  templateLabel,
+  templateNote,
+  onDownloadTemplate,
+  fileInputId,
+  csvId,
+  csv,
+  onCSV,
+  onFile,
+  fileInput,
+  pending,
+  hasPreview,
+  onPreview,
+  accept,
+}: {
+  pageContract: AdminUiPageContract;
+  columns: string[];
+  templateLabel: string;
+  templateNote: string;
+  onDownloadTemplate: () => void;
+  fileInputId: string;
+  csvId: string;
+  csv: string;
+  onCSV: (next: string) => void;
+  onFile: (file: File | null) => void;
+  fileInput: React.RefObject<HTMLInputElement | null>;
+  pending: boolean;
+  hasPreview: boolean;
+  onPreview: () => void;
+  /** The picker's accepted types (CSV + spreadsheets). */
+  accept: string;
+}) {
+  return (
+    <>
+      <Stack spacing={1} sx={{ alignItems: "flex-start" }}>
+        <Typography variant="subtitle2">
+          {copy(pageContract, "field.bulk_template")}{" "}
+          <Box component="span" sx={{ color: "text.secondary", typography: "caption" }}>
+            ({columns.length} {copy(pageContract, "label.columns")})
+          </Box>
+        </Typography>
+        <Button type="button" size="small" variant="outlined" color="inherit" startIcon={<Iconify icon="solar:download-bold" aria-hidden="true" />} onClick={onDownloadTemplate}>
+          {templateLabel}
+        </Button>
+        <Typography variant="caption" sx={{ color: "text.secondary" }}>{columns.join(" · ")}</Typography>
+        <Note>{templateNote}</Note>
+      </Stack>
+      <UploadFile
+        inputRef={fileInput}
+        testId={fileInputId}
+        accept={accept}
+        ariaLabel={copy(pageContract, "field.bulk_upload")}
+        title={copy(pageContract, "field.bulk_upload")}
+        onFileChange={onFile}
+      />
+      <TextField
+        id={csvId}
+        label={copy(pageContract, "field.bulk_paste")}
+        multiline
+        rows={5}
+        value={csv}
+        onChange={(e) => onCSV(e.target.value)}
+        placeholder={columns.join(",")}
+        fullWidth
+        sx={MONO_FIELD}
+        slotProps={{ inputLabel: { shrink: true } }}
+      />
+      <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap" }}>
+        <Button type="button" variant="contained" color="primary" onClick={onPreview} disabled={pending || csv.trim() === ""} aria-busy={pending}>
+          {pending ? copy(pageContract, "action.previewing_rows") : copy(pageContract, "action.preview_rows")}
+        </Button>
+        {hasPreview ? <Typography variant="caption" sx={{ color: "text.secondary" }}>{copy(pageContract, "note.preview_ready")}</Typography> : null}
+      </Stack>
+    </>
+  );
 }
 
 // ---- Register goat modal (single create) ----
@@ -306,223 +520,183 @@ function RegisterGoatDrawer({
       title={copy(pageContract, "drawer.register.title")}
       subtitle={copy(pageContract, "drawer.register.subtitle")}
       maxWidth={820}
-    >
-      {!hasLocations ? (
-        <Alert severity="error" style={{ marginBottom: 14 }}><div>
-            <b>{copy(pageContract, "alert.locations.title")}</b>
-            <div className="small">{copy(pageContract, "alert.locations.body")}</div>
-          </div>
-        </Alert>
-      ) : null}
-      {!hasStages ? (
-        <Alert severity="error" style={{ marginBottom: 14 }}><div>
-            <b>{copy(pageContract, "alert.stages.title")}</b>
-            <div className="small">{copy(pageContract, "alert.stages.body")}</div>
-          </div>
-        </Alert>
-      ) : null}
-
-      {/* The action redirects (banner). Close the modal as the form submits so the banner is visible and
-          the client modal state does not linger over the navigated page. onSubmit fires only after the
-          browser's required-field validation passes, and React still dispatches the action this event. */}
-      <form action={createGoatAction} onSubmit={() => onClose()} className="fld" style={{ margin: 0 }}>
-        <input type="hidden" name="idempotency_key" value={idempotencyKey} />
-        <input type="hidden" name="return_to" value={returnTo} />
-        <input type="hidden" name="evidence_type" value="source_record" />
-
-        <Row>
-          <div className="fld" style={{ flex: 1, minWidth: 200 }}>
-            <label htmlFor="rg_animal_id_1">{copy(pageContract, "field.animal_identifier_1")}</label>
-            <input id="rg_animal_id_1" name="animal_identifier_1" required placeholder={copy(pageContract, "placeholder.animal_identifier_1")} />
-          </div>
-          <div className="fld" style={{ flex: 1, minWidth: 200 }}>
-            <label htmlFor="rg_animal_id_2">{copy(pageContract, "field.animal_identifier_2")}</label>
-            <input id="rg_animal_id_2" name="animal_identifier_2" placeholder={copy(pageContract, "placeholder.animal_identifier_2")} />
-          </div>
-        </Row>
-        <Row>
-          <div className="fld" style={{ flex: 1, minWidth: 160 }}>
-            <FormSelect
-              name="species"
-              required
-              label={copy(pageContract, "field.species")}
-              value={species}
-              onChange={setSpecies}
-              options={[
-                { value: "", label: copy(pageContract, "option.select_species") },
-                ...speciesOptions.map((o) => ({ value: o.key, label: o.label })),
-              ]}
-            />
-          </div>
-          <div className="fld" style={{ flex: 1, minWidth: 160 }}>
-            <FormSelect
-              name="park_id"
-              required
-              disabled={!canCreate}
-              label={copy(pageContract, "field.park_required")}
-              value={parkId}
-              onChange={setParkId}
-              options={
-                parks.length === 0
-                  ? [{ value: "", label: copy(pageContract, "option.no_parks") }]
-                  : parks.map((p) => ({ value: p.id, label: `${p.name}${p.code ? ` · ${p.code}` : ""}` }))
-              }
-            />
-          </div>
-          <div className="fld" style={{ flex: 1, minWidth: 160 }}>
-            <input type="hidden" name="shed_id" value={selectedLocation?.shedId ?? ""} />
-            <input type="hidden" name="partition_label" value={selectedLocation?.partitionLabel ?? ""} />
-            <FormSelect
-              required
-              disabled={!canCreate}
-              label={copy(pageContract, "field.shed_required")}
-              value={selectedLocation?.key ?? ""}
-              onChange={setSelectedLocationKey}
-              options={
-                locationOptions.length === 0
-                  ? [{ value: "", label: copy(pageContract, "option.no_vaccination_sheds") }]
-                  : locationOptions.map((location) => ({ value: location.key, label: location.label }))
-              }
-            />
-          </div>
-        </Row>
-        <Row>
-          <div className="fld" style={{ flex: 1, minWidth: 160 }}>
-            <FormSelect
-              name="farm_id"
-              label={copy(pageContract, "field.farm")}
-              defaultValue=""
-              options={[
-                { value: "", label: copy(pageContract, "option.optional") },
-                ...farms.map((f) => ({ value: f.id, label: `${f.name}${f.code ? ` · ${f.code}` : ""}` })),
-              ]}
-            />
-          </div>
-          <div className="fld" style={{ flex: 1, minWidth: 160 }}>
-            {breedGroup ? (
-              <>
-                {/* Keyed on the species so a breed picked under another species never survives the switch. */}
-                <FormSelect
-                  key={species}
-                  name="breed"
-                  label={copy(pageContract, "field.breed")}
-                  defaultValue=""
-                  disabled={!species}
-                  options={[
-                    { value: "", label: copy(pageContract, species ? "option.select_breed" : "option.select_species_first") },
-                    ...breedOptions.map((o) => ({ value: o.key, label: o.label })),
-                  ]}
-                />
-                {species && breedOptions.length === 0 ? (
-                  <div className="note">{copy(pageContract, "note.no_breeds_for_species")}</div>
-                ) : null}
-              </>
-            ) : (
-              <>
-                <label htmlFor="rg_breed">{copy(pageContract, "field.breed")}</label>
-                <input id="rg_breed" name="breed" placeholder={copy(pageContract, "placeholder.breed")} />
-              </>
-            )}
-          </div>
-          <div className="fld" style={{ flex: 1, minWidth: 160 }}>
-            <FormSelect
-              name="management_stage"
-              required
-              disabled={!hasStages}
-              label={copy(pageContract, "field.management_stage")}
-              defaultValue={animalStages[0]?.code ?? ""}
-              options={
-                animalStages.length === 0
-                  ? [{ value: "", label: copy(pageContract, "alert.stages.title") }]
-                  : animalStages.map((stage) => ({ value: stage.code, label: stage.label }))
-              }
-            />
-          </div>
-        </Row>
-
-        <Row>
-          <div className="fld" style={{ flex: 1, minWidth: 140 }}>
-            <FormSelect
-              name="sex"
-              required
-              label={copy(pageContract, "field.sex")}
-              defaultValue=""
-              options={[
-                { value: "", label: copy(pageContract, "option.select_sex") },
-                ...sexOptions.map((o) => ({ value: o.key, label: o.label })),
-              ]}
-            />
-          </div>
-          <div className="fld" style={{ flex: 1, minWidth: 160 }}>
-            <FormSelect
-              name="origin_type"
-              required
-              label={copy(pageContract, "field.origin")}
-              defaultValue=""
-              options={[
-                { value: "", label: copy(pageContract, "option.select_origin") },
-                ...originOptions.map((o) => ({ value: o.key, label: o.label })),
-              ]}
-            />
-          </div>
-        </Row>
-
-        <Row>
-          <div className="fld" style={{ flex: 1, minWidth: 150 }}>
-            <label>{copy(pageContract, "field.dob")}</label>
-            <ThemedDatePicker
-              name="dob"
-              label={copy(pageContract, "field.dob")}
-              max={todayIso()}
-              required
-              previousMonthLabel={copy(pageContract, "date.prev_month", "Previous month")}
-              nextMonthLabel={copy(pageContract, "date.next_month", "Next month")}
-              invalidDateText={copy(pageContract, "date.invalid", "Pick a valid date")}
-            />
-          </div>
-          <div className="fld" style={{ width: 140 }}>
-            <label htmlFor="rg_weight">{copy(pageContract, "field.weight_kg")}</label>
-            <input id="rg_weight" name="weight_kg" type="number" min={0} step="0.1" placeholder={copy(pageContract, "placeholder.weight_kg")} />
-          </div>
-          <div className="fld" style={{ flex: 1, minWidth: 150 }}>
-            <label>{copy(pageContract, "field.entry_date_required")}</label>
-            <ThemedDatePicker
-              name="entry_date"
-              label={copy(pageContract, "field.entry_date_required")}
-              defaultValue={todayIso()}
-              required
-              previousMonthLabel={copy(pageContract, "date.prev_month", "Previous month")}
-              nextMonthLabel={copy(pageContract, "date.next_month", "Next month")}
-              invalidDateText={copy(pageContract, "date.invalid", "Pick a valid date")}
-            />
-          </div>
-        </Row>
-        <FormControlLabel control={<Checkbox name="dob_estimated" sx={{ p: { xs: 1.5, sm: 1 } }} />} label={copy(pageContract, "field.dob_estimated")} />
-
-        <Row>
-          <div className="fld" style={{ flex: 1, minWidth: 160 }}>
-            <label htmlFor="rg_dam">{copy(pageContract, "field.dam_id")}</label>
-            <input id="rg_dam" name="dam_id" placeholder={copy(pageContract, "placeholder.dam_id")} />
-          </div>
-          <div className="fld" style={{ flex: 1, minWidth: 160 }}>
-            <label htmlFor="rg_sire">{copy(pageContract, "field.sire_or_lot")}</label>
-            <input id="rg_sire" name="sire_or_lot" placeholder={copy(pageContract, "placeholder.sire_or_lot")} />
-          </div>
-        </Row>
-
-        <div className="fld">
-          <label htmlFor="rg_evidence">{copy(pageContract, "field.evidence_ref")}</label>
-          <input id="rg_evidence" name="evidence_id" placeholder={copy(pageContract, "placeholder.evidence_ref")} />
-        </div>
-        <div className="hr-modal-actions">
-          <button type="button" className="btn" onClick={onClose}>{copy(pageContract, "action.cancel")}</button>
+      // The action redirects (banner). Close the modal as the form submits so the banner is visible and
+      // the client modal state does not linger over the navigated page. onSubmit fires only after the
+      // browser's required-field validation passes, and React still dispatches the action this event.
+      form={{ action: createGoatAction, onSubmit: () => onClose() }}
+      actions={
+        <>
+          <CancelButton onClick={onClose}>{copy(pageContract, "action.cancel")}</CancelButton>
           {canCreate ? (
             <SubmitButton pageContract={pageContract}>{copy(pageContract, "action.register_goat")}</SubmitButton>
           ) : (
-            <button type="button" className="btn p" disabled aria-disabled="true" style={{ opacity: 0.5, cursor: "not-allowed" }}>{copy(pageContract, "action.register_goat")}</button>
+            <Button type="button" variant="contained" color="primary" disabled aria-disabled="true">{copy(pageContract, "action.register_goat")}</Button>
           )}
-        </div>
-      </form>
+        </>
+      }
+    >
+      {!hasLocations ? (
+        <ErrorAlert title={copy(pageContract, "alert.locations.title")} body={copy(pageContract, "alert.locations.body")} />
+      ) : null}
+      {!hasStages ? (
+        <ErrorAlert title={copy(pageContract, "alert.stages.title")} body={copy(pageContract, "alert.stages.body")} />
+      ) : null}
+
+      <input type="hidden" name="idempotency_key" value={idempotencyKey} />
+      <input type="hidden" name="return_to" value={returnTo} />
+      <input type="hidden" name="evidence_type" value="source_record" />
+
+      <FieldGrid>
+        <Field id="rg_animal_id_1" name="animal_identifier_1" required label={copy(pageContract, "field.animal_identifier_1")} placeholder={copy(pageContract, "placeholder.animal_identifier_1")} />
+        <Field id="rg_animal_id_2" name="animal_identifier_2" label={copy(pageContract, "field.animal_identifier_2")} placeholder={copy(pageContract, "placeholder.animal_identifier_2")} />
+      </FieldGrid>
+      <FieldGrid columns={3}>
+        <FormSelect
+          name="species"
+          required
+          fullWidth
+          label={copy(pageContract, "field.species")}
+          value={species}
+          onChange={setSpecies}
+          options={[
+            { value: "", label: copy(pageContract, "option.select_species") },
+            ...speciesOptions.map((o) => ({ value: o.key, label: o.label })),
+          ]}
+        />
+        <FormSelect
+          name="park_id"
+          required
+          fullWidth
+          disabled={!canCreate}
+          label={copy(pageContract, "field.park_required")}
+          value={parkId}
+          onChange={setParkId}
+          options={
+            parks.length === 0
+              ? [{ value: "", label: copy(pageContract, "option.no_parks") }]
+              : parks.map((p) => ({ value: p.id, label: `${p.name}${p.code ? ` · ${p.code}` : ""}` }))
+          }
+        />
+        <Box sx={{ minWidth: 0 }}>
+          <input type="hidden" name="shed_id" value={selectedLocation?.shedId ?? ""} />
+          <input type="hidden" name="partition_label" value={selectedLocation?.partitionLabel ?? ""} />
+          <FormSelect
+            required
+            fullWidth
+            disabled={!canCreate}
+            label={copy(pageContract, "field.shed_required")}
+            value={selectedLocation?.key ?? ""}
+            onChange={setSelectedLocationKey}
+            options={
+              locationOptions.length === 0
+                ? [{ value: "", label: copy(pageContract, "option.no_vaccination_sheds") }]
+                : locationOptions.map((location) => ({ value: location.key, label: location.label }))
+            }
+          />
+        </Box>
+      </FieldGrid>
+      <FieldGrid columns={3}>
+        <FormSelect
+          name="farm_id"
+          fullWidth
+          label={copy(pageContract, "field.farm")}
+          defaultValue=""
+          options={[
+            { value: "", label: copy(pageContract, "option.optional") },
+            ...farms.map((f) => ({ value: f.id, label: `${f.name}${f.code ? ` · ${f.code}` : ""}` })),
+          ]}
+        />
+        {breedGroup ? (
+          // Keyed on the species so a breed picked under another species never survives the switch.
+          <FormSelect
+            key={species}
+            name="breed"
+            fullWidth
+            label={copy(pageContract, "field.breed")}
+            defaultValue=""
+            disabled={!species}
+            helperText={species && breedOptions.length === 0 ? copy(pageContract, "note.no_breeds_for_species") : undefined}
+            options={[
+              { value: "", label: copy(pageContract, species ? "option.select_breed" : "option.select_species_first") },
+              ...breedOptions.map((o) => ({ value: o.key, label: o.label })),
+            ]}
+          />
+        ) : (
+          <Field id="rg_breed" name="breed" label={copy(pageContract, "field.breed")} placeholder={copy(pageContract, "placeholder.breed")} />
+        )}
+        <FormSelect
+          name="management_stage"
+          required
+          fullWidth
+          disabled={!hasStages}
+          label={copy(pageContract, "field.management_stage")}
+          defaultValue={animalStages[0]?.code ?? ""}
+          options={
+            animalStages.length === 0
+              ? [{ value: "", label: copy(pageContract, "alert.stages.title") }]
+              : animalStages.map((stage) => ({ value: stage.code, label: stage.label }))
+          }
+        />
+      </FieldGrid>
+
+      <FieldGrid>
+        <FormSelect
+          name="sex"
+          required
+          fullWidth
+          label={copy(pageContract, "field.sex")}
+          defaultValue=""
+          options={[
+            { value: "", label: copy(pageContract, "option.select_sex") },
+            ...sexOptions.map((o) => ({ value: o.key, label: o.label })),
+          ]}
+        />
+        <FormSelect
+          name="origin_type"
+          required
+          fullWidth
+          label={copy(pageContract, "field.origin")}
+          defaultValue=""
+          options={[
+            { value: "", label: copy(pageContract, "option.select_origin") },
+            ...originOptions.map((o) => ({ value: o.key, label: o.label })),
+          ]}
+        />
+      </FieldGrid>
+
+      <FieldGrid columns={3}>
+        <DateField label={copy(pageContract, "field.dob")}>
+          <ThemedDatePicker
+            name="dob"
+            label={copy(pageContract, "field.dob")}
+            max={todayIso()}
+            required
+            previousMonthLabel={copy(pageContract, "date.prev_month", "Previous month")}
+            nextMonthLabel={copy(pageContract, "date.next_month", "Next month")}
+            invalidDateText={copy(pageContract, "date.invalid", "Pick a valid date")}
+          />
+        </DateField>
+        <Field id="rg_weight" name="weight_kg" type="number" label={copy(pageContract, "field.weight_kg")} placeholder={copy(pageContract, "placeholder.weight_kg")} htmlInput={{ min: 0, step: "0.1" }} />
+        <DateField label={copy(pageContract, "field.entry_date_required")}>
+          <ThemedDatePicker
+            name="entry_date"
+            label={copy(pageContract, "field.entry_date_required")}
+            defaultValue={todayIso()}
+            required
+            previousMonthLabel={copy(pageContract, "date.prev_month", "Previous month")}
+            nextMonthLabel={copy(pageContract, "date.next_month", "Next month")}
+            invalidDateText={copy(pageContract, "date.invalid", "Pick a valid date")}
+          />
+        </DateField>
+      </FieldGrid>
+      <FormControlLabel control={<Checkbox name="dob_estimated" sx={{ p: { xs: 1.5, sm: 1 } }} />} label={copy(pageContract, "field.dob_estimated")} />
+
+      <FieldGrid>
+        <Field id="rg_dam" name="dam_id" label={copy(pageContract, "field.dam_id")} placeholder={copy(pageContract, "placeholder.dam_id")} />
+        <Field id="rg_sire" name="sire_or_lot" label={copy(pageContract, "field.sire_or_lot")} placeholder={copy(pageContract, "placeholder.sire_or_lot")} />
+      </FieldGrid>
+
+      <Field id="rg_evidence" name="evidence_id" label={copy(pageContract, "field.evidence_ref")} placeholder={copy(pageContract, "placeholder.evidence_ref")} />
     </HerdActionDialog>
   );
 }
@@ -553,67 +727,50 @@ function RegisterShedDrawer({
       title={copy(pageContract, "drawer.shed_register.title")}
       subtitle={copy(pageContract, "drawer.shed_register.subtitle")}
       maxWidth={760}
-    >
-      {!canCreate ? (
-        <Alert severity="error" style={{ marginBottom: 14 }}><div>
-            <b>{copy(pageContract, "alert.locations.title")}</b>
-            <div className="small">{copy(pageContract, "alert.shed_locations.body")}</div>
-          </div>
-        </Alert>
-      ) : null}
-
-      <form action={createShedAction} onSubmit={() => onClose()} className="fld" style={{ margin: 0 }}>
-        <input type="hidden" name="idempotency_key" value={idempotencyKey} />
-        <input type="hidden" name="return_to" value={returnTo} />
-
-        <div className="fld">
-          <FormSelect
-            name="park_id"
-            required
-            disabled={!canCreate}
-            label={copy(pageContract, "field.park_required")}
-            defaultValue={parks[0]?.id ?? ""}
-            options={
-              parks.length === 0
-                ? [{ value: "", label: copy(pageContract, "option.no_parks") }]
-                : parks.map((p) => ({ value: p.id, label: `${p.name}${p.code ? ` · ${p.code}` : ""}` }))
-            }
-          />
-        </div>
-
-        <Row>
-          <div className="fld" style={{ flex: 1, minWidth: 180 }}>
-            <label htmlFor="rs_code">{copy(pageContract, "field.shed_code")}</label>
-            <input id="rs_code" name="location_code" placeholder={copy(pageContract, "placeholder.shed_code")} />
-          </div>
-          <div className="fld" style={{ flex: 1, minWidth: 220 }}>
-            <label htmlFor="rs_name">{copy(pageContract, "field.shed_name_required")}</label>
-            <input id="rs_name" name="name" required placeholder={copy(pageContract, "placeholder.shed_name")} />
-          </div>
-        </Row>
-
-        <Row>
-          <div className="fld" style={{ width: 150 }}>
-            <label htmlFor="rs_order">{copy(pageContract, "field.display_order")}</label>
-            <input id="rs_order" name="display_order" type="number" min={0} step={1} defaultValue={0} />
-          </div>
-          <div className="fld" style={{ flex: 1, minWidth: 220 }}>
-            <label htmlFor="rs_notes">{copy(pageContract, "field.notes")}</label>
-            <input id="rs_notes" name="notes" placeholder={copy(pageContract, "placeholder.shed_notes")} />
-          </div>
-        </Row>
-
-        <div className="note" style={{ marginBottom: 12 }}>{copy(pageContract, "note.shed_create")}</div>
-
-        <div className="hr-modal-actions">
-          <button type="button" className="btn" onClick={onClose}>{copy(pageContract, "action.cancel")}</button>
+      form={{ action: createShedAction, onSubmit: () => onClose() }}
+      actions={
+        <>
+          <CancelButton onClick={onClose}>{copy(pageContract, "action.cancel")}</CancelButton>
           {canCreate ? (
             <SubmitButton pageContract={pageContract}>{copy(pageContract, "action.register_shed")}</SubmitButton>
           ) : (
-            <button type="button" className="btn p" disabled aria-disabled="true" style={{ opacity: 0.5, cursor: "not-allowed" }}>{copy(pageContract, "action.register_shed")}</button>
+            <Button type="button" variant="contained" color="primary" disabled aria-disabled="true">{copy(pageContract, "action.register_shed")}</Button>
           )}
-        </div>
-      </form>
+        </>
+      }
+    >
+      {!canCreate ? (
+        <ErrorAlert title={copy(pageContract, "alert.locations.title")} body={copy(pageContract, "alert.shed_locations.body")} />
+      ) : null}
+
+      <input type="hidden" name="idempotency_key" value={idempotencyKey} />
+      <input type="hidden" name="return_to" value={returnTo} />
+
+      <FormSelect
+        name="park_id"
+        required
+        fullWidth
+        disabled={!canCreate}
+        label={copy(pageContract, "field.park_required")}
+        defaultValue={parks[0]?.id ?? ""}
+        options={
+          parks.length === 0
+            ? [{ value: "", label: copy(pageContract, "option.no_parks") }]
+            : parks.map((p) => ({ value: p.id, label: `${p.name}${p.code ? ` · ${p.code}` : ""}` }))
+        }
+      />
+
+      <FieldGrid>
+        <Field id="rs_code" name="location_code" label={copy(pageContract, "field.shed_code")} placeholder={copy(pageContract, "placeholder.shed_code")} />
+        <Field id="rs_name" name="name" required label={copy(pageContract, "field.shed_name_required")} placeholder={copy(pageContract, "placeholder.shed_name")} />
+      </FieldGrid>
+
+      <FieldGrid>
+        <Field id="rs_order" name="display_order" type="number" defaultValue={0} label={copy(pageContract, "field.display_order")} htmlInput={{ min: 0, step: 1 }} />
+        <Field id="rs_notes" name="notes" label={copy(pageContract, "field.notes")} placeholder={copy(pageContract, "placeholder.shed_notes")} />
+      </FieldGrid>
+
+      <Note>{copy(pageContract, "note.shed_create")}</Note>
     </HerdActionDialog>
   );
 }
@@ -621,6 +778,7 @@ function RegisterShedDrawer({
 // ---- Bulk import modal (download template -> paste/upload CSV -> preview -> commit) ----
 function BulkImportDrawer({ open, onClose, pageContract }: { open: boolean; onClose: () => void; pageContract: AdminUiPageContract }) {
   const router = useRouter();
+  const fileInput = useRef<HTMLInputElement | null>(null);
   const [csv, setCsv] = useState("");
   const [preview, setPreview] = useState<AdminGoatBulkResponse | null>(null);
   const [previewHash, setPreviewHash] = useState<string | null>(null);
@@ -664,8 +822,7 @@ function BulkImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
     URL.revokeObjectURL(url);
   }
 
-  async function onFile(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
+  async function onFile(file: File | null) {
     if (!file) return;
     try {
       const next = isSpreadsheetFile(file.name, file.type)
@@ -679,7 +836,8 @@ function BulkImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
     } catch (err) {
       setError(err instanceof Error ? err.message : copy(pageContract, "error.xlsx_parse_failed"));
     } finally {
-      event.target.value = "";
+      // Clear the picker so the same file can be picked again after a parse error.
+      if (fileInput.current) fileInput.current.value = "";
     }
   }
 
@@ -736,126 +894,113 @@ function BulkImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
       title={copy(pageContract, "drawer.import.title")}
       subtitle={copy(pageContract, "drawer.import.subtitle")}
       maxWidth={900}
-    >
-      {/* Step 1 — template + input. Hidden once a commit result is shown. */}
-      {!committed ? (
-        <>
-          <div className="fld">
-            <label>{copy(pageContract, "field.bulk_template")} <span className="muted small">({bulkColumns.length} {copy(pageContract, "label.columns")})</span></label>
-            <button type="button" className="btn sm" onClick={downloadTemplate}>
-              <Download className="ic" style={{ width: 13 }} aria-hidden="true" /> {copy(pageContract, "action.download_template")}
-            </button>
-            <div className="muted small" style={{ marginTop: 6 }}>{bulkColumns.join(" · ")}</div>
-            <div className="note" style={{ marginTop: 8 }}>
-              {copy(pageContract, "note.bulk_template")}
-            </div>
-          </div>
-          <div className="fld">
-            <label htmlFor="bulk_file">{copy(pageContract, "field.bulk_upload")}</label>
-            <input id="bulk_file" type="file" accept={sheetImportAccept} onChange={onFile} />
-          </div>
-          <div className="fld">
-            <label htmlFor="bulk_csv">{copy(pageContract, "field.bulk_paste")}</label>
-            <textarea
-              id="bulk_csv"
-              rows={5}
-              value={csv}
-              onChange={(e) => updateCSV(e.target.value)}
-              placeholder={bulkColumns.join(",")}
-              style={{ fontFamily: "var(--mono, monospace)", fontSize: 12 }}
-            />
-          </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14 }}>
-            <button type="button" className="btn p" onClick={runPreview} disabled={pending || csv.trim() === ""} aria-busy={pending}>
-              {pending && !committed ? copy(pageContract, "action.previewing_rows") : copy(pageContract, "action.preview_rows")}
-            </button>
-            {preview ? <span className="muted small">{copy(pageContract, "note.preview_ready")}</span> : null}
-          </div>
-        </>
-      ) : null}
-
-      {error ? (
-        <Alert severity="error" style={{ marginBottom: 14 }}><div><b>{committed ? copy(pageContract, "action.commit_failed") : copy(pageContract, "action.preview_failed")}</b><div className="small">{error}</div></div>
-        </Alert>
-      ) : null}
-
-      {committed ? (
-        <div className="note" style={{ marginBottom: 14 }}>
-          <Tag tone="ok">{copy(pageContract, "label.committed")}</Tag> {copy(pageContract, "label.created")} {committed.summary.created} · {copy(pageContract, "label.failed")} {committed.summary.failed} · {copy(pageContract, "label.skip")} {committed.summary.skipped} {copy(pageContract, "label.of")} {committed.summary.total} {copy(pageContract, "label.rows")}. {copy(pageContract, "note.committed_suffix")}
-        </div>
-      ) : null}
-
-      {/* Step 3 — preview/commit results table. */}
-      {view ? (
-        <>
-          <div className="chipset" style={{ marginBottom: 10 }}>
-            <Tag tone="mut">{view.summary.total} {copy(pageContract, "label.rows")}</Tag>
-            <Tag tone="ok">{view.summary.create_ready} {copy(pageContract, "label.create_ready")}</Tag>
-            <Tag tone="warn">{view.summary.requires_review} {copy(pageContract, "label.review")}</Tag>
-            <Tag tone="mut">{view.summary.skipped} {copy(pageContract, "label.skip")}</Tag>
-            {committed ? <Tag tone={view.summary.failed ? "dng" : "ok"}>{view.summary.created} {copy(pageContract, "label.created")}</Tag> : null}
-          </div>
-          <div className="card" style={{ marginBottom: 14 }}>
-            <div className="bd" style={{ padding: 0, overflowX: "auto" }}>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell component="th">{copy(pageContract, "field.import_row")}</TableCell>
-                    <TableCell component="th">{copy(pageContract, "field.import_decision")}</TableCell>
-                    <TableCell component="th">{copy(pageContract, "field.import_identity")}</TableCell>
-                    <TableCell component="th">{copy(pageContract, "field.import_notes")}</TableCell>
-                    {committed ? <TableCell component="th">{copy(pageContract, "field.import_result")}</TableCell> : null}
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {view.rows.map((r) => {
-                    const ident = r.normalized?.animal_identifier_1 || r.normalized?.animal_identifier_2 || copy(pageContract, "label.placeholder");
-                    const notes = [
-                      ...r.errors.map((e) => `${e.field}: ${e.message}`),
-                      ...r.warnings.map((w) => w.message),
-                    ].join(" · ");
-                    return (
-                      <TableRow key={r.row_number}>
-                        <TableCell className="muted">{r.row_number}</TableCell>
-                        <TableCell><Tag tone={contractTone(pageContract, "herd_bulk_decisions", String(r.decision))}>{decisionLabel(pageContract, r.decision)}</Tag></TableCell>
-                        <TableCell>{ident}</TableCell>
-                        <TableCell className="muted small">{notes || copy(pageContract, "label.placeholder")}</TableCell>
-                        {committed ? (
-                          <TableCell className="muted small">
-                            {r.result ? r.result.goat.display_id : r.errors.length ? copy(pageContract, "label.failed") : copy(pageContract, "label.placeholder")}
-                          </TableCell>
-                        ) : null}
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+      actions={
+        view ? (
+          <>
             {failedCount > 0 ? (
-              <button type="button" className="btn" onClick={() => downloadFailedRows(copy(pageContract, "action.download_failed_goat_rows"), csv, bulkColumns, view.rows, copy(pageContract, "field.failure_reason"), copy(pageContract, "error.csv_unterminated_quote"))}>
-                <Download className="ic" style={{ width: 13 }} aria-hidden="true" /> {copy(pageContract, "action.export_failed_rows")} ({failedCount})
-              </button>
+              <Button type="button" variant="outlined" color="inherit" startIcon={<Iconify icon="solar:download-bold" aria-hidden="true" />} onClick={() => downloadFailedRows(copy(pageContract, "action.download_failed_goat_rows"), csv, bulkColumns, view.rows, copy(pageContract, "field.failure_reason"), copy(pageContract, "error.csv_unterminated_quote"))}>
+                {copy(pageContract, "action.export_failed_rows")} ({failedCount})
+              </Button>
             ) : null}
             {committed ? (
-              <button type="button" className="btn p" onClick={close}>{copy(pageContract, "action.done")}</button>
+              <Button type="button" variant="contained" color="primary" onClick={close}>{copy(pageContract, "action.done")}</Button>
             ) : (
               <>
-                <button type="button" className="btn" onClick={() => { setPreview(null); setError(null); }}>{copy(pageContract, "action.re_edit")}</button>
-                <button
+                <CancelButton onClick={() => { setPreview(null); setError(null); }}>{copy(pageContract, "action.re_edit")}</CancelButton>
+                <Button
                   type="button"
-                  className="btn p"
+                  variant="contained"
+                  color="primary"
+                  startIcon={<Iconify icon="eva:checkmark-fill" aria-hidden="true" />}
                   onClick={runCommit}
                   disabled={pending || committable === 0}
                   aria-disabled={committable === 0}
                   aria-busy={pending}
                 >
-                  <Check className="ic" aria-hidden="true" /> {pending ? copy(pageContract, "action.creating_records") : `${copy(pageContract, "action.create_records")} (${committable})`}
-                </button>
+                  {pending ? copy(pageContract, "action.creating_records") : `${copy(pageContract, "action.create_records")} (${committable})`}
+                </Button>
               </>
             )}
-          </div>
+          </>
+        ) : null
+      }
+    >
+      {/* Step 1 — template + input. Hidden once a commit result is shown. */}
+      {!committed ? (
+        <ImportSource
+          pageContract={pageContract}
+          columns={bulkColumns}
+          templateLabel={copy(pageContract, "action.download_template")}
+          templateNote={copy(pageContract, "note.bulk_template")}
+          onDownloadTemplate={downloadTemplate}
+          fileInputId="bulk_file"
+          csvId="bulk_csv"
+          csv={csv}
+          onCSV={updateCSV}
+          onFile={onFile}
+          fileInput={fileInput}
+          pending={pending}
+          hasPreview={Boolean(preview)}
+          onPreview={runPreview}
+          accept={sheetImportAccept}
+        />
+      ) : null}
+
+      {error ? (
+        <ErrorAlert title={committed ? copy(pageContract, "action.commit_failed") : copy(pageContract, "action.preview_failed")} body={error} />
+      ) : null}
+
+      {committed ? (
+        <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap" }}>
+          <Tag tone="ok">{copy(pageContract, "label.committed")}</Tag>
+          <Note>
+            {copy(pageContract, "label.created")} {committed.summary.created} · {copy(pageContract, "label.failed")} {committed.summary.failed} · {copy(pageContract, "label.skip")} {committed.summary.skipped} {copy(pageContract, "label.of")} {committed.summary.total} {copy(pageContract, "label.rows")}. {copy(pageContract, "note.committed_suffix")}
+          </Note>
+        </Stack>
+      ) : null}
+
+      {/* Step 3 — preview/commit results table. */}
+      {view ? (
+        <>
+          <Stack direction="row" sx={{ gap: 1, flexWrap: "wrap" }}>
+            <Tag tone="mut">{view.summary.total} {copy(pageContract, "label.rows")}</Tag>
+            <Tag tone="ok">{view.summary.create_ready} {copy(pageContract, "label.create_ready")}</Tag>
+            <Tag tone="warn">{view.summary.requires_review} {copy(pageContract, "label.review")}</Tag>
+            <Tag tone="mut">{view.summary.skipped} {copy(pageContract, "label.skip")}</Tag>
+            {committed ? <Tag tone={view.summary.failed ? "dng" : "ok"}>{view.summary.created} {copy(pageContract, "label.created")}</Tag> : null}
+          </Stack>
+          <ImportResultsTable
+            head={
+              <>
+                <TableCell component="th">{copy(pageContract, "field.import_row")}</TableCell>
+                <TableCell component="th">{copy(pageContract, "field.import_decision")}</TableCell>
+                <TableCell component="th">{copy(pageContract, "field.import_identity")}</TableCell>
+                <TableCell component="th">{copy(pageContract, "field.import_notes")}</TableCell>
+                {committed ? <TableCell component="th">{copy(pageContract, "field.import_result")}</TableCell> : null}
+              </>
+            }
+          >
+            {view.rows.map((r) => {
+              const ident = r.normalized?.animal_identifier_1 || r.normalized?.animal_identifier_2 || copy(pageContract, "label.placeholder");
+              const notes = [
+                ...r.errors.map((e) => `${e.field}: ${e.message}`),
+                ...r.warnings.map((w) => w.message),
+              ].join(" · ");
+              return (
+                <TableRow key={r.row_number}>
+                  <TableCell sx={MUTED_CELL}>{r.row_number}</TableCell>
+                  <TableCell><Tag tone={contractTone(pageContract, "herd_bulk_decisions", String(r.decision))}>{decisionLabel(pageContract, r.decision)}</Tag></TableCell>
+                  <TableCell>{ident}</TableCell>
+                  <TableCell sx={MUTED_CELL}>{notes || copy(pageContract, "label.placeholder")}</TableCell>
+                  {committed ? (
+                    <TableCell sx={MUTED_CELL}>
+                      {r.result ? r.result.goat.display_id : r.errors.length ? copy(pageContract, "label.failed") : copy(pageContract, "label.placeholder")}
+                    </TableCell>
+                  ) : null}
+                </TableRow>
+              );
+            })}
+          </ImportResultsTable>
         </>
       ) : null}
     </HerdActionDialog>
@@ -865,6 +1010,7 @@ function BulkImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
 // ---- Shed bulk import modal (download template -> paste/upload CSV -> preview -> commit) ----
 function ShedImportDrawer({ open, onClose, pageContract }: { open: boolean; onClose: () => void; pageContract: AdminUiPageContract }) {
   const router = useRouter();
+  const fileInput = useRef<HTMLInputElement | null>(null);
   const [csv, setCsv] = useState("");
   const [preview, setPreview] = useState<ShedImportResponse | null>(null);
   const [previewHash, setPreviewHash] = useState<string | null>(null);
@@ -907,8 +1053,7 @@ function ShedImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
     URL.revokeObjectURL(url);
   }
 
-  async function onFile(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
+  async function onFile(file: File | null) {
     if (!file) return;
     try {
       const next = isSpreadsheetFile(file.name, file.type)
@@ -922,7 +1067,8 @@ function ShedImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
     } catch (err) {
       setError(err instanceof Error ? err.message : copy(pageContract, "error.xlsx_parse_failed"));
     } finally {
-      event.target.value = "";
+      // Clear the picker so the same file can be picked again after a parse error.
+      if (fileInput.current) fileInput.current.value = "";
     }
   }
 
@@ -976,120 +1122,107 @@ function ShedImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
       title={copy(pageContract, "drawer.shed_import.title")}
       subtitle={copy(pageContract, "drawer.shed_import.subtitle")}
       maxWidth={900}
-    >
-      {!committed ? (
-        <>
-          <div className="fld">
-            <label>{copy(pageContract, "field.bulk_template")} <span className="muted small">({shedColumns.length} {copy(pageContract, "label.columns")})</span></label>
-            <button type="button" className="btn sm" onClick={downloadTemplate}>
-              <Download className="ic" style={{ width: 13 }} aria-hidden="true" /> {copy(pageContract, "action.download_shed_template")}
-            </button>
-            <div className="muted small" style={{ marginTop: 6 }}>{shedColumns.join(" · ")}</div>
-            <div className="note" style={{ marginTop: 8 }}>
-              {copy(pageContract, "note.shed_bulk_template")}
-            </div>
-          </div>
-          <div className="fld">
-            <label htmlFor="shed_bulk_file">{copy(pageContract, "field.bulk_upload")}</label>
-            <input id="shed_bulk_file" type="file" accept={sheetImportAccept} onChange={onFile} />
-          </div>
-          <div className="fld">
-            <label htmlFor="shed_bulk_csv">{copy(pageContract, "field.bulk_paste")}</label>
-            <textarea
-              id="shed_bulk_csv"
-              rows={5}
-              value={csv}
-              onChange={(e) => updateCSV(e.target.value)}
-              placeholder={shedColumns.join(",")}
-              style={{ fontFamily: "var(--mono, monospace)", fontSize: 12 }}
-            />
-          </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14 }}>
-            <button type="button" className="btn p" onClick={runPreview} disabled={pending || csv.trim() === ""} aria-busy={pending}>
-              {pending && !committed ? copy(pageContract, "action.previewing_rows") : copy(pageContract, "action.preview_rows")}
-            </button>
-            {preview ? <span className="muted small">{copy(pageContract, "note.preview_ready")}</span> : null}
-          </div>
-        </>
-      ) : null}
-
-      {error ? (
-        <Alert severity="error" style={{ marginBottom: 14 }}><div><b>{committed ? copy(pageContract, "action.commit_failed") : copy(pageContract, "action.preview_failed")}</b><div className="small">{error}</div></div>
-        </Alert>
-      ) : null}
-
-      {committed ? (
-        <div className="note" style={{ marginBottom: 14 }}>
-          <Tag tone="ok">{copy(pageContract, "label.committed")}</Tag> {copy(pageContract, "label.created")} {committed.summary.created} · {copy(pageContract, "label.failed")} {committed.summary.failed} {copy(pageContract, "label.of")} {committed.summary.total} {copy(pageContract, "label.rows")}. {copy(pageContract, "note.shed_committed_suffix")}
-        </div>
-      ) : null}
-
-      {view ? (
-        <>
-          <div className="chipset" style={{ marginBottom: 10 }}>
-            <Tag tone="mut">{view.summary.total} {copy(pageContract, "label.rows")}</Tag>
-            <Tag tone="ok">{view.summary.create_ready} {copy(pageContract, "label.create_ready")}</Tag>
-            <Tag tone="warn">{view.summary.requires_review} {copy(pageContract, "label.review")}</Tag>
-            {committed ? <Tag tone={view.summary.failed ? "dng" : "ok"}>{view.summary.created} {copy(pageContract, "label.created")}</Tag> : null}
-          </div>
-          <div className="card" style={{ marginBottom: 14 }}>
-            <div className="bd" style={{ padding: 0, overflowX: "auto" }}>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell component="th">{copy(pageContract, "field.import_row")}</TableCell>
-                    <TableCell component="th">{copy(pageContract, "field.import_decision")}</TableCell>
-                    <TableCell component="th">{copy(pageContract, "field.shed")}</TableCell>
-                    <TableCell component="th">{copy(pageContract, "field.import_notes")}</TableCell>
-                    {committed ? <TableCell component="th">{copy(pageContract, "field.import_result")}</TableCell> : null}
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {view.rows.map((r) => {
-                    const ident = r.normalized
-                      ? `${r.normalized.location_code ? `${r.normalized.location_code} · ` : ""}${r.normalized.name}`
-                      : r.source_label || copy(pageContract, "label.placeholder");
-                    const notes = r.errors.map((e) => `${e.field}: ${e.message}`).join(" · ");
-                    return (
-                      <TableRow key={r.row_number}>
-                        <TableCell className="muted">{r.row_number}</TableCell>
-                        <TableCell><Tag tone={contractTone(pageContract, "herd_bulk_decisions", r.decision)}>{decisionLabel(pageContract, r.decision)}</Tag></TableCell>
-                        <TableCell>{ident}</TableCell>
-                        <TableCell className="muted small">{notes || copy(pageContract, "label.placeholder")}</TableCell>
-                        {committed ? (
-                          <TableCell className="muted small">{r.result ? r.result.location.name : r.errors.length ? copy(pageContract, "label.failed") : copy(pageContract, "label.placeholder")}</TableCell>
-                        ) : null}
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+      actions={
+        view ? (
+          <>
             {failedCount > 0 ? (
-              <button type="button" className="btn" onClick={() => downloadFailedRows(copy(pageContract, "action.download_failed_shed_rows"), csv, shedColumns, view.rows, copy(pageContract, "field.failure_reason"), copy(pageContract, "error.csv_unterminated_quote"))}>
-                <Download className="ic" style={{ width: 13 }} aria-hidden="true" /> {copy(pageContract, "action.export_failed_rows")} ({failedCount})
-              </button>
+              <Button type="button" variant="outlined" color="inherit" startIcon={<Iconify icon="solar:download-bold" aria-hidden="true" />} onClick={() => downloadFailedRows(copy(pageContract, "action.download_failed_shed_rows"), csv, shedColumns, view.rows, copy(pageContract, "field.failure_reason"), copy(pageContract, "error.csv_unterminated_quote"))}>
+                {copy(pageContract, "action.export_failed_rows")} ({failedCount})
+              </Button>
             ) : null}
             {committed ? (
-              <button type="button" className="btn p" onClick={close}>{copy(pageContract, "action.done")}</button>
+              <Button type="button" variant="contained" color="primary" onClick={close}>{copy(pageContract, "action.done")}</Button>
             ) : (
               <>
-                <button type="button" className="btn" onClick={() => { setPreview(null); setError(null); }}>{copy(pageContract, "action.re_edit")}</button>
-                <button
+                <CancelButton onClick={() => { setPreview(null); setError(null); }}>{copy(pageContract, "action.re_edit")}</CancelButton>
+                <Button
                   type="button"
-                  className="btn p"
+                  variant="contained"
+                  color="primary"
+                  startIcon={<Iconify icon="eva:checkmark-fill" aria-hidden="true" />}
                   onClick={runCommit}
                   disabled={pending || committable === 0}
                   aria-disabled={committable === 0}
                   aria-busy={pending}
                 >
-                  <Check className="ic" aria-hidden="true" /> {pending ? copy(pageContract, "action.creating_records") : `${copy(pageContract, "action.create_sheds")} (${committable})`}
-                </button>
+                  {pending ? copy(pageContract, "action.creating_records") : `${copy(pageContract, "action.create_sheds")} (${committable})`}
+                </Button>
               </>
             )}
-          </div>
+          </>
+        ) : null
+      }
+    >
+      {!committed ? (
+        <ImportSource
+          pageContract={pageContract}
+          columns={shedColumns}
+          templateLabel={copy(pageContract, "action.download_shed_template")}
+          templateNote={copy(pageContract, "note.shed_bulk_template")}
+          onDownloadTemplate={downloadTemplate}
+          fileInputId="shed_bulk_file"
+          csvId="shed_bulk_csv"
+          csv={csv}
+          onCSV={updateCSV}
+          onFile={onFile}
+          fileInput={fileInput}
+          pending={pending}
+          hasPreview={Boolean(preview)}
+          onPreview={runPreview}
+          accept={sheetImportAccept}
+        />
+      ) : null}
+
+      {error ? (
+        <ErrorAlert title={committed ? copy(pageContract, "action.commit_failed") : copy(pageContract, "action.preview_failed")} body={error} />
+      ) : null}
+
+      {committed ? (
+        <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap" }}>
+          <Tag tone="ok">{copy(pageContract, "label.committed")}</Tag>
+          <Note>
+            {copy(pageContract, "label.created")} {committed.summary.created} · {copy(pageContract, "label.failed")} {committed.summary.failed} {copy(pageContract, "label.of")} {committed.summary.total} {copy(pageContract, "label.rows")}. {copy(pageContract, "note.shed_committed_suffix")}
+          </Note>
+        </Stack>
+      ) : null}
+
+      {view ? (
+        <>
+          <Stack direction="row" sx={{ gap: 1, flexWrap: "wrap" }}>
+            <Tag tone="mut">{view.summary.total} {copy(pageContract, "label.rows")}</Tag>
+            <Tag tone="ok">{view.summary.create_ready} {copy(pageContract, "label.create_ready")}</Tag>
+            <Tag tone="warn">{view.summary.requires_review} {copy(pageContract, "label.review")}</Tag>
+            {committed ? <Tag tone={view.summary.failed ? "dng" : "ok"}>{view.summary.created} {copy(pageContract, "label.created")}</Tag> : null}
+          </Stack>
+          <ImportResultsTable
+            head={
+              <>
+                <TableCell component="th">{copy(pageContract, "field.import_row")}</TableCell>
+                <TableCell component="th">{copy(pageContract, "field.import_decision")}</TableCell>
+                <TableCell component="th">{copy(pageContract, "field.shed")}</TableCell>
+                <TableCell component="th">{copy(pageContract, "field.import_notes")}</TableCell>
+                {committed ? <TableCell component="th">{copy(pageContract, "field.import_result")}</TableCell> : null}
+              </>
+            }
+          >
+            {view.rows.map((r) => {
+              const ident = r.normalized
+                ? `${r.normalized.location_code ? `${r.normalized.location_code} · ` : ""}${r.normalized.name}`
+                : r.source_label || copy(pageContract, "label.placeholder");
+              const notes = r.errors.map((e) => `${e.field}: ${e.message}`).join(" · ");
+              return (
+                <TableRow key={r.row_number}>
+                  <TableCell sx={MUTED_CELL}>{r.row_number}</TableCell>
+                  <TableCell><Tag tone={contractTone(pageContract, "herd_bulk_decisions", r.decision)}>{decisionLabel(pageContract, r.decision)}</Tag></TableCell>
+                  <TableCell>{ident}</TableCell>
+                  <TableCell sx={MUTED_CELL}>{notes || copy(pageContract, "label.placeholder")}</TableCell>
+                  {committed ? (
+                    <TableCell sx={MUTED_CELL}>{r.result ? r.result.location.name : r.errors.length ? copy(pageContract, "label.failed") : copy(pageContract, "label.placeholder")}</TableCell>
+                  ) : null}
+                </TableRow>
+              );
+            })}
+          </ImportResultsTable>
         </>
       ) : null}
     </HerdActionDialog>
@@ -1128,15 +1261,15 @@ export function HerdActions({
     <>
       {/* ONE primary (Register animal) + the three secondary writes behind a ⋮ menu: five
           buttons stacked as a ragged grid at phone width. Same drawers, same handlers. */}
-      <Button type="button" variant="contained" color="primary" startIcon={<Plus className="ic" aria-hidden="true" />} onClick={() => setOpenDrawer("register")}>
+      <Button type="button" variant="contained" color="primary" startIcon={<Iconify icon="mingcute:add-line" aria-hidden="true" />} onClick={() => setOpenDrawer("register")}>
         {copy(pageContract, "action.register_goat")}
       </Button>
       <RowMenu
         ariaLabel={copy(pageContract, "action.more", "More actions")}
         actions={[
-          { label: copy(pageContract, "action.register_shed"), icon: <Plus className="ic" aria-hidden="true" />, onSelect: () => setOpenDrawer("shed") },
-          { label: copy(pageContract, "action.import_sheet"), icon: <Upload className="ic" aria-hidden="true" />, onSelect: () => setOpenDrawer("bulk") },
-          { label: copy(pageContract, "action.import_sheds"), icon: <Upload className="ic" aria-hidden="true" />, onSelect: () => setOpenDrawer("shed-bulk") },
+          { label: copy(pageContract, "action.register_shed"), icon: <Iconify icon="mingcute:add-line" aria-hidden="true" />, onSelect: () => setOpenDrawer("shed") },
+          { label: copy(pageContract, "action.import_sheet"), icon: <Iconify icon="solar:import-bold" aria-hidden="true" />, onSelect: () => setOpenDrawer("bulk") },
+          { label: copy(pageContract, "action.import_sheds"), icon: <Iconify icon="solar:import-bold" aria-hidden="true" />, onSelect: () => setOpenDrawer("shed-bulk") },
         ]}
       />
 
@@ -1196,17 +1329,21 @@ export function HerdReproductiveEdit({
 
   return (
     <>
-      <button
-        type="button"
-        className="btn sm"
-        onClick={() => setOpen(true)}
-        disabled={!canEdit}
-        aria-disabled={!canEdit}
-        title={canEdit ? undefined : copy(pageContract, "reason.reproductive_unavailable")}
-        style={canEdit ? undefined : { opacity: 0.5, cursor: "not-allowed" }}
-      >
-        <SquarePen className="ic" style={{ width: 13 }} aria-hidden="true" /> {copy(pageContract, "action.edit_reproductive")}
-      </button>
+      {/* The reason rides on a wrapper: a disabled button receives no pointer events of its own. */}
+      <Box component="span" title={canEdit ? undefined : copy(pageContract, "reason.reproductive_unavailable")} sx={{ display: "inline-flex" }}>
+        <Button
+          type="button"
+          size="small"
+          variant="outlined"
+          color="inherit"
+          startIcon={<Iconify icon="solar:pen-bold" aria-hidden="true" />}
+          onClick={() => setOpen(true)}
+          disabled={!canEdit}
+          aria-disabled={!canEdit}
+        >
+          {copy(pageContract, "action.edit_reproductive")}
+        </Button>
+      </Box>
 
       <HerdActionDialog
         open={open && canEdit}
@@ -1215,69 +1352,65 @@ export function HerdReproductiveEdit({
         title={copy(pageContract, "drawer.reproductive.title")}
         subtitle={`${displayId} · ${copy(pageContract, "drawer.reproductive.subtitle")}`}
         maxWidth={560}
-      >
-        {/* Submits the operator's chosen backend status key; the action reads current row_version + writes. */}
-        <form action={reproductiveGoatAction} onSubmit={() => setOpen(false)} className="fld" style={{ margin: 0 }}>
-          <input type="hidden" name="goat_id" value={goatId} />
-          <input type="hidden" name="idempotency_key" value={idempotencyKey} />
-          <input type="hidden" name="return_to" value={returnTo} />
-          <input type="hidden" name="evidence_type" value="source_record" />
-
-          <div className="fld">
-            <FormSelect
-              name="reproductive_status"
-              required
-              label={copy(pageContract, "field.reproductive_status")}
-              defaultValue={defaultStatus}
-              options={[
-                { value: "", label: copy(pageContract, "option.select_reproductive_status") },
-                ...options.map((option) => ({ value: option.key, label: option.label })),
-              ]}
-            />
-          </div>
-
-          <Row>
-            <div className="fld" style={{ flex: 1, minWidth: 160 }}>
-              <label>{copy(pageContract, "field.breeding_date")}</label>
-              <ThemedDatePicker
-                name="breeding_date"
-                label={copy(pageContract, "field.breeding_date")}
-                previousMonthLabel={copy(pageContract, "date.prev_month", "Previous month")}
-                nextMonthLabel={copy(pageContract, "date.next_month", "Next month")}
-                invalidDateText={copy(pageContract, "date.invalid", "Pick a valid date")}
-              />
-            </div>
-            <div className="fld" style={{ flex: 1, minWidth: 160 }}>
-              <label>{copy(pageContract, "field.last_delivery_date")}</label>
-              <ThemedDatePicker
-                name="last_delivery_date"
-                label={copy(pageContract, "field.last_delivery_date")}
-                previousMonthLabel={copy(pageContract, "date.prev_month", "Previous month")}
-                nextMonthLabel={copy(pageContract, "date.next_month", "Next month")}
-                invalidDateText={copy(pageContract, "date.invalid", "Pick a valid date")}
-              />
-            </div>
-          </Row>
-          <div className="note" style={{ marginBottom: 12 }}>{copy(pageContract, "note.reproductive_dates_optional")}</div>
-
-          <div className="fld">
-            <label htmlFor="repro_reason">{copy(pageContract, "field.reproductive_reason")}</label>
-            <textarea
-              id="repro_reason"
-              name="reproductive_reason"
-              rows={3}
-              required
-              minLength={3}
-              maxLength={500}
-              placeholder={copy(pageContract, "placeholder.reproductive_reason")}
-            />
-          </div>
-
-          <div className="hr-modal-actions">
-            <button type="button" className="btn" onClick={() => setOpen(false)}>{copy(pageContract, "action.cancel")}</button>
+        // Submits the operator's chosen backend status key; the action reads current row_version + writes.
+        form={{ action: reproductiveGoatAction, onSubmit: () => setOpen(false) }}
+        actions={
+          <>
+            <CancelButton onClick={() => setOpen(false)}>{copy(pageContract, "action.cancel")}</CancelButton>
             <SubmitButton pageContract={pageContract}>{copy(pageContract, "action.save_reproductive")}</SubmitButton>
-          </div>
-        </form>
+          </>
+        }
+      >
+        <input type="hidden" name="goat_id" value={goatId} />
+        <input type="hidden" name="idempotency_key" value={idempotencyKey} />
+        <input type="hidden" name="return_to" value={returnTo} />
+        <input type="hidden" name="evidence_type" value="source_record" />
+
+        <FormSelect
+          name="reproductive_status"
+          required
+          fullWidth
+          label={copy(pageContract, "field.reproductive_status")}
+          defaultValue={defaultStatus}
+          options={[
+            { value: "", label: copy(pageContract, "option.select_reproductive_status") },
+            ...options.map((option) => ({ value: option.key, label: option.label })),
+          ]}
+        />
+
+        <FieldGrid>
+          <DateField label={copy(pageContract, "field.breeding_date")}>
+            <ThemedDatePicker
+              name="breeding_date"
+              label={copy(pageContract, "field.breeding_date")}
+              previousMonthLabel={copy(pageContract, "date.prev_month", "Previous month")}
+              nextMonthLabel={copy(pageContract, "date.next_month", "Next month")}
+              invalidDateText={copy(pageContract, "date.invalid", "Pick a valid date")}
+            />
+          </DateField>
+          <DateField label={copy(pageContract, "field.last_delivery_date")}>
+            <ThemedDatePicker
+              name="last_delivery_date"
+              label={copy(pageContract, "field.last_delivery_date")}
+              previousMonthLabel={copy(pageContract, "date.prev_month", "Previous month")}
+              nextMonthLabel={copy(pageContract, "date.next_month", "Next month")}
+              invalidDateText={copy(pageContract, "date.invalid", "Pick a valid date")}
+            />
+          </DateField>
+        </FieldGrid>
+        <Note>{copy(pageContract, "note.reproductive_dates_optional")}</Note>
+
+        <TextField
+          id="repro_reason"
+          name="reproductive_reason"
+          label={copy(pageContract, "field.reproductive_reason")}
+          multiline
+          rows={3}
+          required
+          fullWidth
+          placeholder={copy(pageContract, "placeholder.reproductive_reason")}
+          slotProps={{ inputLabel: { shrink: true }, htmlInput: { minLength: 3, maxLength: 500 } }}
+        />
       </HerdActionDialog>
     </>
   );

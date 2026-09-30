@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Checkbox from "@mui/material/Checkbox";
+import Box from "@mui/material/Box";
 import FormControl from "@mui/material/FormControl";
 import InputLabel from "@mui/material/InputLabel";
 import ListSubheader from "@mui/material/ListSubheader";
@@ -125,7 +126,7 @@ function MultiSelectFilter({
   });
 
   return (
-    <FormControl className="cb-multi" disabled={Boolean(field.disabledReason)} title={field.disabledReason || undefined} sx={{ minWidth: { xs: 0, sm: 170 }, flexShrink: 0 }}>
+    <FormControl disabled={Boolean(field.disabledReason)} title={field.disabledReason || undefined} sx={{ minWidth: { xs: 0, sm: 170 }, flexShrink: 0 }}>
       <InputLabel shrink>{field.label}</InputLabel>
       <Select
         multiple
@@ -218,7 +219,6 @@ export function CountsBreakdownFilters({
   // their checkbox dropdown - a listbox cannot express "three sheds OR-ed".
   return (
     <FilterBar
-      className="counts-breakdown-filterbar"
       actions={
         <>
           {hasAnySelection ? (
@@ -229,7 +229,7 @@ export function CountsBreakdownFilters({
         </>
       }
     >
-      <div role="group" aria-label={copy(pageContract, "filter.bar_aria")} style={{ display: "contents" }}>
+      <Box role="group" aria-label={copy(pageContract, "filter.bar_aria")} sx={{ display: "contents" }}>
       {fields.map((field) =>
         field.multi ? (
           <MultiSelectFilter
@@ -270,7 +270,7 @@ export function CountsBreakdownFilters({
           </TextField>
         ),
       )}
-      </div>
+      </Box>
     </FilterBar>
   );
 }

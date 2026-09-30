@@ -9,6 +9,8 @@ import { redirect } from "next/navigation";
 import type { SvgBarDatum, SvgStackedDatum } from "@/components/svg-bars";
 import Card from "@mui/material/Card";
 import Box from "@mui/material/Box";
+import TableCell from "@mui/material/TableCell";
+import TableRow from "@mui/material/TableRow";
 import Grid from "@mui/material/Grid";
 import Stack from "@mui/material/Stack";
 import { EmptyContent } from "@/components/minimal/empty-content";
@@ -38,7 +40,6 @@ import {
   type VaccinationPageSize,
 } from "@/features/preventive-care-vaccination";
 import { CountsBreakdownFilters, type BreakdownFilterField } from "./counts-breakdown-filters";
-import "./counts-breakdown.css";
 import { LEGACY_FARM_PARAM, PARK_PARAM, withSelectedOptions } from "./counts-breakdown-query";
 import { CountsBreakdownLoads } from "./counts-breakdown-loads";
 import { CountsBreakdownPensTable } from "./counts-breakdown-pens-table";
@@ -100,6 +101,9 @@ function toBarData(points: CountsBreakdownSeriesPoint[], fallbackLabel: string):
     value: point.count,
   }));
 }
+
+/** Whole-result total row: a summary band on the neutral ground under the pen rows. */
+const TOTAL_CELL_SX = { typography: "subtitle2", color: "text.primary", bgcolor: "background.neutral" } as const;
 
 export async function CountsBreakdownPage({
   searchParams,
@@ -503,7 +507,7 @@ export async function CountsBreakdownPage({
   );
 
   return (
-    <Stack spacing={3} useFlexGap className="counts-breakdown-page" sx={{ minWidth: 0 }}>
+    <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
       <div>
         <PageHeader
           title={pageContract.title}
@@ -560,19 +564,13 @@ export async function CountsBreakdownPage({
       </UrlSuspense>
 
       <div>
-      <Card className="counts-breakdown-card">
+      <Card>
         <CountsBreakdownFilters fields={filterFields} penParks={penParks} pageContract={pageContract} />
 
         {/* The pen table + pager: every filter / page change shows its skeleton at once; the filter
             bar above stays mounted. */}
         <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} fallback={<TableSkeleton bare header={false} columns={cols.length || 6} rows={pagination.pageSize} />}>
-        <div
-          className="bd"
-          style={{ padding: 0, overflowX: "auto" }}
-          tabIndex={0}
-          role="group"
-          aria-label={copy(pageContract, "section.breakdown.aria")}
-        >
+        <Box role="group" aria-label={copy(pageContract, "section.breakdown.aria")} sx={{ minWidth: 0 }}>
           {/* Headless table: TanStack owns the column model and the page-local sort; the markup
               stays the mock's plain table. Column keys, labels and which headers carry a sort
               affordance all come from the compiled contract, so this page declares no local
@@ -608,18 +606,18 @@ export async function CountsBreakdownPage({
             }
             footer={
               breakdown ? (
-                <tr>
-                  <th colSpan={cols.length - 1}>{copy(pageContract, "table.pens.total_row")}</th>
+                <TableRow>
+                  <TableCell component="th" scope="row" colSpan={cols.length - 1} sx={TOTAL_CELL_SX}>{copy(pageContract, "table.pens.total_row")}</TableCell>
                   {/* Read from the response: this is the sum across ALL matching rows, not the
                       page. Recomputing it from `rows` would silently report the page subtotal —
                       and reordering the page cannot touch it, because it is not derived from
                       the rows at all. */}
-                  <th style={{ textAlign: "right" }}>{breakdown.total_count}</th>
-                </tr>
+                  <TableCell align="right" sx={TOTAL_CELL_SX}>{breakdown.total_count}</TableCell>
+                </TableRow>
               ) : undefined
             }
           />
-        </div>
+        </Box>
         <VaccinationTablePager
           pageContract={pageContract}
           pageSizeOptions={pageSizeOptions}

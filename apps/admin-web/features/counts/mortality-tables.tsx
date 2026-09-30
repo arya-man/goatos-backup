@@ -33,6 +33,19 @@ export type RecentDeathRow = {
   basisLabel: string;
 };
 
+
+const MUTED = { color: "text.secondary" } as const;
+const MUTED_CAPTION = { color: "text.secondary", typography: "caption" } as const;
+
+/** Wide deaths ledger: scrolls inside the card's Scrollbar; cells hold one line except the date and
+ * stage, which wrap at word breaks. */
+const DEATHS_TABLE_SX = {
+  minWidth: 0,
+  "& table": { width: 1, minWidth: { xs: 680, sm: 760 } },
+  "& th, & td": { whiteSpace: "nowrap", verticalAlign: "top" },
+  "& td:nth-of-type(1), & td:nth-of-type(5)": { whiteSpace: "normal", overflowWrap: "anywhere" },
+} as const;
+
 export function RecentDeathsTable({
   contract,
   rows,
@@ -48,7 +61,7 @@ export function RecentDeathsTable({
   noDataLabel: string;
   daysSuffix: string;
 }) {
-  const muted = <span className="muted">{noDataLabel}</span>;
+  const muted = <Box component="span" sx={MUTED}>{noDataLabel}</Box>;
   const columns = columnsFromContract<RecentDeathRow>(contract, {
     died_on: { cell: (row) => row.diedOn, sortValue: (row) => row.sortDate },
     tag: {
@@ -68,11 +81,11 @@ export function RecentDeathsTable({
     age_at_death: {
       cell: (row) =>
         row.ageDays == null ? (
-          <span className="muted">{row.ageBandLabel}</span>
+          <Box component="span" sx={MUTED}>{row.ageBandLabel}</Box>
         ) : (
           <div>
             <span>{`${row.ageDays.toLocaleString("en-IN")} ${daysSuffix}`}</span>
-            <div className="muted small">{row.ageBandLabel}</div>
+            <Box sx={MUTED_CAPTION}>{row.ageBandLabel}</Box>
           </div>
         ),
       meta: { align: "right" },
@@ -89,7 +102,7 @@ export function RecentDeathsTable({
               reader is owed the difference. A death with neither shows the no-cause chip alone
               and never a disease. */}
           <Label variant="soft" color={row.causeBasis === "recorded" ? "success" : row.causeBasis === "inferred" ? "info" : "default"}>{row.causeLabel}</Label>
-          {row.causeBasis === "inferred" ? <div className="muted small">{row.basisLabel}</div> : null}
+          {row.causeBasis === "inferred" ? <Box sx={MUTED_CAPTION}>{row.basisLabel}</Box> : null}
         </div>
       ),
       sortValue: (row) => row.causeLabel,
@@ -97,13 +110,14 @@ export function RecentDeathsTable({
   });
 
   return (
-    <DataTable
-      columns={columns}
-      data={rows}
-      getRowId={(row) => row.goatId}
-      ariaLabel={ariaLabel}
-      className="health-analytics-table"
-      empty={empty}
-    />
+    <Box sx={DEATHS_TABLE_SX}>
+      <DataTable
+        columns={columns}
+        data={rows}
+        getRowId={(row) => row.goatId}
+        ariaLabel={ariaLabel}
+        empty={empty}
+      />
+    </Box>
   );
 }

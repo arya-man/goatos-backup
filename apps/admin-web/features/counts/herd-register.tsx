@@ -189,6 +189,16 @@ const HERD_STATUS_TABS = ["all", "alive", "dead", "sold", "culled"] as const;
 type HerdStatusTab = (typeof HERD_STATUS_TABS)[number];
 const DEFAULT_STATUS_TAB: HerdStatusTab = "alive";
 
+
+/** Template user list table: minWidth 960 in the card's Scrollbar, cells on one line; every cell is
+ * the row's link to the passport drawer (full cell height, 44px tap box, reads as plain text). */
+const HERD_TABLE_SX = {
+  minWidth: 960,
+  "& th, & td": { whiteSpace: "nowrap", overflowWrap: "normal", wordBreak: "normal" },
+  "& td a": { color: "inherit", textDecoration: "none" },
+  "& td > a": { display: "flex", alignItems: "center", minHeight: "var(--tap-min)" },
+} as const;
+
 export async function HerdRegisterPage({
   searchParams,
   pageContract,
@@ -359,7 +369,6 @@ export async function HerdRegisterPage({
         {/* The herd rows + pager: the card header and filters stay mounted. */}
         <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={HERD_PANEL_IGNORE} fallback={<TableSkeleton bare header={false} columns={headCols.length || 9} rows={pageSize} />}>
         <DenseTable
-          className="bd"
           pagination={{
             page: Math.max(0, page - 1),
             rowsPerPage: pageSize,
@@ -378,7 +387,7 @@ export async function HerdRegisterPage({
         >
           <Scrollbar tabIndex={0} role="group" aria-label={copy(pageContract, "section.herd.aria")}>
           {/* Template user list table: minWidth 960 scrolling inside the card's Scrollbar, cells on one line. */}
-          <Table sx={{ minWidth: 960, "& th, & td, & td .celllink": { whiteSpace: "nowrap", overflowWrap: "normal", wordBreak: "normal" } }}>
+          <Table sx={HERD_TABLE_SX}>
             {/* Lead column (template user row): avatar + Display ID over the two tags, so the
                 contract's first three heads become one. */}
             <UrlSortHead
@@ -416,7 +425,7 @@ export async function HerdRegisterPage({
                             <GoatGlyph size={22} />
                           </Avatar>
                           <Stack sx={{ typography: "body2", flex: "1 1 auto", alignItems: "flex-start", minWidth: 0 }}>
-                            <LocalOverlayLink href={href} className="celllink" scroll={false}>
+                            <LocalOverlayLink href={href} scroll={false}>
                               <Box component="span" sx={{ typography: "subtitle2" }}>{g.display_id}</Box>
                             </LocalOverlayLink>
                             <Box component="span" sx={{ color: "text.disabled", whiteSpace: "nowrap" }}>
@@ -426,35 +435,35 @@ export async function HerdRegisterPage({
                           </Stack>
                         </Box>
                       </TableCell>
-                      <TableCell className="muted">
-                        <LocalOverlayLink href={href} className="celllink" scroll={false}>{locationLabel(g, "park")}</LocalOverlayLink>
+                      <TableCell sx={{ color: "text.secondary" }}>
+                        <LocalOverlayLink href={href} scroll={false}>{locationLabel(g, "park")}</LocalOverlayLink>
                       </TableCell>
-                      <TableCell className="muted">
-                        <LocalOverlayLink href={href} className="celllink" scroll={false}>{locationLabel(g, "shed")}</LocalOverlayLink>
-                      </TableCell>
-                      <TableCell>
-                        <LocalOverlayLink href={href} className="celllink" scroll={false}>{dash(g.breed)}</LocalOverlayLink>
+                      <TableCell sx={{ color: "text.secondary" }}>
+                        <LocalOverlayLink href={href} scroll={false}>{locationLabel(g, "shed")}</LocalOverlayLink>
                       </TableCell>
                       <TableCell>
-                        <LocalOverlayLink href={href} className="celllink" scroll={false}>{humanizeEnum(g.sex)}</LocalOverlayLink>
+                        <LocalOverlayLink href={href} scroll={false}>{dash(g.breed)}</LocalOverlayLink>
                       </TableCell>
-                      <TableCell className="muted">
-                        <LocalOverlayLink href={href} className="celllink" scroll={false}>
-                          {weightLabel(g.weight_kg)}{g.weight_kg ? <span className="muted small"> kg</span> : null}
+                      <TableCell>
+                        <LocalOverlayLink href={href} scroll={false}>{humanizeEnum(g.sex)}</LocalOverlayLink>
+                      </TableCell>
+                      <TableCell sx={{ color: "text.secondary" }}>
+                        <LocalOverlayLink href={href} scroll={false}>
+                          {weightLabel(g.weight_kg)}{g.weight_kg ? <Box component="span" sx={{ color: "text.secondary", typography: "caption" }}> kg</Box> : null}
                         </LocalOverlayLink>
                       </TableCell>
                       <TableCell>
-                        <LocalOverlayLink href={href} className="celllink" scroll={false}>
+                        <LocalOverlayLink href={href} scroll={false}>
                           <StatusCell value={g.lifecycle_status} color={TONE_COLOR[statusTone(g.lifecycle_status, "lifecycle")]} label={statusLabel(pageContract, "herd_lifecycle", g.lifecycle_status)} />
                         </LocalOverlayLink>
                       </TableCell>
                       <TableCell>
-                        <LocalOverlayLink href={href} className="celllink" scroll={false}>
+                        <LocalOverlayLink href={href} scroll={false}>
                           <StatusCell value={g.health_status} color={TONE_COLOR[statusTone(g.health_status, "health")]} label={statusLabel(pageContract, "herd_health", g.health_status)} />
                         </LocalOverlayLink>
                       </TableCell>
                       <TableCell>
-                        <LocalOverlayLink href={href} className="celllink" scroll={false}>
+                        <LocalOverlayLink href={href} scroll={false}>
                           <StatusCell value={g.reproductive_status} color={TONE_COLOR[statusTone(g.reproductive_status, "breeding")]} label={statusLabel(pageContract, "herd_reproductive", g.reproductive_status)} />
                         </LocalOverlayLink>
                       </TableCell>
