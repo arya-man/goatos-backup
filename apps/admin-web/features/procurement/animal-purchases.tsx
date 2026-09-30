@@ -51,7 +51,6 @@ import { listOptions } from "./option-utils";
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
 import Box from "@mui/material/Box";
-import Stack from "@mui/material/Stack";
 import { mergeSx } from "@/components/app/merge-sx";
 import { HiddenField } from "@/components/app/hidden-field";
 import Typography from "@mui/material/Typography";
@@ -61,6 +60,7 @@ import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import { AnimalCardsSkeleton, AnimalLoadRowsSkeleton } from "./animal-purchases-skeletons";
 import { ANIMAL_CARD_COLUMNS, ANIMAL_KPI_SIZE, ANIMAL_LOADS_DEFAULT_LIMIT } from "./animal-purchases-layout";
 import { CELL_LINK, cellLinksSx, phoneLoadCardsSx } from "./procurement-sx";
+import { PageRoot } from "@/components/app/page-root";
 
 // Hook class for the phone load-card layout (procurement-sx targets `table.<hook>`); no stylesheet defines it.
 const LOADS_TABLE_HOOK = "ap-loads-table";
@@ -205,7 +205,7 @@ export async function AnimalPurchasesPage({
   };
 
   return (
-    <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
+    <PageRoot>
       <AnimalPurchaseTelemetry rows={animals.length} pending={totals?.pending ?? 0} feedback={feedback} />
 
       <PageHeader title={pageContract.title} crumbs={[{ label: copy(pageContract, "crumb"), href: "/procurement/source-entry" }, { label: pageContract.title }]} />
@@ -581,7 +581,7 @@ export async function AnimalPurchasesPage({
         </JobList>
       )}
       </UrlSuspense>
-    </Stack>
+    </PageRoot>
   );
 }
 

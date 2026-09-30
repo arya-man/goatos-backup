@@ -40,6 +40,7 @@ import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
 import { salesErrorText } from "./sales-error";
 import { PAGE_SIZE, VENDOR_FILTER_KEYS } from "./vendor-layout";
+import { PageRoot } from "@/components/app/page-root";
 
 
 /**
@@ -205,7 +206,7 @@ export async function VendorBoardPage({
   ];
 
   return (
-    <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
+    <PageRoot>
       <PageHeader
         title={pageContract.title}
         crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
@@ -355,7 +356,7 @@ export async function VendorBoardPage({
         pageContract={pageContract}
         listHref={hrefWithQuery(pathname, sp, { vendor: null })}
       />
-    </Stack>
+    </PageRoot>
   );
 }
 

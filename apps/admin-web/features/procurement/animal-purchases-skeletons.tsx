@@ -31,7 +31,7 @@ export function AnimalCardsSkeleton() {
  */
 export function AnimalPurchasesSkeleton() {
   return (
-    <PageSkeleton>
+    <PageSkeleton root="page-root">
       <PageHeaderSkeleton />
       <KpiRowSkeleton count={ANIMAL_KPI_COUNT} size={ANIMAL_KPI_SIZE} />
       <TableSkeleton columns={ANIMAL_LOAD_COLUMNS.length} rows={ANIMAL_LOADS_SKELETON_ROWS} headerAction={<TabsSkeleton count={ANIMAL_LOAD_STRIP_TABS} variant="pill" links />} />

@@ -1,4 +1,3 @@
-import Stack from "@mui/material/Stack";
 import { listOrEmpty } from "@/lib/list-or-empty";
 import { redirect } from "next/navigation";
 
@@ -16,6 +15,7 @@ import { LoadwiseSection, type LoadCurrentWeights, type LoadPensByRef } from "./
 import { SalesFarmToggle, readSalesParkScope } from "./sales-chrome";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { SalesLoadsBodySkeleton } from "./sales-skeletons";
+import { PageRoot } from "@/components/app/page-root";
 
 const PAGE_PATH = "/sales/loads";
 /** The tab the page opens on when the URL names none — the first option the contract serves. */
@@ -70,7 +70,7 @@ export async function SalesLoadsPage({
   return (
     // The template CustomBreadcrumbs (PageHeader) keeps the crumb in sentence case ("Purchase and
     // born"), so the old `.sales-loads-page` scope that undid the legacy uppercase `.crumb` is gone.
-    <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
+    <PageRoot>
       {/* The toggle is CENTRED and lifted onto the title line rather than sharing the subtitle's
           row. Measured: the subtitle needs 596px unwrapped, while a centred toggle leaves only
           533px beside it at 1600px -- so on one row the subtitle is forced to wrap. Lifting the
@@ -109,7 +109,7 @@ export async function SalesLoadsPage({
       <UrlSuspense searchParams={sp} watch={PANEL_WATCH} fallback={<SalesLoadsBodySkeleton />}>
         <SalesLoadsPanel sp={sp} pageContract={pageContract} view={view} parkId={parkId} />
       </UrlSuspense>
-    </Stack>
+    </PageRoot>
   );
 }
 

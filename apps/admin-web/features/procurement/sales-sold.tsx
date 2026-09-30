@@ -1,4 +1,3 @@
-import Stack from "@mui/material/Stack";
 import Table from "@mui/material/Table";
 import TableContainer from "@mui/material/TableContainer";
 import TableBody from "@mui/material/TableBody";
@@ -61,6 +60,7 @@ import { SalesSoldLedgerSkeleton, SalesSoldOverviewSkeleton } from "./sales-skel
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import { SALES_DEFAULT_LIMIT, SALES_GRID, SOLD_BUYERS_PAGE_SIZE } from "./sales-layout";
+import { PageRoot } from "@/components/app/page-root";
 
 const PAGE_PATH = "/sales/sold";
 const DEFAULT_LIMIT = SALES_DEFAULT_LIMIT;
@@ -394,7 +394,7 @@ export async function SalesSoldPage({
   const { parkId, farm, parks } = await readSalesParkScope(sp, pageContract, PAGE_PATH);
 
   return (
-    <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
+    <PageRoot>
       <SalesPageHeader pageContract={pageContract} />
 
       <SalesFarmToggle
@@ -413,7 +413,7 @@ export async function SalesSoldPage({
       <UrlSuspense searchParams={sp} watch={LEDGER_WATCH} fallback={<SalesSoldLedgerSkeleton limit={ledgerLimit(sp, pageContract).limit} />}>
         <SoldLedgerPanel sp={sp} farm={farm} pageContract={pageContract} />
       </UrlSuspense>
-    </Stack>
+    </PageRoot>
   );
 }
 

@@ -32,6 +32,7 @@ import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
 import { MARKET_WINDOWS } from "./market-analytics-layout";
+import { PageRoot } from "@/components/app/page-root";
 
 const PAGE_PATH = "/sales/market-analytics";
 /** The window chips, in days. 90 is the backend's own default. */
@@ -113,7 +114,7 @@ export async function MarketAnalyticsPage({
   const latestDate = analytics.latest.reduce((max, c) => (c.business_date > max ? c.business_date : max), "");
 
   return (
-    <Stack spacing={3} useFlexGap className="market-analytics-page" sx={{ minWidth: 0 }}>
+    <PageRoot>
       <SalesPageHeader pageContract={pageContract} />
 
       {!analyticsResult.ok ? (
@@ -254,7 +255,7 @@ export async function MarketAnalyticsPage({
       )}
       </UrlSuspense>
       </Stack>
-    </Stack>
+    </PageRoot>
   );
 }
 

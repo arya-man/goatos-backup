@@ -6,7 +6,7 @@ import { DEFAULT_LIMIT, SALES_CONFIG_TABS } from "@/features/procurement/sales-c
 /** /sales/config: header + Record sale / Tag animals, the account tabs, the Sales tab's ledger card. */
 export default function Loading() {
   return (
-    <PageSkeleton>
+    <PageSkeleton root="page-root">
       <PageHeaderSkeleton
         actions={2}
         tabs={

@@ -4,7 +4,7 @@ import { SalesFarmTabsSkeleton, SalesFarmValueBodySkeleton } from "@/features/pr
 /** /sales/farm-value: header, farm tabs, then the valuation panel's own twin (also its UrlSuspense fallback). */
 export default function Loading() {
   return (
-    <PageSkeleton>
+    <PageSkeleton root="page-root">
       <PageHeaderSkeleton />
       <SalesFarmTabsSkeleton />
       <SalesFarmValueBodySkeleton />

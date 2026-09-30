@@ -1,4 +1,3 @@
-import Stack from "@mui/material/Stack";
 import Card from "@mui/material/Card";
 import CardHeader, { cardHeaderClasses } from "@mui/material/CardHeader";
 import Grid from "@mui/material/Grid";
@@ -42,6 +41,7 @@ import { SalesBuyerAnalyticsBodySkeleton } from "./sales-skeletons";
 import type { SxProps, Theme } from "@mui/material/styles";
 import { cardTableScrollSx } from "./procurement-sx";
 import { SALES_DEFAULT_LIMIT, SALES_GRID } from "./sales-layout";
+import { PageRoot } from "@/components/app/page-root";
 
 // The buyer ledger is a fixed-layout table (template invoice list density) with set column shares;
 // it scrolls inside its card from a 70rem floor (65rem on a phone).
@@ -299,7 +299,7 @@ export async function SalesBuyerAnalyticsPage({
   const { parkId, farm, parks } = await readSalesParkScope(sp, pageContract, PAGE_PATH);
 
   return (
-    <Stack spacing={3} useFlexGap className="sales-buyer-analytics-page" sx={{ minWidth: 0 }}>
+    <PageRoot>
       <SalesPageHeader pageContract={pageContract} />
 
       <SalesFarmToggle
@@ -316,7 +316,7 @@ export async function SalesBuyerAnalyticsPage({
       <UrlSuspense searchParams={sp} watch={BUYERS_WATCH} fallback={<SalesBuyerAnalyticsBodySkeleton limit={buyerLimit(sp, pageContract).limit} />}>
         <BuyerAnalyticsPanel sp={sp} pageContract={pageContract} farm={farm} />
       </UrlSuspense>
-    </Stack>
+    </PageRoot>
   );
 }
 

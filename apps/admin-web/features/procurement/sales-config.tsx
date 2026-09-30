@@ -52,6 +52,7 @@ import { EmptyState } from "@/components/app/empty-state";
 import Button from "@mui/material/Button";
 import { salesErrorText } from "./sales-error";
 import { DEFAULT_LIMIT, SALES_CONFIG_TABS, type SalesConfigTab } from "./sales-config-layout";
+import { PageRoot } from "@/components/app/page-root";
 
 const PAGE_PATH = "/sales/config";
 /** A whole-cell drawer link: fills the template cell padding so the full cell is the 44px tap target. */
@@ -191,7 +192,7 @@ export async function SalesConfigPage({
   ];
 
   return (
-    <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
+    <PageRoot>
       <SalesPageHeader
         pageContract={pageContract}
         actions={
@@ -492,7 +493,7 @@ export async function SalesConfigPage({
         listHref={listHref}
         canRecordCost={canRecordCost}
       />
-    </Stack>
+    </PageRoot>
   );
 }
 

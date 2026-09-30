@@ -33,9 +33,9 @@ import { OrderTableToolbar } from "@/components/app/sections/order/order-table-t
 import { orderToolbarFilterSx, orderToolbarSearchSx } from "@/components/app/order-toolbar-filter";
 import { LinkFiltersResult, type LinkFilterChip } from "@/components/app/link-filters-result";
 import { CELL_LINK, cellLinksSx, phoneLoadCardsSx } from "./procurement-sx";
-import Stack from "@mui/material/Stack";
 import { LinkSelect } from "@/components/app/link-select";
 import { SOURCE_LOAD_TAB_STATES } from "./source-entry-layout";
+import { PageRoot } from "@/components/app/page-root";
 
 const LOAD_CARDS_SX = phoneLoadCardsSx("source-loads-table", [{ nth: 1, column: "1", row: 1 }, { nth: 9, column: "2", row: 1, alignEnd: true }, { nth: 2, column: "1 / -1", row: 2, secondary: true }]);
 
@@ -258,7 +258,7 @@ export async function SourceEntryBoardPage({
       : [{ id: "status", label: `${loadLabels[loadLabels.length - 1]}:`, value: optionLabel(pageContract, "source_load_status", statusFilter), href: statusHref("all") }];
 
   return (
-    <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
+    <PageRoot>
       <PageHeader
         title={pageContract.title}
         crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
@@ -450,7 +450,7 @@ export async function SourceEntryBoardPage({
         loadLabels={loadLabels}
         pageContract={pageContract}
       />
-    </Stack>
+    </PageRoot>
   );
 }
 

@@ -47,6 +47,7 @@ import { FeedPurchaseDrawer } from "./feed-purchase-drawer";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
 import { DEFAULT_DELIVERY, DEFAULT_LIMIT, FEED_STRIP_CELLS, FEED_TOOLBAR_FILTERS } from "./feed-purchases-layout";
+import { PageRoot } from "@/components/app/page-root";
 
 const PATHNAME = "/procurement/feed-purchases";
 const DEFAULT_FARM = "all";
@@ -178,7 +179,7 @@ export async function FeedPurchasesPage({
   };
 
   return (
-    <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
+    <PageRoot>
       <PageHeader
         title={pageContract.title}
         crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
@@ -392,7 +393,7 @@ export async function FeedPurchasesPage({
         listHref={listHref}
         canRecord={canOpenRecordDrawer}
       />
-    </Stack>
+    </PageRoot>
   );
 }
 

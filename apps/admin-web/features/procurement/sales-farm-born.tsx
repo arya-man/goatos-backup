@@ -37,6 +37,7 @@ import Card from "@mui/material/Card";
 import Typography from "@mui/material/Typography";
 import { cardTableScrollSx } from "./procurement-sx";
 import { FARM_BORN_PEN_PAGE_SIZE, SALES_DEFAULT_LIMIT, SALES_GRID } from "./sales-layout";
+import { PageRoot } from "@/components/app/page-root";
 
 // Breakdown table (template analytics table anatomy): the label column keeps a readable floor so
 // words never break per letter; on a laptop the table fits its half-width card, on a phone it
@@ -523,7 +524,7 @@ export async function SalesFarmBornPage({
   const penHref = (nextOffset: number) => hrefWith(sp, { [PEN_OFFSET_PARAM]: nextOffset > 0 ? String(nextOffset) : null });
 
   return (
-    <Stack spacing={3} useFlexGap className="sales-farm-born-page" sx={{ minWidth: 0 }}>
+    <PageRoot>
       <SalesPageHeader pageContract={pageContract} subtitle={false} />
 
       {/* A park change drops the pen (a pen belongs to one park) and every page offset. */}
@@ -557,6 +558,6 @@ export async function SalesFarmBornPage({
         )}
         </UrlSuspense>
       </WorklistFilters>
-    </Stack>
+    </PageRoot>
   );
 }

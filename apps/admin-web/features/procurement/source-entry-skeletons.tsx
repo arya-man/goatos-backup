@@ -15,7 +15,7 @@ export function SourceLoadRowsSkeleton({ columns = SOURCE_LOAD_COLUMNS.length }:
  */
 export function SourceEntrySkeleton() {
   return (
-    <PageSkeleton>
+    <PageSkeleton root="page-root">
       <PageHeaderSkeleton crumbLink={false} actions={1} />
       <TableSkeleton
         columns={SOURCE_LOAD_COLUMNS.length}

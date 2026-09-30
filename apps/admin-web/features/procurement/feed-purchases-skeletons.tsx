@@ -27,7 +27,7 @@ export function FeedPurchasesRowsSkeleton({ columns = FEED_PURCHASE_COLUMNS.leng
 /** /procurement/feed-purchases: header + Record, the strip, the ledger card (delivery tabs, farm select + ⋮ toolbar, rows). */
 export function FeedPurchasesSkeleton() {
   return (
-    <PageSkeleton>
+    <PageSkeleton root="page-root">
       <PageHeaderSkeleton crumbLink={false} actionWidths={[FEED_RECORD_BUTTON_TWIN_WIDTH]} />
       <FeedPurchasesStripSkeleton />
       <TableSkeleton columns={FEED_PURCHASE_COLUMNS.length} rows={DEFAULT_LIMIT} header={false} tabs={<TabsSkeleton count={FEED_DELIVERY_TAB_COUNT} />} toolbar={<OrderToolbarSkeleton filters={FEED_TOOLBAR_FILTERS.length} search={false} menu />} />

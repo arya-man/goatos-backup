@@ -15,7 +15,7 @@ export function VendorRowsSkeleton({ columns = 6, rows = PAGE_SIZE }: { columns?
  */
 export function VendorBoardSkeleton() {
   return (
-    <PageSkeleton>
+    <PageSkeleton root="page-root">
       <PageHeaderSkeleton crumbLink={false} titleWidth={110} actionWidths={[128]} />
       <TableSkeleton
         columns={6}
