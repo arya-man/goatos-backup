@@ -3,6 +3,7 @@ package workforcehttp
 import (
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
@@ -133,6 +134,22 @@ func (h *LeaveHandler) SetConfig(w http.ResponseWriter, r *http.Request) {
 // park_head grants; HR is the per-person `hr` role; the CEO floor decides any
 // slot.
 func leaveApprover(r *http.Request) app.LeaveApprover {
+	a := grantApprover(r)
+	if strings.HasPrefix(r.URL.Path, "/admin-web/") {
+		return webLeaveApprover(a)
+	}
+	return a
+}
+
+// webLeaveApprover is who decides on the WEB (maintainer, 2026-09-30: "park head doesn't have web,
+// here access will be HR level"). The park-head line is signed on the phone by the park head; on
+// the web every decision is the HR line -- HR, or the CEO acting as HR -- and the web queue shows
+// only what still waits for HR. A park-head grant alone decides nothing on the web.
+func webLeaveApprover(a app.LeaveApprover) app.LeaveApprover {
+	return app.LeaveApprover{HR: a.HR || a.Any}
+}
+
+func grantApprover(r *http.Request) app.LeaveApprover {
 	var out app.LeaveApprover
 	for _, grant := range httpmiddleware.AuthGrantsFromContext(r.Context()) {
 		switch grant.Role {

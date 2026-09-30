@@ -24,10 +24,12 @@ function withFeedback(url: URL, status: "success" | "error", code: string): stri
   return qs ? `${url.pathname}?${qs}` : url.pathname;
 }
 
-// One STABLE key per (request, verb): a retry of the same decision replays server-side; the
-// backend refuses a second decision on an already-signed slot with 409 leave_slot_decided.
+// One STABLE key per (request, line, verb): a retry of the same decision replays server-side; the
+// backend refuses a second decision on an already-signed line with 409 leave_slot_decided. The web
+// only ever signs the HR line (2026-09-30: park heads decide on the phone), so the key names it and
+// can never collide with the park-head decision on the same request.
 function idempotencyKey(requestId: string, verb: "approve" | "reject"): string {
-  return `leave-${verb}:${requestId}`;
+  return `leave-hr-${verb}:${requestId}`;
 }
 
 export async function approveLeaveAction(formData: FormData): Promise<void> {
