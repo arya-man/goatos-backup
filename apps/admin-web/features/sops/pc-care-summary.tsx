@@ -53,6 +53,7 @@ export function PcCareSummary({ pageContract: pc, formDsl }: { pageContract: Adm
                     ? captures(0)
                     : block.proofs.map((p) => `${p.title} (${copy(pc, `wsop.proof.kind.${p.kind}`)}${p.required ? "" : `, ${copy(pc, "pcsop.summary.optional")}`})`).join(" + ")}
                   {block.questions.length > 0 ? ` · ${questions(block.questions.length)}` : ""}
+                  {block.repeatEveryDays ? ` · ${fill(copy(pc, "pcsop.summary.repeat"), { days: block.repeatEveryDays })}` : ""}
                 </div>
                 {block.instruction ? <div className="muted small">{block.instruction}</div> : null}
               </div>

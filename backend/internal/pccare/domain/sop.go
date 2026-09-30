@@ -116,7 +116,15 @@ type CategoryRules struct {
 	Instruction string              `json:"instruction,omitempty"`
 	Proofs      []CaptureSlot       `json:"proofs"`
 	Questions   []authored.Question `json:"questions"`
+	// RepeatEveryDays (maintainer instruction 2026-09-30): when set, the kernel plans the NEXT task
+	// of this work for the same pen(s) and the same operator(s) this many days after the last
+	// one's PLANNED date, whether or not the last one is finished. 0 / absent = no repeat. Read
+	// from the PUBLISHED document when the next task is made (a planning act), never from a pin.
+	RepeatEveryDays int `json:"repeat_every_days,omitempty"`
 }
+
+// MaxRepeatEveryDays bounds the repeat interval an author may set (one year).
+const MaxRepeatEveryDays = 365
 
 // ProofSlots returns the category's slots as the shared authored type (for the validators).
 func (c CategoryRules) ProofSlots() []authored.ProofSlot {
@@ -282,6 +290,9 @@ func ValidatePCCareSOP(dsl PCCareSOP) []string {
 			}
 		}
 		authored.ValidateQuestions("pc_care.categories."+c+".questions", block.Questions, add)
+		if block.RepeatEveryDays < 0 || block.RepeatEveryDays > MaxRepeatEveryDays {
+			add("pc_care.categories.%s.repeat_every_days: 0 (no repeat) to %d days", c, MaxRepeatEveryDays)
+		}
 	}
 	return problems
 }
@@ -334,7 +345,7 @@ func UnknownPCCareSOPKeys(formDSL map[string]any) []string {
 	}
 	if cats, ok := raw["categories"].(map[string]any); ok {
 		for c, block := range cats {
-			walk("categories."+c+".", block, map[string]bool{"instruction": true, "proofs": true, "questions": true})
+			walk("categories."+c+".", block, map[string]bool{"instruction": true, "proofs": true, "questions": true, "repeat_every_days": true})
 			b, ok := block.(map[string]any)
 			if !ok {
 				continue
@@ -400,6 +411,14 @@ func (r Rules) CategorySlots(category string) []Slot {
 		})
 	}
 	return out
+}
+
+// RepeatEveryDays is the category's repeat interval in days under these rules; 0 = no repeat.
+func (r Rules) RepeatEveryDays(category string) int {
+	if block := r.Categories[category]; block != nil && block.RepeatEveryDays > 0 {
+		return block.RepeatEveryDays
+	}
+	return 0
 }
 
 // CategoryQuestions returns a category's per-animal questions (never nil).

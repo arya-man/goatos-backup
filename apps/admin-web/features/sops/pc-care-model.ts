@@ -63,7 +63,16 @@ export type PcCareCategoryRows = {
   instruction: string;
   proofs: PcCareCaptureRow[];
   questions: WeighingQuestionRow[];
+  /**
+   * "Repeat every N days" (2026-09-30): the next task of this work is planned for the same pens
+   * and operators N days after the last one's planned date. Blank = no repeat. Kept as text so a
+   * cleared field stays distinct from an explicit value.
+   */
+  repeatEveryDays: string;
 };
+
+/** The longest repeat interval an author may set (the backend's MaxRepeatEveryDays). */
+export const PC_CARE_MAX_REPEAT_DAYS = 365;
 
 export type PcCareRemovalRows = {
   mode: PcCareRemovalMode;
@@ -127,6 +136,7 @@ function parseCategory(raw: unknown): PcCareCategoryRows {
     instruction: str(block?.["instruction"]),
     proofs: proofsRaw.flatMap(parseCapture),
     questions: questionsRaw.flatMap(parseQuestion),
+    repeatEveryDays: typeof block?.["repeat_every_days"] === "number" && (block["repeat_every_days"] as number) > 0 ? String(block["repeat_every_days"]) : "",
   };
 }
 
@@ -176,6 +186,9 @@ export function emitPcCare(rows: PcCareRows): Record<string, unknown> {
     if (block.instruction.trim()) out.instruction = block.instruction;
     out.proofs = block.proofs.map(emitCapture);
     out.questions = block.questions.map(emitQuestion);
+    // Only a real interval is written: blank / 0 means no repeat, and the seed carries none.
+    const every = Number(block.repeatEveryDays);
+    if (block.repeatEveryDays.trim() && Number.isInteger(every) && every > 0) out.repeat_every_days = every;
     categories[category] = out;
   }
   const removal: Record<string, unknown> = {
@@ -224,6 +237,10 @@ export function pcCareProblems(rows: PcCareRows, categoryLabel: (category: PcCar
       }
     });
     problems.push(...questionProblems(block.questions, `${label} question`));
+    const every = Number(block.repeatEveryDays);
+    if (block.repeatEveryDays.trim() && (!Number.isInteger(every) || every < 0 || every > PC_CARE_MAX_REPEAT_DAYS)) {
+      problems.push(`${label}: repeat every must be a whole number of days from 1 to ${PC_CARE_MAX_REPEAT_DAYS}, or blank for no repeat`);
+    }
   }
   return problems;
 }

@@ -22,6 +22,7 @@ import { SlotCard } from "./feed-editor";
 import {
   PC_CARE_CATEGORIES,
   PC_CARE_REMOVAL_CATEGORIES,
+  PC_CARE_MAX_REPEAT_DAYS,
   isPenCategory,
   pcCareReachCopyKey,
   blankCapture,
@@ -404,6 +405,22 @@ export function PcCareEditor({ pageContract: pc, basePath, sopId, sopName, versi
                       <span className="numlbl">{copy(pc, "pcsop.category.instruction")}</span>
                       <textarea className="qhelp" rows={2} value={block.instruction} onChange={(e) => patchCategory(category, (c) => ({ ...c, instruction: e.target.value }))} />
                     </label>
+                  </div>
+
+                  <div className="qcfg" style={{ marginTop: 10 }}>
+                    <label className="numfield">
+                      <span className="numlbl">{copy(pc, "pcsop.category.repeat")}</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={PC_CARE_MAX_REPEAT_DAYS}
+                        value={block.repeatEveryDays}
+                        placeholder={copy(pc, "pcsop.category.repeat.none")}
+                        onChange={(e) => patchCategory(category, (c) => ({ ...c, repeatEveryDays: e.target.value }))}
+                        data-testid={`pcsop-repeat-${category}`}
+                      />
+                    </label>
+                    <span className="muted small">{copy(pc, "pcsop.category.repeat.hint")}</span>
                   </div>
 
                   <div className="qcfg" style={{ marginTop: 10 }}>
