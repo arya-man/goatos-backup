@@ -17,6 +17,7 @@ import { newSaleLine, saleLinesTotals, saleLineValue, type SaleLineDraft } from 
 import { countKey, inr, MAX_SALE_LINES, num } from "./sales-format";
 import { FormSelect } from "./form-select";
 import { listOptions } from "./option-utils";
+import { TAP_MIN } from "@/theme/tap-target";
 
 /**
  * The "What was sold" block of the record-sale drawer (maintainer decision 2026-09-12): one card
@@ -107,7 +108,7 @@ export function SaleLinesEditor({
                     onClick={() => remove(line.id)}
                     aria-label={`${copy(pageContract, "action.remove_line")} ${index + 1}`}
                     title={copy(pageContract, "action.remove_line")}
-                    sx={{ minWidth: { xs: "var(--tap-min)", sm: 0 }, minHeight: { xs: "var(--tap-min)", sm: 0 } }}
+                    sx={{ minWidth: { xs: TAP_MIN, sm: 0 }, minHeight: { xs: TAP_MIN, sm: 0 } }}
                   >
                     <Iconify icon="solar:trash-bin-trash-bold" width={18} aria-hidden="true" />
                   </IconButton>

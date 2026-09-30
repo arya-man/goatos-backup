@@ -62,8 +62,8 @@ test("a pressed chip or pager says it is busy in place", () => {
   assert.match(read("./live-query-link.tsx"), /<SegmentTabs/);
   assert.match(read("../../components/app/list/segment-tabs.tsx"), /aria-busy=\{busy \|\| pendingValue !== null \|\| undefined\}/);
   // guard: segment-tabs-rounded (TR1-#32): the strip is the template BankingOverview custom Tabs,
-  // rounded (16px, var(--r-xl)), not a square grey band.
-  assert.match(read("../../components/app/list/segment-tabs.tsx"), /maxWidth: '100%', borderRadius: 'var\(--r-xl\)' \}/);
+  // rounded (16px, theme shape x 2), not a square grey band.
+  assert.match(read("../../components/app/list/segment-tabs.tsx"), /maxWidth: '100%', borderRadius: 2 \}/);
   // Pagers are the template TablePaginationLinks (via ProcurementTableFooter), whose arrows turn
   // into a spinner while their link is pending; chip strips are SegmentTabs (aria-busy above).
   assert.match(read("../../components/app/table/table-pagination-links.tsx"), /const \{ pending \} = useLinkStatus\(\);/);

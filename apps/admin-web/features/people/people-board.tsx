@@ -33,6 +33,7 @@ import { PersonAddDrawer } from "./person-add-drawer";
 import Alert from "@mui/material/Alert";
 import { EmptyState } from "@/components/app/empty-state";
 import { PAGE_SIZE } from "./people-layout";
+import { TAP_MIN } from "@/theme/tap-target";
 
 
 const PERSON_STATUSES = ["active", "candidate", "inactive", "suspended", "left"] as const;
@@ -292,7 +293,7 @@ export async function PeopleBoard({
                 const drawerHref = hrefWithQuery(pathname, sp, { person: person.person_id });
                 return (
                   <Box component="li" key={person.person_id} sx={{ display: "flex", alignItems: "center", gap: 1, pl: 2, pr: 1, py: 1.25, borderBottom: 1, borderColor: "divider" }}>
-                    <Link component={LocalOverlayLink} href={drawerHref} scroll={false} color="inherit" underline="none" sx={{ display: "block", flex: "1 1 auto", minWidth: 0, minHeight: "var(--tap-min)" }}>
+                    <Link component={LocalOverlayLink} href={drawerHref} scroll={false} color="inherit" underline="none" sx={{ display: "block", flex: "1 1 auto", minWidth: 0, minHeight: TAP_MIN }}>
                       <Stack spacing={0.5} sx={{ minWidth: 0 }}>
                         <Stack direction="row" spacing={1} sx={{ alignItems: "center", minWidth: 0 }}>
                           <Typography variant="subtitle2" noWrap sx={{ minWidth: 0 }}>{person.display_name}</Typography>

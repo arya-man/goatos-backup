@@ -511,7 +511,7 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
                             selected={item.key === params.register}
                             href={registerHref(sp, item.key)}
                             label={{ name: item.label, count: catalog?.counts[item.key] ?? 0 }}
-                            slotProps={{ button: { minHeight: "var(--tap-min)" }, label: { textTransform: "none" } }}
+                            slotProps={{ button: { minHeight: TAP_MIN }, label: { textTransform: "none" } }}
                           />
                         ))}
                         {group.key === REFERENCE_GROUP && referenceListsRegister && canCreate ? (

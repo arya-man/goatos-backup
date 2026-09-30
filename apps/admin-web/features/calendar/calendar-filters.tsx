@@ -12,6 +12,7 @@ import ListItemButton from "@mui/material/ListItemButton";
 import Link from "@/components/no-prefetch-link";
 import { MinimalDrawer } from "@/components/app/drawer";
 import { Iconify } from "@/components/minimal/iconify";
+import { TAP_MIN } from "@/theme/tap-target";
 
 /** One choice in a filter group: a URL the server built, so the choice lives in the address bar. */
 export type CalendarFilterOption = { key: string; label: string; href?: string; active: boolean; disabled?: boolean };
@@ -73,7 +74,7 @@ export function CalendarFilters({ open, onClose, model }: { open: boolean; onClo
                   replace
                   scroll={false}
                   onClick={onClose}
-                  sx={{ px: 2.5, minHeight: "var(--tap-min)" }}
+                  sx={{ px: 2.5, minHeight: TAP_MIN }}
                 >
                   {body}
                 </ListItemButton>
@@ -84,7 +85,7 @@ export function CalendarFilters({ open, onClose, model }: { open: boolean; onClo
                   disabled={option.disabled}
                   aria-current={option.active ? "true" : undefined}
                   onClick={option.active ? onClose : undefined}
-                  sx={{ px: 2.5, minHeight: "var(--tap-min)" }}
+                  sx={{ px: 2.5, minHeight: TAP_MIN }}
                 >
                   {body}
                 </ListItemButton>

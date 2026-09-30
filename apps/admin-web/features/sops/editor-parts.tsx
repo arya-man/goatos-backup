@@ -183,7 +183,7 @@ export function QuestionShell({
       {...dragProps}
       sx={(theme) => ({
         p: { xs: 1.5, sm: 2 },
-        borderRadius: "var(--r-sm)",
+        borderRadius: 0.75,
         minWidth: 0,
         transition: theme.transitions.create(["border-color", "opacity"], { duration: theme.transitions.duration.shorter }),
         "&:hover": { borderColor: varAlpha(theme.vars.palette.primary.mainChannel, 0.4) },
@@ -209,7 +209,7 @@ export function QuestionShell({
 /** A grouped config block (choices, limits, capture) on the template neutral surface. */
 export function ConfigBox({ title, action, children, testId }: { title?: ReactNode; action?: ReactNode; children?: ReactNode; testId?: string }) {
   return (
-    <Stack spacing={1.5} data-testid={testId} sx={{ p: { xs: 1.5, sm: 2 }, borderRadius: "var(--r-sm)", bgcolor: "background.neutral", minWidth: 0 }}>
+    <Stack spacing={1.5} data-testid={testId} sx={{ p: { xs: 1.5, sm: 2 }, borderRadius: 0.75, bgcolor: "background.neutral", minWidth: 0 }}>
       {title || action ? <ConfigHead title={title} action={action} /> : null}
       {children}
     </Stack>

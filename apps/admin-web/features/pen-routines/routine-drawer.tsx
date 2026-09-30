@@ -317,7 +317,7 @@ function ChoiceTiles({
               pr: 1.5,
               minHeight: TAP_MIN,
               border: 1,
-              borderRadius: "var(--r-md)",
+              borderRadius: 1,
               borderColor: on ? "primary.main" : "divider",
               bgcolor: on ? "action.selected" : "transparent",
               "& .MuiFormControlLabel-label": { typography: "body2" },
@@ -675,7 +675,7 @@ export function RoutineDrawerForm({
                     gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
                     gap: 0.5,
                     border: 0,
-                    "& .MuiToggleButton-root": { minWidth: 0, minHeight: TAP_MIN, border: 1, borderColor: "divider", borderRadius: "var(--r-md)", m: 0 },
+                    "& .MuiToggleButton-root": { minWidth: 0, minHeight: TAP_MIN, border: 1, borderColor: "divider", borderRadius: 1, m: 0 },
                   }}
                 >
                   {Array.from({ length: 31 }, (_, index) => index + 1).map((day) => (

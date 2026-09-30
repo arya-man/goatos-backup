@@ -24,9 +24,9 @@ export function ProgressBar({ value, color, className, fillClassName, style }: {
       sx={[
         (theme) => ({
           height: "var(--sp-1)",
-          borderRadius: "var(--r-xl)",
+          borderRadius: 2,
           bgcolor: varAlpha(theme.vars.palette.grey["500Channel"], 0.16),
-          "& .MuiLinearProgress-bar": { borderRadius: "inherit", bgcolor: color ?? "var(--primary)" },
+          "& .MuiLinearProgress-bar": { borderRadius: "inherit", bgcolor: color ?? "var(--palette-primary-main)" },
         }),
       ]}
     />

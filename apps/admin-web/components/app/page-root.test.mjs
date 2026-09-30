@@ -10,7 +10,7 @@ const read = (rel) => readFileSync(new URL(`../../${rel}`, import.meta.url), "ut
 test("PageRoot is the sx page grid with the data-page-root hook and no legacy class", () => {
   const src = read("components/app/page-root.tsx");
   assert.match(src, /display: "grid"/);
-  assert.match(src, /gap: "var\(--sp-3\)"/, "the 24px page gap");
+  assert.match(src, /gap: 3\b/, "the 24px page gap");
   assert.match(src, /minWidth: 0/);
   assert.match(src, /data-page-root=""/);
   assert.doesNotMatch(src, /className=/, "no legacy screen/on class behind the wrapper");

@@ -2,6 +2,7 @@ import Avatar from "@mui/material/Avatar";
 import Box from "@mui/material/Box";
 import MuiSkeleton from "@mui/material/Skeleton";
 import { KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton, TableSkeleton } from "@/components/app/skeletons";
+import { TAP_MIN } from "@/theme/tap-target";
 
 // MUI Minimal DashboardLayout geometry (layouts/dashboard/css-vars.ts + layouts/core/css-vars.ts):
 // nav 300px / mini 88px (html[data-nav-rail="mini"]), hidden below lg (1200px); header 64px /
@@ -54,7 +55,7 @@ export function ShellSkeleton({ children }: { children?: React.ReactNode }) {
               <MuiSkeleton variant="text" width={group ? 56 : 64} />
             </Box>
             {Array.from({ length: rows }, (_, i) => (
-              <Box key={i} sx={{ display: "flex", alignItems: "center", gap: 2, minHeight: "var(--tap-min)", py: 0.5, px: 1.5, [MINI]: { justifyContent: "center", minHeight: 0, py: 2 } }}>
+              <Box key={i} sx={{ display: "flex", alignItems: "center", gap: 2, minHeight: TAP_MIN, py: 0.5, px: 1.5, [MINI]: { justifyContent: "center", minHeight: 0, py: 2 } }}>
                 <MuiSkeleton variant="rounded" width={24} height={24} />
                 <Box component="span" sx={{ [MINI]: { display: "none" } }}>
                   <MuiSkeleton variant="text" width={(group ? 80 : 90) + (i % (group ? 4 : 3)) * (group ? 16 : 18)} />

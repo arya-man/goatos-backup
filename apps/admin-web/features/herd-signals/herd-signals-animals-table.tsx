@@ -21,6 +21,7 @@ import {
   fmtSignedDelta,
 } from "./format";
 import { HS_MONO, HS_SUBLINE, deltaSx, selectableRowSx } from "./herd-signals-sx";
+import { TAP_MIN } from "@/theme/tap-target";
 
 function isInteractiveTarget(target: EventTarget | null): boolean {
   return target instanceof Element && Boolean(target.closest("a,button,input,select,textarea,[role='button']"));
@@ -100,7 +101,7 @@ export function HerdSignalsAnimalsRow({
           title="Open tag detail"
           color="inherit"
           underline="hover"
-          sx={{ typography: "subtitle2", display: "inline-flex", alignItems: "center", minHeight: { xs: "var(--tap-min)", md: "auto" } }}
+          sx={{ typography: "subtitle2", display: "inline-flex", alignItems: "center", minHeight: { xs: TAP_MIN, md: "auto" } }}
         >
           {animalPrimaryLabel(item)}
         </MuiLink>

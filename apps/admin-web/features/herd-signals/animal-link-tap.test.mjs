@@ -10,7 +10,7 @@ const read = (p) => readFileSync(new URL(p, import.meta.url), "utf8");
 
 test("the animal link keeps its 44px phone box", () => {
   const table = read("./herd-signals-table.tsx");
-  assert.match(table, /minHeight: \{ xs: "var\(--tap-min\)", md: "auto" \}/);
+  assert.match(table, /minHeight: \{ xs: TAP_MIN, md: "auto" \}/);
   for (const css of ["frame", "mesha-theme"]) {
     const src = legacyCss(css);
     const rules = src.match(/[^{}]*hs-selectable td:first-child > a[^{}]*\{[^}]*\}/g) || [];

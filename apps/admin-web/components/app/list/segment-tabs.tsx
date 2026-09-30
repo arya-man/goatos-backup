@@ -51,7 +51,7 @@ export function SegmentTabs({ value, tabs, ariaLabel, busy, keepScroll = false, 
       aria-label={ariaLabel}
       aria-busy={busy || pendingValue !== null || undefined}
       className={className}
-      sx={[{ width: 'fit-content', maxWidth: '100%', borderRadius: 'var(--r-xl)' }, ...(Array.isArray(sx) ? sx : [sx])]}
+      sx={[{ width: 'fit-content', maxWidth: '100%', borderRadius: 2 }, ...(Array.isArray(sx) ? sx : [sx])]}
     >
       {tabs.map((tab) =>
         tab.href ? (

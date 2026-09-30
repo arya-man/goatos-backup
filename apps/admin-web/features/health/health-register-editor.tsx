@@ -152,7 +152,7 @@ function RemoveButton({ label, onClick }: { label: string; onClick: () => void }
 }
 
 /** A nested block inside a card (question / illness / answer): divider border, template radius. */
-const BLOCK_SX = { border: 1, borderColor: "divider", borderRadius: "var(--r-lg)" } as const;
+const BLOCK_SX = { border: 1, borderColor: "divider", borderRadius: 1.5 } as const;
 
 /** A labelled TextField that keeps the old `.fld` flex basis on its row. */
 const fieldSx = (flex: string) => ({ flex, minWidth: 0 });

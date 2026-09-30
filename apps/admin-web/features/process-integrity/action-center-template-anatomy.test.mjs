@@ -103,7 +103,7 @@ test("action-center-loading-mirrors-page: the board toolbar twin is the page's t
 test("adherence-tabs-scroll-buttons: UrlTabs keeps the opt-in template scroll arrows", () => {
   assert.match(urlTabs, /scrollButtons=\{scrollButtons\}/);
   assert.match(urlTabs, /allowScrollButtonsMobile=\{scrollButtons === "auto"\}/);
-  assert.match(urlTabs, /"& \.MuiTabs-scrollButtons": \{ width: "var\(--tap-min\)"/);
+  assert.match(urlTabs, /"& \.MuiTabs-scrollButtons": \{ width: TAP_MIN\b/);
 });
 
 // TR2-P2-7: the My tasks / Filters dialog had a stray lone "i" and a Clear all + Clear local

@@ -29,5 +29,5 @@ test("guard: calendar-template-toolbar -- no heading toggle, no chip row, no tab
   assert.match(view, /<CalendarFilters open=\{filtersOpen\}/);
   const drawer = read("./calendar-filters.tsx");
   assert.match(drawer, /<MinimalDrawer[\s\S]*width=\{320\}[\s\S]*canReset=\{model\.canReset\}/, "template 320px filters drawer with the reset dot");
-  assert.match(drawer, /minHeight: "var\(--tap-min\)"/, "44px choices in the webview");
+  assert.match(drawer, /minHeight: TAP_MIN\b/, "44px choices in the webview");
 });

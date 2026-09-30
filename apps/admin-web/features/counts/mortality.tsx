@@ -290,7 +290,7 @@ function CrossTable({
                   <TableCell
                     key={col.key || "__none"}
                     align="right"
-                    sx={value === 0 ? { color: "text.disabled" } : { bgcolor: `color-mix(in srgb, var(--danger) ${Math.round(alpha * 100)}%, transparent)` }}
+                    sx={value === 0 ? { color: "text.disabled" } : { bgcolor: `color-mix(in srgb, var(--palette-error-main) ${Math.round(alpha * 100)}%, transparent)` }}
                   >
                     {value === 0 ? "·" : nf(value)}
                   </TableCell>

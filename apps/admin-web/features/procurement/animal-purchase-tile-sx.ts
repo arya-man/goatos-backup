@@ -26,7 +26,7 @@ export const MEDIA_TILE_EMPTY_SX = {
   border: 1,
   borderStyle: "dashed",
   borderColor: "divider",
-  borderRadius: "var(--r-lg)",
+  borderRadius: 1.5,
   bgcolor: "background.neutral",
   color: "text.secondary",
   textAlign: "center",

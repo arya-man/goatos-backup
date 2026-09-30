@@ -38,7 +38,7 @@ const STAGE_SX = {
   mt: 1,
   border: 1,
   borderColor: "divider",
-  borderRadius: "var(--r-md)",
+  borderRadius: 1,
   overflow: "hidden",
   bgcolor: "common.black",
   "& img, & video": { position: "absolute", inset: 0, width: "100%", height: "100%", display: "block", objectFit: "contain", bgcolor: "common.black" },

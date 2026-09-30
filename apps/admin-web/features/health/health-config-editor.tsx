@@ -804,7 +804,7 @@ export function DraftEditor({
               <Stack
                 key={step.key}
                 spacing={1.25}
-                sx={{ border: 1, borderColor: "divider", borderRadius: "var(--r-lg)", px: 1.5, py: 1.25 }}
+                sx={{ border: 1, borderColor: "divider", borderRadius: 1.5, px: 1.5, py: 1.25 }}
               >
                 {/* WHEN: day, session and kind — the three things that place a step in the course. */}
                 <Stack direction="row" spacing={1.25} useFlexGap sx={{ flexWrap: "wrap", alignItems: "flex-end" }}>

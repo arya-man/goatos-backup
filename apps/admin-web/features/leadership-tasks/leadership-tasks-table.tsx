@@ -161,7 +161,7 @@ export function LeadershipTasksTable({
         // The task link stretches over its row, so the whole row opens the drawer.
         "& tbody tr:has(.lt-tasklink)": { position: "relative", cursor: "pointer" },
         "& .lt-tasklink::after": { content: '""', position: "absolute", inset: 0, zIndex: 1 },
-        "& .lt-tasklink:focus-visible": { outline: `2px solid ${theme.vars.palette.primary.main}`, outlineOffset: 2, borderRadius: "var(--r-sm)" },
+        "& .lt-tasklink:focus-visible": { outline: `2px solid ${theme.vars.palette.primary.main}`, outlineOffset: 2, borderRadius: 0.75 },
         "& td.lt-people-col": { whiteSpace: "normal", minWidth: 170, overflowWrap: "anywhere" },
         "& td.lt-task-col": { minWidth: 220 },
         "& td.lt-days-col": { whiteSpace: "nowrap" },

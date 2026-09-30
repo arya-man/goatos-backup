@@ -6,6 +6,6 @@ export function cx(...parts: Array<string | false | null | undefined>): string {
 
 /** CSS variable triple for a tone: solid, soft tint background, ink (text on soft). */
 export function toneVars(tone: KitTone): { solid: string; soft: string; ink: string } {
-  if (tone === "neutral") return { solid: "var(--fg)", soft: "rgb(var(--g500-rgb)/.16)", ink: "var(--fg-muted)" };
+  if (tone === "neutral") return { solid: "var(--palette-text-primary)", soft: "rgb(var(--g500-rgb)/.16)", ink: "var(--palette-text-secondary)" };
   return { solid: `var(--${tone})`, soft: `var(--${tone}-soft)`, ink: `var(--${tone}-ink)` };
 }

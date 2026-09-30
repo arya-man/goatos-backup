@@ -16,6 +16,7 @@ import { Label } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { MailNavItem } from "@/components/app/sections/mail/mail-nav-item";
+import { TAP_MIN } from "@/theme/tap-target";
 
 /**
  * The Lists panel of Items & categories (the prototype's middle column): "All items", the
@@ -82,7 +83,7 @@ export function CatalogueLists({
       key={list.id}
       selected={list.id === current}
       href={list.href}
-      slotProps={{ item: { alignItems: "center", gap: 0.5, pl: list.depth * 2 }, button: { minHeight: "var(--tap-min)" }, label: { textTransform: "none" } }}
+      slotProps={{ item: { alignItems: "center", gap: 0.5, pl: list.depth * 2 }, button: { minHeight: TAP_MIN }, label: { textTransform: "none" } }}
       label={{ name: list.name, count: list.count, icon: list.locked ? "solar:lock-password-outline" : undefined }}
       action={
         canEdit ? (
@@ -134,7 +135,7 @@ export function CatalogueLists({
       <Box component="nav">
         <Box component="ul" sx={{ m: 0, p: 0, pb: 1.5, px: 1.5, listStyle: "none" }}>
           {status === "active" && !needle ? (
-            <MailNavItem selected={current === ""} href={allHref} label={{ name: copy["lists.all"], count: allCount, icon: "solar:list-bold" }} slotProps={{ button: { minHeight: "var(--tap-min)" }, label: { textTransform: "none" } }} />
+            <MailNavItem selected={current === ""} href={allHref} label={{ name: copy["lists.all"], count: allCount, icon: "solar:list-bold" }} slotProps={{ button: { minHeight: TAP_MIN }, label: { textTransform: "none" } }} />
           ) : null}
           {catalogues.length ? (
             <>

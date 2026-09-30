@@ -44,7 +44,7 @@ import { ChartLegends } from "@/components/minimal/chart/components/chart-legend
 /** The LinearProgress track (template: height 8, grey-500 16%; theme override: radius 16). */
 const trackSx = (theme: Theme) => ({
   height: "var(--sp-1)",
-  borderRadius: "var(--r-xl)",
+  borderRadius: 2,
   bgcolor: varAlpha(theme.vars.palette.grey["500Channel"], 0.16),
 });
 
@@ -257,7 +257,7 @@ export function ProgressItem({
             whiteSpace: "nowrap",
             textAlign: "right",
             fontVariantNumeric: "tabular-nums",
-            color: negative ? "var(--danger)" : undefined,
+            color: negative ? "var(--palette-error-main)" : undefined,
             ...(inline ? { [WIDE]: { gridColumn: 3, gridRow: 1 } } : {}),
           }}
         >

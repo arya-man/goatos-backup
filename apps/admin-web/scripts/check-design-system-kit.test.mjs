@@ -27,7 +27,10 @@ test("CSS: raw px/radius/shadow/font-size are flagged, tokens pass", () => {
 });
 
 test("TSX: inline styles and Tailwind arbitrary values are flagged", () => {
-  assert.deepEqual(jsxStyleFindings('<div style={{ fontSize: 13, borderRadius: 8, padding: "12px" }} />').sort(), ["raw-font-size", "raw-px", "raw-radius"]);
+  assert.deepEqual(jsxStyleFindings('<div style={{ fontSize: 13, borderRadius: "8px", padding: "12px" }} />').sort(), ["raw-font-size", "raw-px", "raw-radius"]);
+  // J1B P2-1 (FIXJ7): numbers on borderRadius / padding / margin / gap are the theme scale (shape x n,
+  // spacing x n), the values css-var-token moves var(--r-*) / var(--sp-*) reads onto.
+  assert.deepEqual(jsxStyleFindings('<Box sx={{ borderRadius: 1.5, gap: 3, padding: 2, marginTop: 4 }} />'), []);
   assert.deepEqual(jsxStyleFindings('<div className="text-[13px] rounded-[10px] p-[12px]" />').sort(), ["raw-font-size", "raw-px", "raw-radius"]);
   assert.deepEqual(jsxStyleFindings('<div style={{ padding: "var(--sp-2)", gap: 2 }} />'), []);
 });

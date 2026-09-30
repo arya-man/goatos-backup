@@ -406,7 +406,7 @@ export function LoadWriteActions({
                       return (
                         <TableRow key={evidence.evidence_id}>
                           <TableCell>
-                            <Box component="span" sx={{ fontFamily: "monospace", typography: "caption", fontWeight: 600, color: "primary.dark", bgcolor: "action.hover", px: 0.75, py: 0.25, borderRadius: "var(--r-sm)" }}>{goat ? goatLabel(goat) : evidence.goat_id.slice(0, 8)}</Box>
+                            <Box component="span" sx={{ fontFamily: "monospace", typography: "caption", fontWeight: 600, color: "primary.dark", bgcolor: "action.hover", px: 0.75, py: 0.25, borderRadius: 0.75 }}>{goat ? goatLabel(goat) : evidence.goat_id.slice(0, 8)}</Box>
                           </TableCell>
                           <TableCell>
                             <b>{evidence.dose_code}</b>

@@ -59,7 +59,7 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
                     px: 1.25,
                     py: 0.75,
                     display: "inline-block",
-                    borderRadius: "var(--r-sm)",
+                    borderRadius: 0.75,
                     typography: "caption",
                     fontFamily: "monospace",
                     bgcolor: "action.hover",

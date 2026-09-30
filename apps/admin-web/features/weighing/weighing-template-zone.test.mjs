@@ -42,7 +42,7 @@ test("feed-by-weight-band keeps its phone cards and 44px exit taps", () => {
   const src = read("features/weighing/feed-weight-band-table.tsx");
   assert.match(src, /breakpoints\.down\(768\)\]: \{ display: "none" \}/, "the twelve-column table must hide under 768px");
   assert.match(src, /breakpoints\.down\(768\)\]: \{ display: "flex" \}/, "the stacked phone cards must show under 768px");
-  assert.match(src, /minHeight: "var\(--tap-min\)"/, "the phone exit note link must be a 44px tap target");
+  assert.match(src, /minHeight: TAP_MIN\b/, "the phone exit note link must be a 44px tap target");
   assert.match(src, /data-feedband-exit/, "the exit link keeps its hook for overlay-journeys");
   const journeys = read("scripts/lib/overlay-journeys.mjs");
   assert.ok(!/wt-feedband/.test(journeys), "overlay-journeys still targets a retired weighing class");

@@ -10,9 +10,9 @@ import { Iconify } from "@/components/minimal/iconify";
 import type { Tone } from "@/features/process-integrity";
 
 const SEVERITY_FILL = {
-  broken: { bg: "var(--dangerx)", fg: "var(--danger)" },
+  broken: { bg: "var(--dangerx)", fg: "var(--palette-error-main)" },
   at_risk: { bg: "var(--warnx)", fg: "var(--warn)" },
-  watch: { bg: "var(--infox)", fg: "var(--info)" },
+  watch: { bg: "var(--infox)", fg: "var(--palette-info-main)" },
   ok: { bg: "var(--okx)", fg: "var(--brand-d)" },
 } as const;
 

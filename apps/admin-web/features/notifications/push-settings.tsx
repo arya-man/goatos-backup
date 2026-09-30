@@ -200,7 +200,7 @@ export function PushSettings({ centreCopy, contractCopy }: { centreCopy: Notific
               key={row.browser_registration_id}
               data-push-row
               data-stale={row.status === "stale" ? "true" : undefined}
-              sx={{ display: "flex", alignItems: "center", gap: 1.25, p: 1.5, pl: 1.25, borderRadius: "var(--r-lg)", bgcolor: "background.neutral", opacity: row.status === "stale" ? 0.7 : 1 }}
+              sx={{ display: "flex", alignItems: "center", gap: 1.25, p: 1.5, pl: 1.25, borderRadius: 1.5, bgcolor: "background.neutral", opacity: row.status === "stale" ? 0.7 : 1 }}
             >
               <Iconify icon="solar:monitor-bold" width={18} aria-hidden="true" sx={{ flex: "none", color: "text.secondary" }} />
               <Box sx={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 0.25 }}>

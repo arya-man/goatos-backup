@@ -90,7 +90,7 @@ export function PageHeader({ title, crumbs: crumbsIn, actions, backHref, tabs, t
     <Box component="header" className={className} id={id} data-page-header="" sx={{
         display: "flex",
         flexDirection: "column",
-        gap: "var(--sp-3)",
+        gap: 3,
         // The template hangs the back arrow into the page gutter; below md the page column clips
         // sideways overflow (WebView rule), so the arrow sits inline there instead of being cut off.
         // The arrow keeps an 8px gap to the title ("‹Channapatna" read glued, J2 P2-10) and still hangs

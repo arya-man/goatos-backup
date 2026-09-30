@@ -357,12 +357,12 @@ export async function CountsBreakdownPage({
   // read from the response rather than summed from the segments, so a stage whose parts failed to
   // reconcile shows a gap on screen instead of quietly redefining its own total.
   const sexSegments = [
-    { key: "female", label: copy(pageContract, "label.sex_female"), colorVar: "var(--info)" },
+    { key: "female", label: copy(pageContract, "label.sex_female"), colorVar: "var(--palette-info-main)" },
     { key: "male", label: copy(pageContract, "label.sex_male"), colorVar: "var(--amber)" },
     // Third segment, drawn only where it carries animals. It is the honest home for a sex the
     // register does not hold as female or male — including unrecorded — so a bar still reports the
     // stage's true head count instead of shrinking to the two known buckets.
-    { key: "other", label: copy(pageContract, "label.sex_other"), colorVar: "var(--muted)" },
+    { key: "other", label: copy(pageContract, "label.sex_other"), colorVar: "var(--palette-text-secondary)" },
   ] as const;
 
   const stageSexData: SvgStackedDatum[] = (breakdown?.charts.stage_sex ?? []).map((point) => ({

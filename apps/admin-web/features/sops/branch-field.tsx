@@ -48,7 +48,7 @@ export function BranchField({
         border: 1,
         borderStyle: "dashed",
         borderColor: "divider",
-        borderRadius: "var(--r-md)",
+        borderRadius: 1,
       })}
     >
       <FieldSelect

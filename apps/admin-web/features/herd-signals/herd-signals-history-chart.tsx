@@ -150,7 +150,7 @@ export function HistoryChartLegend({ omit = [], footer }: { omit?: HistoryLegend
               sx={
                 entry.dashed
                   ? { width: 10, borderTop: 2, borderTopStyle: "dashed", borderColor: entry.color }
-                  : { width: 10, aspectRatio: "1", borderRadius: "var(--r-sm)", bgcolor: entry.color, opacity: entry.opacity ?? 1 }
+                  : { width: 10, aspectRatio: "1", borderRadius: 0.75, bgcolor: entry.color, opacity: entry.opacity ?? 1 }
               }
             />
             {entry.label}

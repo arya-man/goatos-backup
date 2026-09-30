@@ -150,7 +150,7 @@ export function EditTaskModal({
           </IconButton>
         </DialogTitle>
         <DialogContent dividers>
-          <Box component="form" action={action} sx={{ display: "grid", gap: "var(--sp-3)", py: 1 }}>
+          <Box component="form" action={action} sx={{ display: "grid", gap: 3, py: 1 }}>
             <input ref={keyRef} type="hidden" name="idempotency_key" />
             <input type="hidden" name="return_to" value={returnTo} />
             <input type="hidden" name="task_id" value={task.id} />

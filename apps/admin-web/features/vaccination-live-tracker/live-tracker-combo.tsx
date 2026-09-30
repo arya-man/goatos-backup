@@ -21,6 +21,7 @@ import {
 } from "@/lib/admin-ui-contract";
 import type { LiveTrackerCombo } from "@/lib/api/vaccination-live-tracker";
 import { LiveEmpty, LiveHeadRow } from "./live-ui";
+import { TAP_MIN } from "@/theme/tap-target";
 
 // Combo doses — one proof, multiple same-day obligations.
 //
@@ -91,7 +92,7 @@ export function LiveTrackerComboCard({
                         href={passportHref(row.goat_id)}
                         scroll={false}
                         underline="hover"
-                        sx={{ minHeight: "var(--tap-min)", display: "inline-flex", alignItems: "center", typography: "subtitle2", fontFamily: "monospace" }}
+                        sx={{ minHeight: TAP_MIN, display: "inline-flex", alignItems: "center", typography: "subtitle2", fontFamily: "monospace" }}
                         title={dualTagTitle || row.display_id}
                         aria-label={`${copy(pageContract, "drawer.passport.aria")} — ${row.display_id || row.primary_tag}`}
                       >

@@ -70,7 +70,7 @@ function nodeSx(node: CanvasNode, selected: boolean, clickable: boolean): SxProp
     border: 1,
     borderStyle: kind === "fixed" ? "dashed" : "solid",
     borderColor: "divider",
-    borderRadius: "var(--r-lg)",
+    borderRadius: 1.5,
     ...(accent ? { borderTopWidth: 3, borderTopStyle: "solid", borderTopColor: accent } : {}),
     ...(kind === "fixed" ? { opacity: 0.85 } : {}),
     ...(clickable
@@ -142,7 +142,7 @@ export function NodeOwner({ children, testId }: { children: ReactNode; testId?: 
         bgcolor: "background.neutral",
         border: 1,
         borderColor: "divider",
-        borderRadius: "var(--r-pill)",
+        borderRadius: 999,
         whiteSpace: "nowrap",
         overflow: "hidden",
         textOverflow: "ellipsis",
@@ -273,7 +273,7 @@ export function FlowCanvas<T, I>({
           overflow: "auto",
           border: 1,
           borderColor: "divider",
-          borderRadius: "var(--r-lg)",
+          borderRadius: 1.5,
           // A dotted grid: a one-unit dot every 2.75 spacing units, on the page background.
           background: (theme) =>
             `radial-gradient(circle, ${theme.vars.palette.divider} ${theme.spacing(0.125)}, transparent ${theme.spacing(0.125)}) 0 0 / ${theme.spacing(2.75)} ${theme.spacing(2.75)}, ${theme.vars.palette.background.default}`,
@@ -337,7 +337,7 @@ export function FlowCanvas<T, I>({
                         bgcolor: "background.paper",
                         border: 1,
                         borderColor: "divider",
-                        borderRadius: "var(--r-pill)",
+                        borderRadius: 999,
                         px: 1,
                         py: 0.25,
                         whiteSpace: "nowrap",
@@ -414,7 +414,7 @@ function plusSx(x: number, y: number, zoom: number): SxProps<Theme> {
     transform: `translate(-50%, -50%) scale(${1 / zoom})`,
     width: { xs: 44, lg: 22 },
     height: { xs: 44, lg: 22 },
-    borderRadius: "var(--r-round)",
+    borderRadius: "50%",
     color: "primary.dark",
     "&:hover > span": { bgcolor: "primary.dark", color: "primary.contrastText" },
   };
@@ -424,7 +424,7 @@ const plusDotSx: SxProps<Theme> = {
   placeItems: "center",
   width: 22,
   aspectRatio: "1",
-  borderRadius: "var(--r-round)",
+  borderRadius: "50%",
   border: 1,
   borderColor: "currentColor",
   bgcolor: "background.paper",

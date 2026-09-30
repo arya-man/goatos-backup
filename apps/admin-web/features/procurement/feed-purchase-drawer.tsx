@@ -192,7 +192,7 @@ export function FeedPurchaseDrawer({
       title={isAdding ? title : (purchase?.feed_item ?? title)}
       eyebrow={copy(pageContract, "crumb")}
       icon={<Iconify icon="solar:box-minimalistic-bold" aria-hidden="true" />}
-      iconColors={{ bg: "var(--brand-soft)", fg: "var(--info)" }}
+      iconColors={{ bg: "var(--brand-soft)", fg: "var(--palette-info-main)" }}
       subtitle={purchase ? `${fmtDate(purchase.purchase_date)} · ${purchase.farm}` : undefined}
       ariaLabel={title}
       closeLabel={copy(pageContract, "action.close")}

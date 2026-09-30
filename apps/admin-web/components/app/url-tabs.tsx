@@ -17,6 +17,7 @@ import Link from "@/components/no-prefetch-link";
 import { Label } from "@/components/minimal/label";
 import { shownTabValue } from "@/components/app/url-tab-nav";
 import { useUrlTabNav } from "@/components/app/use-url-tab-nav";
+import { TAP_MIN } from "@/theme/tap-target";
 
 export type UrlTabItem = {
   value: string;
@@ -55,7 +56,7 @@ export function UrlTabs({
       sx={[
         (theme) => ({
           px: scrollButtons === "auto" ? 0.5 : 2.5,
-          ...(scrollButtons === "auto" ? { "& .MuiTabs-scrollButtons": { width: "var(--tap-min)", flexShrink: 0 }, "& .MuiTabs-scrollButtons.Mui-disabled": { opacity: 0.3 } } : {}),
+          ...(scrollButtons === "auto" ? { "& .MuiTabs-scrollButtons": { width: TAP_MIN, flexShrink: 0 }, "& .MuiTabs-scrollButtons.Mui-disabled": { opacity: 0.3 } } : {}),
           boxShadow: `inset 0 -2px 0 0 ${varAlpha(theme.vars.palette.grey["500Channel"], 0.08)}`,
         }),
       ]}

@@ -156,7 +156,7 @@ export function NewTaskModal({
           <Box
             component="form"
             action={action}
-            sx={{ display: "grid", gap: "var(--sp-3)", py: 1 }}
+            sx={{ display: "grid", gap: 3, py: 1 }}
             onSubmit={(event: React.FormEvent<HTMLFormElement>) => {
               // The person is the one required field the browser cannot check itself (a hidden
               // input is never validated), so the form checks it and says so in place.

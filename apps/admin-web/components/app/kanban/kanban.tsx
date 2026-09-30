@@ -16,6 +16,7 @@ import AvatarGroup, { avatarGroupClasses } from '@mui/material/AvatarGroup';
 import { Label } from '@/components/minimal/label';
 import { Iconify } from '@/components/minimal/iconify';
 import type { IconifyName } from '@/components/minimal/iconify';
+import { TAP_MIN } from "@/theme/tap-target";
 
 export type KanbanPriority = 'low' | 'medium' | 'high';
 
@@ -144,7 +145,7 @@ export function KanbanTaskCard({ name, priority, meta, comments = 0, attachments
           position: 'relative',
           px: 2,
           py: 2.5,
-          minHeight: 'var(--tap-min)',
+          minHeight: TAP_MIN,
           textAlign: 'left',
           border: 0,
           font: 'inherit',

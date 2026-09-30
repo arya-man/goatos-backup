@@ -212,11 +212,11 @@ export function FeedShedFeedCharts({
         // One legend for every pen of the name (they share the series and the axis), top-right.
         <Box aria-hidden="true" sx={{ display: "flex", flexWrap: "wrap", justifyContent: "flex-end", gap: 1.75, mx: { xs: 2.5, sm: 3 }, mt: 0.5, mb: 1.25, typography: "caption", fontWeight: "fontWeightSemiBold", color: "text.secondary" }}>
           <Box component="span" sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-            <Box component="span" sx={{ width: "var(--sp-1)", height: "var(--sp-1)", borderRadius: "var(--r-sm)", bgcolor: "primary.main" }} />
+            <Box component="span" sx={{ width: "var(--sp-1)", height: "var(--sp-1)", borderRadius: 0.75, bgcolor: "primary.main" }} />
             {fc("shedfeed.legend.directed")}
           </Box>
           <Box component="span" sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-            <Box component="span" sx={{ width: "var(--sp-1)", height: "var(--sp-1)", borderRadius: "var(--r-sm)", bgcolor: "info.main" }} />
+            <Box component="span" sx={{ width: "var(--sp-1)", height: "var(--sp-1)", borderRadius: 0.75, bgcolor: "info.main" }} />
             {fc("shedfeed.legend.verified")}
           </Box>
         </Box>

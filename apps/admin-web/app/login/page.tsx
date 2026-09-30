@@ -100,7 +100,7 @@ export default async function LoginPage({ searchParams }: { searchParams?: Promi
               px: 1.25,
               py: 0.75,
               display: "inline-block",
-              borderRadius: "var(--r-sm)",
+              borderRadius: 0.75,
               fontFamily: "monospace",
               fontSize: "var(--fs-caption)",
               bgcolor: "action.hover",

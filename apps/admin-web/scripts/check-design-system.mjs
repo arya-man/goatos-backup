@@ -1367,6 +1367,8 @@ async function selfTest() {
   // list no longer comes from them), and a documented hook (msh-side) is exempt.
   put("stories/Bad.stories.tsx", 'export const B = () => <button className="chip on">x</button>;\n');
   put("features/hooked.tsx", 'export const H = () => <nav className="msh-side">x</nav>;\n');
+  // J1B P2-1: a Mesha CSS-variable token read counts toward css-var-token; a theme value does not.
+  put("features/token-reads.tsx", 'export const T = () => <Box sx={{ p: "var(--sp-1)", color: "var(--brand)", bgcolor: "var(--palette-primary-main)", gap: 2 }} />;\n');
   // J1B P2-4: role="dialog" on the template drawer's own tag is not a raw dialog; on a <div> it is.
   put("features/drawer-role.tsx", 'export const D = () => (\n  <MinimalDrawer\n    open\n    role="dialog"\n  >\n    x\n  </MinimalDrawer>\n);\nexport const R = () => (\n  <div\n    role="dialog"\n  />\n);\n');
   put("app/(admin)/cardy/page.tsx", 'import { Panel } from "@/features/cardy";\nexport default function Page() { return <Panel />; }\n');
@@ -1390,6 +1392,7 @@ async function selfTest() {
     if (hits("legacy-class-use", "features/legacy-class.tsx") !== 2) problems.push(`legacy-class-use wrap+fld=${hits("legacy-class-use", "features/legacy-class.tsx")} (want 2)`);
     if (hits("legacy-class-use", "stories/Bad.stories.tsx") !== 2) problems.push(`legacy-class-use story chip+on=${hits("legacy-class-use", "stories/Bad.stories.tsx")} (want 2)`);
     if (hits("legacy-class-use", "features/hooked.tsx") !== 0) problems.push("legacy-class-use flagged the documented hook msh-side");
+    if (hits("css-var-token", "features/token-reads.tsx") !== 2) problems.push(`css-var-token=${hits("css-var-token", "features/token-reads.tsx")} (want 2: --sp-1 + --brand, not the MUI --palette-* var)`);
     if (hits("raw-dialog", "features/drawer-role.tsx") !== 1) problems.push(`raw-dialog drawer-role=${hits("raw-dialog", "features/drawer-role.tsx")} (want 1: the <div role="dialog">, not the MinimalDrawer's role)`);
     if (hits("legacy-card-reachable", "features/cardy/panel.tsx") !== 2) problems.push(`legacy-card-reachable panel=${hits("legacy-card-reachable", "features/cardy/panel.tsx")} (want 2: card + hd through the barrel)`);
     if (hits("legacy-card-reachable", "features/orphan-card.tsx") !== 0) problems.push("legacy-card-reachable flagged a file no page imports");

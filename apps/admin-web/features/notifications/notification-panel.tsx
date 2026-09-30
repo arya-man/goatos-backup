@@ -405,13 +405,13 @@ function NotificationRow({
             onClick={onToggle}
             aria-expanded={expanded}
             aria-label={expanded ? centreCopy.collapse : centreCopy.expand}
-            sx={{ display: "flex", flexDirection: "column", alignItems: "stretch", gap: 0.5, width: 1, textAlign: "left", borderRadius: "var(--r-sm)", whiteSpace: "normal" }}
+            sx={{ display: "flex", flexDirection: "column", alignItems: "stretch", gap: 0.5, width: 1, textAlign: "left", borderRadius: 0.75, whiteSpace: "normal" }}
           >
             {text}
             <Box
               component="span"
               title={expanded ? undefined : body}
-              sx={{ display: "block", mt: 0.75, p: 1.5, borderRadius: "var(--r-lg)", color: "text.secondary", bgcolor: "background.neutral", typography: "body2", overflowWrap: "anywhere" }}
+              sx={{ display: "block", mt: 0.75, p: 1.5, borderRadius: 1.5, color: "text.secondary", bgcolor: "background.neutral", typography: "body2", overflowWrap: "anywhere" }}
             >
               <Box
                 component="span"

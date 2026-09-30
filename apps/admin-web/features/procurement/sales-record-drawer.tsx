@@ -327,7 +327,7 @@ export function SalesRecordDrawer({
       title={isAdding ? title : (deal?.buyer_name ?? title)}
       eyebrow={copy(pageContract, "crumb")}
       icon={<Iconify icon="solar:wad-of-money-bold" aria-hidden="true" />}
-      iconColors={{ bg: "var(--brand-soft)", fg: "var(--info)" }}
+      iconColors={{ bg: "var(--brand-soft)", fg: "var(--palette-info-main)" }}
       subtitle={deal ? `${fmtDate(deal.sale_date)} · ${deal.farm}` : undefined}
       ariaLabel={title}
       closeLabel={copy(pageContract, "action.close")}

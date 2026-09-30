@@ -116,7 +116,7 @@ export function LoadCostDrawer({
       title={heading}
       eyebrow={copy(pageContract, "crumb")}
       icon={<Iconify icon="solar:box-minimalistic-bold" aria-hidden="true" />}
-      iconColors={{ bg: "var(--brand-soft)", fg: "var(--info)" }}
+      iconColors={{ bg: "var(--brand-soft)", fg: "var(--palette-info-main)" }}
       subtitle={load?.purchase_date ? `${humanDate(load.purchase_date)}${load.farm ? ` · ${load.farm}` : ""}` : undefined}
       ariaLabel={title}
       closeLabel={copy(pageContract, "action.close")}

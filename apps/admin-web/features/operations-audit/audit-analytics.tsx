@@ -50,7 +50,7 @@ export function AuditAnalytics({ cells }: { cells: AuditAnalyticCell[] }) {
                 href={cell.href}
                 replace
                 scroll={false}
-                sx={{ flex: 1, minWidth: 200, px: 1, borderRadius: "var(--r-md)", textAlign: "left" }}
+                sx={{ flex: 1, minWidth: 200, px: 1, borderRadius: 1, textAlign: "left" }}
               >
                 {analytic}
               </ButtonBase>

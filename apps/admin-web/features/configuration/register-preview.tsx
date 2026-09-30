@@ -25,6 +25,7 @@ import { TableHeadCustom, TablePaginationLinks } from "@/components/app/table";
 import { OrderTableToolbar } from "@/components/app/sections/order/order-table-toolbar";
 import { orderToolbarFilterSx, orderToolbarSearchSx } from "@/components/app/order-toolbar-filter";
 import { MailNavItem } from "@/components/app/sections/mail/mail-nav-item";
+import { TAP_MIN } from "@/theme/tap-target";
 
 /**
  * PRESENTATION-ONLY replica of the /configuration/items register view (rail · table card) for
@@ -81,7 +82,7 @@ export function RegisterPreview({
                     {group.label}
                   </Typography>
                   {group.items.map((item) => (
-                    <MailNavItem key={item.key} selected={!!item.active} href="#" label={{ name: item.label, count: item.count }} slotProps={{ button: { minHeight: "var(--tap-min)" }, label: { textTransform: "none" } }} />
+                    <MailNavItem key={item.key} selected={!!item.active} href="#" label={{ name: item.label, count: item.count }} slotProps={{ button: { minHeight: TAP_MIN }, label: { textTransform: "none" } }} />
                   ))}
                 </Box>
               ))}

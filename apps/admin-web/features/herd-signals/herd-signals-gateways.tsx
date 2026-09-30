@@ -107,7 +107,7 @@ export function HerdSignalsGateways({ gateways, nowMs }: { gateways: HerdGateway
                   </Alert>
                 ) : null}
 
-                <Box sx={{ display: "grid", gridTemplateColumns: { xs: "repeat(2, 1fr)", sm: "repeat(4, 1fr)" }, borderRadius: "var(--r-lg)", border: 1, borderColor: "divider", borderStyle: "dashed" }}>
+                <Box sx={{ display: "grid", gridTemplateColumns: { xs: "repeat(2, 1fr)", sm: "repeat(4, 1fr)" }, borderRadius: 1.5, border: 1, borderColor: "divider", borderStyle: "dashed" }}>
                   {stats.map(([value, label, window, pending], index) => (
                     <Box key={label} sx={{ py: 1.5, px: 1, textAlign: "center", borderLeftWidth: { xs: index % 2 ? 1 : 0, sm: index ? 1 : 0 }, borderColor: "divider", borderLeftStyle: "dashed" }}>
                       <Typography variant="h6" title={pending ? "Not computed yet" : undefined}>

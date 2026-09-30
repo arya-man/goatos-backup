@@ -39,7 +39,7 @@ export function DetailDrawer({
   subtitle?: ReactNode;
   eyebrow?: ReactNode;
   icon?: ReactNode;
-  /** Tile fill/ink from the Mesha palette tokens (e.g. `var(--dangerx)` / `var(--danger)`). */
+  /** Tile fill/ink from the Mesha palette tokens (e.g. `var(--dangerx)` / `var(--palette-error-main)`). */
   iconColors?: { bg: string; fg: string };
   closeLabel: string;
   ariaLabel?: string;
@@ -71,7 +71,7 @@ export function DetailDrawer({
             <Box
               component="span"
               aria-hidden="true"
-              sx={{ width: "var(--sp-5)", height: "var(--sp-5)", borderRadius: "var(--r2)", display: "inline-grid", placeItems: "center", flex: "none", "& svg": { width: "var(--sp-2h)", height: "var(--sp-2h)" }, background: iconColors?.bg ?? "var(--brand-soft)", color: iconColors?.fg ?? "var(--brand-d)" }}
+              sx={{ width: "var(--sp-5)", height: "var(--sp-5)", borderRadius: 1.25, display: "inline-grid", placeItems: "center", flex: "none", "& svg": { width: "var(--sp-2h)", height: "var(--sp-2h)" }, background: iconColors?.bg ?? "var(--brand-soft)", color: iconColors?.fg ?? "var(--brand-d)" }}
             >
               {icon}
             </Box>
@@ -133,7 +133,7 @@ export function DrawerNote({ children }: { children: ReactNode }) {
     <Typography
       variant="body2"
       component="div"
-      sx={{ color: "text.secondary", bgcolor: "background.neutral", borderRadius: "var(--r-md)", px: 1.5, py: 1.25 }}
+      sx={{ color: "text.secondary", bgcolor: "background.neutral", borderRadius: 1, px: 1.5, py: 1.25 }}
     >
       {children}
     </Typography>

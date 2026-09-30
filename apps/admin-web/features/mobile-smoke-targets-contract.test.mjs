@@ -20,7 +20,7 @@ test("health-config tables scroll inside their own template TableContainer", () 
 test("notification-matrix checkboxes carry a 44px hit area", () => {
   // Template Checkbox with a tap-min box in sx (the legacy .nmatrix-hit rule is gone, FIXJ2).
   const src = read("./people/notification-matrix.tsx");
-  assert.match(src, /const CHECKBOX_HIT_SX = \{.*minWidth: "var\(--tap-min\)", minHeight: "var\(--tap-min\)"/);
+  assert.match(src, /const CHECKBOX_HIT_SX = \{.*minWidth: TAP_MIN, minHeight: TAP_MIN/);
   assert.equal((src.match(/sx=\{CHECKBOX_HIT_SX\}/g) ?? []).length, 2, "table and phone-card checkboxes both use the hit box");
 });
 

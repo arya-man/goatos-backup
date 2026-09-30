@@ -24,7 +24,7 @@ test("InfoTip opens on click/tap and is a 44px named IconButton", () => {
   assert.match(tip, /onClick=\{\(\) => setOpen\(true\)\}/);
   assert.match(tip, /<ClickAwayListener onClickAway=\{\(\) => setOpen\(false\)\}>/);
   assert.match(tip, /aria-label=\{title\}/);
-  assert.match(tip, /width: "var\(--tap-min\)", height: "var\(--tap-min\)"/);
+  assert.match(tip, /width: TAP_MIN, height: TAP_MIN/);
 });
 
 // guard: info-tip-tap (REVIEW-15 O19). No hand-made "i" button may come back: a local Tooltip around

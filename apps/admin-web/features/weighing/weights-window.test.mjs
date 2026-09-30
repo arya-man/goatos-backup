@@ -530,7 +530,7 @@ test("full-width shed chart labels fit without overlapping rows", () => {
   // Grouped rows at phone width: the value stays beside the label in the header row (it can never
   // clip past the card edge) and the track sits on its own full-width line below.
   assert.match(item, /-head`\}[\s\S]*?display: "flex"[\s\S]*?-value`\}[\s\S]*?track\.kind === "linear"/);
-  assert.match(item, /color: negative \? "var\(--danger\)" : undefined/);
+  assert.match(item, /color: negative \? "var\(--palette-error-main\)" : undefined/);
   // Fixed boxes from sm up: tall 300 / short 150, scrolling inside; on phone the list grows (no
   // nested scroller, webview rule).
   assert.match(item, /size === "tall" \? 300 : size === "short" \? 150 : null/);

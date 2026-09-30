@@ -293,7 +293,7 @@ export function AssigneePicker({
       ) : null}
       {owners.length === 0 || current ? (
         owners.length === 0 ? (
-          <Button size="small" variant="outlined" color="inherit" aria-expanded={open} aria-label={stateLabel} title={stateLabel} onClick={toggle} sx={{ ml: 0.5, borderRadius: "var(--r-pill)" }}>
+          <Button size="small" variant="outlined" color="inherit" aria-expanded={open} aria-label={stateLabel} title={stateLabel} onClick={toggle} sx={{ ml: 0.5, borderRadius: 999 }}>
             {labels.label}
           </Button>
         ) : (

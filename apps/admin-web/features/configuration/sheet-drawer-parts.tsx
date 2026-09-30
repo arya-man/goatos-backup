@@ -71,7 +71,7 @@ export function SheetStatus({ status, label }: { status: string; label: string }
 
 export function SheetJobCard({ children, testId, status, fileName, statusLabel }: { children: ReactNode; testId: string; status: string; fileName: string; statusLabel: string }) {
   return (
-    <Paper variant="outlined" data-testid={testId} data-status={status} sx={{ p: 1.5, borderRadius: "var(--r-md)", display: "flex", flexDirection: "column", gap: 1 }}>
+    <Paper variant="outlined" data-testid={testId} data-status={status} sx={{ p: 1.5, borderRadius: 1, display: "flex", flexDirection: "column", gap: 1 }}>
       <Stack direction="row" sx={{ flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 1, minWidth: 0 }}>
         <Typography variant="subtitle2" sx={{ minWidth: 0, maxWidth: 1, overflowWrap: "anywhere" }}>
           {fileName}

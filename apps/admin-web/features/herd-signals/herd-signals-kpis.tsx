@@ -56,7 +56,7 @@ export function HerdSignalsKpis({ summary, params, liveKey }: { summary: HerdSig
               href={href}
               underline="none"
               color="inherit"
-              sx={{ display: "block", height: 1, borderRadius: "var(--r-lg)" }}
+              sx={{ display: "block", height: 1, borderRadius: 1.5 }}
               aria-current={active ? "true" : undefined}
               onClick={(event) => {
                 if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;

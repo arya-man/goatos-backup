@@ -1,4 +1,5 @@
 import type { SxProps, Theme } from "@mui/material/styles";
+import { TAP_MIN } from "@/theme/tap-target";
 
 /**
  * Shared sx for the Sales / Procurement boards (replaces the retired procurement-minimal.css).
@@ -27,7 +28,7 @@ export const cellLinksSx = {
     boxSizing: "border-box",
     m: -1.5,
     p: 1.5,
-    minHeight: "var(--tap-min)",
+    minHeight: TAP_MIN,
     minWidth: 0,
     maxWidth: "100%",
     color: "inherit",

@@ -66,7 +66,7 @@ export function FeedPenColumns({
           role="group"
           tabIndex={0}
           aria-label={pen.ariaLabel}
-          sx={{ border: 1, borderColor: "divider", borderRadius: "var(--r-md)", px: 1.5, pt: 1.25, pb: 1, bgcolor: "background.neutral", minWidth: 0 }}
+          sx={{ border: 1, borderColor: "divider", borderRadius: 1, px: 1.5, pt: 1.25, pb: 1, bgcolor: "background.neutral", minWidth: 0 }}
         >
           <Box sx={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 1, mb: 0.75 }}>
             <Typography variant="subtitle2" component="span">
@@ -88,8 +88,8 @@ export function FeedPenColumns({
               data={pen.days.map((day) => ({ day: day.day, label: day.label, directed: day.directed, verified: day.verified, detail: day.detail }))}
               xKey="label"
               series={[
-                { key: "directed", label: directedLabel, color: "var(--primary)" },
-                { key: "verified", label: verifiedLabel, color: "var(--info)" },
+                { key: "directed", label: directedLabel, color: "var(--palette-primary-main)" },
+                { key: "verified", label: verifiedLabel, color: "var(--palette-info-main)" },
               ]}
               showLegend={false}
               yDomain={[0, top]}

@@ -178,7 +178,7 @@ export function TaskDetailPanel({
         </Box>
       </Box>
 
-      <Box sx={{ py: 3, px: 2.5, gap: "var(--sp-3)", display: "flex", flexDirection: "column" }}>
+      <Box sx={{ py: 3, px: 2.5, gap: 3, display: "flex", flexDirection: "column" }}>
         <div>
           <Typography variant="caption" sx={{ color: "text.disabled" }}>
             {copy(pageContract, "crumb")} / {pageContract.title} / <b>{detail.number}</b>

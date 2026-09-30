@@ -248,7 +248,7 @@ function NoteBody({
             sx={(theme) => ({
               px: 0.625,
               py: 0.125,
-              borderRadius: "var(--r-sm)",
+              borderRadius: 0.75,
               fontWeight: "fontWeightSemiBold",
               whiteSpace: "nowrap",
               color: "primary.main",

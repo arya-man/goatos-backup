@@ -17,6 +17,9 @@
 //   inline-style-prop      style={…} props
 //   lucide-import          icons imported from lucide-react (the template uses Iconify)
 //   raw-px-hex-literal     raw `12px` and #hex colour literals in .ts / .tsx
+//   css-var-token          reads of the Mesha CSS-variable tokens (theme/mesha-tokens.ts keys +
+//                          app/minimal-tokens.css custom properties) in TS/TSX outside theme/: the
+//                          parallel token system J1B P2-1 found (534 reads in 138 files); target 0
 //   legacy-css-rules       style RULES per stylesheet (not lines: deleting blank lines or comments
 //                          no longer satisfies it), every .css outside components/minimal and
 //                          layouts/template, CSS modules included
@@ -36,6 +39,7 @@ export const SHRINK_RATCHET_CHECKS = {
   "lucide-import": "lucide-react icon; the template uses Iconify (layouts/template/iconify, registered offline set). Shrink-only per file",
   "raw-px-hex-literal": "raw px or #hex literal in TS/TSX; use theme spacing / typography / palette tokens. Shrink-only per file",
   "legacy-css-rules": "a style rule in a legacy stylesheet or CSS module; style through template components + theme sx. Rule count per stylesheet is shrink-only, a new stylesheet has 0",
+  "css-var-token": "a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)",
 };
 
 // FIXJ6: frame.css / minimal-theme.css / mesha-theme.css are deleted (guard legacy-css-ceiling keeps them absent).
@@ -153,8 +157,20 @@ function classTokens(expr) {
   return tokens;
 }
 
+/** The Mesha CSS-variable token names (without `--`): theme/mesha-tokens.ts keys + app/minimal-tokens.css. */
+export function meshaTokenNames(root) {
+  const out = new Set();
+  // A guard fixture root (design:guard --self-test) has no token files: it reads the app's own.
+  const app = join(dirname(new URL(import.meta.url).pathname), "..", "..");
+  const base = existsSync(join(root, "theme/mesha-tokens.ts")) || existsSync(join(root, "app/minimal-tokens.css")) ? root : app;
+  const read = (rel) => { try { return readFileSync(join(base, rel), "utf8"); } catch { return ""; } };
+  for (const m of read("theme/mesha-tokens.ts").matchAll(/["'](--[\w-]+)["']\s*:/g)) out.add(m[1].slice(2));
+  for (const m of read("app/minimal-tokens.css").matchAll(/(--[\w-]+)\s*:/g)) out.add(m[1].slice(2));
+  return out;
+}
+
 /** Ratchet findings for one TS/TSX source. */
-export function shrinkRatchetFindingsFor(rel, source, { legacyClasses, reachable }) {
+export function shrinkRatchetFindingsFor(rel, source, { legacyClasses, reachable, tokens }) {
   const text = stripComments(source);
   const out = [];
   const push = (check, index, snippet) => out.push({ check, line: lineOf(text, index), snippet });
@@ -178,6 +194,7 @@ export function shrinkRatchetFindingsFor(rel, source, { legacyClasses, reachable
     const names = m[1] ? m[1].split(",").map((s) => s.trim()).filter(Boolean) : [m[2]];
     for (const name of names) push("lucide-import", m.index, `lucide-react ${name}`);
   }
+  if (tokens?.size) for (const m of text.matchAll(/var\(\s*--([\w-]+)/g)) if (tokens.has(m[1])) push("css-var-token", m.index, `var(--${m[1]})`);
   for (const m of text.matchAll(PX)) push("raw-px-hex-literal", m.index, `raw ${m[0]}`);
   for (const m of text.matchAll(HEX)) push("raw-px-hex-literal", m.index, `hex ${m[0]}`);
   return out;
@@ -216,12 +233,13 @@ export function shrinkRatchetFindings(root, { isExempt = () => false } = {}) {
   const out = [];
   const legacyClasses = legacyClassNames(root);
   const reachable = filesReachableFromPages(root);
+  const tokens = meshaTokenNames(root);
   const code = ["app", "components", "features", "lib", "layouts"]
     .flatMap((d) => walk(join(root, d)))
     .map((abs) => toRel(root, abs))
     .filter((rel) => /\.tsx?$/.test(rel) && !rel.endsWith(".d.ts") && !/\.(test|stories|spec)\.tsx?$/.test(rel) && !rel.startsWith("layouts/template/") && !isExempt(rel));
   for (const rel of code) {
-    for (const f of shrinkRatchetFindingsFor(rel, readFileSync(join(root, rel), "utf8"), { legacyClasses, reachable: reachable.has(rel) })) out.push({ ...f, file: rel });
+    for (const f of shrinkRatchetFindingsFor(rel, readFileSync(join(root, rel), "utf8"), { legacyClasses, reachable: reachable.has(rel), tokens })) out.push({ ...f, file: rel });
   }
   // J1B P0-1: stories and the Storybook config render through the same theme, so a legacy class in a
   // story is counted too (it renders unstyled since the legacy stylesheets are gone).

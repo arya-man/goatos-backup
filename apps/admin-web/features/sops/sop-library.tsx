@@ -77,7 +77,7 @@ const STATUS_COLOR: Record<SopCardView["status"], LabelColor> = { active: "succe
 const PAGE_PARAM = "page";
 
 const DLG_BODY_SX = {
-  "& .htl > .hrow": { borderRadius: "var(--r-md)", transition: (t: Theme) => t.transitions.create("background-color") },
+  "& .htl > .hrow": { borderRadius: 1, transition: (t: Theme) => t.transitions.create("background-color") },
   "& .htl > .hrow:hover": { bgcolor: "action.hover" },
 } as const;
 function statusText(view: SopCardView): string {

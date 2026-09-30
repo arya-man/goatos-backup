@@ -49,11 +49,11 @@ export type OwnerPresentationMap = Record<string, OwnerPresentationMeta>;
 const FALLBACK_OWNER_CONFIG: Record<CalendarOwnerFilter, FallbackOwnerConfig> = {
   all: {
     key: "all",
-    color: "var(--brand)",
+    color: "var(--palette-primary-main)",
   },
   pc: {
     key: "pc",
-    color: "var(--brand)",
+    color: "var(--palette-primary-main)",
   },
   inventory: {
     key: "inventory",
@@ -61,7 +61,7 @@ const FALLBACK_OWNER_CONFIG: Record<CalendarOwnerFilter, FallbackOwnerConfig> = 
   },
   admin_data_ops: {
     key: "admin_data_ops",
-    color: "var(--purple)",
+    color: "var(--palette-secondary-main)",
   },
 };
 
@@ -207,7 +207,7 @@ export function ownerScopeLabel(ownerKey: string, ownerMeta: OwnerPresentationMa
 }
 
 export function ownerColor(ownerKey: string, ownerMeta: OwnerPresentationMap): string {
-  return ownerMeta[ownerKey]?.color ?? fallbackOwner(ownerKey).color ?? "var(--brand)";
+  return ownerMeta[ownerKey]?.color ?? fallbackOwner(ownerKey).color ?? "var(--palette-primary-main)";
 }
 
 export const EVENT_TYPE_ICON: Record<CalendarEventType, IconifyName> = {

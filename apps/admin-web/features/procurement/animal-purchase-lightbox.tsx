@@ -14,6 +14,7 @@ import { useTheme } from "@mui/material/styles";
 import { varAlpha } from "minimal-shared/utils";
 import { Iconify } from "@/components/minimal/iconify";
 import { MEDIA_TILE_CAPTION_SX, MEDIA_TILE_FIGURE_SX, MEDIA_TILE_SIZE } from "./animal-purchase-tile-sx";
+import { TAP_MIN } from "@/theme/tap-target";
 
 export type LightboxItem = {
   proofRef: string;
@@ -94,7 +95,7 @@ export function AnimalPurchaseLightbox({ items, openLabel, closeLabel }: { items
                 height: MEDIA_TILE_SIZE,
                 border: 1,
                 borderColor: "divider",
-                borderRadius: "var(--r-lg)",
+                borderRadius: 1.5,
                 overflow: "hidden",
                 bgcolor: "background.neutral",
                 cursor: "zoom-in",
@@ -159,7 +160,7 @@ export function AnimalPurchaseLightbox({ items, openLabel, closeLabel }: { items
               <Typography component="span" variant="subtitle1" sx={{ minWidth: 0, overflowWrap: "anywhere" }}>
                 {open.title}
               </Typography>
-              <IconButton aria-label={closeLabel} title={closeLabel} onClick={close} sx={{ width: "var(--tap-min)", height: "var(--tap-min)", flexShrink: 0 }}>
+              <IconButton aria-label={closeLabel} title={closeLabel} onClick={close} sx={{ width: TAP_MIN, height: TAP_MIN, flexShrink: 0 }}>
                 <Iconify icon="mingcute:close-line" />
               </IconButton>
             </DialogTitle>
@@ -173,7 +174,7 @@ export function AnimalPurchaseLightbox({ items, openLabel, closeLabel }: { items
                   maxWidth: 1,
                   maxHeight: fullScreen ? "calc(100dvh - 96px)" : "calc(94dvh - 96px)",
                   objectFit: "contain",
-                  borderRadius: "var(--r-md)",
+                  borderRadius: 1,
                   bgcolor: "common.black",
                 },
               }}

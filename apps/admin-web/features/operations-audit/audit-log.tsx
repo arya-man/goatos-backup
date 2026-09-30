@@ -332,7 +332,7 @@ export async function OperationsAuditPage({
                         aria-current={selected ? "true" : undefined}
                         sx={{ color: "inherit", textDecoration: "none" }}
                       >
-                        <Box sx={{ gap: 2, px: 1, py: 1, display: "flex", alignItems: "center", borderRadius: "var(--r-md)", minHeight: 44, bgcolor: selected ? "action.selected" : "transparent", "&:hover": { bgcolor: "action.hover" } }}>
+                        <Box sx={{ gap: 2, px: 1, py: 1, display: "flex", alignItems: "center", borderRadius: 1, minHeight: 44, bgcolor: selected ? "action.selected" : "transparent", "&:hover": { bgcolor: "action.hover" } }}>
                           <Avatar sx={{ width: 40, height: 40, typography: "subtitle2" }}>{name.slice(0, 1).toUpperCase()}</Avatar>
                           <Box sx={{ flexGrow: 1, minWidth: 0 }}>
                             <Typography variant="subtitle2" noWrap>{name}</Typography>

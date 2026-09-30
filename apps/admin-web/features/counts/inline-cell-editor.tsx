@@ -29,6 +29,7 @@ import Typography from "@mui/material/Typography";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { CustomPopover } from "@/components/minimal/custom-popover";
+import { TAP_MIN } from "@/theme/tap-target";
 
 // InlineChoice is one selectable value. `label` is what the cell will show once applied -- the
 // stored value, not a prettier synonym -- and `description`/`hint` are secondary context.
@@ -69,9 +70,9 @@ const VALUE_BUTTON_SX = {
   font: "inherit",
   color: "inherit",
   textAlign: "left",
-  borderRadius: "var(--r-sm)",
-  minWidth: "var(--tap-min)",
-  minHeight: "var(--tap-min)",
+  borderRadius: 0.75,
+  minWidth: TAP_MIN,
+  minHeight: TAP_MIN,
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "flex-start",

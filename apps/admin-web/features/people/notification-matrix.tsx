@@ -25,6 +25,7 @@ import { groupAlertsByModule, isDirty, toggleDesignation, type MatrixAlert } fro
 import { InfoHint } from "@/components/app/info-hint";
 import Checkbox from "@mui/material/Checkbox";
 import { EmptyState } from "@/components/app/empty-state";
+import { TAP_MIN } from "@/theme/tap-target";
 
 /**
  * The Notifications matrix (maintainer decision 2026-09-08): one row per configurable alert,
@@ -236,7 +237,7 @@ export function NotificationMatrix({
                             alignItems: "center",
                             justifyContent: "space-between",
                             gap: 1.5,
-                            minHeight: "var(--tap-min)",
+                            minHeight: TAP_MIN,
                             px: 2,
                             borderTop: 1,
                             borderColor: "divider",
@@ -268,7 +269,7 @@ export function NotificationMatrix({
 }
 
 /** A thumb-sized hit area round the 18px box (mobile smoke: >= 44px tap target). */
-const CHECKBOX_HIT_SX = { p: { xs: 1.5, sm: 1 }, minWidth: "var(--tap-min)", minHeight: "var(--tap-min)" } as const;
+const CHECKBOX_HIT_SX = { p: { xs: 1.5, sm: 1 }, minWidth: TAP_MIN, minHeight: TAP_MIN } as const;
 
 /** Alert name, blurb, state Labels, reset and the row's save message (shared by table + phone card). */
 function AlertSummary({ row, canEdit, t, onReset }: { row: RowState; canEdit: boolean; t: (key: string) => string; onReset: () => void }) {

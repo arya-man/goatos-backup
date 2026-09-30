@@ -1,6 +1,6 @@
 {
   "note": "Accepted design-system debt. Every entry is a KNOWN violation of .agents/skills/design-system/SKILL.md that a future change must not multiply. Shrink this list; never grow it to land a change. P0 checks (foreign-palette, theme-token-drift, google-fonts-link) can never be waived.",
-  "updated_at": "2026-09-30T07:47:47.555Z",
+  "updated_at": "2026-09-30T10:14:56.020Z",
   "waived": [
     "f2-literal|features/counts/counts-summary-cards.ts|fattening: [\"F2\", \"F2-Male\", \"F2-Female\", \"Fattening\", \"Fattening male\", \"Fattening female\"],",
     "f2-literal|lib/admin-ui-contract.ts|{ key: \"F2\", label: \"Fattening\", title: \"\", tone: \"\", enabled: true, disabled_reason: \"\" },",
@@ -10,7 +10,6 @@
     "missing-loading-tsx|app/(admin)/procurement/page.tsx|no sibling loading.tsx",
     "missing-loading-tsx|app/(admin)/sales/page.tsx|no sibling loading.tsx",
     "missing-loading-tsx|app/(admin)/verification/page.tsx|no sibling loading.tsx",
-    "native-date-input|features/procurement/sales-record-drawer.tsx|type=\"date\"",
     "page-outside-shell|app/(admin)/actions/page.tsx|neither the page nor its feature entry uses PageHeader / .kit-page",
     "page-outside-shell|app/(admin)/procurement/page.tsx|neither the page nor its feature entry uses PageHeader / .kit-page",
     "page-outside-shell|app/(admin)/sales/page.tsx|neither the page nor its feature entry uses PageHeader / .kit-page",
@@ -53,6 +52,274 @@
     "technical-copy|backend/internal/adminui/app/service.go|\"hint.product_feed_covers\": \"Which feed is chosen on the sale itself, from Feed config:\",": "main-origin copy (on origin/main before rebase 2): \"Feed config\" names the admin page the person opens, not a technical term"
   },
   "ratchet": {
+    "css-var-token|app/login/page.tsx": {
+      "allowed": 1,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|components/app/assignee-field-sx.ts": {
+      "allowed": 3,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|components/app/detail-drawer.tsx": {
+      "allowed": 6,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|components/app/icon-badge.tsx": {
+      "allowed": 1,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|components/app/kanban/board-layout.ts": {
+      "allowed": 3,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|components/app/kanban/column-styles.tsx": {
+      "allowed": 2,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|components/app/kanban/item-styles.tsx": {
+      "allowed": 2,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|components/app/kanban/kanban.tsx": {
+      "allowed": 6,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|components/app/list/filter-chip.tsx": {
+      "allowed": 2,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|components/app/phone-tap-styles.tsx": {
+      "allowed": 3,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|components/app/progress-bar.tsx": {
+      "allowed": 1,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|components/app/progress-item.tsx": {
+      "allowed": 5,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|components/app/scroll-edges.tsx": {
+      "allowed": 1,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|components/app/skeletons/blocks.tsx": {
+      "allowed": 8,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|components/app/table/table-pagination-custom.tsx": {
+      "allowed": 2,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|components/app/table/table-pagination-links.tsx": {
+      "allowed": 2,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|components/app/upload-file.tsx": {
+      "allowed": 1,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|components/mesha-shell.tsx": {
+      "allowed": 6,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/calendar/calendar-contract.ts": {
+      "allowed": 1,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/ceo-ai/ceo-ai-chart-geometry.ts": {
+      "allowed": 8,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/ceo-ai/ceo-ai-markdown.tsx": {
+      "allowed": 1,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/ceo-ai/ceo-ai-panel.tsx": {
+      "allowed": 1,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/ceo-ai/ceo-ai-watch.tsx": {
+      "allowed": 1,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/control-tower/control-tower-local-drawer.tsx": {
+      "allowed": 6,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/control-tower/index.tsx": {
+      "allowed": 6,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/counts/counts-breakdown.tsx": {
+      "allowed": 1,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/counts/herd-analytics.tsx": {
+      "allowed": 2,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/feed/feed-shed-feed-charts.tsx": {
+      "allowed": 4,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/health/health-analytics.tsx": {
+      "allowed": 9,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/herd-signals/herd-signals-stream-bridge.tsx": {
+      "allowed": 2,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/leadership-tasks/leadership-tasks-filters.tsx": {
+      "allowed": 1,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/leadership-tasks/leadership-tasks-table.tsx": {
+      "allowed": 2,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/leadership-tasks/task-activity-feed.tsx": {
+      "allowed": 2,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/leadership-tasks/task-detail-panel.tsx": {
+      "allowed": 2,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/leadership-tasks/task-status-menu.tsx": {
+      "allowed": 2,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/leadership-tasks/task-write-forms.tsx": {
+      "allowed": 1,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/notifications/notification-panel.tsx": {
+      "allowed": 7,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/people/clock-screen.tsx": {
+      "allowed": 1,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/people/people-board.tsx": {
+      "allowed": 1,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/people/vaccination-operators-screen.tsx": {
+      "allowed": 4,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/preventive-care-vaccination/command-board-view.tsx": {
+      "allowed": 2,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/preventive-care-vaccination/full-vaccine-schedule.tsx": {
+      "allowed": 4,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/preventive-care-vaccination/inventory-vaccine-progress.tsx": {
+      "allowed": 2,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/process-integrity/process-integrity.ts": {
+      "allowed": 3,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/procurement/animal-purchase-lightbox.tsx": {
+      "allowed": 2,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/procurement/animal-purchase-sop.tsx": {
+      "allowed": 2,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/procurement/feed-purchase-drawer.tsx": {
+      "allowed": 1,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/procurement/load-cost-drawer.tsx": {
+      "allowed": 1,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/procurement/sales-buyer-analytics.tsx": {
+      "allowed": 1,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/procurement/sales-record-drawer.tsx": {
+      "allowed": 1,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/procurement/source-entry-local-drawer.tsx": {
+      "allowed": 1,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/procurement/vendor-filter-bar.tsx": {
+      "allowed": 2,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/procurement/work-state.ts": {
+      "allowed": 3,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/sops/editor-parts.tsx": {
+      "allowed": 4,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/vaccination-care-coverage/care-coverage-filters.tsx": {
+      "allowed": 1,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/vaccination-live-tracker/live-poller.tsx": {
+      "allowed": 2,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/vaccination-live-tracker/live-state-tag.tsx": {
+      "allowed": 2,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/vaccination-live-tracker/live-tracker-operators.tsx": {
+      "allowed": 2,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/vaccination-live-tracker/live-ui.tsx": {
+      "allowed": 1,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/vaccination-plan/plan-console.tsx": {
+      "allowed": 2,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/vaccination-plan/plan-editor.tsx": {
+      "allowed": 6,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/weighing/feed-weight-band-table.tsx": {
+      "allowed": 8,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/weighing/gain-threshold-bars.tsx": {
+      "allowed": 4,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/work-board/work-board-modal.tsx": {
+      "allowed": 2,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/work-board/work-board-parts.tsx": {
+      "allowed": 2,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|features/work-board/work-board-subtasks.tsx": {
+      "allowed": 4,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
+    "css-var-token|lib/tone.ts": {
+      "allowed": 1,
+      "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: a read of a Mesha CSS-variable token (var(--sp-*), var(--r-*), var(--tap-min), var(--brand), var(--info), ... defined in theme/mesha-tokens.ts or app/minimal-tokens.css) in TS/TSX: a second source of truth beside the theme. Use theme.spacing / shape / palette through sx (p: 1, borderRadius: 1.5, color: \"info.main\", minHeight: TAP_MIN from theme/tap-target). Shrink-only per file, target 0 (J1B P2-1)"
+    },
     "fixed-overlay-no-portal|features/feed/range-coverage-note.tsx": {
       "allowed": 1,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: position:fixed overlay rendered in place; wrap in kit BodyPortal (or use kit Sheet/Dialog)"
@@ -84,18 +351,6 @@
     "raw-button|components/confirm-submit-button.tsx": {
       "allowed": 1,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
-    },
-    "raw-dialog|features/calendar/calendar-event-drawer.tsx": {
-      "allowed": 2,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled dialog/sheet; use kit Dialog / Sheet / PopSurface"
-    },
-    "raw-dialog|features/preventive-care-vaccination/command-board-view.tsx": {
-      "allowed": 3,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled dialog/sheet; use kit Dialog / Sheet / PopSurface"
-    },
-    "raw-dialog|features/preventive-care-vaccination/full-vaccine-schedule-drawer.tsx": {
-      "allowed": 1,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled dialog/sheet; use kit Dialog / Sheet / PopSurface"
     },
     "raw-menu|features/herd-signals/herd-signals-mapping-table.tsx": {
       "allowed": 1,
@@ -289,16 +544,8 @@
       "allowed": 1,
       "reason": "baselined 2026-09-30 at the current count (FIXJ-CI, J1 CI gaps); shrink-only: raw px or #hex literal in TS/TSX; use theme spacing / typography / palette tokens. Shrink-only per file"
     },
-    "raw-px|app/login/page.tsx": {
-      "allowed": 1,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
-    },
     "raw-px|features/calendar/calendar-drive-detail.tsx": {
       "allowed": 8,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
-    },
-    "raw-px|features/ceo-ai-admin/trace-viewer.tsx": {
-      "allowed": 1,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
     },
     "raw-px|features/control-tower/index.tsx": {
@@ -313,16 +560,12 @@
       "allowed": 1,
       "reason": "template EcommerceSalesOverview progress bar: LinearProgress sx height 8, copied as-is (no raw minWidth; guard progress-bar-px-min-width)"
     },
-    "raw-px|features/feed/feed-analytics.tsx": {
-      "allowed": 1,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
-    },
     "raw-px|features/feed/feed-config-editor.tsx": {
       "allowed": 1,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
     },
     "raw-px|features/goat-passport/index.tsx": {
-      "allowed": 3,
+      "allowed": 2,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
     },
     "raw-px|features/herd-signals/herd-signals-history-fullscreen.tsx": {
@@ -331,10 +574,6 @@
     },
     "raw-px|features/operations-audit/audit-log.tsx": {
       "allowed": 3,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
-    },
-    "raw-px|features/preventive-care-vaccination/operations.tsx": {
-      "allowed": 1,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
     },
     "raw-px|features/process-integrity/workflows-landing.tsx": {
@@ -350,15 +589,11 @@
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
     },
     "raw-px|features/sops/sop-library.tsx": {
-      "allowed": 3,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
-    },
-    "raw-px|features/verification-review/randomization.tsx": {
-      "allowed": 1,
+      "allowed": 2,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
     },
     "raw-px|features/verification-review/toxin-review-list.tsx": {
-      "allowed": 2,
+      "allowed": 1,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
     },
     "raw-px|features/verification-review/verification-review-drawer.tsx": {
@@ -368,14 +603,6 @@
     "raw-px|features/verification-review/verification-review-page.tsx": {
       "allowed": 2,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
-    },
-    "raw-px|features/work-board/work-board-modal.tsx": {
-      "allowed": 1,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
-    },
-    "raw-radius|features/procurement/load-forms.tsx": {
-      "allowed": 1,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
     }
   }
 }

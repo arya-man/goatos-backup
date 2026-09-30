@@ -6,6 +6,7 @@ import ClickAwayListener from "@mui/material/ClickAwayListener";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import { Iconify } from "@/components/minimal/iconify";
+import { TAP_MIN } from "@/theme/tap-target";
 
 /**
  * A caveat about a nearby control as a template info tooltip (guard: info-tip-tap).
@@ -34,7 +35,7 @@ export function InfoTip({ title, testId }: { title: string; testId?: string }) {
             aria-label={title}
             data-testid={testId}
             onClick={() => setOpen(true)}
-            sx={{ width: "var(--tap-min)", height: "var(--tap-min)", color: "text.disabled" }}
+            sx={{ width: TAP_MIN, height: TAP_MIN, color: "text.disabled" }}
           >
             <Iconify icon="eva:info-outline" width={20} />
           </IconButton>

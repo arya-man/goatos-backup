@@ -100,11 +100,11 @@ export const VERIFICATION_META: Record<ProcessIntegrityVerificationState, Meta> 
 
 // Column swatch color per tone — mirrors the mock's per-status swatch.
 export const TONE_SWATCH: Record<Tone, string> = {
-  ok: "var(--brand)",
+  ok: "var(--palette-primary-main)",
   warn: "var(--amber)",
-  dng: "var(--danger)",
-  info: "var(--info)",
-  pur: "var(--purple)",
+  dng: "var(--palette-error-main)",
+  info: "var(--palette-info-main)",
+  pur: "var(--palette-secondary-main)",
   teal: "var(--teal)",
   mut: "var(--line2)",
 };

@@ -33,6 +33,7 @@ import { KpiGrid } from "@/components/app/kpi-grid";
 import { pageHeaderActionsSx, pageHeaderLayoutSx, type PageHeaderLayout } from "@/components/app/page-header";
 import { orderToolbarFilterSx, orderToolbarSearchSx } from "@/components/app/order-toolbar-filter";
 import { FILTER_SEARCH_BASIS } from "@/components/app/filter-field-widths";
+import { TAP_MIN } from "@/theme/tap-target";
 
 type Typo = "h3" | "h4" | "h5" | "h6" | "subtitle1" | "subtitle2" | "body1" | "body2" | "caption";
 
@@ -132,7 +133,7 @@ export function PageHeaderSkeleton({
   // (dot separators, body2 line) with Skeleton crumbs, the actions sit in the same right-hand Box.
   // The heading keeps the styled slot's own element (not PageHeader's h1: one h1 per document).
   return (
-    <Box component="header" aria-hidden="true" data-skel="header" sx={{ display: "flex", flexDirection: "column", gap: "var(--sp-3)", ...(mb != null ? { mb } : {}) }}>
+    <Box component="header" aria-hidden="true" data-skel="header" sx={{ display: "flex", flexDirection: "column", gap: 3, ...(mb != null ? { mb } : {}) }}>
       <CustomBreadcrumbs
         heading={
           (back ? (
@@ -190,7 +191,7 @@ export function TabsSkeleton({ count, variant = "underline", counts = false, wid
       aria-hidden="true"
       data-skel="tabs"
       indicatorColor={variant === "pill" ? ("custom" as never) : undefined}
-      sx={[variant === "pill" ? { width: "fit-content", maxWidth: "100%", borderRadius: "var(--r-md)" } : {}, ...(Array.isArray(sx) ? sx : [sx])]}
+      sx={[variant === "pill" ? { width: "fit-content", maxWidth: "100%", borderRadius: 1 } : {}, ...(Array.isArray(sx) ? sx : [sx])]}
     >
       {Array.from({ length: count }, (_, i) => (
         <Tab
@@ -406,7 +407,7 @@ export function KpiCardSkeleton({ spark, booking, trend, hint, hintLines = 1, fa
         <SkeletonLine variant="subtitle2" width="56%" />
       </Box>
       {caption}
-      <Skeleton variant="rounded" width={36} height={36} sx={{ position: "absolute", top: 24, right: 20, borderRadius: "var(--r-sm)" }} />
+      <Skeleton variant="rounded" width={36} height={36} sx={{ position: "absolute", top: 24, right: 20, borderRadius: 0.75 }} />
     </Card>
   );
 }
@@ -598,7 +599,7 @@ function SkeletonTableBody({ columns, rows, dense, lead }: { columns: number; ro
 /** Pager twin: the template TablePaginationCustom 64px toolbar, range + arrows right-aligned. */
 export function PagerSkeleton() {
   return (
-    <Box aria-hidden="true" sx={{ minHeight: "calc(var(--sp-4) * 2)", px: 2, display: "flex", alignItems: "center", justifyContent: "flex-end", columnGap: "var(--sp-3)" }}>
+    <Box aria-hidden="true" sx={{ minHeight: "calc(var(--sp-4) * 2)", px: 2, display: "flex", alignItems: "center", justifyContent: "flex-end", columnGap: 3 }}>
       <Skeleton variant="text" width={120} sx={{ display: { xs: "none", sm: "block" } }} />
       <Skeleton variant="text" width={72} />
       <Box sx={{ display: "flex", gap: 1 }}>
@@ -695,7 +696,7 @@ export function CardGridSkeleton({
 }) {
   const template = Object.fromEntries(Object.entries(columns).map(([bp, n]) => [bp, `repeat(${n}, 1fr)`]));
   return (
-    <Box aria-hidden="true" data-skel="cards" sx={{ gap: "var(--sp-3)", display: "grid", gridTemplateColumns: template }}>
+    <Box aria-hidden="true" data-skel="cards" sx={{ gap: 3, display: "grid", gridTemplateColumns: template }}>
       {Array.from({ length: count }, (_, i) => (
         <Card key={i} {...(optionalFrom != null && i >= optionalFrom ? { "data-skel-optional": "" } : {})}>
           <Box sx={{ p: 3, pb: 2 }}>
@@ -790,7 +791,7 @@ export function NavRailSkeleton({ groups }: { groups: number[] }) {
             <SkeletonLine variant="caption" width={96} />
           </Box>
           {Array.from({ length: items }, (_, i) => (
-            <Box key={i} sx={{ height: "var(--tap-min)", display: "flex", alignItems: "center", px: 1, width: { xs: 82 + ((i * 37) % 60), md: 1 } }}>
+            <Box key={i} sx={{ height: TAP_MIN, display: "flex", alignItems: "center", px: 1, width: { xs: 82 + ((i * 37) % 60), md: 1 } }}>
               <SkeletonLine variant="body2" width={`${60 + ((i * 17) % 30)}%`} />
             </Box>
           ))}
@@ -928,7 +929,7 @@ export function ControlRowSkeleton({ children, caption }: { children: ReactNode;
 
 /** One chip-sized pill (FilterChip / Label). */
 export function ChipSkeleton({ width = 88, height = 32 }: { width?: number; height?: number | Record<string, number> }) {
-  return <Skeleton variant="rounded" width={width} sx={{ height, borderRadius: "var(--r-md)", flexShrink: 0 }} />;
+  return <Skeleton variant="rounded" width={width} sx={{ height, borderRadius: 1, flexShrink: 0 }} />;
 }
 
 /** A row of chips (FilterChip rows, severity chips). */
@@ -1000,7 +1001,7 @@ export function KanbanSkeleton({
         display: "flex",
         flexDirection: "column",
         gap: 2,
-        borderRadius: "var(--r-xl)",
+        borderRadius: 2,
         bgcolor: "background.neutral",
         minWidth: 0,
         ...(layout === "kanban" ? { width: laneWidth ? capLane(laneWidth) : "min(calc(var(--sp-6) * 7), calc(100vw - var(--sp-6)))" } : {}),
@@ -1013,7 +1014,7 @@ export function KanbanSkeleton({
       </Box>
       <Stack spacing={2} sx={{ px: 2, pb: 2, minHeight: "calc(var(--sp-5) * 2)" }}>
         {Array.from({ length: cards }, (_, c) => (
-          <Card key={c} sx={{ p: 2.5, borderRadius: "var(--r-lg)", boxShadow: "none" }}>
+          <Card key={c} sx={{ p: 2.5, borderRadius: 1.5, boxShadow: "none" }}>
             <SkeletonLine variant="subtitle2" width={wobble(i + c, 56, 30)} />
             <SkeletonLine variant="caption" width={wobble(i + c + 3, 36, 30)} sx={{ mt: 1 }} />
             <Box sx={{ mt: 2, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -1031,7 +1032,7 @@ export function KanbanSkeleton({
       data-skel="board"
       sx={
         layout === "kanban"
-          ? { pb: 2, columnGap: "var(--sp-3)", display: "flex", alignItems: "flex-start", overflow: "hidden", maxWidth: 1 }
+          ? { pb: 2, columnGap: 3, display: "flex", alignItems: "flex-start", overflow: "hidden", maxWidth: 1 }
           : { display: "grid", gap: 1.5, alignItems: "start", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))", lg: `repeat(${lanes.length}, minmax(0, 1fr))` } }
       }
     >
@@ -1185,7 +1186,7 @@ export function OrderDetailsToolbarSkeleton({
   const sub = lines(subtitleLines);
   const acts: readonly { width: number; label?: boolean }[] = actions ?? actionWidths.map((width) => ({ width }));
   return (
-    <Box aria-hidden="true" data-skel="header" sx={{ gap: "var(--sp-3)", display: "flex", ...(flush ? {} : { mb: { xs: 3, md: 5 } }), flexDirection: { xs: "column", md: "row" } }}>
+    <Box aria-hidden="true" data-skel="header" sx={{ gap: 3, display: "flex", ...(flush ? {} : { mb: { xs: 3, md: 5 } }), flexDirection: { xs: "column", md: "row" } }}>
       <Box sx={{ gap: 1, display: "flex", alignItems: "flex-start" }}>
         {back ? <Skeleton variant="circular" sx={{ width: tapHeight(36), height: tapHeight(36), flexShrink: 0 }} /> : null}
         <Stack spacing={0.5} sx={{ minWidth: 0 }}>

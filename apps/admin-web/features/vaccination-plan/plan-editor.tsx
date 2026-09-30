@@ -631,7 +631,7 @@ function RailItem({ selected, initials: text, primary, secondary, muted, onClick
       selected={selected}
       aria-current={selected}
       onClick={onClick}
-      sx={{ borderRadius: "var(--r-sm)", gap: 1.5, py: 1, flexShrink: 0, minWidth: { xs: 220, md: 0 }, opacity: muted ? 0.56 : 1 }}
+      sx={{ borderRadius: 0.75, gap: 1.5, py: 1, flexShrink: 0, minWidth: { xs: 220, md: 0 }, opacity: muted ? 0.56 : 1 }}
     >
       <Avatar variant="rounded" sx={{ width: "calc(var(--sp-4) + var(--sp-half))", height: "calc(var(--sp-4) + var(--sp-half))", typography: "subtitle2", bgcolor: selected ? "primary.main" : "background.neutral", color: selected ? "primary.contrastText" : "text.secondary" }}>
         {text}
@@ -856,7 +856,7 @@ function FieldRow({ label, children }: { label: string; children: React.ReactNod
 function Timeline({ lateDays }: { lateDays: number }) {
   return (
     <Box sx={{ mt: 2 }}>
-      <Box sx={{ display: "flex", borderRadius: "var(--r-sm)", overflow: "hidden", typography: "caption", fontWeight: "fontWeightSemiBold" }}>
+      <Box sx={{ display: "flex", borderRadius: 0.75, overflow: "hidden", typography: "caption", fontWeight: "fontWeightSemiBold" }}>
         <Box sx={{ flex: 1, py: 0.75, textAlign: "center", bgcolor: "success.main", color: "success.contrastText" }}>Due day</Box>
         <Box sx={{ flex: 3, py: 0.75, textAlign: "center", bgcolor: "warning.main", color: "warning.contrastText" }}>Still accepted — up to {formatDays(lateDays)} late</Box>
       </Box>

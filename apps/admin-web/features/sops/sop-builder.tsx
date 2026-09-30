@@ -43,6 +43,7 @@ import { BuilderPreview } from "./builder-preview";
 import type { DryRunResponse } from "@/lib/api/server";
 import { copy, optionGroup, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import Alert from "@mui/material/Alert";
+import { TAP_MIN } from "@/theme/tap-target";
 
 function newId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
@@ -89,7 +90,7 @@ function SectionCard({ icon, title, action, children }: { icon?: IconifyName; ti
       <CardHeader
         avatar={
           icon ? (
-            <Box sx={(theme) => ({ display: "inline-flex", p: 0.75, borderRadius: "var(--r-md)", color: "primary.main", bgcolor: varAlpha(theme.vars.palette.primary.mainChannel, 0.12) })}>
+            <Box sx={(theme) => ({ display: "inline-flex", p: 0.75, borderRadius: 1, color: "primary.main", bgcolor: varAlpha(theme.vars.palette.primary.mainChannel, 0.12) })}>
               <Iconify icon={icon} width={18} />
             </Box>
           ) : undefined
@@ -115,7 +116,7 @@ function LockedFact({ ariaLabel, title, children, testId }: { ariaLabel: string;
       aria-label={ariaLabel}
       title={title}
       data-testid={testId}
-      sx={{ alignItems: "center", flexWrap: "wrap", justifyContent: { xs: "space-between", sm: "flex-start" }, minHeight: "var(--tap-min)", px: 1.25, border: 1, borderColor: "divider", borderRadius: "var(--r-md)", bgcolor: "background.neutral" }}
+      sx={{ alignItems: "center", flexWrap: "wrap", justifyContent: { xs: "space-between", sm: "flex-start" }, minHeight: TAP_MIN, px: 1.25, border: 1, borderColor: "divider", borderRadius: 1, bgcolor: "background.neutral" }}
     >
       {children}
     </Stack>
@@ -499,7 +500,7 @@ export function SopBuilder({
 
       <Dialog fullWidth maxWidth="sm" open={previewOpen} onClose={() => setPreviewOpen(false)} slotProps={{ paper: { "aria-label": copy(pc, "builder.preview.title") } }}>
         <DialogTitle component="div" sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-          <Box sx={(theme) => ({ display: "inline-flex", p: 0.75, borderRadius: "var(--r-md)", color: "primary.main", bgcolor: varAlpha(theme.vars.palette.primary.mainChannel, 0.12) })}>
+          <Box sx={(theme) => ({ display: "inline-flex", p: 0.75, borderRadius: 1, color: "primary.main", bgcolor: varAlpha(theme.vars.palette.primary.mainChannel, 0.12) })}>
             <Iconify icon="solar:eye-bold" />
           </Box>
           <Box sx={{ flex: 1, minWidth: 0 }}>

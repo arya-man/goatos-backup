@@ -54,7 +54,7 @@ function SubtaskRow({ pageContract, sub }: { pageContract: AdminUiPageContract; 
           ) : undefined
         }
       >
-        <ListItemButton aria-expanded={open} onClick={() => setOpen((v) => !v)} sx={{ gap: 1.5, pr: sub.href ? 7 : 2, borderRadius: "var(--r-sm)" }}>
+        <ListItemButton aria-expanded={open} onClick={() => setOpen((v) => !v)} sx={{ gap: 1.5, pr: sub.href ? 7 : 2, borderRadius: 0.75 }}>
           <Iconify icon={open ? "eva:arrow-ios-downward-fill" : "eva:arrow-ios-forward-fill"} width={16} sx={{ color: "text.disabled", flexShrink: 0 }} />
           <ListItemText
             primary={sub.name}

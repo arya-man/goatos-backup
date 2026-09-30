@@ -12,7 +12,7 @@ const noSubscribe = () => () => {};
  * `colors:` in ApexCharts options that is a raw `var(--…)`, hex or `color-mix()` literal.
  *
  * A series colour is named by a palette channel (`"primary"`, `"info.dark"`, `"grey.500"`). The
- * Mesha token names older callers still pass (`"var(--brand)"`, `"var(--amber)"`) map onto a
+ * Mesha token names older callers still pass (`"var(--palette-primary-main)"`, `"var(--amber)"`) map onto a
  * channel here, so an entity keeps its hue on every chart while the callers move to channels.
  */
 

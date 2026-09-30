@@ -129,7 +129,7 @@ export function TaskDeadlineFields({
             "& .move-date-button": {
               height: "var(--input-h)",
               px: 1.75,
-              borderRadius: "var(--r-md)",
+              borderRadius: 1,
               borderColor: varAlpha(theme.vars.palette.grey["500Channel"], 0.2),
               bgcolor: "transparent",
               typography: "body1",

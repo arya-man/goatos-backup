@@ -11,7 +11,7 @@ import type { SxProps, Theme } from "@mui/material/styles";
 export const PAGE_ROOT_SX = {
   display: "grid",
   gridTemplateColumns: "minmax(0, 1fr)",
-  gap: "var(--sp-3)",
+  gap: 3,
   minWidth: 0,
   alignContent: "start",
   "& > *": { mt: 0, mb: 0, minWidth: 0 },

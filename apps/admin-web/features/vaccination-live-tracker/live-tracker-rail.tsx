@@ -122,7 +122,7 @@ function ActivityCard({
       />
       {activity.items.length > 0 ? (
         // Template summary strip (booking / invoice analytic): figure over caption, dashed dividers.
-        <Box sx={{ mx: 3, mt: 2, display: "grid", gridTemplateColumns: "repeat(3, 1fr)", borderRadius: "var(--r-lg)", border: 1, borderColor: "divider", borderStyle: "dashed" }}>
+        <Box sx={{ mx: 3, mt: 2, display: "grid", gridTemplateColumns: "repeat(3, 1fr)", borderRadius: 1.5, border: 1, borderColor: "divider", borderStyle: "dashed" }}>
           {[
             [scanCaptureTotal, copy(pageContract, "live.scanned_label")],
             [proofVideoTotal, copy(pageContract, "live.proofed_label")],
@@ -229,7 +229,7 @@ function AttentionCard({
           </Typography>
         ) : (
           attention.map((row, index) => (
-            <Box key={`${row.kind}|${row.shed_id}|${row.operator_id}|${index}`} sx={{ p: 2, borderRadius: "var(--r-lg)", bgcolor: "background.neutral" }}>
+            <Box key={`${row.kind}|${row.shed_id}|${row.operator_id}|${index}`} sx={{ p: 2, borderRadius: 1.5, bgcolor: "background.neutral" }}>
               <Typography variant="subtitle2">
                 {row.subject_label}
                 <Box component="span" sx={{ color: "warning.main" }}>

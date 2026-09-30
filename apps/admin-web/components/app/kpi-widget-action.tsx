@@ -12,7 +12,7 @@ import { KpiWidget, type KpiWidgetProps } from "@/components/app/kpi-widget";
 export function KpiWidgetAction({ onClick, sx, ...props }: KpiWidgetProps & { onClick?: () => void }) {
   if (!onClick) return <KpiWidget {...props} sx={sx} />;
   return (
-    <CardActionArea onClick={onClick} sx={{ height: 1, borderRadius: "var(--r-lg)" }}>
+    <CardActionArea onClick={onClick} sx={{ height: 1, borderRadius: 1.5 }}>
       <KpiWidget {...props} sx={[{ height: 1 }, ...(Array.isArray(sx) ? sx : [sx])]} />
     </CardActionArea>
   );

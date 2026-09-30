@@ -156,6 +156,6 @@ const preSx = {
   typography: "caption",
   fontFamily: "monospace",
   bgcolor: "background.neutral",
-  borderRadius: "var(--r-md)",
+  borderRadius: 1,
   p: 1.5,
 } as const;

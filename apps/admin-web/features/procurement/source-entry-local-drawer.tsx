@@ -255,7 +255,7 @@ export function SourceEntryLocalDrawer({
       title={`${copy(pageContract, "drawer.load.title_prefix")} — ${displayedItem.sourceLocation}`}
       eyebrow={copy(pageContract, "drawer.load.eyebrow")}
       icon={<Iconify icon="solar:box-minimalistic-bold" aria-hidden="true" />}
-      iconColors={{ bg: "var(--brand-soft)", fg: "var(--info)" }}
+      iconColors={{ bg: "var(--brand-soft)", fg: "var(--palette-info-main)" }}
       subtitle={`${displayedItem.sourceParty} · ${displayedItem.purpose}`}
       ariaLabel={copy(pageContract, "drawer.load.aria")}
       closeLabel={closeLabel}

@@ -104,13 +104,13 @@ const SERIES_COLOR = {
 
 /** Existing status tokens only (brand lock): each accent this page already used maps to its kit tone. */
 const ACCENT_TONE: Record<string, KitTone> = {
-  "var(--brand)": "primary",
-  "var(--info)": "info",
+  "var(--palette-primary-main)": "primary",
+  "var(--palette-info-main)": "info",
   "var(--teal)": "info",
-  "var(--danger)": "error",
+  "var(--palette-error-main)": "error",
   "var(--amber)": "warning",
-  "var(--purple)": "violet",
-  "var(--muted)": "neutral",
+  "var(--palette-secondary-main)": "violet",
+  "var(--palette-text-secondary)": "neutral",
 };
 
 const nf = (value: number) => value.toLocaleString("en-IN");
@@ -470,14 +470,14 @@ export async function HealthAnalyticsPage({
         <Grid container spacing={3}>
         <Kpi
           tile={0}
-          accent="var(--info)"
+          accent="var(--palette-info-main)"
           label={ha(pageContract, "kpi.open.label")}
           value={totals.open_cases}
           sub={ha(pageContract, "kpi.open.sub")}
         />
         <Kpi
           tile={1}
-          accent="var(--brand)"
+          accent="var(--palette-primary-main)"
           label={ha(pageContract, "kpi.new.label")}
           value={totals.new_cases}
           monthly={newCaseRowsByMonth.map((m) => m.new_cases)}
@@ -496,7 +496,7 @@ export async function HealthAnalyticsPage({
         />
         <Kpi
           tile={3}
-          accent="var(--danger)"
+          accent="var(--palette-error-main)"
           label={ha(pageContract, "kpi.deaths.label")}
           value={totals.deaths}
           monthly={deathRowsByMonth.map((m) => m.attributed + m.unattributed)}
@@ -583,7 +583,7 @@ export async function HealthAnalyticsPage({
                 xKey="month"
                 kind={newCaseRowsByMonth.length <= 3 ? "bar" : "area"}
                 integerY
-                series={[{ key: "new_cases", label: ha(pageContract, "kpi.new.label"), color: "var(--brand)" }]}
+                series={[{ key: "new_cases", label: ha(pageContract, "kpi.new.label"), color: "var(--palette-primary-main)" }]}
                 height={300}
               />
             )}            </Box>
@@ -649,7 +649,7 @@ export async function HealthAnalyticsPage({
                 xKey="month"
                 kind={newCaseRowsByMonth.length <= 3 ? "bar" : "area"}
                 integerY
-                series={[{ key: "new_cases", label: ha(pageContract, "kpi.new.label"), color: "var(--brand)" }]}
+                series={[{ key: "new_cases", label: ha(pageContract, "kpi.new.label"), color: "var(--palette-primary-main)" }]}
                 height={300}
               />
             )}            </Box>
@@ -674,7 +674,7 @@ export async function HealthAnalyticsPage({
               sub={ha(pageContract, "kpi.unattributed.sub")}
             />
             <Kpi
-              accent="var(--muted)"
+              accent="var(--palette-text-secondary)"
               label={ha(pageContract, "stat.never.label")}
               value={totals.deaths_never_diagnosed}
               sub={ha(pageContract, "stat.never.sub")}
@@ -713,14 +713,14 @@ export async function HealthAnalyticsPage({
             <Grid container spacing={3}>
             <Kpi
               md={6}
-              accent="var(--brand)"
+              accent="var(--palette-primary-main)"
               label={ha(pageContract, "stat.sessions.label")}
               value={data.adherence.sessions_due}
               sub={ha(pageContract, "stat.sessions.sub")}
             />
             <Kpi
               md={6}
-              accent="var(--info)"
+              accent="var(--palette-info-main)"
               label={ha(pageContract, "stat.awaiting.label")}
               value={data.adherence.awaiting_verification}
               sub={ha(pageContract, "stat.awaiting.sub")}
@@ -763,14 +763,14 @@ export async function HealthAnalyticsPage({
             <Grid container spacing={3}>
             <Kpi
               md={3}
-              accent="var(--info)"
+              accent="var(--palette-info-main)"
               label={ha(pageContract, "stat.observations.label")}
               value={data.engine.observations}
               sub={ha(pageContract, "stat.observations.sub")}
             />
             <Kpi
               md={3}
-              accent="var(--brand)"
+              accent="var(--palette-primary-main)"
               label={ha(pageContract, "stat.confirmed.label")}
               value={data.engine.confirmed}
               sub={pct(data.engine.confirmed_pct)}
@@ -784,7 +784,7 @@ export async function HealthAnalyticsPage({
             />
             <Kpi
               md={3}
-              accent="var(--purple)"
+              accent="var(--palette-secondary-main)"
               label={ha(pageContract, "stat.median.label")}
               // NULL is "nothing was confirmed", not "confirmed instantly": a zero here would
               // be a claim the data cannot make.

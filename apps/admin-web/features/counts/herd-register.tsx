@@ -54,6 +54,7 @@ import { HerdPassportLocalDrawer, type HerdPassportDrawerItem } from "./herd-pas
 import { operationalLocationLabel } from "@/lib/operational-location";
 import { stageLabel } from "@/lib/stage-labels";
 import Alert from "@mui/material/Alert";
+import { TAP_MIN } from "@/theme/tap-target";
 
 /** A status chip's words: the tenant's own label from the page's option group, never the stored key. */
 function statusLabel(pageContract: AdminUiPageContract, groupId: string, value: string | null | undefined): string {
@@ -196,7 +197,7 @@ const HERD_TABLE_SX = {
   minWidth: 960,
   "& th, & td": { whiteSpace: "nowrap", overflowWrap: "normal", wordBreak: "normal" },
   "& td a": { color: "inherit", textDecoration: "none" },
-  "& td > a": { display: "flex", alignItems: "center", minHeight: "var(--tap-min)" },
+  "& td > a": { display: "flex", alignItems: "center", minHeight: TAP_MIN },
 } as const;
 
 export async function HerdRegisterPage({

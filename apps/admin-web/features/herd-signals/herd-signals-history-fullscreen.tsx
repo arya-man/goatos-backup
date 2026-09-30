@@ -499,7 +499,7 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
                     clickable
                     aria-pressed={on}
                     label={meta.label}
-                    icon={<Box component="span" aria-hidden="true" sx={{ width: 8, height: 8, borderRadius: "var(--r-sm)", bgcolor: "currentColor", flexShrink: 0 }} />}
+                    icon={<Box component="span" aria-hidden="true" sx={{ width: 8, height: 8, borderRadius: 0.75, bgcolor: "currentColor", flexShrink: 0 }} />}
                     disabled={activity.data === null && activity.error !== null}
                     title={activity.error ? `Failed to load activity: ${activity.error}` : undefined}
                     onClick={() => setOverlaysOn((current) => ({ ...current, [kind]: !(current[kind] ?? true) }))}

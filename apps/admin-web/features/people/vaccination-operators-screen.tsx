@@ -898,7 +898,7 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
   const leaveItem = (r: { from: string; to: string }, past: boolean) => (
     <Box
       key={r.from}
-      sx={{ px: 2, py: 1.5, borderRadius: 'var(--r-md)', border: 1, borderColor: 'divider', color: past ? 'text.disabled' : 'text.primary' }}
+      sx={{ px: 2, py: 1.5, borderRadius: 1, border: 1, borderColor: 'divider', color: past ? 'text.disabled' : 'text.primary' }}
     >
       <Typography variant="subtitle2">{fmtRange(r)}</Typography>
       <Typography variant="caption" sx={{ color: past ? 'text.disabled' : 'text.secondary' }}>
@@ -1092,7 +1092,7 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
                         {opLeaves.length ? (
                           <ButtonBase
                             onClick={() => openDrawer(op.position_id!)}
-                            sx={{ display: 'block', textAlign: 'left', borderRadius: 'var(--r-sm)', px: 0.5, py: 0.25 }}
+                            sx={{ display: 'block', textAlign: 'left', borderRadius: 0.75, px: 0.5, py: 0.25 }}
                           >
                             <Typography variant="subtitle2" sx={{ color: 'warning.main', whiteSpace: 'nowrap' }}>
                               {nextRange ? fmtRange(nextRange) : 'none upcoming'}
@@ -1240,7 +1240,7 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
                       alignItems: 'center',
                       px: 1.5,
                       py: 1,
-                      borderRadius: 'var(--r-md)',
+                      borderRadius: 1,
                       border: 1,
                       borderStyle: isDown ? 'dashed' : 'solid',
                       borderColor: isDefault ? theme.vars.palette.primary.main : theme.vars.palette.divider,
@@ -1491,7 +1491,7 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
                       sx={(theme) => ({
                         width: 'var(--sp-1h)',
                         height: 'var(--sp-1h)',
-                        borderRadius: 'var(--r-sm)',
+                        borderRadius: 0.75,
                         bgcolor: item.solid ? theme.vars.palette[item.color].main : varAlpha(theme.vars.palette[item.color].mainChannel, 0.16),
                         border: item.solid ? 0 : 1,
                         borderColor: theme.vars.palette[item.color].main,

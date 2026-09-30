@@ -24,7 +24,7 @@ export const ASSIGNEE_FIELD_SX: SxProps<Theme> = (theme) => ({
     border: 1,
     borderStyle: "solid",
     borderColor: varAlpha(theme.vars.palette.grey["500Channel"], 0.2),
-    borderRadius: "var(--r-md)",
+    borderRadius: 1,
     font: "inherit",
     typography: "body1",
     color: "text.primary",

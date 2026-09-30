@@ -194,7 +194,7 @@ const ANSWER_ROW_SX = {
 const ATTENTION_ROW_SX = {
   ...ANSWER_ROW_SX,
   bgcolor: varAlpha("var(--palette-warning-mainChannel)", 0.09),
-  borderRadius: "var(--r-sm)",
+  borderRadius: 0.75,
 } as const;
 
 const ATTENTION_DOT_SX = {

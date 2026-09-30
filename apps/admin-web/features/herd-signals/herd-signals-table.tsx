@@ -53,6 +53,7 @@ import { useHerdSignalsLiveSnapshot } from "./herd-signals-live-store";
 import { TablePaginationLinks } from "@/components/app/table/table-pagination-links";
 import { EmptyState } from "@/components/app/empty-state";
 import { HS_FAINT, HS_MONO, HS_SUBLINE, deltaSx, respTableSx, selectableRowSx } from "./herd-signals-sx";
+import { TAP_MIN } from "@/theme/tap-target";
 
 // Desktop min width per live-table column (21 columns), and the whole table's floor: the table
 // scrolls sideways inside the template Scrollbar instead of compressing its columns.
@@ -421,7 +422,7 @@ export function HerdSignalsTable({
                       title="Open tag detail"
                       color="inherit"
                       underline="hover"
-                      sx={{ typography: "subtitle2", display: "inline-flex", alignItems: "center", minHeight: { xs: "var(--tap-min)", md: "auto" } }}
+                      sx={{ typography: "subtitle2", display: "inline-flex", alignItems: "center", minHeight: { xs: TAP_MIN, md: "auto" } }}
                     >
                       {animalPrimaryLabel(item)}
                     </MuiLink>

@@ -34,6 +34,7 @@ import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { PaletteColorKey } from "@/theme/core";
 import { ClockEntryDrawer } from "./clock-entry-drawer";
 import { FormDateField } from "@/components/app/form-date-field";
+import { TAP_MIN } from "@/theme/tap-target";
 
 const PAGE_SIZE = 25;
 
@@ -253,7 +254,7 @@ export async function ClockScreen({
                     : "";
                   const cell = (content: React.ReactNode) =>
                     drawerHref ? (
-                      <MuiLink component={LocalOverlayLink} href={drawerHref} scroll={false} color="inherit" underline="none" sx={{ display: "flex", alignItems: "center", minHeight: "var(--tap-min)" }}>
+                      <MuiLink component={LocalOverlayLink} href={drawerHref} scroll={false} color="inherit" underline="none" sx={{ display: "flex", alignItems: "center", minHeight: TAP_MIN }}>
                         {content}
                       </MuiLink>
                     ) : (

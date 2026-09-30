@@ -93,7 +93,11 @@ export function jsxStyleFindings(code) {
     if (raw.includes("var(--") || raw.includes("${")) continue;
     const numeric = /^-?\d+(?:\.\d+)?$/.test(raw);
     if (prop === "boxShadow") { if (raw !== "none") out.push("raw-shadow"); continue; }
-    if (prop === "borderRadius") { if ((numeric && Number(raw) > 0) || (!numeric && /\d+px/.test(raw))) out.push("raw-radius"); continue; }
+    // J1B P2-1 (FIXJ7): a NUMBER in sx is the theme's scale, not a raw px literal: borderRadius
+    // multiplies theme.shape.borderRadius and padding / margin / gap multiply theme.spacing. Those are
+    // exactly the theme values the css-var-token ratchet moves the var(--r-*) / var(--sp-*) reads onto.
+    if (prop === "borderRadius") { if (!numeric && /\d+px/.test(raw)) out.push("raw-radius"); continue; }
+    if (numeric && /^(?:padding|margin|gap)/.test(prop)) continue;
     if (prop === "fontSize") { if (numeric || /\d(?:px|rem|em)/.test(raw)) out.push("raw-font-size"); continue; }
     if ((numeric && Math.abs(Number(raw)) >= 3) || PX_VALUE.test(raw)) out.push("raw-px");
   }

@@ -9,6 +9,7 @@ import Tooltip from "@mui/material/Tooltip";
 import type { HerdSignalsLiveResponse } from "@/lib/api/herd-signals";
 import { fmtClockSeconds } from "./format";
 import { useHerdSignalsLiveSnapshot, writeHerdSignalsLiveSnapshot } from "./herd-signals-live-store";
+import { TAP_MIN } from "@/theme/tap-target";
 
 // LIVE / PAUSED control and the SSE connection bridge. The initial table remains server-rendered;
 // stream ticks update connection/freshness state only. Route refreshes here would be polling
@@ -290,8 +291,8 @@ export function HerdSignalsStreamBridge({ generatedAt }: { generatedAt: string }
           onClick={toggleLive}
           aria-pressed={live}
           aria-description={updatedLine}
-          startIcon={<Box component="span" aria-hidden="true" sx={{ width: "var(--sp-1)", height: "var(--sp-1)", borderRadius: "var(--r-round)", bgcolor: liveColor === "inherit" ? "text.disabled" : `${liveColor}.main` }} />}
-          sx={{ minHeight: { xs: "var(--tap-min)", sm: 36 } }}
+          startIcon={<Box component="span" aria-hidden="true" sx={{ width: "var(--sp-1)", height: "var(--sp-1)", borderRadius: "50%", bgcolor: liveColor === "inherit" ? "text.disabled" : `${liveColor}.main` }} />}
+          sx={{ minHeight: { xs: TAP_MIN, sm: 36 } }}
         >
           {badgeText}
         </Button>
@@ -299,7 +300,7 @@ export function HerdSignalsStreamBridge({ generatedAt }: { generatedAt: string }
       {exportDisabled ? (
         <Tooltip title={unsupportedExportTab ? "Export is available on table tabs" : "Clear this page-only KPI filter before exporting"} arrow>
           <span>
-            <Button variant="outlined" color="inherit" disabled sx={{ minHeight: { xs: "var(--tap-min)", sm: 36 } }}>
+            <Button variant="outlined" color="inherit" disabled sx={{ minHeight: { xs: TAP_MIN, sm: 36 } }}>
               Export
             </Button>
           </span>
@@ -313,7 +314,7 @@ export function HerdSignalsStreamBridge({ generatedAt }: { generatedAt: string }
           title="Download the current filtered view as CSV"
           // The file must match what is on screen, so the active filters ride along. Not a
           // LocalOverlayLink: this is a real download, not an in-page overlay.
-          sx={{ minHeight: { xs: "var(--tap-min)", sm: 36 } }}
+          sx={{ minHeight: { xs: TAP_MIN, sm: 36 } }}
         >
           Export
         </Button>

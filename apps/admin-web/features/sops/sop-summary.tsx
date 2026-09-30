@@ -84,7 +84,7 @@ export function SummaryNote({ children }: { children: ReactNode }) {
 /** The whole summary is empty. */
 export function SummaryEmpty({ children }: { children: ReactNode }) {
   return (
-    <Typography variant="body2" component="div" sx={{ color: "text.secondary", bgcolor: "background.neutral", border: 1, borderColor: "divider", borderRadius: "var(--r-md)", px: 1.5, py: 1.125 }}>
+    <Typography variant="body2" component="div" sx={{ color: "text.secondary", bgcolor: "background.neutral", border: 1, borderColor: "divider", borderRadius: 1, px: 1.5, py: 1.125 }}>
       {children}
     </Typography>
   );

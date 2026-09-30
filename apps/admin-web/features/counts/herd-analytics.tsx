@@ -111,8 +111,8 @@ function defaultWindow(): { from: string; to: string } {
 // the flow chart must not meet a red "sold" line on the next one.
 const SERIES_COLOR = {
   births: "var(--ok)",
-  deaths: "var(--danger)",
-  sold: "var(--info)",
+  deaths: "var(--palette-error-main)",
+  sold: "var(--palette-info-main)",
   other_exits: "var(--amber)",
 } as const;
 

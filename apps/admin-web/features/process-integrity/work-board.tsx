@@ -12,6 +12,7 @@ import { KanbanBoard, KanbanColumn } from "@/components/app/kanban";
 import { ItemContent, ItemInfo, ItemName, ItemStatus, type ItemStatusProps } from "@/components/app/kanban/item-styles";
 import { Label } from "@/components/minimal/label";
 import { ActionCenterCardShell } from "./action-center-board-parts";
+import { TAP_MIN } from "@/theme/tap-target";
 
 export { actionDriveLabel, actionWorkTitle } from "./action-center-presenters";
 
@@ -151,7 +152,7 @@ function WorkCard({ pageContract, row, href, localOverlay }: { pageContract: Adm
     scroll: false,
     "aria-label": openLabel,
     title: `${title} · ${drive} · ${severityLabel} · ${ownerLabel || copy(pageContract, "label.unassigned")}`,
-    style: { display: "block", minHeight: "var(--tap-min)", color: "inherit", textDecoration: "none", borderRadius: "inherit" },
+    style: { display: "block", minHeight: TAP_MIN, color: "inherit", textDecoration: "none", borderRadius: "inherit" },
   } as const;
   return (
     <ActionCenterCardShell>

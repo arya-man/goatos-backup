@@ -17,6 +17,7 @@ import DialogContent from "@mui/material/DialogContent";
 import DialogTitle from "@mui/material/DialogTitle";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
+import { TAP_MIN } from "@/theme/tap-target";
 
 /**
  * Opens the access editor for one directory row.
@@ -75,7 +76,7 @@ export function PersonAccessLauncher({
           onClick={openEditor}
           title={copy(pageContract, "access.open_hint")}
           aria-label={`${copy(pageContract, "access.open")} — ${personName}`}
-          sx={{ width: "var(--tap-min)", height: "var(--tap-min)", flexShrink: 0 }}
+          sx={{ width: TAP_MIN, height: TAP_MIN, flexShrink: 0 }}
         >
           <Iconify icon="solar:shield-keyhole-bold-duotone" width={20} />
         </IconButton>
@@ -111,7 +112,7 @@ export function PersonAccessLauncher({
           <>
           <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1, pr: 1.5 }}>
             <Box component="span" sx={{ flexGrow: 1, minWidth: 0 }}>{personName}</Box>
-            <IconButton onClick={close} aria-label={copy(pageContract, "action.close")} sx={{ width: "var(--tap-min)", height: "var(--tap-min)" }}>
+            <IconButton onClick={close} aria-label={copy(pageContract, "action.close")} sx={{ width: TAP_MIN, height: TAP_MIN }}>
               <Iconify icon="mingcute:close-line" />
             </IconButton>
           </DialogTitle>

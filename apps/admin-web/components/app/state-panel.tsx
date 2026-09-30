@@ -62,7 +62,7 @@ export function StatePanel({
             sx={(theme) => ({
               p: 1.5,
               display: "inline-flex",
-              borderRadius: "var(--r-lg)",
+              borderRadius: 1.5,
               color: `${tone}.main`,
               bgcolor: varAlpha(theme.vars.palette[tone].mainChannel, 0.16),
             })}

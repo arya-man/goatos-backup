@@ -209,7 +209,7 @@ function TraceDetail({ trace }: { trace: TraceRecord }): React.ReactElement {
         {step.params ? (
           <Box
             component="pre"
-            sx={{ m: 0, mt: 1, p: 1.5, borderRadius: "var(--r-sm)", bgcolor: "background.neutral", typography: "caption", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
+            sx={{ m: 0, mt: 1, p: 1.5, borderRadius: 0.75, bgcolor: "background.neutral", typography: "caption", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
           >
             {step.params}
           </Box>

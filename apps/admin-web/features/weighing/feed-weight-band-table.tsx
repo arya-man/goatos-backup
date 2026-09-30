@@ -11,6 +11,7 @@ import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { Tag } from "@/components/ui-primitives";
 import { stageLabel } from "@/lib/stage-labels";
 import type { AdminUiTableContract } from "@/lib/admin-ui-contract";
+import { TAP_MIN } from "@/theme/tap-target";
 
 const BAND_STEPS = ["under_15", "15_20", "20_25", "25_30", "30_35", "35_plus"] as const;
 
@@ -173,7 +174,7 @@ function FeedGivenLines({ value, card = false }: { value: string; card?: boolean
 const exitNoteSx = (card: boolean) =>
   card
     ? // Phone card: a 44px tap target in the row of figures.
-      { display: "inline-flex", alignItems: "center", minHeight: "var(--tap-min)", px: 0.75, fontSize: FS.sm, color: "warning.main" }
+      { display: "inline-flex", alignItems: "center", minHeight: TAP_MIN, px: 0.75, fontSize: FS.sm, color: "warning.main" }
     : { display: "block", whiteSpace: "nowrap", fontSize: FS.xs, lineHeight: 1.3, color: "warning.main" };
 
 function ExitNotes({ row, labels, card = false }: { row: FeedWeightBandTableRow; labels: FeedWeightBandTableLabels; card?: boolean }) {
@@ -301,7 +302,7 @@ export function FeedWeightBandTable({
           <Box
             component="li"
             key={row.key}
-            sx={{ border: 1, borderColor: "divider", borderRadius: "var(--r2)", bgcolor: "background.paper", px: 1.5, py: 1.25, display: "grid", gap: 0.75, minWidth: 0 }}
+            sx={{ border: 1, borderColor: "divider", borderRadius: 1.25, bgcolor: "background.paper", px: 1.5, py: 1.25, display: "grid", gap: 0.75, minWidth: 0 }}
           >
             <Box sx={cardLineSx}>
               <Box component="b" sx={{ fontSize: FS.body, mr: "auto" }}>{row.pen}</Box>
