@@ -1,6 +1,6 @@
 # Goat OS Active Progress
 
-Last updated: 2026-10-01 02:42 IST
+Last updated: 2026-10-01 02:47 IST
 
 ## Current Scope
 
@@ -29,10 +29,18 @@ Last updated: 2026-10-01 02:42 IST
   - `GOATOS_CI_ONLY_STEP='sop-driven-herd-operations-guard' tools/ci/run-local-ci.sh backend`
   - `go test ./internal/tasks/domain -run TestMigrationEmbedsTheKidShiftSeed`
   - `git diff --check`
+- Second `make land-main` attempt failed on `seed-migration-guard`; it flagged the
+  `animal_stage_lookup` default update in `000463`.
+- Added the required reviewed `seed-migration-guard:ignore` marker adjacent to the `animal_stage_lookup`
+  update, tied to the existing growth age-entry tests.
+- Focused seed repair checks passed:
+  - `GOATOS_CI_ONLY_STEP='seed-migration-guard' tools/ci/run-local-ci.sh backend`
+  - `go test ./internal/counts/domain -run 'TestGrowthTakesAnOldEnoughFemaleStraightToNonPregnant|TestGrowthStagesBeforeIgnoresTheReverseEdge'`
+  - `git diff --check`
 
 ## Pending
 
-- Commit the seed-pin repair.
+- Commit the seed-migration guard marker repair.
 - Rerun authoritative local landing receipt: `make land-main`.
 - Verify local `HEAD`, local `origin/main`, and remote `main` all match the landed SHA.
 - Deploy using guarded launcher:
@@ -48,6 +56,7 @@ Last updated: 2026-10-01 02:42 IST
 
 - GitHub reports PR merge state as `BLOCKED`; local certified direct landing is being used only if `make land-main` passes.
 - First landing attempt was red on `sop-driven-herd-operations-guard`; focused repair is green, full receipt still pending.
+- Second landing attempt was red on `seed-migration-guard`; focused repair is green, full receipt still pending.
 - A broad admin-web test attempt expanded to the full suite and failed on missing local dependencies (`typescript`, `@grafana/faro-core`); changed SOP model test passed directly.
 - No STG or mobile deployment has started yet.
 

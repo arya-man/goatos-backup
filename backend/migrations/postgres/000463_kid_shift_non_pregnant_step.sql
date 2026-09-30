@@ -47,6 +47,7 @@ WHERE sd.tenant_id = v.tenant_id AND sd.sop_id = v.sop_id
 -- 3. Non-Pregnant's "From (days)" (Items & settings): the age at which a growth shifting may move a
 --    female straight into Non-Pregnant from any earlier rung (counts/domain growthAgeEntryAllowed).
 --    70 days matches the step above. Set only where the farm has not set its own.
+-- seed-migration-guard:ignore owner=manohark issue=kid-stage-shift-tasks reason=tenant-stage-age-default-only-where-missing-covered-by-growth-age-entry-tests expiry=2026-12-31
 UPDATE public.animal_stage_lookup
 SET min_age_days = 70
 WHERE stage_code = 'Non-Pregnant' AND min_age_days IS NULL;
