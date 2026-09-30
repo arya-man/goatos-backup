@@ -16,17 +16,14 @@ export const TASK_STATUS_TAB_COUNT = TASK_BOARD_COLUMNS.length + 2;
 export const TASK_BOARD_SKELETON_LANES = TASK_BOARD_COLUMNS.map((_, i) => 3 - (i % 2));
 /**
  * The action slot's "No one can be given a task from here yet" note (NewTaskModal with no assignable
- * people; DECIDED no dead "New task"): one 44px line beside the toggle from md (661 wide with the backend
- * copy), its OWN full row below md (flex-basis 100%, two lines at 390). The skeleton reserves the row
- * with the page gutters (both sides: --sp-4 below sm, --sp-6 from sm) taken off the viewport, capped at the row (FIXJ5, LAND3 P1).
+ * people; DECIDED no dead "New task"): one 44px line beside the toggle from md, its own full row below md.
+ * It is the rare state (real users almost always have assignees), so the loading twin does NOT mirror it.
  */
 export const TASK_NO_ASSIGNEES_NOTE_HEIGHT = 44;
 export const TASK_NO_ASSIGNEES_NOTE_BASIS = { xs: "100%", md: "auto" } as const;
-export const TASK_NO_ASSIGNEES_NOTE_SKELETON_WIDTH = { xs: "calc(100vw - var(--sp-4))", sm: "calc(100vw - var(--sp-6))", md: 661 };
 /**
- * Header actions while loading: the board / list ToggleButtonGroup (73x40, 101x54 with 44px phone
- * taps), then the action slot as the no-assignees note (the state the loading twin mirrors: the
- * wider of the two, so the header never grows when the page lands; a "New task" button is 108x36).
+ * Header actions while loading: the NORMAL state (coordinator decision, FIXJ6): the board / list
+ * ToggleButtonGroup (73x40, 101x54 with 44px phone taps), then the 108x36 "New task" button.
  */
-export const TASK_HEADER_ACTION_WIDTHS = [{ xs: 101, md: 73 }, TASK_NO_ASSIGNEES_NOTE_SKELETON_WIDTH];
-export const TASK_HEADER_ACTION_HEIGHTS = [{ xs: 54, md: 40 }, TASK_NO_ASSIGNEES_NOTE_HEIGHT];
+export const TASK_HEADER_ACTION_WIDTHS = [{ xs: 101, md: 73 }, 108];
+export const TASK_HEADER_ACTION_HEIGHTS = [{ xs: 54, md: 40 }, undefined];
