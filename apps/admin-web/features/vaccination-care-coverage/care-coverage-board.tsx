@@ -152,7 +152,7 @@ export async function CareCoverageBoard({
           </div>
         ) : (
           <div className="bd" style={{ padding: 0 }}>
-            <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.matrix.aria")}>
+            <div className="tablewrap" tabIndex={0} role="group" aria-label={copy(pageContract, "section.matrix.aria")}>
               <table className="vaccination-status-matrix-table care-coverage-table">
                 <thead>
                   <tr>
