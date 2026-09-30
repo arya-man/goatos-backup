@@ -8,7 +8,8 @@
 //     components/**/*.css outside components/minimal, layouts/**/*.css, CSS modules)
 //   - a `style={...}` prop (theme sx instead)
 //   - a native <button|input|select|textarea|table|thead|tbody|tfoot|tr|td|th> (MUI / template
-//     components; a hidden `<input type="file">` behind a template upload Button is allowed)
+//     components; a hidden `<input type="file">` behind a template upload Button and a
+//     `<input type="hidden">` form field, which draws nothing, are allowed)
 //   - an import from lucide-react (template Iconify instead)
 //   - an import of a .css file (sx instead)
 //   - a hex or rgb()/rgba() colour literal (theme palette tokens instead)
@@ -99,7 +100,7 @@ export function legacyZoneFindingsFor(file, source, selectors) {
   for (const m of text.matchAll(NATIVE)) {
     const tagEnd = text.indexOf(">", m.index);
     const tag = text.slice(m.index, tagEnd < 0 ? undefined : tagEnd);
-    if (m[1] === "input" && /type=["']file["']/.test(tag)) continue;
+    if (m[1] === "input" && /type=["'](?:file|hidden)["']/.test(tag)) continue;
     push(m.index, `native <${m[1]}>: use the MUI / template component`);
   }
   for (const m of text.matchAll(LUCIDE)) push(m.index, "lucide-react icon: use the template Iconify icon");

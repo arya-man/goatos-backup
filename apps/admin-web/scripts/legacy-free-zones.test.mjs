@@ -20,6 +20,7 @@ test("a legacy-free zone file refuses every legacy construct", () => {
     '<div style={{ padding: 12 }} />',
     '<button onClick={go}>Go</button>',
     '<input value={v} />',
+    '<input type="text" name="deadline_hour" />',
     "<select\n  value={v}>",
     '<textarea />',
     '<table><tr><td>1</td></tr></table>',
@@ -32,12 +33,14 @@ test("a legacy-free zone file refuses every legacy construct", () => {
   assert.equal(found.filter((s) => s.includes("stylesheet import")).length, 2);
 });
 
-test("template-clean code, comments and a hidden file input pass", () => {
+test("template-clean code, comments, a hidden file input and a hidden form field pass", () => {
   const src = [
     "// className=\"card\" in a comment, <button> too, style={{}}",
     "/* #ff0000 */",
     '<Card sx={{ p: 3 }}><CardHeader title="t" /></Card>',
     '<Button component="label">Upload<input hidden type="file" onChange={f} /></Button>',
+    '<input type="hidden" name="task_id" value={id} />',
+    '<input ref={keyRef} type="hidden" name="idempotency_key" />',
     '<Box className="studio-anchor" data-x="#1" />',
     'const url = "https://example.com/#section";',
   ].join("\n");
