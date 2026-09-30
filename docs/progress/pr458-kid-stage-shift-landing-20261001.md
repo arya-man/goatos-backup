@@ -2,11 +2,11 @@
 
 ## Scope
 
-Land PR #458 (`feat/kid-stage-shift-tasks`) to `main`, then deploy STG backend/admin-web/mobile and verify public STG plus mobile distribution.
+Land PR #458 (`feat/kid-stage-shift-tasks`) to `main`. STG/backend/admin-web/mobile deployment was explicitly removed from scope by Ravi on 2026-10-01.
 
 ## Current SHA
 
-- Candidate: `7938878929660f1738002dc55f0248bd2aee12f2`
+- Candidate: `4528d4415fd1d2fc2eb2ed3da6e4907270e2f172`
 - Branch: `review-pr-458`
 - PR: https://github.com/vgoats/goatos/pull/458
 - GitHub merge state before landing: `BLOCKED`
@@ -46,15 +46,17 @@ Land PR #458 (`feat/kid-stage-shift-tasks`) to `main`, then deploy STG backend/a
 - Sixth `make land-main` attempt failed before push on `agent: boundaries`.
 - Replaced direct `slog.New` in `backend/cmd/backfill-kid-shift-tasks` with `observability.New`; focused rerun passed:
   - `GOATOS_CI_ONLY_STEP='agent: boundaries' tools/ci/run-local-ci.sh common`
+- Seventh `make land-main` attempt failed before push on the backend `go test ./... (Postgres disabled)` step because `TestRegisterWorkflowConsumersRegistersAll` still expected one `goat.exited` workflow subscriber.
+- Updated the workflow registration drift guard to expect both goat-exit handlers: the existing death evidence release and the new kid-stage litter shift rejudge.
+- Eighth `make land-main` attempt failed before push on `backend-foundations-guard` because the event-wiring test file needed `gofmt` after the drift-guard update.
+- Ran `gofmt` on `backend/internal/eventwiring/workflows_test.go`.
 
 ## Pending
 
-- Commit the boundary repair and progress note.
+- Commit the event-wiring drift guard repair and progress note.
 - Rerun full `make land-main` with the OCI query-plan DSNs scoped in the environment and admin-web dependencies installed.
 - Verify local and remote `main` SHA after landing.
-- Run guarded STG deploy:
-  - `GOATOS_REPO=/Users/raviteja/mesha/goatos-wt-pr458-review /Users/raviteja/bin/goatos-stg-deploy backend-web-mobile`
-- Verify STG public API health/readiness, deployed SHA/build evidence, and mobile distribution.
+- Do not run STG or mobile deployment for this request.
 
 ## Known Failures
 
@@ -64,10 +66,12 @@ Land PR #458 (`feat/kid-stage-shift-tasks`) to `main`, then deploy STG backend/a
 - Fourth `make land-main` attempt failed before push on missing leadership assistant coverage classification for the new kid-stage litter shift workflow functions.
 - Fifth `make land-main` attempt failed before push on missing large-table SQL plan proof classification for bounded litter shift reads.
 - Sixth `make land-main` attempt failed before push on direct logger construction in the kid shift backfill command.
+- Seventh `make land-main` attempt failed before push on stale event-wiring test expectations for the intentionally added kid-stage shift `goat.exited` handler.
+- Eighth `make land-main` attempt failed before push on Go formatting only: `backend/internal/eventwiring/workflows_test.go is not gofmt-clean`.
 - A broad accidental admin-web test run outside the focused target failed on missing local dependencies (`typescript`, `@grafana/faro-core`); this is not counted as PR evidence.
 
 ## Deployment State
 
 - Main: not landed yet.
-- STG: not started.
-- Mobile: not distributed for this SHA yet.
+- STG: intentionally not started for this request.
+- Mobile: intentionally not distributed for this request.

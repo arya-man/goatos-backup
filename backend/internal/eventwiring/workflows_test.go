@@ -16,11 +16,12 @@ func TestRegisterWorkflowConsumersRegistersAll(t *testing.T) {
 	RegisterWorkflowConsumers(bus, nil, nil)
 
 	want := map[string]int{
-		"counts.death.reported":         1,
-		"counts.death.rejected":         1,
-		"counts.birth.rejected":         1,
-		"goat.created":                  1,
-		"goat.exited":                   1,
+		"counts.death.reported": 1,
+		"counts.death.rejected": 1,
+		"counts.birth.rejected": 1,
+		"goat.created":          1,
+		// Death evidence release + kid-stage litter shift rejudge.
+		"goat.exited":                   2,
 		"goat.identifier.added":         1,
 		"verification.verdict.approved": 2,
 		// birth + death evidence appliers, plus the subject-workflow (reconcile card) rework
