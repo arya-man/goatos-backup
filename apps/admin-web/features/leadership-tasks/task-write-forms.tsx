@@ -116,7 +116,7 @@ export function TaskDeadlineFields({
           display: "grid",
           gap: 1,
           alignItems: "start",
-          gridTemplateColumns: { xs: "1fr 1fr", sm: "minmax(0, 1fr) 96px 96px" },
+          gridTemplateColumns: { xs: "1fr 1fr", sm: "minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr)" },
         }}
       >
         <Box

@@ -53,6 +53,6 @@ test("the panel is template notifications-drawer anatomy in theme sx and keeps t
   assert.match(panel, /minHeight: "var\(--table-row-h\)",/, "rows keep the 72px floor (--table-row-h)");
   assert.match(panel, /p: 2\.5,/, "rows keep the template 20px padding");
   assert.match(panel, /width: "var\(--sp-5\)",\s*height: "var\(--sp-5\)",/, "40px actor avatar / icon circle (--sp-5)");
-  assert.match(panel, /borderBottom: `dashed 1px \$\{theme\.vars\.palette\.divider\}`/, "template dashed row divider");
+  assert.match(panel, /borderBottom: 1,\s*borderBottomStyle: "dashed",\s*borderColor: "divider",/, "template dashed row divider");
   assert.match(panel, /<Tabs\s+variant="fullWidth"[\s\S]*?indicatorColor="custom"/, "template full-width tabs");
 });
