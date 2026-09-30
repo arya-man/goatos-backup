@@ -540,8 +540,11 @@ internal fun ViolationDto.toRowUi(): ViolationRowUi = ViolationRowUi(
     recordedByName = recordedByName,
     note = note,
     statusLabel = statusLabel,
-    withdrawn = status == "withdrawn",
-    withdrawReason = withdrawReason,
+    // Withdrawn and closed-by-HR never count: both read greyed with their reason.
+    withdrawn = status == "withdrawn" || status == "closed",
+    withdrawReason = withdrawReason.ifBlank { decisionNote },
+    waiting = status == "pending",
+    detail = detail,
 )
 
 private const val DRAIN_GRACE_MS = 6_000L

@@ -172,6 +172,10 @@ data class ViolationRowUi(
     val statusLabel: String,
     val withdrawn: Boolean,
     val withdrawReason: String,
+    /** A clock-in violation still waiting for HR: shown with its status, never greyed. */
+    val waiting: Boolean = false,
+    /** The backend's clock-in fact ("Clocked in 9:10 am · General shift starts 8:30 am · 40 min late"). */
+    val detail: String = "",
 )
 
 /** The park head's violations: one month at a time, newest first, ~20 rows a page. */

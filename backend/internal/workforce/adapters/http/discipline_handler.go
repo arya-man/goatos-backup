@@ -31,6 +31,9 @@ func RegisterDiscipline(mux *http.ServeMux, h *DisciplineHandler) {
 	mux.HandleFunc("GET /admin/workforce/violations", h.Violations)
 	mux.HandleFunc("POST /admin/workforce/violations", h.RecordViolation)
 	mux.HandleFunc("POST /admin/workforce/violations/{violation_id}/withdraw", h.WithdrawViolation)
+	// HR decides the automatic clock-in violations (2026-09-30): keep or close.
+	mux.HandleFunc("POST /admin/workforce/violations/{violation_id}/keep", h.KeepViolation)
+	mux.HandleFunc("POST /admin/workforce/violations/{violation_id}/close", h.CloseViolation)
 	mux.HandleFunc("GET /admin/workforce/enquiries", h.Enquiries)
 	mux.HandleFunc("GET /admin/workforce/enquiries/{enquiry_id}", h.Enquiry)
 	mux.HandleFunc("POST /admin/workforce/enquiries/{enquiry_id}/submit", h.SubmitEnquiry)
@@ -66,7 +69,7 @@ func holds(ctx context.Context, perm string) bool {
 func (h *DisciplineHandler) Violations(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	result, err := h.service.Violations(r.Context(), tenantID(r), disciplineCaller(r.Context()), q.Get("park_id"), q.Get("month"),
-		q.Get("status"), q.Get("cursor"), parseLimit(q.Get("limit")), traceID(r))
+		q.Get("period"), q.Get("status"), q.Get("cursor"), parseLimit(q.Get("limit")), traceID(r))
 	writeServiceResponse(w, r, h.log, result, err)
 }
 
@@ -90,6 +93,26 @@ func (h *DisciplineHandler) WithdrawViolation(w http.ResponseWriter, r *http.Req
 	}
 	result, err := h.service.WithdrawViolation(r.Context(), tenantID(r), actorID(r), r.PathValue("violation_id"), body, traceID(r))
 	h.warn(r, "hrms_violation_withdraw_failed", err)
+	writeServiceResponse(w, r, h.log, result, err)
+}
+
+func (h *DisciplineHandler) KeepViolation(w http.ResponseWriter, r *http.Request) {
+	var body domain.KeepViolationRequest
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	result, err := h.service.KeepViolation(r.Context(), tenantID(r), actorID(r), r.PathValue("violation_id"), body, traceID(r))
+	h.warn(r, "hrms_violation_keep_failed", err)
+	writeServiceResponse(w, r, h.log, result, err)
+}
+
+func (h *DisciplineHandler) CloseViolation(w http.ResponseWriter, r *http.Request) {
+	var body domain.CloseViolationRequest
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	result, err := h.service.CloseViolation(r.Context(), tenantID(r), actorID(r), r.PathValue("violation_id"), body, traceID(r))
+	h.warn(r, "hrms_violation_close_failed", err)
 	writeServiceResponse(w, r, h.log, result, err)
 }
 

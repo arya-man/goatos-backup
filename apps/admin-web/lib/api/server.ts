@@ -2313,14 +2313,14 @@ export type EnquiryDetail = AdminApiComponents["schemas"]["EnquiryDetail"];
 export type RecordViolationBody = AdminApiComponents["schemas"]["RecordViolationRequest"];
 export type SubmitEnquiryBody = AdminApiComponents["schemas"]["SubmitEnquiryRequest"];
 
-export async function getWorkforceViolations(params: { parkId?: string; month?: string; status?: string; cursor?: string; limit?: number }): Promise<ApiResult<ViolationsPage>> {
+export async function getWorkforceViolations(params: { parkId?: string; month?: string; period?: string; status?: string; cursor?: string; limit?: number }): Promise<ApiResult<ViolationsPage>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAdminApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<ViolationsPage>("/admin/workforce/violations", {
       cache: "no-store",
-      query: compactQuery({ park_id: params.parkId, month: params.month, status: params.status, cursor: params.cursor, limit: params.limit }),
+      query: compactQuery({ park_id: params.parkId, month: params.month, period: params.period, status: params.status, cursor: params.cursor, limit: params.limit }),
     }),
   );
 }
@@ -2330,6 +2330,24 @@ export async function recordWorkforceViolation(body: RecordViolationBody): Promi
   if (!config.ok) return config;
   const client = createAdminApiClient(apiClientOptions(config.data));
   return request(() => client.request<ViolationResult>("/admin/workforce/violations", { method: "POST", cache: "no-store", body }));
+}
+
+// HR keeps or closes an automatic clock-in violation that is waiting (2026-09-30).
+export async function decideWorkforceViolation(
+  violationId: string,
+  verb: "keep" | "close",
+  body: { fine_rupees?: number | null; note?: string; reason?: string; row_version: number },
+): Promise<ApiResult<ViolationResult>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<ViolationResult>(`/admin/workforce/violations/${encodeURIComponent(violationId)}/${verb}` as keyof AdminApiPaths & string, {
+      method: "POST",
+      cache: "no-store",
+      body,
+    }),
+  );
 }
 
 export async function withdrawWorkforceViolation(violationId: string, body: { reason: string; row_version: number }): Promise<ApiResult<ViolationResult>> {

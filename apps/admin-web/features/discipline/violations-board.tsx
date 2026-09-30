@@ -7,15 +7,17 @@ import Link from "@/components/no-prefetch-link";
 import { ThemedDatePicker } from "@/components/themed-date-picker";
 import { copy, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { Violation, ViolationsPage } from "@/lib/api/server";
-import { recordViolationAction, withdrawViolationAction } from "./actions";
-import { rupeesLabel, todayKey } from "./format";
-import { trackDiscipline } from "./telemetry";
+import { closeViolationAction, keepViolationAction, recordViolationAction, withdrawViolationAction } from "./actions";
+import { applyViolationChange, type ViolationChange } from "./totals";
+import { todayKey } from "./format";
+import { trackDiscipline, type DisciplineEvent } from "./telemetry";
 
 /**
- * People / HRMS > Violations, the interactive half (maintainer decisions 2026-09-30). A recorded or
- * withdrawn violation comes back from the server and is put in place -- the list, the person's
- * total and the page totals move together, with no page reload. Every word is backend copy or a
- * backend-composed field.
+ * People / HRMS > Violations, the interactive half (maintainer decisions 2026-09-30). A recorded,
+ * withdrawn, kept or closed violation comes back from the server and is put in place -- the list,
+ * the person's totals and the page totals move together, with no page reload. An automatic
+ * clock-in violation WAITS for HR, who keeps it (with a fine, or none) or closes it with a reason.
+ * Every word is backend copy or a backend-composed field.
  */
 export function ViolationsBoard({
   pageContract,
@@ -34,49 +36,29 @@ export function ViolationsBoard({
 }) {
   const t = (key: string) => copy(pageContract, key);
   const [items, setItems] = useState<Violation[]>(page.items);
-  const [byPerson, setByPerson] = useState(page.by_person);
-  const [summary, setSummary] = useState(page.summary);
+  const [totals, setTotals] = useState({ summary: page.summary, byPerson: page.by_person });
   const [formOpen, setFormOpen] = useState(false);
 
-  const applyDelta = (v: Violation, sign: 1 | -1) => {
-    const next = nextByPerson(byPerson, v, sign);
-    setByPerson(next);
-    // People = the distinct persons still owing in this filter, the backend's own definition.
-    const fine = summary.fine_rupees + sign * v.fine_rupees;
-    setSummary({ ...summary, count: summary.count + sign, fine_rupees: fine, fine_label: rupeesLabel(fine), people: next.length });
-  };
-  const nextByPerson = (rows: ViolationsPage["by_person"], v: Violation, sign: 1 | -1): ViolationsPage["by_person"] => {
-    const existing = rows.find((r) => r.person_id === v.person_id);
-    if (!existing) {
-      return sign > 0
-        ? [...rows, { person_id: v.person_id, person_name: v.person_name, designation: v.designation, park_label: v.park_label, count: 1, fine_rupees: v.fine_rupees, fine_label: v.fine_label }]
-        : rows;
-    }
-    return rows
-      .map((r) => {
-        if (r.person_id !== v.person_id) return r;
-        const fine = r.fine_rupees + sign * v.fine_rupees;
-        return { ...r, count: r.count + sign, fine_rupees: fine, fine_label: rupeesLabel(fine) };
-      })
-      .filter((r) => r.count > 0)
-      .sort((a, b) => b.fine_rupees - a.fine_rupees);
-  };
+  // A change only moves the page totals under "All" (a status tab totals that status); the
+  // per-person row always moves -- it carries every status in its own column.
+  const apply = (v: Violation, change: ViolationChange) => setTotals((cur) => applyViolationChange(cur, v, change, page.status === ""));
+
+  const replaceRow = (v: Violation) =>
+    setItems((prev) => (page.status && page.status !== v.status ? prev.filter((p) => p.violation_id !== v.violation_id) : prev.map((p) => (p.violation_id === v.violation_id ? v : p))));
 
   const onRecorded = (v: Violation) => {
-    // Only a violation inside this page's month joins it; the totals follow the list.
-    if (v.occurred_on.startsWith(page.month) && page.status !== "withdrawn") {
+    // Only a violation inside this page's period joins it; the totals follow the list.
+    const inPeriod = page.period === "all" || v.occurred_on.startsWith(page.period === "year" ? page.month.slice(0, 4) : page.month);
+    if (inPeriod && (page.status === "" || page.status === "recorded")) {
       setItems((prev) => [v, ...prev]);
-      applyDelta(v, 1);
+      apply(v, "recorded");
     }
     setFormOpen(false);
-  };
-  const onWithdrawn = (v: Violation) => {
-    setItems((prev) => (page.status === "recorded" ? prev.filter((p) => p.violation_id !== v.violation_id) : prev.map((p) => (p.violation_id === v.violation_id ? v : p))));
-    applyDelta(v, -1);
   };
 
   const listLabels = tableLabels(pageContract, "violations");
   const personLabels = tableLabels(pageContract, "violation-people");
+  const { summary, byPerson } = totals;
 
   return (
     <>
@@ -85,8 +67,9 @@ export function ViolationsBoard({
           { key: "count", label: t("summary.count"), value: String(summary.count) },
           { key: "fines", label: t("summary.fines"), value: summary.fine_label },
           { key: "people", label: t("summary.people"), value: String(summary.people) },
+          { key: "pending", label: t("summary.pending"), value: String(summary.pending) },
         ].map((tile) => (
-          <div className="card dsc-tile" key={tile.key} data-testid={`violations-tile-${tile.key}`}>
+          <div className={tile.key === "pending" && summary.pending > 0 ? "card dsc-tile dsc-tile-warn" : "card dsc-tile"} key={tile.key} data-testid={`violations-tile-${tile.key}`}>
             <div className="muted small">{tile.label}</div>
             <div className="dsc-tile-value">{tile.value}</div>
           </div>
@@ -103,7 +86,11 @@ export function ViolationsBoard({
       <section className="card" data-testid="violations-by-person">
         <div className="hd">
           <ShieldAlert className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
-          <h3>{t("people.title")}</h3>
+          <h3>
+            {t("people.title")} · {page.period_label}
+          </h3>
+          <div className="sp" style={{ flex: 1 }} />
+          <span className="muted small dsc-hint">{t("people.hint")}</span>
         </div>
         {byPerson.length === 0 ? (
           <div className="empty">{t("people.empty")}</div>
@@ -129,6 +116,9 @@ export function ViolationsBoard({
                     <td>
                       <b>{p.fine_label}</b>
                     </td>
+                    <td>{p.pending > 0 ? <span className="tag t-warn">{p.pending}</span> : <span className="muted">0</span>}</td>
+                    <td>{p.closed}</td>
+                    <td>{p.leave_label || <span className="muted">—</span>}</td>
                   </tr>
                 ))}
               </tbody>
@@ -156,7 +146,17 @@ export function ViolationsBoard({
               </thead>
               <tbody>
                 {items.map((v) => (
-                  <ViolationRow key={v.violation_id} pageContract={pageContract} violation={v} canEdit={canEdit} editReason={editReason} onWithdrawn={onWithdrawn} />
+                  <ViolationRow
+                    key={v.violation_id}
+                    pageContract={pageContract}
+                    violation={v}
+                    canEdit={canEdit}
+                    editReason={editReason}
+                    onChanged={(row, change) => {
+                      replaceRow(row);
+                      apply(row, change);
+                    }}
+                  />
                 ))}
               </tbody>
             </table>
@@ -181,41 +181,60 @@ export function ViolationsBoard({
   );
 }
 
+type Asking = "" | "withdraw" | "keep" | "close";
+
 function ViolationRow({
   pageContract,
   violation: v,
   canEdit,
   editReason,
-  onWithdrawn,
+  onChanged,
 }: {
   pageContract: AdminUiPageContract;
   violation: Violation;
   canEdit: boolean;
   editReason: string;
-  onWithdrawn: (v: Violation) => void;
+  onChanged: (v: Violation, change: ViolationChange) => void;
 }) {
   const t = (key: string) => copy(pageContract, key);
-  const [asking, setAsking] = useState(false);
-  const [reason, setReason] = useState("");
+  const [asking, setAsking] = useState<Asking>("");
+  const [text, setText] = useState("");
+  const [fine, setFine] = useState("");
   const [error, setError] = useState("");
   const [pending, startTransition] = useTransition();
-  const withdrawn = v.status === "withdrawn";
+  const muted = v.status === "withdrawn" || v.status === "closed";
+  const waiting = v.status === "pending";
 
-  const confirm = () =>
+  const open = (a: Asking) => {
+    setAsking(a);
+    setText("");
+    setFine("");
+    setError("");
+  };
+  const run = (event: DisciplineEvent, call: () => Promise<{ ok: true; row: Violation } | { ok: false; code: string; message: string }>, change: ViolationChange) =>
     startTransition(async () => {
-      const res = await withdrawViolationAction(v.violation_id, reason, v.row_version);
+      const res = await call();
       if (res.ok) {
-        trackDiscipline("hrms_violation_withdraw", "success");
-        setAsking(false);
-        onWithdrawn(res.row);
+        trackDiscipline(event, "success");
+        setAsking("");
+        onChanged(res.row, change);
       } else {
-        trackDiscipline("hrms_violation_withdraw", "error", res.code);
+        trackDiscipline(event, "error", res.code);
         setError(res.message || t("action.failed"));
       }
     });
+  const confirm = () => {
+    if (asking === "withdraw") run("hrms_violation_withdraw", () => withdrawViolationAction(v.violation_id, text, v.row_version), "withdrawn");
+    if (asking === "close") run("hrms_violation_close", () => closeViolationAction(v.violation_id, text, v.row_version), "closed");
+    if (asking === "keep") {
+      const n = Number.parseInt(fine, 10);
+      run("hrms_violation_keep", () => keepViolationAction(v.violation_id, Number.isFinite(n) ? n : null, text, v.row_version), "kept");
+    }
+  };
+  const decided = v.decided_by_name ? t("action.decided_by").replace("%s", v.decided_by_name).replace("%s", v.decided_at_label) : "";
 
   return (
-    <tr className={withdrawn ? "dsc-withdrawn" : undefined} data-testid="violation-row">
+    <tr className={muted ? "dsc-withdrawn" : undefined} data-testid="violation-row">
       <td>{v.occurred_on_label}</td>
       <td>
         <b>{v.person_name}</b>
@@ -224,33 +243,64 @@ function ViolationRow({
       <td>
         {v.type_label}
         <div className="small muted">{v.source_label}</div>
+        {v.detail ? <div className="small dsc-detail">{v.detail}</div> : null}
       </td>
       <td>
         <b>{v.fine_label}</b>
       </td>
       <td className="dsc-note">{v.note}</td>
       <td>
-        {v.recorded_by_name}
+        {v.recorded_by_name || <span className="muted">{v.source_label}</span>}
         <div className="small muted">{v.recorded_at_label}</div>
       </td>
       <td>
-        <span className={withdrawn ? "tag t-mut" : "tag t-warn"}>{v.status_label}</span>
-        {withdrawn && v.withdraw_reason ? <div className="small muted">{v.withdraw_reason}</div> : null}
+        <span className={muted ? "tag t-mut" : waiting ? "tag t-info" : "tag t-warn"} data-testid="violation-status">
+          {v.status_label}
+        </span>
+        {v.withdraw_reason ? <div className="small muted">{v.withdraw_reason}</div> : null}
+        {decided ? <div className="small muted">{decided}</div> : null}
+        {v.status === "closed" && v.decision_note ? <div className="small muted">{v.decision_note}</div> : null}
       </td>
       <td>
-        {withdrawn ? null : asking ? (
-          <div className="dsc-withdraw">
-            <input className="inp" value={reason} maxLength={500} placeholder={t("action.withdraw_reason")} aria-label={t("action.withdraw_reason")} onChange={(e) => setReason(e.target.value)} data-testid="violation-withdraw-reason" />
-            <button type="button" className="btn sm dng" disabled={pending || !reason.trim()} onClick={confirm} data-testid="violation-withdraw-confirm">
-              {t("action.withdraw_confirm")}
+        {muted ? null : asking ? (
+          <div className="dsc-withdraw" data-testid={`violation-${asking}-form`}>
+            {asking === "keep" ? (
+              <input className="inp dsc-fine-inp" inputMode="numeric" value={fine} placeholder={t("form.fine_none")} aria-label={t("form.fine")} onChange={(e) => setFine(e.target.value.replace(/[^0-9]/g, ""))} data-testid="violation-keep-fine" />
+            ) : null}
+            <input
+              className="inp"
+              value={text}
+              maxLength={asking === "keep" ? 2000 : 500}
+              placeholder={asking === "keep" ? t("form.note") : asking === "close" ? t("action.close_reason") : t("action.withdraw_reason")}
+              aria-label={asking === "keep" ? t("form.note") : asking === "close" ? t("action.close_reason") : t("action.withdraw_reason")}
+              onChange={(e) => setText(e.target.value)}
+              data-testid={`violation-${asking}-text`}
+            />
+            <button
+              type="button"
+              className={asking === "keep" ? "btn sm primary" : "btn sm dng"}
+              disabled={pending || (asking !== "keep" && !text.trim())}
+              onClick={confirm}
+              data-testid={`violation-${asking}-confirm`}
+            >
+              {asking === "keep" ? t("action.keep_confirm") : asking === "close" ? t("action.close_confirm") : t("action.withdraw_confirm")}
             </button>
-            <button type="button" className="btn sm" disabled={pending} onClick={() => setAsking(false)}>
+            <button type="button" className="btn sm" disabled={pending} onClick={() => open("")}>
               {t("action.cancel")}
             </button>
             {error ? <div className="small tt-status dng">{error}</div> : null}
           </div>
+        ) : waiting ? (
+          <div className="dsc-actions">
+            <button type="button" className="btn sm primary" disabled={!canEdit} title={canEdit ? undefined : editReason} onClick={() => open("keep")} data-testid="violation-keep">
+              {t("action.keep")}
+            </button>
+            <button type="button" className="btn sm" disabled={!canEdit} title={canEdit ? undefined : editReason} onClick={() => open("close")} data-testid="violation-close">
+              {t("action.close")}
+            </button>
+          </div>
         ) : (
-          <button type="button" className="btn sm" disabled={!canEdit} title={canEdit ? undefined : editReason} onClick={() => setAsking(true)} data-testid="violation-withdraw">
+          <button type="button" className="btn sm" disabled={!canEdit} title={canEdit ? undefined : editReason} onClick={() => open("withdraw")} data-testid="violation-withdraw">
             {t("action.withdraw")}
           </button>
         )}

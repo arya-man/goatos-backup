@@ -38,6 +38,11 @@ type ViolationRow struct {
 	RecordedAt       time.Time
 	Status           string
 	WithdrawReason   string
+	AttendanceKind   string
+	Detail           string
+	DecidedByName    string
+	DecidedAt        *time.Time
+	DecisionNote     string
 	SOPVersion       int
 	RowVersion       int
 }
@@ -62,6 +67,10 @@ type ViolationTotalRow struct {
 	ParkLabel        string
 	Count            int
 	FineRupees       int
+	Pending          int
+	Closed           int
+	LeaveDays        int
+	LeavePendingDays int
 }
 
 // ViolationSummaryRow is the whole-filter aggregate.
@@ -69,6 +78,43 @@ type ViolationSummaryRow struct {
 	Count      int
 	FineRupees int
 	People     int
+	// Pending counts violations waiting for HR under the same scope and period, any status filter.
+	Pending int
+}
+
+// AttendanceQuery asks who is owed an automatic clock-in violation now (2026-09-30).
+type AttendanceQuery struct {
+	TenantID     string
+	Today        string // IST business date; today and yesterday are checked
+	Now          time.Time
+	GraceMinutes int
+	LateOn       bool
+	AbsentOn     bool
+	Limit        int
+}
+
+// AttendanceCandidate is one (person, day, kind) owed a violation. ClockInAt is nil when absent.
+type AttendanceCandidate struct {
+	PersonID    string
+	ParkID      string
+	ShiftCode   string
+	ShiftLabel  string
+	Day         time.Time
+	Kind        string // late | absent
+	StartMinute int
+	ClockInAt   *time.Time
+}
+
+// NewAttendanceViolation is one waiting violation to insert.
+type NewAttendanceViolation struct {
+	PersonID  string
+	ParkID    string
+	TypeKey   string
+	TypeLabel string
+	Day       time.Time
+	Kind      string
+	ShiftCode string
+	Detail    string
 }
 
 // PersonOptionRow is an active person a violation may name.
@@ -158,6 +204,12 @@ type DisciplineRepository interface {
 	PersonOptions(ctx context.Context, tenantID string, parkIDs []string) ([]PersonOptionRow, error)
 	RecordViolation(ctx context.Context, tenantID, actorUserID string, v NewViolation) (ViolationRow, error)
 	WithdrawViolation(ctx context.Context, tenantID, actorUserID, violationID, reason string, rowVersion int) (ViolationRow, error)
+	// KeepViolation turns a WAITING violation into a recorded one with fineRupees and note.
+	KeepViolation(ctx context.Context, tenantID, actorUserID, violationID string, fineRupees int, note string, rowVersion int) (ViolationRow, error)
+	// CloseViolation closes a WAITING violation with a reason.
+	CloseViolation(ctx context.Context, tenantID, actorUserID, violationID, reason string, rowVersion int) (ViolationRow, error)
+	AttendanceCandidates(ctx context.Context, q AttendanceQuery) ([]AttendanceCandidate, error)
+	InsertAttendanceViolations(ctx context.Context, tenantID string, sopVersion int, items []NewAttendanceViolation) (int, error)
 	ViolationsForEnquiry(ctx context.Context, tenantID, enquiryID string) ([]ViolationRow, error)
 
 	OpenEnquiry(ctx context.Context, cmd OpenEnquiryCommand) (created bool, err error)

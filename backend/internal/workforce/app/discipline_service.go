@@ -51,6 +51,12 @@ func NewDisciplineService(repo ports.DisciplineRepository, parks ports.Timetable
 	return &DisciplineService{repo: repo, parks: parks, rules: rules, now: time.Now, log: log}
 }
 
+// WithClock pins the service's clock (tests of the clock-in check pin "now" to a shift's hours).
+func (s *DisciplineService) WithClock(now func() time.Time) *DisciplineService {
+	s.now = now
+	return s
+}
+
 const (
 	violationPageSize   = 25
 	violationTotalsSize = 200
@@ -63,8 +69,23 @@ const (
 var disciplineCopy = map[string]string{
 	"status.recorded":         "Recorded",
 	"status.withdrawn":        "Withdrawn",
+	"status.pending":          "Waiting for HR",
+	"status.closed":           "Closed by HR",
 	"source.manual":           "Recorded by hand",
 	"source.enquiry":          "From an enquiry",
+	"source.attendance":       "Clock-in check",
+	"period.month":            "Month",
+	"period.year":             "Year",
+	"period.all":              "All time",
+	"period.all_label":        "All time",
+	"leave.day":               "1 day",
+	"leave.days":              "%d days",
+	"leave.applied":           "%s applied",
+	"attendance.late":         "Clocked in %s · %s starts %s · %d min late",
+	"attendance.absent":       "No clock-in · %s starts %s",
+	"error.decide_conflict":   "This violation was already decided, or someone changed it just now. The latest is shown.",
+	"error.close_reason":      "Say why it is closed (up to 500 letters).",
+	"error.period":            "That period is not valid.",
 	"enquiry.open":            "Open",
 	"enquiry.overdue":         "Overdue",
 	"enquiry.submitted":       "Submitted",
@@ -99,8 +120,9 @@ var disciplineCopy = map[string]string{
 
 // ---------- violations ----------
 
-// Violations reads People / HRMS > Violations for one park (or all) and one month.
-func (s *DisciplineService) Violations(ctx context.Context, tenantID string, caller DisciplineCaller, parkID, month, status, cursor string, limit int, traceID string) (*domain.ViolationsPage, error) {
+// Violations reads People / HRMS > Violations for one park (or all) and one period: a month (the
+// default), the year that month is in, or all time.
+func (s *DisciplineService) Violations(ctx context.Context, tenantID string, caller DisciplineCaller, parkID, month, period, status, cursor string, limit int, traceID string) (*domain.ViolationsPage, error) {
 	parks, parkScope, err := s.scope(ctx, tenantID, caller, parkID)
 	if err != nil {
 		return nil, err
@@ -109,7 +131,26 @@ func (s *DisciplineService) Violations(ctx context.Context, tenantID string, cal
 	if err != nil {
 		return nil, err
 	}
-	if status != "" && status != domain.ViolationRecorded && status != domain.ViolationWithdrawn {
+	if period == "" {
+		period = domain.PeriodMonth
+	}
+	periodLabel := from.Format("Jan 2006")
+	switch period {
+	case domain.PeriodMonth:
+	case domain.PeriodYear:
+		from = time.Date(from.Year(), 1, 1, 0, 0, 0, 0, from.Location())
+		to = from.AddDate(1, 0, 0)
+		periodLabel = from.Format("2006")
+	case domain.PeriodAll:
+		from = time.Date(2000, 1, 1, 0, 0, 0, 0, from.Location())
+		to = time.Date(2100, 1, 1, 0, 0, 0, 0, from.Location())
+		periodLabel = disciplineCopy["period.all_label"]
+	default:
+		return nil, &Error{Code: "invalid_period", Message: disciplineCopy["error.period"], HTTPStatus: 400}
+	}
+	switch status {
+	case "", domain.ViolationRecorded, domain.ViolationWithdrawn, domain.ViolationPending, domain.ViolationClosed:
+	default:
 		return nil, &Error{Code: "invalid_filter", Message: disciplineCopy["error.filter"], HTTPStatus: 400}
 	}
 	if limit <= 0 || limit > 100 {
@@ -124,8 +165,8 @@ func (s *DisciplineService) Violations(ctx context.Context, tenantID string, cal
 		return nil, err
 	}
 	// The totals are what is OWED: under "all" they count recorded violations only -- a withdrawn
-	// one stays in the list (greyed, with its reason) but no longer fines anybody. Filtering to
-	// "withdrawn" totals the withdrawn ones.
+	// one stays in the list (greyed, with its reason), a waiting one is not owed until HR keeps it,
+	// and a closed one never is. Filtering to a status totals that status.
 	totalsFilter := f
 	if totalsFilter.Status == "" {
 		totalsFilter.Status = domain.ViolationRecorded
@@ -134,7 +175,13 @@ func (s *DisciplineService) Violations(ctx context.Context, tenantID string, cal
 	if err != nil {
 		return nil, err
 	}
-	totals, err := s.repo.ViolationTotalsByPerson(ctx, totalsFilter, violationTotalsSize)
+	pendingFilter := f
+	pendingFilter.Status = domain.ViolationPending
+	pending, err := s.repo.ViolationSummary(ctx, pendingFilter)
+	if err != nil {
+		return nil, err
+	}
+	totals, err := s.repo.ViolationTotalsByPerson(ctx, f, violationTotalsSize)
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +195,14 @@ func (s *DisciplineService) Violations(ctx context.Context, tenantID string, cal
 	}
 	out := &domain.ViolationsPage{
 		Parks: parks, ParkID: parkID, Months: monthOptions(s.now()), Month: monthKey, Status: status,
-		Summary:  domain.ViolationSummary{Count: sum.Count, FineRupees: sum.FineRupees, FineLabel: domain.RupeesLabel(sum.FineRupees), People: sum.People},
+		Periods: []domain.MonthOption{
+			{Key: domain.PeriodMonth, Label: disciplineCopy["period.month"]},
+			{Key: domain.PeriodYear, Label: disciplineCopy["period.year"]},
+			{Key: domain.PeriodAll, Label: disciplineCopy["period.all"]},
+		},
+		Period: period, PeriodLabel: periodLabel,
+		Summary: domain.ViolationSummary{Count: sum.Count, FineRupees: sum.FineRupees, FineLabel: domain.RupeesLabel(sum.FineRupees),
+			People: sum.People, Pending: pending.Count},
 		ByPerson: []domain.ViolationPersonTotal{}, Items: []domain.Violation{}, NextCursor: next,
 		Types: typeOptions(rules.Document), People: personOptions(people), SOPVersion: rules.Version, TraceID: traceID,
 	}
@@ -157,12 +211,126 @@ func (s *DisciplineService) Violations(ctx context.Context, tenantID string, cal
 			PersonID: t.PersonID, PersonName: t.PersonName, ParkLabel: t.ParkLabel, Count: t.Count,
 			Designation: designationLabel(t.DesignationLabel, t.RoleHint, t.DesignationGrade, clockCopyFor("en")),
 			FineRupees:  t.FineRupees, FineLabel: domain.RupeesLabel(t.FineRupees),
+			Pending: t.Pending, Closed: t.Closed, LeaveDays: t.LeaveDays, LeavePendingDays: t.LeavePendingDays,
+			LeaveLabel: leaveLabel(t.LeaveDays, t.LeavePendingDays),
 		})
 	}
 	for _, r := range rows {
 		out.Items = append(out.Items, composeViolation(r))
 	}
 	return out, nil
+}
+
+// leaveLabel is a person's leave for the period: "3 days", "3 days · 1 day applied", "2 days applied".
+func leaveLabel(days, applied int) string {
+	part := func(n int) string {
+		if n == 1 {
+			return disciplineCopy["leave.day"]
+		}
+		return fmt.Sprintf(disciplineCopy["leave.days"], n)
+	}
+	var out []string
+	if days > 0 {
+		out = append(out, part(days))
+	}
+	if applied > 0 {
+		out = append(out, fmt.Sprintf(disciplineCopy["leave.applied"], part(applied)))
+	}
+	return strings.Join(out, " · ")
+}
+
+// KeepViolation is HR keeping an automatic violation: it counts from now, with the fine HR typed
+// (blank = no fine; the type carries none).
+func (s *DisciplineService) KeepViolation(ctx context.Context, tenantID, actorID, violationID string, req domain.KeepViolationRequest, traceID string) (*domain.ViolationResponse, error) {
+	fine := 0
+	if req.FineRupees != nil {
+		fine = *req.FineRupees
+	}
+	if fine < 0 || fine > hrmsdomain.MaxFineRupees {
+		return nil, &Error{Code: "invalid_fine", Message: disciplineCopy["error.fine"], HTTPStatus: 422}
+	}
+	note := strings.TrimSpace(req.Note)
+	if utf8.RuneCountInString(note) > maxNoteRunes {
+		return nil, &Error{Code: "note_too_long", Message: disciplineCopy["error.note"], HTTPStatus: 422}
+	}
+	row, err := s.repo.KeepViolation(ctx, tenantID, actorID, strings.TrimSpace(violationID), fine, note, req.RowVersion)
+	if err != nil {
+		return nil, mapDecisionError(err)
+	}
+	return &domain.ViolationResponse{Violation: composeViolation(row), TraceID: traceID}, nil
+}
+
+// CloseViolation is HR closing an automatic violation: it never counts, the reason stays on it.
+func (s *DisciplineService) CloseViolation(ctx context.Context, tenantID, actorID, violationID string, req domain.CloseViolationRequest, traceID string) (*domain.ViolationResponse, error) {
+	reason := strings.TrimSpace(req.Reason)
+	if reason == "" || utf8.RuneCountInString(reason) > maxReasonRunes {
+		return nil, &Error{Code: "reason_required", Message: disciplineCopy["error.close_reason"], HTTPStatus: 422}
+	}
+	row, err := s.repo.CloseViolation(ctx, tenantID, actorID, strings.TrimSpace(violationID), reason, req.RowVersion)
+	if err != nil {
+		return nil, mapDecisionError(err)
+	}
+	return &domain.ViolationResponse{Violation: composeViolation(row), TraceID: traceID}, nil
+}
+
+func mapDecisionError(err error) error {
+	if errors.Is(err, ports.ErrViolationVersionConflict) {
+		return Conflict("violation_decided", disciplineCopy["error.decide_conflict"])
+	}
+	if errors.Is(err, ports.ErrNotFound) {
+		return NotFound(disciplineCopy["error.person"])
+	}
+	return mapDisciplineError(err)
+}
+
+// attendanceBatch bounds one tick; the next tick picks up the rest.
+const attendanceBatch = 500
+
+// RaiseAttendanceViolations is the automatic clock-in check (2026-09-30), run every few minutes by
+// the kernel worker: everyone mapped to a timed shift who clocked in past the grace, or had not
+// clocked in by the shift's end, on today or yesterday, gets ONE waiting violation per kind and
+// day -- never on leave they applied for. Returns how many were new.
+func (s *DisciplineService) RaiseAttendanceViolations(ctx context.Context, tenantID string) (int, error) {
+	rules, err := s.rules.Published(ctx, tenantID)
+	if err != nil {
+		return 0, err
+	}
+	late, lateOn := rules.Document.AttendanceType(false)
+	absent, absentOn := rules.Document.AttendanceType(true)
+	if !lateOn && !absentOn {
+		return 0, nil
+	}
+	now := s.now()
+	cands, err := s.repo.AttendanceCandidates(ctx, ports.AttendanceQuery{
+		TenantID: tenantID, Today: biztime.BusinessDate(now), Now: now, GraceMinutes: rules.Document.Attendance.GraceMinutes,
+		LateOn: lateOn, AbsentOn: absentOn, Limit: attendanceBatch,
+	})
+	if err != nil {
+		return 0, err
+	}
+	items := make([]ports.NewAttendanceViolation, 0, len(cands))
+	for _, c := range cands {
+		items = append(items, attendanceViolation(c, late, absent))
+	}
+	return s.repo.InsertAttendanceViolations(ctx, tenantID, rules.Version, items)
+}
+
+// attendanceViolation composes one waiting violation's words ("Clocked in 7:42 am · Morning shift
+// starts 7:00 am · 42 min late").
+func attendanceViolation(c ports.AttendanceCandidate, late, absent hrmsdomain.ViolationType) ports.NewAttendanceViolation {
+	v := ports.NewAttendanceViolation{PersonID: c.PersonID, ParkID: c.ParkID, Day: c.Day, Kind: c.Kind, ShiftCode: c.ShiftCode}
+	starts := ClockTimeLabel(c.StartMinute)
+	if c.Kind == "late" && c.ClockInAt != nil {
+		in := c.ClockInAt.In(biztime.DefaultLocation())
+		dayStart := time.Date(c.Day.Year(), c.Day.Month(), c.Day.Day(), 0, 0, 0, 0, biztime.DefaultLocation())
+		minutesLate := int(in.Sub(dayStart.Add(time.Duration(c.StartMinute) * time.Minute)).Minutes())
+		v.TypeKey, v.TypeLabel = late.Key, late.Title
+		v.Detail = fmt.Sprintf(disciplineCopy["attendance.late"], ClockTimeLabel(in.Hour()*60+in.Minute()), c.ShiftLabel, starts, minutesLate)
+		return v
+	}
+	v.TypeKey, v.TypeLabel = absent.Key, absent.Title
+	v.Detail = fmt.Sprintf(disciplineCopy["attendance.absent"], c.ShiftLabel, starts)
+	return v
 }
 
 // RecordViolation records one violation by hand, against the PUBLISHED HRMS SOP.
@@ -587,8 +755,17 @@ func composeViolation(r ports.ViolationRow) domain.Violation {
 		Note: r.Note, Source: r.Source, SourceLabel: disciplineCopy["source."+r.Source], EnquiryID: r.EnquiryID,
 		RecordedByName: r.RecordedByName, RecordedAtLabel: farmTimestamp(r.RecordedAt),
 		Status: r.Status, StatusLabel: disciplineCopy["status."+r.Status], WithdrawReason: r.WithdrawReason,
-		SOPVersion: r.SOPVersion, RowVersion: r.RowVersion,
+		AttendanceKind: r.AttendanceKind, Detail: r.Detail, DecidedByName: r.DecidedByName, DecisionNote: r.DecisionNote,
+		DecidedAtLabel: optionalFarmTimestamp(r.DecidedAt),
+		SOPVersion:     r.SOPVersion, RowVersion: r.RowVersion,
 	}
+}
+
+func optionalFarmTimestamp(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+	return farmTimestamp(*t)
 }
 
 func composeEnquiry(r ports.EnquiryRow, doc hrmsdomain.Document, now time.Time) domain.Enquiry {

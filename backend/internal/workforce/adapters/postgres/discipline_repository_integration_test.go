@@ -207,7 +207,7 @@ func TestDeathEnquiryOpensOnceAndItsReportRecordsViolationsWithDockerPostgres(t 
 	if _, err := f.svc.SubmitEnquiry(f.ctx, dsTenant, dsHead, dsHeadUser, e.EnquiryID, submit, "t"); !isCode(err, "enquiry_submitted") {
 		t.Fatalf("second submit = %v", err)
 	}
-	month, err := f.svc.Violations(f.ctx, dsTenant, dsHR, "", "2026-09", "", "", 0, "t")
+	month, err := f.svc.Violations(f.ctx, dsTenant, dsHR, "", "2026-09", "","", "", 0, "t")
 	if err != nil || month.Summary.Count != 2 || month.Summary.FineRupees != 250 || month.Summary.People != 2 || month.Summary.FineLabel != "₹250" {
 		t.Fatalf("month = %+v %v", month.Summary, err)
 	}
@@ -246,7 +246,7 @@ func TestViolationTotalsOneToManyCountEachViolationOnce(t *testing.T) {
 	dsRecord(t, f, 0, "late", "2026-09-11", 100)
 	dsRecord(t, f, 0, "late", "2026-09-12", 100)
 	dsRecord(t, f, 1, "late", "2026-09-12", 100)
-	page, err := f.svc.Violations(f.ctx, dsTenant, dsHR, "", "2026-09", "", "", 0, "t")
+	page, err := f.svc.Violations(f.ctx, dsTenant, dsHR, "", "2026-09", "","", "", 0, "t")
 	if err != nil || page.Summary.Count != 4 || page.Summary.FineRupees != 800 || page.Summary.People != 2 {
 		t.Fatalf("summary = %+v %v", page.Summary, err)
 	}
@@ -266,7 +266,7 @@ func TestViolationListPageBoundary(t *testing.T) {
 	var dates []string
 	cursor := ""
 	for range 10 {
-		page, err := f.svc.Violations(f.ctx, dsTenant, dsHR, "", "2026-09", "", cursor, 2, "t")
+		page, err := f.svc.Violations(f.ctx, dsTenant, dsHR, "", "2026-09", "","", cursor, 2, "t")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -291,15 +291,15 @@ func TestViolationParkScope(t *testing.T) {
 	f := dsSeed(t)
 	dsRecord(t, f, 0, "late", "2026-09-10", 100)
 	dsRecord(t, f, 3, "late", "2026-09-10", 100)
-	cbe, err := f.svc.Violations(f.ctx, dsTenant, dsHR, dsCBE, "2026-09", "", "", 0, "t")
+	cbe, err := f.svc.Violations(f.ctx, dsTenant, dsHR, dsCBE, "2026-09", "","", "", 0, "t")
 	if err != nil || cbe.Summary.Count != 1 || cbe.Items[0].PersonName != "Farid" {
 		t.Fatalf("CBE = %+v %v", cbe, err)
 	}
-	head, err := f.svc.Violations(f.ctx, dsTenant, dsHead, "", "2026-09", "", "", 0, "t")
+	head, err := f.svc.Violations(f.ctx, dsTenant, dsHead, "", "2026-09", "","", "", 0, "t")
 	if err != nil || head.Summary.Count != 1 || head.Items[0].PersonName != "Amit" || len(head.Parks) != 1 {
 		t.Fatalf("CPT head = %+v %v", head, err)
 	}
-	if _, err := f.svc.Violations(f.ctx, dsTenant, dsHead, dsCBE, "2026-09", "", "", 0, "t"); !isCode(err, "unknown_park") {
+	if _, err := f.svc.Violations(f.ctx, dsTenant, dsHead, dsCBE, "2026-09", "","", "", 0, "t"); !isCode(err, "unknown_park") {
 		t.Fatalf("CPT head asking for CBE = %v", err)
 	}
 }
@@ -315,16 +315,16 @@ func TestViolationStatusMatrix(t *testing.T) {
 	// The list under "all" shows both; the totals count only what is owed (recorded). Found in
 	// the browser E2E: a withdrawn fine kept inflating the page total after a reload.
 	for status, want := range map[string][2]int{"": {2, 1}, "recorded": {1, 1}, "withdrawn": {1, 1}} {
-		page, err := f.svc.Violations(f.ctx, dsTenant, dsHR, "", "2026-09", status, "", 0, "t")
+		page, err := f.svc.Violations(f.ctx, dsTenant, dsHR, "", "2026-09", "",status, "", 0, "t")
 		if err != nil || len(page.Items) != want[0] || page.Summary.Count != want[1] {
 			t.Fatalf("status %q = rows %d, summary %+v %v", status, len(page.Items), page.Summary, err)
 		}
 	}
-	all, _ := f.svc.Violations(f.ctx, dsTenant, dsHR, "", "2026-09", "", "", 0, "t")
+	all, _ := f.svc.Violations(f.ctx, dsTenant, dsHR, "", "2026-09", "","", "", 0, "t")
 	if all.Summary.FineRupees != 200 || len(all.ByPerson) != 1 || all.ByPerson[0].FineRupees != 200 {
 		t.Fatalf("a withdrawn fine is still counted: %+v %+v", all.Summary, all.ByPerson)
 	}
-	if _, err := f.svc.Violations(f.ctx, dsTenant, dsHR, "", "2026-09", "deleted", "", 0, "t"); !isCode(err, "invalid_filter") {
+	if _, err := f.svc.Violations(f.ctx, dsTenant, dsHR, "", "2026-09", "","deleted", "", 0, "t"); !isCode(err, "invalid_filter") {
 		t.Fatalf("unknown status = %v", err)
 	}
 }

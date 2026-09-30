@@ -112,6 +112,10 @@ data class ViolationDto(
     @SerialName("recorded_by_name") val recordedByName: String = "",
     @SerialName("recorded_at_label") val recordedAtLabel: String = "",
     @SerialName("withdraw_reason") val withdrawReason: String = "",
+    /** "late" / "absent" on an automatic clock-in violation (2026-09-30), "" otherwise. */
+    @SerialName("attendance_kind") val attendanceKind: String = "",
+    @SerialName("detail") val detail: String = "",
+    @SerialName("decision_note") val decisionNote: String = "",
     @SerialName("status") val status: String = "",
     @SerialName("status_label") val statusLabel: String = "",
     @SerialName("row_version") val rowVersion: Int = 0,
@@ -151,6 +155,8 @@ data class ViolationSummaryDto(
     @SerialName("fine_rupees") val fineRupees: Int = 0,
     @SerialName("fine_label") val fineLabel: String = "",
     @SerialName("people") val people: Int = 0,
+    /** Automatic clock-in violations still waiting for HR in the period. */
+    @SerialName("pending") val pending: Int = 0,
 )
 
 @Serializable

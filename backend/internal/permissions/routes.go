@@ -221,6 +221,9 @@ var protectedRoutes = []Route{
 	{OperationID: "listWorkforceViolations", Method: "GET", Pattern: "/admin/workforce/violations", Permissions: []string{WorkforceViolationsRead}},
 	{OperationID: "recordWorkforceViolation", Method: "POST", Pattern: "/admin/workforce/violations", Permissions: []string{WorkforceViolationsWrite}},
 	{OperationID: "withdrawWorkforceViolation", Method: "POST", Pattern: "/admin/workforce/violations/{violation_id}/withdraw", Permissions: []string{WorkforceViolationsWrite}},
+	// HR keeps or closes an automatic clock-in violation (2026-09-30).
+	{OperationID: "keepWorkforceViolation", Method: "POST", Pattern: "/admin/workforce/violations/{violation_id}/keep", Permissions: []string{WorkforceViolationsWrite}},
+	{OperationID: "closeWorkforceViolation", Method: "POST", Pattern: "/admin/workforce/violations/{violation_id}/close", Permissions: []string{WorkforceViolationsWrite}},
 	// Enquiries (2026-09-30): HR / the CEO on the web; the park head on the phone (park scope is
 	// the service's). The phone routes also admit HR/CEO so one client can serve both.
 	{OperationID: "listWorkforceEnquiries", Method: "GET", Pattern: "/admin/workforce/enquiries", Permissions: []string{WorkforceViolationsRead}},

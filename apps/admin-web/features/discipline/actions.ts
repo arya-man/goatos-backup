@@ -1,6 +1,7 @@
 "use server";
 
 import {
+  decideWorkforceViolation,
   recordWorkforceViolation,
   submitWorkforceEnquiry,
   withdrawWorkforceViolation,
@@ -25,6 +26,20 @@ export async function recordViolationAction(body: RecordViolationBody): Promise<
 
 export async function withdrawViolationAction(violationId: string, reason: string, rowVersion: number): Promise<DisciplineResult<Violation>> {
   const res = await withdrawWorkforceViolation(violationId, { reason, row_version: rowVersion });
+  if (!res.ok) return { ok: false, code: res.error.code ?? res.error.kind, message: res.error.message };
+  return { ok: true, row: res.data.violation };
+}
+
+/** HR keeps a waiting clock-in violation: it counts, with the fine HR typed (null = no fine). */
+export async function keepViolationAction(violationId: string, fine: number | null, note: string, rowVersion: number): Promise<DisciplineResult<Violation>> {
+  const res = await decideWorkforceViolation(violationId, "keep", { fine_rupees: fine, note, row_version: rowVersion });
+  if (!res.ok) return { ok: false, code: res.error.code ?? res.error.kind, message: res.error.message };
+  return { ok: true, row: res.data.violation };
+}
+
+/** HR closes a waiting clock-in violation with a reason: it never counts. */
+export async function closeViolationAction(violationId: string, reason: string, rowVersion: number): Promise<DisciplineResult<Violation>> {
+  const res = await decideWorkforceViolation(violationId, "close", { reason, row_version: rowVersion });
   if (!res.ok) return { ok: false, code: res.error.code ?? res.error.kind, message: res.error.message };
   return { ok: true, row: res.data.violation };
 }

@@ -19,8 +19,18 @@ import (
 const (
 	ViolationRecorded  = "recorded"
 	ViolationWithdrawn = "withdrawn"
-	ViolationManual    = "manual"
-	ViolationEnquiry   = "enquiry"
+	// ViolationPending is an AUTOMATIC clock-in violation waiting for HR (2026-09-30); HR keeps it
+	// (-> recorded) or closes it (-> closed).
+	ViolationPending    = "pending"
+	ViolationClosed     = "closed"
+	ViolationManual     = "manual"
+	ViolationEnquiry    = "enquiry"
+	ViolationAttendance = "attendance"
+
+	// Periods the per-person totals and the list cover.
+	PeriodMonth = "month"
+	PeriodYear  = "year"
+	PeriodAll   = "all"
 
 	EnquiryOpen      = "open"
 	EnquirySubmitted = "submitted"
@@ -64,19 +74,34 @@ type Violation struct {
 	Status          string `json:"status"`
 	StatusLabel     string `json:"status_label"`
 	WithdrawReason  string `json:"withdraw_reason"`
-	SOPVersion      int    `json:"sop_version"`
-	RowVersion      int    `json:"row_version"`
+	// AttendanceKind is "late" / "absent" on an automatic clock-in violation, "" otherwise.
+	AttendanceKind string `json:"attendance_kind"`
+	// Detail is the backend-composed fact behind an automatic one ("Clocked in 7:42 am · shift
+	// starts 7:00 am · 42 min late").
+	Detail         string `json:"detail"`
+	DecidedByName  string `json:"decided_by_name"`
+	DecidedAtLabel string `json:"decided_at_label"`
+	DecisionNote   string `json:"decision_note"`
+	SOPVersion     int    `json:"sop_version"`
+	RowVersion     int    `json:"row_version"`
 }
 
-// ViolationPersonTotal is one person's total for the filter.
+// ViolationPersonTotal is one person's totals for the period: violations that count (recorded),
+// their fines, how many still wait for HR, how many HR closed, and the leave they took (approved)
+// or applied for (pending). A person with leave but no violation is listed too.
 type ViolationPersonTotal struct {
-	PersonID    string `json:"person_id"`
-	PersonName  string `json:"person_name"`
-	Designation string `json:"designation"`
-	ParkLabel   string `json:"park_label"`
-	Count       int    `json:"count"`
-	FineRupees  int    `json:"fine_rupees"`
-	FineLabel   string `json:"fine_label"`
+	PersonID         string `json:"person_id"`
+	PersonName       string `json:"person_name"`
+	Designation      string `json:"designation"`
+	ParkLabel        string `json:"park_label"`
+	Count            int    `json:"count"`
+	FineRupees       int    `json:"fine_rupees"`
+	FineLabel        string `json:"fine_label"`
+	Pending          int    `json:"pending"`
+	Closed           int    `json:"closed"`
+	LeaveDays        int    `json:"leave_days"`
+	LeavePendingDays int    `json:"leave_pending_days"`
+	LeaveLabel       string `json:"leave_label"`
 }
 
 // ViolationSummary is the whole-filter aggregate (grain: recorded violation; people = distinct
@@ -86,6 +111,8 @@ type ViolationSummary struct {
 	FineRupees int    `json:"fine_rupees"`
 	FineLabel  string `json:"fine_label"`
 	People     int    `json:"people"`
+	// Pending is how many automatic violations still wait for HR in the period (every status).
+	Pending int `json:"pending"`
 }
 
 // MonthOption is one month the page can show ("Sep 2026" -- a month heading, not a date).
@@ -96,19 +123,23 @@ type MonthOption struct {
 
 // ViolationsPage is People / HRMS > Violations for one filter.
 type ViolationsPage struct {
-	Parks      []TimetablePark        `json:"parks"`
-	ParkID     string                 `json:"park_id"`
-	Months     []MonthOption          `json:"months"`
-	Month      string                 `json:"month"`
-	Status     string                 `json:"status"`
-	Summary    ViolationSummary       `json:"summary"`
-	ByPerson   []ViolationPersonTotal `json:"by_person"`
-	Items      []Violation            `json:"items"`
-	NextCursor string                 `json:"next_cursor"`
-	Types      []ViolationTypeOption  `json:"types"`
-	People     []PersonOption         `json:"people"`
-	SOPVersion int                    `json:"sop_version"`
-	TraceID    string                 `json:"trace_id"`
+	Parks  []TimetablePark `json:"parks"`
+	ParkID string          `json:"park_id"`
+	Months []MonthOption   `json:"months"`
+	Month  string          `json:"month"`
+	// Period is month / year / all; the list, the summary and the per-person totals follow it.
+	Periods     []MonthOption          `json:"periods"`
+	Period      string                 `json:"period"`
+	PeriodLabel string                 `json:"period_label"`
+	Status      string                 `json:"status"`
+	Summary     ViolationSummary       `json:"summary"`
+	ByPerson    []ViolationPersonTotal `json:"by_person"`
+	Items       []Violation            `json:"items"`
+	NextCursor  string                 `json:"next_cursor"`
+	Types       []ViolationTypeOption  `json:"types"`
+	People      []PersonOption         `json:"people"`
+	SOPVersion  int                    `json:"sop_version"`
+	TraceID     string                 `json:"trace_id"`
 }
 
 // RecordViolationRequest records one violation by hand. FineRupees nil means no fine -- never a
@@ -120,6 +151,20 @@ type RecordViolationRequest struct {
 	OccurredOn     string `json:"occurred_on"`
 	Note           string `json:"note"`
 	IdempotencyKey string `json:"idempotency_key"`
+}
+
+// KeepViolationRequest is HR keeping an automatic violation: it becomes recorded, with the fine HR
+// types (nil = no fine) and an optional note.
+type KeepViolationRequest struct {
+	FineRupees *int   `json:"fine_rupees"`
+	Note       string `json:"note"`
+	RowVersion int    `json:"row_version"`
+}
+
+// CloseViolationRequest is HR closing an automatic violation with a reason.
+type CloseViolationRequest struct {
+	Reason     string `json:"reason"`
+	RowVersion int    `json:"row_version"`
 }
 
 // WithdrawViolationRequest withdraws a mistaken violation.

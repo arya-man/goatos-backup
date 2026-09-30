@@ -243,6 +243,10 @@ func run(ctx context.Context, args []string) error {
 			// against an unconditional close gate. Light and bounded (100 items/tick by default),
 			// so the shared operational lane's interval/4 budget is ample.
 			kernelstages.NewVerificationSamplingCloseoutStage(deps, tenantID),
+			// HRMS clock-in check (maintainer decisions 2026-09-30): a late clock-in or none at all
+			// on a timed shift raises a violation waiting for HR. Every 5 minutes so HR sees a late
+			// morning within minutes; one bounded read + one insert per tick.
+			kernelstages.NewHRMSAttendanceStage(deps, tenantID),
 		)
 
 		// Generation (hourly): idempotently generate/recheck effective vaccination

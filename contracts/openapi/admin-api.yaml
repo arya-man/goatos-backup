@@ -3912,6 +3912,12 @@ paths:
           required: false
           schema:
             type: string
+        - name: period
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [month, year, all]
         - name: status
           in: query
           required: false
@@ -4017,6 +4023,100 @@ paths:
       responses:
         "200":
           description: The withdrawn violation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ViolationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Not found, or not in the caller parks.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          description: The request breaks an HRMS SOP rule (farm-worded code and message).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin/workforce/violations/{violation_id}/keep:
+    post:
+      tags:
+        - People
+      operationId: keepWorkforceViolation
+      summary: "HR keeps an automatic clock-in violation that is waiting; it counts from now, with the fine HR types (blank = no fine)."
+      parameters:
+        - name: violation_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KeepViolationRequest"
+      responses:
+        "200":
+          description: The kept violation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ViolationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Not found, or not in the caller parks.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          description: The request breaks an HRMS SOP rule (farm-worded code and message).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin/workforce/violations/{violation_id}/close:
+    post:
+      tags:
+        - People
+      operationId: closeWorkforceViolation
+      summary: "HR closes an automatic clock-in violation that is waiting, with a reason; it never counts."
+      parameters:
+        - name: violation_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CloseViolationRequest"
+      responses:
+        "200":
+          description: The closed violation.
           content:
             application/json:
               schema:
@@ -13645,7 +13745,7 @@ components:
     Violation:
       type: object
       additionalProperties: false
-      required: [violation_id, person_id, person_name, designation, park_id, park_label, type_key, type_label, fine_rupees, fine_label, occurred_on, occurred_on_label, note, source, source_label, enquiry_id, recorded_by_name, recorded_at_label, status, status_label, withdraw_reason, sop_version, row_version]
+      required: [violation_id, person_id, person_name, designation, park_id, park_label, type_key, type_label, fine_rupees, fine_label, occurred_on, occurred_on_label, note, source, source_label, enquiry_id, recorded_by_name, recorded_at_label, status, status_label, withdraw_reason, attendance_kind, detail, decided_by_name, decided_at_label, decision_note, sop_version, row_version]
       properties:
         violation_id: {type: string}
         person_id: {type: string}
@@ -13668,12 +13768,17 @@ components:
         status: {type: string}
         status_label: {type: string}
         withdraw_reason: {type: string}
+        attendance_kind: {type: string, description: "late / absent on an automatic clock-in violation, empty otherwise"}
+        detail: {type: string}
+        decided_by_name: {type: string}
+        decided_at_label: {type: string}
+        decision_note: {type: string}
         sop_version: {type: integer}
         row_version: {type: integer}
     ViolationPersonTotal:
       type: object
       additionalProperties: false
-      required: [person_id, person_name, designation, park_label, count, fine_rupees, fine_label]
+      required: [person_id, person_name, designation, park_label, count, fine_rupees, fine_label, pending, closed, leave_days, leave_pending_days, leave_label]
       properties:
         person_id: {type: string}
         person_name: {type: string}
@@ -13682,15 +13787,21 @@ components:
         count: {type: integer}
         fine_rupees: {type: integer}
         fine_label: {type: string}
+        pending: {type: integer}
+        closed: {type: integer}
+        leave_days: {type: integer}
+        leave_pending_days: {type: integer}
+        leave_label: {type: string}
     ViolationSummary:
       type: object
       additionalProperties: false
-      required: [count, fine_rupees, fine_label, people]
+      required: [count, fine_rupees, fine_label, people, pending]
       properties:
         count: {type: integer}
         fine_rupees: {type: integer}
         fine_label: {type: string}
         people: {type: integer}
+        pending: {type: integer}
     ViolationMonthOption:
       type: object
       additionalProperties: false
@@ -13708,12 +13819,15 @@ components:
     ViolationsPage:
       type: object
       additionalProperties: false
-      required: [parks, park_id, months, month, status, summary, by_person, items, next_cursor, types, people, sop_version, trace_id]
+      required: [parks, park_id, months, month, periods, period, period_label, status, summary, by_person, items, next_cursor, types, people, sop_version, trace_id]
       properties:
         parks: {type: array, items: {$ref: "#/components/schemas/ViolationPark"}}
         park_id: {type: string}
         months: {type: array, items: {$ref: "#/components/schemas/ViolationMonthOption"}}
         month: {type: string}
+        periods: {type: array, items: {$ref: "#/components/schemas/ViolationMonthOption"}}
+        period: {type: string, enum: [month, year, all]}
+        period_label: {type: string}
         status: {type: string}
         summary: {$ref: "#/components/schemas/ViolationSummary"}
         by_person: {type: array, items: {$ref: "#/components/schemas/ViolationPersonTotal"}}
@@ -13734,6 +13848,21 @@ components:
         occurred_on: {type: string, description: "YYYY-MM-DD, not in the future"}
         note: {type: string}
         idempotency_key: {type: string}
+    KeepViolationRequest:
+      type: object
+      additionalProperties: false
+      required: [row_version]
+      properties:
+        fine_rupees: {type: [integer, "null"], description: "blank = no fine; a violation type carries none"}
+        note: {type: string}
+        row_version: {type: integer}
+    CloseViolationRequest:
+      type: object
+      additionalProperties: false
+      required: [reason, row_version]
+      properties:
+        reason: {type: string}
+        row_version: {type: integer}
     WithdrawViolationRequest:
       type: object
       additionalProperties: false

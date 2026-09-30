@@ -21336,6 +21336,12 @@ export interface components {
             status: string;
             status_label: string;
             withdraw_reason: string;
+            /** @description late / absent on an automatic clock-in violation, empty otherwise */
+            attendance_kind: string;
+            detail: string;
+            decided_by_name: string;
+            decided_at_label: string;
+            decision_note: string;
             sop_version: number;
             row_version: number;
         };
@@ -21347,12 +21353,18 @@ export interface components {
             count: number;
             fine_rupees: number;
             fine_label: string;
+            pending: number;
+            closed: number;
+            leave_days: number;
+            leave_pending_days: number;
+            leave_label: string;
         };
         ViolationSummary: {
             count: number;
             fine_rupees: number;
             fine_label: string;
             people: number;
+            pending: number;
         };
         ViolationMonthOption: {
             key: string;
@@ -21367,6 +21379,10 @@ export interface components {
             park_id: string;
             months: components["schemas"]["ViolationMonthOption"][];
             month: string;
+            periods: components["schemas"]["ViolationMonthOption"][];
+            /** @enum {string} */
+            period: "month" | "year" | "all";
+            period_label: string;
             status: string;
             summary: components["schemas"]["ViolationSummary"];
             by_person: components["schemas"]["ViolationPersonTotal"][];
@@ -34644,6 +34660,7 @@ export interface operations {
             query?: {
                 park_id?: string;
                 month?: string;
+                period?: "month" | "year" | "all";
                 status?: string;
                 cursor?: string;
                 limit?: string;

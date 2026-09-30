@@ -1881,6 +1881,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/workforce/violations/{violation_id}/keep": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** HR keeps an automatic clock-in violation that is waiting; it counts from now, with the fine HR types (blank = no fine). */
+        post: operations["keepWorkforceViolation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/workforce/violations/{violation_id}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** HR closes an automatic clock-in violation that is waiting, with a reason; it never counts. */
+        post: operations["closeWorkforceViolation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/workforce/enquiries": {
         parameters: {
             query?: never;
@@ -5306,6 +5340,12 @@ export interface components {
             status: string;
             status_label: string;
             withdraw_reason: string;
+            /** @description late / absent on an automatic clock-in violation, empty otherwise */
+            attendance_kind: string;
+            detail: string;
+            decided_by_name: string;
+            decided_at_label: string;
+            decision_note: string;
             sop_version: number;
             row_version: number;
         };
@@ -5317,12 +5357,18 @@ export interface components {
             count: number;
             fine_rupees: number;
             fine_label: string;
+            pending: number;
+            closed: number;
+            leave_days: number;
+            leave_pending_days: number;
+            leave_label: string;
         };
         ViolationSummary: {
             count: number;
             fine_rupees: number;
             fine_label: string;
             people: number;
+            pending: number;
         };
         ViolationMonthOption: {
             key: string;
@@ -5337,6 +5383,10 @@ export interface components {
             park_id: string;
             months: components["schemas"]["ViolationMonthOption"][];
             month: string;
+            periods: components["schemas"]["ViolationMonthOption"][];
+            /** @enum {string} */
+            period: "month" | "year" | "all";
+            period_label: string;
             status: string;
             summary: components["schemas"]["ViolationSummary"];
             by_person: components["schemas"]["ViolationPersonTotal"][];
@@ -5355,6 +5405,16 @@ export interface components {
             occurred_on: string;
             note?: string;
             idempotency_key?: string;
+        };
+        KeepViolationRequest: {
+            /** @description blank = no fine; a violation type carries none */
+            fine_rupees?: number | null;
+            note?: string;
+            row_version: number;
+        };
+        CloseViolationRequest: {
+            reason: string;
+            row_version: number;
         };
         WithdrawViolationRequest: {
             reason: string;
@@ -9939,6 +9999,7 @@ export interface operations {
             query?: {
                 park_id?: string;
                 month?: string;
+                period?: "month" | "year" | "all";
                 status?: string;
                 cursor?: string;
                 limit?: string;
@@ -10046,6 +10107,104 @@ export interface operations {
         };
         responses: {
             /** @description The withdrawn violation. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ViolationResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Not found, or not in the caller parks. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            409: components["responses"]["WriteConflict"];
+            /** @description The request breaks an HRMS SOP rule (farm-worded code and message). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    keepWorkforceViolation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                violation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KeepViolationRequest"];
+            };
+        };
+        responses: {
+            /** @description The kept violation. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ViolationResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Not found, or not in the caller parks. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            409: components["responses"]["WriteConflict"];
+            /** @description The request breaks an HRMS SOP rule (farm-worded code and message). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    closeWorkforceViolation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                violation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CloseViolationRequest"];
+            };
+        };
+        responses: {
+            /** @description The closed violation. */
             200: {
                 headers: {
                     [name: string]: unknown;

@@ -39,6 +39,8 @@ const (
 	// MaxFineRupees bounds the fine typed on a violation (the list itself carries none).
 	MaxFineRupees = 10_000_000
 	MaxDueHours       = 24 * 30
+	// MaxGraceMinutes bounds how late a clock-in may be before the attendance check raises one.
+	MaxGraceMinutes = 240
 )
 
 // KnownTriggers are the farm events the backend can open an enquiry for.
@@ -71,11 +73,40 @@ type Enquiry struct {
 	Questions []Question `json:"questions"`
 }
 
+// Attendance is the automatic clock-in check (maintainer decisions 2026-09-30): a person mapped
+// to a shift who clocks in more than GraceMinutes after its start gets a LateType violation, and
+// one who does not clock in at all by the shift's end gets an AbsentType violation -- both WAITING
+// for HR, who keeps or closes each. A day covered by leave the person applied for is never
+// checked. A blank type turns that half off; no section at all turns the check off.
+type Attendance struct {
+	GraceMinutes int    `json:"grace_minutes"`
+	LateType     string `json:"late_type"`
+	AbsentType   string `json:"absent_type"`
+}
+
 // Document is the `violations` section of the HRMS SOP.
 type Document struct {
 	SchemaVersion  string          `json:"schema_version"`
 	ViolationTypes []ViolationType `json:"violation_types"`
 	Enquiries      []Enquiry       `json:"enquiries"`
+	Attendance     *Attendance     `json:"attendance,omitempty"`
+}
+
+// AttendanceType is the ACTIVE type an attendance kind raises, or false when that half is off
+// (no section, a blank key, or the type retired).
+func (d Document) AttendanceType(absent bool) (ViolationType, bool) {
+	if d.Attendance == nil {
+		return ViolationType{}, false
+	}
+	key := d.Attendance.LateType
+	if absent {
+		key = d.Attendance.AbsentType
+	}
+	t, ok := d.ViolationType(key)
+	if key == "" || !ok || !t.Active {
+		return ViolationType{}, false
+	}
+	return t, true
 }
 
 // Rules is a document together with the SOP version it came from (0 = the seed, no version
@@ -184,6 +215,16 @@ func Validate(doc Document) []string {
 			add("%s: the name %q is used twice", where, title)
 		}
 		seenTitle[strings.ToLower(title)] = true
+	}
+	if a := doc.Attendance; a != nil {
+		if a.GraceMinutes < 0 || a.GraceMinutes > MaxGraceMinutes {
+			add("clock-in check: the grace must be between 0 and %d minutes", MaxGraceMinutes)
+		}
+		for _, k := range []string{a.LateType, a.AbsentType} {
+			if k != "" && !seenKey[k] {
+				add("clock-in check: %q is not one of the violation types", k)
+			}
+		}
 	}
 	seenTrigger := map[string]bool{}
 	for i, e := range doc.Enquiries {

@@ -724,12 +724,14 @@ private fun ViolationRow(row: ViolationRowUi) {
                 Text(row.designation, color = MeshaColors.Faint, style = MeshaType.caption, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Text(row.typeLabel, color = MeshaColors.Muted, style = MeshaType.body)
+            if (row.detail.isNotBlank()) Text(row.detail, color = MeshaColors.Muted, style = MeshaType.caption)
             Text(
                 listOf(row.dateLabel, row.sourceLabel, row.recordedByName).filter { it.isNotBlank() }.joinToString(" · "),
                 color = MeshaColors.Faint,
                 style = MeshaType.caption,
             )
             if (row.note.isNotBlank()) Text(row.note, color = MeshaColors.Muted, style = MeshaType.caption)
+            if (row.waiting) MeshaStatusPill(label = row.statusLabel, tone = MeshaTone.Warn)
             if (row.withdrawn) {
                 MeshaStatusPill(label = row.statusLabel, tone = MeshaTone.Muted)
                 if (row.withdrawReason.isNotBlank()) Text(row.withdrawReason, color = MeshaColors.Faint, style = MeshaType.caption)

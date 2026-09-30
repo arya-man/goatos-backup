@@ -81,3 +81,61 @@ func TestMigrationEmbedsTheSeed(t *testing.T) {
 		t.Fatalf("migration seed %+v != Seed() %+v", doc, Seed())
 	}
 }
+
+// The clock-in check names violation types from the SAME list, so a rename keeps it and a key the
+// list does not carry is refused at save; a retired type turns that half off.
+func TestAttendanceNamesTypesFromTheList(t *testing.T) {
+	doc := Seed()
+	doc.ViolationTypes = []ViolationType{{Key: "late_clock_in", Title: "Late clock-in", Active: true}, {Key: "did_not_clock_in", Title: "Did not clock in", Active: false}}
+	doc.Attendance = &Attendance{GraceMinutes: 15, LateType: "late_clock_in", AbsentType: "did_not_clock_in"}
+	if p := Validate(doc); len(p) > 0 {
+		t.Fatalf("valid attendance refused: %v", p)
+	}
+	if _, ok := doc.AttendanceType(false); !ok {
+		t.Fatal("the late half must be on")
+	}
+	if _, ok := doc.AttendanceType(true); ok {
+		t.Fatal("a retired absent type must turn that half off")
+	}
+	doc.Attendance = &Attendance{GraceMinutes: 999, LateType: "nope"}
+	got := strings.Join(Validate(doc), "\n")
+	for _, want := range []string{"grace", "not one of the violation types"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in %s", want, got)
+		}
+	}
+	if _, ok := Seed().AttendanceType(false); ok {
+		t.Fatal("no section means the check is off")
+	}
+}
+
+// Migration 000459 adds the clock-in check to every published HRMS SOP in place; its patch must
+// itself be a valid document part.
+func TestMigrationAddsAValidClockInCheck(t *testing.T) {
+	raw, err := os.ReadFile("../../../migrations/postgres/000459_hrms_attendance_violations.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(raw)
+	start := strings.Index(s, "$types$")
+	end := strings.Index(s[start+7:], "$types$")
+	astart := strings.Index(s, "$att$")
+	aend := strings.Index(s[astart+5:], "$att$")
+	if start < 0 || end < 0 || astart < 0 || aend < 0 {
+		t.Fatal("patch blocks not found")
+	}
+	var types []ViolationType
+	var att Attendance
+	if err := json.Unmarshal([]byte(s[start+7:start+7+end]), &types); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(s[astart+5:astart+5+aend]), &att); err != nil {
+		t.Fatal(err)
+	}
+	doc := Seed()
+	doc.ViolationTypes = types
+	doc.Attendance = &att
+	if p := Validate(doc); len(p) > 0 || att.GraceMinutes != 15 {
+		t.Fatalf("patch invalid: %v %+v", p, att)
+	}
+}

@@ -202,6 +202,11 @@ class HrmsViewModelsTest {
 
         vm.onEvent(ViolationsListEvent.LoadMore)
         assertEquals(listOf("v1", "v2", "v3"), vm.state.value.rows.map { it.listKey })
+        // A clock-in violation waiting for HR shows its status and its fact, and is never greyed.
+        val waiting = vm.state.value.rows.last()
+        assertTrue(waiting.waiting)
+        assertFalse(waiting.withdrawn)
+        assertTrue(waiting.detail.contains("40 min late"))
         vm.onEvent(ViolationsListEvent.LoadMore) // no further page: nothing requested
         assertEquals(2, repo.calls.size)
 
@@ -301,7 +306,7 @@ private class PagedViolationsRepository : DisciplineRepository {
         return Result.success(
             when {
                 month == "2026-08" -> ViolationsPageDto(months = months, month = "2026-08", items = listOf(ViolationDto(violationId = "a1")))
-                cursor == "c2" -> ViolationsPageDto(months = months, month = "2026-09", summary = summary, items = listOf(ViolationDto(violationId = "v2"), ViolationDto(violationId = "v3")))
+                cursor == "c2" -> ViolationsPageDto(months = months, month = "2026-09", summary = summary, items = listOf(ViolationDto(violationId = "v2"), ViolationDto(violationId = "v3", status = "pending", statusLabel = "Waiting for HR", detail = "Clocked in 9:10 am · General shift starts 8:30 am · 40 min late")))
                 else -> ViolationsPageDto(
                     months = months,
                     month = "2026-09",

@@ -24,9 +24,10 @@ export async function ViolationsPage({ searchParams, pageContract }: { searchPar
   const t = (key: string) => copy(pageContract, key);
   const park = one(sp, "park") ?? "";
   const month = one(sp, "month") ?? "";
+  const period = one(sp, "period") ?? "";
   const status = one(sp, "status") ?? "";
   const cursor = one(sp, "cursor") ?? "";
-  const result = await getWorkforceViolations({ parkId: park && park !== "all" ? park : undefined, month: month || undefined, status: status || undefined, cursor: cursor || undefined });
+  const result = await getWorkforceViolations({ parkId: park && park !== "all" ? park : undefined, month: month || undefined, period: period || undefined, status: status || undefined, cursor: cursor || undefined });
   if (firstAuthRequiredError(result)) redirect(INTERNAL_LOGIN_PATH);
   if (!result.ok) {
     return (
@@ -40,7 +41,9 @@ export async function ViolationsPage({ searchParams, pageContract }: { searchPar
   const editReason = control(pageContract, "record_violation").disabled_reason ?? t("disabled.violation_write");
   const statuses = [
     { key: "", label: t("filter.status.all") },
+    { key: "pending", label: t("filter.status.pending") },
     { key: "recorded", label: t("filter.status.recorded") },
+    { key: "closed", label: t("filter.status.closed") },
     { key: "withdrawn", label: t("filter.status.withdrawn") },
   ];
   return (
@@ -56,7 +59,14 @@ export async function ViolationsPage({ searchParams, pageContract }: { searchPar
             </Link>
           ))}
         </nav>
-        <MonthSelect label={t("filter.month")} months={data.months} value={data.month} pathname={PATHNAME} searchParams={sp} />
+        <nav className="subtabs" aria-label={t("filter.period")} data-testid="violations-period">
+          {data.periods.map((p) => (
+            <Link key={p.key} href={hrefWith(PATHNAME, sp, { period: p.key === "month" ? null : p.key, cursor: null })} className={data.period === p.key ? "on" : undefined} replace scroll={false}>
+              {p.label}
+            </Link>
+          ))}
+        </nav>
+        {data.period === "all" ? null : <MonthSelect label={t("filter.month")} months={data.months} value={data.month} pathname={PATHNAME} searchParams={sp} />}
         <nav className="subtabs" aria-label={t("filter.status")} data-testid="violations-status">
           {statuses.map((s) => (
             <Link key={s.key || "all"} href={hrefWith(PATHNAME, sp, { status: s.key || null, cursor: null })} className={status === s.key ? "on" : undefined} replace scroll={false}>
@@ -66,7 +76,7 @@ export async function ViolationsPage({ searchParams, pageContract }: { searchPar
         </nav>
       </div>
       <ViolationsBoard
-        key={`${park}:${data.month}:${status}:${cursor}`}
+        key={`${park}:${data.month}:${data.period}:${status}:${cursor}`}
         pageContract={pageContract}
         page={data}
         canEdit={canEdit}

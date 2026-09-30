@@ -30,9 +30,18 @@ export interface HrmsEnquiryRow {
   questions: HrmsQuestionRow[];
 }
 
+/** The automatic clock-in check (2026-09-30). A blank type key turns that half off. */
+export interface HrmsAttendanceRow {
+  graceMinutes: string;
+  lateType: string;
+  absentType: string;
+}
+
 export interface HrmsRows {
   types: HrmsTypeRow[];
   enquiries: HrmsEnquiryRow[];
+  /** null when the version has no clock-in check at all (it is then off). */
+  attendance: HrmsAttendanceRow | null;
 }
 
 export const HRMS_SCHEMA_VERSION = "goatos.sop-hrms-violations.v1";
@@ -74,7 +83,11 @@ export function parseHrms(formDsl: unknown): HrmsRows | null {
       }),
     };
   });
-  return { types, enquiries };
+  const a = obj(section["attendance"]);
+  const attendance: HrmsAttendanceRow | null = a
+    ? { graceMinutes: typeof a["grace_minutes"] === "number" ? String(a["grace_minutes"]) : "15", lateType: str(a["late_type"]), absentType: str(a["absent_type"]) }
+    : null;
+  return { types, enquiries, attendance };
 }
 
 /** A lower-case key from a name, unique among `taken` (a_b, a_b_2, ...). */
@@ -122,7 +135,13 @@ export function emitHrms(rows: HrmsRows): Record<string, unknown> {
       }),
     };
   });
-  return { schema_version: HRMS_SCHEMA_VERSION, violation_types: types, enquiries };
+  const out: Record<string, unknown> = { schema_version: HRMS_SCHEMA_VERSION, violation_types: types, enquiries };
+  // The clock-in check travels with every save: an editor that forgot it would switch it off.
+  if (rows.attendance) {
+    const grace = wholeNumber(rows.attendance.graceMinutes);
+    out.attendance = { grace_minutes: Number.isNaN(grace) ? null : grace, late_type: rows.attendance.lateType, absent_type: rows.attendance.absentType };
+  }
+  return out;
 }
 
 /** Events that have no enquiry yet, for the "Add enquiry" choice. */

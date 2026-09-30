@@ -10,6 +10,7 @@ const seed = {
     schema_version: "goatos.sop-hrms-violations.v1",
     violation_types: [{ key: "late_to_shift", title: "Late to shift", active: true }],
     enquiries: [{ trigger: "animal_death", title: "Death enquiry", due_hours: 48, questions: [{ id: "what_happened", kind: "text", title: "What happened", required: true }] }],
+    attendance: { grace_minutes: 15, late_type: "late_to_shift", absent_type: "" },
   },
 };
 
@@ -53,4 +54,13 @@ test("new questions get ids; keys never start with a digit", () => {
 test("an event with an enquiry is not offered again", () => {
   assert.deepEqual(freeTriggers(parseHrms(seed)), []);
   assert.equal(parseHrms({ fields: [] }), null);
+});
+
+test("the clock-in check survives a save, and a version without it stays without it", () => {
+  const rows = parseHrms(seed);
+  rows.attendance.graceMinutes = "20";
+  assert.deepEqual(emitHrms(rows).attendance, { grace_minutes: 20, late_type: "late_to_shift", absent_type: "" });
+  const bare = parseHrms({ violations: { ...seed.violations, attendance: undefined } });
+  assert.equal(bare.attendance, null);
+  assert.equal("attendance" in emitHrms(bare), false);
 });

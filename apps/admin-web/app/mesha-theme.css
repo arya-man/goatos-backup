@@ -7274,6 +7274,13 @@ aside.drawer.approvals-drawer .df{flex-wrap:wrap}
 .dsc-f-actions{display:flex;gap:8px;flex:0 0 auto}
 .dsc-f-actions .btn{height:40px;box-sizing:border-box;padding-top:0;padding-bottom:0}
 .dsc-form .tt-status{margin-top:8px}
+.dsc-tile-warn{border-color:var(--warn)}
+.dsc-tile-warn .dsc-tile-value{color:var(--warn)}
+.dsc-detail{color:var(--muted);margin-top:2px}
+.dsc-actions{display:flex;gap:6px;flex-wrap:wrap}
+.dsc-fine-inp{max-width:110px}
+.dsc-hint{max-width:520px;text-align:right}
+@media (max-width:640px){.dsc-hint{text-align:left}}
 @media (max-width:640px){.dsc-f-person,.dsc-f-type,.dsc-f-note{flex-basis:100%}.dsc-f-date,.dsc-f-fine{flex:1 1 140px}.dsc-f-actions{flex:1 1 100%;justify-content:flex-end}}
 .dsc-form-grid .fld{display:flex;flex-direction:column;gap:4px;min-width:0}
 .dsc-form-note{grid-column:1/-1}

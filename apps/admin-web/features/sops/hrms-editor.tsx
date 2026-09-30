@@ -13,7 +13,7 @@ import { AlertTriangle, ChevronLeft, Plus, X } from "lucide-react";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { publishHrmsVersion, saveHrmsVersion, type HrmsSaveResult } from "./sop-actions";
 import { publishedHref } from "./published-href";
-import { emitHrms, freeTriggers, type HrmsEnquiryRow, type HrmsQuestionRow, type HrmsRows, type HrmsTypeRow } from "./hrms-model";
+import { emitHrms, freeTriggers, type HrmsAttendanceRow, type HrmsEnquiryRow, type HrmsQuestionRow, type HrmsRows, type HrmsTypeRow } from "./hrms-model";
 
 export function HrmsEditor({
   pageContract: pc,
@@ -56,6 +56,10 @@ export function HrmsEditor({
   }
 
   const spare = freeTriggers(rows);
+  const setAttendance = (patch: Partial<HrmsAttendanceRow>) =>
+    setRows((r) => ({ ...r, attendance: { ...(r.attendance ?? { graceMinutes: "15", lateType: "", absentType: "" }), ...patch } }));
+  // Only types already saved can be named by the check: a new row gets its key when it is saved.
+  const namedTypes = rows.types.filter((x) => x.stored && x.key);
 
   return (
     <div className="screen on sop-inspection hsop">
@@ -199,6 +203,44 @@ export function HrmsEditor({
               </button>
             </div>
           ) : null}
+        </div>
+      </section>
+
+      <section className="card" data-testid="hsop-attendance">
+        <div className="hd">
+          <h3>{t("hsop.attendance.title")}</h3>
+          <div className="sp" style={{ flex: 1 }} />
+          <span className="muted small">{t("hsop.attendance.hint")}</span>
+        </div>
+        <div className="bd hsop-list">
+          <div className="hsop-row">
+            <label className="fld hsop-num">
+              <span className="small muted">{t("hsop.attendance.grace")}</span>
+              <input className="inp" inputMode="numeric" value={rows.attendance?.graceMinutes ?? ""} onChange={(e) => setAttendance({ graceMinutes: e.target.value.replace(/[^0-9]/g, "") })} data-testid="hsop-grace" />
+            </label>
+            <label className="fld hsop-grow">
+              <span className="small muted">{t("hsop.attendance.late")}</span>
+              <select className="inp" value={rows.attendance?.lateType ?? ""} onChange={(e) => setAttendance({ lateType: e.target.value })} data-testid="hsop-late-type">
+                <option value="">{t("hsop.attendance.off")}</option>
+                {namedTypes.map((x) => (
+                  <option key={x.key} value={x.key}>
+                    {x.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="fld hsop-grow">
+              <span className="small muted">{t("hsop.attendance.absent")}</span>
+              <select className="inp" value={rows.attendance?.absentType ?? ""} onChange={(e) => setAttendance({ absentType: e.target.value })} data-testid="hsop-absent-type">
+                <option value="">{t("hsop.attendance.off")}</option>
+                {namedTypes.map((x) => (
+                  <option key={x.key} value={x.key}>
+                    {x.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
         </div>
       </section>
 

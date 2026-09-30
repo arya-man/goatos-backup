@@ -19,7 +19,7 @@ import (
 // lists, with 1:1 joins only (member -> person_access -> designation; member -> park; recorder
 // via a LATERAL LIMIT 1).
 //
-// projection-review: membership=workforce_violations of ONE tenant whose occurred_on falls in the filter's month and whose park is in the caller's park scope, status as filtered; group_key=workforce_member_id for the by-person totals, none for the summary; join_cardinality=each violation row joins its member (PK), that member's person_access (PK) and designation (PK) and its park (PK), so no violation is counted twice; pagination=the summary and the totals are whole-filter aggregates taken apart from the keyset violation page; scope=explicit tenant + park_id list + occurred_on range, the same predicate the list pages.
+// projection-review: membership=workforce_violations of ONE tenant whose occurred_on falls in the filter's period and whose park is in the caller's park scope (status as filtered for the list and summary; every status, split by FILTER, for the per-person totals), plus workforce_leave_requests (approved or pending) overlapping the period whose snapshotted park is in scope; group_key=workforce_member_id for the per-person totals, pre-aggregated SEPARATELY for violations and for leave and then FULL JOINed on the member, so a person's leave never multiplies their violations nor the reverse; join_cardinality=each violation row joins its member (PK), that member's person_access (PK) and designation (PK) and its park (PK), the decider and recorder through LATERAL LIMIT 1, so no violation is counted twice; pagination=the summary and the totals are whole-filter aggregates taken apart from the keyset violation page; scope=explicit tenant + park_id list + occurred_on range, the same predicate the list pages.
 
 const violationSelect = `
 SELECT v.violation_id::text, v.workforce_member_id::text, wm.display_name,
@@ -27,7 +27,8 @@ SELECT v.violation_id::text, v.workforce_member_id::text, wm.display_name,
        COALESCE(v.park_id::text, ''), COALESCE(l.name, ''),
        v.type_key, v.type_label, v.fine_rupees, v.occurred_on, v.note, v.source,
        COALESCE(v.enquiry_id::text, ''), COALESCE(rb.display_name, ''), v.recorded_at,
-       v.status, COALESCE(v.withdraw_reason, ''), v.sop_version, v.row_version
+       v.status, COALESCE(v.withdraw_reason, ''), COALESCE(v.attendance_kind, ''), v.detail,
+       COALESCE(db.display_name, ''), v.decided_at, COALESCE(v.decision_note, ''), v.sop_version, v.row_version
 FROM workforce_violations v
 JOIN workforce_members wm ON wm.workforce_member_id = v.workforce_member_id
 LEFT JOIN person_access pa ON pa.tenant_id = wm.tenant_id AND pa.workforce_member_id = wm.workforce_member_id
@@ -38,6 +39,11 @@ LEFT JOIN LATERAL (
   WHERE x.tenant_id = v.tenant_id AND x.user_id = v.recorded_by
   ORDER BY (x.status = 'active') DESC, x.updated_at DESC LIMIT 1
 ) rb ON true
+LEFT JOIN LATERAL (
+  SELECT x.display_name FROM workforce_members x
+  WHERE x.tenant_id = v.tenant_id AND x.user_id = v.decided_by
+  ORDER BY (x.status = 'active') DESC, x.updated_at DESC LIMIT 1
+) db ON v.decided_by IS NOT NULL
 `
 
 // The shared filter: $1 tenant, $2 all-parks flag, $3 park list, $4 from, $5 to, $6 status.
@@ -57,21 +63,68 @@ const sqlViolationSummary = `
 SELECT count(*)::int, COALESCE(sum(v.fine_rupees), 0)::int, count(DISTINCT v.workforce_member_id)::int
 FROM workforce_violations v` + violationFilterWhere
 
+// Per-person totals for the period (grain: person). Violations and leave are pre-aggregated
+// apart and FULL JOINed on the member, so neither multiplies the other; the status filter does
+// not apply -- each status has its own column. $1 tenant, $2 all-parks, $3 parks, $4 from, $5 to,
+// $6 limit.
 const sqlViolationTotals = `
-SELECT v.workforce_member_id::text, min(wm.display_name), COALESCE(min(dc.label), ''),
-       COALESCE(min(wm.primary_role_hint), ''), COALESCE(min(wm.hr_designation_grade), ''),
-       COALESCE(min(l.name), ''), count(*)::int, COALESCE(sum(v.fine_rupees), 0)::int
-FROM workforce_violations v
-JOIN workforce_members wm ON wm.workforce_member_id = v.workforce_member_id
+WITH vt AS (
+  SELECT v.workforce_member_id AS m,
+         count(*) FILTER (WHERE v.status = 'recorded')::int AS rec,
+         COALESCE(sum(v.fine_rupees) FILTER (WHERE v.status = 'recorded'), 0)::int AS fine,
+         count(*) FILTER (WHERE v.status = 'pending')::int AS pend,
+         count(*) FILTER (WHERE v.status = 'closed')::int AS closed
+  FROM workforce_violations v
+  WHERE v.tenant_id = $1::uuid AND ($2::boolean OR v.park_id = ANY($3::uuid[]))
+    AND v.occurred_on >= $4::date AND v.occurred_on < $5::date
+  GROUP BY v.workforce_member_id
+),
+lt AS (
+  SELECT lr.workforce_member_id AS m,
+         COALESCE(sum(LEAST(lr.ends_on, $5::date - 1) - GREATEST(lr.starts_on, $4::date) + 1)
+                  FILTER (WHERE lr.status = 'approved'), 0)::int AS days,
+         COALESCE(sum(LEAST(lr.ends_on, $5::date - 1) - GREATEST(lr.starts_on, $4::date) + 1)
+                  FILTER (WHERE lr.status = 'pending'), 0)::int AS pdays
+  FROM workforce_leave_requests lr
+  WHERE lr.tenant_id = $1::uuid AND lr.status IN ('approved', 'pending')
+    AND ($2::boolean OR lr.park_id = ANY($3::uuid[]))
+    AND lr.starts_on < $5::date AND lr.ends_on >= $4::date
+  GROUP BY lr.workforce_member_id
+),
+t AS (
+  SELECT COALESCE(vt.m, lt.m) AS m, COALESCE(vt.rec, 0) AS rec, COALESCE(vt.fine, 0) AS fine,
+         COALESCE(vt.pend, 0) AS pend, COALESCE(vt.closed, 0) AS closed,
+         COALESCE(lt.days, 0) AS days, COALESCE(lt.pdays, 0) AS pdays
+  FROM vt FULL JOIN lt ON lt.m = vt.m
+  -- A person whose only violations were withdrawn has nothing to show for the period.
+  WHERE COALESCE(vt.rec, 0) + COALESCE(vt.pend, 0) + COALESCE(vt.closed, 0) + COALESCE(lt.days, 0) + COALESCE(lt.pdays, 0) > 0
+)
+SELECT t.m::text, wm.display_name, COALESCE(dc.label, ''), COALESCE(wm.primary_role_hint, ''),
+       COALESCE(wm.hr_designation_grade, ''), COALESCE(l.name, ''),
+       t.rec, t.fine, t.pend, t.closed, t.days, t.pdays
+FROM t
+JOIN workforce_members wm ON wm.workforce_member_id = t.m
 LEFT JOIN person_access pa ON pa.tenant_id = wm.tenant_id AND pa.workforce_member_id = wm.workforce_member_id
 LEFT JOIN designation_catalog dc ON dc.designation_code = pa.designation_code AND dc.status = 'active'
 LEFT JOIN locations l ON l.tenant_id = wm.tenant_id AND l.location_id = wm.primary_location_id
-` + violationFilterWhere + `
-GROUP BY v.workforce_member_id
-ORDER BY sum(v.fine_rupees) DESC, count(*) DESC, min(wm.display_name)
-LIMIT $7`
+ORDER BY t.fine DESC, t.rec DESC, t.pend DESC, t.days DESC, wm.display_name
+LIMIT $6`
 
 const sqlViolationByID = violationSelect + `WHERE v.tenant_id = $1::uuid AND v.violation_id = $2::uuid`
+
+// HR's decision on a WAITING (automatic) violation: keep it (it counts, with the fine HR typed)
+// or close it with a reason. Both are fenced on status and row_version.
+const sqlViolationKeep = `
+UPDATE workforce_violations
+SET status = 'recorded', fine_rupees = $3, note = $4, decided_by = $5::uuid, decided_at = now(),
+    decision_note = NULLIF($4, ''), row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND violation_id = $2::uuid AND status = 'pending' AND row_version = $6`
+
+const sqlViolationClose = `
+UPDATE workforce_violations
+SET status = 'closed', decided_by = $3::uuid, decided_at = now(), decision_note = $4,
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND violation_id = $2::uuid AND status = 'pending' AND row_version = $5`
 
 const sqlViolationsForEnquiry = violationSelect + `
 WHERE v.tenant_id = $1::uuid AND v.enquiry_id = $2::uuid
@@ -230,7 +283,8 @@ func scanViolations(rows pgx.Rows) ([]ports.ViolationRow, error) {
 		var v ports.ViolationRow
 		if err := rows.Scan(&v.ViolationID, &v.PersonID, &v.PersonName, &v.DesignationLabel, &v.RoleHint, &v.DesignationGrade,
 			&v.ParkID, &v.ParkLabel, &v.TypeKey, &v.TypeLabel, &v.FineRupees, &v.OccurredOn, &v.Note, &v.Source,
-			&v.EnquiryID, &v.RecordedByName, &v.RecordedAt, &v.Status, &v.WithdrawReason, &v.SOPVersion, &v.RowVersion); err != nil {
+			&v.EnquiryID, &v.RecordedByName, &v.RecordedAt, &v.Status, &v.WithdrawReason, &v.AttendanceKind, &v.Detail,
+			&v.DecidedByName, &v.DecidedAt, &v.DecisionNote, &v.SOPVersion, &v.RowVersion); err != nil {
 			return nil, err
 		}
 		out = append(out, v)
@@ -279,7 +333,7 @@ func (r *Repository) ViolationTotalsByPerson(ctx context.Context, f ports.Violat
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	all, parks := parkScopeArgs(f.ParkIDs)
-	rows, err := r.pool.Query(ctx, sqlViolationTotals, f.TenantID, all, parks, f.From, f.To, f.Status, limit)
+	rows, err := r.pool.Query(ctx, sqlViolationTotals, f.TenantID, all, parks, f.From, f.To, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -287,7 +341,8 @@ func (r *Repository) ViolationTotalsByPerson(ctx context.Context, f ports.Violat
 	out := []ports.ViolationTotalRow{}
 	for rows.Next() {
 		var t ports.ViolationTotalRow
-		if err := rows.Scan(&t.PersonID, &t.PersonName, &t.DesignationLabel, &t.RoleHint, &t.DesignationGrade, &t.ParkLabel, &t.Count, &t.FineRupees); err != nil {
+		if err := rows.Scan(&t.PersonID, &t.PersonName, &t.DesignationLabel, &t.RoleHint, &t.DesignationGrade, &t.ParkLabel,
+			&t.Count, &t.FineRupees, &t.Pending, &t.Closed, &t.LeaveDays, &t.LeavePendingDays); err != nil {
 			return nil, err
 		}
 		out = append(out, t)
@@ -414,6 +469,69 @@ func (r *Repository) WithdrawViolation(ctx context.Context, tenantID, actorUserI
 	if err := insertAudit(ctx, tx, tenantID, actorUserID, "workforce.violation.withdrawn", "workforce_violation", violationID, &scope, map[string]any{
 		"reason": reason, "person_id": current.PersonID, "fine_rupees": current.FineRupees,
 	}); err != nil {
+		return ports.ViolationRow{}, err
+	}
+	row, err := violationByIDTx(ctx, tx, tenantID, violationID)
+	if err != nil {
+		return ports.ViolationRow{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return ports.ViolationRow{}, err
+	}
+	return row, nil
+}
+
+// KeepViolation: HR keeps a waiting violation. An exact replay (already kept with this fine and
+// note) returns the row; anything else on a non-waiting row is a version conflict.
+func (r *Repository) KeepViolation(ctx context.Context, tenantID, actorUserID, violationID string, fineRupees int, note string, rowVersion int) (ports.ViolationRow, error) {
+	return r.decideViolation(ctx, tenantID, actorUserID, violationID, rowVersion, "workforce.violation.kept",
+		func(cur ports.ViolationRow) bool {
+			return cur.Status == "recorded" && cur.Source == "attendance" && cur.FineRupees == fineRupees && cur.Note == note
+		},
+		func(tx pgx.Tx) (int64, error) {
+			tag, err := tx.Exec(ctx, sqlViolationKeep, tenantID, violationID, fineRupees, note, actorUserID, rowVersion)
+			return tag.RowsAffected(), err
+		},
+		map[string]any{"fine_rupees": fineRupees})
+}
+
+// CloseViolation: HR closes a waiting violation with a reason.
+func (r *Repository) CloseViolation(ctx context.Context, tenantID, actorUserID, violationID, reason string, rowVersion int) (ports.ViolationRow, error) {
+	return r.decideViolation(ctx, tenantID, actorUserID, violationID, rowVersion, "workforce.violation.closed",
+		func(cur ports.ViolationRow) bool { return cur.Status == "closed" && cur.DecisionNote == reason },
+		func(tx pgx.Tx) (int64, error) {
+			tag, err := tx.Exec(ctx, sqlViolationClose, tenantID, violationID, actorUserID, reason, rowVersion)
+			return tag.RowsAffected(), err
+		},
+		map[string]any{"reason": reason})
+}
+
+func (r *Repository) decideViolation(ctx context.Context, tenantID, actorUserID, violationID string, rowVersion int, action string,
+	replay func(ports.ViolationRow) bool, write func(pgx.Tx) (int64, error), meta map[string]any) (ports.ViolationRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return ports.ViolationRow{}, err
+	}
+	defer rollback(ctx, tx)
+	current, err := violationByIDTx(ctx, tx, tenantID, violationID)
+	if err != nil {
+		return ports.ViolationRow{}, err
+	}
+	if replay(current) {
+		return current, tx.Commit(ctx)
+	}
+	n, err := write(tx)
+	if err != nil {
+		return ports.ViolationRow{}, mapWriteErr(err)
+	}
+	if n != 1 {
+		return ports.ViolationRow{}, ports.ErrViolationVersionConflict
+	}
+	scope := "tenant"
+	meta["person_id"] = current.PersonID
+	if err := insertAudit(ctx, tx, tenantID, actorUserID, action, "workforce_violation", violationID, &scope, meta); err != nil {
 		return ports.ViolationRow{}, err
 	}
 	row, err := violationByIDTx(ctx, tx, tenantID, violationID)
