@@ -2,7 +2,16 @@
 
 import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Chip from "@mui/material/Chip";
+import ListSubheader from "@mui/material/ListSubheader";
+import MenuItem from "@mui/material/MenuItem";
+import Stack from "@mui/material/Stack";
+import TextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
+
+import { Iconify } from "@/components/minimal/iconify";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type {
@@ -46,11 +55,31 @@ function useIntentKey(prefix: string) {
 function Feedback({ error }: { error: string }) {
   if (!error) return null;
   return (
-    <div className="small" style={{ color: "var(--danger)", marginTop: 6, lineHeight: 1.5 }}>
+    <Typography variant="body2" component="div" sx={{ color: "error.main", mt: 0.75 }}>
       {error}
-    </div>
+    </Typography>
   );
 }
+
+/** The in-place confirm sentence: the consequence, beside the two buttons that replace the action. */
+function ConfirmNote({ children }: { children: React.ReactNode }) {
+  return (
+    <Typography variant="body2" component="span" sx={{ color: "text.secondary", maxWidth: 260 }}>
+      {children}
+    </Typography>
+  );
+}
+
+/** A row of in-place controls (template small Buttons / fields), wrapping on a phone. */
+function ControlRow({ align = "center", children }: { align?: "center" | "flex-start"; children: React.ReactNode }) {
+  return (
+    <Stack direction="row" spacing={0.75} useFlexGap sx={{ alignItems: align, flexWrap: "wrap" }}>
+      {children}
+    </Stack>
+  );
+}
+
+const FIELD_SX = { minWidth: 160 } as const;
 
 export function DiagnosisTypeControls({
   pageContract,
@@ -99,93 +128,85 @@ export function DiagnosisTypeControls({
 
   if (!open) {
     return (
-      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-        <button
+      <ControlRow>
+        <Button
           type="button"
-          className="btn ghost"
+          variant="outlined"
+          color="inherit"
+          size="small"
           disabled={!enabled || pending}
           title={!enabled ? disabledReason : ""}
           onClick={() => setOpen(true)}
+          startIcon={<Iconify icon={mode === "create" ? "mingcute:add-line" : "solar:pen-bold"} aria-hidden="true" />}
         >
-          {mode === "create" ? (
-            <>
-              <Plus className="ic" aria-hidden="true" /> {copy(pageContract, "action.add_type")}
-            </>
-          ) : (
-            <>
-              <Pencil className="ic" aria-hidden="true" /> {copy(pageContract, "action.edit_type")}
-            </>
-          )}
-        </button>
+          {mode === "create" ? copy(pageContract, "action.add_type") : copy(pageContract, "action.edit_type")}
+        </Button>
         {mode === "edit" && type && !type.is_builtin && type.status === "active" ? (
           confirmRetire ? (
             <>
               {/* The consequence, then the two buttons, exactly where the action was. */}
-              <span className="small muted" style={{ maxWidth: 260, lineHeight: 1.5 }}>
+              <ConfirmNote>
                 {type.route_count > 0
                   ? copy(pageContract, "warn.retire_routed")
                   : copy(pageContract, "action.retire_type")}
-              </span>
-              <button type="button" className="btn" disabled={pending} onClick={() => submit("retired")}>
+              </ConfirmNote>
+              <Button type="button" variant="soft" color="error" size="small" disabled={pending} onClick={() => submit("retired")}>
                 {copy(pageContract, "action.retire_type")}
-              </button>
-              <button type="button" className="btn ghost" disabled={pending} onClick={() => setConfirmRetire(false)}>
+              </Button>
+              <Button type="button" variant="outlined" color="inherit" size="small" disabled={pending} onClick={() => setConfirmRetire(false)}>
                 {copy(pageContract, "action.cancel")}
-              </button>
+              </Button>
             </>
           ) : (
-            <button
+            <Button
               type="button"
-              className="btn ghost"
+              variant="outlined"
+              color="inherit"
+              size="small"
               disabled={!enabled || pending}
               title={!enabled ? disabledReason : ""}
               onClick={() => setConfirmRetire(true)}
             >
               {copy(pageContract, "action.retire_type")}
-            </button>
+            </Button>
           )
         ) : null}
         <Feedback error={error} />
-      </div>
+      </ControlRow>
     );
   }
 
   return (
-    <div style={{ display: "flex", gap: 6, alignItems: "flex-start", flexWrap: "wrap" }}>
-      <div>
-        <input
-          className="input"
+    <ControlRow align="flex-start">
+      <Stack spacing={0.75}>
+        <TextField
+          size="small"
+          label={copy(pageContract, "label.type_label")}
           value={label}
-          placeholder={copy(pageContract, "label.type_label")}
           onChange={(e) => setLabel(e.target.value)}
-          aria-label={copy(pageContract, "label.type_label")}
+          sx={FIELD_SX}
         />
         {mode === "create" ? (
-          <>
-            <input
-              className="input"
-              style={{ marginTop: 6 }}
-              value={typeKey}
-              placeholder={copy(pageContract, "label.type_key")}
-              onChange={(e) => setTypeKey(e.target.value)}
-              aria-label={copy(pageContract, "label.type_key")}
-            />
-            {/* The key is permanent and the name is not. Saying so before the first save is
-                cheaper than explaining afterwards why a rename did not move it. */}
-            <div className="small muted" style={{ marginTop: 4, maxWidth: 280, lineHeight: 1.5 }}>
-              {copy(pageContract, "note.type_key_fixed")}
-            </div>
-          </>
+          <TextField
+            size="small"
+            label={copy(pageContract, "label.type_key")}
+            value={typeKey}
+            onChange={(e) => setTypeKey(e.target.value)}
+            // The key is permanent and the name is not. Saying so before the first save is
+            // cheaper than explaining afterwards why a rename did not move it.
+            helperText={copy(pageContract, "note.type_key_fixed")}
+            sx={[FIELD_SX, { maxWidth: 280 }]}
+          />
         ) : null}
         <Feedback error={error} />
-      </div>
-      <button type="button" className="btn primary" disabled={pending} onClick={() => submit(type?.status)}>
+      </Stack>
+      <Button type="button" variant="contained" color="primary" size="small" disabled={pending} onClick={() => submit(type?.status)}>
         {copy(pageContract, "action.save")}
-      </button>
-      <button type="button" className="btn ghost" disabled={pending} onClick={() => { setOpen(false); setError(""); }}>
+      </Button>
+      <Button type="button" variant="outlined" color="inherit" size="small" disabled={pending} onClick={() => { setOpen(false); setError(""); }}>
         {copy(pageContract, "action.cancel")}
-      </button>
-    </div>
+      </Button>
+    </ControlRow>
   );
 }
 
@@ -251,119 +272,123 @@ export function RouteControls({
 
   if (!open) {
     return (
-      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-        <button
+      <ControlRow>
+        <Button
           type="button"
-          className="btn ghost"
+          variant="outlined"
+          color="inherit"
+          size="small"
           disabled={!enabled || pending}
           title={!enabled ? disabledReason : ""}
           onClick={() => setOpen(true)}
+          startIcon={<Iconify icon={mode === "create" ? "mingcute:add-line" : "solar:pen-bold"} aria-hidden="true" />}
         >
-          {mode === "create" ? (
-            <>
-              <Plus className="ic" aria-hidden="true" /> {copy(pageContract, "action.add_route")}
-            </>
-          ) : (
-            <>
-              <Pencil className="ic" aria-hidden="true" /> {copy(pageContract, "action.edit_route")}
-            </>
-          )}
-        </button>
+          {mode === "create" ? copy(pageContract, "action.add_route") : copy(pageContract, "action.edit_route")}
+        </Button>
         {mode === "edit" && route ? (
           confirmRemove ? (
             <>
-              <span className="small muted" style={{ maxWidth: 260, lineHeight: 1.5 }}>
+              <ConfirmNote>
                 {route.is_wildcard
                   ? copy(pageContract, "note.wildcard_route")
                   : copy(pageContract, "action.route_removed")}
-              </span>
-              <button type="button" className="btn" disabled={pending} onClick={remove}>
+              </ConfirmNote>
+              <Button type="button" variant="soft" color="error" size="small" disabled={pending} onClick={remove}>
                 {copy(pageContract, "action.remove_route")}
-              </button>
-              <button type="button" className="btn ghost" disabled={pending} onClick={() => setConfirmRemove(false)}>
+              </Button>
+              <Button type="button" variant="outlined" color="inherit" size="small" disabled={pending} onClick={() => setConfirmRemove(false)}>
                 {copy(pageContract, "action.cancel")}
-              </button>
+              </Button>
             </>
           ) : (
-            <button
+            <Button
               type="button"
-              className="btn ghost"
+              variant="outlined"
+              color="inherit"
+              size="small"
               disabled={!enabled || pending}
               title={!enabled ? disabledReason : ""}
               onClick={() => setConfirmRemove(true)}
+              startIcon={<Iconify icon="solar:trash-bin-trash-bold" aria-hidden="true" />}
             >
-              <Trash2 className="ic" aria-hidden="true" /> {copy(pageContract, "action.remove_route")}
-            </button>
+              {copy(pageContract, "action.remove_route")}
+            </Button>
           )
         ) : null}
         <Feedback error={error} />
-      </div>
+      </ControlRow>
     );
   }
 
   return (
-    <div style={{ display: "flex", gap: 6, alignItems: "flex-start", flexWrap: "wrap" }}>
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        <select
-          className="input"
+    <ControlRow align="flex-start">
+      <ControlRow align="flex-start">
+        <TextField
+          select
+          size="small"
+          label={copy(pageContract, "label.band.adult")}
           value={ageBand}
           disabled={mode === "edit"}
           onChange={(e) => setAgeBand(e.target.value as "adult" | "kid")}
-          aria-label={copy(pageContract, "label.band.adult")}
+          sx={FIELD_SX}
         >
-          <option value="adult">{copy(pageContract, "label.band.adult")}</option>
-          <option value="kid">{copy(pageContract, "label.band.kid")}</option>
-        </select>
+          <MenuItem value="adult">{copy(pageContract, "label.band.adult")}</MenuItem>
+          <MenuItem value="kid">{copy(pageContract, "label.band.kid")}</MenuItem>
+        </TextField>
         {/* PICKED, NEVER TYPED. A typed stage code that matches no animal makes a route that can
             never fire, and its only symptom is a zero in a column: on 2026-09-23 `mothers` was
             typed where the farm's stage is `Mother`, the screen accepted it, and five does stayed
             on the adult wildcard behind a rule that looked authored. The backend refuses an
             unknown stage now too -- this is the half that stops it being typed at all. */}
-        <select
-          className="input"
+        <TextField
+          select
+          size="small"
+          label={copy(pageContract, "label.stage")}
           value={stageCode}
           disabled={mode === "edit"}
           onChange={(e) => setStageCode(e.target.value)}
-          aria-label={copy(pageContract, "label.stage")}
+          sx={FIELD_SX}
         >
-          <option value="">{copy(pageContract, "label.stage")}</option>
-          <option value="*">{copy(pageContract, "label.every_stage")}</option>
+          <MenuItem value="">{copy(pageContract, "label.stage")}</MenuItem>
+          <MenuItem value="*">{copy(pageContract, "label.every_stage")}</MenuItem>
           {stages
             .filter((s) => s.age_band === ageBand)
             .map((s) => (
-              <option key={s.stage_code} value={s.stage_code}>
+              <MenuItem key={s.stage_code} value={s.stage_code}>
                 {s.stage_label || s.stage_code} ({s.live_animals})
-              </option>
+              </MenuItem>
             ))}
-        </select>
-        <select
-          className="input"
+        </TextField>
+        <TextField
+          select
+          size="small"
+          label={copy(pageContract, "section.types.title")}
           value={typeKey}
           onChange={(e) => setTypeKey(e.target.value)}
-          aria-label={copy(pageContract, "section.types.title")}
+          sx={FIELD_SX}
         >
           {types.map((t) => (
-            <option key={t.type_key} value={t.type_key}>
+            <MenuItem key={t.type_key} value={t.type_key}>
               {t.label}
-            </option>
+            </MenuItem>
           ))}
-        </select>
-        <input
-          className="input"
+        </TextField>
+        <TextField
+          size="small"
+          label={copy(pageContract, "label.sub_stage")}
           value={subStage}
-          placeholder={copy(pageContract, "label.sub_stage")}
           onChange={(e) => setSubStage(e.target.value)}
-          aria-label={copy(pageContract, "label.sub_stage")}
+          sx={FIELD_SX}
         />
-      </div>
-      <button type="button" className="btn primary" disabled={pending} onClick={save}>
+      </ControlRow>
+      <Button type="button" variant="contained" color="primary" size="small" disabled={pending} onClick={save}>
         {copy(pageContract, "action.save")}
-      </button>
-      <button type="button" className="btn ghost" disabled={pending} onClick={() => { setOpen(false); setError(""); }}>
+      </Button>
+      <Button type="button" variant="outlined" color="inherit" size="small" disabled={pending} onClick={() => { setOpen(false); setError(""); }}>
         {copy(pageContract, "action.cancel")}
-      </button>
+      </Button>
       <Feedback error={error} />
-    </div>
+    </ControlRow>
   );
 }
 
@@ -400,38 +425,44 @@ export function MapStageButton({
   if (!open) {
     return (
       <div>
-        <button
+        <Button
           type="button"
-          className="btn"
+          variant="soft"
+          color="primary"
+          size="small"
           disabled={!enabled || pending || types.length === 0}
           title={!enabled ? disabledReason : ""}
           onClick={() => setOpen(true)}
           aria-label={`${copy(pageContract, "action.map_stage")} — ${stageLabel}`}
         >
           {copy(pageContract, "action.map_stage")}
-        </button>
+        </Button>
         <Feedback error={error} />
       </div>
     );
   }
 
   return (
-    <div style={{ display: "flex", gap: 6, alignItems: "flex-start", flexWrap: "wrap" }}>
-      <select
-        className="input"
+    <ControlRow align="flex-start">
+      <TextField
+        select
+        size="small"
+        label={copy(pageContract, "section.types.title")}
         value={typeKey}
         onChange={(e) => setTypeKey(e.target.value)}
-        aria-label={copy(pageContract, "section.types.title")}
+        sx={FIELD_SX}
       >
         {types.map((t) => (
-          <option key={t.type_key} value={t.type_key}>
+          <MenuItem key={t.type_key} value={t.type_key}>
             {t.label}
-          </option>
+          </MenuItem>
         ))}
-      </select>
-      <button
+      </TextField>
+      <Button
         type="button"
-        className="btn primary"
+        variant="contained"
+        color="primary"
+        size="small"
         disabled={pending}
         onClick={() =>
           startTransition(async () => {
@@ -448,12 +479,12 @@ export function MapStageButton({
         }
       >
         {copy(pageContract, "action.save")}
-      </button>
-      <button type="button" className="btn ghost" disabled={pending} onClick={() => { setOpen(false); setError(""); }}>
+      </Button>
+      <Button type="button" variant="outlined" color="inherit" size="small" disabled={pending} onClick={() => { setOpen(false); setError(""); }}>
         {copy(pageContract, "action.cancel")}
-      </button>
+      </Button>
       <Feedback error={error} />
-    </div>
+    </ControlRow>
   );
 }
 
@@ -505,60 +536,65 @@ export function AddStageToType({
 
   if (!open) {
     return (
-      <div style={{ display: "inline-flex", flexDirection: "column", gap: 4 }}>
-        <button
+      <Stack spacing={0.5} sx={{ display: "inline-flex" }}>
+        <Button
           type="button"
-          className="btn ghost"
+          variant="outlined"
+          color="inherit"
+          size="small"
+          startIcon={<Iconify icon="mingcute:add-line" aria-hidden="true" />}
           disabled={!enabled || pending || offer.length === 0}
           // offer.length is 0 only when the farm has NO stages at all, which is a real state on a
           // tenant whose catalog was never seeded -- and then there is genuinely nothing to add.
           title={!enabled ? disabledReason : ""}
           onClick={() => setOpen(true)}
         >
-          <Plus className="ic" aria-hidden="true" /> {copy(pageContract, "action.add_stage_to_type")}
-        </button>
+          {copy(pageContract, "action.add_stage_to_type")}
+        </Button>
         <Feedback error={error} />
-      </div>
+      </Stack>
     );
   }
 
   return (
-    <div style={{ display: "inline-flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-      <select
-        className="input"
+    <ControlRow>
+      <TextField
+        select
+        size="small"
+        label={copy(pageContract, "label.stage")}
         value={choice}
         onChange={(e) => setChoice(e.target.value)}
-        aria-label={copy(pageContract, "label.stage")}
+        sx={FIELD_SX}
       >
-        <option value="">{copy(pageContract, "label.stage")}</option>
-        {["adult", "kid"].map((band) => {
+        <MenuItem value="">{copy(pageContract, "label.stage")}</MenuItem>
+        {/* MUI Select reads its options as direct children, so each band is a ListSubheader
+            followed by its options in one flat list (was a native optgroup). */}
+        {["adult", "kid"].flatMap((band) => {
           const inBand = offer.filter((s) => s.age_band === band);
-          if (inBand.length === 0) return null;
-          return (
-            <optgroup
-              key={band}
-              label={
-                band === "adult"
-                  ? copy(pageContract, "label.band.adult")
-                  : copy(pageContract, "label.band.kid")
-              }
-            >
-              {inBand.map((s) => (
-                <option key={`${s.age_band}/${s.stage_code}`} value={`${s.age_band}/${s.stage_code}`}>
-                  {/* Where it is NOW, so a move is never a surprise. */}
-                  {s.stage_label || s.stage_code} ({s.live_animals})
-                  {s.routed_type_label && s.routed_type_key !== typeKey
-                    ? ` — ${s.routed_type_label}`
-                    : ""}
-                </option>
-              ))}
-            </optgroup>
-          );
+          if (inBand.length === 0) return [];
+          return [
+            <ListSubheader key={`band-${band}`}>
+              {band === "adult"
+                ? copy(pageContract, "label.band.adult")
+                : copy(pageContract, "label.band.kid")}
+            </ListSubheader>,
+            ...inBand.map((s) => (
+              <MenuItem key={`${s.age_band}/${s.stage_code}`} value={`${s.age_band}/${s.stage_code}`}>
+                {/* Where it is NOW, so a move is never a surprise. */}
+                {s.stage_label || s.stage_code} ({s.live_animals})
+                {s.routed_type_label && s.routed_type_key !== typeKey
+                  ? ` — ${s.routed_type_label}`
+                  : ""}
+              </MenuItem>
+            )),
+          ];
         })}
-      </select>
-      <button
+      </TextField>
+      <Button
         type="button"
-        className="btn primary"
+        variant="contained"
+        color="primary"
+        size="small"
         disabled={pending || choice === ""}
         onClick={() =>
           startTransition(async () => {
@@ -577,12 +613,12 @@ export function AddStageToType({
         }
       >
         {copy(pageContract, "action.save")}
-      </button>
-      <button type="button" className="btn ghost" disabled={pending} onClick={() => { setOpen(false); setError(""); }}>
+      </Button>
+      <Button type="button" variant="outlined" color="inherit" size="small" disabled={pending} onClick={() => { setOpen(false); setError(""); }}>
         {copy(pageContract, "action.cancel")}
-      </button>
+      </Button>
       <Feedback error={error} />
-    </div>
+    </ControlRow>
   );
 }
 
@@ -609,14 +645,26 @@ export function RemoveStageChip({
   const intent = useIntentKey(`diagnosis-drop-${ageBand}-${stageCode}`);
 
   return (
-    <span className="chip" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-      {label}
+    <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.75, flexWrap: "wrap" }}>
+      <Chip
+        size="small"
+        variant="soft"
+        label={label}
+        title={!enabled ? disabledReason : undefined}
+        // The delete affordance opens the in-place confirm; while confirming, the two buttons
+        // beside the chip are the action.
+        onDelete={enabled && !pending && !confirming ? () => setConfirming(true) : undefined}
+        deleteIcon={
+          <Iconify icon="solar:trash-bin-trash-bold" aria-label={`${copy(pageContract, "action.remove_route")} — ${label}`} />
+        }
+      />
       {confirming ? (
         <>
-          <button
+          <Button
             type="button"
-            className="btn ghost"
-            style={{ padding: "0 6px" }}
+            variant="soft"
+            color="error"
+            size="small"
             disabled={pending}
             onClick={() =>
               startTransition(async () => {
@@ -633,26 +681,14 @@ export function RemoveStageChip({
             }
           >
             {copy(pageContract, "action.remove_route")}
-          </button>
-          <button type="button" className="btn ghost" style={{ padding: "0 6px" }} disabled={pending}
+          </Button>
+          <Button type="button" variant="outlined" color="inherit" size="small" disabled={pending}
             onClick={() => setConfirming(false)}>
             {copy(pageContract, "action.cancel")}
-          </button>
+          </Button>
         </>
-      ) : (
-        <button
-          type="button"
-          className="btn ghost"
-          style={{ padding: "0 4px" }}
-          disabled={!enabled || pending}
-          title={!enabled ? disabledReason : ""}
-          aria-label={`${copy(pageContract, "action.remove_route")} — ${label}`}
-          onClick={() => setConfirming(true)}
-        >
-          <Trash2 className="ic" aria-hidden="true" />
-        </button>
-      )}
+      ) : null}
       <Feedback error={error} />
-    </span>
+    </Box>
   );
 }

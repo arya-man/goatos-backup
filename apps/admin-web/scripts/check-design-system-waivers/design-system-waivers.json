@@ -47,8 +47,6 @@
     "prose-under-title|features/feed/feed-analytics.tsx|<p className=\"muted small\">{fa(pageContract, \"empty.execution.body\")}</p>",
     "prose-under-title|features/feed/feed-analytics.tsx|<p className=\"muted small\">{fa(pageContract, \"empty.experiment.body\")}</p>",
     "prose-under-title|features/feed/feed-analytics.tsx|<p className=\"muted small\">{failedError?.message || fa(pageContract, \"error.body\")}</p>",
-    "prose-under-title|features/health/health-types.tsx|<p className=\"small muted\" style={{ margin: \"0 14px 10px\", lineHeight: 1.6 }}>",
-    "prose-under-title|features/health/health-types.tsx|<p className=\"small muted\" style={{ margin: \"0 14px 10px\", lineHeight: 1.6 }}>",
     "prose-under-title|features/preventive-care-vaccination/full-vaccine-schedule-move-drawer.tsx|<p className=\"muted small\">",
     "prose-under-title|features/preventive-care-vaccination/passport-section.tsx|<p className=\"muted small\">{copy(pageContract, \"vaccination.unavailable_prefix\")}: {res.error.message ?? res.error.code}</p>",
     "prose-under-title|features/procurement/valuation-section.tsx|<p className=\"muted small sales-config-card-copy\">{copy(pageContract, \"section.valuation.sub\")}</p>",
@@ -365,10 +363,6 @@
       "allowed": 4,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
     },
-    "raw-button|features/health/health-types-controls.tsx": {
-      "allowed": 11,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
-    },
     "raw-button|features/herd-signals/herd-signals-drawer.tsx": {
       "allowed": 3,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
@@ -608,14 +602,6 @@
     "raw-button|features/work-board/work-board-subtasks.tsx": {
       "allowed": 3,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
-    },
-    "raw-chip|features/health/health-types-controls.tsx": {
-      "allowed": 1,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled chip/label; use Tag (components/ui-primitives) with a tone"
-    },
-    "raw-chip|features/health/health-types.tsx": {
-      "allowed": 3,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled chip/label; use Tag (components/ui-primitives) with a tone"
     },
     "raw-chip|features/preventive-care-vaccination/full-vaccine-schedule.tsx": {
       "allowed": 1,
@@ -919,10 +905,6 @@
     },
     "raw-input|features/health/health-register-editor.tsx": {
       "allowed": 8,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
-    },
-    "raw-input|features/health/health-types-controls.tsx": {
-      "allowed": 3,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
     },
     "raw-input|features/herd-signals/herd-signals-history-fullscreen.tsx": {
@@ -1411,14 +1393,6 @@
     },
     "raw-px|features/health/health-register-editor.tsx": {
       "allowed": 29,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
-    },
-    "raw-px|features/health/health-types-controls.tsx": {
-      "allowed": 15,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
-    },
-    "raw-px|features/health/health-types.tsx": {
-      "allowed": 14,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
     },
     "raw-px|features/herd-signals/herd-signals-board.tsx": {
