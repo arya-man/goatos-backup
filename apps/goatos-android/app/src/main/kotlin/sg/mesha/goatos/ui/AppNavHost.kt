@@ -551,6 +551,14 @@ object Routes {
         "/counts/death/add?$COUNTS_DEATH_ADD_TAG_ARG=" + Uri.encode(animalTag) +
             "&$COUNTS_DEATH_ADD_CAUSE_ARG=" + Uri.encode(causeKey)
     const val COUNTS_SHIFTING_ADD = "/counts/shifting/add"
+    /**
+     * The raise form, optionally opened with animals already selected (KID STAGE SHIFT TASKS: a
+     * litter's K1/K2 step). `kids` is "goatId:tag,goatId:tag"; absent opens the empty form.
+     */
+    const val COUNTS_SHIFTING_ADD_PATTERN = "$COUNTS_SHIFTING_ADD?${ShiftingViewModel.ARG_PRESELECT_KIDS}={${ShiftingViewModel.ARG_PRESELECT_KIDS}}"
+    fun countsShiftingAddWithKidsRoute(kids: List<Pair<String, String>>): String =
+        "$COUNTS_SHIFTING_ADD?${ShiftingViewModel.ARG_PRESELECT_KIDS}=" +
+            Uri.encode(kids.joinToString(",") { (goatId, tag) -> "$goatId:${tag.replace(",", " ").replace(":", " ")}" })
     const val COUNTS_SHIFTING_SUBMISSION_NOTICE = "counts_shifting_submission_notice"
     const val COUNTS_SHIFTING_SUBMISSION_OUTBOX_ID = "counts_shifting_submission_outbox_id"
     const val COUNTS_BIRTH_SUBMISSION_NOTICE = "counts.birth.submissionNotice"
@@ -2929,6 +2937,14 @@ fun AppNavHost(
                                 navController.navigate(Routes.saleTagAnimalsRoute(event.dealId)) { launchSingleTop = true }
                             }
                         }
+                        is WorkflowDetailEvent.OpenKidShift -> {
+                            // KID STAGE SHIFT TASKS: Raise shifting (growth) with the litter's
+                            // waiting kids selected. The step completes when the move is applied.
+                            vm.onEvent(event)
+                            navController.navigate(
+                                Routes.countsShiftingAddWithKidsRoute(event.kids.map { it.goatId to it.tag }),
+                            ) { launchSingleTop = true }
+                        }
                         is WorkflowDetailEvent.OpenPromote -> {
                             vm.onEvent(event)
                             navController.navigate(
@@ -3097,7 +3113,15 @@ fun AppNavHost(
         }
 
         // L1 raise form behind Shifting's ＋ action.
-        composable(Routes.COUNTS_SHIFTING_ADD) {
+        composable(
+            route = Routes.COUNTS_SHIFTING_ADD_PATTERN,
+            arguments = listOf(
+                navArgument(ShiftingViewModel.ARG_PRESELECT_KIDS) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+            ),
+        ) {
             val vm: ShiftingViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             LaunchedEffect(state.returnToActions) {
@@ -4625,6 +4649,7 @@ fun AppNavHost(
             val vm: WorkBoardDetailViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             val openRoute = workBoardOpenRoute(state.row?.href, navState)
+                ?: workBoardWorkflowRoute(state.row?.rowKey)
             WorkBoardDetailScreen(
                 state = state.copy(canOpen = openRoute != null),
                 onEvent = { event ->
@@ -5449,6 +5474,21 @@ internal fun workBoardOpenRoute(href: String?, navState: NavState): String? {
     val route = href?.takeIf { it.isNotBlank() }?.let { pushTargetRoute(it) } ?: return null
     if (isRootDestination(route) && !navState.grantsRootDestination(route)) return null
     return route
+}
+
+/**
+ * Where a HERD-OPERATIONS WORKFLOW row opens: its step screen, by the workflow id the row's stable
+ * key carries (`counts|workflow|<workflow_id>`). The board href is shared with the web console,
+ * which has no step screen to link, so an engine row carries none; the phone owns this screen and
+ * opens it from the row's own identity -- never from a guess at the title. Built for the litter's
+ * K1/K2 shifts (KID STAGE SHIFT TASKS, docs/decisions/kid-stage-shift-tasks.md), which the park head
+ * reaches from the board. The read is gated server-side on the herd-operations permission, and
+ * only the counts lane qualifies: a sale or purchase workflow keeps its own screens.
+ */
+internal fun workBoardWorkflowRoute(rowKey: String?): String? {
+    val parts = rowKey?.split('|') ?: return null
+    if (parts.size != 3 || parts[0] != "counts" || parts[1] != "workflow" || parts[2].isBlank()) return null
+    return Routes.birthWorkflowRoute(parts[2])
 }
 
 /** True when [route] is a module landing the backend must have granted this person. */

@@ -176,6 +176,57 @@ class ShiftingViewModel @Inject constructor(
         observeDestinations()
         refreshDestinations()
         recomputeSubmitGate()
+        preselectKids()
+    }
+
+    /**
+     * KID STAGE SHIFT TASKS (docs/decisions/kid-stage-shift-tasks.md): opened from a litter's
+     * K1/K2 step, the form starts with that litter's waiting kids selected and the Growth type
+     * chosen. Each kid is resolved through the SAME animal lookup the tag field uses -- by its tag,
+     * then kept only when the match is that exact animal -- so a preselected kid passes the same
+     * eligibility and one-farm checks a scanned one does. Applied once per form (a restored form
+     * keeps whatever the operator did since).
+     */
+    private fun preselectKids() {
+        val raw = savedStateHandle.get<String>(ARG_PRESELECT_KIDS).orEmpty()
+        if (raw.isBlank() || savedStateHandle.get<Boolean>(KEY_PRESELECT_APPLIED) == true) return
+        savedStateHandle[KEY_PRESELECT_APPLIED] = true
+        val wanted = raw.split(",").mapNotNull { entry ->
+            val goatId = entry.substringBefore(":").trim()
+            val tag = entry.substringAfter(":", "").trim()
+            if (goatId.isBlank() || tag.isBlank()) null else goatId to tag
+        }
+        if (wanted.isEmpty()) return
+        _state.update { it.copy(category = SHIFTING_CATEGORY_GROWTH) }
+        viewModelScope.launch {
+            val found = mutableListOf<GoatSearchItemDto>()
+            for ((goatId, tag) in wanted) {
+                countsRepository.lookupAnimals(query = tag)
+                    .onSuccess { matches -> matches.firstOrNull { it.goatId == goatId && it.isEligibleForShifting() }?.let(found::add) }
+                    .onFailure { error -> crashReporter.recordException(error, "counts shifting kid preselect lookup failed") }
+            }
+            val animals = found.toDistinctShiftingAnimalUi()
+            _state.update { current ->
+                current.copy(animalMatches = (current.animalMatches + animals).distinctBy { it.goatId })
+            }
+            animals.forEach { onSelectAnimal(it.goatId) }
+            val outcome = when {
+                animals.size == wanted.size -> "selected"
+                animals.isEmpty() -> "failed"
+                else -> "partial"
+            }
+            if (animals.size < wanted.size) {
+                _state.update { it.copy(animalLookupMessage = PRESELECT_FAILED_MESSAGE) }
+            }
+            analytics.track(
+                AnalyticsEvents.COUNTS_KID_SHIFT_PRESELECT,
+                mapOf(
+                    AnalyticsEvents.Params.OUTCOME to outcome,
+                    AnalyticsEvents.Params.COUNT to animals.size.toString(),
+                ),
+            )
+            recomputeSubmitGate()
+        }
     }
 
     fun onEvent(event: ShiftingEvent) {
@@ -781,7 +832,15 @@ class ShiftingViewModel @Inject constructor(
         return null
     }
 
-    private companion object {
+    companion object {
+        /**
+         * Optional nav argument: animals to open the form with, "goatId:tag,goatId:tag" (KID STAGE
+         * SHIFT TASKS -- a litter's K1/K2 step). Absent or blank opens the empty form.
+         */
+        const val ARG_PRESELECT_KIDS = "kids"
+        private const val KEY_PRESELECT_APPLIED = "countsShifting.preselectApplied"
+        private const val PRESELECT_FAILED_MESSAGE =
+            "Some of these kids could not be found. Scan their tags to add them."
         const val KEY_IDEMPOTENCY = "countsShifting.idempotencyKey"
         const val KEY_OUTBOX_ITEM_ID = "countsShifting.outboxItemId"
         const val KEY_RAISE_GROUP = "countsShifting.raiseGroup"

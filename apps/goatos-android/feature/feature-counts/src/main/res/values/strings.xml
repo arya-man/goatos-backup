@@ -297,4 +297,5 @@
     <string name="counts_group_report">Report</string>
     <string name="counts_capture_choose_pen_first">Choose the pen first to record the report\'s photos and videos.</string>
     <string name="counts_capture_choose_animal_first">Select the animal first to record the report\'s photos and videos.</string>
+    <string name="counts_workflow_raise_kid_shift">Raise shifting for these kids</string>
 </resources>

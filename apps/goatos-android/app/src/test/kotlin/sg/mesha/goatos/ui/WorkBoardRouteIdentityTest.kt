@@ -59,6 +59,17 @@ class WorkBoardRouteIdentityTest {
         // The detail's Open button resolves the backend href through the SAME resolver pushes use,
         // never a hand-rolled route guess.
         assertTrue(navHost.contains("val openRoute = workBoardOpenRoute(state.row?.href, navState)"))
+        // A herd-operations workflow row (no shared href) opens its step screen from its OWN key.
+        assertTrue(navHost.contains("?: workBoardWorkflowRoute(state.row?.rowKey)"))
+    }
+
+    @Test
+    fun `a counts workflow row opens its steps and nothing else does`() {
+        assertEquals(Routes.birthWorkflowRoute("wf-1"), workBoardWorkflowRoute("counts|workflow|wf-1"))
+        assertNull(workBoardWorkflowRoute("sales|workflow|wf-1"))
+        assertNull(workBoardWorkflowRoute("counts|approval|a-1"))
+        assertNull(workBoardWorkflowRoute("counts|workflow|"))
+        assertNull(workBoardWorkflowRoute(null))
     }
 
     // --- The Open button is held to the push grant rule (Realme finding, 2026-09-11) ---------

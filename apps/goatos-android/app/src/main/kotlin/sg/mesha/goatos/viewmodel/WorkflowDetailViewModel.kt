@@ -52,6 +52,7 @@ import sg.mesha.goatos.feature.counts.WorkflowAnswerOptionUi
 import sg.mesha.goatos.feature.counts.WorkflowDetailEvent
 import sg.mesha.goatos.feature.counts.WorkflowProofSavedKind
 import sg.mesha.goatos.feature.counts.WorkflowDetailUiState
+import sg.mesha.goatos.feature.counts.WorkflowKidShiftKidUi
 import sg.mesha.goatos.feature.counts.WorkflowProofUi
 import sg.mesha.goatos.feature.counts.WorkflowStatusTone
 import java.time.Duration
@@ -213,6 +214,10 @@ class WorkflowDetailViewModel @Inject constructor(
             WorkflowDetailEvent.NavigationHandled -> _state.update { it.copy(returnToList = false) }
             is WorkflowDetailEvent.OpenPromote -> analytics.track(AnalyticsEvents.COUNTS_RFID_PROMOTE_OPENED)
             is WorkflowDetailEvent.OpenSaleTagging -> analytics.track(AnalyticsEventsVendors.VENDORS_SALE_TAGGING_OPENED_FROM_STEPS)
+            is WorkflowDetailEvent.OpenKidShift -> analytics.track(
+                AnalyticsEvents.COUNTS_KID_SHIFT_OPENED,
+                mapOf(AnalyticsEvents.Params.COUNT to event.kids.size.toString()),
+            )
             WorkflowDetailEvent.Back -> Unit // navigation — handled by the nav host.
         }
     }
@@ -1062,6 +1067,8 @@ class WorkflowDetailViewModel @Inject constructor(
             displayId = when {
                 // A sale has no animal to headline: the backend's subject line names the buyer.
                 module == MODULE_SALES -> subjectLabel
+                // A litter's shift workflow names the litter, not one animal (KID STAGE SHIFT TASKS).
+                templateKey == TEMPLATE_KEY_BIRTH_LITTER -> subjectLabel
                 templateKey == TEMPLATE_KEY_BIRTH_MOTHER || module == MODULE_DEATH -> subject.tag.ifBlank { subject.displayId }
                 else -> subject.displayId.ifBlank { subject.tag }
             },
@@ -1187,6 +1194,9 @@ class WorkflowDetailViewModel @Inject constructor(
         // The sale's tag step opens the tagging screen and is completed by the ENGINE from the
         // tagging confirm -- never by a tap here (docs/decisions/sales-sop.md).
         val opensSaleTagging = taskType == ENGINE_HOOK_SALE_TAG_ANIMALS || actionKey == "tag_animals" && taskType.isBlank()
+        // A litter's K1/K2 shift (KID STAGE SHIFT TASKS) opens Raise shifting with the waiting kids
+        // selected; the ENGINE completes it from the herd register -- never a tap here.
+        val opensKidShift = taskType == ENGINE_HOOK_SHIFT_KIDS_STAGE
         val answerKind = answerType.ifBlank {
             when {
                 actionType == TYPE_QUESTION_SELECT -> "select"
@@ -1247,8 +1257,8 @@ class WorkflowDetailViewModel @Inject constructor(
             statusLabel = statusLabel,
             statusTone = statusTone,
             section = section,
-            canAnswer = actionable && isQuestion && !opensPromote && !opensSaleTagging,
-            canComplete = actionable && actionType == TYPE_ACTION && minVideos == 0 && proofMinPhotos == 0 && !opensPromote && !opensSaleTagging,
+            canAnswer = actionable && isQuestion && !opensPromote && !opensSaleTagging && !opensKidShift,
+            canComplete = actionable && actionType == TYPE_ACTION && minVideos == 0 && proofMinPhotos == 0 && !opensPromote && !opensSaleTagging && !opensKidShift,
             // TAG THE KID IS RFID FIRST, VIDEO SECOND (maintainer report 2026-09-21). Every other
             // flag above already excludes opensPromote; this one did not, so the step offered
             // "Record video" while the permanent RFID was still missing and the only way to enter
@@ -1256,8 +1266,8 @@ class WorkflowDetailViewModel @Inject constructor(
             // then refused the completion with permanent_identifier_required -- a wasted recording
             // for work that was done. The video is still mandatory; it is simply not offered until
             // the tag is on the record.
-            canRecordVideo = actionable && minVideos > 0 && captured.count { it.kind == PROOF_KIND_VIDEO } < minVideos && !opensPromote && !opensSaleTagging,
-            canTakePhoto = actionable && proofMinPhotos > 0 && captured.count { it.kind == PROOF_KIND_PHOTO } < proofMinPhotos && !opensPromote && !opensSaleTagging,
+            canRecordVideo = actionable && minVideos > 0 && captured.count { it.kind == PROOF_KIND_VIDEO } < minVideos && !opensPromote && !opensSaleTagging && !opensKidShift,
+            canTakePhoto = actionable && proofMinPhotos > 0 && captured.count { it.kind == PROOF_KIND_PHOTO } < proofMinPhotos && !opensPromote && !opensSaleTagging && !opensKidShift,
             answerKind = if (isRecordPen) "select" else answerKind,
             proofMinVideos = minVideos,
             proofMinPhotos = proofMinPhotos,
@@ -1266,6 +1276,16 @@ class WorkflowDetailViewModel @Inject constructor(
             uploadedProofs = if (status == STATUS_COMPLETED || status == STATUS_IN_REVIEW || status == STATUS_REWORK) uploaded else emptyList(),
             opensPromote = opensPromote && actionable,
             opensSaleTagging = opensSaleTagging && actionable,
+            opensKidShift = opensKidShift && actionable && waitingKids.isNotEmpty(),
+            kidShiftKids = if (opensKidShift && status == STATUS_PENDING) {
+                waitingKids.filter { it.goatId.isNotBlank() }.map { kid ->
+                    WorkflowKidShiftKidUi(
+                        goatId = kid.goatId,
+                        tag = kid.tag,
+                        line = listOf(kid.tag, kid.stage, kid.penLabel).filter { it.isNotBlank() }.joinToString(" · "),
+                    )
+                }
+            } else emptyList(),
             ownerLabel = ownerLabel,
             // A blocked row must say WHY. On the Colostrum lens the prerequisite is not even on
             // screen (1st Colostrum waits on four birth steps that live in Birth), so a bare
@@ -1307,7 +1327,9 @@ class WorkflowDetailViewModel @Inject constructor(
         private const val MODULE_GENERAL = "general"
         private const val MODULE_SALES = "sales"
         private const val ENGINE_HOOK_SALE_TAG_ANIMALS = "sale_tag_animals"
+        private const val ENGINE_HOOK_SHIFT_KIDS_STAGE = "shift_kids_stage"
         private const val TEMPLATE_KEY_BIRTH_MOTHER = "birth_mother"
+        private const val TEMPLATE_KEY_BIRTH_LITTER = "birth_litter"
         private const val TYPE_QUESTION = "question"
         private const val TYPE_QUESTION_SELECT = "question_select"
         private const val TYPE_ACTION = "action"

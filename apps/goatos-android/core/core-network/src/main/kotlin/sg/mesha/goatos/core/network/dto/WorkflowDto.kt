@@ -152,6 +152,22 @@ data class WorkflowActionDto(
      */
     @SerialName("owner_role") val ownerRole: String = "",
     @SerialName("owner_label") val ownerLabel: String = "",
+    /**
+     * KID STAGE SHIFT TASKS (docs/decisions/kid-stage-shift-tasks.md): on a litter shift step
+     * (task_type `shift_kids_stage`) the stage the kids move to, and -- while it is pending -- the
+     * kids still waiting to get there. The step completes on its own once they have.
+     */
+    @SerialName("target_stage") val targetStage: String = "",
+    @SerialName("waiting_kids") val waitingKids: List<WorkflowLitterKidDto> = emptyList(),
+)
+
+/** One kid of a litter still waiting for a shift: its id, tag, stage and pen, all verbatim. */
+@Serializable
+data class WorkflowLitterKidDto(
+    @SerialName("goat_id") val goatId: String = "",
+    @SerialName("tag") val tag: String = "",
+    @SerialName("stage") val stage: String = "",
+    @SerialName("pen_label") val penLabel: String = "",
 )
 
 /** One captured proof on a step: the server proof id and whether it is a video or a photo. */

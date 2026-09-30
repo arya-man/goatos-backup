@@ -179,6 +179,10 @@ object AnalyticsEvents {
 
     /** The operator opened Birth's final "Tag the kid" permanent-RFID assignment. */
     const val COUNTS_RFID_PROMOTE_OPENED = "counts_rfid_promote_opened"
+    /** KID STAGE SHIFT TASKS: the park head opened Raise shifting from a litter's K1/K2 step. */
+    const val COUNTS_KID_SHIFT_OPENED = "counts_kid_shift_opened"
+    /** Raise shifting opened with a litter's kids preselected; outcome = selected | partial | failed. */
+    const val COUNTS_KID_SHIFT_PRESELECT = "counts_kid_shift_preselect"
 
     /** The operator pressed "Promote to permanent RFID": the promote (retag) write was queued. */
     const val COUNTS_RFID_PROMOTE_SUBMITTED = "counts_rfid_promote_submitted"

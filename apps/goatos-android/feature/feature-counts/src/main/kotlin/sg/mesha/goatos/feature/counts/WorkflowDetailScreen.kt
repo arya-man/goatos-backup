@@ -98,6 +98,13 @@ data class WorkflowActionUi(
     val opensPromote: Boolean,
     /** `sale_tag_animals` — open the sale-tagging screen for this sale; the engine completes the step. */
     val opensSaleTagging: Boolean = false,
+    /**
+     * `shift_kids_stage` (KID STAGE SHIFT TASKS) — open Raise shifting (growth) with [kidShiftKids]
+     * already selected; the ENGINE completes the step once every kid has reached the stage.
+     */
+    val opensKidShift: Boolean = false,
+    /** The kids still waiting for this shift, as "tag · stage · pen" lines, in birth order. */
+    val kidShiftKids: List<WorkflowKidShiftKidUi> = emptyList(),
     /** The designation the SOP names for this step ("Park Head"), VERBATIM; blank when anyone. */
     val ownerLabel: String = "",
     /** Footer line with backend-owned completion attribution; blank hides it. */
@@ -232,6 +239,9 @@ sealed interface WorkflowDetailEvent {
 
     /** `sale_tag_animals` — open the Sales-owned tagging screen for the sale this workflow is about. */
     data class OpenSaleTagging(val dealId: String) : WorkflowDetailEvent
+
+    /** `shift_kids_stage` — open Raise shifting with these kids selected. */
+    data class OpenKidShift(val actionId: String, val kids: List<WorkflowKidShiftKidUi>) : WorkflowDetailEvent
 
     /** `tag_the_kid` — open the Birth-owned permanent RFID assignment for this canonical kid. */
     data class OpenPromote(
@@ -479,9 +489,11 @@ private fun WorkflowActionRow(
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .background(MeshaColors.Surf)
-            .clickable(enabled = hasDetail || action.opensPromote || action.opensSaleTagging) {
+            .clickable(enabled = hasDetail || action.opensPromote || action.opensSaleTagging || action.opensKidShift) {
                 if (action.opensSaleTagging && state.saleDealId.isNotBlank()) {
                     onEvent(WorkflowDetailEvent.OpenSaleTagging(state.saleDealId))
+                } else if (action.opensKidShift && action.kidShiftKids.isNotEmpty()) {
+                    onEvent(WorkflowDetailEvent.OpenKidShift(action.actionId, action.kidShiftKids))
                 } else if (action.opensPromote && state.subjectGoatId.isNotBlank() && state.subjectGoatRowVersion > 0) {
                     onEvent(
                         WorkflowDetailEvent.OpenPromote(
@@ -568,6 +580,28 @@ private fun WorkflowActionRow(
                 color = MeshaColors.Muted,
                 style = MeshaType.cardSubtitle,
             )
+        }
+        if (action.kidShiftKids.isNotEmpty()) {
+            // KID STAGE SHIFT TASKS: name the kids still waiting, then one button into Raise
+            // shifting with them selected. The step itself completes when the move is done.
+            action.kidShiftKids.forEach { kid ->
+                Text(text = kid.line, color = MeshaColors.Ink, style = MeshaType.cardSubtitle)
+            }
+            if (action.opensKidShift) {
+                Text(
+                    text = stringResource(R.string.counts_workflow_raise_kid_shift),
+                    color = MeshaColors.OnBrand,
+                    style = MeshaType.pillStrong,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MeshaColors.Brand)
+                        .clickable { onEvent(WorkflowDetailEvent.OpenKidShift(action.actionId, action.kidShiftKids)) }
+                        .minimumInteractiveComponentSize()
+                        .padding(vertical = 10.dp),
+                )
+            }
         }
         if (action.canAnswer && action.options.isNotEmpty() && action.answerKind != "multiselect") {
             // Question_select bands can be many; wrap two per row so long band lists stay tappable.
@@ -867,3 +901,10 @@ private fun StatusChip(label: String, tone: WorkflowStatusTone, isDeath: Boolean
             .padding(horizontal = 9.dp, vertical = 3.dp),
     )
 }
+
+/** One kid a litter shift step is still waiting on. [line] is "A1024 · K0 · Castro 1", composed from backend fields. */
+data class WorkflowKidShiftKidUi(
+    val goatId: String,
+    val tag: String,
+    val line: String,
+)

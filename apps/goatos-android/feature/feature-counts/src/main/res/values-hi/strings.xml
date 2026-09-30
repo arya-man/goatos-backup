@@ -273,4 +273,5 @@
     <string name="counts_group_report">रिपोर्ट</string>
     <string name="counts_capture_choose_pen_first">रिपोर्ट की फ़ोटो और वीडियो रिकॉर्ड करने के लिए पहले बाड़ा चुनें।</string>
     <string name="counts_capture_choose_animal_first">रिपोर्ट की फ़ोटो और वीडियो रिकॉर्ड करने के लिए पहले पशु चुनें।</string>
+    <string name="counts_workflow_raise_kid_shift">इन बच्चों की शिफ्टिंग दर्ज करें</string>
 </resources>
