@@ -7,6 +7,7 @@ import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import Box from "@mui/material/Box";
+import Stack from "@mui/material/Stack";
 import Grid from "@mui/material/Grid";
 import Button from "@mui/material/Button";
 import Avatar from "@mui/material/Avatar";
@@ -19,7 +20,7 @@ import Typography from "@mui/material/Typography";
 import TextField from "@mui/material/TextField";
 import { varAlpha } from "minimal-shared/utils";
 import { Label } from "@/components/minimal/label";
-import { Iconify } from "@/components/minimal/iconify";
+import { Iconify, type IconifyName } from "@/components/minimal/iconify";
 import { LinkButton } from "@/components/app/link-button";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { EmptyContent } from "@/components/minimal/empty-content";
@@ -33,19 +34,6 @@ import { listOrEmpty } from "@/lib/list-or-empty";
 import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
-import {
-  ClipboardList,
-  Database,
-  Filter,
-  HeartPulse,
-  ListFilter,
-  Milk,
-  Scale,
-  Syringe,
-  Truck,
-  Wheat,
-  Zap,
-} from "lucide-react";
 
 import { Tag, type Tone } from "@/components/ui-primitives";
 import { PageHeader } from "@/components/app/page-header";
@@ -77,17 +65,17 @@ const PRESERVE_ON_CLEAR = ["scope_mode", "park", "as_of", "range", "from", "to"]
 
 // Business audit families are derived from durable audit metadata when available, with backend fallbacks for
 // older rows that only captured action/resource names.
-const OPERATION_FAMILIES: Array<{ key: string; domain: string | null; icon: typeof Zap }> = [
-  { key: "all", domain: null, icon: ListFilter },
-  { key: "vaccination", domain: "vaccination", icon: Syringe },
-  { key: "procurement", domain: "procurement", icon: Truck },
-  { key: "counts", domain: "counts", icon: ClipboardList },
-  { key: "feed", domain: "feed", icon: Wheat },
-  { key: "weighing", domain: "weighing", icon: Scale },
-  { key: "health", domain: "health", icon: HeartPulse },
-  { key: "milk", domain: "milk", icon: Milk },
-  { key: "admin", domain: "admin", icon: Database },
-  { key: "other", domain: "other", icon: Filter },
+const OPERATION_FAMILIES: Array<{ key: string; domain: string | null; icon: IconifyName }> = [
+  { key: "all", domain: null, icon: "ic:round-filter-list" },
+  { key: "vaccination", domain: "vaccination", icon: "solar:medical-kit-bold" },
+  { key: "procurement", domain: "procurement", icon: "carbon:delivery" },
+  { key: "counts", domain: "counts", icon: "solar:bill-list-bold" },
+  { key: "feed", domain: "feed", icon: "solar:box-minimalistic-bold" },
+  { key: "weighing", domain: "weighing", icon: "solar:dumbbell-large-minimalistic-bold" },
+  { key: "health", domain: "health", icon: "solar:heart-bold" },
+  { key: "milk", domain: "milk", icon: "solar:tea-cup-bold" },
+  { key: "admin", domain: "admin", icon: "solar:ssd-round-bold" },
+  { key: "other", domain: "other", icon: "eva:more-horizontal-fill" },
 ];
 
 // Result/status tabs map to real list filters.
@@ -174,7 +162,7 @@ export async function OperationsAuditPage({
   ];
 
   return (
-    <div className="screen on">
+    <Stack spacing={3}>
       <PageHeader
         title={pageContract.title}
         crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
@@ -335,13 +323,14 @@ export async function OperationsAuditPage({
                     const selected = filters.actorId === actor.actorId || (!filters.actorId && filters.actorType === actor.actorType);
                     const name = actor.actorId ? shortId(actor.actorId) : actor.actorType;
                     return (
-                      <Link
+                      <Box
+                        component={Link}
                         key={actor.key}
                         href={hrefWithUpdates(sp, { actor_id: actor.actorId ?? null, actor_type: actor.actorId ? null : actor.actorType, cursor: null, page: null, audit_id: null })}
                         replace
                         scroll={false}
                         aria-current={selected ? "true" : undefined}
-                        style={{ color: "inherit", textDecoration: "none" }}
+                        sx={{ color: "inherit", textDecoration: "none" }}
                       >
                         <Box sx={{ gap: 2, px: 1, py: 1, display: "flex", alignItems: "center", borderRadius: "var(--r-md)", minHeight: 44, bgcolor: selected ? "action.selected" : "transparent", "&:hover": { bgcolor: "action.hover" } }}>
                           <Avatar sx={{ width: 40, height: 40, typography: "subtitle2" }}>{name.slice(0, 1).toUpperCase()}</Avatar>
@@ -353,7 +342,7 @@ export async function OperationsAuditPage({
                           </Box>
                           <Label variant="soft" color={selected ? "primary" : "default"}>{actor.count}</Label>
                         </Box>
-                      </Link>
+                      </Box>
                     );
                   })
                 )}
@@ -405,7 +394,7 @@ export async function OperationsAuditPage({
         closeHref={closeDrawerHref}
         pageContract={pageContract}
       />
-    </div>
+    </Stack>
   );
 }
 
@@ -418,20 +407,19 @@ function AuditTableRow({ row, searchParams, pageContract }: { row: OperationsAud
   const operator = operatorLabel(row);
   const target = targetLabel(row);
   const detailHref = `${hrefWithUpdates(searchParams, { audit_id: null })}#audit_id=${encodeURIComponent(row.audit_id)}`;
-  const OperationIcon = operation.icon;
   const [date, time] = fmtDateTime(row.recorded_at).split(" ");
   return (
     <TableRow hover sx={row.anomaly ? { bgcolor: varAlpha("var(--palette-error-mainChannel)", 0.08) } : undefined}>
       <TableCell sx={{ whiteSpace: "nowrap" }}>
-        <LocalOverlayLink href={detailHref} scroll={false} style={{ color: "inherit", textDecoration: "none", display: "block" }}>
+        <Box component={LocalOverlayLink} href={detailHref} scroll={false} sx={{ color: "inherit", textDecoration: "none", display: "block" }}>
           <Box component="span" sx={{ display: "block", typography: "body2" }}>{date}</Box>
           <Box component="span" sx={{ display: "block", typography: "caption", color: "text.disabled", mt: 0.5 }}>{time}</Box>
-        </LocalOverlayLink>
+        </Box>
       </TableCell>
       <TableCell sx={{ whiteSpace: "nowrap" }}>
         <Box sx={{ gap: 2, display: "flex", alignItems: "center" }}>
           <Avatar variant="rounded" sx={{ width: 36, height: 36, bgcolor: "background.neutral", color: "primary.main" }}>
-            <OperationIcon size={18} aria-hidden="true" />
+            <Iconify icon={operation.icon} width={18} aria-hidden="true" />
           </Avatar>
           <Box sx={{ minWidth: 0 }}>
             <Box component="span" sx={{ display: "block", typography: "subtitle2" }}>{operation.label}</Box>
@@ -444,11 +432,11 @@ function AuditTableRow({ row, searchParams, pageContract }: { row: OperationsAud
         <Box component="span" sx={{ display: "block", typography: "caption", color: "text.disabled", mt: 0.5 }}>{operator.secondary}</Box>
       </TableCell>
       <TableCell sx={{ whiteSpace: "nowrap" }}>
-        <LocalOverlayLink href={detailHref} scroll={false} style={{ color: "inherit" }}>
+        <Box component={LocalOverlayLink} href={detailHref} scroll={false} sx={{ color: "inherit" }}>
           {humanAction(row.action)}
-        </LocalOverlayLink>
+        </Box>
       </TableCell>
-      <TableCell sx={{ whiteSpace: "nowrap" }}>{target.href ? <Link href={target.href} style={{ color: "inherit" }}>{target.label}</Link> : target.label}</TableCell>
+      <TableCell sx={{ whiteSpace: "nowrap" }}>{target.href ? <Box component={Link} href={target.href} sx={{ color: "inherit" }}>{target.label}</Box> : target.label}</TableCell>
       <TableCell>
         <Tag tone={row.anomaly ? "dng" : toneForResult(result)} title={row.anomaly ? copy(pageContract, "label.flagged_anomaly") : undefined}>
           {result}
@@ -533,7 +521,7 @@ function countByOperation(summaryResults: Array<Awaited<ReturnType<typeof getOpe
   return counts;
 }
 
-function operationLabel(row: OperationsAuditRow, pageContract: AdminUiPageContract): { key: string; label: string; detail?: string; icon: typeof Zap } {
+function operationLabel(row: OperationsAuditRow, pageContract: AdminUiPageContract): { key: string; label: string; detail?: string; icon: IconifyName } {
   const domain = metaString(row, "domain") ?? "admin";
   const family = familyForDomain(domain);
   const rawDetail = joinParts([metaString(row, "module"), metaString(row, "category")]);
@@ -621,9 +609,9 @@ function preservedHiddenInputs(params: RouteSearchParams, exclude: string[]) {
   return Object.entries(params).flatMap(([key, value]) => {
     if (excluded.has(key)) return [];
     if (Array.isArray(value)) {
-      return value.map((item) => <input key={`${key}:${item}`} type="hidden" name={key} value={item} />);
+      return value.map((item) => <Box component="input" key={`${key}:${item}`} type="hidden" name={key} value={item} />);
     }
-    return value ? [<input key={key} type="hidden" name={key} value={value} />] : [];
+    return value ? [<Box component="input" key={key} type="hidden" name={key} value={value} />] : [];
   });
 }
 

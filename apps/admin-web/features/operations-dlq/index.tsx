@@ -3,6 +3,7 @@ import { UrlSuspense } from "@/components/app/url-suspense";
 import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import { StatStripSkeleton, TableSkeleton } from "@/components/app/skeletons";
 import Box from "@mui/material/Box";
+import Stack from "@mui/material/Stack";
 import Button from "@mui/material/Button";
 import Card from "@mui/material/Card";
 import TextField from "@mui/material/TextField";
@@ -103,7 +104,7 @@ export async function OperationsDLQPage({
   ];
 
   return (
-    <div className="screen on">
+    <Stack spacing={3}>
       <PageHeader
         title={pageContract.title}
         crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
@@ -160,14 +161,14 @@ export async function OperationsDLQPage({
 
         <OrderTableToolbar
           filters={
-            <Form action={PATHNAME} prefetch={false} style={{ display: "contents" }}>
+            <Box component={Form} action={PATHNAME} prefetch={false} sx={{ display: "contents" }}>
               {hiddenInputs(sp, ["event_type", "topic", "dlq_id", "action_status", "action_key", "action_code", "updated"])}
               <TextField id="dlq-event-type" name="event_type" label={copy(pageContract, "filter.event_type_label")} placeholder={copy(pageContract, "filter.event_type_placeholder")} defaultValue={eventType ?? ""} sx={{ width: { xs: 1, md: DLQ_FIELD_WIDTH }, flexShrink: 0 }} slotProps={{ inputLabel: { shrink: true } }} />
               <TextField id="dlq-topic" name="topic" label={copy(pageContract, "filter.topic_label")} placeholder={copy(pageContract, "filter.topic_placeholder")} defaultValue={topic ?? ""} sx={{ width: { xs: 1, md: DLQ_FIELD_WIDTH }, flexShrink: 0 }} slotProps={{ inputLabel: { shrink: true } }} />
               <Button type="submit" variant="contained" color="primary" sx={{ flexShrink: 0 }}>
                 {copy(pageContract, "filter.apply")}
               </Button>
-            </Form>
+            </Box>
           }
           search={<Box sx={orderToolbarSearchSx}><Form action={PATHNAME} prefetch={false} title={copy(pageContract, "filter.search_label")}>
               {hiddenInputs(sp, ["q", "dlq_id", "action_status", "action_key", "action_code", "updated"])}
@@ -220,7 +221,7 @@ export async function OperationsDLQPage({
         initialSelectedOutboxId={initialSelectedOutboxId}
         closeHref={closeDrawerHref}
       />
-    </div>
+    </Stack>
   );
 }
 
@@ -229,14 +230,14 @@ function DLQTableRow({ row, closeHref, pageContract }: { row: OutboxDLQMessage; 
   return (
     <TableRow hover>
       <TableCell sx={{ whiteSpace: "nowrap" }}>
-        <LocalOverlayLink href={href} scroll={false} style={{ color: "inherit", textDecoration: "none", display: "block" }}>
+        <Box component={LocalOverlayLink} href={href} scroll={false} sx={{ color: "inherit", textDecoration: "none", display: "block" }}>
           <Box component="span" sx={{ display: "block", typography: "subtitle2" }} title={row.event_type}>
             {row.event_type}
           </Box>
           <Box component="span" sx={{ display: "block", typography: "caption", color: "text.disabled", mt: 0.5 }}>
             {shortId(row.event_id)}
           </Box>
-        </LocalOverlayLink>
+        </Box>
       </TableCell>
       <TableCell sx={{ whiteSpace: "nowrap" }}>
         <Box component="span" sx={{ display: "block", mb: 0.5 }} title={row.topic}>
@@ -302,9 +303,9 @@ function hiddenInputs(params: RouteSearchParams, exclude: string[]) {
   return Object.entries(params).flatMap(([key, value]) => {
     if (exclude.includes(key)) return [];
     if (Array.isArray(value)) {
-      return value.filter(Boolean).map((item) => <input key={`${key}:${item}`} type="hidden" name={key} value={item} />);
+      return value.filter(Boolean).map((item) => <Box component="input" key={`${key}:${item}`} type="hidden" name={key} value={item} />);
     }
-    return value ? [<input key={key} type="hidden" name={key} value={value} />] : [];
+    return value ? [<Box component="input" key={key} type="hidden" name={key} value={value} />] : [];
   });
 }
 

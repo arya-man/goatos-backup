@@ -5,7 +5,7 @@ import { Tag, type Tone } from "@/components/ui-primitives";
 import { copy, optionGroup, optionLabel, optionTone, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { OutboxDLQMessage } from "@/lib/api/server";
 import { dash, fmtDateTime, shortId } from "@/lib/format";
-import { CheckCircle2, DatabaseZap, Trash2 } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import TextField from "@mui/material/TextField";
@@ -87,7 +87,7 @@ function DLQDrawer({
       onClose={closeDrawer}
       title={row.event_type}
       eyebrow={copy(pageContract, "drawer.record.eyebrow")}
-      icon={<DatabaseZap aria-hidden="true" />}
+      icon={<Iconify icon="solar:ssd-round-bold" width={24} aria-hidden="true" />}
       ariaLabel={copy(pageContract, "drawer.record.aria")}
       closeLabel={copy(pageContract, "drawer.record.close_label")}
       footer={
@@ -115,18 +115,18 @@ function DLQDrawer({
       </DrawerMetaGrid>
       <DrawerBlock title={copy(pageContract, "section.repair.title")}>
         <Box component="form" action={replayDLQAction} sx={{ display: "grid", gap: 1.5 }}>
-          <input type="hidden" name="outbox_id" value={row.outbox_id} />
-          <input type="hidden" name="return_to" value={returnTo} />
+          <Box component="input" type="hidden" name="outbox_id" value={row.outbox_id} />
+          <Box component="input" type="hidden" name="return_to" value={returnTo} />
           <TextField name="reason" label={copy(pageContract, "form.reason_label")} placeholder={copy(pageContract, "form.reason_placeholder")} multiline rows={2} fullWidth disabled={replayDisabled} slotProps={{ inputLabel: { shrink: true } }} />
           <DrawerNote>{replayDisabledReason || copy(pageContract, "reason.replay")}</DrawerNote>
-          <Button type="submit" variant="contained" color="primary" disabled={replayDisabled} title={replayDisabledReason} startIcon={<CheckCircle2 size={16} aria-hidden="true" />}>{replayAction.label}</Button>
+          <Button type="submit" variant="contained" color="primary" disabled={replayDisabled} title={replayDisabledReason} startIcon={<Iconify icon="solar:check-circle-bold" width={16} aria-hidden="true" />}>{replayAction.label}</Button>
         </Box>
         <Box component="form" action={discardDLQAction} sx={{ display: "grid", gap: 1.5 }}>
-          <input type="hidden" name="outbox_id" value={row.outbox_id} />
-          <input type="hidden" name="return_to" value={returnTo} />
+          <Box component="input" type="hidden" name="outbox_id" value={row.outbox_id} />
+          <Box component="input" type="hidden" name="return_to" value={returnTo} />
           <TextField name="reason" label={copy(pageContract, "form.reason_label")} placeholder={copy(pageContract, "form.reason_placeholder")} multiline rows={2} fullWidth disabled={discardDisabled} slotProps={{ inputLabel: { shrink: true } }} />
           <DrawerNote>{discardDisabledReason || copy(pageContract, "reason.discard")}</DrawerNote>
-          <Button type="submit" variant="outlined" color="inherit" disabled={discardDisabled} title={discardDisabledReason} startIcon={<Trash2 size={16} aria-hidden="true" />}>{discardAction.label}</Button>
+          <Button type="submit" variant="outlined" color="inherit" disabled={discardDisabled} title={discardDisabledReason} startIcon={<Iconify icon="solar:trash-bin-trash-bold" width={16} aria-hidden="true" />}>{discardAction.label}</Button>
         </Box>
         {repairDisabledReason ? <DrawerNote>{repairDisabledReason}</DrawerNote> : null}
       </DrawerBlock>

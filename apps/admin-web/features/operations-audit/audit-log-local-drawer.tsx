@@ -6,7 +6,8 @@ import { Tag } from "@/components/ui-primitives";
 import type { Tone } from "@/components/ui-primitives";
 import { copy, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { dash } from "@/lib/format";
-import { ClipboardList, Database, Syringe, Truck, Zap } from "lucide-react";
+import Box from "@mui/material/Box";
+import { Iconify, type IconifyName } from "@/components/minimal/iconify";
 import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
 import { LinkButton } from "@/components/app/link-button";
@@ -28,12 +29,12 @@ function auditId(record: AuditDrawerRecord): string {
   return record.id;
 }
 
-const OPERATION_ICONS = {
-  vaccination: Syringe,
-  procurement: Truck,
-  counts: ClipboardList,
-  admin: Database,
-} as const;
+const OPERATION_ICONS: Record<string, IconifyName> = {
+  vaccination: "solar:medical-kit-bold",
+  procurement: "carbon:delivery",
+  counts: "solar:bill-list-bold",
+  admin: "solar:ssd-round-bold",
+};
 
 function toneForResult(result: string): Tone {
   const normalized = result.toLowerCase();
@@ -77,7 +78,7 @@ function AuditDetailDrawer({
   open: boolean;
   closeDrawer: () => void;
 }) {
-  const OperationIcon = OPERATION_ICONS[record.operation.key as keyof typeof OPERATION_ICONS] ?? Zap;
+  const operationIcon: IconifyName = OPERATION_ICONS[record.operation.key] ?? "eva:activity-fill";
   const cols = tableLabels(pageContract, "activity-trail");
   return (
     <DetailDrawer
@@ -85,7 +86,7 @@ function AuditDetailDrawer({
       onClose={closeDrawer}
       title={record.actionLabel}
       eyebrow={copy(pageContract, "drawer.record.eyebrow")}
-      icon={<OperationIcon aria-hidden="true" />}
+      icon={<Iconify icon={operationIcon} width={24} aria-hidden="true" />}
       ariaLabel={copy(pageContract, "drawer.record.aria")}
       closeLabel={copy(pageContract, "drawer.record.close_label")}
       footer={
@@ -109,7 +110,7 @@ function AuditDetailDrawer({
           {record.operator.primary}
           <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{record.operator.secondary}</Typography>
         </DrawerMetaItem>
-        <DrawerMetaItem label={cols[4]}>{record.target.href ? <Link href={record.target.href} className="gid">{record.target.label}</Link> : record.target.label}</DrawerMetaItem>
+        <DrawerMetaItem label={cols[4]}>{record.target.href ? <Box component={Link} href={record.target.href} sx={{ typography: "subtitle2", fontFamily: "monospace", color: "primary.main" }}>{record.target.label}</Box> : record.target.label}</DrawerMetaItem>
         <DrawerMetaItem label={cols[5]}><Tag tone={record.anomaly ? "dng" : toneForResult(record.result)}>{record.result}</Tag></DrawerMetaItem>
         <DrawerMetaItem label={cols[6]}>{dash(record.proof)}</DrawerMetaItem>
       </DrawerMetaGrid>
