@@ -247,7 +247,6 @@ a:focus-visible,button:focus-visible,[role="button"]:focus-visible,[tabindex="0"
 .kit-tablecard{border-radius:16px;background:var(--paper);box-shadow:var(--shadow-card);overflow:hidden}
 .kit-tablecard .main{box-shadow:none!important;border-radius:0}
 .wf-bar + .main,.wf-bar + .card{border-top-left-radius:0!important;border-top-right-radius:0!important}
-.main td.kit-check,.main th.kit-check{width:52px;padding-right:0}
 /* drawer */
 
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:1ms!important;transition-duration:1ms!important}}
@@ -337,7 +336,6 @@ a:focus-visible,button:focus-visible,[role="button"]:focus-visible,[tabindex="0"
 
   /* pagination footer: wrap as rows, never wrap words */
   /* the kit checkbox keeps its drawn size; the cell carries the tap target */
-  .main td.kit-check,.main th.kit-check{width:44px;min-width:44px;height:44px}
   /* iOS/WKWebView auto-zooms a focused control under 16px and never zooms back */
   input:not([type="checkbox"]):not([type="radio"]),select,textarea{font-size:16px}
   /* overlay controls are the densest targets on the smallest viewport */
@@ -370,10 +368,6 @@ a:focus-visible,button:focus-visible,[role="button"]:focus-visible,[tabindex="0"
 /* -- table footer / pagination: never squeeze, never word-wrap ------- */
 
 /* -- checkboxes keep their 18px box; the label carries the target ---- */
-@media(max-width:640px){
-  .main td.kit-check,.main th.kit-check{width:40px}
-  .kit-check{display:inline-grid;place-items:center;min-width:40px;min-height:40px}
-}
 
 /* -- coarse pointers: real 44px hit areas without changing the look -- */
 @media(pointer:coarse){
@@ -452,11 +446,8 @@ a:focus-visible,button:focus-visible,[role="button"]:focus-visible,[tabindex="0"
 th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}
 
 /* -- Identity-cell initial tile (avatar stand-in when there is no image) -- */
-.kit-avatar{flex:none;display:inline-grid;place-items:center;width:28px;height:28px;border-radius:999px;background:var(--paper-2);color:var(--fg-muted);font-size:12px;font-weight:700;line-height:1;border:1px solid var(--line)}
 
 /* -- Trailing row-action column: fixed, never the growing column -- */
-th.kit-rowactions-th,td.kit-rowactions{width:52px;padding-left:0;text-align:right;white-space:nowrap}
-td.kit-rowactions,td.kit-check{position:relative;z-index:3}
 
 /* Initial tile for an IdentityCell lead slot (vendors, buyers, load refs). Tokens only. */
 .kit-idcell-tile{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:9px;background:var(--primary-soft);color:var(--primary-ink);font-size:12px;font-weight:700;line-height:1;font-family:var(--font-display),inherit}

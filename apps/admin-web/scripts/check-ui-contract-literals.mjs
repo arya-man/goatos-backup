@@ -444,8 +444,6 @@ const ROUTE_BY_PATH_PREFIX = [
   ["features/sales/", "sales-sold"],
   ["features/verification-review/", "verification-review"],
   ["features/preventive-care-vaccination/", "vaccination"],
-  ["features/vaccination-sheds/shed-detail", "shed-execution"],
-  ["features/vaccination-sheds/shed-passport-local-drawer", "shed-execution"],
   ["features/vaccination-sheds/", "vaccination"],
   ["features/vaccination-execution/execution-board", "vaccination"],
   ["features/vaccination-execution/", "shed-execution"],

@@ -41,7 +41,7 @@ export function ShedFilterBar({
   return (
     // Template list toolbar row: keyword search + the result count.
     <Box sx={{ p: 2.5, gap: 2, display: "flex", flexWrap: "wrap", alignItems: "center" }}>
-      <Box component="form" onSubmit={onSearch} sx={{ flex: "1 1 240px", minWidth: 0 }}>
+      <Box component="form" onSubmit={onSearch} sx={{ flex: "1 1 auto", minWidth: { xs: 1, sm: 240 } }}>
         <SearchTextField name="sheds_q" defaultValue={searchValue} disabled={isPending} placeholder={copy(pageContract, "filter.sheds.search")} />
       </Box>
       <Box component="span" sx={{ ml: "auto", typography: "body2", color: "text.secondary" }}>

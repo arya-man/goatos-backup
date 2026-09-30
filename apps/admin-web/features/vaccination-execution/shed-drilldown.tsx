@@ -235,7 +235,7 @@ export async function ShedExecutionDetailPage({
             <Stack spacing={2} sx={{ p: 3 }}>
               {owners.map((item) => (
                 <Box key={item.key} sx={{ display: "flex", alignItems: "center", gap: 2, minWidth: 0 }}>
-                  <Avatar sx={{ width: 40, height: 40, bgcolor: "background.neutral", color: "text.secondary" }}>
+                  <Avatar sx={{ bgcolor: "background.neutral", color: "text.secondary" }}>
                     <Iconify icon={item.icon} width={20} />
                   </Avatar>
                   <Stack spacing={0.25} sx={{ minWidth: 0, typography: "body2" }}>

@@ -1,8 +1,20 @@
+import type { ComponentProps } from "react";
+import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import TableRow from "@mui/material/TableRow";
+import { Iconify } from "@/components/minimal/iconify";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { EmptyContent } from "@/components/minimal/empty-content";
+import { TableHeadCustom } from "@/components/app/table";
 import { listOrEmpty } from "@/lib/list-or-empty";
-import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { LocalOverlayDrawer, type LocalOverlayDrawerItem } from "@/components/local-overlay-drawer";
-import { Ban, ChevronRight, Layers, MapPin, ShieldCheck, Syringe, UserRound, Warehouse } from "lucide-react";
 import { getVaccinationExecution, type ApiResult } from "@/lib/api/server";
 import type {
   VaccinationExecutionResponse,
@@ -17,7 +29,7 @@ import {
   SEVERITY_RANK,
   WORK_STATE_ORDER,
 } from "./work-state";
-import { ClipText, Tag, type Tone } from "@/components/ui-primitives";
+import { Tag, type Tone } from "@/components/ui-primitives";
 import { TemplateTabs, TabPanel } from "@/components/app/template-tabs";
 import { fmtDate } from "@/lib/format";
 import { operationalLocationLabel } from "@/lib/operational-location";
@@ -118,37 +130,47 @@ function groupByPhysicalShed(rows: VaccinationExecutionRow[]): PhysicalShedGroup
 function OwnerChain({ row, pageContract }: { row: VaccinationExecutionRow; pageContract: AdminUiPageContract }) {
   const o = row.owner;
   const operatorMissing = !o?.operatorName;
+  const line = (icon: ComponentProps<typeof Iconify>["icon"], content: React.ReactNode) => (
+    <Stack direction="row" spacing={0.75} sx={{ alignItems: "center", minWidth: 0 }}>
+      <Iconify icon={icon} width={14} sx={{ flexShrink: 0, color: "text.disabled" }} />
+      {content}
+    </Stack>
+  );
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <UserRound className="ic" style={{ width: 13, opacity: 0.75, flexShrink: 0 }} aria-hidden="true" />
-        {operatorMissing ? (
+    <Stack spacing={0.5} sx={{ minWidth: 0 }}>
+      {line(
+        "solar:user-rounded-bold",
+        operatorMissing ? (
           <Tag tone="dng" title={copy(pageContract, "reason.no_operator")}>{copy(pageContract, "label.operator_unassigned")}</Tag>
         ) : (
-          <span className="small">{o?.operatorName}</span>
-        )}
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <MapPin className="ic" style={{ width: 13, opacity: 0.75, flexShrink: 0 }} aria-hidden="true" />
-        <span className="small muted">{o?.parkHeadName ?? copy(pageContract, "label.park_head_unassigned")}</span>
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <ShieldCheck className="ic" style={{ width: 13, opacity: 0.75, flexShrink: 0 }} aria-hidden="true" />
-        <span className="small muted">{o?.verifierName ?? copy(pageContract, "label.verifier_default")}</span>
-      </div>
-    </div>
+          <Typography component="span" variant="body2" noWrap>{o?.operatorName}</Typography>
+        ),
+      )}
+      {line(
+        "mingcute:location-fill",
+        <Typography component="span" variant="body2" noWrap sx={{ color: "text.secondary" }}>
+          {o?.parkHeadName ?? copy(pageContract, "label.park_head_unassigned")}
+        </Typography>,
+      )}
+      {line(
+        "solar:shield-check-bold",
+        <Typography component="span" variant="body2" noWrap sx={{ color: "text.secondary" }}>
+          {o?.verifierName ?? copy(pageContract, "label.verifier_default")}
+        </Typography>,
+      )}
+    </Stack>
   );
 }
 
 function StatusChips({ row, pageContract }: { row: VaccinationExecutionRow; pageContract: AdminUiPageContract }) {
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75 }}>
       {row.sopStatus ? <Tag tone={optionTone(pageContract, "sop_state_chips", row.sopStatus) as Tone}>{optionLabel(pageContract, "sop_state_chips", row.sopStatus)}</Tag> : null}
       {row.proofStatus ? <Tag tone={optionTone(pageContract, "proof_state_chips", row.proofStatus) as Tone}>{optionLabel(pageContract, "proof_state_chips", row.proofStatus)}</Tag> : null}
       {row.verificationStatus ? (
         <Tag tone={optionTone(pageContract, "verification_state_chips", row.verificationStatus) as Tone}>{optionLabel(pageContract, "verification_state_chips", row.verificationStatus)}</Tag>
       ) : null}
-    </div>
+    </Box>
   );
 }
 
@@ -166,76 +188,84 @@ function executionActionTitle(pageContract: AdminUiPageContract, row: Vaccinatio
   return `${executionDriveLabel(row)} — ${location}`;
 }
 
-function ExecutionRow({ row, drawerHref, pageContract, labels }: { row: VaccinationExecutionRow; drawerHref: string; pageContract: AdminUiPageContract; labels: string[] }) {
+// One shed event: a template table row whose whole surface opens the shed-event drawer (a stretched
+// LocalOverlayLink under the cell content), like the template list rows that open their record.
+function ExecutionRow({ row, drawerHref, pageContract }: { row: VaccinationExecutionRow; drawerHref: string; pageContract: AdminUiPageContract }) {
   const driveLabel = executionDriveLabel(row);
   const shedLabel = physicalShedName(row);
   const partition = partitionLabel(row);
   return (
-    <LocalOverlayLink
-      href={drawerHref}
-      scroll={false}
-      className="pexr"
-      aria-label={`${copy(pageContract, "action.open_shed_event_for")} ${shedLabel} ${partition}`}
-      title={`${shedLabel} · ${partition} · ${driveLabel} · ${row.nextAction}`}
-    >
-      <div className="pexc pexc-shed">
-        <div className="pexc-h">{labels[0]}</div>
-        <span className="lk small" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-          <Layers className="ic" style={{ width: 14 }} aria-hidden="true" />
-          <ClipText title={`${shedLabel} · ${partition}`} className="inline">
+    <TableRow hover data-exec-row="" sx={{ position: "relative", cursor: "pointer", "& > td": { verticalAlign: "top" } }}>
+      <TableCell sx={{ pl: 4.5 }}>
+        <Box
+          component={LocalOverlayLink}
+          href={drawerHref}
+          scroll={false}
+          aria-haspopup="dialog"
+          aria-label={`${copy(pageContract, "action.open_shed_event_for")} ${shedLabel} ${partition}`}
+          title={`${shedLabel} · ${partition} · ${driveLabel} · ${row.nextAction}`}
+          sx={ROW_LINK_SX}
+        />
+        <Box sx={CELL_CONTENT_SX}>
+          <Typography component="div" variant="subtitle2" noWrap title={`${shedLabel} · ${partition}`}>
             {partition}
-          </ClipText>
-        </span>
-        <ClipText title={row.animalStage} className="muted small" style={{ marginTop: 2 }}>
-          {row.animalStage}
-        </ClipText>
-      </div>
-      <div className="pexc pexc-drive">
-        <div className="pexc-h">{labels[1]}</div>
-        <span className="small pexec-line" style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-          <Syringe className="ic" style={{ width: 13, opacity: 0.75, flexShrink: 0 }} aria-hidden="true" />
-          <ClipText title={driveLabel} className="inline pexec-drive-title">
-            {driveLabel}
-          </ClipText>
-        </span>
-        <div className="muted small" style={{ marginTop: 2 }}>{copy(pageContract, "label.due_prefix")} {fmtDate(row.dueDate)}</div>
-      </div>
-      <div className="pexc pexc-work">
-        <div className="pexc-h">{labels[2]}</div>
-        <Tag tone={optionTone(pageContract, "work_state_filter_chips", row.workState) as Tone}>{optionLabel(pageContract, "work_state_filter_chips", row.workState)}</Tag>
-        {row.blockerReason ? (
-          <div
-            className="small"
-            title={row.blockerReason}
-            style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--danger)", marginTop: 6 }}
-          >
-            <Ban className="ic" style={{ width: 13, flexShrink: 0 }} aria-hidden="true" />
-            {/* Concise head on the list ("ICU / quarantine"); full reason on hover + in the drilldown. */}
-            <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {row.blockerReason.split(" — ")[0]}
-            </span>
-          </div>
-        ) : null}
-      </div>
-      <div className="pexc pexc-owner">
-        <div className="pexc-h">{labels[3]}</div>
-        <OwnerChain row={row} pageContract={pageContract} />
-      </div>
-      <div className="pexc pexc-status">
-        <div className="pexc-h">{labels[4]}</div>
-        <StatusChips row={row} pageContract={pageContract} />
-      </div>
-      <div className="pexc pexc-action">
-        <div className="pexc-h">{labels[5]}</div>
+          </Typography>
+          <Typography component="div" variant="body2" noWrap title={row.animalStage} sx={{ color: "text.secondary", mt: 0.25 }}>
+            {row.animalStage}
+          </Typography>
+        </Box>
+      </TableCell>
+      <TableCell>
+        <Box sx={CELL_CONTENT_SX}>
+          <Stack direction="row" spacing={0.75} sx={{ alignItems: "center", minWidth: 0 }}>
+            <Iconify icon="solar:medical-kit-bold" width={14} sx={{ flexShrink: 0, color: "text.disabled" }} />
+            <Typography component="span" variant="body2" noWrap title={driveLabel}>
+              {driveLabel}
+            </Typography>
+          </Stack>
+          <Typography component="div" variant="body2" sx={{ color: "text.secondary", mt: 0.25 }}>
+            {copy(pageContract, "label.due_prefix")} {fmtDate(row.dueDate)}
+          </Typography>
+        </Box>
+      </TableCell>
+      <TableCell>
+        <Box sx={CELL_CONTENT_SX}>
+          <Tag tone={optionTone(pageContract, "work_state_filter_chips", row.workState) as Tone}>{optionLabel(pageContract, "work_state_filter_chips", row.workState)}</Tag>
+          {row.blockerReason ? (
+            <Stack direction="row" spacing={0.75} title={row.blockerReason} sx={{ alignItems: "center", color: "error.main", mt: 0.75, minWidth: 0 }}>
+              <Iconify icon="solar:forbidden-circle-bold" width={14} sx={{ flexShrink: 0 }} />
+              {/* Concise head on the list ("ICU / quarantine"); full reason on hover + in the drilldown. */}
+              <Typography component="span" variant="body2" noWrap>
+                {row.blockerReason.split(" — ")[0]}
+              </Typography>
+            </Stack>
+          ) : null}
+        </Box>
+      </TableCell>
+      <TableCell>
+        <Box sx={CELL_CONTENT_SX}>
+          <OwnerChain row={row} pageContract={pageContract} />
+        </Box>
+      </TableCell>
+      <TableCell>
+        <Box sx={CELL_CONTENT_SX}>
+          <StatusChips row={row} pageContract={pageContract} />
+        </Box>
+      </TableCell>
+      <TableCell>
         {/* Backend-suggested next step — a HINT, not a wired button. The row itself opens the drawer; owner
             assignment isn't actionable yet, so this must not masquerade as a CTA button. Plain muted text. */}
-        <ClipText title={row.nextAction} className="small muted" style={{ display: "block", lineHeight: 1.3 }}>
+        <Typography variant="body2" title={row.nextAction} sx={{ ...CELL_CONTENT_SX, color: "text.secondary", overflowWrap: "anywhere" }}>
           {row.nextAction}
-        </ClipText>
-      </div>
-    </LocalOverlayLink>
+        </Typography>
+      </TableCell>
+    </TableRow>
   );
 }
+
+// Stretched row link: covers the row; cell content sits above it without taking the click.
+const ROW_LINK_SX = { position: "absolute", inset: 0, zIndex: 1 } as const;
+const CELL_CONTENT_SX = { position: "relative", zIndex: 2, pointerEvents: "none", minWidth: 0 } as const;
 
 // Embeddable execution section. Parks does NOT own a vaccination product surface — this renders INSIDE
 // Preventive Care (PC) / Vaccination (/vaccination#execution), scoped by the top-bar park dropdown (?park). The
@@ -323,181 +353,180 @@ export async function VaccinationExecutionBoard({
   const nextBackendHref = nextCursor ? hrefWith({ exec_cursor: nextCursor, exec_page: "1" }) : null;
 
   return (
-    <>
-    <div data-filter-scope>
+    <Box data-filter-scope="">
       {/* Filter chrome (severity + work-state + provenance) is hidden when there is genuinely no work — the
           chips would all read 0. It returns the instant any row exists or a filter is active. */}
       {!noWork && (
-        <>
-      <div className="tbar" style={{ marginBottom: 10, border: "1px solid var(--line2)", borderRadius: 10 }}>
-        <VisibleTableSearch pageContract={pageContract} label={copy(pageContract, "filter.shed_events.search")} />
-        <VaccinationFilterButton
-          pageContract={pageContract}
-          title={copy(pageContract, "filter.shed_events.title")}
-          searchReason={copy(pageContract, "filter.shed_events.reason")}
-          filterReason={copy(pageContract, "filter.shed_events.filter_reason")}
-          rowsLabel={`${paged.start}-${paged.end} ${copy(pageContract, "pager.of")} ${rows.length} ${copy(pageContract, "pager.rows").toLowerCase()} · ${copy(pageContract, "filter.shed_events.rows_suffix")}`}
-          actionHref={scopeHref("/action-center", scope)}
-          actionLabel={copy(pageContract, "action.open_action_center")}
-          facets={optionGroup(pageContract, "shed_event_facets").map((facet) => facet.label)}
-        />
-        <span className="muted small">
-          {paged.start}-{paged.end} {copy(pageContract, "pager.of")} {rows.length} {copy(pageContract, "pager.rows").toLowerCase()}
-        </span>
-      </div>
+        <Stack spacing={1.25} sx={{ mb: 2 }}>
+          {/* Template list toolbar: visible-row search, Filters, the row range. */}
+          <Card variant="outlined" sx={{ p: 2, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 2 }}>
+            <VisibleTableSearch pageContract={pageContract} label={copy(pageContract, "filter.shed_events.search")} />
+            <VaccinationFilterButton
+              pageContract={pageContract}
+              title={copy(pageContract, "filter.shed_events.title")}
+              searchReason={copy(pageContract, "filter.shed_events.reason")}
+              filterReason={copy(pageContract, "filter.shed_events.filter_reason")}
+              rowsLabel={`${paged.start}-${paged.end} ${copy(pageContract, "pager.of")} ${rows.length} ${copy(pageContract, "pager.rows").toLowerCase()} · ${copy(pageContract, "filter.shed_events.rows_suffix")}`}
+              actionHref={scopeHref("/action-center", scope)}
+              actionLabel={copy(pageContract, "action.open_action_center")}
+              facets={optionGroup(pageContract, "shed_event_facets").map((facet) => facet.label)}
+            />
+            <Typography component="span" variant="body2" sx={{ color: "text.secondary" }}>
+              {paged.start}-{paged.end} {copy(pageContract, "pager.of")} {rows.length} {copy(pageContract, "pager.rows").toLowerCase()}
+            </Typography>
+          </Card>
 
-      {/* Severity filter — animated pill tabs (sliding indicator, URL-driven). */}
-      <div style={{ marginBottom: 10 }}>
-      <TemplateTabs
-        variant="pill"
-        ariaLabel={copy(pageContract, "label.all_severity")}
-        value={severityFilter}
-        items={[
-          { value: "all", label: copy(pageContract, "label.all_severity"), href: hrefWith({ severity: "all", exec_cursor: undefined, exec_page: "1" }) },
-          ...SEVERITY_ORDER.map((s) => ({
-            value: s,
-            label: optionLabel(pageContract, "severity_chips", s),
-            count: sevCounts.get(s) ?? 0,
-            href: hrefWith({ severity: s, exec_cursor: undefined, exec_page: "1" }),
-          })),
-        ]}
-      />
-      </div>
+          {/* Severity filter — animated pill tabs (sliding indicator, URL-driven). */}
+          <TemplateTabs
+            variant="pill"
+            ariaLabel={copy(pageContract, "label.all_severity")}
+            value={severityFilter}
+            items={[
+              { value: "all", label: copy(pageContract, "label.all_severity"), href: hrefWith({ severity: "all", exec_cursor: undefined, exec_page: "1" }) },
+              ...SEVERITY_ORDER.map((s) => ({
+                value: s,
+                label: optionLabel(pageContract, "severity_chips", s),
+                count: sevCounts.get(s) ?? 0,
+                href: hrefWith({ severity: s, exec_cursor: undefined, exec_page: "1" }),
+              })),
+            ]}
+          />
 
-      {/* Work-state filter board (most-broken first). Server-side filter: always render every state as
-          navigation (so selecting one never collapses the board), count only in the unfiltered view. */}
-      <div style={{ marginBottom: 10 }}>
-      <TemplateTabs
-        variant="pill"
-        ariaLabel={copy(pageContract, "label.all_states")}
-        value={stateFilter}
-        items={[
-          {
-            value: "all",
-            label: copy(pageContract, "label.all_states"),
-            count: showStateCounts ? allRows.length : undefined,
-            href: hrefWith({ state: "all", exec_cursor: undefined, exec_page: "1" }),
-          },
-          ...(showStateCounts ? WORK_STATE_ORDER.filter((s) => (stateCounts.get(s) ?? 0) > 0) : WORK_STATE_ORDER).map((s) => ({
-            value: s,
-            label: optionLabel(pageContract, "work_state_filter_chips", s),
-            count: showStateCounts ? (stateCounts.get(s) ?? 0) : undefined,
-            href: hrefWith({ state: s, exec_cursor: undefined, exec_page: "1" }),
-          })),
-        ]}
-      />
-      </div>
+          {/* Work-state filter board (most-broken first). Server-side filter: always render every state as
+              navigation (so selecting one never collapses the board), count only in the unfiltered view. */}
+          <TemplateTabs
+            variant="pill"
+            ariaLabel={copy(pageContract, "label.all_states")}
+            value={stateFilter}
+            items={[
+              {
+                value: "all",
+                label: copy(pageContract, "label.all_states"),
+                count: showStateCounts ? allRows.length : undefined,
+                href: hrefWith({ state: "all", exec_cursor: undefined, exec_page: "1" }),
+              },
+              ...(showStateCounts ? WORK_STATE_ORDER.filter((s) => (stateCounts.get(s) ?? 0) > 0) : WORK_STATE_ORDER).map((s) => ({
+                value: s,
+                label: optionLabel(pageContract, "work_state_filter_chips", s),
+                count: showStateCounts ? (stateCounts.get(s) ?? 0) : undefined,
+                href: hrefWith({ state: s, exec_cursor: undefined, exec_page: "1" }),
+              })),
+            ]}
+          />
 
-      {/* Honest provenance: counts/rows come from a bounded, server-filtered fetch — not tenant-wide totals. */}
-      <div className="muted small" style={{ marginBottom: 16 }}>
-        {showStateCounts
-          ? `${copy(pageContract, "note.execution_counts")}${capped ? ` ${copy(pageContract, "note.execution_counts_capped")}` : ""}.`
-          : copy(pageContract, "note.execution_counts_filtered")}
-      </div>
-        </>
+          {/* Honest provenance: counts/rows come from a bounded, server-filtered fetch — not tenant-wide totals. */}
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>
+            {showStateCounts
+              ? `${copy(pageContract, "note.execution_counts")}${capped ? ` ${copy(pageContract, "note.execution_counts_capped")}` : ""}.`
+              : copy(pageContract, "note.execution_counts_filtered")}
+          </Typography>
+        </Stack>
       )}
 
       <TabPanel tabKey={`${severityFilter}|${stateFilter}`}>
       {parks.length === 0 ? (
-        <section className="card">
-          <div className="bd" style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", flexWrap: "wrap" }}>
-            <Layers className="ic" aria-hidden="true" style={{ width: 18, height: 18, color: "var(--brand)", flexShrink: 0 }} />
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <b style={{ fontSize: 14 }}>
-                {noWork
-                  ? copy(pageContract, "section.shed_events.empty_none_title")
-                  : copy(pageContract, "section.shed_events.empty_filtered_title")}
-              </b>
-              <span className="muted small" style={{ display: "block", marginTop: 2, lineHeight: 1.5 }}>
-                {noWork
-                  ? copy(pageContract, "section.shed_events.empty_none_body")
-                  : copy(pageContract, "section.shed_events.empty_filtered_body")}
-              </span>
-            </div>
-            {!noWork ? (
-              <Link href={resetHref} replace scroll={false} className="btn sm">
-                {copy(pageContract, "action.reset_filters")}
-              </Link>
-            ) : null}
-          </div>
-        </section>
+        <Card>
+          <EmptyContent
+            filled
+            title={noWork ? copy(pageContract, "section.shed_events.empty_none_title") : copy(pageContract, "section.shed_events.empty_filtered_title")}
+            description={noWork ? copy(pageContract, "section.shed_events.empty_none_body") : copy(pageContract, "section.shed_events.empty_filtered_body")}
+            action={
+              !noWork ? (
+                <LinkButton href={resetHref} replace scroll={false} variant="outlined" color="inherit" size="small" sx={{ mt: 2 }}>
+                  {copy(pageContract, "action.reset_filters")}
+                </LinkButton>
+              ) : undefined
+            }
+            sx={{ m: 2.5, py: 5 }}
+          />
+        </Card>
       ) : (
         <>
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <Stack spacing={2}>
           {parks.map((park) => {
             const physicalSheds = groupByPhysicalShed(park.rows);
             return (
-            <section className="card" key={park.parkId}>
-              <div className="hd">
-                <MapPin className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-                <h3>{park.parkName}</h3>
-                <Tag tone={optionTone(pageContract, "severity_chips", park.severity) as Tone}>{optionLabel(pageContract, "severity_chips", park.severity)}</Tag>
-                <div className="sp" style={{ flex: 1 }} />
-                {park.attention > 0 ? (
-                  // Scope to this park (top-bar scope override, NOT a stray filter param) AND filter to the
-                  // attention rows (severity=broken) so the click actually narrows the board instead of being
-                  // a no-op reset.
-                  <Link
-                    href={scopeHref(basePath, scope, { park: park.parkId, mode: "park" }, { ...baseParams, severity: "broken", state: stateFilter })}
-                    replace
-                    scroll={false}
-                    className="btn gh sm"
-                  >
-                    {park.attention} {copy(pageContract, "label.need_attention")}
-                  </Link>
-                ) : (
-                  <span className="muted small">{copy(pageContract, "label.on_track")}</span>
-                )}
-              </div>
-              <div className="pexec" role="group" aria-label={`${park.parkName} ${copy(pageContract, "section.shed_events.aria")}`}>
-                <div className="pexh">
-                  {labels.map((label) => (
-                    <div key={label}>{label}</div>
-                  ))}
-                </div>
-                {physicalSheds.map((shedGroup) => (
-                  <div key={shedGroup.key} className="physical-shed-group">
-                    <div className="physical-shed-group-head">
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                        <Warehouse className="ic" style={{ width: 14, color: "var(--brand)", flexShrink: 0 }} aria-hidden="true" />
-                        <b>
-                          <ClipText title={shedGroup.physicalShed}>{shedGroup.physicalShed}</ClipText>
-                        </b>
-                        <Tag tone={optionTone(pageContract, "severity_chips", shedGroup.severity) as Tone}>{optionLabel(pageContract, "severity_chips", shedGroup.severity)}</Tag>
-                      </div>
-                      <span className="small muted">
-                        {shedGroup.rows.length} partitions · {shedGroup.animals} animals
-                        {shedGroup.operators.length ? ` · ${shedGroup.operators.join(", ")}` : ""}
-                      </span>
-                    </div>
-                    {shedGroup.rows.map((row, idx) => {
-                      const partitionAwareKey = `${row.shedId}|${row.partition_label ?? ""}|${row.driveId ?? idx}`;
-                      return (
-                        <ExecutionRow
-                          key={partitionAwareKey}
-                          row={row}
-                          drawerHref={hrefWith({ shed_event: shedEventId(row) })}
-                          pageContract={pageContract}
-                          labels={labels}
-                        />
-                      );
-                    })}
-                  </div>
-                ))}
-              </div>
-              <div className="bd" style={{ paddingTop: 12 }}>
-                <Link
+            <Card key={park.parkId}>
+              <CardHeader
+                title={
+                  <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap" }}>
+                    <Box component="span">{park.parkName}</Box>
+                    <Tag tone={optionTone(pageContract, "severity_chips", park.severity) as Tone}>{optionLabel(pageContract, "severity_chips", park.severity)}</Tag>
+                  </Stack>
+                }
+                action={
+                  park.attention > 0 ? (
+                    // Scope to this park (top-bar scope override, NOT a stray filter param) AND filter to the
+                    // attention rows (severity=broken) so the click actually narrows the board instead of being
+                    // a no-op reset.
+                    <LinkButton
+                      href={scopeHref(basePath, scope, { park: park.parkId, mode: "park" }, { ...baseParams, severity: "broken", state: stateFilter })}
+                      replace
+                      scroll={false}
+                      size="small"
+                      variant="soft"
+                      color="error"
+                    >
+                      {park.attention} {copy(pageContract, "label.need_attention")}
+                    </LinkButton>
+                  ) : (
+                    <Typography component="span" variant="body2" sx={{ color: "text.secondary" }}>
+                      {copy(pageContract, "label.on_track")}
+                    </Typography>
+                  )
+                }
+                sx={{ mb: 2 }}
+              />
+              <Scrollbar>
+                <Table sx={{ minWidth: 1180 }} aria-label={`${park.parkName} ${copy(pageContract, "section.shed_events.aria")}`}>
+                  <TableHeadCustom headCells={labels.map((label, index) => ({ id: `c${index}`, label, width: EXEC_COLUMN_WIDTHS[index] }))} />
+                  <TableBody>
+                    {physicalSheds.map((shedGroup) => [
+                      <TableRow key={shedGroup.key}>
+                        <TableCell colSpan={labels.length} sx={{ bgcolor: "background.neutral", py: 1.25 }}>
+                          <Stack direction={{ xs: "column", sm: "row" }} spacing={{ xs: 0.75, sm: 1.5 }} sx={{ alignItems: { sm: "center" }, minWidth: 0 }}>
+                            <Stack direction="row" spacing={1} sx={{ alignItems: "center", minWidth: 0 }}>
+                              <Iconify icon="solar:home-angle-bold-duotone" width={16} sx={{ flexShrink: 0, color: "primary.main" }} />
+                              <Typography component="span" variant="subtitle2" noWrap title={shedGroup.physicalShed}>
+                                {shedGroup.physicalShed}
+                              </Typography>
+                              <Tag tone={optionTone(pageContract, "severity_chips", shedGroup.severity) as Tone}>{optionLabel(pageContract, "severity_chips", shedGroup.severity)}</Tag>
+                            </Stack>
+                            <Typography component="span" variant="body2" sx={{ color: "text.secondary", ml: { sm: "auto" } }}>
+                              {shedGroup.rows.length} partitions · {shedGroup.animals} animals
+                              {shedGroup.operators.length ? ` · ${shedGroup.operators.join(", ")}` : ""}
+                            </Typography>
+                          </Stack>
+                        </TableCell>
+                      </TableRow>,
+                      ...shedGroup.rows.map((row, idx) => {
+                        const partitionAwareKey = `${row.shedId}|${row.partition_label ?? ""}|${row.driveId ?? idx}`;
+                        return (
+                          <ExecutionRow
+                            key={partitionAwareKey}
+                            row={row}
+                            drawerHref={hrefWith({ shed_event: shedEventId(row) })}
+                            pageContract={pageContract}
+                          />
+                        );
+                      }),
+                    ])}
+                  </TableBody>
+                </Table>
+              </Scrollbar>
+              <Box sx={{ px: 2, py: 1.5, borderTop: 1, borderColor: "divider", borderTopStyle: "dashed" }}>
+                <LinkButton
                   href={scopeHref("/action-center", scope, { park: park.parkId, mode: "park" })}
-                  className="lk small"
-                  style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+                  size="small"
+                  color="inherit"
+                  endIcon={<Iconify icon="eva:arrow-ios-forward-fill" />}
                 >
                   {copy(pageContract, "action.open_park_action_center")}
-                  <ChevronRight className="ic" style={{ width: 13 }} aria-hidden="true" />
-                </Link>
-              </div>
-            </section>
+                </LinkButton>
+              </Box>
+            </Card>
           )})}
-        </div>
+        </Stack>
         <VaccinationTablePager
           pageContract={pageContract}
           pageSizeOptions={pageSizeOptions}
@@ -511,13 +540,14 @@ export async function VaccinationExecutionBoard({
           hrefForPageSize={pageSizeHref}
         />
         {nextBackendHref ? (
-          <div className="pager2" style={{ marginTop: 8 }}>
-            <span className="muted small">{copy(pageContract, "pager.scale_note")}</span>
-            <span className="sp" style={{ flex: 1 }} />
-            <Link href={nextBackendHref} replace scroll={false} className="btn sm">
-              {copy(pageContract, "action.next")} <ChevronRight className="ic" style={{ width: 13 }} aria-hidden="true" />
-            </Link>
-          </div>
+          <Stack direction="row" spacing={2} sx={{ alignItems: "center", mt: 1 }}>
+            <Typography variant="body2" sx={{ color: "text.secondary", flex: 1 }}>
+              {copy(pageContract, "pager.scale_note")}
+            </Typography>
+            <LinkButton href={nextBackendHref} replace scroll={false} size="small" variant="outlined" color="inherit" endIcon={<Iconify icon="eva:arrow-ios-forward-fill" />}>
+              {copy(pageContract, "action.next")}
+            </LinkButton>
+          </Stack>
         ) : null}
         </>
       )}
@@ -530,10 +560,12 @@ export async function VaccinationExecutionBoard({
         ariaLabel={copy(pageContract, "drawer.shed_event.aria")}
         closeLabel={copy(pageContract, "drawer.shed_event.close_label")}
       />
-    </div>
-    </>
+    </Box>
   );
 }
+
+// Pen / drive / work / owner / status / next-action column floors (the table scrolls in its card below).
+const EXEC_COLUMN_WIDTHS = ["16%", "22%", "14%", "18%", "14%", "16%"];
 
 function shedEventId(row: VaccinationExecutionRow): string {
   return `${row.shedId}|${row.partition_label ?? ""}|${row.driveId ?? "drive"}|${row.animalStage}`;
@@ -552,7 +584,7 @@ function shedEventDrawerItem(row: VaccinationExecutionRow, scope: ReturnType<typ
     id: shedEventId(row),
     eyebrow: copy(pageContract, "drawer.shed_event.eyebrow"),
     title: executionActionTitle(pageContract, row),
-    icon: <Syringe className="ic" aria-hidden="true" />,
+    icon: <Iconify icon="solar:medical-kit-bold" />,
     body: (
       <>
           <DrawerMetaGrid>

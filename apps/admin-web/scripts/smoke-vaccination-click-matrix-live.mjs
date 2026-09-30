@@ -246,11 +246,11 @@ async function verifyVaccination(page) {
   );
 
   await goto(page, "/vaccination?scope_mode=company#execution");
-  await openDrawerAndClose(page, page.locator(".pexec .pexr").first(), /WORK CONTEXT/i, "vaccination shed event drawer");
+  await openDrawerAndClose(page, page.locator("[data-exec-row]").first(), /WORK CONTEXT/i, "vaccination shed event drawer");
   await goto(page, "/vaccination?scope_mode=company#execution");
-  await openDrawerClickLink(page, page.locator(".pexec .pexr").first(), /WORK CONTEXT/i, /Shed detail/i, "/vaccination/execution/sheds");
+  await openDrawerClickLink(page, page.locator("[data-exec-row]").first(), /WORK CONTEXT/i, /Shed detail/i, "/vaccination/execution/sheds");
   await goto(page, "/vaccination?scope_mode=company#execution");
-  await openDrawerClickLink(page, page.locator(".pexec .pexr").first(), /WORK CONTEXT/i, /Open Action Center/i, "/action-center");
+  await openDrawerClickLink(page, page.locator("[data-exec-row]").first(), /WORK CONTEXT/i, /Open Action Center/i, "/action-center");
 }
 
 async function verifyActionCenter(page) {

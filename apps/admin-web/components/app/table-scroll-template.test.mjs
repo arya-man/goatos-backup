@@ -37,7 +37,6 @@ const ALLOWED = {
   "features/preventive-care-vaccination/status-matrix.tsx": 1,
   "features/preventive-care-vaccination/supplier-warmup-context.tsx": 1,
   "features/procurement/load-forms.tsx": 1,
-  "features/vaccination-sheds/shed-detail.tsx": 4,
 };
 
 function walk(dir, out = []) {

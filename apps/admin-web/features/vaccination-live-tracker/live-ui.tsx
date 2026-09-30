@@ -71,7 +71,7 @@ export function LiveEmpty({ title, body, resetHref, resetLabel }: { title: strin
 /** Visible caption under a table / list (truncation, residuals): never a tooltip. */
 export function LiveNote({ children }: { children: ReactNode }) {
   return (
-    <Typography variant="caption" component="div" role="status" className="lt-truncnote" sx={{ px: 3, py: 1.5, color: "text.secondary", borderTop: 1, borderColor: "divider", borderTopStyle: "dashed" }}>
+    <Typography variant="caption" component="div" role="status" data-truncnote="" sx={{ px: 3, py: 1.5, color: "text.secondary", borderTop: 1, borderColor: "divider", borderTopStyle: "dashed" }}>
       {children}
     </Typography>
   );

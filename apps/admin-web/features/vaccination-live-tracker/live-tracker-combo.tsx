@@ -134,7 +134,7 @@ export function LiveTrackerComboCard({
           {copy(pageContract, "action.all_combo_animals")}
         </Button>
         {combo.rows_truncated ? (
-          <Typography variant="caption" className="lt-truncnote" sx={{ color: "text.secondary" }}>
+          <Typography variant="caption" data-truncnote="" sx={{ color: "text.secondary" }}>
             {copy(pageContract, "section.combo.truncated_reason")}
           </Typography>
         ) : null}

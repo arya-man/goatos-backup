@@ -1796,7 +1796,7 @@ async function assertCoreInteractions(page, routeName, viewportLabel) {
       throw new Error(`${routeName} still renders the removed per-cohort vaccination detail`);
     }
 
-    const shedTable = page.locator("table.shed-summary-table").first();
+    const shedTable = page.locator('#sheds table[data-testid="shed-summary-table"]').first();
     if ((await shedTable.count()) === 0) {
       return;
     }
@@ -1805,11 +1805,11 @@ async function assertCoreInteractions(page, routeName, viewportLabel) {
     if ((await shedSearch.count()) !== 1) {
       throw new Error(`${routeName} expected one server-backed shed search input`);
     }
-    const chipGroups = page.locator("section#sheds .chipset");
+    const chipGroups = page.locator('#sheds [role="tablist"]');
     if ((await chipGroups.count()) < 2) {
       throw new Error(`${routeName} expected status and capacity chip groups on the shed board`);
     }
-    if ((await chipGroups.nth(0).locator("a.chip").count()) < 2 || (await chipGroups.nth(1).locator("a.chip").count()) < 2) {
+    if ((await chipGroups.nth(0).locator('[role="tab"]').count()) < 2 || (await chipGroups.nth(1).locator('[role="tab"]').count()) < 2) {
       throw new Error(`${routeName} shed board status/capacity chips are missing`);
     }
 

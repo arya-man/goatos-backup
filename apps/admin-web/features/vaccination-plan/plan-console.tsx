@@ -193,7 +193,7 @@ export function VaccinationPlanConsole({ searchParams, versions, catalog, change
                     <CardHeader
                       avatar={
                         // Template CourseWidgetSummary icon: the svg as a mask filled with the tone gradient (a plain <img> of the mask svg painted it black).
-                        <SvgColor src={kpi.icon} sx={{ width: 40, height: 40, background: `linear-gradient(135deg, var(--palette-${kpi.tone}-main) 0%, var(--palette-${kpi.tone}-dark) 100%)` }} />
+                        <SvgColor src={kpi.icon} sx={{ width: "var(--sp-5)", height: "var(--sp-5)", background: `linear-gradient(135deg, var(--palette-${kpi.tone}-main) 0%, var(--palette-${kpi.tone}-dark) 100%)` }} />
                       }
                       title={kpi.value}
                       subheader={kpi.hint ? `${kpi.label} · ${kpi.hint}` : kpi.label}

@@ -1,4 +1,15 @@
 import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import Stack from "@mui/material/Stack";
+import Avatar from "@mui/material/Avatar";
+import Alert from "@mui/material/Alert";
+import AlertTitle from "@mui/material/AlertTitle";
+import Typography from "@mui/material/Typography";
+import { Iconify } from "@/components/minimal/iconify";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { EmptyContent } from "@/components/minimal/empty-content";
+import { LinkButton } from "@/components/app/link-button";
 import { InfoTip } from "@/components/app/info-tip";
 import { SHED_BOARD_PAGE_SIZE } from "./shed-board-layout";
 import Table from "@mui/material/Table";
@@ -8,14 +19,13 @@ import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import { listOrEmpty } from "@/lib/list-or-empty";
 import Link from "@/components/no-prefetch-link";
-import { Layers, MapPin, Warehouse } from "lucide-react";
 import { getVaccinationShedSummary, type ApiResult, type VaccinationShedSummaryResponse } from "@/lib/api/server";
 import type {
   VaccinationCapacityStatus,
   VaccinationShedStatus,
   VaccinationShedSummaryRow,
 } from "@/lib/api/vaccination-sheds";
-import { Tag, ClipText, type Tone } from "@/components/ui-primitives";
+import { Tag, type Tone } from "@/components/ui-primitives";
 import {
   copy,
   optionLabel,
@@ -30,7 +40,6 @@ import { fmtDate } from "@/lib/format";
 import { VaccinationTablePager, type VaccinationPageSize } from "@/features/preventive-care-vaccination";
 import { InfoHint } from "@/components/app/info-hint";
 import { TemplateTabs, TabPanel } from "@/components/app/template-tabs";
-import { IdentityCell } from "@/components/data-table";
 import { ShedFilterBar } from "./shed-filter-bar";
 import { UrlSuspense } from "@/components/app/url-suspense";
 import { TableSkeleton } from "@/components/app/skeletons";
@@ -71,7 +80,11 @@ function shedInitial(row: VaccinationShedSummaryRow): string {
 function DriveOperatorsCell({ row, pageContract }: { row: VaccinationShedSummaryRow & { driveOperatorNames?: string[] }; pageContract: AdminUiPageContract }) {
   const names = row.driveOperatorNames?.filter(Boolean) ?? [];
   if (names.length === 0) return <Tag tone="dng">{copy(pageContract, "label.operators_unassigned")}</Tag>;
-  return <ClipText title={names.join(", ")} className="small">{names.join(", ")}</ClipText>;
+  return (
+    <Typography component="span" variant="body2" noWrap title={names.join(", ")}>
+      {names.join(", ")}
+    </Typography>
+  );
 }
 
 function assignmentLabel(row: VaccinationShedSummaryRow & { driveOperatorNames?: string[] }, pageContract: AdminUiPageContract) {
@@ -195,18 +208,13 @@ export async function VaccinationShedBoard({
   const end = total === 0 ? 0 : Math.min(total, offset + rows.length);
 
   return (
-    <section id="sheds" className="card" style={{ scrollMarginTop: 80 }}>
-      <div className="hd">
-        <Warehouse className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-        <h3>{copy(pageContract, "section.sheds.title")}</h3>
-        <div className="sp" style={{ flex: 1 }} />
-        <span className="muted small">{copy(pageContract, "section.sheds.note")}</span>
-      </div>
+    <Card id="sheds" sx={{ scrollMarginTop: 80 }}>
+      <CardHeader title={copy(pageContract, "section.sheds.title")} action={<InfoTip title={copy(pageContract, "section.sheds.note")} />} />
 
       <ShedFilterBar total={total} pageContract={pageContract} />
 
       {/* Status filter (merged CEO headline). Server-side via ?sheds_status. */}
-      <div style={{ padding: "0 14px 8px" }}>
+      <Box sx={{ px: 2.5, pb: 1 }}>
         <TemplateTabs
           variant="pill"
           ariaLabel={copy(pageContract, "label.all_status")}
@@ -221,10 +229,10 @@ export async function VaccinationShedBoard({
             })),
           ]}
         />
-      </div>
+      </Box>
 
       {/* Capacity filter (All / Within cap / Split / Capacity action). Server-side via ?sheds_capacity. */}
-      <div style={{ padding: "0 14px 10px" }}>
+      <Box sx={{ px: 2.5, pb: 1.5 }}>
         <TemplateTabs
           variant="pill"
           ariaLabel={copy(pageContract, "label.all_capacity")}
@@ -238,60 +246,48 @@ export async function VaccinationShedBoard({
             })),
           ]}
         />
-      </div>
+      </Box>
 
       {/* The pen table (guard: url-keyed-panel): a status / capacity / search / page click swaps it
           to its skeleton at once; the section header, search and pill strips stay on screen. */}
       <UrlSuspense searchParams={searchParams ?? {}} watch={SHED_TABLE_WATCH} fallback={<TableSkeleton columns={shedBoardColumns(pageContract)} rows={SHED_BOARD_PAGE_SIZE} />}>
       <TabPanel tabKey={`${statusFilter ?? "all"}|${capacityFilter ?? "all"}`}>
       {!result.ok ? (
-        <div className="bd" style={{ display: "flex", alignItems: "center", gap: 12, padding: "18px 16px", flexWrap: "wrap" }}>
-          <Layers className="ic" aria-hidden="true" style={{ width: 18, height: 18, color: "var(--danger)", flexShrink: 0 }} />
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <b style={{ fontSize: 14 }}>{copy(pageContract, "section.sheds.unavailable_title")}</b>
-            <span className="muted small" style={{ display: "block", marginTop: 2, lineHeight: 1.5 }}>
-              {copy(pageContract, "section.sheds.unavailable_body")} {result.error.message}
-            </span>
-          </div>
-        </div>
+        <Alert severity="error" sx={{ mx: 2.5, mb: 2.5 }}>
+          <AlertTitle>{copy(pageContract, "section.sheds.unavailable_title")}</AlertTitle>
+          {copy(pageContract, "section.sheds.unavailable_body")} {result.error.message}
+        </Alert>
       ) : rows.length === 0 ? (
-        <div className="bd" style={{ display: "flex", alignItems: "center", gap: 12, padding: "18px 16px", flexWrap: "wrap" }}>
-          <Layers className="ic" aria-hidden="true" style={{ width: 18, height: 18, color: "var(--brand)", flexShrink: 0 }} />
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <b style={{ fontSize: 14 }}>
-              {hasFilter
-                ? copy(pageContract, "section.sheds.empty_filtered_title")
-                : copy(pageContract, "section.sheds.empty_none_title")}
-            </b>
-            <span className="muted small" style={{ display: "block", marginTop: 2, lineHeight: 1.5 }}>
-              {hasFilter
-                ? copy(pageContract, "section.sheds.empty_filtered_body")
-                : copy(pageContract, "section.sheds.empty_none_body")}
-            </span>
-          </div>
-          {hasFilter ? (
-            <Link href={resetHref} replace scroll={false} className="btn sm">
-              {copy(pageContract, "action.reset_filters")}
-            </Link>
-          ) : null}
-        </div>
+        <EmptyContent
+          filled
+          title={hasFilter ? copy(pageContract, "section.sheds.empty_filtered_title") : copy(pageContract, "section.sheds.empty_none_title")}
+          description={hasFilter ? copy(pageContract, "section.sheds.empty_filtered_body") : copy(pageContract, "section.sheds.empty_none_body")}
+          action={
+            hasFilter ? (
+              <LinkButton href={resetHref} replace scroll={false} variant="outlined" color="inherit" size="small" sx={{ mt: 2 }}>
+                {copy(pageContract, "action.reset_filters")}
+              </LinkButton>
+            ) : undefined
+          }
+          sx={{ mx: 2.5, mb: 2.5, py: 5 }}
+        />
       ) : (
         <>
           <ShedSelectionProvider allIds={rows.map((row) => row.shedId)}>
-          <div className="bd twrap" style={{ padding: 0 }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.sheds.title")}>
-            <Table className="shed-summary-table">
+          <Scrollbar>
+            <Table data-testid="shed-summary-table" sx={{ minWidth: 1080 }} aria-label={copy(pageContract, "section.sheds.title")}>
               <TableHead>
                 <TableRow>
-                  <TableCell component="th" className="kit-check">
+                  <TableCell padding="checkbox" sx={ROW_CONTROL_SX}>
                     <ShedSelectAllHeader label={copy(pageContract, "action.select_all", "Select all")} />
                   </TableCell>
                   {cols.filter((col) => col.key !== "park").map((col) => (
-                    <TableCell component="th" key={col.key} className={NUMERIC_COLUMNS.has(col.key) ? "num" : undefined}>
+                    <TableCell key={col.key} align={NUMERIC_COLUMNS.has(col.key) ? "right" : undefined} sx={{ whiteSpace: "nowrap" }}>
                       {col.key === "sessions" ? (
-                        <span style={{ display: "inline-flex", alignItems: "center" }}>
+                        <Box component="span" sx={{ display: "inline-flex", alignItems: "center" }}>
                           {col.label}
                           <InfoTip title={copy(pageContract, "tooltip.sessions.body")} />
-                        </span>
+                        </Box>
                       ) : col.key === "manager" ? (
                         copy(pageContract, "label.operators")
                       ) : col.key === "backup" ? (
@@ -301,25 +297,28 @@ export async function VaccinationShedBoard({
                       )}
                     </TableCell>
                   ))}
-                  <TableCell component="th" className="kit-rowactions-th" aria-label={copy(pageContract, "label.actions", "Actions")} />
+                  <TableCell align="right" aria-label={copy(pageContract, "label.actions", "Actions")} sx={ROW_CONTROL_SX} />
                 </TableRow>
               </TableHead>
               <TableBody>
                 {rows.map((row, rowIndex) => {
                   const href = detailHref(row);
-                  const cell = (content: React.ReactNode, extra?: string, withRowLink = false) => (
-                    <TableCell className={extra}>
-                      {withRowLink ? (
-                        <Link
+                  // The row is one link (stretched over the row, under the checkbox and ⋮ cells).
+                  const cell = (content: React.ReactNode, options: { numeric?: boolean; muted?: boolean; rowLink?: boolean } = {}) => (
+                    <TableCell align={options.numeric ? "right" : undefined} sx={{ whiteSpace: "nowrap", ...(options.muted ? { color: "text.secondary" } : null) }}>
+                      {options.rowLink ? (
+                        <Box
+                          component={Link}
                           href={href}
-                          className="shed-summary-row-link"
                           prefetch={false}
+                          data-pen-row-link=""
                           aria-label={`${copy(pageContract, "action.open_shed_board")} ${row.operationalLocationDisplay || row.shedName}`}
+                          sx={ROW_LINK_SX}
                         />
                       ) : null}
-                      <span className="shed-summary-cell-content">
+                      <Box component="span" sx={CELL_CONTENT_SX}>
                         {content}
-                      </span>
+                      </Box>
                     </TableCell>
                   );
                   const partitionAwareKey = [
@@ -336,32 +335,35 @@ export async function VaccinationShedBoard({
                     rowIndex,
                   ].join("|");
                   return (
-                    <TableRow key={partitionAwareKey} className="shed-summary-row">
-                      <TableCell className="kit-check">
+                    <TableRow key={partitionAwareKey} hover sx={{ position: "relative", cursor: "pointer" }}>
+                      <TableCell padding="checkbox" sx={ROW_CONTROL_SX}>
                         <ShedSelectCheckbox
                           id={row.shedId}
                           label={`${copy(pageContract, "action.open_shed_board")} ${shedDisplayName(row)}`}
                         />
                       </TableCell>
                       {cell(
-                        <IdentityCell
-                          lead={<span className="kit-avatar" aria-hidden="true">{shedInitial(row)}</span>}
-                          primary={<ClipText title={shedDisplayName(row)}>{shedDisplayName(row)}</ClipText>}
-                          secondary={
-                            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, minWidth: 0 }}>
-                              <MapPin className="ic" style={{ width: 12, opacity: 0.75, flexShrink: 0 }} aria-hidden="true" />
-                              <ClipText title={row.parkName}>{row.parkName}</ClipText>
-                            </span>
-                          }
-                        />,
-                        undefined,
-                        true,
+                        <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
+                          <Avatar aria-hidden="true" sx={{ typography: "subtitle2" }}>{shedInitial(row)}</Avatar>
+                          <Stack sx={{ minWidth: 0 }}>
+                            <Typography component="span" variant="subtitle2" noWrap title={shedDisplayName(row)}>
+                              {shedDisplayName(row)}
+                            </Typography>
+                            <Stack direction="row" spacing={0.5} sx={{ alignItems: "center", color: "text.secondary", minWidth: 0 }}>
+                              <Iconify icon="mingcute:location-fill" width={14} sx={{ flexShrink: 0 }} />
+                              <Typography component="span" variant="body2" noWrap title={row.parkName}>
+                                {row.parkName}
+                              </Typography>
+                            </Stack>
+                          </Stack>
+                        </Stack>,
+                        { rowLink: true },
                       )}
-                      {cell(row.animals, "num muted")}
-                      {cell(row.due, "num")}
-                      {cell(row.done, "num muted")}
-                      {cell(row.sessions, "num")}
-                      {cell(row.nextDue ? fmtDate(row.nextDue) : copy(pageContract, "label.placeholder"), "muted")}
+                      {cell(row.animals, { numeric: true, muted: true })}
+                      {cell(row.due, { numeric: true })}
+                      {cell(row.done, { numeric: true, muted: true })}
+                      {cell(row.sessions, { numeric: true })}
+                      {cell(row.nextDue ? fmtDate(row.nextDue) : copy(pageContract, "label.placeholder"), { muted: true })}
                       {cell(<DriveOperatorsCell row={row} pageContract={pageContract} />)}
                       {cell(<Tag tone={row.sessions > 1 ? "warn" : "mut"}>{assignmentLabel(row, pageContract)}</Tag>)}
                       {cell(
@@ -369,7 +371,7 @@ export async function VaccinationShedBoard({
                           {shedStatusLabel(pageContract, row.status)}
                         </Tag>,
                       )}
-                      <TableCell className="kit-rowactions">
+                      <TableCell align="right" sx={ROW_CONTROL_SX}>
                         <ShedRowActions
                           shedId={row.shedId}
                           detailHref={href}
@@ -387,7 +389,7 @@ export async function VaccinationShedBoard({
                 })}
               </TableBody>
             </Table>
-          </div>
+          </Scrollbar>
           </ShedSelectionProvider>
           <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 1.25, mx: 1.75 }}>
             <InfoHint text={copy(pageContract, "note.sheds_counts")} />
@@ -408,9 +410,15 @@ export async function VaccinationShedBoard({
       )}
       </TabPanel>
       </UrlSuspense>
-    </section>
+    </Card>
   );
 }
+
+// Stretched row link (template list row that opens its record): the link covers the whole row,
+// cell content sits above it without taking the click, and the checkbox / ⋮ cells stay on top.
+const ROW_LINK_SX = { position: "absolute", inset: 0, zIndex: 1 } as const;
+const CELL_CONTENT_SX = { position: "relative", zIndex: 2, pointerEvents: "none", display: "block", minWidth: 0 } as const;
+const ROW_CONTROL_SX = { position: "relative", zIndex: 3 } as const;
 
 /** The params the pen table reads. */
 const SHED_TABLE_WATCH = ["sheds_status", "sheds_capacity", "sheds_q", "sheds_page", "sheds_limit", "park", "scope_mode"] as const;

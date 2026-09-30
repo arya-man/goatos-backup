@@ -1,4 +1,5 @@
 import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
 import type { KitTone } from "@/lib/tone";
 import { LT_KPI_MIN } from "./live-tracker-layout";
 import { KpiGrid } from "@/components/app/kpi-grid";
@@ -93,7 +94,7 @@ export function LiveTrackerKpis({
           under-reports the drive day by an unbounded amount, which is a wrong number rather than an
           error — so it is stated out loud instead of shipped silently. */}
       {truncated ? (
-        <Alert severity="warning" role="status" className="lt-truncnote">
+        <Alert severity="warning" role="status" data-truncnote="">
           {copy(pageContract, "kpi.truncated_note")}
         </Alert>
       ) : null}
@@ -104,10 +105,10 @@ export function LiveTrackerKpis({
           // The mock gives every tile a pointer cursor implying a cross-filter that it never wired.
           // Rendering it inert with a visible reason is the honest form: the control stays where the
           // mock put it, and says why it does nothing.
-          <div key={tile.key} title={crossFilterReason} aria-disabled="true" style={{ minWidth: 0 }}>
+          <Box key={tile.key} title={crossFilterReason} aria-disabled="true" sx={{ minWidth: 0 }}>
             <KpiWidget title={tile.label} total={tile.value} color={kpiColor(tile.tone)} caption={tile.detail} sx={{ height: 1 }} />
             {tile.tick ? <LiveTick value={tile.value} label={copy(pageContract, "kpi.live_tick")} /> : null}
-          </div>
+          </Box>
         ))}
       </KpiGrid>
       ) : null}

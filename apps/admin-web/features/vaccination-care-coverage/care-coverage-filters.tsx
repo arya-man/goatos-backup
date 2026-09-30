@@ -1,8 +1,8 @@
 "use client";
 
+import { Iconify } from "@/components/minimal/iconify";
 import { useMemo, useState, useTransition, type MouseEvent } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { X } from "lucide-react";
 import { usePopover } from "minimal-shared/hooks";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -122,7 +122,7 @@ export function CareCoverageFilters({
               size="small"
               label={parkLabel ?? copy(pageContract, "filter.unlisted_selection")}
               onDelete={() => go(parkClearHref)}
-              deleteIcon={<X aria-label={`${copy(pageContract, "filter.remove_one")} — ${copy(pageContract, "filter.park")}`} role="button" />}
+              deleteIcon={<Iconify icon="solar:close-circle-bold" aria-label={`${copy(pageContract, "filter.remove_one")} — ${copy(pageContract, "filter.park")}`} role="button" />}
             />
           ) : null}
           {penSelected.map((pen) => {
@@ -134,7 +134,7 @@ export function CareCoverageFilters({
                 size="small"
                 label={label}
                 onDelete={() => go(without)}
-                deleteIcon={<X aria-label={`${copy(pageContract, "filter.remove_one")} — ${label}`} role="button" />}
+                deleteIcon={<Iconify icon="solar:close-circle-bold" aria-label={`${copy(pageContract, "filter.remove_one")} — ${label}`} role="button" />}
               />
             );
           })}
@@ -236,7 +236,7 @@ function PenMultiSelect({
             role="listbox"
             aria-multiselectable="true"
             aria-label={copy(pageContract, "filter.pen")}
-            sx={{ maxHeight: { xs: "min(50vh, 320px)", sm: 280 }, overflowY: "auto" }}
+            sx={{ maxHeight: { xs: "50vh", sm: 280 }, overflowY: "auto" }}
           >
             {visible.length === 0 ? (
               <Typography component="li" variant="body2" sx={{ color: "text.secondary", p: 1 }}>

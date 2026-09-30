@@ -55,7 +55,7 @@ export function VersionSheet({ open, data, loading, error, onClose }: Props) {
       onClose={onClose}
       fullWidth
       maxWidth="md"
-      className="vp-version-sheet"
+      data-testid="vp-version-sheet"
       slotProps={{ paper: { "aria-label": "Version settings" } }}
       sx={{ "& .MuiDialog-container": { alignItems: { xs: "flex-end", sm: "center" } } }}
     >
