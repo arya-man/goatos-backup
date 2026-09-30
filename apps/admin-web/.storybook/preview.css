@@ -8,11 +8,6 @@
    typography names, and --font-sans falls back to the "Public Sans" face from ./fonts.css. */
 @import "./fonts.css";
 @import "../theme/fonts.css";
-@import "../app/globals.css";
+@import "../layouts/template/scrollbar/styles.css";
 @import "../app/minimal-tokens.css";
 @import "../components/minimal/chart/styles.css";
-
-/* tailwind.config.ts only scans app/, components/, pages/. Stories live outside
-   those roots, so register them as extra Tailwind sources. */
-@source "../stories";
-@source "../.storybook";

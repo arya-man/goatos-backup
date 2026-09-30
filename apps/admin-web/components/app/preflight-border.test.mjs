@@ -1,8 +1,8 @@
-// guard: preflight-pseudo-border — admin-web loads Tailwind preflight, which gives every
-// ::before/::after `border-style: solid`. The template kanban ColumnRoot's idle pseudo element sets
+// guard: preflight-pseudo-border — admin-web loaded Tailwind preflight (removed by FIXJ7, guard
+// `tailwind-banned`), which gave every ::before/::after `border-style: solid`. The template kanban ColumnRoot's idle pseudo element sets
 // only borderWidth (it relies on the browser default `none`), so it drew a solid currentColor ring
 // round every /tasks column in dark mode. Template files stay verbatim, so every use site of that
-// ColumnRoot names the idle borderStyle in its sx.
+// ColumnRoot names the idle borderStyle in its sx (kept: it is explicit and survives any reset).
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
