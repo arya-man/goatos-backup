@@ -5,6 +5,7 @@ package verificationbridge
 
 import (
 	"context"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"strconv"
 	"strings"
 
@@ -164,7 +165,7 @@ func contextRows(in pccareapp.VerificationEnqueueRequest) []verificationdomain.C
 		rows = append(rows, verificationdomain.ContextRow{Label: "Animals in this task", Value: strconv.Itoa(int(in.AnimalCount))})
 	}
 	if strings.TrimSpace(in.PlannedBusinessDate) != "" {
-		rows = append(rows, verificationdomain.ContextRow{Label: "Planned for", Value: in.PlannedBusinessDate})
+		rows = append(rows, verificationdomain.ContextRow{Label: "Planned for", Value: biztime.FarmDateFromBusinessDate(in.PlannedBusinessDate)}) // DD/MM/YYYY on screen; the wire date stays ISO
 	}
 	// The operators' answers to the pinned SOP's questions (PC CARE SOP, 2026-09-22), under
 	// their own group so the verifier reads them beside the captures they explain.
