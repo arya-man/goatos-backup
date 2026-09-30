@@ -392,7 +392,7 @@ func TestKidShiftFemaleToNonPregnantAtTenWeeksFromAnyStage(t *testing.T) {
 	for _, s := range []string{"K3", "Non-Pregnant"} {
 		seedStageVocabulary(t, ctx, pool, s)
 	}
-	// The farm's own settings the rule reads: Non-Pregnant's "From (days)" (migration 000462 sets
+	// The farm's own settings the rule reads: Non-Pregnant's "From (days)" (migration 000463 sets
 	// 70 where a farm has none; the fixture's vocabulary is seeded after migrations), the brother's
 	// sex, and a Non-Pregnant pen to move her into.
 	if _, err := pool.Exec(ctx, `UPDATE animal_stage_lookup SET min_age_days = 70 WHERE tenant_id = $1::uuid AND stage_code = 'Non-Pregnant'`, countsTenant); err != nil {

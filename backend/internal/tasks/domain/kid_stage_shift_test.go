@@ -219,14 +219,34 @@ func TestMigrationEmbedsTheKidShiftSeed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"counts_birth_litter_track.json", "task_types_kid_shift.json"} {
-		doc, err := sopseed.Raw(name)
-		if err != nil {
-			t.Fatal(err)
+	doc, err := sopseed.Raw("task_types_kid_shift.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "$seed$"+strings.TrimSpace(string(doc))+"$seed$") {
+		t.Fatal("migration 000462 does not embed task_types_kid_shift.json verbatim")
+	}
+	// The litter track: 000462 embeds its header and first two steps (K1, K2) verbatim; 000463
+	// appends the third (female kids to Non-Pregnant) verbatim. Together they are the seed file.
+	next, err := os.ReadFile(filepath.Join("..", "..", "..", "migrations", "postgres", "000463_kid_shift_non_pregnant_step.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	track, err := sopseed.Raw("counts_birth_litter_track.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(track)), "\n")
+	if len(lines) != 5 {
+		t.Fatalf("litter track seed has %d lines, want header + 3 steps + close", len(lines))
+	}
+	for _, line := range lines[:3] {
+		if !strings.Contains(string(raw), strings.TrimSuffix(strings.TrimSpace(line), ",")) {
+			t.Fatalf("migration 000462 does not embed %q", line)
 		}
-		if !strings.Contains(string(raw), "$seed$"+strings.TrimSpace(string(doc))+"$seed$") {
-			t.Fatalf("migration 000462 does not embed %s verbatim", name)
-		}
+	}
+	if !strings.Contains(string(next), "$seed$"+strings.TrimSuffix(strings.TrimSpace(lines[3]), ",")+"$seed$") {
+		t.Fatal("migration 000463 does not embed the Non-Pregnant step verbatim")
 	}
 }
 

@@ -56,7 +56,7 @@ is before Non-Pregnant**.
 
 - **The step.** `shift_to_non_pregnant`, `after_event` 100800 minutes (70 days), `owner: park_head`,
   `target_stage: Non-Pregnant`, and the new **`target_sex: female`** (`workflow_actions.target_sex`,
-  migration `000462`). A step's `target_sex` makes it judge only that sex's kids: waiting kids,
+  migration `000463`). A step's `target_sex` makes it judge only that sex's kids: waiting kids,
   raise groups and completion all read the litter's female kids alone. Publish refuses
   `target_sex` on any step that is not a kid shift step, and any value but `female` / `male`. The
   web editor shows it as **Only for** (Every kid / Female kids / Male kids).
@@ -67,7 +67,7 @@ is before Non-Pregnant**.
 - **The raise is allowed.** The growth ladder had no K3 → Non-Pregnant edge, so the raise the task
   opens would have been refused. Growth gained an **age-entry rule** (shifting rulebook doc →
   "a female of age enters Non-Pregnant from any earlier rung"): a female whose age is at least
-  Non-Pregnant's **From (days)** may enter Non-Pregnant from any earlier rung. Migration `000462`
+  Non-Pregnant's **From (days)** may enter Non-Pregnant from any earlier rung. Migration `000463`
   sets that From (days) to 70 where the farm has none, so the task and the raise agree. **They are
   two settings**: changing the step's 70 days on the Birth SOP does not change the stage's From
   (days) on Items & settings, and the raise follows the latter.
