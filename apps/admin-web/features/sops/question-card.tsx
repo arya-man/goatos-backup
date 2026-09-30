@@ -244,7 +244,11 @@ function ConditionEditor({
 
   // The first question always shows — a condition can only reference an EARLIER answer.
   if (index === 0 || priorSteps.length === 0) {
-    return <Hint caption sx={{ maxWidth: 340, textAlign: { sm: "right" } }}>{copy(pc, "builder.logic.first_note")}</Hint>;
+    return (
+      <Box component="span" data-testid="sop-cond-note" sx={{ display: "contents" }}>
+        <Hint caption sx={{ maxWidth: 340, textAlign: { sm: "right" } }}>{copy(pc, "builder.logic.first_note")}</Hint>
+      </Box>
+    );
   }
 
   const cond = step.visibleWhen;
@@ -267,7 +271,9 @@ function ConditionEditor({
   const refId = refValid ? cond.refId : priorSteps[priorSteps.length - 1].id;
   const setCond = (patch: Partial<BuilderCondition>) => onPatch({ visibleWhen: { ...cond, refId, ...patch } });
 
+  // data-testid hooks for scripts/sop-builder-e2e.mjs (the old .condrow / .condval classes are gone).
   return (
+    <Box component="span" data-testid="sop-cond" sx={{ display: "contents" }}>
     <CondRow>
       {copy(pc, "builder.logic.show_when")}
       <InlineSelect
@@ -289,12 +295,13 @@ function ConditionEditor({
           size="small"
           value={cond.value}
           placeholder={conditionNeedsList(cond.operator) ? copy(pc, "builder.logic.values_placeholder") : copy(pc, "builder.logic.value_placeholder")}
-          slotProps={{ htmlInput: { "aria-label": copy(pc, "builder.logic.value_placeholder") } }}
+          slotProps={{ htmlInput: { "aria-label": copy(pc, "builder.logic.value_placeholder"), "data-testid": "sop-cond-value" } }}
           sx={{ minWidth: 120, maxWidth: 200 }}
           onChange={(e) => setCond({ value: e.target.value })}
         />
       ) : null}
       <IconAction icon={EDITOR_ICON.remove} danger label={copy(pc, "builder.logic.remove")} onClick={() => onPatch({ visibleWhen: null })} />
     </CondRow>
+    </Box>
   );
 }

@@ -30,6 +30,8 @@ import Typography from "@mui/material/Typography";
 import { CELL_LINK, cellLinksSx } from "./procurement-sx";
 import { SALES_GRID } from "./sales-layout";
 
+const LOADWISE_NUM_COLUMNS = new Set([2, 5, 8]);
+
 /**
  * Tooltip line for a count that includes pre-system history: the copy's label, the count, and the
  * date range the old records span (e.g. "Sold earlier: 69 · 30 Apr 2026 – 17 Aug 2026").
@@ -129,6 +131,8 @@ export function LoadwiseSection({
   const tipName = (load: LoadwiseLoad): string =>
     withLoadPens(loadLabel(load, loadWord, none), pensOf(load), Number.POSITIVE_INFINITY);
   const columns = tableLabels(pageContract, "sales-loadwise");
+  // Header cells align with their body cells: purchased, remaining and purchase value are the
+  // right-aligned `num` cells below.
 
   const countSeries: GroupedSeries[] = [
     { key: "purchased", label: copy(pageContract, "chart.series.purchased"), tone: "info" },
@@ -489,13 +493,7 @@ export function LoadwiseSection({
             wrapClassName=""
             scrollbar
             ariaLabel={copy(pageContract, "section.loadwise.aria")}
-            head={
-              <TableRow>
-                {columns.map((label) => (
-                  <TableCell key={label}>{label}</TableCell>
-                ))}
-              </TableRow>
-            }
+            headCells={columns.map((label, index) => ({ id: `c${index}`, label, align: LOADWISE_NUM_COLUMNS.has(index) ? "right" : undefined }))}
             rows={loads.map((load) => {
                   const cell = (value: ReactNode, extra?: "num") =>
                     canRecordCost ? (

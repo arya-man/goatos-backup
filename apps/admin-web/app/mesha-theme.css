@@ -1036,8 +1036,8 @@ input[type="checkbox"]:not(.lt-people-row input):not(.PrivateSwitchBase-input):d
 /* per-column pager (each column pages its own lane): range + chevron iconbtns. */
 /* Native date/time pickers follow the console theme. The browser paints the popup calendar from
    color-scheme, not from our CSS, so without this every calendar opened white on the dark console. */
-input[type=date],input[type=datetime-local],input[type=time],input[type=month],input[type=week]{color-scheme:dark}
-:root.light input[type=date],:root.light input[type=datetime-local],:root.light input[type=time],:root.light input[type=month],:root.light input[type=week]{color-scheme:light}
+input[type=date],input[type=time]{color-scheme:dark}
+:root.light input[type=date],:root.light input[type=time]{color-scheme:light}
 
 /* Phone (< 768px): the feed-by-weight-band rows render as stacked cards instead of the
    twelve-column table (maintainer, 2026-09-19), so Feed given and Breed read in full and the
