@@ -4,7 +4,7 @@ Status: implemented on `feat/kid-stage-shift-tasks` · Owner: tasks + counts + s
 
 ## Decision
 
-Every litter owes two moves, raised by the system on its own as a task:
+Every litter owes the **park head** two moves, raised by the system as a task **only when a move is actually owed**:
 
 1. **K0 → K1, exactly 24 hours after the kids were born.**
 2. **K1 → K2, exactly 7 days after the litter reached K1.**
@@ -19,9 +19,10 @@ The maintainer answered three questions on 2026-09-30:
 
 | Question | Answer |
 |---|---|
-| How is the task finished? | **By the real shift.** Tapping the task only navigates to Raise shifting (growth, kids selected). Whoever raises fills in the rest, the approver approves, the operator completes, and the task closes itself when the kids are on the stage. The K2 clock counts from that real move. |
+| How is the task finished? | **By the real shift.** The park head tells the health managers; they raise the growth shifting (the task's button opens Raise shifting with the kids selected), today's approvers approve it, and they complete the move. The task closes itself when the kids are on the stage. The K2 clock counts from that real move. |
 | One task per kid or grouped? | **One per birth (litter).** |
-| Who sees it? | **Anyone in herd operations** (no owner on the seeded steps; a farm may still author one per step). The park head / approver only approves the shifting. |
+| Who sees it? | **The park head only** (`owner: park_head` on both steps). Operators have no task access: the litter is never on an operator's own Work Board lens nor on the Birth list. Who approves the shifting is unchanged (today's counts approvers). |
+| Kids moved before the deadline? | **No task at all.** A litter surfaces only once a step is past its deadline and the kids are still waiting. |
 | Which kids? | **Also the animals already on the farm** (reversing a first "births from now on" answer the same day): every recorded litter with a live kid still on K0 or K1 gets its task through `cmd/backfill-kid-shift-tasks`. |
 
 ## How it works
@@ -30,7 +31,7 @@ The maintainer answered three questions on 2026-09-30:
   - Template key `birth_litter`, keyed on the birth event (`subject_ref_id = goat_births.birth_event_id`), with no single animal.
   - It opens beside the kid and mother tracks on the birth's `goat.created`. Twins land on the same workflow.
   - Its clock is the birth moment, not the moment the event was processed.
-- **The steps.** Each uses task type `shift_kids_stage` (engine hook `shift_kids_stage`, migration `000462`), no owner, and a `target_stage`:
+- **The steps.** Each uses task type `shift_kids_stage` (engine hook `shift_kids_stage`, migration `000462`), `owner: park_head` and a `target_stage`:
   - `shift_to_k1` is due 1440 minutes after the event and targets `K1`.
   - `shift_to_k2` is due 10080 minutes after `shift_to_k1` completes, requires it, and targets `K2`.
 - **Engine-completed, never a tap.**
@@ -47,6 +48,7 @@ The maintainer answered three questions on 2026-09-30:
 
 ## Where it is seen
 
+- **Only when owed.** The board shows a litter's row only while a shift step is past its due instant and still pending, or on the day such an owed step got done (`boardsource.litterSurfacedSQL`, applied to the list AND the count). A litter whose kids were shifted before the deadline, or one between its K1 move and its K2 deadline, is not on the board. The operator lens (`OwnerUserID` set) never includes it, and the Birth list (`ListWorkflows`: chips, overdue dates, page) excludes `birth_litter` entirely.
 - **Phone → Work Board.** A Counts-lane workflow row's **Open** goes to its step screen, resolved from the row's own key (`counts|workflow|<id>`). The board `href` is shared with the web console, which has no step screen, so engine rows carry none.
 - **The step** lists the kids still waiting ("A1024 · K0 · Castro 1") and a **Raise shifting for these kids** button. The button opens Raise shifting with Growth chosen and those kids selected. They are resolved through the same tag lookup and eligibility checks a scanned tag uses.
 - **Shifting itself is unchanged.** Park Head approval comes first, then the completion video and the atomic apply. The step completes when the apply moves the kids' stage.
@@ -76,4 +78,4 @@ A tenant on the seeded document gets the same track from `sopseed.FollowUpTrackA
 
 - **No push when a step falls due.** Nothing in the engine pushes on a workflow step's due time; colostrum rounds do not either. A due-time push is a new notification pipeline: an audience catalog row, specificity copy and FCM routing. That needs its own maintainer decision.
 - **The backfill is a one-shot command**, not a sweep: after deploy, run `backfill-kid-shift-tasks -tenant-id <id>` (dry-run) and then with `-apply`. It opens ONLY the litter workflow (never the old kid/mother tracks), anchored on the kid's recorded birth, and is idempotent. Kids with no `goat_births` litter row (bought animals, animals imported without a recorded birth) have no litter to key on and get no task.
-- **Future rule, recorded:** "farm-born animals → breeding tag after 10 weeks". Breeding is a shift TYPE that keeps the tag, not a growth stage, so that step needs `target_stage` extended to name a shift type; the timing and the per-litter workflow already fit.
+- **Future rule, parked by the maintainer (2026-09-30):** "farm-born FEMALES → breeding after 10 weeks". There is no Breeding stage in the vocabulary (Breeding is a shift type that keeps the tag); the target (Non-Pregnant, Flushing, or a breeding-type shift) is undecided, and the step would need a female-only filter.

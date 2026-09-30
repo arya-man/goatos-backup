@@ -521,6 +521,11 @@ LEFT JOIN feed_purchases fpl
 // numerator and denominator range over identical rows; Completed excludes awaiting_verification,
 // making Completed and Awaiting video mutually exclusive; page size never changes the chips. Keyset
 // over (next_due_at ASC NULLS LAST, workflow_id ASC) matches workflow_instances_list_idx.
+//
+// The litter's kid-shift workflow (birth_litter, module birth) is NEVER on this list: it is the
+// park head's task and surfaces on the Work Board only when it is owed (KID STAGE SHIFT TASKS).
+// The chips, the overdue-date strip and the page all exclude it, so a count never disagrees with
+// the list beneath it.
 func (r *Repository) ListWorkflows(ctx context.Context, q domain.WorkflowListQuery) (domain.WorkflowListPage, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -547,7 +552,7 @@ SELECT
   count(*) FILTER (WHERE state = 'completed' AND NOT awaiting_verification),
   count(*) FILTER (WHERE awaiting_verification)
 FROM workflow_instances
-WHERE tenant_id = $1::uuid AND module = $2 AND event_date = $3::date`,
+WHERE tenant_id = $1::uuid AND module = $2 AND event_date = $3::date AND template_key <> 'birth_litter'`,
 		q.TenantID, q.Module, q.EventDate, now.UTC()).Scan(
 		&page.Chips.All, &page.Chips.Overdue, &page.Chips.Due, &page.Chips.Completed, &page.Chips.AwaitingVideo)
 	if err != nil {
@@ -562,7 +567,7 @@ WHERE tenant_id = $1::uuid AND module = $2 AND event_date = $3::date`,
 SELECT event_date::text, count(*)::integer
 FROM workflow_instances
 WHERE tenant_id = $1::uuid
-  AND module = $2
+  AND module = $2 AND template_key <> 'birth_litter'
   AND state = 'open'
   AND next_due_at IS NOT NULL
   AND next_due_at < $3::timestamptz
@@ -628,7 +633,7 @@ LIMIT 5`, q.TenantID, q.Module, now.UTC(), todayDate)
 
 	boundList := sqlbind.MustBind(`
 SELECT `+cardSelectColumns+cardJoins+`
-WHERE wi.tenant_id = $1::uuid AND wi.module = $2 AND wi.event_date = $3::date`+filterSQL+cursorSQL+`
+WHERE wi.tenant_id = $1::uuid AND wi.module = $2 AND wi.event_date = $3::date AND wi.template_key <> 'birth_litter'`+filterSQL+cursorSQL+`
 ORDER BY wi.next_due_at ASC NULLS LAST, wi.workflow_id ASC
 LIMIT $`+fmt.Sprint(len(args)), args...)
 	rows, err := r.pool.Query(ctx, boundList.SQL(), boundList.Args()...)

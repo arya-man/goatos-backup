@@ -200,13 +200,37 @@ func baseWhere() string {
 // UNION ALL of workflow ids (disjoint, so nothing repeats), each arm planned on its own index,
 // joined back on the primary key. An OR over the arms lets the planner fall back to one walk of
 // every completed workflow of the park.
-func dayMembersWhere() string {
+//
+// A litter's kid-shift workflow (KID STAGE SHIFT TASKS, docs/decisions/kid-stage-shift-tasks.md)
+// is on the board only while it is OWED (litterSurfacedSQL), and never on an operator's own lens:
+// it is the park head's task.
+func dayMembersWhere(operatorLens bool) string {
 	arms := make([]string, len(dayArms))
+	extra := "\n      AND " + litterSurfacedSQL
+	if operatorLens {
+		extra += "\n      AND wi.template_key <> 'birth_litter'"
+	}
 	for i, arm := range dayArms {
-		arms[i] = "SELECT wi.workflow_id FROM workflow_instances wi\n    WHERE " + scopeSQL + "\n      AND " + arm
+		arms[i] = "SELECT wi.workflow_id FROM workflow_instances wi\n    WHERE " + scopeSQL + "\n      AND " + arm + extra
 	}
 	return "\n  wi.tenant_id = $1::uuid\n  AND wi.workflow_id IN (\n    " + strings.Join(arms, "\n    UNION ALL\n    ") + ")"
 }
+
+// litterSurfacedSQL: a litter's kid-shift workflow is shown only when a shift step is OWED -- past
+// its due instant and still pending -- or was owed and got done on the board day. A litter whose
+// kids were shifted BEFORE the deadline never surfaces at all (maintainer instruction 2026-09-30:
+// "if kid already shifted to k2/k1 before deadline in that case don't create task"), and a litter
+// between its K1 move and its K2 deadline is not on the board either. $3 is the board day, $6 the
+// server clock, bound identically by the list and the count. Bounded: one EXISTS over one
+// workflow's (<= 2) shift steps on workflow_actions (tenant_id, workflow_id).
+const litterSurfacedSQL = `(wi.template_key <> 'birth_litter' OR EXISTS (
+        SELECT 1 FROM workflow_actions la
+        WHERE la.tenant_id = wi.tenant_id AND la.workflow_id = wi.workflow_id
+          AND la.engine_hook = 'shift_kids_stage' AND la.due_at <= $6::timestamptz
+          AND (la.status = 'pending'
+               OR (la.status = 'completed' AND la.completed_at > la.due_at
+                   AND la.completed_at >= ($3::date::timestamp AT TIME ZONE 'Asia/Kolkata')
+                   AND la.completed_at < (($3::date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata')))))`
 
 // extraColumns follow BoardCardColumns: the ids and raw names the board row carries (the card
 // composes its own pen display; the board also needs the parts) and the derived state.
@@ -217,14 +241,14 @@ const extraColumns = `,
   w.board_state`
 
 // projection-review: membership=workflow_instances rows of ONE tenant and park whose engine module belongs to this lane (or, on the catch-all lane, to no mapped lane), not canceled, and in day D by the raised / still-open / completed-that-day predicate, one row per workflow (primary key workflow_id); group_key=(tenant_id, workflow_id) for the list and the derived board_state for the count; join_cardinality=the card joins are the phone list's 1:0..1 display enrichments (goats and both locations on their primary keys, the tag LATERAL LIMIT 1, goat_shed_partitions on its (tenant_id, goat_id) primary key, sop_definitions on (tenant_id, code), sales_deals / animal_purchase_loads / feed_purchases on their primary keys gated by template key), the CTE joins back on workflow_id (1:1), and the rework EXISTS never multiplies a row; pagination=keyset on workflow_id ASC after the cursor, state filter and LIMIT applied inside the MATERIALIZED page CTE, so the card joins run for the page's ids only (a primary-key ANY lookup); the day membership is a UNION ALL of three disjoint arms (raised on D, open from before D, completed on D), each bounded by its own day index; scope=tenant_id, park_id, the day predicate and the lane's module set, repeated verbatim in the count query.
-func listSQL() string {
+func listSQL(operatorLens bool) string {
 	return `
 WITH w AS MATERIALIZED (
   SELECT x.workflow_id, x.board_state
   FROM (
     SELECT wi.workflow_id, ` + boardStateSQL + ` AS board_state
     FROM workflow_instances wi
-    WHERE ` + dayMembersWhere() + `
+    WHERE ` + dayMembersWhere(operatorLens) + `
       AND ($7::uuid IS NULL OR wi.workflow_id > $7::uuid)
   ) x
   WHERE ($8::text[] IS NULL OR x.board_state = ANY($8::text[]))
@@ -242,13 +266,13 @@ LIMIT $9`
 }
 
 // projection-review: membership=the SAME workflow_instances rows as the list (tenant, park, lane module set, not canceled, day predicate); group_key=the derived board_state over that membership; join_cardinality=none (the rework EXISTS never multiplies a row); pagination=none, whole-filter aggregate; scope=repeated verbatim from the list query.
-func countSQL() string {
+func countSQL(operatorLens bool) string {
 	return `
 SELECT board_state, count(*)
 FROM (
   SELECT ` + boardStateSQL + ` AS board_state
   FROM workflow_instances wi
-  WHERE ` + dayMembersWhere() + `
+  WHERE ` + dayMembersWhere(operatorLens) + `
 ) x
 WHERE ($7::text[] IS NULL OR board_state = ANY($7::text[]))
 GROUP BY board_state`
@@ -287,7 +311,7 @@ func (s *Source) ListStatement(q ports.SourceQuery, out *[]domain.Row) (ports.St
 	now := s.now()
 	args := []any{q.TenantID, q.ParkID, q.BusinessDate, s.modules, s.knownArg(), now.UTC(),
 		nullString(q.AfterSourceID), statesArg(q.WorkStates), limit}
-	return ports.Statement{Query: sqlbind.MustBind(listSQL(), args...), Read: func(rows ports.ResultRows) error {
+	return ports.Statement{Query: sqlbind.MustBind(listSQL(q.OwnerUserID != ""), args...), Read: func(rows ports.ResultRows) error {
 		got, err := ports.ReadRows(rows, limit, func(r ports.ResultRows) (domain.Row, error) {
 			return s.scanRow(r, q.BusinessDate, now)
 		})
@@ -320,7 +344,7 @@ func (s *Source) CountByState(ctx context.Context, q ports.SourceQuery) (map[dom
 // CountStatement implements ports.BatchSource.
 func (s *Source) CountStatement(q ports.SourceQuery, out *map[domain.WorkState]int) (ports.Statement, error) {
 	args := []any{q.TenantID, q.ParkID, q.BusinessDate, s.modules, s.knownArg(), s.now().UTC(), statesArg(q.WorkStates)}
-	return ports.Statement{Query: sqlbind.MustBind(countSQL(), args...), Read: func(rows ports.ResultRows) error {
+	return ports.Statement{Query: sqlbind.MustBind(countSQL(q.OwnerUserID != ""), args...), Read: func(rows ports.ResultRows) error {
 		got, err := ports.ReadCounts(rows)
 		*out = got
 		return err

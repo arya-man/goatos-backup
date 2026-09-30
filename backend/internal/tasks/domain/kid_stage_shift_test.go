@@ -64,10 +64,10 @@ func TestSeededLitterTrackIsTheParkHeadsTwoTimedMoves(t *testing.T) {
 	if k1.TargetStage != "K1" || k2.TargetStage != "K2" {
 		t.Fatalf("targets = %q, %q", k1.TargetStage, k2.TargetStage)
 	}
-	// Anyone in herd operations raises the shifting; the approver approves it (maintainer answer
-	// 2026-09-30) -- so the seeded steps name no owner. A farm may still author one per step.
-	if k1.Owner != "" || k2.Owner != "" {
-		t.Fatalf("owners = %q, %q, want none", k1.Owner, k2.Owner)
+	// The PARK HEAD's task (maintainer instruction 2026-09-30): operators have no task access; the
+	// park head tells the health managers, who raise the shifting.
+	if k1.Owner != "park_head" || k2.Owner != "park_head" {
+		t.Fatalf("owners = %q, %q, want park_head", k1.Owner, k2.Owner)
 	}
 	if k1.EngineHook != EngineHookShiftKidsStage || k2.EngineHook != EngineHookShiftKidsStage {
 		t.Fatal("both steps must carry the shift hook")

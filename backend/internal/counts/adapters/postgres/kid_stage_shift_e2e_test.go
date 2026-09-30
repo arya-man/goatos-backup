@@ -19,9 +19,12 @@ import (
 	outboxapp "github.com/vgoats/goatos/backend/internal/outbox/app"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
+	tasksboard "github.com/vgoats/goatos/backend/internal/tasks/adapters/boardsource"
 	taskspg "github.com/vgoats/goatos/backend/internal/tasks/adapters/postgres"
 	tasksapp "github.com/vgoats/goatos/backend/internal/tasks/app"
 	tasksdomain "github.com/vgoats/goatos/backend/internal/tasks/domain"
+	boarddomain "github.com/vgoats/goatos/backend/internal/workboard/domain"
+	boardports "github.com/vgoats/goatos/backend/internal/workboard/ports"
 )
 
 // KID STAGE SHIFT TASKS, END TO END ON THE PRODUCTION PATH (maintainer decision 2026-09-30,
@@ -137,6 +140,34 @@ func shiftKidsToK1(t *testing.T, ctx context.Context, pool *pgxpool.Pool, mux *h
 	}
 }
 
+// boardShowsLitter reads today's Counts lane of the Work Board through the real board source, as
+// the park head (oversee lens) or as an operator (own lens), and reports whether the litter's
+// kid-shift row is on it.
+func boardShowsLitter(t *testing.T, ctx context.Context, pool *pgxpool.Pool, operatorLens bool) bool {
+	t.Helper()
+	for _, src := range tasksboard.Sources(pool, 10*time.Second) {
+		if src.Module() != boarddomain.ModuleCounts {
+			continue
+		}
+		q := boardports.SourceQuery{TenantID: countsTenant, ParkID: countsPark, BusinessDate: biztime.BusinessDate(time.Now()), Limit: 50}
+		if operatorLens {
+			q.OwnerUserID = countsOperator
+		}
+		rows, err := src.ListRows(ctx, q)
+		if err != nil {
+			t.Fatalf("board rows: %v", err)
+		}
+		for _, r := range rows {
+			if r.Title != "" && len(r.Title) >= len("Kid shifts") && r.Title[:len("Kid shifts")] == "Kid shifts" {
+				return true
+			}
+		}
+		return false
+	}
+	t.Fatal("no Counts lane board source")
+	return false
+}
+
 type litterStep struct {
 	status    string
 	dueAt     *time.Time
@@ -173,7 +204,7 @@ FROM workflow_actions WHERE tenant_id = $1::uuid AND workflow_id = $2::uuid`, co
 	return state, out
 }
 
-// A litter born on the farm: the task opens with K1 due exactly 24 hours after birth and no owner;
+// A litter born on the farm: the task opens with K1 due exactly 24 hours after birth, the park head's;
 // a hand tap is refused; a growth shifting of ONE twin leaves it open; the second twin's shifting
 // completes it at that apply's instant, and K2 falls due exactly seven days later.
 func TestKidShiftTasksFollowTheLitterThroughRealGrowthShiftings(t *testing.T) {
@@ -201,8 +232,17 @@ func TestKidShiftTasksFollowTheLitterThroughRealGrowthShiftings(t *testing.T) {
 	if k2.dueAt != nil {
 		t.Fatalf("K2 due %v before the litter reached K1, want none", k2.dueAt)
 	}
-	if k1.owner != "" || k1.target != "K1" || k2.target != "K2" {
-		t.Fatalf("owner=%q targets=%q/%q, want no owner and K1/K2", k1.owner, k1.target, k2.target)
+	if k1.owner != "park_head" || k1.target != "K1" || k2.target != "K2" {
+		t.Fatalf("owner=%q targets=%q/%q, want park_head and K1/K2", k1.owner, k1.target, k2.target)
+	}
+
+	// Owed (past its 24-hour deadline, kids still on K0): on the park head's board, never on an
+	// operator's own lens.
+	if !boardShowsLitter(t, ctx, pool, false) {
+		t.Fatal("an owed litter is not on the park head's Work Board")
+	}
+	if boardShowsLitter(t, ctx, pool, true) {
+		t.Fatal("the litter's task is on an operator's own lens")
 	}
 
 	// A by-hand completion is refused: the step is closed only by the herd register.
@@ -249,6 +289,41 @@ WHERE tenant_id = $1::uuid AND goat_id = $2::uuid AND event_type = 'goat.stage_c
 	}
 	if k2.dueAt == nil || !k2.dueAt.Equal(appliedAt.Add(7*24*time.Hour)) {
 		t.Fatalf("K2 due %v, want 7 days after %v", k2.dueAt, appliedAt)
+	}
+	// Done today after being owed: still on today's board, so the park head sees it closed.
+	if !boardShowsLitter(t, ctx, pool, false) {
+		t.Fatal("the litter done late today is not on today's board")
+	}
+}
+
+// Kids shifted BEFORE the 24-hour deadline: the step completes, the K2 step is not yet due, and the
+// park head never sees a task ("if kid already shifted to k2/k1 before deadline in that case don't
+// create task").
+func TestKidShiftTaskNeverSurfacesWhenTheKidsMovedBeforeTheDeadline(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	mux, repo := typedE2EStack(t, pool)
+	_, bus := kidShiftStack(pool)
+
+	bornAt := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Minute)
+	seedLitter(t, ctx, pool, "K0", bornAt)
+	payload, _ := json.Marshal(map[string]string{"goat_id": kidShiftKidA, "origin_type": "birth", "dam_id": kidShiftMother})
+	if err := bus.Publish(ctx, eventbus.Event{Type: tasksapp.EventGoatCreated, TenantID: countsTenant, Key: kidShiftKidA, OccurredAt: bornAt, Payload: payload}); err != nil {
+		t.Fatalf("goat.created: %v", err)
+	}
+	if boardShowsLitter(t, ctx, pool, false) {
+		t.Fatal("the task is on the board before its deadline")
+	}
+
+	shiftKidsToK1(t, ctx, pool, mux, repo, "e2e-kidshift-early", []string{kidShiftKidA, kidShiftKidB}, "K1")
+	relayOutbox(t, ctx, pool, bus)
+
+	_, steps := litterSteps(t, ctx, pool)
+	if steps["shift_to_k1"].status != "completed" {
+		t.Fatalf("K1 step %s after an early move, want completed", steps["shift_to_k1"].status)
+	}
+	if boardShowsLitter(t, ctx, pool, false) {
+		t.Fatal("a litter moved before its deadline surfaced a task")
 	}
 }
 

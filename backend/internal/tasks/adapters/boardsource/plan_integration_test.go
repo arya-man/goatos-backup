@@ -115,7 +115,7 @@ WHERE h.at < TIMESTAMPTZ '2026-09-20 00:00+05:30'`, wbTenant, wbPark, wbOther)
 		}
 		// The guard discriminates: the legacy single-OR predicate over the same data walks the
 		// completed history.
-		legacy := strings.Replace(sql, dayMembersWhere(), legacyDayWhere, 1)
+		legacy := strings.Replace(sql, dayMembersWhere(false), legacyDayWhere, 1)
 		if legacy == sql {
 			t.Fatalf("%s: could not substitute the legacy predicate", name)
 		}

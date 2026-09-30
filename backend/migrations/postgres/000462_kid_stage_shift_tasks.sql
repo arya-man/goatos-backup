@@ -3,7 +3,7 @@
 -- type row; no vaccination/HRMS seed contract or source fixture schema changes.
 --
 -- KID STAGE SHIFT TASKS (maintainer decision 2026-09-30, docs/decisions/kid-stage-shift-tasks.md).
--- A birth now owes two moves, authored as the Birth SOP's new `birth_litter` track:
+-- A birth now owes the park head two moves, authored as the Birth SOP's new `birth_litter` track:
 -- the litter K0 -> K1 24 hours after birth, and K1 -> K2 seven days after the litter reached K1.
 -- ONE workflow per litter (subject_ref_id = goat_births.birth_event_id). Both steps are
 -- engine-completed from the herd register (goat.stage_changed), never by a tap.
@@ -38,8 +38,8 @@ ON CONFLICT (tenant_id, task_type_key) DO NOTHING;
 UPDATE public.sop_versions v
 SET form_dsl = jsonb_set(v.form_dsl, '{follow_up,tracks}',
       (v.form_dsl->'follow_up'->'tracks') || jsonb_build_array($seed${"key": "birth_litter", "module": "birth", "label": "Litter", "subject": "litter", "steps": [
-  {"key": "shift_to_k1", "task_type": "shift_kids_stage", "title": "Shift the kids to K1", "detail": "Raise a growth shifting that moves this litter's kids from K0 into a K1 pen. This step completes on its own once every kid is on K1.", "proof": {}, "schedule": {"kind": "after_event", "offset_minutes": 1440}, "target_stage": "K1"},
-  {"key": "shift_to_k2", "task_type": "shift_kids_stage", "title": "Shift the kids to K2", "detail": "Raise a growth shifting that moves this litter's kids from K1 into a K2 pen. This step completes on its own once every kid is on K2.", "proof": {}, "schedule": {"kind": "after_step", "step": "shift_to_k1", "offset_minutes": 10080}, "requires": ["shift_to_k1"], "target_stage": "K2"}
+  {"key": "shift_to_k1", "task_type": "shift_kids_stage", "title": "Shift the kids to K1", "detail": "Raise a growth shifting that moves this litter's kids from K0 into a K1 pen. This step completes on its own once every kid is on K1.", "proof": {}, "schedule": {"kind": "after_event", "offset_minutes": 1440}, "owner": "park_head", "target_stage": "K1"},
+  {"key": "shift_to_k2", "task_type": "shift_kids_stage", "title": "Shift the kids to K2", "detail": "Raise a growth shifting that moves this litter's kids from K1 into a K2 pen. This step completes on its own once every kid is on K2.", "proof": {}, "schedule": {"kind": "after_step", "step": "shift_to_k1", "offset_minutes": 10080}, "owner": "park_head", "requires": ["shift_to_k1"], "target_stage": "K2"}
 ]}$seed$::jsonb)),
     updated_at = now()
 FROM public.sop_definitions sd
