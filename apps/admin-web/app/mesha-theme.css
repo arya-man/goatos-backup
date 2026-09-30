@@ -7294,7 +7294,7 @@ aside.drawer.approvals-drawer .df{flex-wrap:wrap}
 .dsc-decide .tt-status{flex-basis:100%}
 @media (max-width:640px){
   .main table.people-table.dsc-rtable{min-width:0;width:100%}
-  .main table.people-table.dsc-rtable td,.main table.people-table.dsc-rtable th{min-width:0}
+  .main table.people-table.dsc-rtable td,.main table.people-table.dsc-rtable th{min-width:0;white-space:normal;overflow-wrap:anywhere}
   .dsc-rtable thead{display:none}
   .dsc-rtable,.dsc-rtable tbody,.dsc-rtable tr,.dsc-rtable td{display:block;width:100%;box-sizing:border-box}
   .dsc-rtable tr{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:0 0 10px}

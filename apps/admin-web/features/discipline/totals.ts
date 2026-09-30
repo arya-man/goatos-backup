@@ -27,10 +27,10 @@ function hasAnything(r: PersonRow): boolean {
 }
 
 /**
- * The totals after one change. `moveSummary` is false on a status tab (it totals that status, so
- * only the waiting count is kept in step there).
+ * The totals after one change. The tiles count RECORDED violations whatever status tab is open (the
+ * backend's rule), so they move on every tab -- a keep on "Waiting for HR" adds to Violations/Fines.
  */
-export function applyViolationChange(cur: Totals, v: Violation, change: ViolationChange, moveSummary: boolean): Totals {
+export function applyViolationChange(cur: Totals, v: Violation, change: ViolationChange): Totals {
   const d = deltas[change];
   const fine = d.count * v.fine_rupees;
   const existing = cur.byPerson.find((r) => r.person_id === v.person_id);
@@ -60,7 +60,6 @@ export function applyViolationChange(cur: Totals, v: Violation, change: Violatio
     .filter(hasAnything)
     .sort((a, b) => b.fine_rupees - a.fine_rupees || b.count - a.count || b.pending - a.pending);
   const pending = Math.max(0, cur.summary.pending + d.pending);
-  if (!moveSummary) return { byPerson, summary: { ...cur.summary, pending } };
   const summaryFine = cur.summary.fine_rupees + fine;
   return {
     byPerson,

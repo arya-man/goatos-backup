@@ -286,6 +286,50 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, '2026-09-29', '2026-09-29', 'Sick', 'pendi
 	}
 }
 
+// E2E 2026-09-30: a day raised as "Did not clock in" later got a SECOND, contradictory "Late
+// clock-in" when an offline punch dated inside that shift arrived. One day owes HR ONE automatic
+// violation: whichever was raised first stays, and HR decides it with the punch in front of them.
+func TestAttendanceRaisesOneViolationPerPersonPerDayWithDockerPostgres(t *testing.T) {
+	f := dsSeed(t)
+	doc := `{"schema_version":"goatos.sop-form.v1","sop_code":"hrms.violations","title":"x","fields":[],
+"violations":{"schema_version":"goatos.sop-hrms-violations.v1",
+ "violation_types":[{"key":"late_clock_in","title":"Late clock-in","active":true},{"key":"did_not_clock_in","title":"Did not clock in","active":true}],
+ "enquiries":[],
+ "attendance":{"grace_minutes":15,"late_type":"late_clock_in","absent_type":"did_not_clock_in","starts_on":"2026-09-29"}}}`
+	f.exec(`UPDATE sop_versions SET status = 'retired' WHERE tenant_id = $1::uuid AND status = 'published'
+AND sop_id = (SELECT sop_id FROM sop_definitions WHERE tenant_id = $1::uuid AND code = 'hrms.violations')`, dsTenant)
+	f.exec(`INSERT INTO sop_versions (tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy, compatibility, validation_report, published_at)
+SELECT $1::uuid, sop_id, 3, 'v3', 'published', $2::jsonb, '{}'::jsonb, '{}'::jsonb, '{"valid":true,"errors":[],"warnings":[]}'::jsonb, now()
+FROM sop_definitions WHERE tenant_id = $1::uuid AND code = 'hrms.violations'`, dsTenant, doc)
+	f.exec(`INSERT INTO workforce_park_shift_timings (tenant_id, park_id, shift_code, start_minute, end_minute) VALUES ($1::uuid, $2::uuid, 'general', 510, 1080)`, dsTenant, dsCPT)
+	f.exec(`INSERT INTO workforce_member_shifts (tenant_id, workforce_member_id, shift_code, updated_at) VALUES ($1::uuid, $2::uuid, 'general', '2026-09-20 10:00+05:30')`, dsTenant, dsMember(2))
+	f.exec(`UPDATE workforce_members SET user_id = $2::uuid WHERE workforce_member_id = $1::uuid`, dsMember(2), "93000000-0000-4000-8000-000000000802")
+	run := func() {
+		svc := f.svc.WithClock(func() time.Time { t, _ := time.Parse(time.RFC3339, "2026-09-30T07:00:00+05:30"); return t })
+		if _, err := svc.RaiseAttendanceViolations(f.ctx, dsTenant); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run() // no clock-in on 29/09 by 6 pm: "Did not clock in"
+	// An offline punch dated 29/09 5:00 pm arrives afterwards -- inside the shift, 8 h 30 min late.
+	f.exec(`WITH ev AS (
+  INSERT INTO workforce_clock_events (tenant_id, workforce_member_id, user_id, event_type, business_date, captured_at, recorded_at, location_status)
+  VALUES ($1::uuid, $2::uuid, $2::uuid, 'clock_in', '2026-09-29', '2026-09-29 17:00+05:30', '2026-09-30 06:50+05:30', 'unavailable')
+  RETURNING clock_event_id)
+INSERT INTO workforce_clock_entries (tenant_id, workforce_member_id, business_date, clock_in_event_id, clock_in_at, status)
+SELECT $1::uuid, $2::uuid, '2026-09-29', clock_event_id, '2026-09-29 17:00+05:30', 'open' FROM ev`, dsTenant, dsMember(2))
+	run()
+	var kinds string
+	if err := f.repo.pool.QueryRow(f.ctx, `SELECT string_agg(attendance_kind, ',' ORDER BY attendance_kind) FROM workforce_violations
+WHERE tenant_id = $1::uuid AND workforce_member_id = $2::uuid AND source = 'attendance' AND occurred_on = '2026-09-29'`,
+		dsTenant, dsMember(2)).Scan(&kinds); err != nil {
+		t.Fatal(err)
+	}
+	if kinds != "absent" {
+		t.Fatalf("29/09 raised %q, want exactly one: absent", kinds)
+	}
+}
+
 // Date shift: a violation belongs to the day it HAPPENED, not the day it was recorded, and a leave
 // that spans a month boundary is split across both months -- the per-person totals must never move
 // a fact into the month someone got round to typing it.

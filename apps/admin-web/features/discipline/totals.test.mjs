@@ -11,7 +11,7 @@ const start = { summary: { count: 0, fine_rupees: 0, fine_label: "₹0", people:
 const v = (over = {}) => ({ person_id: "p1", person_name: "Bhavya", designation: "", park_label: "Channapatna", fine_rupees: 200, ...over });
 
 test("keeping a waiting one makes it count with HR's fine", () => {
-  const out = applyViolationChange(start, v(), "kept", true);
+  const out = applyViolationChange(start, v(), "kept");
   assert.equal(out.summary.count, 1);
   assert.equal(out.summary.fine_label, "₹200");
   assert.equal(out.summary.pending, 0);
@@ -20,7 +20,7 @@ test("keeping a waiting one makes it count with HR's fine", () => {
 });
 
 test("closing a waiting one never counts; the person stays for their closed column", () => {
-  const out = applyViolationChange(start, v({ fine_rupees: 0 }), "closed", true);
+  const out = applyViolationChange(start, v({ fine_rupees: 0 }), "closed");
   assert.equal(out.summary.count, 0);
   assert.equal(out.summary.pending, 0);
   assert.equal(out.summary.people, 0);
@@ -29,13 +29,15 @@ test("closing a waiting one never counts; the person stays for their closed colu
 
 test("a person with nothing left drops out, but one with leave stays", () => {
   const recorded = { summary: { count: 1, fine_rupees: 100, fine_label: "₹100", people: 1, pending: 0 }, byPerson: [person({ count: 1, fine_rupees: 100, pending: 0 })] };
-  assert.equal(applyViolationChange(recorded, v({ fine_rupees: 100 }), "withdrawn", true).byPerson.length, 0);
+  assert.equal(applyViolationChange(recorded, v({ fine_rupees: 100 }), "withdrawn").byPerson.length, 0);
   const onLeave = { ...recorded, byPerson: [person({ count: 1, fine_rupees: 100, pending: 0, leave_days: 2, leave_label: "2 days" })] };
-  assert.equal(applyViolationChange(onLeave, v({ fine_rupees: 100 }), "withdrawn", true).byPerson.length, 1);
+  assert.equal(applyViolationChange(onLeave, v({ fine_rupees: 100 }), "withdrawn").byPerson.length, 1);
 });
 
-test("on a status tab only the waiting count moves", () => {
-  const out = applyViolationChange(start, v(), "kept", false);
-  assert.equal(out.summary.count, 0);
+test("keeping on the Waiting-for-HR tab still adds to Violations and Fines (E2E 2026-09-30)", () => {
+  // The tiles count recorded violations whatever tab is open; the page used to freeze them here.
+  const out = applyViolationChange(start, v(), "kept");
+  assert.equal(out.summary.count, 1);
+  assert.equal(out.summary.fine_label, "₹200");
   assert.equal(out.summary.pending, 0);
 });

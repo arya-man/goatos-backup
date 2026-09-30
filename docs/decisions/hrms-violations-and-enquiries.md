@@ -42,6 +42,10 @@ Maintainer decisions, 2026-09-30. Migrations 000471 and 000472.
 - **Leave.** A day covered by leave the person **applied for** (pending or approved) is never
   checked. If a pending leave is later rejected, the next run raises the violation, as long as the
   day is still inside the checked window (today and yesterday).
+- **One per person per day.** A day raises at most ONE automatic violation, of either kind. If a
+  late offline punch arrives after "Did not clock in" was raised, no second "Late clock-in" is added;
+  HR decides the first with the punch in front of them. Lateness is judged to the minute (7:15:30 is
+  7:15), the same grain it is shown in.
 - **They wait for HR.** An automatic violation is **Waiting for HR** until HR decides it on
   People / HRMS > Violations:
   - **Keep:** it counts from then, with a fine HR types (blank = no fine) and an optional note.
@@ -65,7 +69,8 @@ These are the maintainer's decisions of 2026-09-30 (migration 000473).
 - **Holidays.** HR enters a date on the Timetable's **Holidays** card, for **every park** or for
   **one park**. There are none today because the farm runs every day, so an empty card is normal.
 - **No app login.** A person without a login cannot clock in, so they are never checked.
-- **Before the start date.** The SOP's `starts_on` is the first day checked. It is set to the day
+- **Before the start date.** The SOP's `starts_on` (a real calendar day; the grace must be typed,
+  a blank one is refused rather than read as 0) is the first day checked. It is set to the day
   after go-live, so switching the check on does not raise a flood of old days. HR can change it
   on the Clock-in check card.
 - **Closes itself.** A waiting violation whose day later becomes leave the person applied for, a

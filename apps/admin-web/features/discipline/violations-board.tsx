@@ -39,9 +39,9 @@ export function ViolationsBoard({
   const [totals, setTotals] = useState({ summary: page.summary, byPerson: page.by_person });
   const [formOpen, setFormOpen] = useState(false);
 
-  // A change only moves the page totals under "All" (a status tab totals that status); the
-  // per-person row always moves -- it carries every status in its own column.
-  const apply = (v: Violation, change: ViolationChange) => setTotals((cur) => applyViolationChange(cur, v, change, page.status === ""));
+  // The tiles and the per-person row move on every tab: the tiles count recorded violations
+  // whatever tab is open, and the person row carries every status in its own column.
+  const apply = (v: Violation, change: ViolationChange) => setTotals((cur) => applyViolationChange(cur, v, change));
 
   const replaceRow = (v: Violation) =>
     setItems((prev) => (page.status && page.status !== v.status ? prev.filter((p) => p.violation_id !== v.violation_id) : prev.map((p) => (p.violation_id === v.violation_id ? v : p))));

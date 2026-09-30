@@ -81,7 +81,9 @@ FROM cand c
 WHERE NOT EXISTS (
   SELECT 1 FROM workforce_violations v
   WHERE v.tenant_id = $1::uuid AND v.workforce_member_id = c.workforce_member_id
-    AND v.occurred_on = c.d AND v.source = 'attendance' AND v.attendance_kind = c.kind)
+    -- ONE automatic violation per person per day, of either kind: a late offline punch arriving
+    -- after "did not clock in" must not add a contradictory second one (HR decides the first).
+    AND v.occurred_on = c.d AND v.source = 'attendance')
 ORDER BY c.d, c.workforce_member_id
 LIMIT $7`
 
