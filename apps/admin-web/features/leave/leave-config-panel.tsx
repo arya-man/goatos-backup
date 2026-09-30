@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { UsersRound } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import Box from "@mui/material/Box";
 
 import Button from "@mui/material/Button";
@@ -57,7 +57,7 @@ export function LeaveConfigPanel({
         sx={{ p: 0, mb: 2, alignItems: "center" }}
         title={
           <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-            <UsersRound className="ic" style={{ width: 18, color: "var(--primary)" }} aria-hidden="true" />
+            <Iconify icon="solar:users-group-rounded-bold" width={18} sx={{ color: "primary.main" }} />
             {t("config.title")}
           </span>
         }

@@ -4,7 +4,7 @@ import Chip from "@mui/material/Chip";
 
 import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Download, X } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import Button from "@mui/material/Button";
 import { RowMenu } from "@/components/app/row-menu";
 import { LEAVE_DATE_PAIR_WIDTH, LEAVE_SELECT_WIDTH } from "./leave-layout";
@@ -96,9 +96,9 @@ function LeaveToolbar({ value, parkOptions, designationOptions, basePath, curren
           <RowMenu
             ariaLabel={copyFor("action.more")}
             actions={[
-              { label: copyFor("action.export"), icon: <Download size={15} />, onSelect: exportCsv },
+              { label: copyFor("action.export"), icon: <Iconify icon="solar:download-bold" width={15} />, onSelect: exportCsv },
               { label: copyFor("action.apply_search"), onSelect: () => patch({ q: q.trim() || null }) },
-              { label: copyFor("action.reset_filters"), icon: <X size={15} />, onSelect: clearAll, disabled: chips.length === 0 },
+              { label: copyFor("action.reset_filters"), icon: <Iconify icon="mingcute:close-line" width={15} />, onSelect: clearAll, disabled: chips.length === 0 },
             ]}
           />
         </>
@@ -115,7 +115,7 @@ function LeaveToolbar({ value, parkOptions, designationOptions, basePath, curren
               variant="soft"
               label={c.label}
               onDelete={c.clear}
-              deleteIcon={<X aria-label={`${copyFor("action.remove_filter")}: ${c.label}`} role="button" />}
+              deleteIcon={<Iconify icon="mingcute:close-line" aria-label={`${copyFor("action.remove_filter")}: ${c.label}`} role="button" />}
             />
           ))}
           {chips.length ? <Button color="primary" variant="text" size="small" onClick={clearAll}>{copyFor("action.clear_all")}</Button> : null}

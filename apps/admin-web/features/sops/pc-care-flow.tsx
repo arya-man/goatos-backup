@@ -1,6 +1,6 @@
 "use client";
 
-import { Lock, Plus } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import { useMemo, type ReactNode } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -188,7 +188,7 @@ export function PcCareFlow({
       return (
         <>
           <span className="studio-node-kind">
-            <Lock size={11} /> {copy(pc, "wsop.capture.individual.locked_short")}
+            <Iconify icon="solar:lock-password-outline" width={11} /> {copy(pc, "wsop.capture.individual.locked_short")}
           </span>
           <b>{copy(pc, d.fixed!)}</b>
           <span className="muted small">{copy(pc, `${d.fixed}_hint`)}</span>
@@ -212,10 +212,10 @@ export function PcCareFlow({
           ) : null}
           <span className="studio-node-actions">
             <button type="button" className="btn sm ghost" onClick={() => onInsert({ section, kind: "proof", index: block.proofs.length })} data-testid={`flow-add-${section}-proof`}>
-              <Plus size={12} /> {copy(pc, "pcsop.category.add_capture")}
+              <Iconify icon="mingcute:add-line" width={12} /> {copy(pc, "pcsop.category.add_capture")}
             </button>
             <button type="button" className="btn sm ghost" onClick={() => onInsert({ section, kind: "question", index: block.questions.length })} data-testid={`flow-add-${section}-question`}>
-              <Plus size={12} /> {copy(pc, "inspection.question.add")}
+              <Iconify icon="mingcute:add-line" width={12} /> {copy(pc, "inspection.question.add")}
             </button>
           </span>
         </>

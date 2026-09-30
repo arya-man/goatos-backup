@@ -6,7 +6,7 @@ import TableCell from "@mui/material/TableCell";
 import { DRIVE_ROSTER_HEADER_KEYS, DRIVE_ROSTER_PAGE_SIZE } from "./calendar-drive-layout";
 import { listOrEmpty } from "@/lib/list-or-empty";
 import { randomUUID } from "node:crypto";
-import { ChevronLeft, ChevronRight, Search } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
 import MuiGrid from "@mui/material/Grid";
@@ -197,11 +197,11 @@ export async function VaccinationDriveDetail({
   const pager = (
     <Stack direction="row" spacing={1.5} sx={{ p: 2, alignItems: "center", justifyContent: "flex-end", borderTop: 1, borderColor: "divider" }}>
       {prevHref ? (
-        <LinkButton href={prevHref} variant="outlined" color="inherit" startIcon={<ChevronLeft className="ic" />} sx={{ minHeight: 44 }}>
+        <LinkButton href={prevHref} variant="outlined" color="inherit" startIcon={<Iconify icon="eva:arrow-ios-back-fill" />} sx={{ minHeight: 44 }}>
           {copy(pageContract, "calendar.drive.previous_page")}
         </LinkButton>
       ) : (
-        <Button disabled variant="outlined" color="inherit" startIcon={<ChevronLeft className="ic" />} sx={{ minHeight: 44 }}>
+        <Button disabled variant="outlined" color="inherit" startIcon={<Iconify icon="eva:arrow-ios-back-fill" />} sx={{ minHeight: 44 }}>
           {copy(pageContract, "calendar.drive.previous_page")}
         </Button>
       )}
@@ -209,11 +209,11 @@ export async function VaccinationDriveDetail({
         {copy(pageContract, "calendar.drive.page_label")} {page}
       </Typography>
       {nextHref ? (
-        <LinkButton href={nextHref} variant="contained" endIcon={<ChevronRight className="ic" />} sx={{ minHeight: 44 }}>
+        <LinkButton href={nextHref} variant="contained" endIcon={<Iconify icon="eva:arrow-ios-forward-fill" />} sx={{ minHeight: 44 }}>
           {copy(pageContract, "calendar.drive.next_page")}
         </LinkButton>
       ) : (
-        <Button disabled variant="contained" color="primary" endIcon={<ChevronRight className="ic" />} sx={{ minHeight: 44 }}>
+        <Button disabled variant="contained" color="primary" endIcon={<Iconify icon="eva:arrow-ios-forward-fill" />} sx={{ minHeight: 44 }}>
           {copy(pageContract, "calendar.drive.next_page")}
         </Button>
       )}
@@ -324,7 +324,7 @@ export async function VaccinationDriveDetail({
                   input: {
                     startAdornment: (
                       <InputAdornment position="start">
-                        <Search className="ic" style={{ width: 18 }} aria-hidden="true" />
+                        <Iconify icon="eva:search-fill" width={18} />
                       </InputAdornment>
                     ),
                   },

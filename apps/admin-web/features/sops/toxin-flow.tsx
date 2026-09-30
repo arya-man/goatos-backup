@@ -1,6 +1,6 @@
 "use client";
 
-import { Clock, Plus } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import { useMemo, type ReactNode } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -105,7 +105,7 @@ export function ToxinFlow({
       return (
         <>
           <span className="studio-node-kind">
-            <Clock size={11} /> {copy(pc, "tsop.flow.wait")}
+            <Iconify icon="solar:clock-circle-bold" width={11} /> {copy(pc, "tsop.flow.wait")}
           </span>
           <b>{step.title || copy(pc, "tsop.flow.wait")}</b>
           <span className="muted small">{waitWords(step.waitMinutes, pc)}</span>

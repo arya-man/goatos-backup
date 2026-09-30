@@ -11,7 +11,7 @@ import {
   currentHistoryEntryIsLocalOverlay,
   replaceLocalOverlayUrl,
 } from "@/components/local-overlay-link";
-import { ArrowLeft, ArrowRight, Bell } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
@@ -364,7 +364,6 @@ function CalendarEventDrawerPanel({
 
   const event = detail.event;
   const typeMeta = eventTypeMeta(event.event_type, presentation);
-  const TypeIcon = typeMeta.icon;
   const accent = ownerColor(event.owner_key, ownerMeta);
   const status = {
     label: optionLabel(pageContract, "calendar_status", event.status),
@@ -440,7 +439,7 @@ function CalendarEventDrawerPanel({
                 <input type="hidden" name="event_id" value={event.event_id} />
                 <input type="hidden" name="idempotency_key" value={nudgeKey} />
                 <input type="hidden" name="return_to" value={returnTo} />
-                <Button type="submit" variant="contained" color="primary" fullWidth startIcon={<Bell size={16} aria-hidden="true" />}>
+                <Button type="submit" variant="contained" color="primary" fullWidth startIcon={<Iconify icon="solar:bell-bing-bold" width={16} />}>
                   {copy(pageContract, "action.send_nudge")}
                 </Button>
               </Box>
@@ -472,7 +471,7 @@ function CalendarEventDrawerPanel({
             sx={{ display: "inline-flex", p: 1, borderRadius: "50%", flex: "none" }}
             style={{ background: `color-mix(in srgb, ${accent} 18%, var(--panel))`, color: accent }}
           >
-            <TypeIcon size={18} aria-hidden="true" />
+            <Iconify icon={typeMeta.icon} width={18} />
           </Box>
           <Typography variant="overline" sx={{ color: "text.secondary" }}>
             {copy(pageContract, "drawer.event.eyebrow")}
@@ -707,10 +706,10 @@ function CalendarEventDrawerPanel({
                       <Typography variant="caption" sx={{ color: "text.secondary", flex: 1, minWidth: 0 }}>
                         {copy(pageContract, "schedule.drawer.page_label")} {targetsPage} · {targets.length} {copy(pageContract, "schedule.unit.animals")}
                       </Typography>
-                      <Button size="small" variant="outlined" color="inherit" disabled={targetsPage <= 1 || targetsLoading} onClick={onPreviousTargets} startIcon={<ArrowLeft size={16} aria-hidden="true" />}>
+                      <Button size="small" variant="outlined" color="inherit" disabled={targetsPage <= 1 || targetsLoading} onClick={onPreviousTargets} startIcon={<Iconify icon="eva:arrow-ios-back-fill" width={16} />}>
                         {copy(pageContract, "action.previous")}
                       </Button>
-                      <Button size="small" variant="outlined" color="inherit" disabled={!data.targetsNextCursor || targetsLoading} onClick={onNextTargets} endIcon={<ArrowRight size={16} aria-hidden="true" />}>
+                      <Button size="small" variant="outlined" color="inherit" disabled={!data.targetsNextCursor || targetsLoading} onClick={onNextTargets} endIcon={<Iconify icon="eva:arrow-forward-fill" width={16} />}>
                         {copy(pageContract, "action.next")}
                       </Button>
                     </Stack>

@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronDown, Plus, Search, Trash2 } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import { useRouter } from "next/navigation";
 import { startTransition, useActionState, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
@@ -565,7 +565,7 @@ export function RoutineDrawerForm({
                       input: {
                         startAdornment: (
                           <InputAdornment position="start">
-                            <Search className="ic" aria-hidden="true" />
+                            <Iconify icon="eva:search-fill" />
                           </InputAdornment>
                         ),
                       },
@@ -777,7 +777,7 @@ export function RoutineDrawerForm({
                       title={label(pageContract, "action.remove_question", "action.close")}
                       onClick={() => removeQuestion(question.key)}
                     >
-                      <Trash2 className="ic" aria-hidden="true" />
+                      <Iconify icon="solar:trash-bin-trash-bold" />
                     </IconButton>
                   </Stack>
                   <TextField
@@ -858,7 +858,7 @@ export function RoutineDrawerForm({
                             title={label(pageContract, "action.remove_option", "action.close")}
                             onClick={() => updateQuestion(question.key, { options: (question.options ?? []).filter((_, i) => i !== optionIndex) })}
                           >
-                            <Trash2 className="ic" aria-hidden="true" />
+                            <Iconify icon="solar:trash-bin-trash-bold" />
                           </IconButton>
                         </Stack>
                       ))}
@@ -869,7 +869,7 @@ export function RoutineDrawerForm({
                             size="small"
                             variant="outlined"
                             color="inherit"
-                            startIcon={<Plus className="ic" aria-hidden="true" />}
+                            startIcon={<Iconify icon="mingcute:add-line" />}
                             onClick={() => updateQuestion(question.key, { options: [...(question.options ?? []), { value: "", label: "" }] })}
                           >
                             {label(pageContract, "action.add_option", "field.questions")}
@@ -928,7 +928,7 @@ export function RoutineDrawerForm({
                   {/* The key is what the phone's answer is stored under; it follows the title until
                       edited, so most people never need to touch it (template Accordion, closed). */}
                   <Accordion disableGutters elevation={0} sx={{ bgcolor: "transparent", "&::before": { display: "none" } }}>
-                    <AccordionSummary expandIcon={<ChevronDown className="ic" aria-hidden="true" />} sx={{ px: 0, minHeight: TAP_MIN }}>
+                    <AccordionSummary expandIcon={<Iconify icon="eva:arrow-ios-downward-fill" />} sx={{ px: 0, minHeight: TAP_MIN }}>
                       <Typography variant="body2" sx={{ color: "text.secondary" }}>
                         {label(pageContract, "field.question_id", "field.name")}
                       </Typography>
@@ -949,7 +949,7 @@ export function RoutineDrawerForm({
               ))}
               {draft.questions.length < LIMITS.questionsMax ? (
                 <Box>
-                  <Button type="button" size="small" variant="outlined" color="inherit" startIcon={<Plus className="ic" aria-hidden="true" />} onClick={addQuestion}>
+                  <Button type="button" size="small" variant="outlined" color="inherit" startIcon={<Iconify icon="mingcute:add-line" />} onClick={addQuestion}>
                     {label(pageContract, "action.add_question", "field.questions")}
                   </Button>
                 </Box>
@@ -1085,7 +1085,7 @@ export function RoutineSaveFooter({ formId, saveLabel, canSave }: { formId: stri
         color="primary"
         loading={view.pending}
         loadingPosition="start"
-        startIcon={<Check className="ic" aria-hidden="true" />}
+        startIcon={<Iconify icon="eva:checkmark-fill" />}
       >
         {saveLabel}
       </Button>

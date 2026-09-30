@@ -1,6 +1,5 @@
 "use client";
 
-import { FileText, Image, Mic, Plus, X } from "lucide-react";
 import { useCallback, useId, useRef, useState } from "react";
 import Button from "@mui/material/Button";
 import Dialog from "@mui/material/Dialog";
@@ -10,7 +9,7 @@ import IconButton from "@mui/material/IconButton";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 
-import { Iconify } from "@/components/minimal/iconify";
+import { Iconify, type IconifyName } from "@/components/minimal/iconify";
 import { AssigneePicker } from "@/components/assignee-picker";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { LeadershipTaskAssignee } from "@/lib/api/server";
@@ -81,20 +80,20 @@ export function NewTaskModal({
     key: string;
     label: string;
     accept: string;
-    icon: typeof Mic;
+    icon: IconifyName;
   }> = [
-    { key: "voice", label: text("picker.voice", "Voice note"), accept: "audio/*", icon: Mic },
+    { key: "voice", label: text("picker.voice", "Voice note"), accept: "audio/*", icon: "solar:microphone-bold" },
     {
       key: "media",
       label: text("picker.media", "Photo or video"),
       accept: "image/*,video/*",
-      icon: Image,
+      icon: "solar:gallery-wide-bold",
     },
     {
       key: "file",
       label: text("picker.file", "File"),
       accept: ".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt",
-      icon: FileText,
+      icon: "solar:file-text-bold",
     },
   ];
 
@@ -111,7 +110,7 @@ export function NewTaskModal({
           variant="contained"
           color="primary"
           onClick={openModal}
-          startIcon={<Plus className="ic" aria-hidden="true" />}
+          startIcon={<Iconify icon="mingcute:add-line" />}
           aria-haspopup="dialog"
           aria-expanded={open}
         >
@@ -141,14 +140,14 @@ export function NewTaskModal({
         }}
       >
             <DialogTitle component="div" className="lt-modal-hd">
-              <Plus className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
+              <Iconify icon="mingcute:add-line" sx={{ color: "primary.main" }} />
               <Typography variant="h6" component="h3" id={headingId} sx={{ flexGrow: 1 }}>{text("new.title", "New task")}</Typography>
               <IconButton
                 type="button"
                 onClick={closeModal}
                 aria-label={text("action.close", "Close")}
               >
-                <X className="ic" aria-hidden="true" />
+                <Iconify icon="mingcute:close-line" />
               </IconButton>
             </DialogTitle>
             <DialogContent dividers sx={{ pt: 1 }}>
@@ -254,11 +253,10 @@ export function NewTaskModal({
                 <span className="lt-fld-label">{text("new.attachments", "Attachments")}</span>
                 <div className="lt-pickers">
                   {pickers.map((picker) => {
-                    const Icon = picker.icon;
                     const count = picked[picker.key] ?? 0;
                     return (
                       <label key={picker.key} className="btn lt-picker">
-                        <Icon className="ic" aria-hidden="true" />
+                        <Iconify icon={picker.icon} />
                         <span className="lt-picker-label">{picker.label}</span>
                         {count ? <span className="cbq">{count}</span> : null}
                         <input type="file"

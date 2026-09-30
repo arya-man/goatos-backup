@@ -4,7 +4,7 @@ import Chip from "@mui/material/Chip";
 
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Download, X } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import Button from "@mui/material/Button";
 import { RowMenu } from "@/components/app/row-menu";
 import { FilterBar } from "@/components/app/filter-bar";
@@ -172,9 +172,9 @@ export function RoutinesToolbarRow({
               <RowMenu
                 ariaLabel={L("more")}
                 actions={[
-                  { label: L("export"), icon: <Download size={15} />, onSelect: exportCsv },
+                  { label: L("export"), icon: <Iconify icon="solar:download-bold" width={15} />, onSelect: exportCsv },
                   { label: L("apply_search"), onSelect: () => patch({ [searchParam]: query.trim() || null }) },
-                  { label: L("reset"), icon: <X size={15} />, onSelect: clearAll, disabled: chips.length === 0 },
+                  { label: L("reset"), icon: <Iconify icon="mingcute:close-line" width={15} />, onSelect: clearAll, disabled: chips.length === 0 },
                 ]}
               />
             </>
@@ -191,7 +191,7 @@ export function RoutinesToolbarRow({
                   variant="soft"
                   label={c.label}
                   onDelete={c.clear}
-                  deleteIcon={<X aria-label={`${L("remove_filter")}: ${c.label}`} role="button" />}
+                  deleteIcon={<Iconify icon="mingcute:close-line" aria-label={`${L("remove_filter")}: ${c.label}`} role="button" />}
                 />
               ))}
               {chips.length ? <Button color="primary" variant="text" size="small" onClick={clearAll}>{L("clear_all")}</Button> : null}

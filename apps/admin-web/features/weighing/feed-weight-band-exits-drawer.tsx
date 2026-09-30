@@ -6,7 +6,7 @@ import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 
 import { useState } from "react";
-import { Search } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import InputAdornment from "@mui/material/InputAdornment";
@@ -173,7 +173,7 @@ export function FeedWeightBandExitsDrawer({
           input: {
             startAdornment: (
               <InputAdornment position="start">
-                <Search size={18} aria-hidden="true" />
+                <Iconify icon="eva:search-fill" width={18} />
               </InputAdornment>
             ),
           },

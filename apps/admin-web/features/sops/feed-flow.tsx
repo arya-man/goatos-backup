@@ -2,7 +2,7 @@
 
 import { EmptyState } from "@/components/app/empty-state";
 
-import { Lock, Plus, MousePointerClick } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import { useMemo, type ReactNode } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -115,7 +115,7 @@ export function FeedFlow({
       return (
         <>
           <span className="studio-node-kind">
-            <Lock size={11} /> {copy(pc, "wsop.capture.individual.locked_short")}
+            <Iconify icon="solar:lock-password-outline" width={11} /> {copy(pc, "wsop.capture.individual.locked_short")}
           </span>
           <b>{copy(pc, d.fixed!)}</b>
           <span className="muted small">{copy(pc, `${d.fixed}_hint`)}</span>
@@ -131,10 +131,10 @@ export function FeedFlow({
           <b>{copy(pc, `fsop.stage.${stage}`)}</b>
           <span className="studio-node-actions">
             <button type="button" className="btn sm ghost" onClick={() => onInsert({ stage, kind: "proof", index: block.proofs.length })} data-testid={`flow-add-${stage}-proof`}>
-              <Plus size={12} /> {copy(pc, "fsop.flow.add_capture")}
+              <Iconify icon="mingcute:add-line" width={12} /> {copy(pc, "fsop.flow.add_capture")}
             </button>
             <button type="button" className="btn sm ghost" onClick={() => onInsert({ stage, kind: "question", index: block.questions.length })} data-testid={`flow-add-${stage}-question`}>
-              <Plus size={12} /> {copy(pc, "fsop.flow.add_question")}
+              <Iconify icon="mingcute:add-line" width={12} /> {copy(pc, "fsop.flow.add_question")}
             </button>
           </span>
         </>
@@ -171,7 +171,7 @@ export function FeedFlow({
         <div className="hd">
           <h3>{copy(pc, "studio.flow.properties")}</h3>
         </div>
-        {selected ? renderCard(selected) : <EmptyState title={copy(pc, "studio.flow.none_selected")} icon={<MousePointerClick className="ic" />} style={{ padding: 16 }} />}
+        {selected ? renderCard(selected) : <EmptyState title={copy(pc, "studio.flow.none_selected")} icon={<Iconify icon="eva:diagonal-arrow-left-down-fill" />} style={{ padding: 16 }} />}
       </aside>
     </div>
   );

@@ -21,7 +21,8 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Monitor } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
+import CircularProgress from "@mui/material/CircularProgress";
 import { fmtDateTime } from "@/lib/format";
 import { pushCopy } from "@/lib/push-copy";
 import type { BrowserPushRegistration } from "@/lib/api/browser-push-server";
@@ -165,7 +166,7 @@ export function PushSettings({ centreCopy, contractCopy }: { centreCopy: Notific
             disabled={pending || blocked}
             onChange={() => void toggle()}
           />
-          {busy === "enabling" || busy === "disabling" || busy === "checking" ? <Loader2 className="nc-spin" aria-hidden="true" /> : null}
+          {busy === "enabling" || busy === "disabling" || busy === "checking" ? <CircularProgress size={16} color="inherit" className="nc-spin" /> : null}
           <span className="nc-switch-knob" aria-hidden="true" />
         </label>
       </div>
@@ -179,7 +180,7 @@ export function PushSettings({ centreCopy, contractCopy }: { centreCopy: Notific
           const mine = row.browser_install_id === installId;
           return (
             <div key={row.browser_registration_id} className={cx("nc-push-item", row.status === "stale" && "nc-push-stale")}>
-              <Monitor aria-hidden="true" />
+              <Iconify icon="solar:monitor-bold" />
               <span className="nc-push-itemtext">
                 <span className="nc-push-itemlabel">
                   {row.browser_label || copy("push.enabled")}
@@ -194,7 +195,7 @@ export function PushSettings({ centreCopy, contractCopy }: { centreCopy: Notific
                 disabled={removing !== null || pending}
                 onClick={() => void remove(row)}
               >
-                {removing === row.browser_registration_id ? <Loader2 className="nc-spin" aria-hidden="true" /> : null}
+                {removing === row.browser_registration_id ? <CircularProgress size={16} color="inherit" className="nc-spin" /> : null}
                 {centreCopy.pushRemove}
               </button>
             </div>

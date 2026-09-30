@@ -1,6 +1,6 @@
 "use client";
 
-import { MessageSquareText } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import { useOptimistic, useRef, useState, useTransition } from "react";
 import { publishTaskRow, runTaskWrite } from "./task-row-store";
 
@@ -238,7 +238,7 @@ export function TaskActivityComposer({
   const composer = task.canComment ? (
     <div className="ltd-composer" data-testid="ltd-composer">
       <span className="ltd-av ltd-av-sm ltd-av-me" aria-hidden="true">
-        <MessageSquareText className="ic" />
+        <Iconify icon="solar:chat-round-dots-bold" />
       </span>
       <form
         ref={formRef}
@@ -287,7 +287,7 @@ export function TaskActivityComposer({
           aria-busy={isPending}
           data-testid="ltd-comment-send"
         >
-          <MessageSquareText className="ic" aria-hidden="true" />
+          <Iconify icon="solar:chat-round-dots-bold" />
           {isPending
             ? copy(pageContract, "note.sending", "Sending…")
             : copy(pageContract, "note.send")}
