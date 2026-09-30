@@ -129,31 +129,6 @@ ON CONFLICT DO NOTHING`, pcTenant, pcShedA); err != nil {
 		t.Fatalf("pen labels = %v, want operational location display labels", card.PenLabels)
 	}
 
-	// NUMBERED pens compose with a space, never a dash (2026-09-30, seen on the phone as
-	// "Castro - 1 · Castro - 2"): the card must read exactly what every other screen reads.
-	numbered, err := repo.CreateRound(ctx, ports.CreateRoundParams{
-		TenantID: pcTenant, Category: domain.CategoryDeworming, ParkID: pcPark,
-		Pens:                []domain.RoundPen{{ShedID: pcShedA, PartitionLabel: "1"}, {ShedID: pcShedA, PartitionLabel: "2"}},
-		PlannedBusinessDate: pcBusinessDay(2026, 9, 18),
-		AssigneeUserIDs:     []string{pcOperator1},
-		IdempotencyKey:      "round-cards-numbered-pens",
-		CreatedBy:           pcVerifier, ActorID: pcVerifier,
-	})
-	if err != nil {
-		t.Fatalf("CreateRound numbered: %v", err)
-	}
-	// Page one is still the first round (planned earlier); its cursor walks to the numbered one.
-	first := listActiveCards(t, ctx, repo, 1, "")
-	if len(first.Cards) != 1 || first.Cards[0].RoundID != round.RoundID || first.NextCursor == "" {
-		t.Fatalf("page one = %+v cursor %q, want the first round and a cursor", first.Cards, first.NextCursor)
-	}
-	next := listActiveCards(t, ctx, repo, 1, first.NextCursor)
-	if len(next.Cards) != 1 || next.Cards[0].RoundID != numbered.RoundID {
-		t.Fatalf("second page cards = %+v, want only round %s", next.Cards, numbered.RoundID)
-	}
-	if got := next.Cards[0].PenLabels; !slices.Equal(got, []string{"Castro 1", "Castro 2"}) {
-		t.Fatalf("numbered pen labels = %q, want [Castro 1 Castro 2]", got)
-	}
 	if card.Status != domain.StatusOpen {
 		t.Fatalf("status = %q, want open", card.Status)
 	}
@@ -368,5 +343,71 @@ WHERE tenant_id = $1::uuid AND round_id = $2::uuid`, pcTenant, round.RoundID); e
 	done, ok := cardFor(t, ports.RoundCardsFilterCompleted)
 	if !ok || done.Status != domain.StatusCompleted {
 		t.Fatalf("completed card = %+v ok=%v, want status completed on the completed tab", done, ok)
+	}
+}
+
+// NUMBERED pen names across every shape of the round-card read (2026-09-30, seen on the phone as
+// "Castro - 1 · Castro - 2" beside task screens saying "Castro 1"): several pens per round
+// (one-to-many), two rounds walked one card per page (pagination), and pens in different states
+// (status matrix) -- the names are composed by oploc.Display in every case, never a ' - ' join.
+func TestRoundCardNumberedPenNamesMultipleDimensionsPaginationStatusMatrix(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupPCCareDB(t, ctx)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+SELECT $1::uuid, $2::uuid, v.label, v.norm, 'active', 'manual'
+FROM (VALUES ('1', '1'), ('2', '2'), ('3', '3')) AS v(label, norm)
+ON CONFLICT DO NOTHING`, pcTenant, pcShedA); err != nil {
+		t.Fatalf("seed pen catalog: %v", err)
+	}
+	plan := func(key string, day int, parts ...string) ports.RoundRow {
+		t.Helper()
+		pens := []domain.RoundPen{}
+		for _, p := range parts {
+			pens = append(pens, domain.RoundPen{ShedID: pcShedA, PartitionLabel: p})
+		}
+		round, err := repo.CreateRound(ctx, ports.CreateRoundParams{
+			TenantID: pcTenant, Category: domain.CategoryDeworming, ParkID: pcPark, Pens: pens,
+			PlannedBusinessDate: pcBusinessDay(2026, 9, day), AssigneeUserIDs: []string{pcOperator1, pcOperator2},
+			IdempotencyKey: key, CreatedBy: pcVerifier, ActorID: pcVerifier,
+		})
+		if err != nil {
+			t.Fatalf("CreateRound %s: %v", key, err)
+		}
+		return round
+	}
+	first := plan("numbered-a", 20, "1", "2")
+	second := plan("numbered-b", 21, "2", "3")
+	// Status matrix: one pen of the second round is with the verifier, the other still open.
+	if _, err := pool.Exec(ctx, `UPDATE pc_care_tasks SET status = 'pending_verification' WHERE task_id = $1::uuid`, second.Pens[0].TaskID); err != nil {
+		t.Fatalf("move a pen to review: %v", err)
+	}
+
+	page1 := listActiveCards(t, ctx, repo, 1, "")
+	if len(page1.Cards) != 1 || page1.Cards[0].RoundID != first.RoundID || page1.NextCursor == "" {
+		t.Fatalf("page one = %+v, want the first round and a cursor", page1.Cards)
+	}
+	if got := page1.Cards[0].PenLabels; !slices.Equal(got, []string{"Castro 1", "Castro 2"}) {
+		t.Fatalf("page one pen labels = %q, want [Castro 1 Castro 2]", got)
+	}
+	page2 := listActiveCards(t, ctx, repo, 1, page1.NextCursor)
+	if len(page2.Cards) != 1 || page2.Cards[0].RoundID != second.RoundID {
+		t.Fatalf("page two = %+v, want the second round", page2.Cards)
+	}
+	card := page2.Cards[0]
+	if got := card.PenLabels; !slices.Equal(got, []string{"Castro 2", "Castro 3"}) || card.PenCount != 2 {
+		t.Fatalf("page two pens = %q (count %d), want [Castro 2 Castro 3] x2 -- the assignee join must not fan out", got, card.PenCount)
+	}
+	// One pen in review beside one still owed: the card says what is OWED (domain.RoundStatusRollup).
+	if card.Status != domain.StatusOpen {
+		t.Fatalf("review + open round status = %q, want open", card.Status)
+	}
+	// Send the other pen back: rework outranks both, and the names do not move.
+	if _, err := pool.Exec(ctx, `UPDATE pc_care_tasks SET status = 'rework' WHERE task_id = $1::uuid`, second.Pens[1].TaskID); err != nil {
+		t.Fatalf("send a pen back: %v", err)
+	}
+	again := listActiveCards(t, ctx, repo, 1, page1.NextCursor)
+	if len(again.Cards) != 1 || again.Cards[0].Status != domain.StatusRework || !slices.Equal(again.Cards[0].PenLabels, []string{"Castro 2", "Castro 3"}) {
+		t.Fatalf("review + rework round = %+v, want rework with [Castro 2 Castro 3]", again.Cards)
 	}
 }
