@@ -6,7 +6,7 @@ Land PR #458 (`feat/kid-stage-shift-tasks`) to `main`, then deploy STG backend/a
 
 ## Current SHA
 
-- Candidate: `44dd46ff38aa1817f7fa7a779d59ee3f59761fb3`
+- Candidate: `9dde1543adef4bb2023152c531c656c4affddbbc`
 - Branch: `review-pr-458`
 - PR: https://github.com/vgoats/goatos/pull/458
 - GitHub merge state before landing: `BLOCKED`
@@ -27,10 +27,15 @@ Land PR #458 (`feat/kid-stage-shift-tasks`) to `main`, then deploy STG backend/a
 - OCI tunnel restored with `/Users/raviteja/mesha/tools/local/oci-goatos-a1-dev.sh tunnel`.
 - Focused failing step rerun passed:
   - `GOATOS_CI_ONLY_STEP='required PostgreSQL query plans' tools/ci/run-local-ci.sh query-plans`
+- Second `make land-main` attempt failed before push because this fresh worktree did not have admin-web npm dependencies installed; `admin-web lint` could not find `eslint`.
+- Installed locked admin-web dependencies:
+  - `npm --prefix apps/admin-web ci`
+- Focused failing step rerun passed:
+  - `GOATOS_CI_ONLY_STEP='admin-web lint' tools/ci/run-local-ci.sh admin-web`
 
 ## Pending
 
-- Rerun full `make land-main` with the OCI query-plan DSNs scoped in the environment.
+- Rerun full `make land-main` with the OCI query-plan DSNs scoped in the environment and admin-web dependencies installed.
 - Verify local and remote `main` SHA after landing.
 - Run guarded STG deploy:
   - `GOATOS_REPO=/Users/raviteja/mesha/goatos-wt-pr458-review /Users/raviteja/bin/goatos-stg-deploy backend-web-mobile`
@@ -39,6 +44,7 @@ Land PR #458 (`feat/kid-stage-shift-tasks`) to `main`, then deploy STG backend/a
 ## Known Failures
 
 - First `make land-main` attempt failed before push on infrastructure only: `127.0.0.1:15432` refused the query-plan connection.
+- Second `make land-main` attempt failed before push on local dependency setup only: missing admin-web `node_modules` caused `eslint`/`tsc` to be unavailable.
 - A broad accidental admin-web test run outside the focused target failed on missing local dependencies (`typescript`, `@grafana/faro-core`); this is not counted as PR evidence.
 
 ## Deployment State
