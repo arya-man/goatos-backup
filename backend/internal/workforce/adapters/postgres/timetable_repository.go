@@ -37,6 +37,7 @@ LEFT JOIN workforce_park_shift_timings t
 WHERE c.status = 'active'
 ORDER BY c.sort_order, c.shift_code`
 
+	// projection-review: membership=workforce_members of ONE tenant whose primary_location_id is the park and status is active; group_key=the member's one shift_code ('' = no workforce_member_shifts row); join_cardinality=workforce_member_shifts is keyed (tenant_id, workforce_member_id) so the LEFT JOIN is 1:0..1 and no member is counted twice; pagination=whole-park aggregate taken before and independent of the keyset people page; scope=explicit tenant + park_id, the same member set ListTimetablePeople pages.
 	sqlParkShiftHeadcount = `
 SELECT COALESCE(ms.shift_code, ''), count(*)::int
 FROM workforce_members wm

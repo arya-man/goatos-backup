@@ -210,3 +210,144 @@ VALUES ($1::uuid, $2::uuid, $3, $3, $4, $5::uuid)`, ttMember(i), ttTenant, m.nam
 		t.Fatal("a shift ending when it starts must be refused by the table")
 	}
 }
+
+// ttSeed builds one tenant with two parks and hands back a helper that adds members.
+func ttSeed(t *testing.T, ctx context.Context, tenant string) (*Repository, func(sql string, args ...any), func(id int, name, park, status string)) {
+	t.Helper()
+	pgtest.SkipIfNoDocker(t)
+	pool := pgtest.StartPostgres(t, ctx)
+	t.Cleanup(pool.Close)
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("seed: %v\n%s", err, sql)
+		}
+	}
+	exec(`INSERT INTO tenants (tenant_id, name, status) VALUES ($1, 'Timetable Tenant', 'active') ON CONFLICT (tenant_id) DO NOTHING`, tenant)
+	exec(`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status) VALUES ($1::uuid, $2::uuid, 'park', 'CPT', 'Channapatna', 'active')`, ttCPT, tenant)
+	exec(`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status) VALUES ($1::uuid, $2::uuid, 'park', 'CBE', 'Coimbatore', 'active')`, ttCBE, tenant)
+	member := func(id int, name, park, status string) {
+		t.Helper()
+		exec(`INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_location_id)
+VALUES ($1::uuid, $2::uuid, $3, $3, $4, $5::uuid)`, ttMember(id), tenant, name, status, park)
+	}
+	return NewRepository(pool, 5*time.Second), exec, member
+}
+
+func ttListAll(t *testing.T, ctx context.Context, repo *Repository, tenant, park, shift string, limit int) ([]string, int) {
+	t.Helper()
+	var names []string
+	pages, cursor := 0, ""
+	for {
+		items, next, err := repo.ListTimetablePeople(ctx, ports.ListTimetablePeopleParams{TenantID: tenant, ParkID: park, Shift: shift, Cursor: cursor, Limit: limit})
+		if err != nil {
+			t.Fatal(err)
+		}
+		pages++
+		for _, it := range items {
+			names = append(names, it.DisplayName)
+		}
+		if next == "" || pages > 20 {
+			return names, pages
+		}
+		cursor = next
+	}
+}
+
+// A person joins to a designation, a department and a shift, and the park carries three timing
+// rows: none of those sides may multiply the person. Counts and the paged list must both see
+// each person exactly once.
+func TestTimetableHeadcountOneToManyJoinsCountEachPersonOnce(t *testing.T) {
+	ctx := context.Background()
+	repo, exec, member := ttSeed(t, ctx, ttTenant)
+	for i, name := range []string{"Amit", "Bhavya", "Chetan"} {
+		member(i, name, ttCPT, "active")
+		exec(`INSERT INTO person_access (tenant_id, workforce_member_id, designation_code) VALUES ($1::uuid, $2::uuid, 'manager_feed')`, ttTenant, ttMember(i))
+		exec(`UPDATE workforce_members SET department_id = (SELECT department_id FROM departments WHERE tenant_id = $1::uuid LIMIT 1) WHERE workforce_member_id = $2::uuid`, ttTenant, ttMember(i))
+	}
+	for _, code := range []string{"morning", "general", "second"} {
+		if _, err := repo.SetParkShiftTiming(ctx, ttTenant, ttActor, ttCPT, code, ptr(360), ptr(900), 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := range 3 {
+		if _, err := repo.SetMemberShift(ctx, ttTenant, ttActor, ttMember(i), "general", 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	counts, err := repo.ParkShiftHeadcount(ctx, ttTenant, ttCPT)
+	if err != nil || counts["general"] != 3 || len(counts) != 1 {
+		t.Fatalf("counts = %+v %v, want general=3 only", counts, err)
+	}
+	if names, _ := ttListAll(t, ctx, repo, ttTenant, ttCPT, "", 50); fmt.Sprint(names) != "[Amit Bhavya Chetan]" {
+		t.Fatalf("list = %v", names)
+	}
+}
+
+// Keyset paging at the exact boundary: four people in pages of two is two pages and no third
+// empty one; a page as large as the park is one page with no cursor.
+func TestTimetablePeoplePageBoundary(t *testing.T) {
+	ctx := context.Background()
+	repo, _, member := ttSeed(t, ctx, ttTenant)
+	for i, name := range []string{"d", "B", "a", "C"} {
+		member(i, name, ttCPT, "active")
+	}
+	names, pages := ttListAll(t, ctx, repo, ttTenant, ttCPT, "", 2)
+	if fmt.Sprint(names) != "[a B C d]" || pages != 2 {
+		t.Fatalf("pages of 2 = %v in %d pages, want [a B C d] in 2", names, pages)
+	}
+	if names, pages = ttListAll(t, ctx, repo, ttTenant, ttCPT, "", 4); len(names) != 4 || pages != 1 {
+		t.Fatalf("one full page = %v in %d pages", names, pages)
+	}
+}
+
+// The park is the scope: another park's people, and the same park id under another tenant, are
+// never counted or listed.
+func TestTimetableParkScopeKeepsParksAndTenantsApart(t *testing.T) {
+	ctx := context.Background()
+	repo, exec, member := ttSeed(t, ctx, ttTenant)
+	member(0, "Cpt one", ttCPT, "active")
+	member(1, "Cpt two", ttCPT, "active")
+	member(2, "Cbe one", ttCBE, "active")
+	other := "00000000-0000-4000-8000-0000000000a8"
+	exec(`INSERT INTO tenants (tenant_id, name, status) VALUES ($1, 'Other', 'active')`, other)
+	exec(`INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_location_id)
+VALUES ($1::uuid, $2::uuid, 'Stranger', 'Stranger', 'active', $3::uuid)`, ttMember(9), other, ttCPT)
+	counts, err := repo.ParkShiftHeadcount(ctx, ttTenant, ttCPT)
+	if err != nil || counts[""] != 2 || len(counts) != 1 {
+		t.Fatalf("CPT counts = %+v %v, want 2 unassigned", counts, err)
+	}
+	if names, _ := ttListAll(t, ctx, repo, ttTenant, ttCPT, "", 50); fmt.Sprint(names) != "[Cpt one Cpt two]" {
+		t.Fatalf("CPT list = %v", names)
+	}
+	if names, _ := ttListAll(t, ctx, repo, ttTenant, ttCBE, "", 50); fmt.Sprint(names) != "[Cbe one]" {
+		t.Fatalf("CBE list = %v", names)
+	}
+}
+
+// Every member status the table allows: only ACTIVE people work a shift, so only they are
+// counted, listed, or can be put on one.
+func TestTimetableStatusMatrixCountsOnlyActivePeople(t *testing.T) {
+	ctx := context.Background()
+	repo, _, member := ttSeed(t, ctx, ttTenant)
+	statuses := []string{"candidate", "active", "inactive", "suspended", "left"}
+	for i, status := range statuses {
+		member(i, "Person "+status, ttCPT, status)
+	}
+	counts, err := repo.ParkShiftHeadcount(ctx, ttTenant, ttCPT)
+	if err != nil || counts[""] != 1 || len(counts) != 1 {
+		t.Fatalf("counts = %+v %v, want exactly the one active person", counts, err)
+	}
+	if names, _ := ttListAll(t, ctx, repo, ttTenant, ttCPT, "unassigned", 50); fmt.Sprint(names) != "[Person active]" {
+		t.Fatalf("list = %v", names)
+	}
+	for i, status := range statuses {
+		_, err := repo.SetMemberShift(ctx, ttTenant, ttActor, ttMember(i), "general", 0)
+		if status == "active" && err != nil {
+			t.Fatalf("active person refused: %v", err)
+		}
+		if status != "active" && !errors.Is(err, ports.ErrPersonNotFound) {
+			t.Fatalf("%s person = %v, want not found", status, err)
+		}
+	}
+}
