@@ -195,7 +195,7 @@ export function QuestionShell({
           direction="row"
           spacing={1.5}
           useFlexGap
-          sx={(theme) => ({ alignItems: "center", flexWrap: "wrap", mt: 2, pt: 1.5, borderTop: `dashed 1px ${theme.vars.palette.divider}` })}
+          sx={{ alignItems: "center", flexWrap: "wrap", mt: 2, pt: 1.5, borderTop: 1, borderTopStyle: "dashed", borderColor: "divider" }}
         >
           {foot}
         </Stack>
@@ -249,7 +249,7 @@ export function GroupTitle({ title, hint }: { title: ReactNode; hint?: ReactNode
 /** A row of fields that share the width from sm up and stack on a phone. */
 export function FieldGrid({ children }: { children: ReactNode }) {
   return (
-    <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} useFlexGap sx={{ flexWrap: "wrap", minWidth: 0, "& > *": { flex: { sm: "1 1 180px" }, minWidth: 0 } }}>
+    <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} useFlexGap sx={{ flexWrap: "wrap", minWidth: 0, "& > *": { flex: { sm: "1 1 var(--field-basis)" }, minWidth: 0 }, "--field-basis": (theme) => theme.spacing(22.5) }}>
       {children}
     </Stack>
   );

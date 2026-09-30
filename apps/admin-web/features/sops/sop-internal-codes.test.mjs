@@ -32,9 +32,15 @@ test("SOP editor text fields carry their own MUI label and escape the legacy .qc
   for (const file of ["./feed-editor.tsx", "./followup-editor.tsx", "./shifting-editor.tsx"]) {
     assert.doesNotMatch(read(file), /<label className="numlbl">\s*\{copy\([^}]*\)\}\s*<MuiTextField/, `${file}: label-above wrapper around a TextField`);
   }
+  // FIXJ3: the legacy .qcard/.qcfg paint is gone with the classes; the editors are the shared
+  // template parts (editor-parts.tsx) and no stylesheet reaches their MUI inputs.
   const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
-  const rule = css.match(/\.qcard input[^{]*\{/);
-  assert.ok(rule && /:not\(\.MuiInputBase-input\)/.test(rule[0]), ".qcard input rule must exclude MUI inputs");
+  assert.doesNotMatch(css, /\.(qcard|qcfg|qhead|qbody|qfoot|optrow|condrow|inspection-page|numfield|numlbl)\b[^{]*\{/, "legacy SOP editor rules are deleted");
+  for (const file of ["./weighing-editor.tsx", "./inspection-editor.tsx", "./shifting-editor.tsx", "./pc-care-editor.tsx", "./feed-editor.tsx", "./toxin-editor.tsx", "./capture-editor.tsx", "./followup-editor.tsx", "./question-card.tsx", "./sop-builder.tsx", "./builder-preview.tsx"]) {
+    const src = read(file);
+    assert.doesNotMatch(src, /className=/, `${file}: no className (template parts + sx only)`);
+    assert.match(src, /from "\.\/editor-parts"/, `${file}: built from the shared editor parts`);
+  }
 });
 
 // guard: sop-flow-phone-fit (FJ3 P1-17): on a phone the flow opened at ~41% hugging the right edge.

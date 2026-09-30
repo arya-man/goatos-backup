@@ -41,11 +41,13 @@ export function BranchField({
       data-testid="branch-field"
       sx={(theme) => ({
         display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+        gridTemplateColumns: `repeat(auto-fit, minmax(${theme.spacing(20)}, 1fr))`,
         columnGap: 1,
         rowGap: 1,
         p: 1.25,
-        border: `dashed 1px ${theme.vars.palette.divider}`,
+        border: 1,
+        borderStyle: "dashed",
+        borderColor: "divider",
         borderRadius: "var(--r-md)",
       })}
     >

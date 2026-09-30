@@ -291,7 +291,7 @@ export function SopBuilder({
           {/* Basics */}
           <SectionCard icon="solar:notes-bold-duotone" title={copy(pc, "builder.section.basics")}>
             {/* Phone: the name, domain and kind stack instead of squeezing onto one row. */}
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.25} useFlexGap sx={{ flexWrap: "wrap", "& > *": { flex: { sm: "1 1 180px" }, minWidth: 0 } }}>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.25} useFlexGap sx={{ flexWrap: "wrap", "& > *": { flex: { sm: "1 1 var(--field-basis)" }, minWidth: 0 }, "--field-basis": (theme) => theme.spacing(22.5) }}>
               <MuiTextField
                 label={copy(pc, "modal.builder.field.name")}
                 size="small"
@@ -396,7 +396,7 @@ export function SopBuilder({
                 type="number"
                 value={minCount}
                 slotProps={{ htmlInput: { min: 1 } }}
-                sx={{ flex: "0 1 160px" }}
+                sx={{ flex: (theme) => `0 1 ${theme.spacing(20)}` }}
                 onChange={(e) => { setMinCount(Number(e.target.value)); resetResults(); }}
               />
               <FieldSelect

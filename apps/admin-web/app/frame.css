@@ -112,8 +112,6 @@
 .wrap:has(.lt-page){overflow-x:visible}
 .main .card .hd h3,.main .card .hd h2,.card>.hd{min-width:0;flex:0 1 auto;white-space:normal;overflow-wrap:anywhere}
 .card>.hd{flex-wrap:wrap}
-@media(max-width:640px){.pvbar .btn.sm{white-space:normal;height:auto;min-height:44px}}
-.pvbar .btn.sm{min-width:max-content;padding-left:12px;padding-right:12px}
 .wb .tag a{display:inline-flex;align-items:center;min-height:44px;min-width:44px;justify-content:center;margin:-16px 0}
 /* Desktop sidebar: the .layout row is already viewport-height with .main as the scroll owner, so the
    sidebar is a plain full-height column — `position:sticky` inside an overflow:hidden parent is dead
@@ -128,9 +126,7 @@
   :root .main button:not(.kit-check input),:root .main input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),:root .main select,:root .main textarea,:root .main summary,:root .main .chip,:root .main .move-date-button,:root .main a.more,:root .main .wt-feedband-gone{min-height:44px}
   :root .main summary,:root .main .chip,:root .main a.more,:root .main .wt-feedband-gone{display:inline-flex;align-items:center;justify-content:center;min-width:44px;box-sizing:border-box}
   :root .main .move-date-popover,:root .main .top-date-popover{width:min(100vw - 16px,360px);max-width:calc(100vw - 16px);left:0;right:auto;padding:12px}
-  
-  :root .main .cfgchk label,:root .main label.chkline{min-height:44px;display:inline-flex;align-items:center;gap:8px}
-  :root .main .qcard .ia{min-width:44px}
+
   :root .main .fld>label[for]:not(.MuiFormLabel-root),:root .main label[for]:not(.MuiFormLabel-root){min-height:44px;display:flex;align-items:center}
   :root .main .pager2 a.btn,:root .main .pager2 .btn,:root .main .pager2 button{min-height:44px;height:44px}
 }
