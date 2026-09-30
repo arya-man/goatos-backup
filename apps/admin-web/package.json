@@ -10,6 +10,7 @@
     "dev": "node scripts/run-local-next.mjs dev",
     "dev:local": "node scripts/run-local-next.mjs dev",
     "build": "node scripts/build-with-provenance.mjs",
+    "check:prerender-repeat": "node scripts/check-prerender-repeat.mjs --runs 3",
     "start": "node scripts/assert-origin-main-local-stack.mjs && next start",
     "start:local": "node scripts/run-local-next.mjs start",
     "auth:seed-password-users": "node scripts/seed-firebase-password-users.mjs",

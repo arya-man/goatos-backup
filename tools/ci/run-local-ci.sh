@@ -160,7 +160,7 @@ step_input_set() { # job, step name
     # Side-effecting setup and live external evals are NEVER reused.
     "admin-web|admin-web deps"|*"|ceo-ai-eval live"*) echo none ;;
     "backend|backend go mod verify"|"backend|backend go vet"|"backend|backend govulncheck"|"backend|backend sqlc vet + diff"|"backend|backend targeted race"|"backend|go test ./..."*|"backend|scale-guard self-test") echo backend ;;
-    "admin-web|admin-web lint"|"admin-web|admin-web typecheck"|"admin-web|admin-web unit tests"|"admin-web|admin-web mock-fidelity"|"admin-web|admin-web request-plan"|"admin-web|admin-web production build + token leak") echo adminweb ;;
+    "admin-web|admin-web lint"|"admin-web|admin-web typecheck"|"admin-web|admin-web unit tests"|"admin-web|admin-web mock-fidelity"|"admin-web|admin-web request-plan"|"admin-web|admin-web production build + token leak"|"admin-web|admin-web prerender repeat (3 passes)") echo adminweb ;;
     "android|android :app compile+unit+lint"|"android|android screenshots"*|"android|android benchmark compile"|"android|android fast compile/unit/lint") echo android ;;
     *) echo whole ;;
   esac
@@ -936,6 +936,10 @@ run_admin_web() {
   step "admin-web mock-fidelity" npm --prefix apps/admin-web run check:mock-fidelity
   step "admin-web request-plan"  npm --prefix apps/admin-web run check:action-center-request-plan
   step "admin-web production build + token leak" env GOATOS_BEARER_TOKEN=sentinel-mesha-admin-token npm --prefix apps/admin-web run build
+  # guard: prerender-repeat. /_global-error failed to prerender INTERMITTENTLY (the root loading.tsx
+  # is its Suspense fallback with no root layout / theme provider); one green build proves little for
+  # a race, so compile once and run the prerender step 3x (scripts/check-prerender-repeat.mjs).
+  step "admin-web prerender repeat (3 passes)" env GOATOS_BEARER_TOKEN=sentinel-mesha-admin-token npm --prefix apps/admin-web run check:prerender-repeat
   return 0
 }
 
