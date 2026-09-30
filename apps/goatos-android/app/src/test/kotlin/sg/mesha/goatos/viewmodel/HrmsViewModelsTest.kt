@@ -216,6 +216,39 @@ class HrmsViewModelsTest {
         assertEquals(listOf("a1"), s.rows.map { it.listKey })
     }
 
+    @Test
+    fun aMonthThatFailsToLoadNeverShowsAnotherMonthsTotals() = runTest {
+        // Reported 2026-09-30 on the Realme: Sep loaded, the network dropped, Jun was picked -- the
+        // screen read "no violations" under Sep's count, fine and people.
+        val repo = PagedViolationsRepository()
+        val vm = ViolationsListViewModel(repo, NoopAddAnalyticsPort(), NoopAddCrashReporter())
+        vm.onEvent(ViolationsListEvent.Refresh)
+        assertEquals(5, vm.state.value.count)
+
+        repo.offline = true
+        vm.onEvent(ViolationsListEvent.SelectMonth("2026-06"))
+        var s = vm.state.value
+        assertEquals("2026-06", s.month)
+        assertTrue("the month that did not load says so", s.monthFailed)
+        assertEquals(0, s.count)
+        assertEquals("", s.fineLabel)
+        assertEquals(0, s.people)
+        assertTrue(s.rows.isEmpty())
+
+        // Back online, Try again loads the month and clears the failure.
+        repo.offline = false
+        vm.onEvent(ViolationsListEvent.Refresh)
+        s = vm.state.value
+        assertFalse(s.monthFailed)
+        assertEquals("2026-06", repo.calls.last().first)
+
+        // A failed refresh of the month ALREADY on screen keeps it (saved list + banner).
+        repo.offline = true
+        vm.onEvent(ViolationsListEvent.Refresh)
+        assertFalse(vm.state.value.monthFailed)
+        assertTrue(vm.state.value.refreshFailed)
+    }
+
     private fun reportVm(repo: FakeDisciplineRepository, sync: FakeHrmsSyncRepository) = EnquiryReportViewModel(
         repo,
         sync,
@@ -297,10 +330,12 @@ private class FakeDisciplineRepository(
 
 private class PagedViolationsRepository : DisciplineRepository {
     val calls = mutableListOf<Pair<String?, String?>>()
+    var offline = false
     override suspend fun fetchOpenEnquiries(): Result<EnquiryPageDto> = Result.success(EnquiryPageDto())
     override suspend fun fetchEnquiry(enquiryId: String): Result<EnquiryDetailDto> = Result.success(detail())
     override suspend fun fetchViolations(month: String?, cursor: String?): Result<ViolationsPageDto> {
         calls += month to cursor
+        if (offline) return Result.failure(java.io.IOException("offline"))
         val months = listOf(MonthOptionDto("2026-09", "Sep 2026"), MonthOptionDto("2026-08", "Aug 2026"))
         val summary = ViolationSummaryDto(count = 5, fineRupees = 2600, fineLabel = "₹2,600", people = 4)
         return Result.success(

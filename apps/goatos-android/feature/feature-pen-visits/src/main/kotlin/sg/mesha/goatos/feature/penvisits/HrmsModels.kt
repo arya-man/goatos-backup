@@ -195,6 +195,11 @@ data class ViolationsListUiState(
     val rows: List<ViolationRowUi> = emptyList(),
     val loadingMore: Boolean = false,
     val canRecord: Boolean = false,
+    /**
+     * The chosen month could not be loaded (no network, nothing saved for it). The screen then shows
+     * "couldn't load this month" instead of an empty list under another month's totals.
+     */
+    val monthFailed: Boolean = false,
 )
 
 sealed interface ViolationsListEvent {

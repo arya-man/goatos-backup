@@ -456,6 +456,9 @@ class ViolationsListViewModel @Inject constructor(
     private val _state = MutableStateFlow(ViolationsListUiState())
     val state: StateFlow<ViolationsListUiState> = _state.asStateFlow()
     private var month: String? = null
+    /** The month the shown totals and rows belong to; null until a page has loaded. */
+    private var loadedMonth: String? = null
+    private var hasLoaded = false
     private var nextCursor = ""
     private var loading: Job? = null
 
@@ -469,7 +472,9 @@ class ViolationsListViewModel @Inject constructor(
             ViolationsListEvent.LoadMore -> loadMore()
             is ViolationsListEvent.SelectMonth -> if (event.key != _state.value.month) {
                 month = event.key
-                _state.update { it.copy(month = event.key, rows = emptyList()) }
+                // The totals on screen belong to the previous month: clear them with its rows, so a
+                // failed load can never show June's empty list under September's numbers.
+                _state.update { it.copy(month = event.key, rows = emptyList(), count = 0, fineLabel = "", people = 0, canRecord = false, monthFailed = false) }
                 load(reset = true)
             }
             ViolationsListEvent.Back, ViolationsListEvent.Record -> Unit
@@ -479,10 +484,13 @@ class ViolationsListViewModel @Inject constructor(
     private fun load(reset: Boolean) {
         loading?.cancel()
         _state.update { it.copy(isRefreshing = true, loading = reset || (it.loading && it.rows.isEmpty())) }
+        val requested = month
         loading = viewModelScope.launch {
-            repo.fetchViolations(month = month)
+            repo.fetchViolations(month = requested)
                 .onSuccess { page ->
                     nextCursor = page.nextCursor
+                    loadedMonth = requested
+                    hasLoaded = true
                     _state.update {
                         it.copy(
                             loading = false,
@@ -497,13 +505,25 @@ class ViolationsListViewModel @Inject constructor(
                             people = page.summary.people,
                             rows = page.items.map { v -> v.toRowUi() },
                             canRecord = page.types.isNotEmpty() && page.people.isNotEmpty(),
+                            monthFailed = false,
                         )
                     }
                 }
                 .onFailure { failure ->
                     crashReporter.recordException(failure, "hrms violations read failed")
                     analytics.track(AnalyticsEventsHrms.FAILURE, mapOf(AnalyticsEvents.Params.REASON to (failure.message ?: "violations").take(MAX_REASON)))
-                    _state.update { it.copy(loading = false, isRefreshing = false, refreshFailed = true, unavailable = it.rows.isEmpty() && it.months.isEmpty()) }
+                    // A refresh of the month already on screen keeps it (saved list + banner); a month
+                    // that never loaded has nothing true to show.
+                    val monthMissing = hasLoaded && loadedMonth != requested
+                    _state.update {
+                        it.copy(
+                            loading = false,
+                            isRefreshing = false,
+                            refreshFailed = true,
+                            unavailable = it.rows.isEmpty() && it.months.isEmpty(),
+                            monthFailed = monthMissing,
+                        )
+                    }
                 }
         }
     }

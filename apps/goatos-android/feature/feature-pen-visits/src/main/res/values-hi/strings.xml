@@ -55,6 +55,7 @@
     <string name="hrms_penalty_twice">एक ही व्यक्ति दो बार जोड़ा गया है।</string>
     <string name="hrms_violations">उल्लंघन</string>
     <string name="hrms_violations_refresh_failed">रीफ़्रेश नहीं हो सका · सहेजे गए उल्लंघन दिख रहे हैं</string>
+    <string name="hrms_violations_month_failed">यह महीना लोड नहीं हो सका। कनेक्शन देखें और फिर कोशिश करें।</string>
     <string name="hrms_summary_violations">उल्लंघन</string>
     <string name="hrms_summary_fines">जुर्माना</string>
     <string name="hrms_summary_people">लोग</string>

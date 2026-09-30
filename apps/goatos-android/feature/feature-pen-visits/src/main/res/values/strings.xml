@@ -64,6 +64,7 @@
     <string name="hrms_penalty_twice">The same person is added twice.</string>
     <string name="hrms_violations">Violations</string>
     <string name="hrms_violations_refresh_failed">Couldn\'t refresh · showing saved violations</string>
+    <string name="hrms_violations_month_failed">Couldn\'t load this month. Check the connection and try again.</string>
     <string name="hrms_summary_violations">Violations</string>
     <string name="hrms_summary_fines">Fines</string>
     <string name="hrms_summary_people">People</string>

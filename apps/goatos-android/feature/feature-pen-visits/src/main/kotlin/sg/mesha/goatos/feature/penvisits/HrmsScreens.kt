@@ -603,7 +603,8 @@ fun ViolationsListScreen(
                     isRefreshing = state.isRefreshing,
                     lastSyncedAt = state.lastSyncedAt,
                     hasData = state.rows.isNotEmpty() || !state.loading,
-                    refreshFailedLabel = if (state.refreshFailed) stringResource(R.string.hrms_violations_refresh_failed) else null,
+                    // A month that never loaded has nothing saved: its own card says so instead.
+                    refreshFailedLabel = if (state.refreshFailed && !state.monthFailed) stringResource(R.string.hrms_violations_refresh_failed) else null,
                 )
             },
             actions = {
@@ -661,6 +662,12 @@ private fun ViolationsListBody(state: ViolationsListUiState, onEvent: (Violation
                     }
                 }
             }
+        }
+        if (state.monthFailed) {
+            item(key = "month_failed") {
+                Unavailable(stringResource(R.string.hrms_violations_month_failed)) { onEvent(ViolationsListEvent.Refresh) }
+            }
+            return@LazyColumn
         }
         item(key = "summary") {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {

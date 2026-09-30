@@ -55,6 +55,7 @@
     <string name="hrms_penalty_twice">ఒకే వ్యక్తిని రెండుసార్లు చేర్చారు.</string>
     <string name="hrms_violations">ఉల్లంఘనలు</string>
     <string name="hrms_violations_refresh_failed">రిఫ్రెష్ కాలేదు · సేవ్ చేసిన ఉల్లంఘనలు చూపిస్తున్నాం</string>
+    <string name="hrms_violations_month_failed">ఈ నెల లోడ్ కాలేదు. కనెక్షన్ చూసి మళ్ళీ ప్రయత్నించండి.</string>
     <string name="hrms_summary_violations">ఉల్లంఘనలు</string>
     <string name="hrms_summary_fines">జరిమానాలు</string>
     <string name="hrms_summary_people">వ్యక్తులు</string>
