@@ -13,6 +13,8 @@
 //   - an import from lucide-react (template Iconify instead)
 //   - an import of a .css file (sx instead)
 //   - a hex or rgb()/rgba() colour literal (theme palette tokens instead)
+//   - an embedded stylesheet: a <style> element or <GlobalStyles styles={`...css`}> string
+//     (a feature stylesheet moved into a TSX string is still a feature stylesheet: sx instead)
 // A zone entry is a file path or a directory prefix ending in "/". Tests and stories are skipped.
 // Zones only grow; removing one to make a regression pass is the thing this guard exists to stop.
 
@@ -25,6 +27,9 @@ const STYLE_PROP = /\bstyle=\{/g;
 const LUCIDE = /from\s+["']lucide-react["']/g;
 const CSS_IMPORT = /import\s+(?:[\w{}\s,*]+\s+from\s+)?["'][^"']+\.css["']/g;
 const HEX = /(?<![\w&])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})(?![\w-])/g;
+const STYLE_BLOCK = /<style(?=[\s>])|<GlobalStyles\b[^>]*\bstyles=\{\s*[`"']/g;
+// Being moved to sx by FIXJ3-V (Ask Mesha .mzai-* stylesheet); the entry is removed with that push.
+export const PENDING_STYLE_BLOCKS = new Set(["features/ceo-ai/ceo-ai-styles.tsx"]);
 const RGB = /rgba?\(\s*\d{1,3}\s*[,\s]\s*\d{1,3}/g;
 
 function walk(dir, out = []) {
@@ -106,6 +111,7 @@ export function legacyZoneFindingsFor(file, source, selectors) {
   for (const m of text.matchAll(LUCIDE)) push(m.index, "lucide-react icon: use the template Iconify icon");
   for (const m of text.matchAll(CSS_IMPORT)) push(m.index, "stylesheet import: move the styles to theme sx");
   for (const m of text.matchAll(HEX)) push(m.index, `hex colour ${m[0]}: use a theme palette token`);
+  if (!PENDING_STYLE_BLOCKS.has(file)) for (const m of text.matchAll(STYLE_BLOCK)) push(m.index, "embedded stylesheet (<style> / string GlobalStyles): move the rules to theme sx");
   for (const m of text.matchAll(RGB)) push(m.index, "rgb()/rgba() colour: use a theme palette token (varAlpha)");
   return out;
 }

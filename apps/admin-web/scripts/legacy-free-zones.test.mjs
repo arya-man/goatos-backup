@@ -25,12 +25,15 @@ test("a legacy-free zone file refuses every legacy construct", () => {
     '<textarea />',
     '<table><tr><td>1</td></tr></table>',
     'const c = "#ff0000"; const d = "rgba(0,0,0,.5)";',
+    '<style>{`.x{color:red}`}</style>',
+    '<GlobalStyles styles={`.y{margin:0}`} />',
   ].join("\n");
   const found = legacyZoneFindingsFor("features/x.tsx", src, selectors).map((f) => f.snippet);
   for (const what of ['"card"', '"hd"', '"qcard"', '"btn"', "style=", "<button>", "<input>", "<select>", "<textarea>", "<table>", "<tr>", "<td>", "lucide", "stylesheet import", "hex colour", "rgb()"]) {
     assert.ok(found.some((s) => s.includes(what)), `expected a finding for ${what}; got ${found.join(" | ")}`);
   }
   assert.equal(found.filter((s) => s.includes("stylesheet import")).length, 2);
+  assert.equal(found.filter((s) => s.includes("embedded stylesheet")).length, 2);
 });
 
 test("template-clean code, comments, a hidden file input and a hidden form field pass", () => {
