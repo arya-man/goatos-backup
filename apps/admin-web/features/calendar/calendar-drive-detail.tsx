@@ -6,8 +6,10 @@ import TableCell from "@mui/material/TableCell";
 import { DRIVE_ROSTER_HEADER_KEYS, DRIVE_ROSTER_PAGE_SIZE } from "./calendar-drive-layout";
 import { listOrEmpty } from "@/lib/list-or-empty";
 import { randomUUID } from "node:crypto";
-import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 import Box from "@mui/material/Box";
+import MuiLink from "@mui/material/Link";
+import { Iconify } from "@/components/minimal/iconify";
+import { PageRoot } from "@/components/app/page-root";
 import Card from "@mui/material/Card";
 import MuiGrid from "@mui/material/Grid";
 import Stack from "@mui/material/Stack";
@@ -34,6 +36,9 @@ import { driveVisibleProgress, drivePctFor, driveStatusChips, driveStatusClass }
 import { operationalLocationLabel } from "@/lib/operational-location";
 import { stageLabel } from "@/lib/stage-labels";
 import Alert from "@mui/material/Alert";
+
+/** Drive status chip tone (`driveStatusClass`) -> template Label colour. */
+const DRIVE_STATUS_COLOR = { completed: "success", due: "warning", over: "error", def: "default" } as const;
 
 function targetLocationLabel(item: CalendarDriveTarget): string {
   if (!item.shed_name) return "—";
@@ -122,7 +127,7 @@ export async function VaccinationDriveDetail({
 
   if (!detail.ok) {
     return (
-      <div className="screen on">
+      <PageRoot>
         <PageHeader
           title={pageContract.title}
           backHref={backHref}
@@ -131,7 +136,7 @@ export async function VaccinationDriveDetail({
         <Alert severity="error" role="alert">
           <b>{detail.error.code ?? detail.error.kind}</b>&nbsp;{detail.error.message}
         </Alert>
-      </div>
+      </PageRoot>
     );
   }
 
@@ -152,10 +157,10 @@ export async function VaccinationDriveDetail({
 
   if (!summary) {
     return (
-      <div className="screen on">
+      <PageRoot>
         {crumb}
-        <div className="note">{copy(pageContract, "calendar.drive.summary_pending")}</div>
-      </div>
+        <Alert severity="info">{copy(pageContract, "calendar.drive.summary_pending")}</Alert>
+      </PageRoot>
     );
   }
 
@@ -197,11 +202,11 @@ export async function VaccinationDriveDetail({
   const pager = (
     <Stack direction="row" spacing={1.5} sx={{ p: 2, alignItems: "center", justifyContent: "flex-end", borderTop: 1, borderColor: "divider" }}>
       {prevHref ? (
-        <LinkButton href={prevHref} variant="outlined" color="inherit" startIcon={<ChevronLeft className="ic" />} sx={{ minHeight: 44 }}>
+        <LinkButton href={prevHref} variant="outlined" color="inherit" startIcon={<Iconify icon="eva:arrow-ios-back-fill" />} sx={{ minHeight: 44 }}>
           {copy(pageContract, "calendar.drive.previous_page")}
         </LinkButton>
       ) : (
-        <Button disabled variant="outlined" color="inherit" startIcon={<ChevronLeft className="ic" />} sx={{ minHeight: 44 }}>
+        <Button disabled variant="outlined" color="inherit" startIcon={<Iconify icon="eva:arrow-ios-back-fill" />} sx={{ minHeight: 44 }}>
           {copy(pageContract, "calendar.drive.previous_page")}
         </Button>
       )}
@@ -209,11 +214,11 @@ export async function VaccinationDriveDetail({
         {copy(pageContract, "calendar.drive.page_label")} {page}
       </Typography>
       {nextHref ? (
-        <LinkButton href={nextHref} variant="contained" endIcon={<ChevronRight className="ic" />} sx={{ minHeight: 44 }}>
+        <LinkButton href={nextHref} variant="contained" endIcon={<Iconify icon="eva:arrow-ios-forward-fill" />} sx={{ minHeight: 44 }}>
           {copy(pageContract, "calendar.drive.next_page")}
         </LinkButton>
       ) : (
-        <Button disabled variant="contained" color="primary" endIcon={<ChevronRight className="ic" />} sx={{ minHeight: 44 }}>
+        <Button disabled variant="contained" color="primary" endIcon={<Iconify icon="eva:arrow-ios-forward-fill" />} sx={{ minHeight: 44 }}>
           {copy(pageContract, "calendar.drive.next_page")}
         </Button>
       )}
@@ -221,7 +226,7 @@ export async function VaccinationDriveDetail({
   );
 
   return (
-    <div className="screen on">
+    <PageRoot>
       {crumb}
       <MuiGrid container spacing={3}>
         <MuiGrid size={{ xs: 12, md: 8 }}>
@@ -284,14 +289,13 @@ export async function VaccinationDriveDetail({
                   <Typography variant="caption" sx={{ color: "text.disabled", textTransform: "uppercase", letterSpacing: 0.4, mb: 1, display: "block" }}>
                     Coverage
                   </Typography>
-                  <div className="chips" style={{ gap: "var(--sp-1h)" }}>
+                  <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
                     {chips.map((chip) => (
-                      <span key={chip.key} className={`sc ${driveStatusClass(chip.key)}`}>
-                        <span className={`d c-${driveStatusClass(chip.key)}`} />
+                      <Label key={chip.key} variant="soft" color={DRIVE_STATUS_COLOR[driveStatusClass(chip.key)]}>
                         {chip.count} {copy(pageContract, "calendar.drive.doses").toLowerCase()} {optionLabel(pageContract, "calendar_status", chip.key).toLowerCase()}
-                      </span>
+                      </Label>
                     ))}
-                  </div>
+                  </Stack>
                 </Box>
               </>
             ) : null}
@@ -324,7 +328,7 @@ export async function VaccinationDriveDetail({
                   input: {
                     startAdornment: (
                       <InputAdornment position="start">
-                        <Search className="ic" style={{ width: 18 }} aria-hidden="true" />
+                        <Iconify icon="eva:search-fill" width={18} aria-hidden="true" sx={{ color: "text.disabled" }} />
                       </InputAdornment>
                     ),
                   },
@@ -348,7 +352,7 @@ export async function VaccinationDriveDetail({
                 {/* Laptop: the template table kit (Scrollbar + Table minWidth, nowrap identity cells). */}
                 <Box sx={{ display: { xs: "none", md: "block" } }}>
                   <Scrollbar>
-                    <Table sx={{ minWidth: 960, "& th, & td, & td .celllink": { overflowWrap: "normal", wordBreak: "normal" }, "& td .celllink": { whiteSpace: "nowrap" } }}>
+                    <Table sx={{ minWidth: 960, "& th, & td, & td a": { overflowWrap: "normal", wordBreak: "normal" }, "& td a": { whiteSpace: "nowrap" } }}>
                       <TableHead>
                         <TableRow>
                           {headers.map((key) => (
@@ -360,11 +364,11 @@ export async function VaccinationDriveDetail({
                         {rosterItems.length ? rosterItems.map((item) => {
                           const passportHref = hrefWithParam(detailPath, sp, "goat_passport", item.animal_id);
                           const linked = (value: React.ReactNode) => (
-                            <LocalOverlayLink href={passportHref} className="celllink" scroll={false}>{value}</LocalOverlayLink>
+                            <MuiLink component={LocalOverlayLink} href={passportHref} scroll={false} color="inherit" underline="hover">{value}</MuiLink>
                           );
                           return (
                             <TableRow key={item.animal_id} hover>
-                              <TableCell sx={cell}>{linked(<span className="gid">{item.display_id || "—"}</span>)}</TableCell>
+                              <TableCell sx={cell}>{linked(<Box component="span" sx={{ typography: "subtitle2" }}>{item.display_id || "—"}</Box>)}</TableCell>
                               <TableCell sx={cell}>{linked(targetLocationLabel(item))}</TableCell>
                               <TableCell sx={{ ...cell, fontVariantNumeric: "tabular-nums" }}>{linked(item.animal_identifier_1 || "—")}</TableCell>
                               <TableCell sx={{ ...cell, fontVariantNumeric: "tabular-nums" }}>{linked(item.animal_identifier_2 || "—")}</TableCell>
@@ -389,10 +393,10 @@ export async function VaccinationDriveDetail({
                   {rosterItems.length ? rosterItems.map((item) => {
                     const passportHref = hrefWithParam(detailPath, sp, "goat_passport", item.animal_id);
                     return (
-                      <LocalOverlayLink key={item.animal_id} href={passportHref} className="celllink" scroll={false}>
+                      <MuiLink key={item.animal_id} component={LocalOverlayLink} href={passportHref} scroll={false} color="inherit" underline="none" sx={{ display: "block" }}>
                         <Stack spacing={0.5} sx={{ px: 2.5, py: 1.5, minHeight: 44, borderBottom: 1, borderColor: "divider" }}>
                           <Stack direction="row" spacing={1} sx={{ alignItems: "center", justifyContent: "space-between" }}>
-                            <span className="gid">{item.display_id || "—"}</span>
+                            <Typography variant="subtitle2" component="span">{item.display_id || "—"}</Typography>
                             <Label variant="soft">{statusText(item.status)}</Label>
                           </Stack>
                           <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -402,7 +406,7 @@ export async function VaccinationDriveDetail({
                             {joinParts([item.shed_name ? targetLocationLabel(item) : null, stageLabel(item.stage), item.lifecycle_status ? humanizeEnum(item.lifecycle_status) : null, item.health_status ? humanizeEnum(item.health_status) : null, targetReason(item)])}
                           </Typography>
                         </Stack>
-                      </LocalOverlayLink>
+                      </MuiLink>
                     );
                   }) : (
                     <Typography variant="body2" sx={{ p: 2.5, textAlign: "center", color: "text.secondary" }}>{copy(pageContract, "calendar.drive.no_animals")}</Typography>
@@ -423,6 +427,6 @@ export async function VaccinationDriveDetail({
         returnTo={closePassportHref}
         pageContract={pageContract}
       />
-    </div>
+    </PageRoot>
   );
 }

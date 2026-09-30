@@ -7,18 +7,7 @@
 import type { AppApiComponents } from "@goatos/api-client";
 import type { Tone } from "@/components/ui-primitives";
 import { copy, optionalOption, optionGroup, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import {
-  Boxes,
-  CalendarClock,
-  FileCheck2,
-  GitBranch,
-  PackageCheck,
-  ShieldAlert,
-  ShieldCheck,
-  Snowflake,
-  Syringe,
-  type LucideIcon,
-} from "lucide-react";
+import type { IconifyName } from "@/components/minimal/iconify";
 
 export type CalendarDriveTarget = AppApiComponents["schemas"]["CalendarDriveTarget"];
 export type CalendarDriveTargetListResponse = AppApiComponents["schemas"]["CalendarDriveTargetListResponse"];
@@ -221,25 +210,25 @@ export function ownerColor(ownerKey: string, ownerMeta: OwnerPresentationMap): s
   return ownerMeta[ownerKey]?.color ?? fallbackOwner(ownerKey).color ?? "var(--brand)";
 }
 
-export const EVENT_TYPE_ICON: Record<CalendarEventType, LucideIcon> = {
-  vaccination_dose_due: Syringe,
-  vaccination_drive: Syringe,
-  vaccination_history: ShieldCheck,
-  vaccination_campaign: CalendarClock,
-  vaccination_booster_due: Syringe,
-  vaccination_defer_review: ShieldAlert,
-  vaccination_evidence_review: FileCheck2,
-  vaccination_proof_verification: ShieldCheck,
-  vaccination_rework_due: GitBranch,
-  vaccine_stock_readiness: PackageCheck,
-  vaccine_cold_chain_check: Snowflake,
-  vaccine_reorder_expiry_grn: Boxes,
-  pc_stock_anti_misuse: ShieldAlert,
-  vaccination_config_activation_review: FileCheck2,
+export const EVENT_TYPE_ICON: Record<CalendarEventType, IconifyName> = {
+  vaccination_dose_due: "solar:medical-kit-bold",
+  vaccination_drive: "solar:medical-kit-bold",
+  vaccination_history: "solar:shield-check-bold",
+  vaccination_campaign: "solar:calendar-date-bold",
+  vaccination_booster_due: "solar:medical-kit-bold",
+  vaccination_defer_review: "solar:danger-triangle-bold",
+  vaccination_evidence_review: "solar:file-check-bold-duotone",
+  vaccination_proof_verification: "solar:shield-check-bold",
+  vaccination_rework_due: "solar:restart-bold",
+  vaccine_stock_readiness: "solar:box-minimalistic-bold",
+  vaccine_cold_chain_check: "solar:shield-keyhole-bold-duotone",
+  vaccine_reorder_expiry_grn: "solar:archive-down-minimlistic-bold",
+  pc_stock_anti_misuse: "solar:danger-triangle-bold",
+  vaccination_config_activation_review: "solar:file-check-bold-duotone",
 };
 
-export function eventTypeMeta(eventType: string, presentation?: CalendarPresentation): { label: string; icon: LucideIcon } {
-  const fallback = { label: eventType, icon: EVENT_TYPE_ICON[eventType as CalendarEventType] ?? CalendarClock };
+export function eventTypeMeta(eventType: string, presentation?: CalendarPresentation): { label: string; icon: IconifyName } {
+  const fallback = { label: eventType, icon: EVENT_TYPE_ICON[eventType as CalendarEventType] ?? ("solar:calendar-date-bold" as IconifyName) };
   const backendLabel = presentation?.event_types.find((item) => item.key === eventType)?.label;
   return { ...fallback, label: backendLabel ?? fallback.label };
 }

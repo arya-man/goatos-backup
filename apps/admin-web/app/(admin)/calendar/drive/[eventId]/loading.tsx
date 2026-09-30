@@ -4,7 +4,7 @@ import { DRIVE_ROSTER_HEADER_KEYS, DRIVE_ROSTER_PAGE_SIZE } from "@/features/cal
 /** /calendar/drive/[eventId]: back header, then the 8/4 hero + meta cards over the full-width roster card. */
 export default function Loading() {
   return (
-    <PageSkeleton>
+    <PageSkeleton root="page-root">
       <PageHeaderSkeleton />
       <GridSkeleton
         items={[
