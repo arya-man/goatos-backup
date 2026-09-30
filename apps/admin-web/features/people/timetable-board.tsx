@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useTransition, type ReactNode } from "react";
+import { useState, useTransition } from "react";
 import { Clock3, UsersRound } from "lucide-react";
 import { faro } from "@grafana/faro-web-sdk";
 
+import Link from "@/components/no-prefetch-link";
 import { copy, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { TimetablePerson, TimetableShift, WorkforceTimetable } from "@/lib/api/server";
 import { setPersonShiftAction, setShiftTimingAction } from "./timetable-actions";
@@ -41,15 +42,19 @@ export function TimetableBoard({
   timetable,
   canEdit,
   editReason,
-  filters,
-  pager,
+  filterLinks,
+  firstPageHref,
+  nextPageHref,
 }: {
   pageContract: AdminUiPageContract;
   timetable: WorkforceTimetable;
   canEdit: boolean;
   editReason: string;
-  filters: ReactNode;
-  pager: ReactNode;
+  /** The shift filter strip, composed by the server page (labels carry whole-park counts). */
+  filterLinks: { key: string; label: string; href: string; active: boolean }[];
+  /** Keyset pager targets; "" when there is no such page. */
+  firstPageHref: string;
+  nextPageHref: string;
 }) {
   const t = (key: string) => copy(pageContract, key);
   const [shifts, setShifts] = useState<TimetableShift[]>(timetable.shifts);
@@ -79,13 +84,13 @@ export function TimetableBoard({
   return (
     <>
       <section className="card" data-testid="timetable-shifts" style={{ marginBottom: 16 }}>
-        <div className="chead">
+        <div className="hd">
+          <Clock3 className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
           <h3>
             {t("shifts.title")} · {timetable.park_label}
           </h3>
-        </div>
-        <div className="small muted" style={{ padding: "0 16px" }}>
-          {t("shifts.hint")}
+          <div className="sp" style={{ flex: 1 }} />
+          <span className="muted small">{t("shifts.hint")}</span>
         </div>
         <div className="tt-shifts">
           {shifts.map((shift) => (
@@ -104,23 +109,26 @@ export function TimetableBoard({
       </section>
 
       <section className="card" data-testid="timetable-people">
-        <div className="chead" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-          <h3 style={{ marginRight: "auto" }}>{t("people.title")}</h3>
-          {filters}
+        <div className="hd">
+          <UsersRound className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
+          <h3>{t("people.title")}</h3>
+          <div className="sp" style={{ flex: 1 }} />
+          <span className="muted small">{t("people.hint")}</span>
         </div>
-        <div className="small muted" style={{ padding: "0 16px 8px" }}>
-          {t("people.hint")}
+        <div className="tt-filter">
+          <nav className="subtabs" aria-label={t("filter.shift")} data-testid="timetable-shift-filter">
+            {filterLinks.map((f) => (
+              <Link key={f.key} href={f.href} className={f.active ? "on" : undefined} aria-current={f.active ? "page" : undefined} replace scroll={false}>
+                {f.label}
+              </Link>
+            ))}
+          </nav>
         </div>
         {people.length === 0 ? (
-          <div className="empty" style={{ padding: 24 }}>
-            <UsersRound size={20} aria-hidden="true" />
-            <div className="small muted" style={{ marginTop: 8 }}>
-              {timetable.shift_filter ? t("people.empty_filtered") : t("people.empty")}
-            </div>
-          </div>
+          <div className="empty">{timetable.shift_filter ? t("people.empty_filtered") : t("people.empty")}</div>
         ) : (
-          <div className="tablewrap" style={{ overflowX: "auto" }} tabIndex={0} role="region" aria-label={t("people.title")}>
-            <table className="tbl">
+          <div className="twrap" tabIndex={0} role="region" aria-label={t("people.title")}>
+            <table className="people-table" aria-label={t("people.title")}>
               <thead>
                 <tr>
                   {labels.map((label) => (
@@ -144,7 +152,20 @@ export function TimetableBoard({
             </table>
           </div>
         )}
-        {pager}
+        {firstPageHref || nextPageHref ? (
+          <div className="pager" style={{ padding: 12, display: "flex", gap: 8 }}>
+            {firstPageHref ? (
+              <Link href={firstPageHref} className="btn" scroll={false}>
+                {t("pager.first")}
+              </Link>
+            ) : null}
+            {nextPageHref ? (
+              <Link href={nextPageHref} className="btn" scroll={false}>
+                {t("pager.next")}
+              </Link>
+            ) : null}
+          </div>
+        ) : null}
       </section>
     </>
   );

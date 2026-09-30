@@ -34,7 +34,10 @@ function hrefWith(sp: RouteSearchParams, patch: Record<string, string | null>): 
 export async function TimetablePage({ searchParams, pageContract }: { searchParams: RouteSearchParams; pageContract: AdminUiPageContract }) {
   const sp = searchParams;
   const t = (key: string) => copy(pageContract, key);
-  const parkId = one(sp, "park") ?? "";
+  // `park` is the same query key the top-bar scope writes, so picking a park here moves the scope
+  // and the reverse; "all" (every park) opens the first park.
+  const rawPark = one(sp, "park") ?? "";
+  const parkId = rawPark === "all" ? "" : rawPark;
   const shift = one(sp, "shift") ?? "";
   const cursor = one(sp, "cursor") ?? "";
 
@@ -93,38 +96,14 @@ export async function TimetablePage({ searchParams, pageContract }: { searchPara
         timetable={data}
         canEdit={canEdit}
         editReason={editReason}
-        filters={
-          <nav className="subtabs" aria-label={t("filter.shift")} data-testid="timetable-shift-filter">
-            {shiftFilters.map((f) => (
-              <Link
-                key={f.key || "all"}
-                href={hrefWith(sp, { park: data.park_id, shift: f.key || null, cursor: null })}
-                className={data.shift_filter === f.key ? "on" : undefined}
-                aria-current={data.shift_filter === f.key ? "page" : undefined}
-                replace
-                scroll={false}
-              >
-                {f.label} · {f.count}
-              </Link>
-            ))}
-          </nav>
-        }
-        pager={
-          cursor || data.next_cursor ? (
-            <div className="pager" style={{ padding: 12, display: "flex", gap: 8 }}>
-              {cursor ? (
-                <Link href={hrefWith(sp, { park: data.park_id, cursor: null })} className="btn" scroll={false}>
-                  {t("pager.first")}
-                </Link>
-              ) : null}
-              {data.next_cursor ? (
-                <Link href={hrefWith(sp, { park: data.park_id, cursor: data.next_cursor })} className="btn" scroll={false}>
-                  {t("pager.next")}
-                </Link>
-              ) : null}
-            </div>
-          ) : null
-        }
+        filterLinks={shiftFilters.map((f) => ({
+          key: f.key || "all",
+          label: `${f.label} · ${f.count}`,
+          href: hrefWith(sp, { park: data.park_id, shift: f.key || null, cursor: null }),
+          active: data.shift_filter === f.key,
+        }))}
+        firstPageHref={cursor ? hrefWith(sp, { park: data.park_id, cursor: null }) : ""}
+        nextPageHref={data.next_cursor ? hrefWith(sp, { park: data.park_id, cursor: data.next_cursor }) : ""}
       />
     </HrmsPageFrame>
   );

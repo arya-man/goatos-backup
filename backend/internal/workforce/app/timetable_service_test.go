@@ -195,3 +195,21 @@ func TestTimetableRefusesAnUnknownParkOrShiftFilter(t *testing.T) {
 		t.Fatalf("unassigned filter refused: %v", err)
 	}
 }
+
+// The ground-tier role hints (2026-09-23) reached People, Clock, Leave and Timetable as the raw
+// codes "manager" / "assistant_manager". They read in farm words now, and a hint the catalog has
+// no words for shows nothing rather than the code.
+func TestDesignationNeverShowsARawRoleCode(t *testing.T) {
+	for hint, want := range map[string]string{
+		"manager": "Manager", "assistant_manager": "Assistant Manager", "park_head": "Park Head",
+		"operator": "", "some_new_hint": "",
+	} {
+		got := composeTimetablePerson(ports.TimetablePersonRow{RoleHint: hint}, nil).Designation
+		if got != want {
+			t.Errorf("designation for hint %q = %q, want %q", hint, got, want)
+		}
+	}
+	if got := composeTimetablePerson(ports.TimetablePersonRow{DesignationLabel: "Feed Manager", RoleHint: "manager"}, nil).Designation; got != "Feed Manager" {
+		t.Fatalf("the catalog designation must win over the hint, got %q", got)
+	}
+}

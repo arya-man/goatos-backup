@@ -614,7 +614,10 @@ func designationLabel(catalogLabel, roleHint, grade string, copyMap map[string]s
 	if label, ok := copyMap["role."+roleHint]; ok {
 		return label
 	}
-	return roleHint
+	// A hint the catalog has no words for shows no designation, never the raw code (the rule
+	// roleHintLabel below already follows). `manager` and `assistant_manager` reached People,
+	// Clock, Leave and Timetable as raw codes before they had words (2026-09-30).
+	return ""
 }
 
 // roleHintLabel is a member's role hint in farm words for the phone's drawer header,
@@ -688,6 +691,8 @@ var clockCopyEN = map[string]string{
 	"role.supervisor":         "Supervisor",
 	"role.admin":              "Admin",
 	"role.other":              "Staff",
+	"role.manager":            "Manager",
+	"role.assistant_manager":  "Assistant Manager",
 	"role.cxo":                "CXO",
 	"role.growth_director":    "Growth Director",
 	"role.feed_director":      "Feed Director",
@@ -759,6 +764,8 @@ var clockCopyHI = map[string]string{
 	"role.supervisor":         "सुपरवाइज़र",
 	"role.admin":              "एडमिन",
 	"role.other":              "स्टाफ़",
+	"role.manager":            "मैनेजर",
+	"role.assistant_manager":  "असिस्टेंट मैनेजर",
 	"role.cxo":                "सीएक्सओ",
 	"role.growth_director":    "ग्रोथ निदेशक",
 	"role.feed_director":      "फ़ीड निदेशक",
@@ -830,6 +837,8 @@ var clockCopyKN = map[string]string{
 	"role.supervisor":         "ಮೇಲ್ವಿಚಾರಕ",
 	"role.admin":              "ಆಡ್ಮಿನ್",
 	"role.other":              "ಸಿಬ್ಬಂದಿ",
+	"role.manager":            "ಮ್ಯಾನೇಜರ್",
+	"role.assistant_manager":  "ಸಹಾಯಕ ಮ್ಯಾನೇಜರ್",
 	"role.cxo":                "ಸಿಎಕ್ಸ್‌ಒ",
 	"role.growth_director":    "ಗ್ರೋತ್ ನಿರ್ದೇಶಕ",
 	"role.feed_director":      "ಫೀಡ್ ನಿರ್ದೇಶಕ",
@@ -901,6 +910,8 @@ var clockCopyTE = map[string]string{
 	"role.supervisor":         "సూపర్‌వైజర్",
 	"role.admin":              "అడ్మిన్",
 	"role.other":              "సిబ్బంది",
+	"role.manager":            "మేనేజర్",
+	"role.assistant_manager":  "అసిస్టెంట్ మేనేజర్",
 	"role.cxo":                "సీఎక్స్ఓ",
 	"role.growth_director":    "గ్రోత్ డైరెక్టర్",
 	"role.feed_director":      "ఫీడ్ డైరెక్టర్",
