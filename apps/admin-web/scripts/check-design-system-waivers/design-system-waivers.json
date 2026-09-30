@@ -4,7 +4,6 @@
   "waived": [
     "f2-literal|features/counts/counts-summary-cards.ts|fattening: [\"F2\", \"F2-Male\", \"F2-Female\", \"Fattening\", \"Fattening male\", \"Fattening female\"],",
     "f2-literal|lib/admin-ui-contract.ts|{ key: \"F2\", label: \"Fattening\", title: \"\", tone: \"\", enabled: true, disabled_reason: \"\" },",
-    "fixed-px-width|features/ceo-ai/ceo-ai-styles.tsx|@media (min-width:621px){",
     "fixed-px-width|features/leadership-tasks/task-board-dnd.tsx|const DRAG_MEDIA_QUERY = \"(min-width: 761px) and (pointer: fine)\";",
     "fixed-px-width|lib/hooks.ts|return useMediaQuery(\"(min-width: 640px)\");",
     "missing-loading-tsx|app/(admin)/actions/page.tsx|no sibling loading.tsx",
@@ -170,10 +169,6 @@
     "legacy-table-paint|app/minimal-theme.css|.wrap .kit-tablecard .twrap tbody tr:hover>td:first-child": "legacy table state/hover/sticky-column paint kept for behaviour (R2KPI 2026-09-27); structural head/cell paints exclude MUI parts"
   },
   "ratchet": {
-    "fixed-overlay-no-portal|features/ceo-ai/ceo-ai-styles.tsx": {
-      "allowed": 1,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: position:fixed overlay rendered in place; wrap in kit BodyPortal (or use kit Sheet/Dialog)"
-    },
     "fixed-overlay-no-portal|features/feed/range-coverage-note.tsx": {
       "allowed": 1,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: position:fixed overlay rendered in place; wrap in kit BodyPortal (or use kit Sheet/Dialog)"
@@ -220,18 +215,6 @@
     },
     "raw-button|features/calendar/calendar-event-drawer.tsx": {
       "allowed": 2,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
-    },
-    "raw-button|features/ceo-ai/ceo-ai-attachments.tsx": {
-      "allowed": 5,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
-    },
-    "raw-button|features/ceo-ai/ceo-ai-markdown.tsx": {
-      "allowed": 1,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
-    },
-    "raw-button|features/ceo-ai/ceo-ai-watch.tsx": {
-      "allowed": 1,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
     },
     "raw-button|features/configuration/sheet-drawer.tsx": {
@@ -480,14 +463,6 @@
     },
     "raw-font-size|features/ceo-ai-admin/trace-viewer-styles.tsx": {
       "allowed": 15,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
-    },
-    "raw-font-size|features/ceo-ai/ceo-ai-styles.tsx": {
-      "allowed": 38,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
-    },
-    "raw-font-size|features/ceo-ai/ceo-ai-watch-css.ts": {
-      "allowed": 9,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
     },
     "raw-font-size|features/configuration/configuration-kit.css": {
@@ -900,14 +875,6 @@
     },
     "raw-px|features/ceo-ai/ceo-ai-panel.tsx": {
       "allowed": 2,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
-    },
-    "raw-px|features/ceo-ai/ceo-ai-styles.tsx": {
-      "allowed": 107,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
-    },
-    "raw-px|features/ceo-ai/ceo-ai-watch-css.ts": {
-      "allowed": 13,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
     },
     "raw-px|features/configuration/catalogue-lists.tsx": {
@@ -1330,14 +1297,6 @@
       "allowed": 1,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
     },
-    "raw-radius|features/ceo-ai/ceo-ai-styles.tsx": {
-      "allowed": 29,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
-    },
-    "raw-radius|features/ceo-ai/ceo-ai-watch-css.ts": {
-      "allowed": 3,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
-    },
     "raw-radius|features/configuration/configuration-kit.css": {
       "allowed": 5,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
@@ -1380,14 +1339,6 @@
     },
     "raw-shadow|components/review-queue/review-queue.module.css": {
       "allowed": 3,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw box-shadow; use var(--shadow-z1…z24|--shadow-card|--shadow-dropdown|--shadow-dialog)"
-    },
-    "raw-shadow|features/ceo-ai/ceo-ai-styles.tsx": {
-      "allowed": 11,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw box-shadow; use var(--shadow-z1…z24|--shadow-card|--shadow-dropdown|--shadow-dialog)"
-    },
-    "raw-shadow|features/ceo-ai/ceo-ai-watch-css.ts": {
-      "allowed": 1,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw box-shadow; use var(--shadow-z1…z24|--shadow-card|--shadow-dropdown|--shadow-dialog)"
     },
     "raw-shadow|features/leadership-tasks/leadership-tasks-kit.css": {

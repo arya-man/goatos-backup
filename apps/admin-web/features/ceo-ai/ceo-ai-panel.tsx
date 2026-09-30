@@ -40,7 +40,63 @@ import {
   renameConversation,
 } from "./ceo-ai-client";
 import { CeoAiChart } from "./ceo-ai-chart";
-import { CeoAiStyles, GoatAvatar, MeshaLogo } from "./ceo-ai-styles";
+import { GoatAvatar, MeshaLogo } from "./ceo-ai-styles";
+import {
+  actionsSx,
+  avatarSx,
+  bannerSx,
+  bodySx,
+  bubbleSx,
+  caretSx,
+  citeSx,
+  citesSx,
+  composerSx,
+  confirmSx,
+  dropSx,
+  filesTraySx,
+  footSx,
+  formSx,
+  headButtonsSx,
+  headIconSx,
+  headSx,
+  headTextSx,
+  launcherSx,
+  logSx,
+  mainSx,
+  markSx,
+  modeSx,
+  msgFilesSx,
+  msgSx,
+  msgWrapSx,
+  newChatSx,
+  panelSx,
+  progressLabelSx,
+  progressSx,
+  scrimSx,
+  sendSx,
+  sideEmptySx,
+  sideHeadSx,
+  sideSx,
+  skelDotSx,
+  skelSx,
+  startersSx,
+  stepIconSx,
+  stepSx,
+  stepTextSx,
+  stepsChevSx,
+  stepsHeadSx,
+  stepsListSx,
+  stepsSx,
+  suggestBarSx,
+  threadActSx,
+  threadRenameSx,
+  threadSx,
+  threadTitleSx,
+  threadsSx,
+  toolSx,
+  type View,
+} from "./ceo-ai-sx";
+import type { SxProps, Theme } from "@mui/material/styles";
 import { CeoAiEvents, trackCeoAiError, trackCeoAiEvent } from "./telemetry";
 import type { AssistantCopy, ChatMessage, ConversationSummary } from "./types";
 
@@ -101,6 +157,29 @@ function progressStatusLabel(progress: {
 
 const PANEL_MARGIN = 14;
 const PANEL_WIDTH = 640;
+
+/** The assistant's fixed root: the corner launcher, the docked panel, or the phone sheet. */
+function rootSx(args: { open: boolean; view: View; free: boolean; position: Record<string, string | number | undefined> }): SxProps<Theme> {
+  const { open, view, free, position } = args;
+  const phone = open
+    ? view === "min"
+      ? { inset: "auto 0 0 0", width: "auto", height: "auto" }
+      : { inset: 0, width: "auto", height: "auto" }
+    : free
+      ? {}
+      : { right: 14, bottom: "calc(var(--sp-6) + var(--sp-5) + env(safe-area-inset-bottom))" };
+  return ((theme: Theme) => ({
+    position: "fixed",
+    right: 24,
+    bottom: 24,
+    zIndex: open || view === "max" ? 1000 : 80,
+    fontFamily: "inherit",
+    transition: free ? "none" : "all .3s cubic-bezier(.34,.1,.64,.9)",
+    overscrollBehavior: "contain",
+    ...position,
+    [theme.breakpoints.down("sm")]: phone,
+  })) as unknown as SxProps<Theme>;
+}
 
 // modeLabel is the small footer provenance tag. It is CEO-facing, so it never
 // leaks the planner/route internals ("Planned by Gemini via Vertex AI", "Cube",
@@ -398,9 +477,9 @@ function AgentSteps(props: {
     secs >= 60 ? `${Math.floor(secs / 60)}m ${secs % 60}s` : `${secs}s`;
   const expanded = live || open;
   return (
-    <div className={`mzai-steps${live ? " live" : ""}`}>
+    <Box sx={stepsSx}>
       <ButtonBase
-        className="mzai-steps-head"
+        sx={stepsHeadSx(live)}
         onClick={() => !live && setOpen((v) => !v)}
         aria-expanded={expanded}
       >
@@ -408,28 +487,34 @@ function AgentSteps(props: {
           ? `Working… ${took}`
           : `Worked for ${took} · ${steps.length} step${steps.length === 1 ? "" : "s"}`}
         {!live ? (
-          <span className="mzai-steps-chev">{open ? "▾" : "›"}</span>
+          <Box component="span" sx={stepsChevSx}>
+            {open ? "▾" : "›"}
+          </Box>
         ) : null}
       </ButtonBase>
       {expanded ? (
-        <ol aria-live={live ? "polite" : undefined}>
+        <Box component="ol" sx={stepsListSx} aria-live={live ? "polite" : undefined}>
           {live && steps.length > 4 ? (
-            <li className="mzai-step-more">+{steps.length - 4} earlier</li>
+            <Box component="li" sx={stepSx("more")}>
+              +{steps.length - 4} earlier
+            </Box>
           ) : null}
           {(live ? steps.slice(-4) : steps).map((s, i, shownSteps) => {
             const now = live && i === shownSteps.length - 1;
             return (
-              <li key={`${i}-${s}`} className={now ? "now" : "mzai-step-done"}>
-                <span className="mzai-step-ic" aria-hidden>
+              <Box component="li" key={`${i}-${s}`} sx={stepSx(now ? "now" : "done")}>
+                <Box component="span" sx={stepIconSx(now)} aria-hidden>
                   {now ? null : <Iconify icon="eva:checkmark-fill" width={11} />}
-                </span>
-                <span className="mzai-step-tx">{s}</span>
-              </li>
+                </Box>
+                <Box component="span" sx={stepTextSx}>
+                  {s}
+                </Box>
+              </Box>
             );
           })}
-        </ol>
+        </Box>
       ) : null}
-    </div>
+    </Box>
   );
 }
 
@@ -1207,15 +1292,12 @@ export function CeoAiPanel({
 
   return (
     <Box
-      className={`mzai-root ${open ? "mzai-open" : "mzai-closed"} mzai-view-${view}${!open && bubblePos ? " mzai-free" : ""}`}
-      // Three-class specificity so the live position beats the static `.mzai-root` corner rule,
-      // as the inline style did; the phone `!important` sheet rules still win.
-      sx={{ "&&&": rootStyle }}
+      sx={rootSx({ open, view, free: !open && Boolean(bubblePos), position: rootStyle })}
     >
-      <CeoAiStyles />
       {open ? (
-        <section
-          className={`mzai-panel${dragging ? " mzai-dragging" : ""}`}
+        <Box
+          component="section"
+          sx={panelSx(view)}
           aria-label={copy.title}
           onDragEnter={(e) => {
             if (e.dataTransfer.types.includes("Files")) {
@@ -1238,10 +1320,10 @@ export function CeoAiPanel({
           }}
         >
           {dragging ? (
-            <div className="mzai-drop">Drop files to attach</div>
+            <Box sx={dropSx}>Drop files to attach</Box>
           ) : null}
-          <div
-            className="mzai-head"
+          <Box
+            sx={headSx(view)}
             onClick={view === "min" ? () => setView("normal") : undefined}
             onDoubleClick={
               view === "min"
@@ -1253,7 +1335,7 @@ export function CeoAiPanel({
             {/* The chats list can't show in the minimized bar; don't offer its toggle. */}
             {view === "min" ? null : (
               <ButtonBase
-                className="mzai-icon"
+                sx={headIconSx()}
                 aria-pressed={showThreads}
                 onClick={() => setShowThreads((v) => !v)}
                 aria-label={CHROME.toggleThreads}
@@ -1262,16 +1344,16 @@ export function CeoAiPanel({
                 <Iconify icon="custom:sidebar-unfold-fill" width={18} />
               </ButtonBase>
             )}
-            <span className="mzai-mark">
+            <Box component="span" sx={markSx}>
               <MeshaLogo width={32} height={32} />
-            </span>
-            <span className="mzai-htext">
+            </Box>
+            <Box component="span" sx={headTextSx}>
               <b>{copy.title}</b>
               <small>{copy.subtitle}</small>
-            </span>
-            <div className="mzai-hbtns" onClick={(e) => e.stopPropagation()}>
+            </Box>
+            <Box sx={headButtonsSx} onClick={(e) => e.stopPropagation()}>
               <ButtonBase
-                className="mzai-icon"
+                sx={headIconSx()}
                 onClick={() => setView(view === "min" ? "normal" : "min")}
                 aria-label={view === "min" ? "Restore panel" : "Minimize"}
                 title={view === "min" ? "Restore panel" : "Minimize"}
@@ -1284,7 +1366,7 @@ export function CeoAiPanel({
                 )}
               </ButtonBase>
               <ButtonBase
-                className="mzai-icon mzai-hide-mobile"
+                sx={headIconSx(true)}
                 onClick={() => setView(view === "max" ? "normal" : "max")}
                 aria-label={view === "max" ? "Restore size" : "Maximize"}
                 title={view === "max" ? "Restore size" : "Maximize"}
@@ -1296,7 +1378,7 @@ export function CeoAiPanel({
                 )}
               </ButtonBase>
               <ButtonBase
-                className="mzai-icon"
+                sx={headIconSx()}
                 onClick={() => {
                   setOpen(false);
                   setView("normal");
@@ -1305,35 +1387,35 @@ export function CeoAiPanel({
               >
                 <Iconify icon="mingcute:close-line" width={18} />
               </ButtonBase>
-            </div>
-          </div>
+            </Box>
+          </Box>
 
-          <div className="mzai-body">
+          <Box sx={bodySx(view)}>
             {showThreads ? (
               <ButtonBase
-                className="mzai-scrim"
+                sx={scrimSx}
                 aria-label="Close chats"
                 onClick={() => setShowThreads(false)}
               />
             ) : null}
-            <aside className={`mzai-side${showThreads ? "" : " mzai-hide"}`}>
-              <div className="mzai-side-head">
+            <Box component="aside" sx={sideSx(view, showThreads)}>
+              <Box sx={sideHeadSx}>
                 <span>{CHROME.threads}</span>
                 <ButtonBase
-                  className="mzai-newbtn"
+                  sx={newChatSx}
                   onClick={() => void startNewChat()}
                 >
                   <Iconify icon="solar:chat-round-dots-bold" width={13} /> {CHROME.newChat}
                 </ButtonBase>
-              </div>
-              <div className="mzai-threads">
+              </Box>
+              <Box sx={threadsSx}>
                 {conversations.length === 0 ? (
-                  <div className="mzai-side-empty">{CHROME.noThreads}</div>
+                  <Box sx={sideEmptySx}>{CHROME.noThreads}</Box>
                 ) : (
                   conversations.map((thread) => (
-                    <div
+                    <Box
                       key={thread.id}
-                      className={`mzai-thread${thread.id === conversationId ? " mzai-on" : ""}${confirmDelete === thread.id ? " mzai-confirming" : ""}`}
+                      sx={threadSx(thread.id === conversationId, confirmDelete === thread.id)}
                       role="button"
                       tabIndex={0}
                       aria-current={
@@ -1353,13 +1435,14 @@ export function CeoAiPanel({
                       }}
                     >
                       {confirmDelete === thread.id ? (
-                        <span
-                          className="mzai-confirm"
+                        <Box
+                          component="span"
+                          sx={confirmSx}
                           onClick={(e) => e.stopPropagation()}
                         >
                           <span>Delete this chat?</span>
                           <ButtonBase
-                            className="mzai-confirm-yes"
+                            data-confirm="yes"
                             autoFocus
                             onClick={() => {
                               setConfirmDelete(null);
@@ -1369,17 +1452,16 @@ export function CeoAiPanel({
                             Delete
                           </ButtonBase>
                           <ButtonBase
-                            className="mzai-confirm-no"
+                            data-confirm="no"
                             onClick={() => setConfirmDelete(null)}
                           >
                             Cancel
                           </ButtonBase>
-                        </span>
+                        </Box>
                       ) : renaming === thread.id ? (
                         <InputBase
                           autoFocus
-                          className="mzai-rename"
-                          sx={{ flex: 1, minWidth: 0, font: "inherit" }}
+                          sx={threadRenameSx}
                           value={renameText}
                           onClick={(e) => e.stopPropagation()}
                           onChange={(e) => setRenameText(e.target.value)}
@@ -1394,14 +1476,15 @@ export function CeoAiPanel({
                           onBlur={() => void commitRename(thread.id)}
                         />
                       ) : (
-                        <span className="mzai-tt" title={thread.title}>
+                        <Box component="span" sx={threadTitleSx} title={thread.title}>
                           {thread.title || CHROME.newChat}
-                        </span>
+                        </Box>
                       )}
                       {confirmDelete === thread.id ? null : (
                         <>
                           <ButtonBase
-                            className="mzai-thread-act"
+                            sx={threadActSx}
+                            data-thread-act=""
                             aria-label={CHROME.rename}
                             title={CHROME.rename}
                             onClick={(e) => {
@@ -1414,7 +1497,8 @@ export function CeoAiPanel({
                             <Iconify icon="solar:pen-bold" width={13} />
                           </ButtonBase>
                           <ButtonBase
-                            className="mzai-thread-act"
+                            sx={threadActSx}
+                            data-thread-act=""
                             aria-label={CHROME.delete}
                             title={CHROME.delete}
                             onClick={(e) => {
@@ -1426,16 +1510,16 @@ export function CeoAiPanel({
                           </ButtonBase>
                         </>
                       )}
-                    </div>
+                    </Box>
                   ))
                 )}
-              </div>
-            </aside>
+              </Box>
+            </Box>
 
-            <div className="mzai-main">
-              <div
+            <Box sx={mainSx}>
+              <Box
                 ref={scrollRef}
-                className="mzai-log"
+                sx={logSx}
                 onScroll={(e) => {
                   const el = e.currentTarget;
                   stickRef.current =
@@ -1443,17 +1527,17 @@ export function CeoAiPanel({
                 }}
               >
                 {shown.map((message) => (
-                  <div
+                  <Box
                     key={message.id}
-                    className={`mzai-msg-wrap ${message.role}`}
+                    sx={msgWrapSx}
                   >
                     {message.role === "assistant" && (
-                      <div className="mzai-avatar">
+                      <Box sx={avatarSx}>
                         <MeshaLogo width={32} height={32} />
-                      </div>
+                      </Box>
                     )}
-                    <div
-                      className={`mzai-msg ${message.role} ${message.state}`}
+                    <Box
+                      sx={msgSx(message.role, view)}
                     >
                       {message.role === "assistant" && message.steps?.length ? (
                         <AgentSteps
@@ -1476,18 +1560,19 @@ export function CeoAiPanel({
                       ) : null}
                       {/* No empty assistant bubble while the agent works; the progress line shows instead. */}
                       {message.role === "user" || message.text ? (
-                        <div className="mzai-bub">
+                        <Box sx={bubbleSx(message.role, message.state)}>
                           {message.role === "assistant" ? (
                             <CeoAiMarkdown text={message.text} />
                           ) : (
                             message.text
                           )}
                           {message.files?.length ? (
-                            <div className="mzai-msg-files">
+                            <Box sx={msgFilesSx}>
                               {message.files.map((f, i) => (
                                 <Thumb
                                   key={f.url}
                                   file={f}
+                                  inUserMessage={message.role === "user"}
                                   onOpen={() =>
                                     setLightbox({
                                       files: message.files ?? [],
@@ -1496,12 +1581,12 @@ export function CeoAiPanel({
                                   }
                                 />
                               ))}
-                            </div>
+                            </Box>
                           ) : null}
                           {message.state === "streaming" && message.text ? (
-                            <span className="mzai-caret" />
+                            <Box component="span" sx={caretSx} />
                           ) : null}
-                        </div>
+                        </Box>
                       ) : null}
                       {/* Chart belongs to the answer: above its Copy action, not after it. */}
                       {message.role === "assistant" &&
@@ -1514,92 +1599,96 @@ export function CeoAiPanel({
                       message.id !== "hello" &&
                       message.text &&
                       message.text !== CHROME.stoppedEmpty ? (
-                        <div className="mzai-actions">
+                        <Box sx={actionsSx}>
                           <CopyButton text={message.text} />
-                        </div>
+                        </Box>
                       ) : null}
                       {message.state === "streaming" &&
                       message.text &&
                       message.checking ? (
-                        <div className="mzai-progress">
-                          <span
-                            className="mzai-progress-label"
+                        <Box sx={progressSx}>
+                          <Box
+                            component="span"
+                            sx={progressLabelSx}
                             role="status"
                             aria-live="polite"
                           >
                             Checking the answer against the data…
-                          </span>
-                        </div>
+                          </Box>
+                        </Box>
                       ) : null}
                       {message.state === "streaming" &&
                       !message.text &&
                       !message.steps?.length ? (
-                        <div className="mzai-progress">
-                          <div
-                            className="mzai-skel"
+                        <Box sx={progressSx}>
+                          <Box
+                            sx={skelSx}
                             role="status"
                             aria-label={copy.checking}
                           >
-                            <span />
-                            <span />
-                            <span />
-                          </div>
+                            <Box component="span" sx={skelDotSx(0)} />
+                            <Box component="span" sx={skelDotSx(1)} />
+                            <Box component="span" sx={skelDotSx(2)} />
+                          </Box>
                           {message.progress ? (
-                            <span
-                              className="mzai-progress-label"
+                            <Box
+                              component="span"
+                              sx={progressLabelSx}
                               aria-live="polite"
                             >
                               {message.progress}
-                            </span>
+                            </Box>
                           ) : null}
-                        </div>
+                        </Box>
                       ) : null}
                       {message.role === "assistant" &&
                       message.state === "complete" &&
                       message.citations?.length ? (
-                        <div className="mzai-cites">
+                        <Box sx={citesSx}>
                           {message.citations.map((cite, i) => {
                             const freshness = formatFreshness(cite.as_of);
                             return (
-                              <span
+                              <Box
+                                component="span"
                                 key={`${message.id}-c${i}`}
-                                className={`mzai-cite tier-${cite.tier ?? "api"}`}
+                                sx={citeSx(cite.tier === "cube")}
                               >
                                 <b>{formatCitationSurface(cite.surface)}</b>
                                 {freshness ? ` · ${freshness}` : ""}
-                              </span>
+                              </Box>
                             );
                           })}
-                        </div>
+                        </Box>
                       ) : null}
                       {message.role === "assistant" &&
                       message.state === "complete" &&
                       message.id !== "hello" &&
                       message.mode !== "agent" ? (
-                        <div className="mzai-foot">
-                          <span
-                            className={`mzai-mode${message.mode === "degraded" ? " degraded" : ""}`}
+                        <Box sx={footSx}>
+                          <Box
+                            component="span"
+                            sx={modeSx(message.mode === "degraded")}
                           >
                             {formatSource(message.source)
                               ? `${formatSource(message.source)} · `
                               : ""}
                             {modeLabel(message.mode, copy)}
-                          </span>
-                        </div>
+                          </Box>
+                        </Box>
                       ) : null}
-                    </div>
-                  </div>
+                    </Box>
+                  </Box>
                 ))}
-              </div>
+              </Box>
 
               {banner ? (
-                <div className={`mzai-banner ${banner.kind}`}>
+                <Box sx={bannerSx(banner.kind)}>
                   {banner.text}
-                </div>
+                </Box>
               ) : null}
 
               {messages.length > 0 ? (
-                <div className="mzai-suggestbar">
+                <Box sx={suggestBarSx}>
                   <ButtonBase
                     onClick={() => setShowStarters((v) => !v)}
                     aria-expanded={startersVisible}
@@ -1607,11 +1696,11 @@ export function CeoAiPanel({
                     <Iconify icon="solar:atom-bold-duotone" width={14} />
                     Suggestions
                   </ButtonBase>
-                </div>
+                </Box>
               ) : null}
 
               {startersVisible ? (
-                <div className="mzai-starters">
+                <Box sx={startersSx}>
                   {starters.map((question) => (
                     <ButtonBase
                       key={question}
@@ -1624,11 +1713,11 @@ export function CeoAiPanel({
                       {question}
                     </ButtonBase>
                   ))}
-                </div>
+                </Box>
               ) : null}
 
               {previews.length ? (
-                <div className="mzai-files">
+                <Box sx={filesTraySx}>
                   {previews.map((f, i) => (
                     <Thumb
                       key={f.url}
@@ -1639,9 +1728,9 @@ export function CeoAiPanel({
                       }
                     />
                   ))}
-                </div>
+                </Box>
               ) : null}
-              <form className="mzai-form" onSubmit={onSubmit}>
+              <Box component="form" sx={formSx} onSubmit={onSubmit}>
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -1654,7 +1743,7 @@ export function CeoAiPanel({
                   }}
                 />
                 <ButtonBase
-                  className="mzai-tool"
+                  sx={toolSx(false)}
                   onClick={() => fileInputRef.current?.click()}
                   aria-label="Attach files"
                   title="Attach files"
@@ -1663,8 +1752,7 @@ export function CeoAiPanel({
                 </ButtonBase>
                 <InputBase
                   multiline
-                  className="mzai-input"
-                  sx={{ flex: 1, minWidth: 0, p: 0, font: "inherit" }}
+                  sx={composerSx}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => {
@@ -1696,7 +1784,7 @@ export function CeoAiPanel({
                 />
                 {speechSupported ? (
                   <ButtonBase
-                    className={`mzai-tool${listening ? " mzai-tool-on" : ""}`}
+                    sx={toolSx(listening)}
                     onClick={toggleVoice}
                     aria-pressed={listening}
                     aria-label={listening ? "Stop voice input" : "Voice input"}
@@ -1707,7 +1795,7 @@ export function CeoAiPanel({
                 ) : null}
                 {pending && !input.trim() && !files.length ? (
                   <ButtonBase
-                    className="mzai-send stop"
+                    sx={sendSx(true)}
                     onClick={stopGenerating}
                     aria-label={CHROME.stop}
                     title="Stop (Esc)"
@@ -1717,16 +1805,16 @@ export function CeoAiPanel({
                 ) : (
                   <ButtonBase
                     type="submit"
-                    className="mzai-send"
+                    sx={sendSx(false)}
                     aria-label={copy.send}
                     disabled={!input.trim() && !files.length}
                   >
                     <Iconify icon="custom:send-fill" width={18} />
                   </ButtonBase>
                 )}
-              </form>
-            </div>
-          </div>
+              </Box>
+            </Box>
+          </Box>
           {lightbox ? (
             <Lightbox
               files={lightbox.files}
@@ -1734,10 +1822,9 @@ export function CeoAiPanel({
               onClose={() => setLightbox(null)}
             />
           ) : null}
-        </section>
+        </Box>
       ) : (
         <>
-          <CeoAiStyles />
           {/* Closed: the launcher DOCKS into the top bar's slot when the shell offers one, at EVERY
               width (TR1-#13: the phone's floating bubble covered page content and sat on top of the
               open phone menu; the template header has no FAB). It is a template header IconButton
@@ -1747,22 +1834,20 @@ export function CeoAiPanel({
           {dockSlot
             ? createPortal(
                 <IconButton
-                  className="mzai-dock"
                   onClick={() => {
                     setOpen(true);
                     trackCeoAiEvent(CeoAiEvents.Open);
                   }}
                   aria-label={copy.open}
                   title={copy.title}
-                  sx={{ "& .mzai-goat-icon": { width: "var(--sp-3)", height: "var(--sp-3)" } }}
                 >
-                  <GoatAvatar />
+                  <GoatAvatar size="var(--sp-3)" />
                 </IconButton>,
                 dockSlot,
               )
             : (
             <ButtonBase
-              className="mzai-bubble"
+              sx={launcherSx}
               onPointerDown={(e) => {
                 const r = e.currentTarget.getBoundingClientRect();
                 dragRef.current = {

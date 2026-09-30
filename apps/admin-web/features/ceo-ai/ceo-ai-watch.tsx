@@ -5,6 +5,26 @@ import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import ButtonBase from "@mui/material/ButtonBase";
+import Box from "@mui/material/Box";
+import {
+  watchAtSx,
+  watchCountSx,
+  watchDimSx,
+  watchDotSx,
+  watchFeedItemSx,
+  watchFeedSx,
+  watchHeadSx,
+  watchNoteSx,
+  watchPctSx,
+  watchPillSx,
+  watchScrollSx,
+  watchStopSx,
+  watchSubSx,
+  watchSx,
+  watchTableSx,
+  watchTagSx,
+  watchTitleSx,
+} from "./ceo-ai-sx";
 
 // Live BLE ear-tag watch card for Ask Mesha (watch_tags tool). The agent server
 // polls the Herd Signals live table and streams frames; this card shows the live
@@ -68,7 +88,11 @@ function ago(s: number | null): string {
 function pct(v?: number): ReactElement | null {
   if (v === undefined) return null;
   const tone = v <= -70 ? "dng" : v >= 150 ? "warn" : "mut";
-  return <span className={`mzai-w-pct ${tone}`}>{v > 0 ? `+${v}` : v}%</span>;
+  return (
+    <Box component="span" sx={watchPctSx(tone)}>
+      {v > 0 ? `+${v}` : v}%
+    </Box>
+  );
 }
 
 function useCountdown(endsAt: string | undefined, live: boolean): string {
@@ -91,41 +115,47 @@ export function CeoAiWatchCard(props: { watch: WatchState; onStop?: () => void }
   const showPen = watch.compare === "peers" || watch.compare === "both";
   const feed = [...watch.changes].reverse().slice(0, 30);
   return (
-    <section className={`mzai-watch${live ? " live" : ""}`} aria-label="Live tag watch">
-      <header className="mzai-w-head">
-        <span className={`mzai-w-dot${live ? " live" : ""}`} aria-hidden="true" />
-        <div className="mzai-w-title">
+    <Box component="section" sx={watchSx(live)} aria-label="Live tag watch">
+      <Box component="header" sx={watchHeadSx}>
+        <Box component="span" sx={watchDotSx(live)} aria-hidden="true" />
+        <Box sx={watchTitleSx}>
           <strong>{live ? "Watching live tags" : `Watch ended · ${reasonLabel(watch.reason)}`}</strong>
-          <span className="mzai-w-sub">
+          <Box component="span" sx={watchSubSx}>
             {watch.label}
             {watch.intervalS ? ` · every ${watch.intervalS}s` : ""}
             {watch.polls ? ` · ${watch.polls} update${watch.polls === 1 ? "" : "s"}` : ""}
-          </span>
-        </div>
+          </Box>
+        </Box>
         {live ? (
           <>
-            <span className="mzai-w-count" aria-live="off">{countdown}</span>
+            <Box component="span" sx={watchCountSx} aria-live="off">
+              {countdown}
+            </Box>
             {onStop ? (
-              <ButtonBase className="mzai-w-stop" onClick={onStop}>
+              <ButtonBase sx={watchStopSx} onClick={onStop}>
                 Stop watching
               </ButtonBase>
             ) : null}
           </>
         ) : null}
-      </header>
-      {watch.error ? <p className="mzai-w-err" role="status">{watch.error}</p> : null}
-      {watch.unmatched?.length ? <p className="mzai-w-err">No tag matched: {watch.unmatched.join(", ")}</p> : null}
+      </Box>
+      {watch.error ? <Box component="p" sx={watchNoteSx} role="status">
+          {watch.error}
+        </Box> : null}
+      {watch.unmatched?.length ? <Box component="p" sx={watchNoteSx}>
+          No tag matched: {watch.unmatched.join(", ")}
+        </Box> : null}
       {watch.rows.length ? (
-        <div className="mzai-w-scroll">
-          <Table className="mzai-w-table">
+        <Box sx={watchScrollSx}>
+          <Table sx={watchTableSx}>
             <TableHead>
               <TableRow>
                 <TableCell component="th">Tag</TableCell>
                 <TableCell component="th">Pen</TableCell>
                 <TableCell component="th">State</TableCell>
-                <TableCell component="th" className="mzai-w-num">Motion</TableCell>
-                {showOwn ? <TableCell component="th" className="mzai-w-num">vs own</TableCell> : null}
-                {showPen ? <TableCell component="th" className="mzai-w-num">vs pen</TableCell> : null}
+                <TableCell component="th" align="right">Motion</TableCell>
+                {showOwn ? <TableCell component="th" align="right">vs own</TableCell> : null}
+                {showPen ? <TableCell component="th" align="right">vs pen</TableCell> : null}
                 <TableCell component="th">Last seen</TableCell>
                 <TableCell component="th">Signal</TableCell>
               </TableRow>
@@ -134,52 +164,62 @@ export function CeoAiWatchCard(props: { watch: WatchState; onStop?: () => void }
               {watch.rows.map((r) => (
                 <TableRow key={r.tag}>
                   <TableCell>
-                    <span className="mzai-w-tag">{r.tag}</span>
-                    {r.animal ? <span className="mzai-w-dim">{r.animal}</span> : null}
+                    <Box component="span" sx={watchTagSx}>
+                      {r.tag}
+                    </Box>
+                    {r.animal ? <Box component="span" sx={watchDimSx}>{r.animal}</Box> : null}
                   </TableCell>
                   <TableCell>
                     {r.pen ?? "Unmapped"}
-                    {r.park ? <span className="mzai-w-dim">{r.park}</span> : null}
+                    {r.park ? <Box component="span" sx={watchDimSx}>{r.park}</Box> : null}
                   </TableCell>
                   <TableCell>
-                    <span className={`mzai-w-pill ${STATE_TONE[r.state] ?? "mut"}`}>{r.state_label}</span>
-                    {r.live_state === "moving_now" ? <span className="mzai-w-dim">moving now</span> : null}
-                    {r.still_min >= 1 ? <span className="mzai-w-dim">still {r.still_min}m</span> : null}
+                    <Box component="span" sx={watchPillSx(STATE_TONE[r.state] ?? "mut")}>
+                      {r.state_label}
+                    </Box>
+                    {r.live_state === "moving_now" ? <Box component="span" sx={watchDimSx}>moving now</Box> : null}
+                    {r.still_min >= 1 ? <Box component="span" sx={watchDimSx}>still {r.still_min}m</Box> : null}
                   </TableCell>
-                  <TableCell className="mzai-w-num">
+                  <TableCell align="right">
                     {r.motion_count ?? "—"}
-                    <span className="mzai-w-dim">
+                    <Box component="span" sx={watchDimSx}>
                       {r.delta_since_start !== null ? `+${r.delta_since_start} since start` : ""}
-                    </span>
+                    </Box>
                   </TableCell>
-                  {showOwn ? <TableCell className="mzai-w-num">{pct(r.vs_own_pct) ?? "—"}</TableCell> : null}
-                  {showPen ? <TableCell className="mzai-w-num">{pct(r.vs_pen_pct) ?? "—"}</TableCell> : null}
+                  {showOwn ? <TableCell align="right">{pct(r.vs_own_pct) ?? "—"}</TableCell> : null}
+                  {showPen ? <TableCell align="right">{pct(r.vs_pen_pct) ?? "—"}</TableCell> : null}
                   <TableCell>{ago(r.last_seen_s)}</TableCell>
                   <TableCell>
-                    <span className={`mzai-w-pill ${STATUS_TONE[r.status] ?? "mut"}`}>{r.status}</span>
-                    <span className="mzai-w-dim">
+                    <Box component="span" sx={watchPillSx(STATUS_TONE[r.status] ?? "mut")}>
+                      {r.status}
+                    </Box>
+                    <Box component="span" sx={watchDimSx}>
                       {r.rssi !== null ? `${r.rssi} dBm` : ""}
                       {r.battery_mv !== null ? ` · ${(r.battery_mv / 1000).toFixed(2)} V` : ""}
-                    </span>
+                    </Box>
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
-        </div>
+        </Box>
       ) : null}
       {feed.length ? (
-        <ol className="mzai-w-feed" aria-live="polite">
+        <Box component="ol" sx={watchFeedSx} aria-live="polite">
           {feed.map((c, i) => (
-            <li key={`${watch.changes.length - i}`} className={c.tone ?? "mut"}>
-              <span className="mzai-w-at">{c.at_min !== undefined ? `${c.at_min}m` : ""}</span>
+            <Box component="li" key={`${watch.changes.length - i}`} sx={watchFeedItemSx(c.tone ?? "mut")}>
+              <Box component="span" sx={watchAtSx}>
+                {c.at_min !== undefined ? `${c.at_min}m` : ""}
+              </Box>
               <span>{c.text}</span>
-            </li>
+            </Box>
           ))}
-        </ol>
+        </Box>
       ) : live && watch.polls > 0 ? (
-        <p className="mzai-w-quiet">No changes yet.</p>
+        <Box component="p" sx={watchNoteSx}>
+          No changes yet.
+        </Box>
       ) : null}
-    </section>
+    </Box>
   );
 }
