@@ -357,8 +357,8 @@ today's behaviour; and the lock saves **nothing** on a solo landing.
 | Item | Value | Status |
 |---|---|---|
 | Collapse `:app` compile + unit + lint into one Gradle invocation | Removes 2 cold JVM starts and 2 configuration phases | **DONE** (`run-local-ci.sh:522`), every flag byte-for-byte unchanged; measured ≈17 s saved per android leg. Failure semantics unchanged (Gradle stops at the first failing task) |
-| Replace `--rerun-tasks` with real Gradle input tracking | Large on repeat runs | Not attempted. Only acceptable with proof that staleness protection survives |
-| `--max-workers=1` on the Android steps | Potentially large | **KEPT, marked NEEDS-PROOF** — `git blame` shows no cause, and "no cause found" ≠ "no cause". Measure with §5 before touching |
+| Replace `--rerun-tasks` with real Gradle input tracking | Large on repeat runs | **DONE 2026-09-28.** The Paparazzi test task sets `outputs.upToDateWhen { false }` + `outputs.cacheIf { false }` (it always renders), compiles stay cached. Guarded by `check-android-screenshot-proof.sh`. See `docs/progress/ci-15min-landing-20260928.md` |
+| `--max-workers=1` on the Android steps | Potentially large | **REMOVED** — compile lane in `9ebe28efe`, screenshot lane on 2026-09-28 (2333 s -> 377 s cold, 134/134 pass, a flipped golden still fails) |
 | Shared `.next/cache` outside the landing worktree, `npm ci --prefer-offline`, shared `GRADLE_USER_HOME` | Unknown | Blocked on real numbers from the timings TSV |
 | Parallel job lanes | Wall-clock on multi-job runs | **DONE** (`tools/ci/parallel-dispatch.sh`, default width 3 via `GOATOS_CI_LOCAL_JOBS`, clamped 1..4). The feared failure mode — a green receipt for a red run — is eliminated by construction, not by avoidance: verdicts cross the process boundary only as atomically written status FILES, a missing/non-numeric status scores 97 = FAILED, and the parent asserts `accounted == launched == selected`. `screenshots_ran` crosses the same way and its absence on the android job fails the run. Proof: `tools/ci/check-run-local-ci-parallel.test.sh` + `check-parallel-dispatch-cleanup.sh`. **Speedup unmeasured** |
 

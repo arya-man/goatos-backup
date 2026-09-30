@@ -19,7 +19,7 @@ src="tools/ci/run-local-ci.sh"
 # All fixtures are dot-prefixed and removed on exit.
 tmp="tools/ci"
 fixture_prefix="tools/ci/.screenshot-guard-selftest-"
-cleanup() { rm -f "${fixture_prefix}"*.sh; }
+cleanup() { rm -f "${fixture_prefix}"*.sh "${fixture_prefix}"*.kts; }
 trap cleanup EXIT
 cleanup
 
@@ -67,6 +67,38 @@ f="$(mk one_worker sed 's/--max-workers=\$(android_gradle_workers)/--max-workers
 expect 1 "--max-workers=1 on a screenshot step must fail" "$f"
 f="$(mk no_rerun sed 's/:app:verifyPaparazziDevDebug --rerun /:app:verifyPaparazziDevDebug /')"
 expect 1 "a screenshot step without task-level --rerun must fail" "$f"
+f="$(mk one_worker_eol sed 's/--max-workers=\$(android_gradle_workers) .*/--max-workers=1"/')"
+expect 1 "--max-workers=1 at the end of a screenshot step must fail" "$f"
+
+# app/build.gradle.kts half of the contract: each mutation of the Paparazzi
+# block must fail on its own.
+gradle_src="apps/goatos-android/app/build.gradle.kts"
+gradle_fixture="${fixture_prefix}gradle.kts"
+expect_gradle() { # expected_status, label, sed-expression
+  sed "$3" "$gradle_src" >"$gradle_fixture"
+  cmp -s "$gradle_src" "$gradle_fixture" && { echo "!! screenshot guard self-test: mutation '$2' matched nothing" >&2; rc=1; return; }
+  GOATOS_SCREENSHOT_GRADLE_FILE="$gradle_fixture" bash "$guard" "$src" >/dev/null 2>&1
+  local got=$?
+  [ "$got" = "$1" ] || { echo "!! screenshot guard self-test FAILED: $2 (expected exit $1, got $got)" >&2; rc=1; }
+}
+expect_gradle 1 "dropping the *ScreenshotTest filter must fail" '/filter.includeTestsMatching("sg.mesha.goatos.ui.\*ScreenshotTest")/d'
+expect_gradle 1 "dropping the testDev/testDebug classes must fail" '/devDebugOnlyTestClasses.forEach/d'
+expect_gradle 1 "serial Paparazzi forks must fail" 's/maxParallelForks = 4/maxParallelForks = 1/'
+expect_gradle 1 "a Paparazzi test task allowed UP-TO-DATE must fail" '/outputs.upToDateWhen { false }/d'
+expect_gradle 1 "a Paparazzi test task allowed FROM-CACHE must fail" '/outputs.cacheIf { false }/d'
+rm -f "$gradle_fixture"
+
+# A Paparazzi test outside the *ScreenshotTest naming would be skipped by the
+# filter; the guard must name it.
+stray_root="$(mktemp -d "${TMPDIR:-/tmp}/screenshot-guard-stray.XXXXXX")"
+mkdir -p "$stray_root/app/src/test/kotlin/sg/mesha/goatos/ui"
+printf 'class WidgetShots {\n  val paparazzi = Paparazzi()\n}\n' >"$stray_root/app/src/test/kotlin/sg/mesha/goatos/ui/WidgetShots.kt"
+GOATOS_SCREENSHOT_TEST_ROOT="$stray_root" bash "$guard" "$src" >/dev/null 2>&1 \
+  && { echo "!! screenshot guard self-test FAILED: a Paparazzi test not named *ScreenshotTest must fail" >&2; rc=1; }
+mv "$stray_root/app/src/test/kotlin/sg/mesha/goatos/ui/WidgetShots.kt" "$stray_root/app/src/test/kotlin/sg/mesha/goatos/ui/WidgetScreenshotTest.kt"
+GOATOS_SCREENSHOT_TEST_ROOT="$stray_root" bash "$guard" "$src" >/dev/null 2>&1 \
+  || { echo "!! screenshot guard self-test FAILED: a correctly named *ScreenshotTest must pass" >&2; rc=1; }
+rm -rf "$stray_root"
 
 # (e) THE BANNER HOLE. Keep every string, keep the `step "android screenshots"`
 #     line, but make the enabling case arm unmatchable. The old presence-grep

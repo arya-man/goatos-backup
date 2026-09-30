@@ -49,6 +49,10 @@ class PcCareFeedWaterRemovalScreenshotTest {
                                 step = PcCarePlanStep.OPERATORS,
                                 selectedCategoryKey = "deworming",
                                 selectedCategoryLabel = "Deworming",
+                                // Pinned: without it the screen falls back to LocalDate.now(), and
+                                // on 30/09/2026 the footer read "Tomorrow · Thu 01/10/2026" and the
+                                // golden (recorded 22/09) stopped matching.
+                                today = "2026-09-22",
                                 selectedDate = "2026-10-01",
                                 selectedParkId = park,
                                 selectedParkLabel = "Channapatna",

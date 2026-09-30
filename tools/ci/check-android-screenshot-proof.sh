@@ -84,27 +84,47 @@ matches "$fast_on" 'CI-TRACE android screenshots( \(targeted\))? ::.*:app:verify
 matches "$fast_off" 'CI-TRACE android screenshots( \(targeted\))? ::' \
   && fail "in the FAST lane with GOATOS_RUN_ANDROID_SCREENSHOTS unset the screenshot proof ran anyway; the opt-in default is broken"
 
-# Speed contract (15-min landing, 2026-09-28): the proof reruns ONLY the
-# Paparazzi task (`--rerun`), never the whole graph (`--rerun-tasks` recompiled
-# every module), and never on one worker. PR #451's full proof took 2333 s with
-# `--rerun-tasks --max-workers=1`. Staleness is still covered: `--rerun` forces
-# the screenshot task itself to execute, so it can never pass UP-TO-DATE.
+# Speed + freshness contract (15-min landing, 2026-09-28): the proof never
+# reruns the whole graph (`--rerun-tasks` recompiled every module) and never
+# runs on one worker. PR #451's full proof took 2333 s with
+# `--rerun-tasks --max-workers=1`. Freshness lives in app/build.gradle.kts:
+# `--rerun` on verifyPaparazziDevDebug reruns only that wrapper, so the
+# testDevDebugUnitTest task itself must refuse UP-TO-DATE and the build cache,
+# or a green proof could be replayed instead of rendered.
 if [ "${inv:-0}" -ge 1 ]; then
   printf '%s\n' "$inv_lines" | grep -q -- '--rerun-tasks' \
-    && fail "a screenshot step uses --rerun-tasks (recompiles every module); use task-level --rerun"
-  printf '%s\n' "$inv_lines" | grep -q -- '--max-workers=1[^0-9]' \
+    && fail "a screenshot step uses --rerun-tasks (recompiles every module); freshness is the test task's upToDateWhen/cacheIf in app/build.gradle.kts"
+  printf '%s\n' "$inv_lines" | grep -Eq -- '--max-workers=1([^0-9]|$)' \
     && fail "a screenshot step pins --max-workers=1; use \$(android_gradle_workers)"
   no_rerun="$(printf '%s\n' "$inv_lines" | grep -Ev ':app:verifyPaparazziDevDebug --rerun( |$)' || true)"
   [ -z "$no_rerun" ] \
-    || fail "every screenshot step must pass --rerun right after :app:verifyPaparazziDevDebug (else it can pass UP-TO-DATE without running)"
+    || fail "every screenshot step must pass --rerun right after :app:verifyPaparazziDevDebug"
 fi
-gradle_app="apps/goatos-android/app/build.gradle.kts"
+gradle_app="${GOATOS_SCREENSHOT_GRADLE_FILE:-apps/goatos-android/app/build.gradle.kts}"
 if [ -f "$gradle_app" ]; then
-  grep -Fq 'filter.includeTestsMatching("sg.mesha.goatos.ui.*ScreenshotTest")' "$gradle_app" \
+  paparazzi_block="$(awk '/if \(runningPaparazzi && name == "testDevDebugUnitTest"\)/{on=1} on{print} on&&/^    }/{exit}' "$gradle_app")"
+  [ -n "$paparazzi_block" ] \
+    || fail "$gradle_app has no 'if (runningPaparazzi && name == \"testDevDebugUnitTest\")' block; this guard is blind"
+  has() { printf '%s\n' "$paparazzi_block" | grep -Eq -- "$1"; }
+  has 'filter\.includeTestsMatching\("sg\.mesha\.goatos\.ui\.\*ScreenshotTest"\)' \
     || fail "$gradle_app no longer limits Paparazzi runs to *ScreenshotTest classes (the full 216-class run, one JVM each, took 39 min)"
-  grep -Fq 'maxParallelForks' "$gradle_app" \
-    || fail "$gradle_app no longer runs Paparazzi forks in parallel (maxParallelForks)"
+  has 'devDebugOnlyTestClasses\.forEach \{ filter\.includeTestsMatching\(it\) \}' \
+    && grep -Fq 'listOf("src/testDev", "src/testDebug")' "$gradle_app" \
+    || fail "$gradle_app drops the src/testDev + src/testDebug unit tests from the Paparazzi run; no other lane runs them"
+  has 'maxParallelForks = ([2-9]|[1-9][0-9])$' \
+    || fail "$gradle_app Paparazzi forks are not parallel (want maxParallelForks >= 2)"
+  has 'outputs\.upToDateWhen \{ false \}' && has 'outputs\.cacheIf \{ false \}' \
+    || fail "$gradle_app lets the Paparazzi test task come from UP-TO-DATE or the build cache (a green proof could be replayed, not rendered)"
 fi
+
+# Every Paparazzi test must be one the proof actually runs: a class using the
+# Paparazzi rule outside sg/mesha/goatos/ui/*ScreenshotTest.kt is silently
+# skipped by the build-script filter above.
+paparazzi_root="${GOATOS_SCREENSHOT_TEST_ROOT:-apps/goatos-android}"
+stray="$(grep -rlE 'Paparazzi\(' "$paparazzi_root" --include='*.kt' 2>/dev/null \
+  | grep -E '/src/test[^/]*/' | grep -Ev '/src/test/kotlin/sg/mesha/goatos/ui/[^/]*ScreenshotTest\.kt$' || true)"
+[ -z "$stray" ] \
+  || fail "Paparazzi tests the screenshot proof would skip (rename to sg/mesha/goatos/ui/*ScreenshotTest.kt): $(printf '%s ' $stray)"
 
 # The receipt hole must not return.
 code | grep -Fq 'GOATOS_SKIP_ANDROID_SCREENSHOTS' \

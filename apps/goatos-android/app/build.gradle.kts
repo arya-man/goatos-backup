@@ -469,17 +469,36 @@ val runningPaparazzi = gradle.startParameter.taskNames.any {
     it.contains("Paparazzi", ignoreCase = true)
 }
 
-// A Paparazzi run executes only the screenshot classes. Every other devDebug unit test is a
-// duplicate of testStgReleaseUnitTest (which excludes screenshots) and ran in the compile lane
-// already; running all 216 classes here, one JVM each, is what took the proof to 39 min.
+// A Paparazzi run executes the screenshot classes plus the dev/debug-only unit tests
+// (src/testDev, src/testDebug), which no other lane can run: testStgReleaseUnitTest sees
+// neither source set. Every other devDebug class duplicates testStgReleaseUnitTest (which
+// excludes screenshots) and ran in the compile lane already; running all 216 classes here,
+// one JVM each, is what took the proof to 39 min (PR #451, 2333 s).
 // forkEvery = 1 stays (per-class isolation, 602a32711); the forks now run side by side.
-// GOATOS_PAPARAZZI_FORKS lowers the parallelism on a memory-starved machine.
+// Gradle caps the forks at --max-workers, so GOATOS_ANDROID_MAX_WORKERS already lowers it.
+// The test task never comes from UP-TO-DATE or the build cache: `--rerun` on
+// verifyPaparazziDevDebug reruns only that wrapper, so without these two lines a
+// green proof could be replayed instead of rendered. Compiles stay cached.
+// Class names are read from the sources (package + top-level classes), not the file name:
+// testDev/.../DefaultRfidInputTransformTest.kt declares DevDefaultRfidInputTransformTest.
+val devDebugOnlyTestClasses = listOf("src/testDev", "src/testDebug").flatMap { root ->
+    fileTree(root) { include("**/*.kt", "**/*.java") }.files.flatMap { f ->
+        val text = f.readText()
+        val pkg = Regex("""(?m)^package\s+([\w.]+)""").find(text)?.groupValues?.get(1)
+        Regex("""(?m)^(?:(?:public|internal|open|abstract|final)\s+)*class\s+(\w+)""")
+            .findAll(text).map { if (pkg == null) it.groupValues[1] else "$pkg.${it.groupValues[1]}" }.toList()
+    }
+}
+
 tasks.withType<Test>().configureEach {
     if (runningPaparazzi && name == "testDevDebugUnitTest") {
         filter.includeTestsMatching("sg.mesha.goatos.ui.*ScreenshotTest")
+        devDebugOnlyTestClasses.forEach { filter.includeTestsMatching(it) }
         forkEvery = 1
-        maxParallelForks = (System.getenv("GOATOS_PAPARAZZI_FORKS")?.toIntOrNull() ?: 4).coerceAtLeast(1)
+        maxParallelForks = 4
         maxHeapSize = "2g"
+        outputs.upToDateWhen { false }
+        outputs.cacheIf { false }
     }
 }
 

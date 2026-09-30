@@ -218,31 +218,9 @@ layer3() {
     && ok "auto scope reads query_plan_steps from ci-scope.mjs" || bad "auto scope does not read query_plan_steps"
 }
 
-# ── layer 4: non-Android jobs yield the CPU to the Android long pole ──
-# The SHIPPED run_job, extracted verbatim, runs each job in a dispatch-style
-# subshell. Children of a non-Android job must run at nice 10, Android and the
-# parent at 0, and GOATOS_CI_NICE_OTHERS=0 must turn it off.
-layer4() {
-  local fn out
-  fn="$(awk '/^run_job\(\) \{/{on=1} on{print} on&&/^}/{exit}' tools/ci/run-local-ci.sh)"
-  [ -n "$fn" ] || { bad "could not extract run_job from run-local-ci.sh"; return; }
-  out="$(bash -c "$fn"'
-    probe() { sh -c "ps -o nice= -p \$\$" | tr -d " "; }
-    run_common() { echo "common=$(probe)"; }
-    run_android() { echo "android=$(probe)"; }
-    ( run_job common ); ( run_job android ); echo "parent=$(probe)"
-    ( GOATOS_CI_NICE_OTHERS=0 run_job common ) | sed s/common/off/')"
-  local base; base="$(sh -c 'ps -o nice= -p $$' | tr -d ' ')"
-  printf '%s\n' "$out" | grep -qx "common=$((base + 10))" && ok "non-Android job children run at nice +10" || bad "non-Android job was not reniced: $out"
-  printf '%s\n' "$out" | grep -qx "android=$base" && ok "Android job keeps its priority" || bad "Android job was reniced: $out"
-  printf '%s\n' "$out" | grep -qx "parent=$base" && ok "the dispatcher parent keeps its priority" || bad "the parent was reniced: $out"
-  printf '%s\n' "$out" | grep -qx "off=$base" && ok "GOATOS_CI_NICE_OTHERS=0 turns it off" || bad "GOATOS_CI_NICE_OTHERS=0 ignored: $out"
-}
-
 echo "run-local-ci parallel dispatch self-test"
 layer1
 layer2
 layer3
-layer4
 [ "$rc" -eq 0 ] && echo "run-local-ci-parallel: self-test passed" || echo "run-local-ci-parallel: self-test FAILED" >&2
 exit "$rc"

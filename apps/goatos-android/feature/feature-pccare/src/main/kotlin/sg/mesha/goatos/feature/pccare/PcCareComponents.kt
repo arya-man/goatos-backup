@@ -83,11 +83,14 @@ internal fun PcCareWorkTypeChip(label: String, modifier: Modifier = Modifier) {
     }
 }
 
-/** "Today · 21 Aug"-style label for an ISO business date; null when the string is malformed. */
-internal fun pcCareFriendlyDate(iso: String): String? {
+/**
+ * "Today · 21 Aug"-style label for an ISO business date; null when the string is malformed.
+ * [today] is the screen's business day when the state carries one, so a screenshot renders
+ * the same on every calendar day; it defaults to the IST wall clock.
+ */
+internal fun pcCareFriendlyDate(iso: String, today: LocalDate = LocalDate.now(ZoneId.of("Asia/Kolkata"))): String? {
     // exception:exempt a malformed date string renders no label; the ViewModel owns the value
     val date = runCatching { LocalDate.parse(iso) }.getOrNull() ?: return null
-    val today = LocalDate.now(ZoneId.of("Asia/Kolkata"))
     val dayPart = date.format(DateTimeFormatter.ofPattern("EEE dd/MM/yyyy", Locale.ENGLISH))
     return when (date) {
         today -> "Today · $dayPart"
@@ -318,3 +321,8 @@ internal fun PcCareTaskPill(label: String, fg: Color, bg: Color) {
             .padding(horizontal = 10.dp, vertical = 6.dp),
     )
 }
+
+/** The plan screen's business day: the ViewModel's `today` when set, else the IST wall clock. */
+internal fun PcCarePlanUiState.businessToday(): LocalDate =
+    // exception:exempt an unset/malformed today falls back to the IST wall clock, as before
+    runCatching { LocalDate.parse(today) }.getOrElse { LocalDate.now(ZoneId.of("Asia/Kolkata")) }

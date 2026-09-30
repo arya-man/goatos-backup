@@ -21,9 +21,9 @@ Hosted workflows, if later enabled, invoke these same targets. They are a mirror
 not the present authority. Do not maintain a second hand-copied command list in
 workflow YAML.
 
-## Landing scope vs the nightly full suite (20-min land-main cap)
+## Landing scope vs the nightly full suite (15-min land-main budget)
 
-`make land-main` must finish in 20 minutes wall time. A landing (`make ci-local`,
+`make land-main` must finish in 15 minutes wall time (was 20 until 2026-09-28). A landing (`make ci-local`,
 auto scope) therefore runs only what the diff can break, and the rest runs in
 `MODE=all` and in the nightly `nightly-full-ci` workflow on the self-hosted
 runner (03:00 IST). Nothing was deleted; it moved.
@@ -33,16 +33,16 @@ runner (03:00 IST). Nothing was deleted; it moved.
 | Android compile | `:app:compileStgReleaseKotlin` (all modules :app uses), 6 workers, shared build cache | same |
 | Android unit | `:app` + changed library modules + their dependents (`tools/ci/android-gradle-scope.mjs`) | every module |
 | Android lint | `:app:lintStgRelease` when `app/**`, `core-designsystem`, any `res/` or build logic changed; else changed library modules' `lintRelease` | every module + `:app` |
-| Paparazzi | diff-mapped on an Android UI diff (`ci-local-screenshots`) | full: all `*ScreenshotTest` classes, task-level `--rerun`, forks in parallel (nightly: `GOATOS_RUN_ANDROID_SCREENSHOTS=1`) |
+| Paparazzi | diff-mapped on an Android UI diff (`ci-local-screenshots`) | full: all `*ScreenshotTest` classes plus the `src/testDev` + `src/testDebug` unit tests, forks in parallel, test task never UP-TO-DATE or FROM-CACHE (nightly: `GOATOS_RUN_ANDROID_SCREENSHOTS=1`) |
 | (library-only change) | the library's own `lintRelease`, not `:app` lint: no module has a lint config/baseline and `:app` lint never set `checkDependencies`, so this is the same rules on the changed code | |
 | config-cache guard, benchmark compile | Android build-logic diff only | always |
 | backend govulncheck | `backend/go.mod`/`go.sum` diff only | always |
 | gradle-worktree-lock mutation self-test (~24 min) | never (the real lock guard still runs on a lock diff) | always |
 
-`make land-main` prints per-job and total wall time; over 20 minutes it prints a
+`make land-main` prints per-job and total wall time; over 15 minutes it prints a
 loud WARNING with the top 5 steps and appends to `~/.goatos/land-main-budget.log`.
 It never fails a landing on budget. Knobs: `GOATOS_ANDROID_MAX_WORKERS` (default
-6; lower it, e.g. to 3, if Gradle exits 137 = OOM SIGKILL), `GOATOS_CI_LOCAL_JOBS` (default 5, max 5), `GOATOS_LAND_BUDGET_SECONDS`.
+6; lower it, e.g. to 3, if Gradle exits 137 = OOM SIGKILL), `GOATOS_CI_LOCAL_JOBS` (default 5, max 5), `GOATOS_LAND_BUDGET_SECONDS` (default 900). Paparazzi runs up to 4 test JVMs (2g each), capped by `GOATOS_ANDROID_MAX_WORKERS`.
 
 Per machine (opt-in, set in the maintainer's `~/.zshenv`):
 `GOATOS_LAND_VIA_QUEUE=1` hands `make land-main` to `land.yml` on the self-hosted

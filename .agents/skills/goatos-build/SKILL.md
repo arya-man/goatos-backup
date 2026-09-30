@@ -526,6 +526,16 @@ one product; this skill is the navigation layer.
   make ci-local-screenshots          # GOATOS_RUN_ANDROID_SCREENSHOTS=1
   ```
 
+  Screenshot proof contract (2026-09-28, enforced by
+  `tools/ci/check-android-screenshot-proof.sh` + its self-test). A Paparazzi run
+  executes only the `*ScreenshotTest` classes plus the `src/testDev` and
+  `src/testDebug` unit tests (no other lane runs those), one JVM per class,
+  4 in parallel (capped by `GOATOS_ANDROID_MAX_WORKERS`). The test task never comes
+  from UP-TO-DATE or the build cache, so every proof renders. Do not bring back
+  `--rerun-tasks` or `--max-workers=1` on a screenshot step: together they took
+  PR #451's proof to 2333 s. A new Paparazzi test class must be named
+  `*ScreenshotTest` in `sg.mesha.goatos.ui`, or the proof skips it.
+
   These captures need a backend on real data, so they need the OCI Postgres
   password from Secret Manager. If `gcloud` is unauthenticated, ask the
   maintainer for one interactive `gcloud auth login` **as soon as you know you

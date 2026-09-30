@@ -81,7 +81,7 @@ fun PcCareMonitorScreen(
                 title = state.title,
                 eyebrow = "Preventive Care",
                 eyebrowColor = MeshaColors.BrandD,
-                subtitle = pcCareFriendlyDate(state.monitorDate),
+                subtitle = pcCareFriendlyDate(state.monitorDate, state.businessToday()),
                 actions = {
                     SyncIconButton(isSyncing = state.isRefreshing, onSync = { onEvent(PcCarePlanEvent.Refresh) })
                 },
@@ -591,7 +591,7 @@ fun PcCarePlanWizardScreen(
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
                             ReviewLine("Work", state.selectedCategoryLabel)
-                            ReviewLine("Day", pcCareFriendlyDate(state.selectedDate) ?: state.selectedDate)
+                            ReviewLine("Day", pcCareFriendlyDate(state.selectedDate, state.businessToday()) ?: state.selectedDate)
                             ReviewLine("Farm", state.selectedParkLabel)
                             ReviewLine("Pens", state.selectedPenLabel)
                             ReviewLine(
@@ -651,7 +651,7 @@ private fun wizardStepComplete(state: PcCarePlanUiState): Boolean = when (state.
 private fun wizardContextLine(state: PcCarePlanUiState): String {
     val chosen = listOfNotNull(
         state.selectedCategoryLabel.takeIf { it.isNotBlank() },
-        pcCareFriendlyDate(state.selectedDate),
+        pcCareFriendlyDate(state.selectedDate, state.businessToday()),
         state.selectedParkLabel.takeIf { it.isNotBlank() },
         state.selectedPenLabel.takeIf { it.isNotBlank() },
         state.selectedOperatorIds.size.takeIf { it > 0 }?.let { count ->

@@ -326,8 +326,9 @@ as the three sequential steps did).
 `--no-daemon` is deliberately **kept** on the receipt path: it is the one flag
 with a recorded reason (mirror GitHub's ephemeral runner, `2926c7de5`), and
 `GOATOS_FAST_LOCAL_CI=1` already offers daemon + combined tasks for non-landing
-runs. `--no-configuration-cache` and `--max-workers=1` have **no recorded
-reason** in blame — that is "unproven", not "unnecessary"; they stay. The
+runs. `--no-configuration-cache` has **no recorded
+reason** in blame — that is "unproven", not "unnecessary"; it stays.
+(`--max-workers=1` was removed with measurements: see section 8.) The
 in-process Kotlin strategy is load-bearing on `testStgReleaseUnitTest` (Firebase
 Perf ASM instrumentation has corrupted unit-test Flow fakes here before,
 `f4a63345`) and must not be touched.
