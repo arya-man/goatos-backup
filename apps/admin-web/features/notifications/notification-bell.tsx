@@ -30,6 +30,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { m } from "motion/react";
 import Badge from "@mui/material/Badge";
+import Box from "@mui/material/Box";
 import IconButton from "@mui/material/IconButton";
 import { Iconify } from "@/layouts/template/iconify";
 import { varTap, varHover, transitionTap } from "@/layouts/template/animate";
@@ -261,13 +262,13 @@ export function NotificationBell({
   const badgeText = badge > NOTIFICATION_BADGE_MAX ? centreCopy.unreadMore : String(badge);
 
   return (
-    <div
+    <Box
       ref={rootRef}
       data-menu-root
       data-notification-bell
       // `flex: none` keeps the bell the same size it was as a disabled button, so no other
       // top-bar control moves.
-      style={{ position: "relative", flex: "none" }}
+      sx={{ position: "relative", flex: "none" }}
     >
       {/* Template notifications-drawer trigger (layouts/components/notifications-drawer): IconButton
           with the tap/hover motion, MUI Badge (error) and the 24px solar bell. */}
@@ -329,6 +330,6 @@ export function NotificationBell({
           />
               </Suspense>
       </MinimalDrawer>
-    </div>
+    </Box>
   );
 }

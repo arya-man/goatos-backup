@@ -89,7 +89,7 @@ test("real bell reads once on mount, never on route changes, re-reads on every o
     await page.route("**/*",route=>route.abort());
     const errors=[];
     page.on("pageerror",error=>errors.push(error.message));
-    const css=(await Promise.all(["app/mesha-theme.css","app/minimal-theme.css","app/frame.css","features/notifications/notification-panel.css"].map(file=>readFile(path.join(app,file),"utf8")))).join("\n");
+    const css=(await Promise.all(["app/mesha-theme.css","app/minimal-theme.css","app/frame.css"].map(file=>readFile(path.join(app,file),"utf8")))).join("\n");
     await page.setContent(`<style>${css}</style><div class="top"><div id="root"></div></div>`);
     // The theme stack's settings provider persists to a cookie; about:blank has no cookie jar.
     await page.evaluate(()=>Object.defineProperty(Document.prototype,"cookie",{configurable:true,get:()=>"",set:()=>{}}));

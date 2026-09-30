@@ -4,22 +4,19 @@
  * The eager Suspense fallback for the bell's lazy panel: header title + five rows, the shape the
  * panel resolves into, from the shared skeleton blocks. Kept tiny and separate from
  * `./notification-panel` on purpose -- it ships in the shell chunk of every route, so it imports only
- * the blocks and the panel's stylesheet (which the panel would load anyway) for the panel shell.
+ * the blocks; the shell's layout is sx (the panel's actions row, then the rows).
  */
 
 import Box from "@mui/material/Box";
 import { ListRowsSkeleton, SkeletonLine } from "@/components/app/skeletons";
-import "./notification-panel.css";
 
 export function NotificationSkeleton({ rows = 5 }: { rows?: number }) {
   return (
-    <Box className="nc" data-notification-panel-fallback aria-busy="true">
-      <Box className="nc-head">
+    <Box data-notification-panel-fallback aria-busy="true" sx={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", px: 2.5, py: 1.5 }}>
         <SkeletonLine variant="subtitle1" width={120} />
       </Box>
-      <Box className="nc-scroll">
-        <NotificationRowsSkeleton rows={rows} />
-      </Box>
+      <NotificationRowsSkeleton rows={rows} />
     </Box>
   );
 }

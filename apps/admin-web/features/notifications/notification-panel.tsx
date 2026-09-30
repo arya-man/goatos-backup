@@ -17,40 +17,33 @@
  * ONLY where the backend gives something openable (`notificationAction`). Unread dot on the right,
  * swapping to the per-row ✓ on hover. Hairline between rows.
  *
- * Styling lives in `./notification-panel.css` (Mesha tokens only; no hexes) and the shared kit.
+ * ANATOMY is the template notifications drawer (layouts/components/notifications-drawer): the
+ * header IconButtons (mark all read, settings), full-width MUI Tabs with Label counts, and the
+ * NotificationItem row (40px avatar / icon circle on `background.neutral`-style tint, ListItemText
+ * sentence + caption meta, `background.neutral` quote block, outlined Labels, small contained +
+ * outlined Buttons, dashed divider, unread dot). Theme sx only: no stylesheet, no colour literal.
  */
 
 import { m, useReducedMotion } from "motion/react";
+import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import ButtonBase from "@mui/material/ButtonBase";
 import IconButton from "@mui/material/IconButton";
+import Tab from "@mui/material/Tab";
+import Tabs from "@mui/material/Tabs";
 import Tooltip from "@mui/material/Tooltip";
+import Typography from "@mui/material/Typography";
+import type { Theme } from "@mui/material/styles";
+import { varAlpha } from "minimal-shared/utils";
 import { isPushCapable } from "@/lib/push-capable";
 import Link from "@/components/no-prefetch-link";
 import { Suspense, lazy, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import {
-  AlertTriangle,
-  AtSign,
-  Bell,
-  BellOff,
-  CalendarClock,
-  Check,
-  CheckCheck,
-  ClipboardList,
-  Clock,
-  HeartPulse,
-  Inbox,
-  MessageSquare,
-  Scale,
-  Settings,
-  Truck,
-  User,
-  Wheat,
-} from "lucide-react";
-import { cx } from "@/lib/tone";
-import { IconBadge } from "@/components/app/icon-badge";
+import { Iconify, type IconifyName } from "@/components/minimal/iconify";
+import { Label } from "@/components/minimal/label";
 import { NotificationRowsSkeleton } from "./notification-skeleton";
-import { TemplateTabs } from "@/components/app/template-tabs";
 import { formatNotificationTime, type NotificationCentreCopy } from "./notification-copy";
-import { notificationKind, notificationTabCounts, relativeNotificationTime, type NotificationIconName, type NotificationTab } from "./notification-kind";
+import { notificationKind, notificationTabCounts, relativeNotificationTime, type NotificationIconName, type NotificationTab, type NotificationTone } from "./notification-kind";
 import {
   isNotificationRead,
   notificationAction,
@@ -60,23 +53,53 @@ import {
   type InAppNotification,
   type NotificationFeed,
 } from "./notification-model";
-import "./notification-panel.css";
 
-const ICONS: Record<NotificationIconName, ReactNode> = {
-  bell: <Bell />,
-  clock: <Clock />,
-  check: <Check />,
-  "at-sign": <AtSign />,
-  message: <MessageSquare />,
-  clipboard: <ClipboardList />,
-  "heart-pulse": <HeartPulse />,
-  wheat: <Wheat />,
-  truck: <Truck />,
-  scale: <Scale />,
-  calendar: <CalendarClock />,
-  alert: <AlertTriangle />,
-  user: <User />,
+/** The type's semantic icon, from the template's registered (offline) Iconify set. */
+const ICONS: Record<NotificationIconName, IconifyName> = {
+  bell: "solar:bell-bing-bold",
+  clock: "solar:clock-circle-bold",
+  check: "solar:check-circle-bold",
+  "at-sign": "solar:user-id-bold",
+  message: "solar:chat-round-dots-bold",
+  clipboard: "solar:bill-list-bold",
+  "heart-pulse": "solar:medical-kit-bold",
+  wheat: "solar:box-minimalistic-bold",
+  truck: "carbon:delivery",
+  scale: "solar:dumbbell-large-minimalistic-bold",
+  calendar: "solar:calendar-date-bold",
+  alert: "solar:danger-triangle-bold",
+  user: "solar:user-rounded-bold",
 };
+
+/** The tone's palette key; `neutral` is the template's `background.neutral` circle. */
+const TONE_PALETTE: Record<Exclude<NotificationTone, "neutral">, "primary" | "info" | "success" | "warning" | "error" | "secondary"> = {
+  primary: "primary",
+  info: "info",
+  success: "success",
+  warning: "warning",
+  error: "error",
+  violet: "secondary",
+};
+
+/** The 40px avatar / icon circle, tinted by the type's tone. */
+function toneCircleSx(tone: NotificationTone) {
+  return (theme: Theme) => {
+    const key = tone === "neutral" ? null : TONE_PALETTE[tone];
+    return {
+      width: "var(--sp-5)",
+      height: "var(--sp-5)",
+      flex: "none",
+      display: "flex",
+      borderRadius: "50%",
+      alignItems: "center",
+      justifyContent: "center",
+      typography: "subtitle2",
+      ...(key
+        ? { color: theme.vars.palette[key].dark, bgcolor: varAlpha(theme.vars.palette[key].mainChannel, 0.16), ...theme.applyStyles("dark", { color: theme.vars.palette[key].light }) }
+        : { color: "text.secondary", bgcolor: "background.neutral" }),
+    };
+  };
+}
 
 /** The ⚙ section, fetched the first time it is opened (it carries `firebase/messaging`). */
 const PushSettings = lazy(async () => {
@@ -165,71 +188,107 @@ export function NotificationPanel({
 
   // Header actions: template notifications-drawer IconButtons (Tooltip + IconButton), so the
   // PhoneTapStyles 44px floor applies on phone.
-  const iconButton = (label: string, icon: ReactNode, onClick: () => void, disabled = false, color: "default" | "primary" = "default", pressed?: boolean) => (
+  const iconButton = (label: string, icon: IconifyName, onClick: () => void, disabled = false, color: "default" | "primary" = "default", pressed?: boolean) => (
     <Tooltip title={label}>
       <span>
         <IconButton color={color} onClick={onClick} disabled={disabled} aria-label={label} aria-pressed={pressed} sx={pressed ? { bgcolor: "action.selected" } : undefined}>
-          {icon}
+          <Iconify icon={icon} aria-hidden="true" />
         </IconButton>
       </span>
     </Tooltip>
   );
 
-  const emptyIcon = !feed.available ? <BellOff /> : tab === "unread" ? <CheckCheck /> : <Inbox />;
+  const emptyIcon: IconifyName = !feed.available ? "solar:bell-off-bold" : tab === "unread" ? "eva:done-all-fill" : "solar:inbox-bold";
   const emptyText = !feed.available ? centreCopy.unavailable : tab === "unread" ? centreCopy.emptyUnread : centreCopy.empty;
+  const tabs: Array<{ value: NotificationTab; label: string; count: number | null; color: "default" | "info" | "success" }> = [
+    { value: "all", label: centreCopy.tabAll, count: counts.all ?? null, color: "default" },
+    { value: "unread", label: centreCopy.tabUnread, count: counts.unread, color: "info" },
+    { value: "archived", label: centreCopy.tabArchived, count: counts.archived ?? null, color: "success" },
+  ];
 
   return (
-    <div className="nc" data-notification-panel>
+    <Box data-notification-panel sx={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
       {/* The title and the close button are the template drawer header (MinimalDrawer in the bell);
           this row carries the centre's own actions. */}
-      <div className="nc-head">
-        {iconButton(centreCopy.markAllRead, <CheckCheck size={20} aria-hidden="true" />, onMarkAllRead, busy || !hasUnread, "primary")}
-        {showPush ? iconButton(centreCopy.settings, <Settings size={20} aria-hidden="true" />, () => setPushOpen((v) => !v), false, "default", pushOpen) : null}
-      </div>
+      <Box data-notification-actions sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 0.25, px: 1, py: 0.5 }}>
+        {iconButton(centreCopy.markAllRead, "eva:done-all-fill", onMarkAllRead, busy || !hasUnread, "primary")}
+        {showPush ? iconButton(centreCopy.settings, "solar:settings-bold-duotone", () => setPushOpen((v) => !v), false, "default", pushOpen) : null}
+      </Box>
 
       {showPush && pushOpen ? (
-        <section className="nc-push-wrap" aria-label={centreCopy.pushTitle}>
-          <Suspense fallback={<div className="nc-push"><span className="nc-push-hint">{centreCopy.busy}</span></div>}>
+        <Box
+          component="section"
+          aria-label={centreCopy.pushTitle}
+          sx={{ px: 2.5, pt: 1.5, pb: 0.5, borderBottom: (theme) => `dashed 1px ${theme.vars.palette.divider}` }}
+        >
+          <Suspense
+            fallback={
+              <Typography variant="caption" component="p" sx={{ color: "text.secondary", pb: 1.25 }}>
+                {centreCopy.busy}
+              </Typography>
+            }
+          >
             <PushSettings centreCopy={centreCopy} contractCopy={contractCopy} />
           </Suspense>
-        </section>
+        </Box>
       ) : null}
 
-      <div className="nc-tabs-wrap">
-        <TemplateTabs
-          variant="pill"
-          className="nc-tabs"
-          ariaLabel={centreCopy.title}
-          value={tab}
-          onChange={(value) => setTab(value === "unread" ? "unread" : value === "archived" ? "archived" : "all")}
-          items={[
-            { value: "all", label: centreCopy.tabAll, count: counts.all ?? null },
-            { value: "unread", label: centreCopy.tabUnread, count: counts.unread },
-            { value: "archived", label: centreCopy.tabArchived, count: counts.archived ?? null },
-          ]}
-        />
-      </div>
+      {/* Template notifications-drawer tabs: full width, the custom indicator, a Label count per tab
+          (filled for All and the current tab, soft otherwise; Unread info, Archived success). */}
+      <Tabs
+        variant="fullWidth"
+        value={tab}
+        onChange={(_, value: NotificationTab) => setTab(value === "unread" ? "unread" : value === "archived" ? "archived" : "all")}
+        indicatorColor="custom"
+        aria-label={centreCopy.title}
+      >
+        {tabs.map((item) => (
+          <Tab
+            key={item.value}
+            value={item.value}
+            iconPosition="end"
+            label={item.label}
+            icon={
+              item.count === null ? undefined : (
+                <Label variant={item.value === "all" || item.value === tab ? "filled" : "soft"} color={item.color}>
+                  {item.count}
+                </Label>
+              )
+            }
+          />
+        ))}
+      </Tabs>
 
       {errorCode ? (
-        <div className="nc-error" role="alert">
-          <AlertTriangle aria-hidden="true" />
-          <span>{centreCopy.error}</span>
-          <button type="button" className="nc-error-retry" onClick={onRefresh} disabled={loading}>
-            {centreCopy.refresh}
-          </button>
-        </div>
+        <Alert
+          severity="error"
+          role="alert"
+          sx={{ mx: 2.5, mt: 1.5 }}
+          action={
+            <Button color="inherit" size="small" onClick={onRefresh} disabled={loading}>
+              {centreCopy.refresh}
+            </Button>
+          }
+        >
+          {centreCopy.error}
+        </Alert>
       ) : null}
 
-      <div className="nc-scroll" aria-busy={busy || loading}>
+      {/* The rows flow in the drawer's own Scrollbar body: no second scroller inside it. */}
+      <Box aria-busy={busy || loading} sx={{ minHeight: 0 }}>
         {showSkeleton ? (
           <NotificationRowsSkeleton rows={SKELETON_ROWS} />
         ) : rows.length === 0 ? (
-          <div className="nc-empty">
-            <span className="nc-empty-ic">{emptyIcon}</span>
-            <span>{emptyText}</span>
-          </div>
+          <Box data-notification-empty sx={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1.25, px: 2, py: 6, textAlign: "center" }}>
+            <Box sx={toneCircleSx("neutral")}>
+              <Iconify icon={emptyIcon} width={22} aria-hidden="true" />
+            </Box>
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>
+              {emptyText}
+            </Typography>
+          </Box>
         ) : (
-          <ul key={tab} className="nc-items">
+          <Box component="ul" key={tab} sx={{ listStyle: "none", m: 0, p: 0 }}>
             {rows.map((item, index) => (
               <NotificationRow
                 key={item.notification_request_id}
@@ -250,21 +309,23 @@ export function NotificationPanel({
                 }}
               />
             ))}
-          </ul>
+          </Box>
         )}
         {hasMore && rows.length > 0 ? (
-          <div ref={sentinel} className="nc-more">
+          <Box ref={sentinel} data-notification-more>
             {loadingMore ? (
               <NotificationRowsSkeleton rows={2} />
             ) : (
-              <button type="button" className="nc-more-btn" onClick={onLoadMore}>
-                {centreCopy.loadMore}
-              </button>
+              <Box sx={{ p: 1 }}>
+                <Button fullWidth size="large" color="inherit" onClick={onLoadMore}>
+                  {centreCopy.loadMore}
+                </Button>
+              </Box>
             )}
-          </div>
+          </Box>
         ) : null}
-      </div>
-    </div>
+      </Box>
+    </Box>
   );
 }
 
@@ -300,90 +361,140 @@ function NotificationRow({
   const canExpand = body.length > 0;
   const actor = (item.actor_name ?? "").trim();
 
+  const text = (
+    <>
+      <Sentence actor={actor} title={item.title} unread={!read} />
+      <Meta absolute={absolute} relative={relative} iso={item.requested_at} category={kind.category} />
+    </>
+  );
+
   return (
-    <m.li
-      className={cx("nc-row", !read && "nc-unread", expanded && "nc-open")}
+    <Box
+      component={m.li}
+      data-notification-row
+      data-unread={read ? undefined : "true"}
       initial={reduce ? false : { opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={reduce ? { duration: 0 } : { duration: 0.2, delay: Math.min(index, 12) * STAGGER_S, ease: [0.22, 1, 0.36, 1] }}
+      sx={(theme) => ({
+        position: "relative",
+        display: "flex",
+        alignItems: "flex-start",
+        gap: 2,
+        p: 2.5,
+        pr: 1.5,
+        minHeight: "var(--table-row-h)",
+        borderBottom: `dashed 1px ${theme.vars.palette.divider}`,
+        transition: theme.transitions.create("background-color", { duration: theme.transitions.duration.shorter }),
+        ...(read ? {} : { bgcolor: varAlpha(theme.vars.palette.primary.mainChannel, 0.04) }),
+        "&:hover": { bgcolor: read ? "action.hover" : varAlpha(theme.vars.palette.primary.mainChannel, 0.08) },
+        "&:hover [data-row-mark], &:focus-within [data-row-mark]": { opacity: 1 },
+        "&:hover [data-row-dot], &:focus-within [data-row-dot]": { opacity: 0 },
+        "@media (hover: none)": { "& [data-row-mark]": { opacity: 1 }, "& [data-row-dot]": { opacity: 0 } },
+      })}
     >
-      {initials ? (
-        <span className="nc-av" aria-hidden="true" style={{ background: `var(--${kind.tone === "neutral" ? "paper-2" : `${kind.tone}-soft`})`, color: `var(--${kind.tone === "neutral" ? "fg-muted" : `${kind.tone}-ink`})` }}>
-          {initials}
-        </span>
-      ) : (
-        <IconBadge icon={ICONS[kind.icon]} tone={kind.tone} size="sm" shape="circle" className="nc-ic" />
-      )}
-      <div className="nc-main">
+      <Box aria-hidden="true" sx={toneCircleSx(kind.tone)}>
+        {initials ? initials : <Iconify icon={ICONS[kind.icon]} width={22} />}
+      </Box>
+      <Box sx={{ flex: "1 1 auto", minWidth: 0, display: "flex", flexDirection: "column", gap: 1 }}>
         {/* The sentence + meta (+ quote) is the expand toggle where there is a body to expand. */}
         {canExpand ? (
-          <button type="button" className="nc-text" onClick={onToggle} aria-expanded={expanded} aria-label={expanded ? centreCopy.collapse : centreCopy.expand}>
-            <Sentence actor={actor} title={item.title} />
-            <Meta absolute={absolute} relative={relative} iso={item.requested_at} category={kind.category} />
-            <span className="nc-quote" title={expanded ? undefined : body}>
-              <span className={cx("nc-quote-text", !expanded && "nc-clamp")}>{body}</span>
-            </span>
-          </button>
+          <ButtonBase
+            onClick={onToggle}
+            aria-expanded={expanded}
+            aria-label={expanded ? centreCopy.collapse : centreCopy.expand}
+            sx={{ display: "flex", flexDirection: "column", alignItems: "stretch", gap: 0.5, width: 1, textAlign: "left", borderRadius: "var(--r-sm)", whiteSpace: "normal" }}
+          >
+            {text}
+            <Box
+              component="span"
+              title={expanded ? undefined : body}
+              sx={{ display: "block", mt: 0.75, p: 1.5, borderRadius: "var(--r-lg)", color: "text.secondary", bgcolor: "background.neutral", typography: "body2", overflowWrap: "anywhere" }}
+            >
+              <Box
+                component="span"
+                data-notification-quote
+                sx={expanded ? { display: "block" } : { display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 2, overflow: "hidden" }}
+              >
+                {body}
+              </Box>
+            </Box>
+          </ButtonBase>
         ) : (
-          <span className="nc-text">
-            <Sentence actor={actor} title={item.title} />
-            <Meta absolute={absolute} relative={relative} iso={item.requested_at} category={kind.category} />
-          </span>
+          <Box component="span" sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
+            {text}
+          </Box>
         )}
         {chips.length > 0 ? (
-          <span className="nc-chips">
+          <Box component="span" sx={{ display: "flex", flexWrap: "wrap", gap: 0.75 }}>
             {chips.map((chip) => (
-              <span key={chip} className="nc-chip">
+              <Label key={chip} variant="outlined">
                 {chip}
-              </span>
+              </Label>
             ))}
-          </span>
+          </Box>
         ) : null}
         {action ? (
-          <span className="nc-actions">
-            <Link href={action.href} className="nc-btn nc-btn-contained" onClick={onOpen}>
+          <Box component="span" sx={{ display: "flex", gap: 1 }}>
+            <Button component={Link} href={action.href} size="small" variant="contained" color="primary" onClick={onOpen}>
               {action.kind === "load" ? centreCopy.openLoad : action.kind === "task" ? centreCopy.openTask : centreCopy.openTarget}
-            </Link>
+            </Button>
             {read ? null : (
-              <button type="button" className="nc-btn nc-btn-outlined" onClick={() => onMarkRead(item.notification_request_id)} disabled={busy}>
+              <Button size="small" variant="outlined" color="inherit" onClick={() => onMarkRead(item.notification_request_id)} disabled={busy}>
                 {centreCopy.markRead}
-              </button>
+              </Button>
             )}
-          </span>
+          </Box>
         ) : null}
-      </div>
-      <span className="nc-side">
+      </Box>
+      <Box sx={{ position: "relative", flex: "none", display: "grid", placeItems: "center", width: "var(--btn-h)", minHeight: "var(--btn-h)", mt: -0.5 }}>
         {read ? null : (
           <>
-            <span className="nc-dot" aria-hidden="true" />
-            <button type="button" className="nc-ibtn nc-ibtn-row" onClick={() => onMarkRead(item.notification_request_id)} disabled={busy} title={centreCopy.markRead} aria-label={centreCopy.markRead}>
-              <Check aria-hidden="true" />
-            </button>
+            <Box data-row-dot aria-hidden="true" sx={{ width: "var(--sp-1)", height: "var(--sp-1)", borderRadius: "50%", bgcolor: "info.main", transition: "opacity 120ms" }} />
+            <Tooltip title={centreCopy.markRead}>
+              <IconButton
+                data-row-mark
+                size="small"
+                color="primary"
+                onClick={() => onMarkRead(item.notification_request_id)}
+                disabled={busy}
+                aria-label={centreCopy.markRead}
+                sx={{ position: "absolute", inset: 0, m: "auto", opacity: 0 }}
+              >
+                <Iconify icon="eva:checkmark-fill" width={18} aria-hidden="true" />
+              </IconButton>
+            </Tooltip>
           </>
         )}
-      </span>
-    </m.li>
+      </Box>
+    </Box>
   );
 }
 
-function Sentence({ actor, title }: { actor: string; title: string }) {
+function Sentence({ actor, title, unread }: { actor: string; title: string; unread: boolean }) {
   return (
-    <span className="nc-t" title={actor ? `${actor} · ${title}` : title}>
-      {actor ? <b className="nc-actor">{actor}</b> : null}
+    <Typography component="span" variant="body2" title={actor ? `${actor} · ${title}` : title} sx={{ display: "block", color: "text.primary", overflowWrap: "anywhere" }}>
+      {actor ? (
+        <Box component="b" sx={{ typography: "subtitle2" }}>
+          {actor}
+        </Box>
+      ) : null}
       {actor ? " " : null}
-      <span className="nc-title-text">{title}</span>
-    </span>
+      <Box component="span" sx={unread ? { fontWeight: "fontWeightSemiBold" } : undefined}>
+        {title}
+      </Box>
+    </Typography>
   );
 }
 
 function Meta({ absolute, relative, iso, category }: { absolute: string; relative: string; iso: string; category: string }) {
   return (
-    <span className="nc-meta">
-      <time dateTime={iso} title={absolute}>
+    <Box component="span" sx={{ display: "flex", alignItems: "center", gap: 0.5, typography: "caption", color: "text.disabled", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+      <Box component="time" dateTime={iso} title={absolute} sx={{ fontVariantNumeric: "tabular-nums" }}>
         {relative || absolute}
-      </time>
-      <span aria-hidden="true">·</span>
+      </Box>
+      <Box component="span" aria-hidden="true" sx={{ width: 2, height: 2, flex: "none", borderRadius: "50%", bgcolor: "currentColor" }} />
       <span>{category}</span>
-    </span>
+    </Box>
   );
 }
