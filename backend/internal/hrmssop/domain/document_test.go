@@ -18,17 +18,30 @@ func TestSeedIsValid(t *testing.T) {
 func TestValidateRefusesWhatCouldNotRun(t *testing.T) {
 	doc := Seed()
 	doc.ViolationTypes = []ViolationType{
-		{Key: "late", Title: "Late", DefaultFine: 100, Active: true},
-		{Key: "late", Title: "Late again", DefaultFine: -1, Active: true},
-		{Key: "Bad Key", Title: " ", DefaultFine: 0},
+		{Key: "late", Title: "Late", Active: true},
+		{Key: "late", Title: "Late again", Active: true},
+		{Key: "Bad Key", Title: " "},
 	}
 	doc.Enquiries = append(doc.Enquiries, Enquiry{Trigger: "rain", Title: "x", DueHours: 0,
 		Questions: []Question{{ID: "q", Kind: "photo", Title: "x"}, {ID: "q", Kind: QuestionText, Title: "y"}}})
 	got := strings.Join(Validate(doc), "\n")
-	for _, want := range []string{"is used twice", "default fine", "key must be", "give it a name", "not an event", "deadline", "text or yes / no"} {
+	for _, want := range []string{"is used twice", "key must be", "give it a name", "not an event", "deadline", "text or yes / no"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing problem %q in:\n%s", want, got)
 		}
+	}
+}
+
+// A violation type carries no money (maintainer, 2026-09-30: "never map money to mistake, both are
+// separate"): a type that still names a fine is refused, never silently priced.
+func TestAViolationTypeCarriesNoFine(t *testing.T) {
+	_, problems := Parse(map[string]any{
+		"schema_version":  SchemaVersion,
+		"violation_types": []any{map[string]any{"key": "late", "title": "Late", "active": true, "default_fine": 100}},
+		"enquiries":       []any{},
+	})
+	if len(problems) == 0 {
+		t.Fatal("a violation type naming a fine must be refused")
 	}
 }
 

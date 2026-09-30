@@ -5276,8 +5276,6 @@ export interface components {
         ViolationTypeOption: {
             key: string;
             title: string;
-            default_fine: number;
-            default_fine_label: string;
         };
         ViolationPersonOption: {
             person_id: string;

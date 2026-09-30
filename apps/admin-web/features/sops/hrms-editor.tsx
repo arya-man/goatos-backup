@@ -103,10 +103,6 @@ export function HrmsEditor({
                 <span className="small muted">{t("hsop.types.name")}</span>
                 <input className="inp" value={row.title} maxLength={80} onChange={(e) => setType(i, { title: e.target.value })} />
               </label>
-              <label className="fld hsop-num">
-                <span className="small muted">{t("hsop.types.fine")}</span>
-                <input className="inp" inputMode="numeric" value={row.defaultFine} onChange={(e) => setType(i, { defaultFine: e.target.value.replace(/[^0-9]/g, "") })} />
-              </label>
               <label className="hsop-check">
                 <input type="checkbox" checked={row.active} onChange={(e) => setType(i, { active: e.target.checked })} />
                 <span>{row.active ? t("hsop.types.active") : t("hsop.types.retired")}</span>
@@ -123,7 +119,7 @@ export function HrmsEditor({
               type="button"
               className="btn"
               data-testid="hsop-add-type"
-              onClick={() => setRows((r) => ({ ...r, types: [...r.types, { key: "", title: "", defaultFine: "", active: true, stored: false }] }))}
+              onClick={() => setRows((r) => ({ ...r, types: [...r.types, { key: "", title: "", active: true, stored: false }] }))}
             >
               <Plus className="ic" /> {t("hsop.types.add")}
             </button>

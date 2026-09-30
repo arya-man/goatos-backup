@@ -8,7 +8,7 @@ const seed = {
   fields: [],
   violations: {
     schema_version: "goatos.sop-hrms-violations.v1",
-    violation_types: [{ key: "late_to_shift", title: "Late to shift", default_fine: 100, active: true }],
+    violation_types: [{ key: "late_to_shift", title: "Late to shift", active: true }],
     enquiries: [{ trigger: "animal_death", title: "Death enquiry", due_hours: 48, questions: [{ id: "what_happened", kind: "text", title: "What happened", required: true }] }],
   },
 };
@@ -21,11 +21,12 @@ test("a stored document round-trips unchanged", () => {
 test("a renamed stored type keeps its key; a new type gets one from its name", () => {
   const rows = parseHrms(seed);
   rows.types[0].title = "Late for shift";
-  rows.types.push({ key: "", title: "Late to shift!", defaultFine: "250", active: true, stored: false });
+  rows.types.push({ key: "", title: "Late to shift!", active: true, stored: false });
   const out = emitHrms(rows);
   assert.equal(out.violation_types[0].key, "late_to_shift");
   assert.equal(out.violation_types[1].key, "late_to_shift_2");
-  assert.equal(out.violation_types[1].default_fine, 250);
+  // A mistake carries no money (2026-09-30): the list never prices a type.
+  assert.equal("default_fine" in out.violation_types[1], false);
 });
 
 test("a retired type is kept, marked not in use", () => {
@@ -36,10 +37,8 @@ test("a retired type is kept, marked not in use", () => {
 
 test("blank numbers go to the backend as null, never an invented value", () => {
   const rows = parseHrms(seed);
-  rows.types[0].defaultFine = "";
   rows.enquiries[0].dueHours = " ";
   const out = emitHrms(rows);
-  assert.equal(out.violation_types[0].default_fine, null);
   assert.equal(out.enquiries[0].due_hours, null);
 });
 

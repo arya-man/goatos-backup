@@ -9,8 +9,10 @@ import (
 // one person with a fine in rupees and is FINAL when recorded; a mistaken one is withdrawn with a
 // reason, never deleted, and nothing deducts the fine from pay. An enquiry is opened by a farm
 // event (first: an approved animal death); the park head (phone) or HR (web) fills it and it
-// records the violations it names. WHICH violation types exist, their fines and each enquiry's
-// questions and deadline are the published HRMS SOP (internal/hrmssop). Every visible sentence
+// records the violations it names. WHICH violation types exist and each enquiry's questions and
+// deadline are the published HRMS SOP (internal/hrmssop). A TYPE CARRIES NO MONEY (maintainer,
+// 2026-09-30: "never map money to mistake, both are separate"): the fine is typed on each
+// violation, blank meaning no fine, and is never priced from the list. Every visible sentence
 // below is composed by the backend.
 
 // Violation statuses and sources.
@@ -26,10 +28,8 @@ const (
 
 // ViolationTypeOption is an authored violation type a new record may use.
 type ViolationTypeOption struct {
-	Key              string `json:"key"`
-	Title            string `json:"title"`
-	DefaultFine      int    `json:"default_fine"`
-	DefaultFineLabel string `json:"default_fine_label"`
+	Key   string `json:"key"`
+	Title string `json:"title"`
 }
 
 // PersonOption is a person a violation may be recorded against.
@@ -111,7 +111,8 @@ type ViolationsPage struct {
 	TraceID    string                 `json:"trace_id"`
 }
 
-// RecordViolationRequest records one violation by hand. FineRupees nil means the type's default.
+// RecordViolationRequest records one violation by hand. FineRupees nil means no fine -- never a
+// price looked up from the type.
 type RecordViolationRequest struct {
 	PersonID       string `json:"person_id"`
 	TypeKey        string `json:"type_key"`
@@ -207,6 +208,14 @@ type SubmitEnquiryRequest struct {
 	Answers    map[string]any   `json:"answers"`
 	Penalties  []EnquiryPenalty `json:"penalties"`
 	RowVersion int              `json:"row_version"`
+}
+
+// FineLabel is one violation's fine as a reader sees it: "No fine" when none was given.
+func FineLabel(amount int) string {
+	if amount == 0 {
+		return "No fine"
+	}
+	return RupeesLabel(amount)
 }
 
 // RupeesLabel renders a whole-rupee amount the Indian way: ₹1,500 / ₹1,00,000.

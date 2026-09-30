@@ -48749,12 +48749,10 @@ components:
     ViolationTypeOption:
       type: object
       additionalProperties: false
-      required: [key, title, default_fine, default_fine_label]
+      required: [key, title]
       properties:
         key: {type: string}
         title: {type: string}
-        default_fine: {type: integer}
-        default_fine_label: {type: string}
     ViolationPersonOption:
       type: object
       additionalProperties: false

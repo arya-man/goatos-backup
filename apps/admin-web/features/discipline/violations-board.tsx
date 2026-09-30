@@ -279,11 +279,6 @@ function RecordForm({ pageContract, page, onDone, onCancel }: { pageContract: Ad
     );
   }
 
-  const pickType = (key: string) => {
-    setTypeKey(key);
-    const type = page.types.find((x) => x.key === key);
-    if (type) setFine(String(type.default_fine));
-  };
   const save = () => {
     if (!personId || !typeKey || !date) {
       setError(t("action.required"));
@@ -310,63 +305,69 @@ function RecordForm({ pageContract, page, onDone, onCancel }: { pageContract: Ad
     });
   };
 
+  // One line: who, what, when, how much, why, and the two buttons. The violation and the fine are
+  // separate choices (maintainer, 2026-09-30) -- picking a violation never fills in money.
   return (
-    <section className="card dsc-form" data-testid="violations-form">
-      <div className="hd">
-        <h3>{t("form.title")}</h3>
-      </div>
-      <div className="bd dsc-form-grid">
-        <label className="fld">
-          <span className="small muted">{t("form.person")}</span>
-          <select className="inp" value={personId} onChange={(e) => setPersonId(e.target.value)} data-testid="violations-form-person">
-            <option value="">{t("form.person_choose")}</option>
-            {page.people.map((p) => (
-              <option key={p.person_id} value={p.person_id}>
-                {[p.name, p.designation, p.park_label].filter(Boolean).join(" · ")}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="fld">
-          <span className="small muted">{t("form.type")}</span>
-          <select className="inp" value={typeKey} onChange={(e) => pickType(e.target.value)} data-testid="violations-form-type">
-            <option value="">{t("form.type_choose")}</option>
-            {page.types.map((x) => (
-              <option key={x.key} value={x.key}>
-                {`${x.title} · ${x.default_fine_label}`}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="fld">
-          <ThemedDatePicker
-            name="occurred_on"
-            label={t("form.date")}
-            max={todayKey()}
-            value={date}
-            onChange={setDate}
-            previousMonthLabel={t("form.prev_month")}
-            nextMonthLabel={t("form.next_month")}
-            invalidDateText={t("form.invalid_date")}
-          />
+    <section className="card dsc-form" data-testid="violations-form" aria-label={t("form.title")}>
+      <div className="bd">
+        <div className="dsc-form-row">
+          <label className="fld dsc-f-person">
+            <span className="small muted">{t("form.person")}</span>
+            <select className="inp" value={personId} onChange={(e) => setPersonId(e.target.value)} data-testid="violations-form-person">
+              <option value="">{t("form.person_choose")}</option>
+              {page.people.map((p) => (
+                <option key={p.person_id} value={p.person_id}>
+                  {[p.name, p.designation, p.park_label].filter(Boolean).join(" · ")}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="fld dsc-f-type">
+            <span className="small muted">{t("form.type")}</span>
+            <select className="inp" value={typeKey} onChange={(e) => setTypeKey(e.target.value)} data-testid="violations-form-type">
+              <option value="">{t("form.type_choose")}</option>
+              {page.types.map((x) => (
+                <option key={x.key} value={x.key}>
+                  {x.title}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="fld dsc-f-date">
+            <span className="small muted">{t("form.date")}</span>
+            <ThemedDatePicker
+              name="occurred_on"
+              label={t("form.date")}
+              max={todayKey()}
+              value={date}
+              onChange={setDate}
+              previousMonthLabel={t("form.prev_month")}
+              nextMonthLabel={t("form.next_month")}
+              invalidDateText={t("form.invalid_date")}
+            />
+          </div>
+          <label className="fld dsc-f-fine">
+            <span className="small muted">{t("form.fine")}</span>
+            <input className="inp" inputMode="numeric" value={fine} placeholder={t("form.fine_none")} onChange={(e) => setFine(e.target.value.replace(/[^0-9]/g, ""))} data-testid="violations-form-fine" />
+          </label>
+          <label className="fld dsc-f-note">
+            <span className="small muted">{t("form.note")}</span>
+            <input className="inp" maxLength={2000} value={note} placeholder={t("form.note_hint")} onChange={(e) => setNote(e.target.value)} data-testid="violations-form-note" />
+          </label>
+          <div className="dsc-f-actions">
+            <button type="button" className="btn" disabled={pending} onClick={onCancel}>
+              {t("action.cancel")}
+            </button>
+            <button type="button" className="btn primary" disabled={pending} onClick={save} data-testid="violations-form-save">
+              {pending ? t("action.saving") : t("action.save")}
+            </button>
+          </div>
         </div>
-        <label className="fld">
-          <span className="small muted">{t("form.fine")}</span>
-          <input className="inp" inputMode="numeric" value={fine} onChange={(e) => setFine(e.target.value.replace(/[^0-9]/g, ""))} data-testid="violations-form-fine" />
-        </label>
-        <label className="fld dsc-form-note">
-          <span className="small muted">{t("form.note")}</span>
-          <textarea className="inp" rows={2} maxLength={2000} value={note} placeholder={t("form.note_hint")} onChange={(e) => setNote(e.target.value)} data-testid="violations-form-note" />
-        </label>
-        <div className="dsc-form-actions">
-          {error ? <div className="small tt-status dng" role="alert">{error}</div> : null}
-          <button type="button" className="btn" disabled={pending} onClick={onCancel}>
-            {t("action.cancel")}
-          </button>
-          <button type="button" className="btn primary" disabled={pending} onClick={save} data-testid="violations-form-save">
-            {pending ? t("action.saving") : t("action.save")}
-          </button>
-        </div>
+        {error ? (
+          <div className="small tt-status dng" role="alert">
+            {error}
+          </div>
+        ) : null}
       </div>
     </section>
   );

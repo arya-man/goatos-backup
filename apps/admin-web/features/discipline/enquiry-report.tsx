@@ -40,10 +40,9 @@ export function EnquiryReport({
   const open = detail.can_submit;
 
   const setPenalty = (i: number, patch: Partial<Penalty>) => setPenalties((ps) => ps.map((p, j) => (j === i ? { ...p, ...patch } : p)));
-  const pickType = (i: number, key: string) => {
-    const type = detail.types.find((x) => x.key === key);
-    setPenalty(i, { typeKey: key, fine: type ? String(type.default_fine) : "" });
-  };
+  // The violation and its fine are separate choices (maintainer, 2026-09-30): picking one never
+  // fills in the other.
+  const pickType = (i: number, key: string) => setPenalty(i, { typeKey: key });
 
   const submit = () => {
     setError("");
@@ -193,14 +192,14 @@ export function EnquiryReport({
                       <option value="">{t("detail.type_choose")}</option>
                       {detail.types.map((x) => (
                         <option key={x.key} value={x.key}>
-                          {`${x.title} · ${x.default_fine_label}`}
+                          {x.title}
                         </option>
                       ))}
                     </select>
                   </label>
                   <label className="fld dsc-fine">
                     <span className="small muted">{t("detail.fine")}</span>
-                    <input className="inp" inputMode="numeric" value={p.fine} onChange={(ev) => setPenalty(i, { fine: ev.target.value.replace(/[^0-9]/g, "") })} />
+                    <input className="inp" inputMode="numeric" value={p.fine} placeholder={t("detail.fine_none")} onChange={(ev) => setPenalty(i, { fine: ev.target.value.replace(/[^0-9]/g, "") })} />
                   </label>
                   <label className="fld dsc-grow">
                     <span className="small muted">{t("detail.note")}</span>

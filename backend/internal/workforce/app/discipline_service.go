@@ -460,7 +460,9 @@ func buildViolation(rules hrmsdomain.Rules, personID, typeKey string, fine *int,
 	if !ok || !t.Active {
 		return ports.NewViolation{}, &Error{Code: "unknown_violation_type", Message: disciplineCopy["error.type"], HTTPStatus: 422}
 	}
-	amount := t.DefaultFine
+	// A mistake and its money are separate (maintainer, 2026-09-30): no fine given is no fine,
+	// never a price looked up from the type.
+	amount := 0
 	if fine != nil {
 		amount = *fine
 	}
@@ -558,7 +560,7 @@ func monthOptions(now time.Time) []domain.MonthOption {
 func typeOptions(doc hrmsdomain.Document) []domain.ViolationTypeOption {
 	out := []domain.ViolationTypeOption{}
 	for _, t := range doc.ActiveTypes() {
-		out = append(out, domain.ViolationTypeOption{Key: t.Key, Title: t.Title, DefaultFine: t.DefaultFine, DefaultFineLabel: domain.RupeesLabel(t.DefaultFine)})
+		out = append(out, domain.ViolationTypeOption{Key: t.Key, Title: t.Title})
 	}
 	return out
 }
@@ -580,7 +582,7 @@ func composeViolation(r ports.ViolationRow) domain.Violation {
 	return domain.Violation{
 		ViolationID: r.ViolationID, PersonID: r.PersonID, PersonName: r.PersonName, ParkID: r.ParkID, ParkLabel: r.ParkLabel,
 		Designation: designationLabel(r.DesignationLabel, r.RoleHint, r.DesignationGrade, clockCopyFor("en")),
-		TypeKey:     r.TypeKey, TypeLabel: r.TypeLabel, FineRupees: r.FineRupees, FineLabel: domain.RupeesLabel(r.FineRupees),
+		TypeKey:     r.TypeKey, TypeLabel: r.TypeLabel, FineRupees: r.FineRupees, FineLabel: domain.FineLabel(r.FineRupees),
 		OccurredOn: r.OccurredOn.Format("2006-01-02"), OccurredOnLabel: biztime.FarmDateFromBusinessDate(r.OccurredOn.Format("2006-01-02")),
 		Note: r.Note, Source: r.Source, SourceLabel: disciplineCopy["source."+r.Source], EnquiryID: r.EnquiryID,
 		RecordedByName: r.RecordedByName, RecordedAtLabel: farmTimestamp(r.RecordedAt),

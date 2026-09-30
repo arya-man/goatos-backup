@@ -7263,6 +7263,18 @@ aside.drawer.approvals-drawer .df{flex-wrap:wrap}
 .dsc-tile-value{font-size:22px;font-weight:700}
 .dsc-tiles-action{margin-left:auto;display:flex;align-items:center}
 .dsc-form-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+.dsc-form-row{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}
+.dsc-form-row .fld{display:flex;flex-direction:column;gap:4px;min-width:0;margin:0}
+.dsc-form-row .inp,.dsc-form-row .move-date-button{height:40px;box-sizing:border-box}
+.dsc-f-person{flex:1.4 1 200px}
+.dsc-f-type{flex:1.2 1 170px}
+.dsc-f-date{flex:0 1 160px}
+.dsc-f-fine{flex:0 1 110px}
+.dsc-f-note{flex:2 1 200px}
+.dsc-f-actions{display:flex;gap:8px;flex:0 0 auto}
+.dsc-f-actions .btn{height:40px;box-sizing:border-box;padding-top:0;padding-bottom:0}
+.dsc-form .tt-status{margin-top:8px}
+@media (max-width:640px){.dsc-f-person,.dsc-f-type,.dsc-f-note{flex-basis:100%}.dsc-f-date,.dsc-f-fine{flex:1 1 140px}.dsc-f-actions{flex:1 1 100%;justify-content:flex-end}}
 .dsc-form-grid .fld{display:flex;flex-direction:column;gap:4px;min-width:0}
 .dsc-form-note{grid-column:1/-1}
 .dsc-form-actions{grid-column:1/-1;display:flex;gap:8px;justify-content:flex-end;align-items:center;flex-wrap:wrap}

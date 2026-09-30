@@ -68,9 +68,9 @@ VALUES ($1::uuid, $2::uuid, 'park_head', 'tenant', $1::uuid, 'active', now() - i
 VALUES ($1::uuid, 'hrms.violations', 'Violations and enquiries', '', 'active', 'action', 'module', 'hrms')`, dsTenant)
 	doc := `{"schema_version":"goatos.sop-form.v1","sop_code":"hrms.violations","title":"x","fields":[],
 "violations":{"schema_version":"goatos.sop-hrms-violations.v1",
- "violation_types":[{"key":"negligence","title":"Negligence","default_fine":500,"active":true},
-                    {"key":"late","title":"Late to shift","default_fine":100,"active":true},
-                    {"key":"old","title":"Old type","default_fine":50,"active":false}],
+ "violation_types":[{"key":"negligence","title":"Negligence","active":true},
+                    {"key":"late","title":"Late to shift","active":true},
+                    {"key":"old","title":"Old type","active":false}],
  "enquiries":[{"trigger":"animal_death","title":"Death enquiry","due_hours":48,
    "questions":[{"id":"what_happened","kind":"text","title":"What happened","required":true},
                 {"id":"preventable","kind":"yes_no","title":"Could it have been prevented?","required":false}]}]}}`
@@ -89,7 +89,7 @@ var (
 func ip(v int) *int { return &v }
 
 // A hand-recorded violation: pinned to the published version, the type's label snapshotted, the
-// fine defaulted, an exact replay returning the original, a reused key with other content refused,
+// no fine given recorded as NO fine (a type carries no money, 2026-09-30), an exact replay returning the original, a reused key with other content refused,
 // a retired or unknown type refused, and a withdraw fenced and kept on record.
 func TestViolationRecordReplayAndWithdrawWithDockerPostgres(t *testing.T) {
 	f := dsSeed(t)
@@ -99,7 +99,7 @@ func TestViolationRecordReplayAndWithdrawWithDockerPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	v := got.Violation
-	if v.FineRupees != 500 || v.FineLabel != "₹500" || v.TypeLabel != "Negligence" || v.SOPVersion != 2 || v.ParkLabel != "Channapatna" || v.OccurredOnLabel != "29/09/2026" || v.Status != "recorded" {
+	if v.FineRupees != 0 || v.FineLabel != "No fine" || v.TypeLabel != "Negligence" || v.SOPVersion != 2 || v.ParkLabel != "Channapatna" || v.OccurredOnLabel != "29/09/2026" || v.Status != "recorded" {
 		t.Fatalf("recorded = %+v", v)
 	}
 	again, err := f.svc.RecordViolation(f.ctx, dsTenant, dsHR, dsHRUser, req, "t")
@@ -208,7 +208,7 @@ func TestDeathEnquiryOpensOnceAndItsReportRecordsViolationsWithDockerPostgres(t 
 		t.Fatalf("second submit = %v", err)
 	}
 	month, err := f.svc.Violations(f.ctx, dsTenant, dsHR, "", "2026-09", "", "", 0, "t")
-	if err != nil || month.Summary.Count != 2 || month.Summary.FineRupees != 750 || month.Summary.People != 2 || month.Summary.FineLabel != "₹750" {
+	if err != nil || month.Summary.Count != 2 || month.Summary.FineRupees != 250 || month.Summary.People != 2 || month.Summary.FineLabel != "₹250" {
 		t.Fatalf("month = %+v %v", month.Summary, err)
 	}
 }

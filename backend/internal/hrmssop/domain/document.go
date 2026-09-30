@@ -1,9 +1,10 @@
 // Package domain is the HRMS SOP document (maintainer instruction 2026-09-30: "every violation
 // type, everything is SOP driven; in future every list should be changeable"). The published
-// `hrms.violations` version says WHICH violation types exist, the default fine of each, and --
-// per farm event that opens an enquiry -- its title, deadline and questions. HR and the CEO author
-// it on People / HRMS > HRMS SOP; the workforce module runs it and stamps each violation and
-// enquiry with the version it used.
+// `hrms.violations` version says WHICH violation types exist and -- per farm event that opens an
+// enquiry -- its title, deadline and questions. A TYPE CARRIES NO MONEY (maintainer, 2026-09-30:
+// "never map money to mistake, both are separate"): the fine is typed on each violation by the
+// person recording it, never priced by the list. HR and the CEO author it on People / HRMS > HRMS
+// SOP; the workforce module runs it and stamps each violation and enquiry with the version it used.
 //
 // What is NOT authored, and why: the TRIGGERS. An enquiry is opened by an event the backend
 // already emits (an approved animal death is the first); a trigger key names that engine wiring,
@@ -35,7 +36,8 @@ const (
 
 	MaxViolationTypes = 100
 	MaxQuestions      = 30
-	MaxFineRupees     = 10_000_000
+	// MaxFineRupees bounds the fine typed on a violation (the list itself carries none).
+	MaxFineRupees = 10_000_000
 	MaxDueHours       = 24 * 30
 )
 
@@ -46,11 +48,11 @@ var KnownTriggers = map[string]string{
 
 // ViolationType is one authored kind of violation. Key is its stable identity (a rename keeps
 // it); Active=false retires it from new records while past records keep their label.
+// It carries no fine: a mistake and its money are separate facts.
 type ViolationType struct {
-	Key         string `json:"key"`
-	Title       string `json:"title"`
-	DefaultFine int    `json:"default_fine"`
-	Active      bool   `json:"active"`
+	Key    string `json:"key"`
+	Title  string `json:"title"`
+	Active bool   `json:"active"`
 }
 
 // Question is one question an enquiry report asks.
@@ -182,9 +184,6 @@ func Validate(doc Document) []string {
 			add("%s: the name %q is used twice", where, title)
 		}
 		seenTitle[strings.ToLower(title)] = true
-		if t.DefaultFine < 0 || t.DefaultFine > MaxFineRupees {
-			add("%s: the default fine must be between ₹0 and ₹%d", where, MaxFineRupees)
-		}
 	}
 	seenTrigger := map[string]bool{}
 	for i, e := range doc.Enquiries {

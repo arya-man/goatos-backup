@@ -10,7 +10,6 @@ export interface HrmsTypeRow {
   /** Stable identity. Set once from the first name and kept on every rename. */
   key: string;
   title: string;
-  defaultFine: string;
   active: boolean;
   /** True for a type already in a published version: its key is locked. */
   stored: boolean;
@@ -59,7 +58,6 @@ export function parseHrms(formDsl: unknown): HrmsRows | null {
     return {
       key: str(t["key"]),
       title: str(t["title"]),
-      defaultFine: typeof t["default_fine"] === "number" ? String(t["default_fine"]) : "0",
       active: t["active"] !== false,
       stored: true,
     };
@@ -99,8 +97,8 @@ function wholeNumber(raw: string): number {
 
 /**
  * The `violations` section a set of rows saves as. A new row gets its key from its name here, so
- * a type renamed after it is stored keeps the key its past records point at. Blank fines and
- * deadlines are sent as NaN->null so the backend refuses them with its own message rather than
+ * a type renamed after it is stored keeps the key its past records point at. A type carries no fine
+ * (a mistake and its money are separate, 2026-09-30). A blank deadline is sent as NaN->null so the backend refuses them with its own message rather than
  * the editor inventing a number.
  */
 export function emitHrms(rows: HrmsRows): Record<string, unknown> {
@@ -108,8 +106,7 @@ export function emitHrms(rows: HrmsRows): Record<string, unknown> {
   const types = rows.types.map((t) => {
     const key = t.stored && t.key ? t.key : keyFromTitle(t.title, typeKeys, "violation");
     typeKeys.add(key);
-    const fine = wholeNumber(t.defaultFine);
-    return { key, title: t.title.trim(), default_fine: Number.isNaN(fine) ? null : fine, active: t.active };
+    return { key, title: t.title.trim(), active: t.active };
   });
   const enquiries = rows.enquiries.map((e) => {
     const ids = new Set(e.questions.filter((q) => q.stored && q.id).map((q) => q.id));
