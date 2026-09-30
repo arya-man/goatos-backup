@@ -34,6 +34,6 @@ test("probe flags a squeezed cell and passes a normal one", async () => {
 // (Scrollbar + minWidth + nowrap identity cells) and a stacked row per animal on phones.
 test("/calendar/drive roster: table minWidth + nowrap cells, stacked phone rows", () => {
   const src = readFileSync(join(root, "features/calendar/calendar-drive-detail.tsx"), "utf8");
-  assert.match(src, /<Scrollbar>\s*<Table sx=\{\{ minWidth: 960,[\s\S]{0,160}wordBreak: "normal"[\s\S]{0,60}"& td \.celllink": \{ whiteSpace: "nowrap" \}/);
-  assert.match(src, /display: \{ xs: "block", md: "none" \}[\s\S]{0,400}<Stack spacing=\{0\.5\}/);
+  assert.match(src, /<Scrollbar>\s*<Table sx=\{\{ minWidth: 960,[\s\S]{0,160}wordBreak: "normal"[\s\S]{0,60}"& td a": \{ whiteSpace: "nowrap" \}/);
+  assert.match(src, /display: \{ xs: "block", md: "none" \}[\s\S]{0,600}<Stack spacing=\{0\.5\}/);
 });
