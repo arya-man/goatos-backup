@@ -16,16 +16,20 @@ export function LinkSelect({
   value,
   options,
   minWidth = 160,
+  fullWidth = false,
 }: {
   label: string;
   value: string;
   options: readonly LinkSelectOption[];
   minWidth?: number;
+  /** Fill the parent (a toolbar slot that is full width on a phone). */
+  fullWidth?: boolean;
 }) {
   const { go } = useUrlNavigate();
   return (
     <TextField
       select
+      fullWidth={fullWidth}
       label={label}
       value={options.some((option) => option.value === value) ? value : ""}
       onChange={({ target: { value: next } }) => {

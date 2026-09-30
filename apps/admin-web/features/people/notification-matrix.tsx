@@ -161,9 +161,9 @@ export function NotificationMatrix({
         <Scrollbar>
           <Table
             sx={{
-              // Template table kit: every designation column keeps a readable 96px floor and the
+              // Template table kit: every designation column keeps a readable 112px floor and the
               // table scrolls sideways inside its card; the alert column stays pinned while it does.
-              minWidth: 270 + 96 * matrix.designations.length,
+              minWidth: 270 + 112 * matrix.designations.length,
               tableLayout: "fixed",
               // The pinned cell repaints the card surface it covers.
               "& tr > :first-of-type": { position: "sticky", left: 0, zIndex: 1, bgcolor: "background.paper" },
@@ -173,7 +173,7 @@ export function NotificationMatrix({
             <colgroup>
               <Box component="col" sx={{ width: 270 }} />
               {matrix.designations.map((d) => (
-                <Box component="col" key={d.code} sx={{ width: 96 }} />
+                <Box component="col" key={d.code} sx={{ width: 112 }} />
               ))}
             </colgroup>
             <TableHead>
@@ -182,10 +182,12 @@ export function NotificationMatrix({
                 {matrix.designations.map((d) => (
                   <TableCell component="th"
                     key={d.code}
-                    sx={{ textAlign: "center", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", px: 1, verticalAlign: "bottom" }}
+                    sx={{ textAlign: "center", px: 1, verticalAlign: "bottom" }}
                   >
+                    {/* Two lines at word breaks, then ellipsis ("CEO / C…" / "Prevent…" read as broken on
+                        one line, J2 P2-11); the Tooltip keeps the whole label + grade. */}
                     <Tooltip title={d.grade ? `${d.label} · ${d.grade}` : d.label}>
-                      <Box component="span" sx={{ display: "block", overflow: "hidden", textOverflow: "ellipsis" }}>{d.label}</Box>
+                      <Box component="span" sx={HEADER_TWO_LINES_SX}>{d.label}</Box>
                     </Tooltip>
                   </TableCell>
                 ))}
@@ -359,3 +361,13 @@ function GroupRows({
     </>
   );
 }
+
+/** A designation header: up to two lines broken at words (never letters), then an ellipsis. */
+const HEADER_TWO_LINES_SX = {
+  display: "-webkit-box",
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: "vertical",
+  overflow: "hidden",
+  overflowWrap: "normal",
+  wordBreak: "normal",
+} as const;

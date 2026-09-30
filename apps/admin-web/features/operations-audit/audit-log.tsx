@@ -28,7 +28,7 @@ import { SearchTextField } from "@/components/app/list/search-text-field";
 import { TableHeadCustom } from "@/components/app/table/table-head-custom";
 import { TablePaginationLinks } from "@/components/app/table/table-pagination-links";
 import { OrderTableToolbar } from "@/components/app/sections/order/order-table-toolbar";
-import { orderToolbarSearchSx } from "@/components/app/order-toolbar-filter";
+import { orderToolbarFilterSx, orderToolbarSearchSx } from "@/components/app/order-toolbar-filter";
 import { LinkSelect } from "@/components/app/link-select";
 import { listOrEmpty } from "@/lib/list-or-empty";
 import Link from "@/components/no-prefetch-link";
@@ -208,7 +208,10 @@ export async function OperationsAuditPage({
 
         <OrderTableToolbar
           filters={
+            // Full width on a phone like every toolbar field (J3 P2-3: a lone 56px select floated right).
+            <Box sx={{ ...orderToolbarFilterSx, flex: { md: `0 0 ${AUDIT_FAMILY_SELECT_WIDTH}px` } }}>
             <LinkSelect
+              fullWidth
               label={copy(pageContract, "filter.family_title_prefix")}
               value={filters.domain ?? ""}
               minWidth={AUDIT_FAMILY_SELECT_WIDTH}
@@ -221,6 +224,7 @@ export async function OperationsAuditPage({
                 })),
               ]}
             />
+            </Box>
           }
           search={<Box sx={orderToolbarSearchSx}><Form action={PATHNAME} prefetch={false} title={copy(pageContract, "filter.search_label")}>
               {preservedHiddenInputs(sp, ["q", "cursor", "page", "cursor_stack", "audit_id"])}
@@ -234,7 +238,7 @@ export async function OperationsAuditPage({
               variant={filters.anomaliesOnly ? "contained" : "outlined"}
               color={filters.anomaliesOnly ? "primary" : "inherit"}
               startIcon={<Iconify icon="solar:danger-triangle-bold" />}
-              sx={{ flexShrink: 0, whiteSpace: "nowrap" }}
+              sx={{ flexShrink: 0, whiteSpace: "nowrap", width: { xs: 1, md: "auto" } }}
             >
               {copy(pageContract, "filter.anomalies_only")}
             </LinkButton>

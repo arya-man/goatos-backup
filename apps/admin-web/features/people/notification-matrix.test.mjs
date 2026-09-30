@@ -103,11 +103,12 @@ test("save carries the loaded row_version through the Server Action and the shel
 test("guard: notification-matrix-header-floor -- designation headers never crush or overlap (FJ1-P1-23)", () => {
   // A dozen designation columns shared 960px, so the headers wrapped letter by letter at 10.5px
   // and ran into each other. Each column keeps a 96px floor (the table scrolls sideways inside its
-  // card, alert column pinned) and the header is one line with ellipsis + a Tooltip for the rest.
+  // card, alert column pinned). J2 P2-11: one line cut every title ("CEO / C…"), so the header now
+  // breaks at words onto two lines (never letters), then ellipsis, with a Tooltip for the rest.
   const src = readFileSync(fileURLToPath(new URL("./notification-matrix.tsx", import.meta.url)), "utf8");
-  assert.match(src, /minWidth: 270 \+ 96 \* matrix\.designations\.length/);
-  assert.match(src, /<Box component="col" key=\{d\.code\} sx=\{\{ width: 96 \}\} \/>/);
-  assert.match(src, /whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"/);
+  assert.match(src, /minWidth: 270 \+ 112 \* matrix\.designations\.length/);
+  assert.match(src, /<Box component="col" key=\{d\.code\} sx=\{\{ width: 112 \}\} \/>/);
+  assert.match(src, /WebkitLineClamp: 2,[\s\S]{0,120}wordBreak: "normal"/);
   assert.match(src, /<Tooltip title=\{d\.grade \? `\$\{d\.label\} · \$\{d\.grade\}` : d\.label\}>/);
   assert.doesNotMatch(src, /fontSize: 10\.5/);
 });
