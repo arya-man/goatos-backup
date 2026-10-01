@@ -403,7 +403,7 @@ test("instructions: Gemini gets only the CEO-relevant AGENTS.md sections", () =>
 test("runAgent: time guard forces a tool-less answer turn", async () => {
   let t = 0;
   const call = [chunk([{ functionCall: { name: "run_sql", args: {} } }])];
-  const ai = fakeAi([call, call, [chunk([{ text: "Answer from what I have." }])]]);
+  const ai = fakeAi([call, [chunk([{ text: "Answer from what I have." }])]]);
   const r = await runAgent({ ai, model: "m", contents: [], env: {}, deadlineMs: 50, now: () => (t += 30),
     tools: { declarations: [], call: async () => ({ text: "rows" }) } });
   assert.equal(r.text, "Answer from what I have.");
@@ -466,4 +466,13 @@ test("server never sends an empty final answer", () => {
   const src = fs.readFileSync(new URL("../server.mjs", import.meta.url), "utf8");
   const i = src.indexOf('metric.error = "empty_answer"');
   assert.ok(i > 0 && i < src.indexOf('send({ type: "error", message: friendlyError(metric.error) });\n      return;'));
+});
+
+test("runAgent: tools requested after the deadline are not run; the next turn answers", async () => {
+  let t = 0, ran = 0;
+  const ai = fakeAi([[chunk([{ functionCall: { name: "run_sql", args: {} } }])], [chunk([{ text: "Answer." }])]]);
+  const r = await runAgent({ ai, model: "m", contents: [], env: {}, deadlineMs: 5, now: () => (t += 10), tools: { declarations: [], call: async () => { ran++; return { text: "" }; } } });
+  assert.equal(ran, 0);
+  assert.equal(r.text, "Answer.");
+  assert.match(ai.calls[1].contents.at(-1).parts[0].functionResponse.response.error, /not run/);
 });

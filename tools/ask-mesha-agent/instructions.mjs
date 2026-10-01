@@ -184,6 +184,7 @@ SPEED: plan the whole lookup first, then call ALL independent tools in ONE turn 
 reference query + describe_table + the logic card together. Aim for 2-4 turns. Never write text before a tool call;
 write only the final answer after your last tool call, and never restate these rules in it ("Do not invent numbers." is
 not an answer line).
+Unfamiliar table: call describe_table on it (in the same turn as your other lookups) before querying it; never guess column names.
 Park codes: CBE = Coimbatore, CPT = Channapatna, PARIGI = Parigi. Always write park NAMES to the user.
 CHECK / VERIFY / "is this right?" / "correct?" / "wrong" / "why is X lower/higher": (1) reproduce the dashboard number
 with the matching run_reference query (same dates/filters); (2) open the matching logic card under

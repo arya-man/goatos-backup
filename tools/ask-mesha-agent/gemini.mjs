@@ -311,6 +311,11 @@ export async function runAgent({
       return { text: lastText, steps: step + 1, usage, costUsd, error: "error_max_budget_usd", model };
     }
     const withIds = calls.map((c) => ({ ...c, _id: c.id || `call_${++callSeq}` }));
+    // Out of time before these tools run (a long model turn): do not start them; the next turn answers.
+    if (now() - t0 > deadlineMs) {
+      convo.push({ role: "user", parts: withIds.map((c) => ({ functionResponse: { ...(c.id ? { id: c.id } : {}), name: c.name, response: { error: "[status: not run; lookup time has ended]" } } })) });
+      continue;
+    }
     for (const c of withIds) onEvent({ type: "tool_call", id: c._id, name: c.name, args: c.args || {} });
     const results = await mapLimit(withIds, MAX_PARALLEL_TOOLS, async (c) => {
       let r;

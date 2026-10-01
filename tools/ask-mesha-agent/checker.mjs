@@ -62,6 +62,8 @@ Flag a sentence only when the results show it is wrong or unsupported:
    the results. Name exactly which items it holds for instead.
 3. Figures the answer presents as the screen's numbers but that are raw/superseded rows the screen does not use.
 4. A chart whose title or series names don't match what is plotted (e.g. titled "Castro pens" but one line).
+5. Technical wording a CEO did not ask for (unless the QUESTION asks for code/SQL): the words SQL/query/table/column/
+   view/schema, field or file names in code font, "backend logic", "engineering team". Rewrite those sentences in business words.
 Do NOT flag style, length, rounding, or numbers you cannot check from the results. Do not add new facts.
 
 Reply with ONLY a JSON object, no prose:
