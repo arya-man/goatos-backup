@@ -958,14 +958,14 @@
           "zero_words": true
         },
         {
-          "label": "pending",
-          "col": "pending",
-          "tol_pct": 3,
+          "label": "cbe pens",
+          "col": "cbe",
+          "tol_pct": 5,
           "zero_words": true
         },
         {
-          "label": "rework",
-          "col": "rework",
+          "label": "cpt pens",
+          "col": "cpt",
           "tol_pct": 5,
           "zero_words": true
         }
