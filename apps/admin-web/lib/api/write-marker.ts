@@ -26,8 +26,24 @@ export const READ_ONLY_BACKEND_POSTS: ReadonlySet<string> = new Set([
   "/admin/goats/sale-allocations/preview",
 ]);
 
+// POSTs that DO write, but write nothing any short-cached read answers. Only the weighing / growth
+// analytics reads go through the short read cache (cachedShortRead in server.ts), so a write that
+// cannot change those numbers has nothing to invalidate and no read-your-writes to protect. These
+// must not stamp the marker either, for the same Next reason as above.
+//
+// /verification/review-events is the verifier's video-review TELEMETRY (opened / played / watched),
+// flushed from a server action every few seconds while /verify is open. Stamping the marker made
+// EVERY flush re-render /verify -- the queue, the bootstrap and the Video Log read again, on a page
+// whose speed is the point -- and the re-render's router push dropped the #vi_video_log /
+// #vi_feed_verify hash, so a panel opened from its button closed itself seconds later (2026-10-01).
+// Add one only after checking no cachedShortRead answer depends on what its handler writes.
+export const UNCACHED_EFFECT_BACKEND_POSTS: ReadonlySet<string> = new Set([
+  "/verification/review-events",
+]);
+
 export function isBackendWrite(method: string, pathname: string): boolean {
   const verb = method.toUpperCase();
   if (verb === "GET" || verb === "HEAD") return false;
-  return !(verb === "POST" && READ_ONLY_BACKEND_POSTS.has(pathname));
+  if (verb !== "POST") return true;
+  return !(READ_ONLY_BACKEND_POSTS.has(pathname) || UNCACHED_EFFECT_BACKEND_POSTS.has(pathname));
 }

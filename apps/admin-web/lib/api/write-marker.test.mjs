@@ -40,3 +40,10 @@ test("a dry-run preview POST is not a write; every other non-GET is", () => {
   assert.equal(isBackendWrite("post", "/sales/deals"), true);
   assert.equal(isBackendWrite("DELETE", "/sales/deals/x/payments/y"), true);
 });
+
+test("verifier review telemetry does not stamp the marker; real verdicts still do", () => {
+  // Every telemetry flush re-rendered /verify and closed a button-opened panel (2026-10-01).
+  assert.equal(isBackendWrite("POST", "/verification/review-events"), false);
+  assert.equal(isBackendWrite("POST", "/verification/items/abc/verdict"), true);
+  assert.equal(isBackendWrite("PUT", "/verification/review-events"), true);
+});
