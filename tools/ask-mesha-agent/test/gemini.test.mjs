@@ -106,7 +106,7 @@ test("runAgent: parallel tool calls, results fed back, thought signatures echoed
   assert.equal(r.steps, 2);
   assert.equal(r.error, null);
   assert.deepEqual(r.usage, { input: 300, output: 15, cached: 0, thoughts: 0 });
-  assert.deepEqual(events.map((e) => e.type), ["step", "turn_end", "tool_call", "tool_call", "tool_result", "tool_result", "step", "text", "text", "turn_end"]);
+  assert.deepEqual(events.filter((e) => e.type !== "usage").map((e) => e.type), ["step", "turn_end", "tool_call", "tool_call", "tool_result", "tool_result", "step", "text", "text", "turn_end"]);
   assert.equal(events.find((e) => e.type === "text").text, "There are ");
   // Second request carries the model turn verbatim (signature kept) and both function responses.
   const second = ai.calls[1];
@@ -280,15 +280,15 @@ test("runAgent: image budget per answer counts attachments, then drops further i
 
 test("runAgent: persistent 429 moves the rest of the answer to the fallback model", async () => {
   const e = () => Object.assign(new Error("RESOURCE_EXHAUSTED"), { status: 429 });
-  const ai = fakeAi([e(), e(), e(), e(), [chunk([{ text: "flash answer" }])]]);
+  const ai = fakeAi([e(), e(), e(), e(), e(), e(), e(), [chunk([{ text: "flash answer" }])]]);
   const events = [];
   const r = await runAgent({ ai, model: "gemini-3.1-pro-preview", fallbackModel: "gemini-3.8-flash", contents: [], retryDelayMs: 1, env: {}, onEvent: (x) => events.push(x), tools: { declarations: [], call: async () => ({}) } });
   assert.equal(r.text, "flash answer");
   assert.equal(r.model, "gemini-3.8-flash");
-  assert.deepEqual(ai.calls.map((c) => c.model), ["gemini-3.1-pro-preview", "gemini-3.1-pro-preview", "gemini-3.1-pro-preview", "gemini-3.1-pro-preview", "gemini-3.8-flash"]);
+  assert.deepEqual(ai.calls.map((c) => c.model), [...Array(7).fill("gemini-3.1-pro-preview"), "gemini-3.8-flash"], "1 try + 6 backoff waits, then flash");
   assert.ok(events.some((x) => x.type === "model_fallback"));
   // Without a fallback the error surfaces.
-  await assert.rejects(runAgent({ ai: fakeAi([e(), e(), e(), e()]), model: "m", contents: [], retryDelayMs: 1, env: {}, tools: { declarations: [], call: async () => ({}) } }), /RESOURCE_EXHAUSTED/);
+  await assert.rejects(runAgent({ ai: fakeAi(Array.from({ length: 7 }, e)), model: "m", contents: [], retryDelayMs: 1, env: {}, tools: { declarations: [], call: async () => ({}) } }), /RESOURCE_EXHAUSTED/);
 });
 
 test("connectMcp: watch_tags gets the long timeout, other tools the short one; abort cancels", async () => {
@@ -330,4 +330,47 @@ test("code tools: grep/glob never search or list credential-shaped files", { ski
   assert.equal((await t.grep({ pattern: "TOPSECRET", output_mode: "content" })).text, "No matches.");
   assert.doesNotMatch((await t.glob({ pattern: "**/*" })).text, /credentials|service-account|id_rsa|\.p12|\.env/);
   assert.match((await t.glob({ pattern: "**/*" })).text, /adg\.go/);
+});
+
+test("runAgent: a turn that fails after streaming text is retried and its text withdrawn", async () => {
+  const boom = Object.assign(new Error("UNAVAILABLE"), { status: 503 });
+  const turns = [[chunk([{ text: "Half an ans" }])], [chunk([{ text: "Full answer." }])]];
+  let n = 0;
+  const ai = { models: { async generateContentStream() {
+    const t = turns[n++];
+    return (async function* () { yield t[0]; if (n === 1) throw boom; })();
+  } } };
+  const events = [];
+  const r = await runAgent({ ai, model: "m", contents: [], retryDelayMs: 1, env: {}, onEvent: (x) => events.push(x), tools: { declarations: [], call: async () => ({}) } });
+  assert.equal(r.text, "Full answer.");
+  assert.deepEqual(events.map((x) => x.type), ["step", "text", "turn_retry", "text", "turn_end"]);
+});
+
+test("runAgent: 401 refreshes the dev token once and retries", async () => {
+  let invalidated = 0;
+  const e401 = Object.assign(new Error("Request had invalid authentication credentials"), { status: 401 });
+  const ai = fakeAi([e401, [chunk([{ text: "ok" }])]]);
+  ai.invalidate = () => invalidated++;
+  const r = await runAgent({ ai, model: "m", contents: [], env: {}, tools: { declarations: [], call: async () => ({}) } });
+  assert.equal(r.text, "ok");
+  assert.equal(invalidated, 1);
+  const ai2 = fakeAi([e401, e401]); ai2.invalidate = () => {};
+  await assert.rejects(runAgent({ ai: ai2, model: "m", contents: [], env: {}, tools: { declarations: [], call: async () => ({}) } }), /authentication/);
+});
+
+test("retryDelay: jittered exponential, ~63 s over six waits, honours Retry-After", async () => {
+  const { retryDelay, RETRY_WAITS } = await import("../gemini.mjs");
+  const mid = Array.from({ length: RETRY_WAITS }, (_, a) => retryDelay(a, 1000, null, () => 0.5));
+  assert.deepEqual(mid, [1000, 2000, 4000, 8000, 16000, 32000]);
+  assert.equal(retryDelay(0, 1000, null, () => 0), 750);
+  assert.equal(retryDelay(3, 1000, { headers: { "retry-after": "7" } }), 7000);
+  assert.equal(retryDelay(3, 1000, { headers: { "retry-after": "999" } }), 60000);
+});
+
+test("runAgent: spend is reported after every model call (failed runs are charged what they used)", async () => {
+  const ai = fakeAi([[chunk([{ functionCall: { name: "x", args: {} } }], { promptTokenCount: 100_000 })], Object.assign(new Error("bad request"), { status: 400 })]);
+  const usage = [];
+  await assert.rejects(runAgent({ ai, model: "gemini-3.1-pro-preview", contents: [], env: {}, onEvent: (x) => x.type === "usage" && usage.push(x.costUsd), tools: { declarations: [], call: async () => ({ text: "" }) } }));
+  assert.equal(usage.length, 1);
+  assert.equal(usage[0].toFixed(2), "0.20");
 });

@@ -631,6 +631,7 @@ async function ask(req, res, user) {
     };
     let firstCallInTurn = true;
     started = true;
+    metric.cost_usd = 0; // updated after every model call ("usage" events)
     try {
       const r = await runAgent({
         ai, model: metric.model, signal: abort.signal, budgetUsd: capUsd, maxSteps: GEMINI.maxSteps, fallbackModel: GEMINI.fastModel,
@@ -664,6 +665,17 @@ async function ask(req, res, user) {
             if (ev.name === "run_sql" || ev.name === "run_reference") metric.db_queries += 1;
             track.toolStart(ev.id, legacy, label);
             send({ type: "progress", phase: "querying", label });
+          } else if (ev.type === "usage") {
+            // Spend so far: a run that fails or is stopped later is charged what it really used.
+            metric.cost_usd = ev.costUsd;
+          } else if (ev.type === "turn_retry") {
+            // The model call failed mid-turn and is retried: withdraw that turn's text.
+            full = full.slice(0, full.length - lastTurnText.length);
+            lastTurnText = "";
+            if (turnVisible) send({ type: "reset" });
+            turnVisible = false;
+            filter = makeChartFilter(emitVisible);
+            gate = makeTurnGate((t) => filter(t));
           } else if (ev.type === "model_fallback") {
             console.warn(`[model] ${requestId} ${ev.from} rate-limited after retries; continuing on ${ev.to}`);
             metric.model_fallback = ev.to;

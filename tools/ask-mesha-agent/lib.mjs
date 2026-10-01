@@ -93,6 +93,32 @@ export function hasPsqlBackslash(text) {
   if (/(^|[^a-z0-9_])(e|u&)'/i.test(text)) return true;
   return text.replace(/'(?:[^']|'')*'/g, "''").includes("\\");
 }
+// True when ';' appears outside plain '...' literals and quoted identifiers. Comments are code
+// here (a quote inside "-- it's" must not hide a later ';'), and any ';' in a query that uses
+// dollar quoting counts, since $tag$ bodies are not scanned.
+export function hasStatementBreak(sql) {
+  const t = String(sql);
+  if (t.includes("$") && /\$[a-z_]*\$/i.test(t)) return t.includes(";");
+  let i = 0;
+  while (i < t.length) {
+    const c = t[i];
+    if (c === "-" && t[i + 1] === "-") { const n = t.indexOf("\n", i); if (n < 0) return false; i = n + 1; continue; }
+    if (c === "/" && t[i + 1] === "*") { const n = t.indexOf("*/", i + 2); if (n < 0) return false; i = n + 2; continue; }
+    if (c === "'" || c === '"') {
+      let j = i + 1;
+      for (;;) {
+        const k = t.indexOf(c, j);
+        if (k < 0) return t.slice(i).includes(";"); // unterminated: be strict
+        if (t[k + 1] === c) { j = k + 2; continue; }
+        i = k + 1; break;
+      }
+      continue;
+    }
+    if (c === ";") return true;
+    i++;
+  }
+  return false;
+}
 export function validateReadSql(sql) {
   const text = String(sql || "").trim();
   if (!text) return { ok: false, out: "Empty query." };
@@ -100,7 +126,8 @@ export function validateReadSql(sql) {
   const one = text.replace(/;\s*$/, "");
   // One statement only, and never transaction/session control: the query runs inside
   // BEGIN READ ONLY … ROLLBACK, so a COMMIT/SET could otherwise step outside it.
-  if (one.includes(";")) return { ok: false, out: "Refused: send one statement at a time (no ';' inside the query)." };
+  // A ';' inside a plain '...' string literal (e.g. concat_ws('; ', ...)) is data, not a statement break.
+  if (hasStatementBreak(one)) return { ok: false, out: "Refused: send one statement at a time (no ';' inside the query)." };
   if (/^\s*(commit|rollback|end|abort|set|reset|begin|start)\b/i.test(one)) {
     return { ok: false, out: "Refused: transaction or session commands are not allowed; send a single SELECT/WITH query." };
   }

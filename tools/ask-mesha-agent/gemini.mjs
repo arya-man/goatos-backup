@@ -35,7 +35,7 @@ export function geminiConfig(env = process.env) {
 
 // ADC by default (Cloud Run runtime SA). Local dev whose ADC needs a browser re-auth can set
 // ASK_MESHA_GEMINI_AUTH=gcloud: requests then carry `gcloud auth print-access-token` (the
-// signed-in user), refreshed every 30 min. Never used on Cloud Run (K_SERVICE set).
+// signed-in user), refreshed every 5 min (gcloud hands back its cached token, which may be near expiry). Never used on Cloud Run (K_SERVICE set).
 export function createClient({ project, location }, env = process.env) {
   if (env.ASK_MESHA_GEMINI_AUTH === "gcloud" && !env.K_SERVICE) return gcloudUserClient({ project, location });
   return new GoogleGenAI({ vertexai: true, project, location });
@@ -43,17 +43,21 @@ export function createClient({ project, location }, env = process.env) {
 function gcloudUserClient({ project, location }) {
   let cached = { client: null, at: 0 };
   const fresh = () => {
-    if (cached.client && Date.now() - cached.at < 30 * 60_000) return cached.client;
+    if (cached.client && Date.now() - cached.at < 5 * 60_000) return cached.client;
     const token = execFileSync("gcloud", ["auth", "print-access-token"], { encoding: "utf8", timeout: 15_000 }).trim();
     const authClient = new OAuth2Client();
-    authClient.setCredentials({ access_token: token, expiry_date: Date.now() + 40 * 60_000 });
+    authClient.setCredentials({ access_token: token, expiry_date: Date.now() + 10 * 60_000 });
     cached = { client: new GoogleGenAI({ vertexai: true, project, location, googleAuthOptions: { authClient } }), at: Date.now() };
     return cached.client;
   };
-  return { models: {
-    generateContentStream: (a) => fresh().models.generateContentStream(a),
-    generateContent: (a) => fresh().models.generateContent(a),
-  } };
+  return {
+    // A 401 (gcloud handed back a token that just expired): drop the cached client, fetch a new token.
+    invalidate() { cached = { client: null, at: 0 }; },
+    models: {
+      generateContentStream: (a) => fresh().models.generateContentStream(a),
+      generateContent: (a) => fresh().models.generateContent(a),
+    },
+  };
 }
 
 // USD per 1M tokens (Vertex list prices; override with ASK_MESHA_PRICE_<IN|OUT>_PER_M when they change).
@@ -131,6 +135,15 @@ export function historyContents(history = []) {
 }
 
 // Retryable before anything streamed: rate limits / overload / transient 5xx.
+export const isAuthExpired = (err) => Number(err?.status ?? err?.code) === 401 || /\b401\b|UNAUTHENTICATED|invalid authentication credentials/i.test(String(err?.message || ""));
+// Jittered exponential backoff, ~63 s in total over 6 waits (1,2,4,8,16,32 s x 0.75-1.25), or the
+// server's Retry-After when it sends one (capped at 60 s).
+export const RETRY_WAITS = 6;
+export function retryDelay(attempt, baseMs, err, rand = Math.random) {
+  const ra = Number(err?.headers?.["retry-after"] ?? err?.retryAfter);
+  if (Number.isFinite(ra) && ra > 0) return Math.min(60_000, ra * 1000);
+  return Math.round(baseMs * 2 ** attempt * (0.75 + rand() * 0.5));
+}
 export function isRetryable(err) {
   const s = Number(err?.status ?? err?.code);
   if ([429, 500, 502, 503, 504].includes(s)) return true;
@@ -165,7 +178,7 @@ export const EMPTY_TURN_NUDGE = "Continue: use the tools you need, then write th
 // "error_max_budget_usd" | a message. Throws only on abort or a non-retryable API failure.
 export async function runAgent({
   ai, model, systemInstruction, contents, tools, onEvent = () => {}, signal,
-  maxSteps = 40, budgetUsd = Infinity, thinkingLevel, env = process.env, retryDelayMs = 2000,
+  maxSteps = 40, budgetUsd = Infinity, thinkingLevel, env = process.env, retryDelayMs = 1000,
   fallbackModel = null, inlineBudget = INLINE_BUDGET_CHARS,
 }) {
   const usage = { input: 0, output: 0, cached: 0, thoughts: 0 };
@@ -195,9 +208,10 @@ export async function runAgent({
     let calls = [];
     let turnText = "";
     let lastUsage = null;
+    let authRetried = false;
     for (let attempt = 0; ; attempt++) {
+      if (turnText) onEvent({ type: "turn_retry" }); // text of the failed try is withdrawn on screen
       modelParts = []; calls = []; turnText = ""; lastUsage = null;
-      let streamed = false;
       try {
         const stream = await ai.models.generateContentStream({ model, contents: convo, config });
         for await (const chunk of stream) {
@@ -208,7 +222,6 @@ export async function runAgent({
             modelParts.push(part); // kept verbatim: Gemini 3 needs thoughtSignature parts echoed back
             if (part.functionCall) calls.push(part.functionCall);
             else if (typeof part.text === "string" && !part.thought && part.text) {
-              streamed = true;
               turnText += part.text;
               onEvent({ type: "text", text: part.text });
             }
@@ -217,8 +230,10 @@ export async function runAgent({
         break;
       } catch (e) {
         if (signal?.aborted || e?.name === "AbortError") throw new Error("client_aborted");
-        if (!streamed && isRetryable(e)) {
-          if (attempt < 3) { await sleep(retryDelayMs * 2 ** attempt, signal); continue; }
+        // Earlier turns (and their tool results) are kept in convo; only this turn is retried.
+        if (isAuthExpired(e) && ai.invalidate && !authRetried) { authRetried = true; ai.invalidate(); attempt--; continue; }
+        if (isRetryable(e)) {
+          if (attempt < RETRY_WAITS) { await sleep(retryDelay(attempt, retryDelayMs, e), signal); continue; }
           // Still rate-limited after backoff (shared preview quota): finish the answer on the fallback model.
           if (fallbackModel && model !== fallbackModel) { onEvent({ type: "model_fallback", from: model, to: fallbackModel }); model = fallbackModel; attempt = -1; continue; }
         }
@@ -231,6 +246,7 @@ export async function runAgent({
       usage.cached += lastUsage.cachedContentTokenCount || 0;
       usage.thoughts += lastUsage.thoughtsTokenCount || 0;
       costUsd += callCostUsd(model, lastUsage, env);
+      onEvent({ type: "usage", costUsd, usage: { ...usage } });
     }
     if (turnText) lastText = turnText;
     convo.push({ role: "model", parts: modelParts.length ? modelParts : [{ text: "" }] });

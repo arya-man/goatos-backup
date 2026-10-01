@@ -308,7 +308,7 @@ rules say which truth numbers must appear in the answer (exact or `tol` / `tol_p
   `chat_busy` (logged as a `chat_busy` event).
 - Input limits: question <= 20,000 characters (413 `question_too_long`); at most 5 attachments, ~10 MB together
   (request body cap 15 MB incl. base64, 413 `too_large`).
-- No result (tab closed, crash): the answer's cap is charged (`cost_estimated`).
+- Failed or stopped answers are charged what they actually used: spend is updated after every model call; only a run that never reached its first model call result is charged its cap (`cost_estimated`). A model call cut off mid-stream is not counted (its tokens are unknown).
 - Cost = Gemini `usageMetadata` per model call × Vertex list price (`priceFor()` in `gemini.mjs`; thinking tokens
   bill as output, cached input at 10%, long-context rate over 200k prompt tokens; override with
   `ASK_MESHA_PRICE_IN_PER_M` / `ASK_MESHA_PRICE_OUT_PER_M`), stored with the metric; monthly spend = sum since the
@@ -327,7 +327,7 @@ rules say which truth numbers must appear in the answer (exact or `tol` / `tol_p
   `ASK_MESHA_GEMINI_LOCATION` (`global`). Do not pin a model Google has announced for retirement.
 - Agent loop (`runAgent`): stream a turn, run all its function calls in parallel, return results (errors as
   data so the model fixes its call), repeat; max `ASK_MESHA_MAX_STEPS` (40) turns, then one tool-less turn
-  to answer (`error_max_turns`); one nudge if a turn comes back empty; 429/5xx retried twice before any text.
+  to answer (`error_max_turns`); one nudge if a turn comes back empty; 429/5xx retried per turn with jittered exponential backoff (~63 s over 6 waits, or Retry-After), earlier turns kept, text of a failed turn withdrawn (`reset`); still failing -> the rest of the answer runs on `ASK_MESHA_FAST_MODEL`. Gemini 3 Pro on `global` has no per-project token quota on goatos-stg (dynamic shared quota; 429 = shared capacity), and `gemini-3.1-pro-preview` is served only on `global` (404 in us-central1, us-east5, europe-west4, asia-south1, `us`), so there is no location fallback for Pro.
   Gemini 3 thought signatures are echoed back verbatim. SSE events are unchanged (`progress`/`reset`/`token`/
   `replace`/`final`), so admin-web needs no change.
 - Skills: exposed as the `get_skill` tool (list, then load `SKILL.md` by name) like the SDK's on-demand Skill

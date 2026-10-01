@@ -162,9 +162,17 @@ test("validateReadSql refuses multi-statement and transaction/session control", 
   assert.equal(validateReadSql("select 1;").sql, "select 1");
   assert.equal(validateReadSql("with a as (select 1) select * from a").ok, true);
   for (const bad of ["commit; set default_transaction_read_only=off; delete from x", "select 1; select 2",
-    "COMMIT", "rollback", "end", "abort", "SET default_transaction_read_only = off", "reset all", "begin", "start transaction"]) {
+    "COMMIT", "rollback", "end", "abort", "SET default_transaction_read_only = off", "reset all", "begin", "start transaction",
+    "select 1 -- it's\n; commit; select 'x'", "select 1 /* ' */; commit; select '", "select $$;$$", "select 'a''; commit; --'' ; x'; select 2",
+    "select \"a;\" from t; select 1", "select 'unterminated; commit"]) {
     assert.equal(validateReadSql(bad).ok, false, bad);
   }
+  // ';' inside a string literal or quoted identifier is data (describe_table uses concat_ws('; ', ...)).
+  for (const ok of ["select concat_ws('; ', 'a', 'b')", "select 'it''s; fine'", "select 1 as \"a;b\"", "select 1 -- trailing; comment"]) {
+    assert.equal(validateReadSql(ok).ok, true, ok);
+  }
+  const d = describeTableSql("public.goats");
+  assert.equal(validateReadSql(d.sql).ok, true, "describe_table's own catalog query passes the validator");
 });
 
 test("answerCapUsd subtracts caps of answers already in flight", () => {
