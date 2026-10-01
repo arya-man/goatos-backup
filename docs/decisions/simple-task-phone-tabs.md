@@ -43,7 +43,7 @@ phone tab". The SOP version's `form_dsl.phone_task` holds EVERYTHING
 
 **Publishing the SOP version writes the derived state IN THE PUBLISH TRANSACTION**
 (`sop/adapters/postgres.VersionStatusHook` -> `penroutines/adapters/postgres.SyncPhoneTaskSOP`):
-one tab (`pen_routine_tabs`, migration `000463`, keyed by `sop_code`) and one routine per park
+one tab (`pen_routine_tabs`, migration `000464`, keyed by `sop_code`) and one routine per park
 (`pen_routine_definitions.sop_code`, unique per SOP and park). A new version gives each routine a
 new routine version (open tasks keep the one they were raised on), retires the routine of a park the
 version no longer names, and updates the tab. Retiring the SOP retires the tab and its routines. A
