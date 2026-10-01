@@ -278,11 +278,14 @@ test("the video log renders only backend-composed location and label copy", () =
 // copied, which is the same trap ActionsDateFilter avoids for the queue's own dates.
 test("the video log day filter defaults to today and writes today as an absent param", () => {
   const filter = readFileSync(fileURLToPath(new URL("./video-log-date-filter.tsx", import.meta.url)), "utf8");
+  // The picker is shared with the Feed Verification panel, so it writes whichever day key it was
+  // given -- and the Video Log's own key is still the default.
   assert.match(
     filter,
-    /if \(nextFrom === today\) next\.delete\(VIDEO_LOG_DATE_KEY\)/,
+    /if \(nextFrom === today\) next\.delete\(dateKey\)/,
     "selecting today must DELETE the day param, so a bookmark keeps meaning 'today'",
   );
+  assert.match(filter, /dateKey = VIDEO_LOG_DATE_KEY,/, "the Video Log's day key stays the default");
   // A single day, never a range: arrival times would otherwise be ambiguous about their day.
   assert.match(filter, /from=\{selected\}\s*\n\s*to=\{selected\}/, "the video log picker must select ONE day (from === to)");
   // The rendered day comes from the backend response, never a client guess that could drift from
@@ -304,9 +307,11 @@ test("video log navigations keep the panel open", () => {
   const filter = readFileSync(fileURLToPath(new URL("./video-log-date-filter.tsx", import.meta.url)), "utf8");
   assert.match(
     filter,
-    /next\.set\(VIDEO_LOG_PANEL_SELECTION_KEY, VIDEO_LOG_PANEL_ID\)/,
+    /next\.set\(panelKey, panelId\)/,
     "the day picker must re-assert the panel key, or picking a date closes the drawer",
   );
+  assert.match(filter, /panelKey = VIDEO_LOG_PANEL_SELECTION_KEY,/, "the Video Log's panel key stays the default");
+  assert.match(filter, /panelId = VIDEO_LOG_PANEL_ID,/, "the Video Log's panel id stays the default");
   // Both the shed drill-down and the back link rebuild the query, so both need it too.
   const shedHref = source.match(/shedHrefTemplate=\{hrefWith\(sp, \{[\s\S]*?\}\)\}/);
   assert.ok(shedHref, "expected the shed href template");
