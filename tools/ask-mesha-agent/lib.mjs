@@ -428,8 +428,21 @@ const NARRATION_START = /^(?:(?:now|next|first|then),? )?(?:wait[,.]|hmm|if i am
 // A first line that is the model restating a rule to itself ("Do not invent any numbers. Do not apologize.").
 // Only whole lines of short imperative sentences, no figures, so a real answer ("Never weighed: 12 pens") survives.
 const SELF_INSTRUCTION = /^(?:(?:do not|don't|never|always|remember|make sure|avoid|be sure to|keep it)\b[^.!\d]{0,120}[.!]\s*)+$/i;
+// A leading run of sentences that restate the model's own rules ("Follow the exact form and rules from the system
+// prompt: no narration, no file names, no SQL ... Provide a chart only if instructed.") is dropped up to where the real
+// answer starts (often glued on: "...if there is data.The ADG ...").
+const RULE_ECHO = /system prompt|the rules|no narration|no file names|no raw column|no sql|no code talk|only if instructed|do not answer questions that|do not invent|do not apologi[sz]e|never mention|my instructions/i;
+export function stripEchoedRules(text) {
+  let t = String(text || "");
+  for (let guard = 0; guard < 12; guard++) {
+    const m = t.match(/^\s*([^\n]*?[.!?])(?=\s|[A-Z]|$)/);
+    if (!m || !RULE_ECHO.test(m[1])) break;
+    t = t.slice(m[0].length);
+  }
+  return t.replace(/^\s+/, "");
+}
 export function stripLeadingNarration(text) {
-  const t = String(text || "");
+  const t = stripEchoedRules(text);
   const m = t.match(/^\s*([^\n]*)\n+/);
   if (!m) return t;
   const first = m[1].trim();

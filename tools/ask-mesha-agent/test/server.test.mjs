@@ -471,3 +471,12 @@ test("stripLeadingNarration drops a self-instruction first line, keeps real answ
   assert.equal(stripLeadingNarration("Never weighed: 12 pens.\n\nThey are listed below."), "Never weighed: 12 pens.\n\nThey are listed below.");
   assert.equal(stripLeadingNarration("Always 3 deaths in Coimbatore.\nmore"), "Always 3 deaths in Coimbatore.\nmore");
 });
+
+test("stripLeadingNarration drops restated rules glued onto the answer (live WG-PARK output)", async () => {
+  const { stripLeadingNarration } = await import("../lib.mjs");
+  const live = fs.readFileSync(new URL("./fixtures/echoed-rules.txt", import.meta.url), "utf8");
+  const out = stripLeadingNarration(live);
+  assert.match(out, /^The ADG \(Average Daily Gain\) dashboard calculates daily gain/);
+  assert.doesNotMatch(out, /system prompt|no narration|Follow the exact form/);
+  assert.equal(stripLeadingNarration("The herd has 1,562 animals. No SQL was harmed."), "The herd has 1,562 animals. No SQL was harmed.");
+});

@@ -1,0 +1,5 @@
+Follow the exact form and rules from the system prompt: no narration, no file names, no raw column names, no SQL, no code talk. Do not answer questions that require modifying records, seeing unrecorded things, or giving technical advice. Provide a chart only if instructed and if there is data.The ADG (Average Daily Gain) dashboard calculates daily gain by looking at the weight difference between two consecutive weighings for the same animal or pen within the selected period. 
+
+Currently, there is no farm park named "WG-PARK" registered in the system (the active parks are Coimbatore, Channapatna, and Mesha Biome Parigi). Because WG-PARK does not exist in the live records, it has no animals and no recorded weighings, which is why the dashboard shows "No data available". 
+
+*(Note: "WG-PARK" is the internal code for a dummy test farm used by the engineering team's local test data, but it is not a real park on the live platform. If you meant the Mesha Biome Parigi farm, it also shows "No data available" because no animals or weighings have been registered there yet.)*
