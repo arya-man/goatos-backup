@@ -11,7 +11,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
   runAgent, connectMcp, mcpToolToDeclaration, historyContents, callCostUsd, isRetryable, geminiConfig, DEFAULT_MODEL, DEFAULT_FAST_MODEL, EMPTY_TURN_NUDGE,
-  MAX_STEPS_NOTE, MAX_PARALLEL_TOOLS, mapLimit, dedupeRepeatedAnswer,
+  MAX_STEPS_NOTE, MAX_PARALLEL_TOOLS, mapLimit, dedupeRepeatedAnswer, splitLeakedThought,
 } from "../gemini.mjs";
 import { createCodeTools, isSecretPath, CODE_TOOL_DECLARATIONS } from "../code-tools.mjs";
 import { appendPrompt, instructionPack, geminiInstructionPack, GEMINI_TOOL_NOTE, tableIndexSection, ceoRepoInstructions, ceoRules, CODING_AGENT_LINE } from "../instructions.mjs";
@@ -438,4 +438,32 @@ test("forced final turn: a doubled answer is kept once; reasoning openers are st
   const { stripLeadingNarration } = await import("../lib.mjs");
   assert.equal(stripLeadingNarration("Wait, I can still think about the stage filter.\n\n" + ans), ans);
   assert.equal(stripLeadingNarration("If I am forced to answer now, I will say this.\n" + ans), ans);
+});
+
+test("leaked thinking (live transcript): never streamed, answer kept, no reasoning lines", async () => {
+  const leaked = fs.readFileSync(new URL("./fixtures/leaked-thought.txt", import.meta.url), "utf8");
+  const ans = splitLeakedThought(leaked);
+  assert.match(ans, /^The data shows that the ADG for Castro 1/);
+  assert.doesNotMatch(ans, /Wait|Let me|thought|structure the answer|Conclude/);
+  // Streamed in small chunks: the client never sees "thought" or the reasoning.
+  const pieces = leaked.match(/[\s\S]{1,7}/g);
+  const ai = fakeAi([pieces.map((p) => chunk([{ text: p }]))]);
+  const events = [];
+  const r = await runAgent({ ai, model: "m", contents: [], env: {}, onEvent: (e) => events.push(e), tools: { declarations: [], call: async () => ({}) } });
+  const shown = events.filter((e) => e.type === "text").map((e) => e.text).join("");
+  assert.equal(shown, ans);
+  assert.equal(r.text, ans);
+  assert.ok(events.some((e) => e.type === "leak_stripped"));
+  // A normal answer that starts with "Th..." still streams as it arrives.
+  const ai2 = fakeAi([["Th", "e herd has ", "1,562 animals."].map((t) => chunk([{ text: t }]))]);
+  const ev2 = [];
+  const r2 = await runAgent({ ai: ai2, model: "m", contents: [], env: {}, onEvent: (e) => ev2.push(e), tools: { declarations: [], call: async () => ({}) } });
+  assert.equal(r2.text, "The herd has 1,562 animals.");
+  assert.equal(ev2.filter((e) => e.type === "text").map((e) => e.text).join(""), "The herd has 1,562 animals.");
+});
+
+test("server never sends an empty final answer", () => {
+  const src = fs.readFileSync(new URL("../server.mjs", import.meta.url), "utf8");
+  const i = src.indexOf('metric.error = "empty_answer"');
+  assert.ok(i > 0 && i < src.indexOf('send({ type: "error", message: friendlyError(metric.error) });\n      return;'));
 });

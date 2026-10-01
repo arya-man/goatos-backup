@@ -96,6 +96,9 @@ Raw tables (all readable): feed prices -> public.feed_purchases (feed_item_label
 purchase_date, quantity_kg, reached_weight_kg, feed_cost, transport_cost, loading_cost, unloading_cost, total_cost, per_kg_cost;
 "assumed price" = latest per_kg_cost for that feed+farm on/before the day). Per-weigh data -> public.weighing_observations /
 weighing_shed_observations. Sales money -> public.sales_deals / sales_deal_lines / sales_deal_payments. Prefer these when a view lacks detail.
+public.locations real columns (no park_code / park_name / pen_code column exists): location_id, location_type
+  (park | shed | ...), location_code (park code CBE/CPT/PARIGI, or shed code), name, parent_location_id (shed -> park),
+  status, display_order, retired_at. Park code -> WHERE location_type='park' AND location_code='CBE'.
 Module tables (public.*; park name: locations via park_id; PEN = pens.sql lateral join on (shed_id, partition_label), never locations.name alone):
 - preventive care (deworming, hoof trimming, feed & water removal) -> pc_care_tasks: category, work_state completed|canceled|delayed|scheduled,
   planned_business_date=planned, submitted_at=done, verified_at=verified, close_reason (often empty for old cancels). Cancelled != done.

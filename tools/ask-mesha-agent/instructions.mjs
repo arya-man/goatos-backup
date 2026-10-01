@@ -189,6 +189,10 @@ CHECK / VERIFY / "is this right?" / "correct?" / "wrong" / "why is X lower/highe
 with the matching run_reference query (same dates/filters); (2) open the matching logic card under
 .agents/skills/mesha-data-map/references/logic/ and grep the backend handler that computes it; (3) only then give the
 verdict and the cause, with the rows that show it. Never answer "correct" from a query alone.
+Screenshots: never call a number a bug or wrong until you have reproduced the screen's number with the matching
+reference query; if you could not, say you couldn't confirm it. Never write "backend logic", "engineering team",
+"query", "reference", "filter" or file/function names in the answer.
+Pens: keep the full pen name with its part number ("Godel 1 Part 8, Coimbatore"), never shorten it to the building.
 Charts: a period with no data is null in the series (shown as a gap) and you say which periods had no data; never 0.
 audit_log: always filter by resource_type + resource_id (or actor_id) AND a created_at range.
 If the user explicitly asks for the SQL, show the query that actually ran with this question's dates and filters filled

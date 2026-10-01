@@ -167,6 +167,19 @@ export function dedupeRepeatedAnswer(text) {
   return t;
 }
 export const MAX_PARALLEL_TOOLS = 4;
+// Thinking written as plain text (seen live: "thought\nWait, it timed out ... 4. Conclude.The data shows ...").
+export const LEAKED_THOUGHT = /^\s*thought\s*\n/i;
+// The answer starts where the reasoning runs into it without a break ("Conclude.The data shows"), else after the
+// last blank-line-separated planning block. Returns "" when no answer can be found.
+export function splitLeakedThought(text) {
+  const t = String(text || "").replace(LEAKED_THOUGHT, "");
+  // First sentence end glued to a capital: inside the answer, sentences are separated by a space or newline.
+  const m = t.match(/[.!?](?=[A-Z])/);
+  const cut = m ? m.index + 1 : -1;
+  if (cut > 0) return t.slice(cut).trim();
+  const blocks = t.split(/\n\s*\n/);
+  return blocks.length > 1 ? blocks.slice(-Math.ceil(blocks.length / 3)).join("\n\n").trim() : "";
+}
 export const TRANSIENT_TOOL_ERROR = /fetch failed|ECONNRESET|ECONNREFUSED|server closed the connection|connection to server at .* failed|timeout expired|terminating connection/i;
 // Images/PDFs sent to the model in one answer (attachments + read_file), base64 chars.
 export const INLINE_BUDGET_CHARS = 20 * 1024 * 1024;
@@ -226,9 +239,11 @@ export async function runAgent({
     let turnText = "";
     let lastUsage = null;
     let authRetried = false;
+    let leak = null;
     for (let attempt = 0; ; attempt++) {
       if (turnText) onEvent({ type: "turn_retry" }); // text of the failed try is withdrawn on screen
       modelParts = []; calls = []; turnText = ""; lastUsage = null;
+      leak = null;
       try {
         const stream = await ai.models.generateContentStream({ model, contents: convo, config });
         for await (const chunk of stream) {
@@ -240,7 +255,12 @@ export async function runAgent({
             if (part.functionCall) calls.push(part.functionCall);
             else if (typeof part.text === "string" && !part.thought && part.text) {
               turnText += part.text;
-              onEvent({ type: "text", text: part.text });
+              // Gemini sometimes writes its thinking as plain text starting "thought\n". Hold the first
+              // characters until that can be ruled out; a leaked turn is never streamed.
+              if (leak === null && (turnText.trimStart().length >= 8 || !/^\s*t(h(o(u(g(h(t)?)?)?)?)?)?$/i.test(turnText))) {
+                leak = LEAKED_THOUGHT.test(turnText);
+                if (!leak) onEvent({ type: "text", text: turnText });
+              } else if (leak === false) onEvent({ type: "text", text: part.text });
             }
           }
         }
@@ -256,6 +276,14 @@ export async function runAgent({
         }
         throw e;
       }
+    }
+    if (leak === null && turnText && !LEAKED_THOUGHT.test(turnText)) onEvent({ type: "text", text: turnText }); // short turn
+    else if (leak === null && turnText) leak = true;
+    if (leak) {
+      const answer = splitLeakedThought(turnText);
+      onEvent({ type: "leak_stripped", chars: turnText.length - answer.length });
+      turnText = answer;
+      if (answer) onEvent({ type: "text", text: answer });
     }
     if (lastUsage) {
       usage.input += lastUsage.promptTokenCount || 0;

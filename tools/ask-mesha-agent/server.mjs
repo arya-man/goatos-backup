@@ -681,6 +681,8 @@ async function ask(req, res, user) {
             turnVisible = false;
             filter = makeChartFilter(emitVisible);
             gate = makeTurnGate((t) => filter(t));
+          } else if (ev.type === "leak_stripped") {
+            metric.leak_stripped = (metric.leak_stripped || 0) + ev.chars;
           } else if (ev.type === "model_fallback") {
             console.warn(`[model] ${requestId} ${ev.from} rate-limited after retries; continuing on ${ev.to}`);
             metric.model_fallback = ev.to;
@@ -719,6 +721,11 @@ async function ask(req, res, user) {
     // Failed run with nothing to show: send an error, not an empty final (the
     // panel lets a later final overwrite an error). Partial answers still land.
     // Error text is CEO-facing: no "budget"/"agent_error_max_budget_usd".
+    // Never send an empty final: a run that produced no answer text is an error the CEO can retry.
+    if (!clean.trim() && !chart && !metric.error) {
+      metric.error = "empty_answer";
+      console.error(`[ask] ${requestId} produced no answer text (turns=${metric.turns}, tools=${metric.tool_calls})`);
+    }
     if (metric.error && !clean) {
       send({ type: "error", message: friendlyError(metric.error) });
       return;
