@@ -712,7 +712,15 @@ export async function VerificationReviewPage({
         </section>
       </VerificationQueueTelemetry>
 
+      {/* KEYED ON THE SERVER-SELECTED ROW. An approve redirects to ?vi_row=<next item> so the
+          drawer advances to the next video (actions.ts). That redirect is a SOFT navigation: this
+          client component stays mounted, and its open item lives in useState seeded from
+          initialSelectedId, which React reads once -- so without the key the drawer kept the
+          approved item, found it gone from the list and closed, leaving the verifier to hunt for
+          the next row after every Accept. Opening a row by click is client-local
+          (replaceLocalOverlayUrl) and never changes selectedId, so it never remounts. */}
       <VerificationReviewDrawer
+        key={selectedId ?? "none"}
         items={items}
         initialSelectedId={selectedId ?? undefined}
         nextCursor={queue.ok ? (queue.data.next_cursor ?? undefined) : undefined}

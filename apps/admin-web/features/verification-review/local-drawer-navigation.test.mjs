@@ -104,3 +104,13 @@ test("Actions module filter is registry-owned and cannot widen or strand the que
   // The action-type SELECT removed on 2026-08-07 stays removed; this row replaces nothing it did.
   assert.doesNotMatch(pageSource, /name="category"[^>]*className="vr-selbtn"/);
 });
+
+// An approve redirects to ?vi_row=<next item> to advance the drawer (actions.ts). That redirect is a
+// soft navigation, and the drawer seeds its open item from initialSelectedId in useState -- read
+// once. Unkeyed, the drawer kept the approved item, found it gone from the pending list and closed,
+// so every Accept dropped the verifier back to the list (E2E 2026-10-01: the URL named the next
+// item, no drawer rendered). Keying on the server-selected row remounts it on the new item.
+test("the drawer is keyed on the server-selected row so an approve advances to the next video", () => {
+  assert.match(drawerSource, /useState\(initialItem\?\.item_id\)/);
+  assert.match(pageSource, /<VerificationReviewDrawer\s+key=\{selectedId \?\? "none"\}/);
+});
