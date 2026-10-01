@@ -1,0 +1,251 @@
+// Gemini adapter, code tools and the shared instruction pack. Mocks live here only (tests);
+// the product path has no mock fallback.
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import crypto from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+import {
+  runAgent, connectMcp, mcpToolToDeclaration, historyContents, callCostUsd, isRetryable, geminiConfig, DEFAULT_MODEL, DEFAULT_FAST_MODEL, EMPTY_TURN_NUDGE,
+} from "../gemini.mjs";
+import { createCodeTools, isSecretPath, CODE_TOOL_DECLARATIONS } from "../code-tools.mjs";
+import { appendPrompt, instructionPack, geminiInstructionPack, GEMINI_TOOL_NOTE, tableIndexSection } from "../instructions.mjs";
+
+const sha = (s) => crypto.createHash("sha256").update(s).digest("hex");
+
+// ---- shared instruction pack ------------------------------------------------------------
+test("instructions: CEO rules are byte-identical to the pre-split server.mjs APPEND_PROMPT", () => {
+  // Hashes of APPEND_PROMPT taken from server.mjs at origin/main 9043002022 before the split.
+  assert.equal(sha(appendPrompt({ readonly: true })), "396731c39d5e18ead0af8144585d3490afecb9deeb3458692195681899dc8342");
+  assert.equal(sha(appendPrompt({ readonly: false })), "9feb6a3c46d3e195cfed5943654c2a962fd3308d91615c28a5b9ac1ce7a0bb56");
+});
+
+test("instructions: pack = CLAUDE.md(+@imports) + rules + data map + table index, Gemini adds only the tool note", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pack-"));
+  fs.writeFileSync(path.join(dir, "CLAUDE.md"), "@AGENTS.md\n\n## Local\n");
+  fs.writeFileSync(path.join(dir, "AGENTS.md"), "# Agents rules\n");
+  fs.mkdirSync(path.join(dir, "tools/ask-mesha-agent"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "tools/ask-mesha-agent/data-map-core.md"), "MAP");
+  const table = tableIndexSection("public.goats ~100");
+  const pack = instructionPack({ cwd: dir, tableSection: table });
+  assert.equal(pack,
+    "\n\n# Repository instructions (CLAUDE.md)\n# Agents rules\n\n## Local\n" + appendPrompt({ readonly: true }) +
+    "\n\n# Mesha data map (cheat-sheet)\nMAP" + table);
+  assert.equal(geminiInstructionPack({ cwd: dir, tableSection: table }), GEMINI_TOOL_NOTE + pack);
+  assert.equal(tableIndexSection(""), "");
+});
+
+// ---- model ids -------------------------------------------------------------------------
+test("config: newest Gemini 3.x defaults, all env-overridable, nothing older", () => {
+  const c = geminiConfig({});
+  assert.equal(c.model, DEFAULT_MODEL);
+  assert.equal(c.fastModel, DEFAULT_FAST_MODEL);
+  assert.equal(c.location, "global");
+  for (const id of [DEFAULT_MODEL, DEFAULT_FAST_MODEL]) assert.match(id, /^gemini-3\./);
+  const o = geminiConfig({ ASK_MESHA_MODEL: "m1", ASK_MESHA_FAST_MODEL: "f1", ASK_MESHA_GEMINI_LOCATION: "us-central1", ASK_MESHA_GEMINI_PROJECT: "p" });
+  assert.deepEqual([o.model, o.deepModel, o.fastModel, o.checkModel, o.location, o.project], ["m1", "m1", "f1", "f1", "us-central1", "p"]);
+});
+
+test("cost: thinking tokens bill as output, cached input at 10%", () => {
+  const u = { promptTokenCount: 100_000, cachedContentTokenCount: 0, candidatesTokenCount: 0, thoughtsTokenCount: 0 };
+  assert.equal(callCostUsd("gemini-3.1-pro-preview", u, {}).toFixed(2), "0.20");
+  assert.equal(callCostUsd("gemini-3.1-pro-preview", { ...u, promptTokenCount: 1_000_000 }, {}), 4, ">200k prompt uses the long-context rate");
+  assert.equal(callCostUsd("gemini-3.1-pro-preview", { ...u, cachedContentTokenCount: 100_000 }, {}).toFixed(2), "0.02"); // 0.2 * 10%
+  assert.equal(callCostUsd("gemini-3.8-flash", { promptTokenCount: 0, candidatesTokenCount: 500_000, thoughtsTokenCount: 500_000 }, {}), 3);
+  assert.equal(isRetryable({ status: 429 }), true);
+  assert.equal(isRetryable({ status: 400 }), false);
+});
+
+test("historyContents: alternating user/model turns, starts with user, ends with model", () => {
+  const h = [
+    { role: "assistant", content: "hi" },
+    { role: "user", content: "q1" }, { role: "user", content: "q1b" },
+    { role: "assistant", content: "a1", chart: null },
+    { role: "user", content: "q2" },
+  ];
+  const c = historyContents(h);
+  assert.deepEqual(c.map((x) => x.role), ["user", "model", "user", "model", "user", "model"]);
+  assert.equal(c[2].parts[0].text, "q1\n\nq1b");
+  assert.deepEqual(historyContents([]), []);
+});
+
+// ---- agent loop (fake model) --------------------------------------------------------------
+function fakeAi(turns) {
+  const calls = [];
+  return {
+    calls,
+    models: {
+      async generateContentStream(req) {
+        calls.push(JSON.parse(JSON.stringify({ ...req, config: { ...req.config, abortSignal: undefined } })));
+        const t = turns.shift();
+        if (t instanceof Error) throw t;
+        return (async function* () { for (const ch of t) yield ch; })();
+      },
+    },
+  };
+}
+const chunk = (parts, usage) => ({ candidates: [{ content: { role: "model", parts } }], ...(usage ? { usageMetadata: usage } : {}) });
+
+test("runAgent: parallel tool calls, results fed back, thought signatures echoed, events in order", async () => {
+  const ai = fakeAi([
+    [chunk([{ text: "thinking", thought: true }, { functionCall: { id: "c1", name: "run_sql", args: { sql: "select 1" } }, thoughtSignature: "sig" }, { functionCall: { name: "read_file", args: { path: "x" } } }], { promptTokenCount: 100, candidatesTokenCount: 10 })],
+    [chunk([{ text: "There are " }]), chunk([{ text: "42 goats." }], { promptTokenCount: 200, candidatesTokenCount: 5 })],
+  ]);
+  const events = [];
+  const tools = {
+    declarations: [{ name: "run_sql" }],
+    call: async (name, args) => (name === "run_sql" ? { text: "n\n42" } : { text: "no such file", isError: true }),
+  };
+  const r = await runAgent({ ai, model: "gemini-3.1-pro-preview", systemInstruction: "SYS", contents: [{ role: "user", parts: [{ text: "q" }] }], tools, onEvent: (e) => events.push(e), env: {} });
+  assert.equal(r.text, "There are 42 goats.");
+  assert.equal(r.steps, 2);
+  assert.equal(r.error, null);
+  assert.deepEqual(r.usage, { input: 300, output: 15, cached: 0, thoughts: 0 });
+  assert.deepEqual(events.map((e) => e.type), ["step", "turn_end", "tool_call", "tool_call", "tool_result", "tool_result", "step", "text", "text", "turn_end"]);
+  assert.equal(events.find((e) => e.type === "text").text, "There are ");
+  // Second request carries the model turn verbatim (signature kept) and both function responses.
+  const second = ai.calls[1];
+  assert.equal(second.config.systemInstruction, "SYS");
+  assert.equal(second.contents[1].role, "model");
+  assert.equal(second.contents[1].parts[1].thoughtSignature, "sig");
+  const fr = second.contents[2].parts.map((p) => p.functionResponse);
+  assert.deepEqual(fr[0], { id: "c1", name: "run_sql", response: { output: "n\n42" } });
+  assert.deepEqual(fr[1], { name: "read_file", response: { error: "no such file" } }, "errors go back to the model as data");
+  assert.ok(ai.calls[0].config.tools[0].functionDeclarations.length === 1);
+});
+
+test("runAgent: max steps -> one tool-less final turn and error_max_turns", async () => {
+  const call = [chunk([{ functionCall: { name: "run_sql", args: {} } }])];
+  const ai = fakeAi([call, call, [chunk([{ text: "Partial answer." }])]]);
+  const r = await runAgent({ ai, model: "m", contents: [], tools: { declarations: [], call: async () => ({ text: "ok" }) }, maxSteps: 2, env: {} });
+  assert.equal(r.error, "error_max_turns");
+  assert.equal(r.text, "Partial answer.");
+  assert.equal(ai.calls[2].config.tools, undefined, "final turn has no tools");
+});
+
+test("runAgent: budget cap stops before running more tools", async () => {
+  const ai = fakeAi([[chunk([{ functionCall: { name: "run_sql", args: {} } }], { promptTokenCount: 1_000_000 })]]);
+  let ran = 0;
+  const r = await runAgent({ ai, model: "gemini-3.1-pro-preview", contents: [], tools: { declarations: [], call: async () => { ran++; return { text: "" }; } }, budgetUsd: 1, env: {} });
+  assert.equal(r.error, "error_max_budget_usd");
+  assert.equal(ran, 0);
+});
+
+test("runAgent: an empty final turn is nudged once for the answer", async () => {
+  const ai = fakeAi([[chunk([{ text: "", thought: true }])], [chunk([{ text: "Answer." }])]]);
+  const r = await runAgent({ ai, model: "m", contents: [], tools: { declarations: [], call: async () => ({ text: "" }) }, env: {} });
+  assert.equal(r.text, "Answer.");
+  assert.equal(ai.calls[1].contents.at(-1).parts[0].text, EMPTY_TURN_NUDGE);
+});
+
+test("runAgent: 429 before any text is retried; abort throws client_aborted", async () => {
+  const e = Object.assign(new Error("RESOURCE_EXHAUSTED"), { status: 429 });
+  const ai = fakeAi([e, [chunk([{ text: "ok" }])]]);
+  const r = await runAgent({ ai, model: "m", contents: [], tools: { declarations: [], call: async () => ({}) }, retryDelayMs: 1, env: {} });
+  assert.equal(r.text, "ok");
+  const ac = new AbortController(); ac.abort();
+  await assert.rejects(runAgent({ ai: fakeAi([]), model: "m", contents: [], tools: { declarations: [], call: async () => ({}) }, signal: ac.signal }), /client_aborted/);
+});
+
+test("runAgent: an image from a tool goes back as an inline part on the function response", async () => {
+  const ai = fakeAi([[chunk([{ functionCall: { name: "read_file", args: { path: "a.png" } } }])], [chunk([{ text: "I see it." }])]]);
+  await runAgent({ ai, model: "m", contents: [], tools: { declarations: [], call: async () => ({ text: "Attached", inline: { mimeType: "image/png", data: "AAA" } }) }, env: {} });
+  assert.deepEqual(ai.calls[1].contents.at(-1).parts[0].functionResponse.parts, [{ inlineData: { mimeType: "image/png", data: "AAA" } }]);
+});
+
+// ---- MCP bridge: the same mesha MCP server, reached through an MCP client ---------------
+test("connectMcp: lists MCP tools as Gemini declarations and calls them", async () => {
+  const s = new McpServer({ name: "mesha", version: "1" });
+  s.registerTool("run_sql", { description: "Run SQL", inputSchema: { sql: z.string() }, annotations: { readOnlyHint: true } },
+    async ({ sql }) => ({ content: [{ type: "text", text: `rows for ${sql}` }] }));
+  const m = await connectMcp(s);
+  assert.deepEqual(m.names, ["run_sql"]);
+  assert.equal(m.declarations[0].parametersJsonSchema.$schema, undefined);
+  assert.deepEqual(m.declarations[0].parametersJsonSchema.required, ["sql"]);
+  assert.deepEqual(await m.call("run_sql", { sql: "select 1" }), { text: "rows for select 1", isError: false });
+  assert.equal((await m.call("run_sql", {})).isError, true, "schema validation errors come back as tool errors");
+  await m.close();
+  assert.deepEqual(mcpToolToDeclaration({ name: "x" }), { name: "x", description: "", parametersJsonSchema: { type: "object", properties: {} } });
+});
+
+test("server wires every mesha MCP tool + code tools into Gemini, read-only, no Claude SDK", () => {
+  const src = fs.readFileSync(new URL("../server.mjs", import.meta.url), "utf8");
+  assert.doesNotMatch(src, /@anthropic-ai|ANTHROPIC_API_KEY|claude-agent-sdk/);
+  for (const t of ["run_sql", "run_reference", "describe_table"]) assert.match(src, new RegExp(`tool\\(\\s*"${t}"`));
+  assert.match(src, /tool\("watch_tags"/);
+  assert.match(src, /declarations: \[\.\.\.mcp\.declarations, \.\.\.CODE_TOOL_DECLARATIONS\]/);
+  assert.match(src, /const READONLY = true;/);
+  const pkg = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  assert.equal(pkg.dependencies["@anthropic-ai/claude-agent-sdk"], undefined);
+  assert.deepEqual(CODE_TOOL_DECLARATIONS.map((d) => d.name), ["read_file", "grep", "glob", "list_dir", "get_skill"]);
+});
+
+// ---- code tools: same reach as Read/Grep/Glob/Skill, sandboxed -----------------------------
+function fixtureRepo() {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "repo-")));
+  fs.mkdirSync(path.join(root, "backend/internal/weighing"), { recursive: true });
+  fs.writeFileSync(path.join(root, "backend/internal/weighing/adg.go"), "package weighing\n// ADG = gain / days\nfunc ADG() {}\n");
+  fs.writeFileSync(path.join(root, ".env"), "SECRET=1\n");
+  fs.writeFileSync(path.join(root, "key.pem"), "x");
+  fs.mkdirSync(path.join(root, ".agents/skills/mesha-data-map"), { recursive: true });
+  fs.writeFileSync(path.join(root, ".agents/skills/mesha-data-map/SKILL.md"), "# data map skill\n");
+  fs.writeFileSync(path.join(root, "shot.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "outside-")));
+  fs.writeFileSync(path.join(outside, "secret.txt"), "nope");
+  fs.symlinkSync(path.join(outside, "secret.txt"), path.join(root, "link.txt"));
+  const uploads = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "uploads-")));
+  fs.writeFileSync(path.join(uploads, "sales.csv"), "park,sold\nCBE,3\n");
+  return { root, outside, uploads };
+}
+
+test("code tools: read_file with line ranges, images inline, attachments readable", async () => {
+  const { root, uploads } = fixtureRepo();
+  const t = createCodeTools({ repo: root, roots: [uploads] });
+  const r = await t.read_file({ path: "backend/internal/weighing/adg.go", offset: 2, limit: 1 });
+  assert.equal(r.isError, undefined);
+  assert.match(r.text, /^\s+2\t\/\/ ADG = gain \/ days\n… \(4 lines total; pass offset=3 to continue\)$/);
+  const img = await t.read_file({ path: "shot.png" });
+  assert.equal(img.inline.mimeType, "image/png");
+  assert.match((await t.read_file({ path: path.join(uploads, "sales.csv") })).text, /CBE,3/);
+});
+
+test("code tools: sandbox refuses outside paths, symlink escapes, .git and secrets", async () => {
+  const { root, outside } = fixtureRepo();
+  const t = createCodeTools({ repo: root });
+  for (const p of [path.join(outside, "secret.txt"), "../" + path.basename(outside) + "/secret.txt", "link.txt", ".env", "key.pem", "/etc/passwd"]) {
+    const r = await t.read_file({ path: p });
+    assert.equal(r.isError, true, p);
+  }
+  assert.equal((await t.grep({ pattern: "x", path: "/etc" })).isError, true);
+  assert.equal((await t.glob({ pattern: "*", path: outside })).isError, true);
+  assert.equal(isSecretPath("/a/.env.local"), true);
+  assert.equal(isSecretPath("/a/service-account.json"), true);
+  assert.equal(isSecretPath("/a/adg.go"), false);
+});
+
+test("code tools: grep (ripgrep) and glob find code; secrets never listed", { skip: !hasRg() && "ripgrep not installed" }, async () => {
+  const { root } = fixtureRepo();
+  const t = createCodeTools({ repo: root });
+  assert.equal((await t.grep({ pattern: "gain / days" })).text, "backend/internal/weighing/adg.go");
+  assert.match((await t.grep({ pattern: "func ADG", output_mode: "content" })).text, /adg\.go:3:func ADG/);
+  assert.equal((await t.grep({ pattern: "SECRET" })).text, "No matches.");
+  assert.equal((await t.glob({ pattern: "**/*.go" })).text, "backend/internal/weighing/adg.go");
+  assert.doesNotMatch((await t.glob({ pattern: "*" })).text, /\.env|key\.pem/);
+  assert.match((await t.list_dir({ path: "." })).text, /backend\//);
+});
+
+test("code tools: get_skill lists and loads repo skills", async () => {
+  const { root } = fixtureRepo();
+  const t = createCodeTools({ repo: root });
+  assert.equal((await t.get_skill({ name: "list" })).text, "Skills: mesha-data-map");
+  assert.match((await t.get_skill({ name: "mesha-data-map" })).text, /# data map skill/);
+  assert.equal((await t.get_skill({ name: "../../etc" })).isError, true);
+});
+
+function hasRg() {
+  try { return Boolean(execFileSync("rg", ["--version"])); } catch { return false; }
+}
