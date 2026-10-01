@@ -5,7 +5,10 @@ code ... I should just define it in web, add an icon there, and design what filt
 whether it has pens or pens with partitions, and what they upload -- everything SOP driven."*
 Narrowed in the same conversation: *"only simple things ... like fumigation we added in preventive
 care -- just two videos upload is required -- those we need to configure. Feed wastage, direction,
-packing we can't configure."* Then: *"okay implement this"*.
+packing we can't configure."* Then: *"okay implement this"*. Corrected the same day, after a first
+build put a separate "Phone tabs" editor on `/routines`: *"no, it should not be like this -- under
+that module, related to that task, we have the SOP right there; on creating the SOP it should also
+create this."* Asked what the SOP holds, the maintainer chose **everything in the SOP**.
 
 Status: ACCEPTED, built on `feat/simple-tasks`.
 
@@ -21,15 +24,34 @@ materializer and roll-forward are all authored on `/routines`. What a routine co
 **where it appears on the phone**: every routine landed in the one "Routines" tab. This decision
 adds that, and nothing else.
 
-A **phone tab** (`pen_routine_tabs`, migration `000463`) is authored on `/routines` → Phone tabs:
+**A simple task is authored as an SOP on its module's SOP page** -- Preventive Care SOP, Feed SOP,
+Weighing SOP, Herd Operations SOP, Milk SOP, Procurement SOP, Sales SOP -- as a "Task with its own
+phone tab". The SOP version's `form_dsl.phone_task` holds EVERYTHING
+(`penroutines/domain.PhoneTaskDoc`):
 
 | Field | Meaning |
 |---|---|
-| Label | The bar item's name and the list screen's title (max 24 characters). |
-| Module | The phone module whose bottom bar carries it: Routines, Preventive Care, Feed, Weighing, Vaccination, Herd Operations, Milk, Health. Closed list, `domain.TabModules`. |
-| Icon | One of the closed set the app ships (`domain.TabIcons`, mirrored by `MeshaIcons.forTabIcon`). |
-| Filters | Which list controls the tab offers: Pending / Completed, Date, Pen. |
-| Routines | Which routines appear on it. A routine sits on ONE tab; ticking it on another moves it. |
+| SOP name | The bar item's name and the list screen's title (max 24 characters). |
+| Module | NOT a field: the SOP page it was created on (`pc_care.*` -> Preventive Care bar, `feed.*` -> Feed, ...; `PhoneModuleForSOPCode`). |
+| `tab.icon` | One of the closed set the app ships (`domain.TabIcons`, mirrored by `MeshaIcons.forTabIcon`). |
+| `tab.filters` | Which list controls the tab offers: Pending / Completed, Date, Pen. |
+| `scope_kind`, pens per park | Every pen, chosen pens (pen + partition), or the whole park. |
+| Schedule | daily / weekly / monthly / every N days / after work, start date, notify time. |
+| `evidence` | Questions, per-question and task-wide photo/video rules, pen check-in. |
+| `review_kind` | Verifier reviews it, or no review. |
+| `parks[]` | Per park: the ONE person who does it, and the pens. |
+
+**Publishing the SOP version writes the derived state IN THE PUBLISH TRANSACTION**
+(`sop/adapters/postgres.VersionStatusHook` -> `penroutines/adapters/postgres.SyncPhoneTaskSOP`):
+one tab (`pen_routine_tabs`, migration `000463`, keyed by `sop_code`) and one routine per park
+(`pen_routine_definitions.sop_code`, unique per SOP and park). A new version gives each routine a
+new routine version (open tasks keep the one they were raised on), retires the routine of a park the
+version no longer names, and updates the tab. Retiring the SOP retires the tab and its routines. A
+refusal -- a person who does not work at that park, an invalid document -- rolls the publish back
+with a farm-worded 422; nothing is written. The document is also checked when the version is SAVED
+(`phoneTaskSOPContract`). A routine carrying `sop_code` is never edited on `/routines`
+(`managed_by_sop`, 409); `GET /admin/pen-routines/tabs` is read-only and serves the editor's icon,
+filter and module vocabularies.
 
 A **complex module stays coded**: feed direction, packing, transport, distribution, wastage,
 weighing, vaccination, PC Care's own categories. Each owns tables, grains and rules (a per-bag
@@ -63,8 +85,8 @@ eroding the nav rules:
   predicate, per person.
 - The **icon and module are closed vocabularies** in Go, with a test on each side, so the
   "every backend nav key has an explicit Android display mapping" rule holds by construction.
-- It rides the **existing permission**: `pen_routines.execute` for the bar item and the list,
-  `pen_routines.configure` to author. No new permission, no new verification category (a tab's
+- It rides **existing permissions**: `pen_routines.execute` for the bar item and the list;
+  authoring is the module SOP page's own `sop.write` / `sop.publish`. No new permission, no new verification category (a tab's
   work is verified as a routine, `pen_routine`).
 
 ## Known limits (phase 2, not built)
@@ -75,9 +97,12 @@ eroding the nav rules:
   decision.
 - No badge count on a web-defined tab yet.
 
-Pinned by `domain.TestTabValidationRefusesAnythingThePhoneCannotRender`,
+Pinned by `domain.TestPhoneTaskSOPParsesIntoOneRoutinePerPark`,
+`bootstrap.TestPhoneTaskSOPContractChecksTheDocumentOnSave`, on real Postgres through the REAL SOP
+publish `TestPhoneTaskSOPPublishWritesTabAndRoutinesThroughTheSOPPublishPostgres`, and
+`domain.TestTabValidationRefusesAnythingThePhoneCannotRender`,
 `domain.TestTabKeyIsARouteSafeSlugOfTheLabel`,
 `workforce/app.TestWebDefinedTabsLandInTheirModuleBarBeforeYou`,
 `http.TestListOpenedFromAPhoneTabNarrowsAndNamesTheTab`,
-`http.TestTabRoutesDecodeAndServeTheVocabulary`, and on real Postgres
-`TestPenRoutinePhoneTabsPlaceNarrowAndReachOnlyTheAssigneePostgres`.
+`http.TestTabListServesTheVocabulary`, and the Postgres list cases
+`TestPenRoutineTab{PenOptionsOneToManyCountEachTaskOnce,ListPageBoundary,ParkScope,StatusMatrix}`.

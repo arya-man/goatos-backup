@@ -6,165 +6,181 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/vgoats/goatos/backend/internal/penroutines/domain"
 	"github.com/vgoats/goatos/backend/internal/penroutines/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
+	soppg "github.com/vgoats/goatos/backend/internal/sop/adapters/postgres"
+	sopdomain "github.com/vgoats/goatos/backend/internal/sop/domain"
+	sopports "github.com/vgoats/goatos/backend/internal/sop/ports"
 )
 
-// Phone tabs on real SQL (docs/decisions/simple-task-phone-tabs.md):
-//   - a tab is created with a key derived from its label, a second tab of the same name gets
-//     the next free key, and placing a routine on the second tab moves it off the first;
-//   - only the person who owes a routine on an active tab gets that tab on their bar; a retired
-//     tab leaves every bar;
-//   - the list opened from a tab narrows to that tab's routines, and its chip counts, pen
-//     options, date window and pen filter all range over the same predicate;
-//   - an exact replay of a tab write returns the original; a same-key different body is refused.
-func TestPenRoutinePhoneTabsPlaceNarrowAndReachOnlyTheAssigneePostgres(t *testing.T) {
+// phoneTaskDSL is a phone-task SOP version's form_dsl: one tab, the given parks (park -> person,
+// pens), daily, a verifier, two videos per task.
+func phoneTaskDSL(icon string, filters []string, parks ...map[string]any) map[string]any {
+	parkList := make([]any, 0, len(parks))
+	for _, p := range parks {
+		parkList = append(parkList, p)
+	}
+	filterList := make([]any, 0, len(filters))
+	for _, f := range filters {
+		filterList = append(filterList, f)
+	}
+	return map[string]any{"phone_task": map[string]any{
+		"tab":          map[string]any{"icon": icon, "filters": filterList},
+		"instruction":  "Spray every pen; film before and after.",
+		"scope_kind":   "selected_pens",
+		"cadence_kind": "daily", "start_date": "2026-09-14",
+		"review_kind": "verifier",
+		"evidence":    map[string]any{"questions": []any{}, "photo": map[string]any{"min": 0, "max": 0}, "video": map[string]any{"min": 2, "max": 2}, "presence": "off"},
+		"parks":       parkList,
+	}}
+}
+
+func parkEntry(park, person string, pens ...domain.PenRef) map[string]any {
+	list := make([]any, 0, len(pens))
+	for _, p := range pens {
+		list = append(list, map[string]any{"shed_id": p.ShedID, "partition_label": p.Partition})
+	}
+	return map[string]any{"park_id": park, "assignee_user_id": person, "pens": list}
+}
+
+// syncSOP runs one publish of a phone-task SOP in its own transaction, as the SOP publish hook does.
+func syncSOP(t *testing.T, ctx context.Context, pool *pgxpool.Pool, repo *Repository, ev PhoneTaskSOPEvent) error {
+	t.Helper()
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SyncPhoneTaskSOP(ctx, tx, ev); err != nil {
+		_ = tx.Rollback(ctx)
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// TestPhoneTaskSOPPublishWritesTabAndRoutinesThroughTheSOPPublishPostgres drives the REAL SOP
+// repository (docs/decisions/simple-task-phone-tabs.md): a person who does not work at the park
+// refuses the whole publish (nothing written); v1 of a pc_care.* SOP -> one tab in the Preventive
+// Care bar and one routine per park, raising work for exactly the people named; a routine from the
+// SOP is not edited on /routines; v2 drops a park and changes the icon -> that park's routine
+// retires, the other gets a new version, the tab follows; retiring the SOP retires its tab.
+func TestPhoneTaskSOPPublishWritesTabAndRoutinesThroughTheSOPPublishPostgres(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 	pool := pgtest.StartPostgres(t, ctx)
 	seedRoutineFixture(t, ctx, pool)
-
 	const today = "2026-09-16"
 	now := istInstant(today, 9)
 	repo := NewRepository(pool, 15*time.Second).WithClock(func() time.Time { return now })
-	write := func(key string) ports.WriteParams {
-		return ports.WriteParams{TenantID: prTenant, ActorID: prCXO, IdempotencyKey: key, TraceID: "trace-" + key}
+	sops := soppg.NewRepository(pool, 15*time.Second).WithVersionStatusHook(func(ctx context.Context, tx pgx.Tx, e soppg.VersionStatusEvent) error {
+		return repo.SyncPhoneTaskSOP(ctx, tx, PhoneTaskSOPEvent{TenantID: e.TenantID, ActorID: e.ActorID, SOPCode: e.SOPCode, SOPName: e.SOPName, Status: e.Status, StillPublished: e.StillPublished, FormDSL: e.FormDSL})
+	})
+	def, err := sops.CreateSOP(ctx, sopports.CreateSOPCommand{TenantID: prTenant, ActorID: prCXO, Body: sopdomain.CreateSOPRequest{Code: "pc_care.pen_wash", Name: "Pen wash", Kind: "module"}})
+	if err != nil {
+		t.Fatalf("create sop: %v", err)
 	}
-	routine := func(key, name string, pens []domain.PenRef) domain.Definition {
+	version := func(label string, dsl map[string]any) sopdomain.SOPVersion {
 		t.Helper()
-		d, err := repo.CreateRoutine(ctx, write(key), domain.Definition{
-			ParkID: prParkCBE, Name: name, ScopeKind: domain.ScopeSelectedPens, Pens: pens,
-			CadenceKind: domain.CadenceDaily, StartDate: today, NotifyTime: "07:00", ReviewKind: domain.ReviewNone,
-			Evidence: evidenceOneQuestion(domain.PresenceOff, 0), AssigneeUserID: prHead,
-		})
+		v, err := sops.CreateVersion(ctx, sopports.CreateVersionCommand{TenantID: prTenant, ActorID: prCXO, SOPID: def.SOPID, Body: sopdomain.CreateSOPVersionRequest{VersionLabel: label, FormDSL: dsl, ProofPolicy: map[string]any{}}, Report: sopdomain.ValidationReport{Valid: true}})
 		if err != nil {
-			t.Fatalf("create routine %s: %v", name, err)
+			t.Fatalf("version %s: %v", label, err)
 		}
-		return d
+		return v
 	}
-	fumigation := routine("r-fum", "Fumigation", []domain.PenRef{{ShedID: prShedCastro, Partition: "1"}, {ShedID: prShedCastro, Partition: "2"}})
-	trough := routine("r-trough", "Trough", []domain.PenRef{{ShedID: prShedCastro, Partition: "1"}})
+	publish := func(v sopdomain.SOPVersion) (sopdomain.SOPVersion, error) {
+		return sops.PublishVersion(ctx, sopports.VersionCommand{TenantID: prTenant, ActorID: prCXO, SOPID: def.SOPID, SOPVersionID: v.SOPVersionID, RowVersion: v.RowVersion})
+	}
+	castro := []domain.PenRef{{ShedID: prShedCastro, Partition: "1"}, {ShedID: prShedCastro, Partition: "2"}}
+
+	bad := version("v0", phoneTaskDSL("fumigation", []string{"status"}, parkEntry(prParkCBE, prCPTHead, castro...)))
+	if _, err := publish(bad); !errors.Is(err, domain.ErrNotAssignable) {
+		t.Fatalf("publish naming the other park's head err = %v, want ErrNotAssignable", err)
+	}
+	var routines, tabs int
+	var badStatus string
+	_ = pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM pen_routine_definitions WHERE tenant_id = $1::uuid), (SELECT count(*) FROM pen_routine_tabs WHERE tenant_id = $1::uuid), (SELECT status FROM sop_versions WHERE sop_version_id = $2::uuid)`, prTenant, bad.SOPVersionID).Scan(&routines, &tabs, &badStatus)
+	if routines != 0 || tabs != 0 || badStatus != "draft" {
+		t.Fatalf("a refused publish wrote %d routines / %d tabs and left the version %q", routines, tabs, badStatus)
+	}
+
+	v1 := version("v1", phoneTaskDSL("fumigation", []string{"status", "pen"}, parkEntry(prParkCBE, prHead, castro...), parkEntry(prParkCPT, prCPTHead, domain.PenRef{ShedID: prShedCPT})))
+	if _, err := publish(v1); err != nil {
+		t.Fatalf("publish v1: %v", err)
+	}
+	if bar, err := repo.PhoneTabsFor(ctx, prTenant, prHead); err != nil || len(bar) != 1 || bar[0].Key != "pc_care_pen_wash" || bar[0].ModuleKey != "pc_care" || bar[0].Label != "Pen wash" || bar[0].IconKey != "fumigation" {
+		t.Fatalf("CBE head bar = %+v / %v", bar, err)
+	}
+	if bar, _ := repo.PhoneTabsFor(ctx, prTenant, prCPTHead); len(bar) != 1 {
+		t.Fatalf("CPT head bar = %+v", bar)
+	}
+	if bar, _ := repo.PhoneTabsFor(ctx, prTenant, prSecond); len(bar) != 0 {
+		t.Fatalf("a park head not named got the tab: %+v", bar)
+	}
 	if res, err := repo.Materialize(ctx, prTenant, today, today, now); err != nil || res.Created != 3 {
-		t.Fatalf("materialize = %+v / %v, want 3 tasks", res, err)
+		t.Fatalf("materialize = %+v / %v, want 2 CBE pens + 1 CPT pen", res, err)
+	}
+	page, err := repo.ListMine(ctx, ports.ListParams{TenantID: prTenant, UserID: prHead, TabKey: "pc_care_pen_wash", Limit: 50, WithPenOptions: true})
+	if err != nil || len(page.Rows) != 2 || len(page.PenOptions) != 2 {
+		t.Fatalf("CBE tab list = %d rows, %d pens / %v", len(page.Rows), len(page.PenOptions), err)
 	}
 
-	tab := domain.Tab{Label: "Fumigation", ModuleKey: "pc_care", IconKey: "fumigation", Filters: []string{domain.TabFilterStatus, domain.TabFilterPen}, RoutineIDs: []string{fumigation.RoutineID}}
-	first, err := repo.CreateTab(ctx, write("tab-1"), tab)
+	cbe := page.Rows[0].RoutineID
+	if _, err := repo.SetRoutineStatus(ctx, ports.WriteParams{TenantID: prTenant, ActorID: prCXO, IdempotencyKey: "manual-pause"}, cbe, domain.StatusPaused, 0); !errors.Is(err, domain.ErrManagedBySOP) {
+		t.Fatalf("manual pause of an SOP routine err = %v, want ErrManagedBySOP", err)
+	}
+
+	v2 := version("v2", phoneTaskDSL("water", []string{"status"}, parkEntry(prParkCBE, prHead, castro...)))
+	if _, err := publish(v2); err != nil {
+		t.Fatalf("publish v2: %v", err)
+	}
+	var cbeVersion int
+	var cptStatus string
+	_ = pool.QueryRow(ctx, `SELECT (SELECT current_version FROM pen_routine_definitions WHERE routine_id = $1::uuid), (SELECT status FROM pen_routine_definitions WHERE tenant_id = $2::uuid AND sop_code = 'pc_care.pen_wash' AND park_id = $3::uuid)`, cbe, prTenant, prParkCPT).Scan(&cbeVersion, &cptStatus)
+	if cbeVersion != 2 || cptStatus != domain.StatusRetired {
+		t.Fatalf("after v2: CBE version %d (want 2), CPT status %q (want retired)", cbeVersion, cptStatus)
+	}
+	if bar, _ := repo.PhoneTabsFor(ctx, prTenant, prHead); len(bar) != 1 || bar[0].IconKey != "water" {
+		t.Fatalf("tab did not follow v2: %+v", bar)
+	}
+	if bar, _ := repo.PhoneTabsFor(ctx, prTenant, prCPTHead); len(bar) != 0 {
+		t.Fatalf("the dropped park kept the tab: %+v", bar)
+	}
+
+	published, err := sops.GetVersion(ctx, prTenant, def.SOPID, v2.SOPVersionID)
 	if err != nil {
-		t.Fatalf("create tab: %v", err)
+		t.Fatal(err)
 	}
-	if first.Key != "fumigation" || len(first.Routines) != 1 || first.Routines[0].RoutineID != fumigation.RoutineID {
-		t.Fatalf("tab = %+v", first)
-	}
-	// Exact replay returns the original; same key, different body, is refused.
-	if replay, err := repo.CreateTab(ctx, write("tab-1"), tab); err != nil || replay.TabID != first.TabID {
-		t.Fatalf("replay = %+v / %v", replay, err)
-	}
-	changed := tab
-	changed.IconKey = "water"
-	if _, err := repo.CreateTab(ctx, write("tab-1"), changed); !errors.Is(err, ports.ErrIdempotencyConflict) {
-		t.Fatalf("same key different body err = %v", err)
-	}
-
-	// Only the assignee's bar carries it.
-	bar, err := repo.PhoneTabsFor(ctx, prTenant, prHead)
-	if err != nil || len(bar) != 1 || bar[0].Key != "fumigation" || bar[0].ModuleKey != "pc_care" || bar[0].IconKey != "fumigation" {
-		t.Fatalf("assignee bar = %+v / %v", bar, err)
-	}
-	if other, err := repo.PhoneTabsFor(ctx, prTenant, prCXO); err != nil || len(other) != 0 {
-		t.Fatalf("a person owing nothing on the tab got %+v / %v", other, err)
-	}
-
-	// The list opened from the tab holds only that tab's routine, with matching counts and pens.
-	page, err := repo.ListMine(ctx, ports.ListParams{TenantID: prTenant, UserID: prHead, TabKey: "fumigation", Limit: 50, WithPenOptions: true})
-	if err != nil {
-		t.Fatalf("tab list: %v", err)
-	}
-	if len(page.Rows) != 2 || page.StateCounts[domain.WorkStateScheduled] != 2 {
-		t.Fatalf("tab list rows=%d counts=%v, want 2 fumigation tasks", len(page.Rows), page.StateCounts)
-	}
-	for _, row := range page.Rows {
-		if row.RoutineID != fumigation.RoutineID {
-			t.Fatalf("tab list leaked routine %s", row.RoutineName)
-		}
-	}
-	if len(page.PenOptions) != 2 || page.PenOptions[0].Label != "Castro 1" || page.PenOptions[1].Label != "Castro 2" || page.PenOptions[0].Count != 1 {
-		t.Fatalf("pen options = %+v, want Castro 1 and Castro 2 once each", page.PenOptions)
-	}
-	onePen, err := repo.ListMine(ctx, ports.ListParams{TenantID: prTenant, UserID: prHead, TabKey: "fumigation", PenShedID: prShedCastro, PenPartition: "2", Limit: 50})
-	if err != nil || len(onePen.Rows) != 1 || onePen.Rows[0].Partition != "2" || onePen.StateCounts[domain.WorkStateScheduled] != 1 {
-		t.Fatalf("pen filter = %+v / %v", onePen, err)
-	}
-	outside, err := repo.ListMine(ctx, ports.ListParams{TenantID: prTenant, UserID: prHead, TabKey: "fumigation", DueFrom: "2026-09-17", Limit: 50})
-	if err != nil || len(outside.Rows) != 0 || len(outside.StateCounts) != 0 {
-		t.Fatalf("a window after today still listed %+v / %v", outside, err)
-	}
-	// The Routines tab still lists everything.
-	all, err := repo.ListMine(ctx, ports.ListParams{TenantID: prTenant, UserID: prHead, Limit: 50})
-	if err != nil || len(all.Rows) != 3 || all.PenOptions != nil {
-		t.Fatalf("routines tab = %d rows, pen options %v / %v", len(all.Rows), all.PenOptions, err)
-	}
-
-	// A second tab named the same gets the next key; placing the routine there moves it.
-	second, err := repo.CreateTab(ctx, write("tab-2"), domain.Tab{Label: "Fumigation", ModuleKey: "pen_routines", IconKey: "routine", RoutineIDs: []string{fumigation.RoutineID, trough.RoutineID}})
-	if err != nil || second.Key != "fumigation_2" || len(second.Routines) != 2 {
-		t.Fatalf("second tab = %+v / %v", second, err)
-	}
-	moved, err := repo.GetTabByKey(ctx, prTenant, "fumigation")
-	if err != nil || len(moved.Routines) != 0 {
-		t.Fatalf("the routine did not leave the first tab: %+v / %v", moved, err)
-	}
-	// An empty tab leaves the bar; retiring the other does too.
-	if bar, _ := repo.PhoneTabsFor(ctx, prTenant, prHead); len(bar) != 1 || bar[0].Key != "fumigation_2" {
-		t.Fatalf("bar after the move = %+v", bar)
-	}
-	if _, err := repo.SetTabStatus(ctx, write("tab-2-retire"), second.TabID, domain.TabStatusRetired, second.RowVersion); err != nil {
+	if _, err := sops.RetireVersion(ctx, sopports.VersionCommand{TenantID: prTenant, ActorID: prCXO, SOPID: def.SOPID, SOPVersionID: published.SOPVersionID, RowVersion: published.RowVersion}); err != nil {
 		t.Fatalf("retire: %v", err)
 	}
 	if bar, _ := repo.PhoneTabsFor(ctx, prTenant, prHead); len(bar) != 0 {
-		t.Fatalf("a retired tab stayed on the bar: %+v", bar)
-	}
-
-	// A stale edit is refused; an unknown routine refuses the whole write.
-	if _, err := repo.UpdateTab(ctx, write("tab-1-stale"), domain.Tab{TabID: first.TabID, Label: "Fumigation", ModuleKey: "pc_care", IconKey: "fumigation", RowVersion: first.RowVersion + 5}); !errors.Is(err, ports.ErrTabVersionConflict) {
-		t.Fatalf("stale update err = %v", err)
-	}
-	if _, err := repo.UpdateTab(ctx, write("tab-1-bad"), domain.Tab{TabID: first.TabID, Label: "Fumigation", ModuleKey: "pc_care", IconKey: "fumigation", RoutineIDs: []string{"00000000-0000-4000-8000-0000000fffff"}}); !errors.Is(err, domain.ErrInvalidTab) {
-		t.Fatalf("unknown routine err = %v", err)
+		t.Fatalf("a retired SOP kept its tab: %+v", bar)
 	}
 }
 
-// newTabFixture is one CBE routine for the CBE head over Castro 1 and 2, placed on a "Wash" tab,
-// with tasks materialized on each of the given business dates.
-func newTabFixture(t *testing.T, ctx context.Context, dates ...string) (*Repository, func(string) ports.WriteParams) {
+// newTabFixture publishes one phone-task SOP ("pc_care.wash", tab key pc_care_wash) for the CBE
+// head over Castro 1 and 2, with tasks materialized on each of the given business dates.
+func newTabFixture(t *testing.T, ctx context.Context, dates ...string) (*Repository, *pgxpool.Pool) {
 	t.Helper()
 	pool := pgtest.StartPostgres(t, ctx)
 	seedRoutineFixture(t, ctx, pool)
 	now := istInstant(dates[0], 9)
 	repo := NewRepository(pool, 15*time.Second).WithClock(func() time.Time { return now })
-	write := func(key string) ports.WriteParams {
-		return ports.WriteParams{TenantID: prTenant, ActorID: prCXO, IdempotencyKey: key, TraceID: "trace-" + key}
-	}
-	d, err := repo.CreateRoutine(ctx, write("r-wash"), domain.Definition{
-		ParkID: prParkCBE, Name: "Wash", ScopeKind: domain.ScopeSelectedPens,
-		Pens:        []domain.PenRef{{ShedID: prShedCastro, Partition: "1"}, {ShedID: prShedCastro, Partition: "2"}},
-		CadenceKind: domain.CadenceDaily, StartDate: dates[0], NotifyTime: "07:00", ReviewKind: domain.ReviewNone,
-		Evidence: evidenceOneQuestion(domain.PresenceOff, 0), AssigneeUserID: prHead,
-	})
-	if err != nil {
-		t.Fatalf("create routine: %v", err)
+	dsl := phoneTaskDSL("water", []string{"status", "pen"}, parkEntry(prParkCBE, prHead, domain.PenRef{ShedID: prShedCastro, Partition: "1"}, domain.PenRef{ShedID: prShedCastro, Partition: "2"}))
+	dsl["phone_task"].(map[string]any)["start_date"] = dates[0]
+	if err := syncSOP(t, ctx, pool, repo, PhoneTaskSOPEvent{TenantID: prTenant, ActorID: prCXO, SOPCode: "pc_care.wash", SOPName: "Wash", Status: "published", StillPublished: true, FormDSL: dsl}); err != nil {
+		t.Fatalf("publish: %v", err)
 	}
 	for _, date := range dates {
 		if _, err := repo.Materialize(ctx, prTenant, date, date, istInstant(date, 9)); err != nil {
 			t.Fatalf("materialize %s: %v", date, err)
 		}
 	}
-	if _, err := repo.CreateTab(ctx, write("tab-wash"), domain.Tab{Label: "Wash", ModuleKey: "pc_care", IconKey: "water", Filters: []string{domain.TabFilterStatus, domain.TabFilterPen}, RoutineIDs: []string{d.RoutineID}}); err != nil {
-		t.Fatalf("create tab: %v", err)
-	}
-	return repo, write
+	return repo, pool
 }
 
 // TestPenRoutineTabPenOptionsOneToManyCountEachTaskOnce: a pen holding tasks on two dates is ONE
@@ -174,7 +190,7 @@ func TestPenRoutineTabPenOptionsOneToManyCountEachTaskOnce(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 	repo, _ := newTabFixture(t, ctx, "2026-09-16", "2026-09-17")
-	page, err := repo.ListMine(ctx, ports.ListParams{TenantID: prTenant, UserID: prHead, TabKey: "wash", Limit: 50, WithPenOptions: true})
+	page, err := repo.ListMine(ctx, ports.ListParams{TenantID: prTenant, UserID: prHead, TabKey: "pc_care_wash", Limit: 50, WithPenOptions: true})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -193,7 +209,7 @@ func TestPenRoutineTabListPageBoundary(t *testing.T) {
 	seen := map[string]bool{}
 	cursor := ""
 	for pageNo := 0; pageNo < 10; pageNo++ {
-		page, err := repo.ListMine(ctx, ports.ListParams{TenantID: prTenant, UserID: prHead, TabKey: "wash", Limit: 1, Cursor: cursor})
+		page, err := repo.ListMine(ctx, ports.ListParams{TenantID: prTenant, UserID: prHead, TabKey: "pc_care_wash", Limit: 1, Cursor: cursor})
 		if err != nil {
 			t.Fatalf("page %d: %v", pageNo, err)
 		}
@@ -223,30 +239,23 @@ func TestPenRoutineTabParkScope(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 	const today = "2026-09-16"
-	repo, write := newTabFixture(t, ctx, today)
-	cpt, err := repo.CreateRoutine(ctx, write("r-wash-cpt"), domain.Definition{
-		ParkID: prParkCPT, Name: "Wash", ScopeKind: domain.ScopeSelectedPens, Pens: []domain.PenRef{{ShedID: prShedCPT}},
-		CadenceKind: domain.CadenceDaily, StartDate: today, NotifyTime: "07:00", ReviewKind: domain.ReviewNone,
-		Evidence: evidenceOneQuestion(domain.PresenceOff, 0), AssigneeUserID: prCPTHead,
-	})
-	if err != nil {
-		t.Fatalf("create CPT routine: %v", err)
+	repo, pool := newTabFixture(t, ctx, today)
+	// Republish the SOP naming both parks.
+	dsl := phoneTaskDSL("water", []string{"status"},
+		parkEntry(prParkCBE, prHead, domain.PenRef{ShedID: prShedCastro, Partition: "1"}, domain.PenRef{ShedID: prShedCastro, Partition: "2"}),
+		parkEntry(prParkCPT, prCPTHead, domain.PenRef{ShedID: prShedCPT}))
+	dsl["phone_task"].(map[string]any)["start_date"] = today
+	if err := syncSOP(t, ctx, pool, repo, PhoneTaskSOPEvent{TenantID: prTenant, ActorID: prCXO, SOPCode: "pc_care.wash", SOPName: "Wash", Status: "published", StillPublished: true, FormDSL: dsl}); err != nil {
+		t.Fatalf("republish: %v", err)
 	}
 	if _, err := repo.Materialize(ctx, prTenant, today, today, istInstant(today, 9)); err != nil {
 		t.Fatal(err)
-	}
-	tab, err := repo.GetTabByKey(ctx, prTenant, "wash")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := repo.UpdateTab(ctx, write("tab-wash-both"), domain.Tab{TabID: tab.TabID, Label: "Wash", ModuleKey: "pc_care", IconKey: "water", RoutineIDs: append(tab.RoutineIDs, cpt.RoutineID), RowVersion: tab.RowVersion}); err != nil {
-		t.Fatalf("place CPT routine: %v", err)
 	}
 	for user, want := range map[string]int{prHead: 2, prCPTHead: 1} {
 		if bar, err := repo.PhoneTabsFor(ctx, prTenant, user); err != nil || len(bar) != 1 {
 			t.Fatalf("%s bar = %+v / %v", user, bar, err)
 		}
-		page, err := repo.ListMine(ctx, ports.ListParams{TenantID: prTenant, UserID: user, TabKey: "wash", Limit: 50})
+		page, err := repo.ListMine(ctx, ports.ListParams{TenantID: prTenant, UserID: user, TabKey: "pc_care_wash", Limit: 50})
 		if err != nil || len(page.Rows) != want {
 			t.Fatalf("%s tab list = %d rows / %v, want %d", user, len(page.Rows), err, want)
 		}
@@ -268,12 +277,12 @@ func TestPenRoutineTabStatusMatrix(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
-	repo, _ := newTabFixture(t, ctx, "2026-09-14", "2026-09-15", "2026-09-16")
+	repo, pool := newTabFixture(t, ctx, "2026-09-14", "2026-09-15", "2026-09-16")
 	// Six tasks (2 pens x 3 days). Force one into each terminal / late state.
 	states := []string{domain.WorkStateCompleted, domain.WorkStateCanceled, domain.WorkStateDelayed}
 	for i, state := range states {
 		// A completed task carries the matching status and who submitted it, as the table requires.
-		if _, err := repo.pool.Exec(ctx, `UPDATE pen_routine_tasks SET work_state = $2,
+		if _, err := pool.Exec(ctx, `UPDATE pen_routine_tasks SET work_state = $2,
   status = CASE WHEN $2 = 'completed' THEN 'completed' ELSE status END,
   submitted_at = CASE WHEN $2 = 'completed' THEN now() ELSE submitted_at END,
   submitted_by = CASE WHEN $2 = 'completed' THEN $3::uuid ELSE submitted_by END
@@ -281,11 +290,11 @@ WHERE task_id = (SELECT task_id FROM pen_routine_tasks WHERE tenant_id = $1::uui
 			t.Fatalf("state %d: %v", i, err)
 		}
 	}
-	todo, err := repo.ListMine(ctx, ports.ListParams{TenantID: prTenant, UserID: prHead, TabKey: "wash", States: domain.StatesForFilter(domain.FilterToDo), Limit: 50})
+	todo, err := repo.ListMine(ctx, ports.ListParams{TenantID: prTenant, UserID: prHead, TabKey: "pc_care_wash", States: domain.StatesForFilter(domain.FilterToDo), Limit: 50})
 	if err != nil {
 		t.Fatal(err)
 	}
-	done, err := repo.ListMine(ctx, ports.ListParams{TenantID: prTenant, UserID: prHead, TabKey: "wash", States: domain.StatesForFilter(domain.FilterDone), Limit: 50})
+	done, err := repo.ListMine(ctx, ports.ListParams{TenantID: prTenant, UserID: prHead, TabKey: "pc_care_wash", States: domain.StatesForFilter(domain.FilterDone), Limit: 50})
 	if err != nil {
 		t.Fatal(err)
 	}

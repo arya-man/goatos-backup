@@ -264,15 +264,6 @@ type Repository interface {
 	ListTabs(ctx context.Context, tenantID string) ([]domain.Tab, error)
 	// GetTabByKey reads one tab by its route key.
 	GetTabByKey(ctx context.Context, tenantID, key string) (domain.Tab, error)
-	// CreateTab writes a tab (its key derived from the label, unique in the tenant) and places
-	// the named routines on it, in one transaction under the idempotency key.
-	CreateTab(ctx context.Context, w WriteParams, t domain.Tab) (domain.Tab, error)
-	// UpdateTab rewrites the tab and REPLACES its routines, fenced on t.RowVersion. The key
-	// never changes.
-	UpdateTab(ctx context.Context, w WriteParams, t domain.Tab) (domain.Tab, error)
-	// SetTabStatus retires or restores a tab. A retired tab leaves every bar; its routines keep
-	// raising work and read in Routines.
-	SetTabStatus(ctx context.Context, w WriteParams, tabID, status string, rowVersion int) (domain.Tab, error)
 	// PhoneTabsFor lists the active tabs one person's bar carries: tabs holding at least one
 	// active routine that person owes, under the same assignee predicate as the task list.
 	PhoneTabsFor(ctx context.Context, tenantID, userID string) ([]domain.PhoneTab, error)

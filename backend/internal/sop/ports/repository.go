@@ -210,3 +210,13 @@ type Repository interface {
 	AcceptSubmissionItemVerification(ctx context.Context, tenantID, submissionID, goatID, actorID string) error
 	ReopenTaskForRework(ctx context.Context, tenantID, submissionID, goatID, actorID string) error
 }
+
+// PublishRefusedError is a module's publish hook refusing the document it derives state from
+// (a phone-task SOP naming a person who does not work at that park, say). The publish rolls back
+// and the author is told why, in farm words.
+type PublishRefusedError struct {
+	Code    string
+	Message string
+}
+
+func (e *PublishRefusedError) Error() string { return "sop publish refused: " + e.Code + ": " + e.Message }

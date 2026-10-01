@@ -36,7 +36,7 @@ func (s *routineScan) targets() []any {
 		&d.ScopeKind, &d.OccupiedOnly, &d.CadenceKind, &s.weekdays, &s.monthDays, &d.AfterWorkKinds,
 		&s.intervalDays, &d.StartDate, &d.AssigneeRoles, &s.assigneeUserID,
 		&d.DueOffsetDays, &s.notifyTime, &d.ReviewKind, &d.Status, &d.CurrentVersion, &s.evidenceRaw,
-		&s.pensRaw, &s.createdBy, &s.updatedBy, &d.CreatedAt, &d.UpdatedAt, &d.RowVersion,
+		&s.pensRaw, &s.createdBy, &s.updatedBy, &d.CreatedAt, &d.UpdatedAt, &d.RowVersion, &d.SOPCode,
 		&s.openToday, &s.delayed,
 	}
 }
@@ -353,6 +353,9 @@ func (r *Repository) UpdateRoutine(ctx context.Context, w ports.WriteParams, d d
 	if err != nil {
 		return domain.Definition{}, err
 	}
+	if before.Definition.SOPCode != "" {
+		return domain.Definition{}, domain.ErrManagedBySOP
+	}
 	if d.RowVersion != 0 && d.RowVersion != before.Definition.RowVersion {
 		return domain.Definition{}, ports.ErrRoutineVersionConflict
 	}
@@ -440,6 +443,9 @@ func (r *Repository) SetRoutineStatus(ctx context.Context, w ports.WriteParams, 
 	before, err := r.getRoutine(ctx, tx, w.TenantID, routineID, true)
 	if err != nil {
 		return domain.Definition{}, err
+	}
+	if before.Definition.SOPCode != "" {
+		return domain.Definition{}, domain.ErrManagedBySOP
 	}
 	if rowVersion != 0 && rowVersion != before.Definition.RowVersion {
 		return domain.Definition{}, ports.ErrRoutineVersionConflict
@@ -673,7 +679,7 @@ d.due_offset_days, to_char(d.notify_time, 'HH24:MI'), d.review_kind, d.status, d
 COALESCE((SELECT jsonb_agg(jsonb_build_object('shed_id', p.shed_id::text, 'shed_name', COALESCE(NULLIF(s.name, ''), s.location_code, ''), 'partition_label', COALESCE(p.partition_label, '')) ORDER BY s.display_order, s.name, p.partition_key)
           FROM pen_routine_pens p LEFT JOIN locations s ON s.tenant_id = p.tenant_id AND s.location_id = p.shed_id
           WHERE p.tenant_id = d.tenant_id AND p.routine_id = d.routine_id), '[]'::jsonb),
-d.created_by::text, d.updated_by::text, d.created_at, d.updated_at, d.row_version,
+d.created_by::text, d.updated_by::text, d.created_at, d.updated_at, d.row_version, COALESCE(d.sop_code, ''),
 (SELECT count(*)::int FROM pen_routine_tasks t WHERE t.tenant_id = d.tenant_id AND t.routine_id = d.routine_id AND t.work_state IN ('scheduled', 'delayed') AND t.due_business_date = $2::date),
 (SELECT count(*)::int FROM pen_routine_tasks t WHERE t.tenant_id = d.tenant_id AND t.routine_id = d.routine_id AND t.work_state = 'delayed')`
 

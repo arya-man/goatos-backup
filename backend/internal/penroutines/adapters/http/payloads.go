@@ -104,20 +104,6 @@ type tabDetailPayload struct {
 	TraceID string     `json:"trace_id"`
 }
 
-// tabWrite is the create / update body. routine_ids REPLACES the tab's routines.
-type tabWrite struct {
-	Label      string   `json:"label"`
-	ModuleKey  string   `json:"module_key"`
-	IconKey    string   `json:"icon_key"`
-	Filters    []string `json:"filters"`
-	RoutineIDs []string `json:"routine_ids"`
-	RowVersion int      `json:"row_version"`
-}
-
-func (b tabWrite) toTab() domain.Tab {
-	return domain.Tab{Label: b.Label, ModuleKey: b.ModuleKey, IconKey: b.IconKey, Filters: b.Filters, RoutineIDs: b.RoutineIDs, RowVersion: b.RowVersion}
-}
-
 func toTabPayload(t domain.Tab) tabPayload {
 	routines := make([]tabRoutinePayload, 0, len(t.Routines))
 	for _, r := range t.Routines {
@@ -206,7 +192,10 @@ type rolePersonPayload struct {
 // routineRow is the web table row: the rule, its lines, its roles and who holds them today,
 // and the two counts.
 type routineRow struct {
-	RoutineID      string              `json:"routine_id"`
+	RoutineID string `json:"routine_id"`
+	// SOPCode names the phone-task SOP this routine comes from; such a routine is edited by
+	// publishing that SOP on its module's SOP page, never here.
+	SOPCode        string              `json:"sop_code"`
 	ParkID         string              `json:"park_id"`
 	ParkName       string              `json:"park_name"`
 	Name           string              `json:"name"`
@@ -401,6 +390,7 @@ func toRoutineRow(row ports.RoutineListRow) routineRow {
 		ev.Questions = []domain.Question{}
 	}
 	return routineRow{
+		SOPCode:        d.SOPCode,
 		RoutineID:      d.RoutineID,
 		ParkID:         d.ParkID,
 		ParkName:       d.ParkName,

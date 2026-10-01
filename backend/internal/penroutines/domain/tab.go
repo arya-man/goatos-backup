@@ -48,17 +48,18 @@ type TabModule struct {
 	Label string
 }
 
-// TabModules is the closed set of phone modules a tab may be placed in, in display order.
-// pen_routines first: it is the default, and every assignee of a routine already holds it.
+// TabModules is the closed set of phone modules a tab may sit in, in display order: the modules
+// that have an SOP page (a tab is born from a phone-task SOP on that page), plus Routines, the
+// fallback bar for a person not served the module.
 var TabModules = []TabModule{
 	{Key: "pen_routines", Label: "Routines"},
 	{Key: "pc_care", Label: "Preventive Care"},
 	{Key: "feed_direction", Label: "Feed"},
 	{Key: "weighing", Label: "Weighing"},
-	{Key: "vaccination", Label: "Vaccination"},
 	{Key: "counts", Label: "Herd Operations"},
 	{Key: "milk", Label: "Milk"},
-	{Key: "aas_health", Label: "Health"},
+	{Key: "vendors", Label: "Procurement"},
+	{Key: "sales", Label: "Sales"},
 }
 
 // TabModuleLabel names a module key, "" when unknown.

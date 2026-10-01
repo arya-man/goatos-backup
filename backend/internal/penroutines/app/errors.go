@@ -121,6 +121,10 @@ func HTTPError(err error) *Error {
 		return Unprocessable("invalid_routine", withDetail("The routine is not valid.", err, domain.ErrInvalidRoutine))
 	case errors.Is(err, ports.ErrNameTaken):
 		return Conflict("name_taken", "A routine with this name already exists in this park.")
+	case errors.Is(err, domain.ErrManagedBySOP):
+		return Conflict("managed_by_sop", "This task comes from its module's SOP. Edit and publish the SOP to change it.")
+	case errors.Is(err, domain.ErrInvalidPhoneTask):
+		return Unprocessable("invalid_phone_task", withDetail("The task is not valid.", err, domain.ErrInvalidPhoneTask))
 	case errors.Is(err, domain.ErrInvalidTab):
 		return Unprocessable("invalid_tab", withDetail("The phone tab is not valid.", err, domain.ErrInvalidTab))
 	case errors.Is(err, ports.ErrTabNotFound):

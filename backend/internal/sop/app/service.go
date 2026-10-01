@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -2700,6 +2701,10 @@ func nonNilMap(m map[string]any) map[string]any {
 func mapRepoErr(err error) error {
 	if err == nil {
 		return nil
+	}
+	var refused *ports.PublishRefusedError
+	if errors.As(err, &refused) {
+		return &Error{Code: refused.Code, Message: refused.Message, HTTPStatus: http.StatusUnprocessableEntity}
 	}
 	switch {
 	case errors.Is(err, ports.ErrNotFound):

@@ -526,7 +526,10 @@ type Definition struct {
 	AssigneeRoles []string
 	// People are the role holders a read resolved for the routine's park (read-only preview;
 	// ignored on write).
-	People     []Assignee
+	People []Assignee
+	// SOPCode names the phone-task SOP this routine is derived from ("" for one authored on
+	// /routines). Such a routine is edited only by publishing the SOP.
+	SOPCode    string
 	CreatedBy  string
 	UpdatedBy  string
 	CreatedAt  time.Time
@@ -573,6 +576,8 @@ var (
 	ErrPresenceMissing      = errors.New("pen routine: check in to the pen before submitting")
 	ErrPresenceState        = errors.New("pen routine: the check-in is not in a state that allows this")
 	ErrVersionConflict      = errors.New("pen routine: the task changed since it was loaded")
+	// ErrManagedBySOP: the routine is derived from a phone-task SOP; edit the SOP instead.
+	ErrManagedBySOP = errors.New("pen routine: this routine comes from an SOP")
 )
 
 // ValidateDefinition is the authoring gate on the rule itself (the evidence has its own).

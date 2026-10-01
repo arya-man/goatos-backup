@@ -27,6 +27,36 @@ const defaultQueryTimeout = 3 * time.Second
 type Repository struct {
 	pool    *pgxpool.Pool
 	timeout time.Duration
+	hooks   []VersionStatusHook
+}
+
+// VersionStatusEvent is one publish or retire of an SOP version, handed to a module that owns
+// state derived from the document (docs/decisions/simple-task-phone-tabs.md: a phone-task SOP
+// becomes a phone tab and one routine per park).
+type VersionStatusEvent struct {
+	TenantID  string
+	ActorID   string
+	SOPID     string
+	SOPCode   string
+	SOPName   string
+	VersionID string
+	Version   int
+	// Status is "published" or "retired".
+	Status string
+	// StillPublished reports, after the flip, whether any version of this SOP is published.
+	StillPublished bool
+	FormDSL        map[string]any
+}
+
+// VersionStatusHook runs INSIDE the publish / retire transaction, after the status flip and
+// before commit: an error rolls the whole publish back, so a document whose derived state cannot
+// be written is never published (the atomic transition + read-model rule).
+type VersionStatusHook func(ctx context.Context, tx pgx.Tx, e VersionStatusEvent) error
+
+// WithVersionStatusHook registers a module-owned publish / retire hook.
+func (r *Repository) WithVersionStatusHook(h VersionStatusHook) *Repository {
+	r.hooks = append(r.hooks, h)
+	return r
 }
 
 func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
@@ -1965,6 +1995,27 @@ RETURNING sop_version_id::text`, cmd.TenantID, cmd.SOPID, cmd.SOPVersionID, cmd.
 		definitionStatus = "retired"
 	}
 	_, _ = tx.Exec(ctx, `UPDATE sop_definitions SET status = $3, updated_at = now(), row_version = row_version + 1 WHERE tenant_id = $1::uuid AND sop_id = $2::uuid`, cmd.TenantID, cmd.SOPID, definitionStatus)
+	if len(r.hooks) > 0 {
+		ev := VersionStatusEvent{TenantID: cmd.TenantID, ActorID: cmd.ActorID, SOPID: cmd.SOPID, VersionID: versionID, Status: status}
+		var raw []byte
+		if err := tx.QueryRow(ctx, `
+SELECT d.code, d.name, v.version, v.form_dsl
+FROM sop_versions v JOIN sop_definitions d ON d.tenant_id = v.tenant_id AND d.sop_id = v.sop_id
+WHERE v.tenant_id = $1::uuid AND v.sop_version_id = $2::uuid`, cmd.TenantID, versionID).Scan(&ev.SOPCode, &ev.SOPName, &ev.Version, &raw); err != nil {
+			return domain.SOPVersion{}, err
+		}
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM sop_versions WHERE tenant_id = $1::uuid AND sop_id = $2::uuid AND status = 'published')`, cmd.TenantID, cmd.SOPID).Scan(&ev.StillPublished); err != nil {
+			return domain.SOPVersion{}, err
+		}
+		if err := json.Unmarshal(raw, &ev.FormDSL); err != nil {
+			return domain.SOPVersion{}, err
+		}
+		for _, hook := range r.hooks {
+			if err := hook(ctx, tx, ev); err != nil {
+				return domain.SOPVersion{}, err
+			}
+		}
+	}
 	if err := insertAudit(ctx, tx, cmd.TenantID, cmd.ActorID, "sop.version."+status, "sop_version", versionID, nil); err != nil {
 		return domain.SOPVersion{}, err
 	}

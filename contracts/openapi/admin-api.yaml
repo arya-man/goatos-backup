@@ -4095,12 +4095,13 @@ paths:
       tags:
         - Pen Routines
       operationId: listPenRoutineTabs
-      summary: Every phone tab defined on the web, with the drawer's closed vocabularies.
+      summary: Every phone tab, with the closed vocabularies the phone-task SOP editor renders.
       description: >-
         Phone tabs (maintainer instruction 2026-10-01, docs/decisions/simple-task-phone-tabs.md):
-        a simple task -- a routine -- appears on its own bottom-bar item in a chosen phone module.
-        Lists every tab (active first) with the routines placed on it, plus the modules, icons and
-        filters a tab may use, rendered verbatim. Needs pen_routines.read.
+        a simple task is authored as a phone-task SOP on its module's SOP page (form_dsl.phone_task);
+        publishing that SOP writes its tab and one routine per park in the publish transaction.
+        This read lists every tab (active first) with its routines, plus the modules, icons and
+        filters a phone task may use, rendered verbatim. Read-only. Needs pen_routines.read.
       responses:
         "200":
           description: The tabs and vocabularies.
@@ -4112,140 +4113,6 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
-        "500":
-          $ref: "#/components/responses/ServerError"
-    post:
-      tags:
-        - Pen Routines
-      operationId: createPenRoutineTab
-      summary: Define a phone tab and place routines on it.
-      description: >-
-        The route key is derived from the label and never changes. routine_ids moves each named
-        routine onto this tab (a routine sits on one tab). Needs pen_routines.configure.
-        Idempotent on the Idempotency-Key header.
-      parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/PenRoutineTabWrite"
-      responses:
-        "201":
-          description: The new tab.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PenRoutineTabDetailResponse"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "409":
-          $ref: "#/components/responses/WriteConflict"
-        "422":
-          description: The tab is not valid (invalid_tab).
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "500":
-          $ref: "#/components/responses/ServerError"
-  /admin/pen-routines/tabs/{tab_id}:
-    put:
-      tags:
-        - Pen Routines
-      operationId: updatePenRoutineTab
-      summary: Edit a phone tab and replace its routines.
-      description: >-
-        Rewrites label, module, icon and filters, and makes routine_ids exactly the tab's
-        routines. Fenced on row_version. Needs pen_routines.configure. Idempotent on the
-        Idempotency-Key header.
-      parameters:
-        - name: tab_id
-          in: path
-          required: true
-          schema: { type: string, format: uuid }
-        - $ref: "#/components/parameters/IdempotencyKey"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/PenRoutineTabWrite"
-      responses:
-        "200":
-          description: The tab.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PenRoutineTabDetailResponse"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/WriteConflict"
-        "422":
-          description: The tab is not valid (invalid_tab).
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "500":
-          $ref: "#/components/responses/ServerError"
-  /admin/pen-routines/tabs/{tab_id}/status:
-    post:
-      tags:
-        - Pen Routines
-      operationId: setPenRoutineTabStatus
-      summary: Retire or restore a phone tab.
-      description: >-
-        A retired tab leaves every bar; its routines keep raising work and read in Routines.
-        Restoring puts it back as it was. Fenced on row_version. Needs pen_routines.configure.
-        Idempotent on the Idempotency-Key header.
-      parameters:
-        - name: tab_id
-          in: path
-          required: true
-          schema: { type: string, format: uuid }
-        - $ref: "#/components/parameters/IdempotencyKey"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/PenRoutineTabStatusWrite"
-      responses:
-        "200":
-          description: The tab with its new status.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PenRoutineTabDetailResponse"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/WriteConflict"
-        "422":
-          description: Unknown status (invalid_tab).
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
         "500":
           $ref: "#/components/responses/ServerError"
   /admin/configuration/registers:
@@ -13702,9 +13569,15 @@ components:
     PenRoutineRow:
       type: object
       description: One routine as the /routines table and drawer render it; every line is backend copy.
-      required: [routine_id, park_id, park_name, name, instruction, scope_kind, occupied_only, pens, cadence_kind, weekdays, month_days, after_work_kinds, interval_days, start_date, cadence_line, due_offset_days, notify_time, review_kind, status, status_label, current_version, evidence, evidence_line, assignee_roles, people, assignee, open_today, delayed, created_at, updated_at, row_version]
+      required: [routine_id, sop_code, park_id, park_name, name, instruction, scope_kind, occupied_only, pens, cadence_kind, weekdays, month_days, after_work_kinds, interval_days, start_date, cadence_line, due_offset_days, notify_time, review_kind, status, status_label, current_version, evidence, evidence_line, assignee_roles, people, assignee, open_today, delayed, created_at, updated_at, row_version]
       properties:
         routine_id: { type: string, format: uuid }
+        sop_code:
+          type: string
+          description: >-
+            The phone-task SOP this routine comes from ("" for one authored here). Such a routine is
+            changed by publishing that SOP on its module's SOP page; edits and status changes here
+            are refused (409 managed_by_sop).
         park_id: { type: string, format: uuid }
         park_name: { type: string }
         name: { type: string }
@@ -13821,35 +13694,6 @@ components:
           items:
             $ref: "#/components/schemas/PenRoutineKeyLabel"
         trace_id: { type: string }
-    PenRoutineTabDetailResponse:
-      type: object
-      required: [tab, trace_id]
-      properties:
-        tab:
-          $ref: "#/components/schemas/PenRoutineTab"
-        trace_id: { type: string }
-    PenRoutineTabWrite:
-      type: object
-      required: [label, module_key, icon_key]
-      properties:
-        label: { type: string, maxLength: 24 }
-        module_key: { type: string }
-        icon_key: { type: string }
-        filters:
-          type: array
-          items: { type: string, enum: [status, date, pen] }
-        routine_ids:
-          type: array
-          maxItems: 50
-          items: { type: string, format: uuid }
-          description: REPLACES the tab's routines; each named routine leaves whichever tab it was on.
-        row_version: { type: integer, description: Update only; the version the drawer loaded with, 0 skips the fence. }
-    PenRoutineTabStatusWrite:
-      type: object
-      required: [status]
-      properties:
-        status: { type: string, enum: [active, retired] }
-        row_version: { type: integer }
     PenRoutineDetailResponse:
       type: object
       required: [routine, trace_id]

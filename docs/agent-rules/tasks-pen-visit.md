@@ -65,15 +65,17 @@ row as the parent work. Canonical prose: `docs/decisions/pen-visit-tasks.md` -> 
 ## Simple Tasks Get A Phone Tab Defined On The Web (maintainer instruction 2026-10-01)
 
 A SIMPLE task -- a pen, a schedule, one person, questions and photo/video captures, optional
-verifier, and nothing the server must compute (fumigation-style) -- is added with NO code: it is a
-pen routine, and a **phone tab** authored on `/routines` puts it on its own bottom-bar item in a
-chosen phone module (label, icon from a closed set, list filters). The phone renders every such tab
+verifier, and nothing the server must compute (fumigation-style) -- is added with NO code: it is
+authored as a "Task with its own phone tab" SOP on ITS MODULE'S SOP page (`form_dsl.phone_task`:
+tab icon and filters, pens, schedule, who per park, questions, captures, verifier). Publishing the
+SOP writes, in the publish transaction, a phone tab in that module's bottom bar and one pen routine
+per park (`sop_code`); those routines are never edited on `/routines`. The phone renders every such tab
 with ONE parameterized root, `/pen-routines/tab/{tab_key}`. Complex modules (feed direction /
 packing / transport / wastage, weighing, vaccination, PC Care's own categories) stay coded and must
 not be moved onto it. This is the one place a bar item comes from data: the module and icon keys
 are closed vocabularies in `penroutines/domain/tab.go`, mirrored by `MeshaIcons.forTabIcon`, and
 who gets the tab is who owes the work (the task-list predicate), never a role template. A new
-simple task is a routine + a tab, never a new screen or a new registry entry. Canonical prose:
+simple task is an SOP on its module's SOP page, never a new screen or a new registry entry. Canonical prose:
 `docs/decisions/simple-task-phone-tabs.md`.
 
 ## Operational Task-Kernel Non-Deviation Lock (Mandatory)
