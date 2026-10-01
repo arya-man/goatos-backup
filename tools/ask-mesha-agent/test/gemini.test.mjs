@@ -11,7 +11,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
   runAgent, connectMcp, mcpToolToDeclaration, historyContents, callCostUsd, isRetryable, geminiConfig, DEFAULT_MODEL, DEFAULT_FAST_MODEL, EMPTY_TURN_NUDGE,
-  MAX_STEPS_NOTE, MAX_PARALLEL_TOOLS, mapLimit,
+  MAX_STEPS_NOTE, MAX_PARALLEL_TOOLS, mapLimit, dedupeRepeatedAnswer,
 } from "../gemini.mjs";
 import { createCodeTools, isSecretPath, CODE_TOOL_DECLARATIONS } from "../code-tools.mjs";
 import { appendPrompt, instructionPack, geminiInstructionPack, GEMINI_TOOL_NOTE, tableIndexSection, ceoRepoInstructions, ceoRules, CODING_AGENT_LINE } from "../instructions.mjs";
@@ -409,7 +409,7 @@ test("runAgent: time guard forces a tool-less answer turn", async () => {
   assert.equal(r.text, "Answer from what I have.");
   assert.equal(r.error, null, "a time-guarded answer is a normal answer, not a cut-off");
   assert.equal(ai.calls.at(-1).config.tools, undefined);
-  assert.match(ai.calls.at(-1).contents.at(-1).parts.at(-1).text, /Time is up/);
+  assert.match(ai.calls.at(-1).contents.at(-1).parts.at(-1).text, /final answer for the CEO now/);
 });
 
 test("runAgent: a dropped DB connection is retried once, other tool errors are not", async () => {
@@ -423,4 +423,19 @@ test("runAgent: a dropped DB connection is retried once, other tool errors are n
   } } });
   assert.deepEqual(seen, { 1: 2, 2: 1 });
   assert.equal(ai.calls[1].contents.at(-1).parts[0].functionResponse.response.output, "rows");
+});
+
+test("forced final turn: a doubled answer is kept once; reasoning openers are stripped", async () => {
+  const ans = "Castro 1 in Coimbatore has 49 sheep and no goats today.";
+  assert.equal(dedupeRepeatedAnswer(ans + ans), ans);
+  assert.equal(dedupeRepeatedAnswer(ans + "\n\n" + ans), ans);
+  assert.equal(dedupeRepeatedAnswer(ans), ans);
+  let t = 0;
+  const ai = fakeAi([[chunk([{ functionCall: { name: "run_sql", args: {} } }])], [chunk([{ text: ans }, { text: ans }])]]);
+  const r = await runAgent({ ai, model: "m", contents: [], env: {}, deadlineMs: 1, now: () => (t += 10), tools: { declarations: [], call: async () => ({ text: "rows" }) } });
+  assert.equal(r.text, ans);
+  assert.equal(r.forced, true);
+  const { stripLeadingNarration } = await import("../lib.mjs");
+  assert.equal(stripLeadingNarration("Wait, I can still think about the stage filter.\n\n" + ans), ans);
+  assert.equal(stripLeadingNarration("If I am forced to answer now, I will say this.\n" + ans), ans);
 });

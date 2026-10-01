@@ -256,3 +256,6 @@ Path: .agents/skills/mesha-data-map/references/logic/<card>.md — each card = s
 - verification: Verification queue (/verify; /verification redirects to /verify)
 - weighing: Weighing — admin-web /weighing/weights (logic map)
 - work-board: Logic card: WORK BOARD / ACTION CENTER / ALERTS / LEADERSHIP TASKS
+- Upcoming vaccinations ("what's due", "next vaccinations"): give the NEXT due dates with counts (group by due_business_day,
+  status scheduled/deferred, earliest 3 dates, DD/MM/YYYY), e.g. "1 on 14/10, 58 on 20/10" — never only the total of all future doses.
+- Deaths: when the cause is not recorded, say so ONCE for the whole list, not per animal.

@@ -153,7 +153,19 @@ export function isRetryable(err) {
 const sleep = (ms, signal) => new Promise((r) => { const t = setTimeout(r, ms); signal?.addEventListener("abort", () => { clearTimeout(t); r(); }, { once: true }); });
 
 export const MAX_STEPS_NOTE = "You have used all your lookup steps. Answer now from what you already found, and say plainly what you could not finish checking.";
-export const TIME_UP_NOTE = "Time is up for this answer. Answer now from what you already found (no more lookups), and say plainly what you could not finish checking.";
+export const TIME_UP_NOTE = "Write the final answer for the CEO now, from the results you already have (no more lookups). Write only the answer, once: no reasoning, no mention of time, steps, filters or anything you did not run. Give only figures that came from the results above; for any figure from the question or a screenshot that the results do not confirm, say plainly \"I couldn't confirm X from the records\" instead of repeating it.";
+
+// The forced final turn sometimes writes the same answer twice back to back; keep one copy.
+export function dedupeRepeatedAnswer(text) {
+  const t = String(text || "");
+  const s = t.trim();
+  for (let i = Math.floor(s.length / 2) - 20; i <= Math.ceil(s.length / 2) + 20; i++) {
+    if (i <= 40 || i >= s.length) continue;
+    const a = s.slice(0, i).trim(), b = s.slice(i).trim();
+    if (a && a === b) return a;
+  }
+  return t;
+}
 export const MAX_PARALLEL_TOOLS = 4;
 export const TRANSIENT_TOOL_ERROR = /fetch failed|ECONNRESET|ECONNREFUSED|server closed the connection|connection to server at .* failed|timeout expired|terminating connection/i;
 // Images/PDFs sent to the model in one answer (attachments + read_file), base64 chars.
@@ -263,7 +275,7 @@ export async function runAgent({
     }
     if (!calls.length || finalOnly) {
       onEvent({ type: "turn_end", final: true });
-      return { text: lastText, steps: step + 1, usage, costUsd, error, model };
+      return { text: finalOnly ? dedupeRepeatedAnswer(lastText) : lastText, steps: step + 1, usage, costUsd, error, model, forced: finalOnly };
     }
     onEvent({ type: "turn_end", final: false });
     if (costUsd >= budgetUsd) {

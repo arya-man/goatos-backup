@@ -424,7 +424,7 @@ export const NARRATION_HOLD_CHARS = 280;
 // A working line the model sometimes writes before the answer in the SAME turn
 // ("Confirming there's genuinely no weighing activity…", "Let me pull the pen list."). Only the
 // FIRST paragraph, only when it opens with a working verb, is short, and more text follows it.
-const NARRATION_START = /^(?:(?:now|next|first|then),? )?(?:let me|let's|i'll|i will|i'm going to|i am going to|i need to|i'm now|i now have|i have everything|now i have|okay[,.]|ok[,.]|alright[,.]|good[,.—-]|great[,.—-]|got it|perfect[,.—-]|(?:re-?|double-)?(?:confirming|checking|verifying|looking|querying|pulling|fetching|searching|reading|running|gathering|digging|cross-checking)\b)/i;
+const NARRATION_START = /^(?:(?:now|next|first|then),? )?(?:wait[,.]|hmm|if i am forced|if i'm forced|i can still|i ran out|since i (?:can't|cannot) (?:run|query)|let me|let's|i'll|i will|i'm going to|i am going to|i need to|i'm now|i now have|i have everything|now i have|okay[,.]|ok[,.]|alright[,.]|good[,.—-]|great[,.—-]|got it|perfect[,.—-]|(?:re-?|double-)?(?:confirming|checking|verifying|looking|querying|pulling|fetching|searching|reading|running|gathering|digging|cross-checking)\b)/i;
 // A first line that is the model restating a rule to itself ("Do not invent any numbers. Do not apologize.").
 // Only whole lines of short imperative sentences, no figures, so a real answer ("Never weighed: 12 pens") survives.
 const SELF_INSTRUCTION = /^(?:(?:do not|don't|never|always|remember|make sure|avoid|be sure to|keep it)\b[^.!\d]{0,120}[.!]\s*)+$/i;

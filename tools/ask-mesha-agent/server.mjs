@@ -37,7 +37,7 @@ const MODEL = GEMINI.model;
 const DEEP_MODEL = GEMINI.deepModel;
 const EFFORT = process.env.ASK_MESHA_EFFORT || "low"; // Gemini thinkingLevel for quick lookups; deep = high
 const ANSWER_SECONDS = Number(process.env.ASK_MESHA_ANSWER_SECONDS) || 50;
-const ANSWER_DEEP_SECONDS = Number(process.env.ASK_MESHA_DEEP_ANSWER_SECONDS) || 120;
+const ANSWER_DEEP_SECONDS = Number(process.env.ASK_MESHA_DEEP_ANSWER_SECONDS) || 180;
 const ai = createClient(GEMINI); // ADC; ASK_MESHA_GEMINI_AUTH=gcloud uses the local gcloud user token (dev only)
 // Answer checker (checker.mjs): a second, tool-less call that checks the draft's wording against the
 // query results before the final answer lands. ASK_MESHA_CHECKER=0 turns it off.
@@ -692,6 +692,8 @@ async function ask(req, res, user) {
       });
       metric.turns = r.steps;
       metric.model = r.model || metric.model;
+      // Forced final turn (time/steps): the stored answer is that turn's cleaned text only.
+      if (r.forced && r.text) { lastTurnText = r.text; metric.forced_final = true; }
       metric.input_tokens = r.usage.input;
       metric.output_tokens = r.usage.output + r.usage.thoughts;
       metric.cache_read_tokens = r.usage.cached;
