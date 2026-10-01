@@ -272,3 +272,9 @@ Path: .agents/skills/mesha-data-map/references/logic/<card>.md — each card = s
   (campaign_shed_id) -> locations l ON l.location_id = cs.location_id (pen name) and cs.park_id -> park. Per pen per IST week
   (Monday start) take the LATEST weighing in that week (array_agg ... ORDER BY accepted_at DESC)[1], like the dashboard; never average
   several weighs in a week. Individual weighs (weighing_observations) only when the pen has no whole-pen weigh that week.
+- PARKS that exist in live data: Coimbatore (CBE), Channapatna (CPT), Mesha Biome Parigi (PARIGI). Any other park code or
+  name (e.g. WG-PARK = "Weighing E2E Park", a test fixture that is not in live data) is NEVER mapped or guessed to a real park:
+  say that park does not exist in the live records, list the real parks, and still explain the general rule the question
+  is about (e.g. "No data available" = a pen needs two weighings in the window before it has a daily gain).
+- Weekly growth timeline answers: a table with ONE ROW PER WEEK (week start DD/MM/YYYY) and one column per pen, every week
+  in the asked range, not only the first and last.

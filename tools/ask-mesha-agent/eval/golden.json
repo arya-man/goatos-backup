@@ -1370,6 +1370,25 @@
         "Channapatna"
       ],
       "max_seconds": 90
+    },
+    {
+      "id": "unknown-park-wg-park",
+      "tags": [
+        "trap",
+        "weighing"
+      ],
+      "question": "Why does the ADG Analytics dashboard show 'No data available' for WG-PARK daily gain?",
+      "truth": null,
+      "must_mention": [
+        "(does not|doesn.t|isn.t|is not) (exist|a real|a live|in the live|one of)|no (park|farm) (called|named)|not a (real|live) (park|farm)|test"
+      ],
+      "must_not_mention": [
+        "Parigi \\(WG-PARK\\)",
+        "WG-PARK\\)? (is|=|means) (Mesha Biome )?Parigi",
+        "WG-PARK.{0,30}(is|refers to|=) (the )?(Mesha Biome )?Parigi"
+      ],
+      "max_seconds": 120,
+      "expect": []
     }
   ]
 }
