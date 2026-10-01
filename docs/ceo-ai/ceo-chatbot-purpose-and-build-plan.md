@@ -440,7 +440,7 @@ Adapters are now wired into the running server (`internal/bootstrap/api.go` →
 `ceoai.Build`, bridges in `internal/ceoai/wiring.go`):
 
 - Agentic loop with the Vertex Gemini planner (`MESHA_AI_PROVIDER=vertex`,
-  `goatos-stg`/`asia-south1`/`gemini-2.5-flash`, ADC) + deterministic keyword
+  `goatos-stg`/`asia-south1`/`gemini-3.8-flash`, ADC) + deterministic keyword
   fallback; runtime grounding review (`MESHA_AI_REVIEW=1`) that downgrades an
   ungrounded answer instead of emitting an unverified number.
 - Cube-first routing to the governed metric layer. Live E2E through the running

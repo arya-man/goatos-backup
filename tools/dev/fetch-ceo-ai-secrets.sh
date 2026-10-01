@@ -43,7 +43,7 @@ done
 : "${MESHA_AI_PROVIDER:=vertex}"
 : "${MESHA_VERTEX_PROJECT:=goatos-stg}"
 : "${MESHA_VERTEX_LOCATION:=asia-south1}"
-: "${MESHA_VERTEX_MODEL:=gemini-2.5-flash}"
+: "${MESHA_VERTEX_MODEL:=gemini-3.8-flash}"
 : "${MESHA_CUBE_URL:=http://127.0.0.1:4000}"
 : "${MESHA_MCP_TOOLBOX_URL:=http://127.0.0.1:5001}"
 

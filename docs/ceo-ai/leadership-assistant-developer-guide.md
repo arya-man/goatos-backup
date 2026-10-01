@@ -68,7 +68,7 @@ traces are internal only. See `references/architecture.md`.
 - DB: docker `goatos-local-current` at `127.0.0.1:5433` (db `goatos`).
 - API `:8080`, admin-web `:3300`, MCP Toolbox `:5001`, Cube `MESHA_CUBE_URL`
   (default `127.0.0.1:4000`).
-- Vertex via ADC, project `goatos-stg`, `asia-south1`, `gemini-2.5-flash`.
+- Vertex via ADC, project `goatos-stg`, `asia-south1`, `gemini-3.8-flash`.
 - Secrets/config come from Google Secret Manager (project `goatos-stg`) + GitHub
   Actions secrets (repo `vgoats/goatos`), pulled into a gitignored
   `.env.ceo-ai.local` by the documented gcloud fetch. Never commit a secret

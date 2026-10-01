@@ -190,7 +190,7 @@ Use new Mesha-prefixed env vars for the assistant/Toolbox integration:
 MESHA_AI_PROVIDER=vertex
 MESHA_VERTEX_PROJECT=<env project>
 MESHA_VERTEX_LOCATION=asia-south1
-MESHA_VERTEX_MODEL=gemini-2.5-flash
+MESHA_VERTEX_MODEL=gemini-3.8-flash
 
 MESHA_CUBE_URL=<Cube Cloud Run URL or http://127.0.0.1:4000>
 MESHA_CUBE_API_SECRET=<Secret Manager>

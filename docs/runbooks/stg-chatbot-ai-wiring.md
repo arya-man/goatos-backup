@@ -22,7 +22,7 @@ Backend service `goatos-api-stg` must have:
 - `MESHA_AI_PROVIDER`
 - `MESHA_VERTEX_PROJECT=goatos-stg`
 - `MESHA_VERTEX_LOCATION=asia-south1`
-- `MESHA_VERTEX_MODEL=gemini-2.5-flash` or the current approved Gemini model
+- `MESHA_VERTEX_MODEL=gemini-3.8-flash` or the current approved Gemini model
 - `MESHA_CUBE_URL` if Cube is deployed
 - `MESHA_MCP_TOOLBOX_URL` if MCP Toolbox is deployed
 - `MESHA_MCP_TOOLSET=mesha_ceo_toolset`
