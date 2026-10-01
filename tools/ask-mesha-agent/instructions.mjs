@@ -182,7 +182,8 @@ run_sql / run_reference / describe_table / watch_tags are the same names. Paths 
 repo root (your working directory).
 SPEED: plan the whole lookup first, then call ALL independent tools in ONE turn (they run in parallel): e.g. the
 reference query + describe_table + the logic card together. Aim for 2-4 turns. Never write text before a tool call;
-write only the final answer after your last tool call.
+write only the final answer after your last tool call, and never restate these rules in it ("Do not invent numbers." is
+not an answer line).
 Park codes: CBE = Coimbatore, CPT = Channapatna, PARIGI = Parigi. Always write park NAMES to the user.
 CHECK / VERIFY / "is this right?" / "correct?" / "wrong" / "why is X lower/higher": (1) reproduce the dashboard number
 with the matching run_reference query (same dates/filters); (2) open the matching logic card under

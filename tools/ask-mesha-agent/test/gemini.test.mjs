@@ -411,3 +411,16 @@ test("runAgent: time guard forces a tool-less answer turn", async () => {
   assert.equal(ai.calls.at(-1).config.tools, undefined);
   assert.match(ai.calls.at(-1).contents.at(-1).parts.at(-1).text, /Time is up/);
 });
+
+test("runAgent: a dropped DB connection is retried once, other tool errors are not", async () => {
+  const ai = fakeAi([[chunk([{ functionCall: { name: "run_sql", args: { q: 1 } } }, { functionCall: { name: "run_sql", args: { q: 2 } } }])], [chunk([{ text: "ok" }])]]);
+  const seen = { 1: 0, 2: 0 };
+  await runAgent({ ai, model: "m", contents: [], env: {}, toolRetryDelayMs: 1, tools: { declarations: [], call: async (_n, a) => {
+    seen[a.q]++;
+    if (a.q === 1 && seen[1] === 1) return { text: 'psql: error: connection to server at "127.0.0.1", port 55432 failed: server closed the connection unexpectedly', isError: true };
+    if (a.q === 2) return { text: "column x does not exist", isError: true };
+    return { text: "rows" };
+  } } });
+  assert.deepEqual(seen, { 1: 2, 2: 1 });
+  assert.equal(ai.calls[1].contents.at(-1).parts[0].functionResponse.response.output, "rows");
+});

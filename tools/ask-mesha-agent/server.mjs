@@ -37,7 +37,7 @@ const MODEL = GEMINI.model;
 const DEEP_MODEL = GEMINI.deepModel;
 const EFFORT = process.env.ASK_MESHA_EFFORT || "low"; // Gemini thinkingLevel for quick lookups; deep = high
 const ANSWER_SECONDS = Number(process.env.ASK_MESHA_ANSWER_SECONDS) || 50;
-const ANSWER_DEEP_SECONDS = Number(process.env.ASK_MESHA_DEEP_ANSWER_SECONDS) || 240;
+const ANSWER_DEEP_SECONDS = Number(process.env.ASK_MESHA_DEEP_ANSWER_SECONDS) || 120;
 const ai = createClient(GEMINI); // ADC; ASK_MESHA_GEMINI_AUTH=gcloud uses the local gcloud user token (dev only)
 // Answer checker (checker.mjs): a second, tool-less call that checks the draft's wording against the
 // query results before the final answer lands. ASK_MESHA_CHECKER=0 turns it off.
@@ -709,7 +709,10 @@ async function ask(req, res, user) {
     // last assistant turn (drops "now querying…" narration between tool calls).
     let { clean, chart } = extractChart(lastTurnText.trim() ? lastTurnText : full);
     ({ chart } = lintedChart(chart, metric));
+    const unstripped = clean;
     clean = stripLeadingNarration(clean);
+    // The dropped working line was already streamed: show the cleaned answer instead.
+    if (clean !== unstripped && clean.trim()) send({ type: "replace", text: clean });
     track.setAnswer(clean, chart);
     // Failed run with nothing to show: send an error, not an empty final (the
     // panel lets a later final overwrite an error). Partial answers still land.

@@ -155,6 +155,7 @@ const sleep = (ms, signal) => new Promise((r) => { const t = setTimeout(r, ms); 
 export const MAX_STEPS_NOTE = "You have used all your lookup steps. Answer now from what you already found, and say plainly what you could not finish checking.";
 export const TIME_UP_NOTE = "Time is up for this answer. Answer now from what you already found (no more lookups), and say plainly what you could not finish checking.";
 export const MAX_PARALLEL_TOOLS = 4;
+export const TRANSIENT_TOOL_ERROR = /fetch failed|ECONNRESET|ECONNREFUSED|server closed the connection|connection to server at .* failed|timeout expired|terminating connection/i;
 // Images/PDFs sent to the model in one answer (attachments + read_file), base64 chars.
 export const INLINE_BUDGET_CHARS = 20 * 1024 * 1024;
 function appendUserText(convo, text) {
@@ -180,7 +181,7 @@ export const EMPTY_TURN_NUDGE = "Continue: use the tools you need, then write th
 export async function runAgent({
   ai, model, systemInstruction, contents, tools, onEvent = () => {}, signal,
   maxSteps = 40, budgetUsd = Infinity, thinkingLevel, env = process.env, retryDelayMs = 1000,
-  fallbackModel = null, inlineBudget = INLINE_BUDGET_CHARS, deadlineMs = Infinity, now = Date.now,
+  fallbackModel = null, inlineBudget = INLINE_BUDGET_CHARS, deadlineMs = Infinity, now = Date.now, toolRetryDelayMs = 2000,
 }) {
   const usage = { input: 0, output: 0, cached: 0, thoughts: 0 };
   let costUsd = 0;
@@ -273,7 +274,12 @@ export async function runAgent({
     for (const c of withIds) onEvent({ type: "tool_call", id: c._id, name: c.name, args: c.args || {} });
     const results = await mapLimit(withIds, MAX_PARALLEL_TOOLS, async (c) => {
       let r;
-      try { r = await tools.call(c.name, c.args || {}); } catch (e) { r = { text: `Tool failed: ${String(e?.message || e).slice(0, 500)}`, isError: true }; }
+      for (let t = 0; t < 2; t++) {
+        try { r = await tools.call(c.name, c.args || {}); } catch (e) { r = { text: `Tool failed: ${String(e?.message || e).slice(0, 500)}`, isError: true }; }
+        // A dropped DB connection / proxy blip is retried once instead of costing the model a turn.
+        if (!(r?.isError && TRANSIENT_TOOL_ERROR.test(String(r.text || ""))) || signal?.aborted) break;
+        await sleep(toolRetryDelayMs, signal);
+      }
       onEvent({ type: "tool_result", id: c._id, name: c.name, args: c.args || {}, text: r.text, isError: Boolean(r.isError) });
       // Image budget per answer: past it, the tool still answers in text but the image is not sent.
       if (r.inline) {

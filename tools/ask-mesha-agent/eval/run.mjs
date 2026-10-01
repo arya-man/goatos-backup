@@ -72,8 +72,10 @@ function referenceSql(name, opts = {}) {
 export function truthSql(truth, macros) {
   const t = fillMacros(truth, macros);
   if (t.reference) return referenceSql(t.reference, { params: t.params, where: t.where, order_by: t.order_by, limit: t.limit });
-  // {{ref:file.sql}} inlines a reference (wrapped, no filter) so an item can post-process it.
-  return String(t.sql).replace(/\{\{ref:([a-z0-9.-]+)\}\}/g, (_, n) => referenceSql(n));
+  // {{ref:file.sql}} inlines a reference (wrapped, no filter) so an item can post-process it;
+  // {{ref:file.sql|k=v,k=v}} passes the file's declared params (values: [A-Za-z0-9_-]).
+  return String(t.sql).replace(/\{\{ref:([a-z0-9.-]+)(?:\|([a-z_]+=[A-Za-z0-9_-]+(?:,[a-z_]+=[A-Za-z0-9_-]+)*))?\}\}/g,
+    (_, n, ps) => referenceSql(n, ps ? { params: Object.fromEntries(ps.split(",").map((kv) => kv.split("="))) } : {}));
 }
 let pgEnv;
 function runTruth(sql) {

@@ -463,3 +463,11 @@ test("lintChart drops misleading charts, keeps good ones", async () => {
   assert.equal(r({ title: "t", x: many, series: [{ name: "a", data: many.map(() => 1) }] }), "too_many_bars");
   assert.equal(r({ title: "t", type: "line", x: many, series: [{ name: "a", data: many.map(() => 1) }] }), null);
 });
+
+test("stripLeadingNarration drops a self-instruction first line, keeps real answers", async () => {
+  const { stripLeadingNarration } = await import("../lib.mjs");
+  assert.equal(stripLeadingNarration("Do not invent any numbers. Do not apologize.\n\nNo, Castro 1 has 49 sheep."), "No, Castro 1 has 49 sheep.");
+  assert.equal(stripLeadingNarration("Do not invent or guess information.\n\nMahendran owes Rs 4,29,875."), "Mahendran owes Rs 4,29,875.");
+  assert.equal(stripLeadingNarration("Never weighed: 12 pens.\n\nThey are listed below."), "Never weighed: 12 pens.\n\nThey are listed below.");
+  assert.equal(stripLeadingNarration("Always 3 deaths in Coimbatore.\nmore"), "Always 3 deaths in Coimbatore.\nmore");
+});

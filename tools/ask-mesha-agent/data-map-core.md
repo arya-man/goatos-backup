@@ -56,6 +56,10 @@ metrics -> how (exact defs + SQL: SKILL.md "Metric definitions"; never invent a 
 - ADG/daily gain = app Weighing > Growth (ADG): run_reference('adg-by-park.sql') (this month to date;
   other window: params {from_date:'YYYY-MM-DD', to_date:'YYYY-MM-DD'}). Scanned kids (per-animal grams/days) + whole pens weighted by head count. It matches the
   app exactly (01-24/09: CBE 152, CPT 148, all 150 g/day). NEVER write your own ADG SQL or pick a different weighting.
+- ADG BY PARK with a sex / origin / weighing filter (e.g. "males, 03/08-29/09, by park"): the answer shape is BINDING
+  = one line per PARK (Coimbatore, Channapatna) + the all-parks figure, never breeds. adg-by-park.sql has no sex filter, so run
+  adg-by-breed.sql once per park_code (CBE, CPT) plus once with no park_code, all in ONE turn, and give each park
+  ADG = sum(gain_g_per_day x gain_animals) / sum(gain_animals), animals = sum(gain_animals). Breeds only if asked.
 - ADG / daily gain / average weight BY BREED, or filtered by sex, origin (farm born/purchased), weighing type (individual/whole pen)
   or a period = app Weighing > ADG Analytics > Breed-wise tab: MUST run_reference('adg-by-breed.sql', params={from_date, to_date,
   park_code, sex, origin, weighing}) with the user's filters (defaults: weighing all = both types, sex all, origin all, all parks; relative

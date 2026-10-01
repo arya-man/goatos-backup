@@ -425,6 +425,9 @@ export const NARRATION_HOLD_CHARS = 280;
 // ("Confirming there's genuinely no weighing activity…", "Let me pull the pen list."). Only the
 // FIRST paragraph, only when it opens with a working verb, is short, and more text follows it.
 const NARRATION_START = /^(?:(?:now|next|first|then),? )?(?:let me|let's|i'll|i will|i'm going to|i am going to|i need to|i'm now|i now have|i have everything|now i have|okay[,.]|ok[,.]|alright[,.]|good[,.—-]|great[,.—-]|got it|perfect[,.—-]|(?:re-?|double-)?(?:confirming|checking|verifying|looking|querying|pulling|fetching|searching|reading|running|gathering|digging|cross-checking)\b)/i;
+// A first line that is the model restating a rule to itself ("Do not invent any numbers. Do not apologize.").
+// Only whole lines of short imperative sentences, no figures, so a real answer ("Never weighed: 12 pens") survives.
+const SELF_INSTRUCTION = /^(?:(?:do not|don't|never|always|remember|make sure|avoid|be sure to|keep it)\b[^.!\d]{0,120}[.!]\s*)+$/i;
 export function stripLeadingNarration(text) {
   const t = String(text || "");
   const m = t.match(/^\s*([^\n]*)\n+/);
@@ -432,7 +435,7 @@ export function stripLeadingNarration(text) {
   const first = m[1].trim();
   const rest = t.slice(m[0].length);
   if (!rest.trim() || first.length > 220 || first.startsWith("|") || first.startsWith("#") || first.includes("**")) return t;
-  return NARRATION_START.test(first) ? stripLeadingNarration(rest) : t;
+  return NARRATION_START.test(first) || SELF_INSTRUCTION.test(first) ? stripLeadingNarration(rest) : t;
 }
 
 export function makeTurnGate(emit, hold = NARRATION_HOLD_CHARS) {

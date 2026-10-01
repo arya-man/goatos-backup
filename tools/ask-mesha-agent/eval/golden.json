@@ -1336,6 +1336,39 @@
       ],
       "max_seconds": 120,
       "notes": "Pinned to 2026 weeks on purpose (regression for the 2026-09-25 report); truth reads the last pen weighing per Monday week."
+    },
+    {
+      "id": "adg-male-by-park-aug-sep",
+      "tags": [
+        "weighing",
+        "core"
+      ],
+      "question": "What was the ADG by park for male animals between 03/08/2026 and 29/09/2026?",
+      "truth": {
+        "sql": "SELECT (SELECT round(sum(gain_g_per_day*gain_animals)/nullif(sum(gain_animals),0)) FROM ({{ref:adg-by-breed.sql|from_date=2026-08-03,to_date=2026-09-29,sex=male,park_code=CBE}}) r) cbe, (SELECT round(sum(gain_g_per_day*gain_animals)/nullif(sum(gain_animals),0)) FROM ({{ref:adg-by-breed.sql|from_date=2026-08-03,to_date=2026-09-29,sex=male,park_code=CPT}}) r) cpt, (SELECT round(sum(gain_g_per_day*gain_animals)/nullif(sum(gain_animals),0)) FROM ({{ref:adg-by-breed.sql|from_date=2026-08-03,to_date=2026-09-29,sex=male}}) r) all_parks"
+      },
+      "expect": [
+        {
+          "label": "CBE",
+          "col": "cbe",
+          "tol": 2
+        },
+        {
+          "label": "CPT",
+          "col": "cpt",
+          "tol": 2
+        },
+        {
+          "label": "ALL",
+          "col": "all_parks",
+          "tol": 2
+        }
+      ],
+      "must_mention": [
+        "Coimbatore",
+        "Channapatna"
+      ],
+      "max_seconds": 90
     }
   ]
 }
