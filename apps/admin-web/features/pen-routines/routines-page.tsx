@@ -12,7 +12,6 @@ import type {
   PenRoutineListResponse,
   PenRoutinePark,
   PenRoutineRow,
-  PenRoutineTabListResponse,
   PenRoutineTaskListResponse,
   PenRoutineTaskRow,
 } from "@/lib/api/pen-routines-server";
@@ -21,7 +20,7 @@ import { fmtDate, istDayPlus, todayIso } from "@/lib/format";
 import { all, boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { RoutineDrawerForm, RoutineSaveFooter } from "./routine-drawer";
 import { RoutineFilter } from "./routine-filter";
-import { PARAM_TAB, PhoneTabsSection, type PhoneTabsRoutine } from "./phone-tabs-section";
+import { routineEditableHere, sopManagedBy } from "./sop-managed";
 
 /**
  * /routines (maintainer instruction 2026-09-16, docs/decisions/pen-routines.md): the routines of
@@ -107,10 +106,6 @@ export type RoutinesPageData = {
   /** The park the Today table and the catalog were read for (the chosen park, else the first park served). */
   todayPark: PenRoutinePark | null;
   businessDate: string;
-  /** The phone tabs and the vocabularies their editor offers. */
-  tabs: ApiResult<PenRoutineTabListResponse>;
-  /** Every park's routines, for the phone-tab picker (a tab may carry routines of both parks). */
-  tabRoutines: PenRoutineRow[];
 };
 
 /** The parameters the page reads for its data, resolved once so page.tsx and the feature agree. */
@@ -139,9 +134,8 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
   const parks = data.list.ok ? data.list.data.parks : [];
   const routines = data.list.ok ? data.list.data.rows : [];
   const selectedPark = one(sp, PARAM_PARK) ?? "";
-  // The two drawers (routine, phone tab) close each other: each href drops the other's parameter.
-  const listHref = href(sp, { [PARAM_EDIT]: undefined, [PARAM_TAB]: undefined }, true);
-  const editHref = (id: string) => href(sp, { [PARAM_EDIT]: id, [PARAM_TAB]: undefined }, true);
+  const listHref = href(sp, { [PARAM_EDIT]: undefined }, true);
+  const editHref = (id: string) => href(sp, { [PARAM_EDIT]: id }, true);
   const today = todayIso();
   const isToday = data.businessDate === today;
 
@@ -170,6 +164,28 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
   // and reopens the create drawer there.
   const createParkHrefs: Record<string, string> = {};
   for (const park of parks) createParkHrefs[park.park_id] = href(sp, { [PARAM_PARK]: park.park_id, [PARAM_ROUTINE]: undefined, [PARAM_EDIT]: "new" });
+  // "From Preventive Care SOP -- edit it there": the module name is the link to the SOP page that
+  // owns the routine. Null for a routine authored here.
+  const sopNote = (routine: PenRoutineRow): React.ReactNode => {
+    const owner = sopManagedBy(routine.sop_code);
+    if (!owner) return null;
+    const moduleName = owner.slice ? c(`sop_managed.module.${owner.slice}`) : c("sop_managed.module.unknown");
+    const [before, after = ""] = c("sop_managed.note").split("{module}");
+    return (
+      <span>
+        {before}
+        {owner.href ? (
+          <Link href={owner.href} className="prt-managed-link">
+            {moduleName}
+          </Link>
+        ) : (
+          moduleName
+        )}
+        {after}
+      </span>
+    );
+  };
+
   const drawerItems: LocalOverlayDrawerItem[] = [];
   if (canCreate && catalogParkId) {
     drawerItems.push({
@@ -183,10 +199,13 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
   }
   for (const routine of routines) {
     if (routine.park_id !== catalogParkId) continue;
+    // A routine published from a module SOP is changed there, never here (sop-managed.ts).
+    const editable = routineEditableHere(routine, canEdit);
+    const statusEditable = routineEditableHere(routine, canSetStatus);
     drawerItems.push({
       id: routine.routine_id,
       eyebrow: c("drawer.routine.title"),
-      title: canEdit ? c("drawer.routine.edit_title") : routine.name,
+      title: editable ? c("drawer.routine.edit_title") : routine.name,
       icon: <ListChecks className="ic" aria-hidden="true" />,
       body: (
         <RoutineDrawerForm
@@ -196,13 +215,14 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
           catalog={data.catalog}
           catalogParkId={catalogParkId}
           parkHrefs={createParkHrefs}
-          canEdit={canEdit}
-          canSetStatus={canSetStatus}
+          canEdit={editable}
+          canSetStatus={statusEditable}
           listHref={listHref}
           formId={`prt-form-${routine.routine_id}`}
+          managedNote={sopNote(routine)}
         />
       ),
-      footer: <RoutineSaveFooter key="save" formId={`prt-form-${routine.routine_id}`} saveLabel={c("action.save")} canSave={canEdit} />,
+      footer: <RoutineSaveFooter key="save" formId={`prt-form-${routine.routine_id}`} saveLabel={c("action.save")} canSave={editable} />,
     });
   }
   // A routine of the page's park opens locally; one of the other park selects that park first.
@@ -222,7 +242,12 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
       case "name":
         // The name IS the way in (it opens the routine's drawer); a separate Edit column pushed the
         // table past its card at 1440.
-        return openRoutine(routine, "prt-name-link", routine.name);
+        return (
+          <>
+            {openRoutine(routine, "prt-name-link", routine.name)}
+            {sopManagedBy(routine.sop_code) ? <span className="muted small prt-managed" style={{ display: "block" }}>{sopNote(routine)}</span> : null}
+          </>
+        );
       case "park":
         return routine.park_name;
       case "cadence":
@@ -382,24 +407,6 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
         </div>
       </section>
 
-      <PhoneTabsSection
-        pageContract={pageContract}
-        initialTabs={data.tabs.ok ? data.tabs.data.tabs : []}
-        vocabulary={data.tabs.ok ? { modules: data.tabs.data.modules, icons: data.tabs.data.icons, filters: data.tabs.data.filters } : { modules: [], icons: [], filters: [] }}
-        loadError={data.tabs.ok ? "" : data.tabs.error.message}
-        routines={data.tabRoutines.map((routine): PhoneTabsRoutine => ({
-          routine_id: routine.routine_id,
-          name: routine.name,
-          park_id: routine.park_id,
-          park_name: routine.park_name,
-          status: routine.status,
-        }))}
-        canCreate={canCreate}
-        canEdit={canEdit}
-        canSetStatus={canSetStatus}
-        closeHref={listHref}
-        initialSelectedId={one(sp, PARAM_TAB)}
-      />
 
       <section className="card" aria-label={tasksTable.title}>
         <div className="hd">

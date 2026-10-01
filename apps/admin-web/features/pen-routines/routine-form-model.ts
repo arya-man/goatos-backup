@@ -274,3 +274,75 @@ export function slugQuestionId(title: string): string {
 export function cleanQuestionId(raw: string): string {
   return raw.replace(/[^A-Za-z0-9_]/g, "").slice(0, 40);
 }
+
+// ---------------------------------------------------------------------------------------------
+// The editing state of a routine's SCHEDULE and EVIDENCE, shared by the /routines drawer and the
+// "Task with its own phone tab" SOP editor (docs/decisions/simple-task-phone-tabs.md): both author
+// the same pen-routine evidence and cadence, so both edit them through the same sections
+// (routine-sections.tsx) and the same pure helpers here.
+// ---------------------------------------------------------------------------------------------
+
+/** One question being edited: the wire body plus a stable React key and whether its id was typed by hand. */
+export type QuestionDraft = PenRoutineQuestionBody & { key: number; idTouched: boolean };
+
+export type EvidenceDraft = {
+  questions: QuestionDraft[];
+  photo: { min: number; max: number };
+  video: { min: number; max: number };
+  presence: "required" | "off";
+};
+
+export type CadenceDraft = {
+  cadenceKind: CadenceKind;
+  weekdays: number[];
+  monthDays: number[];
+  afterWorkKinds: string[];
+  /** Kept as the input's own text so a cleared field stays blank rather than turning into 0. */
+  intervalDays: string;
+  startDate: string;
+  /** "" means absent: the backend's default (0, or 1 after work) applies. */
+  dueOffsetDays: string;
+  notifyTime: string;
+};
+
+/** An empty evidence block: no questions, no captures, no check-in. */
+export function blankEvidenceDraft(): EvidenceDraft {
+  return { questions: [], photo: { min: 0, max: 0 }, video: { min: 0, max: 0 }, presence: "off" };
+}
+
+/** The editing state of a stored evidence block; every question's id counts as typed, so a title edit never renames it. */
+export function evidenceDraftFrom(evidence: Partial<PenRoutineEvidenceBody> | null | undefined, firstKey = 1): EvidenceDraft {
+  const decoded = decodeEvidence(evidence ?? {});
+  let key = firstKey;
+  return {
+    questions: decoded.questions.map((question) => ({
+      ...question,
+      options: question.options ? question.options.map((option) => ({ ...option })) : undefined,
+      key: key++,
+      idTouched: true,
+    })),
+    photo: { ...decoded.photo },
+    video: { ...decoded.video },
+    presence: decoded.presence,
+  };
+}
+
+/** The wire evidence block of an editing state: the React-only fields dropped, nothing else changed. */
+export function evidenceBodyFromDraft(draft: EvidenceDraft): PenRoutineEvidenceBody {
+  return {
+    questions: draft.questions.map((question) => {
+      const { key, idTouched, ...body } = question;
+      void key;
+      void idTouched;
+      return body;
+    }),
+    photo: draft.photo,
+    video: draft.video,
+    presence: draft.presence,
+  };
+}
+
+/** A pen's stable form identity: shed + partition, never the shed alone (a pen IS that pair). */
+export function penKey(pen: { shed_id: string; partition_label?: string | null }): string {
+  return `${pen.shed_id}|${pen.partition_label ?? ""}`;
+}

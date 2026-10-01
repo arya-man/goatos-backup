@@ -2567,7 +2567,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"board.total_on_page":   "The whole-list total for this column is not published; this counts the cards on this page.",
 		}
 	case "pen-routines":
-		return map[string]string{
+		m := map[string]string{
 			// Phone tabs (docs/decisions/simple-task-phone-tabs.md).
 			"tabs.title":                      "Phone tabs",
 			"tabs.subtitle":                   "Where routines appear on the phone: their own item in a module's bottom bar, with a name, an icon and the filters the list offers.",
@@ -2696,6 +2696,10 @@ func pageSpecificCopy(id string) map[string]string {
 			"date.next_month":        "Next month",
 			"date.invalid":           "Pick a date on or after {date}.",
 		}
+		for k, v := range sopManagedCopy {
+			m[k] = v
+		}
+		return m
 	case "configuration-items":
 		return map[string]string{
 			"crumb":                        "Items and settings",
@@ -9223,6 +9227,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"followup.step.target_sex_all":    "Every kid",
 			"followup.step.target_sex_female": "Female kids",
 			"followup.step.target_sex_male":   "Male kids",
+		}
+		if id != "configuration-work-instructions" {
+			for k, v := range phoneTaskCopy {
+				m[k] = v
+			}
 		}
 		// Per-module copy: crumb names the owning vertical, and the builder's domain lock names
 		// the module the page is scoped to (SOP split, maintainer decision 2026-08-18).

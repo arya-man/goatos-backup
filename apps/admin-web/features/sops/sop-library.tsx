@@ -18,6 +18,7 @@ import {
   Plus,
   ScanLine,
   Search,
+  Smartphone,
   SquarePen,
   Type as TypeIcon,
   Users,
@@ -77,13 +78,18 @@ export interface SopLibraryProps {
   published?: { sopId: string; version: number | null } | null;
   /** Extra header controls a module page mounts beside "New SOP" (Weighing: the Assumptions drawer). */
   extraNode?: React.ReactNode;
+  /**
+   * Where "New phone task" opens the phone-task editor (`<basePath>?compose=1&type=phone_task`);
+   * absent on a page that cannot author one (Work instructions). docs/decisions/simple-task-phone-tabs.md.
+   */
+  phoneTaskHref?: string;
 }
 
 // SOP Library client console. Ported from the mock SOP Library screen (header, search, domain chips,
 // card grid, detail modal). "New SOP" / "Edit" navigate to the dedicated full-page builder
 // (<basePath>?compose=1 [&edit=<sop_id>]). Cards render ONLY real `/admin/sops` data; facets are derived from
 // real code/description/form_dsl/proof_policy. No mock inventory, no fake source rows.
-export function SopLibrary({ sops, error, authRequired, pageContract, basePath, published, extraNode }: SopLibraryProps) {
+export function SopLibrary({ sops, error, authRequired, pageContract, basePath, published, extraNode, phoneTaskHref }: SopLibraryProps) {
   const router = useRouter();
   const builderHref = `${basePath}?compose=1`;
   // The just-published banner is dismissed locally (no navigation) and is only shown while the
@@ -100,6 +106,9 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
   const [query, setQuery] = useState("");
   const [detail, setDetail] = useState<SopCardView | null>(null);
   const openBuilder = () => router.push(builderHref);
+  const openPhoneTask = () => {
+    if (phoneTaskHref) router.push(phoneTaskHref);
+  };
   // The editor is a server-rendered route; keep the drawer open (button shows "Opening…") until
   // the navigation commits, otherwise a slow first compile looks like "the modal closed and
   // nothing opened".
@@ -134,6 +143,11 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
         </div>
         <div className="sp" style={{ flex: 1 }} />
         {extraNode}
+        {phoneTaskHref ? (
+          <button type="button" className="btn" onClick={openPhoneTask} data-testid="sop-new-phone-task">
+            <Smartphone className="ic" /> {copy(pageContract, "ptask.action.new")}
+          </button>
+        ) : null}
         <button
           type="button"
           className="btn p"
@@ -236,6 +250,7 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
                   <div className="bd">
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
                       <span className="tag t-mut">{s.domainLabel}</span>
+                      {s.phoneTask ? <span className="tag t-info">{copy(pageContract, "ptask.card.tag")}</span> : null}
                       {s.trigger ? <span className="tag t-info">{s.trigger}</span> : null}
                       {s.inspectionQuestionCount > 0 ? <span className="tag t-info">{s.inspectionQuestionCount} {copy(pageContract, "label.inspection_questions")}</span> : null}
                       {s.stepCount !== null ? <span className="tag t-ok">{s.stepCount} {copy(pageContract, "label.steps")}</span> : null}
@@ -385,7 +400,8 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, onEditCapture, ed
           {/* An inspection SOP lists its load form and pages below; the generic field list would repeat the load form. */}
           {/* A general SOP has no capture form: its whole content is the operator steps below, so the
               capture section (and its "no form_dsl fields" note) is not the thing to show (PR 308 review). */}
-          {view.inspectionFormDsl || view.vendorFormDsl || view.pcCareFormDsl || (view.fields.length === 0 && view.followUpStepCount > 0) ? null : (
+          {/* A phone task has no capture form either: its questions are the task's evidence. */}
+          {view.phoneTask || view.inspectionFormDsl || view.vendorFormDsl || view.pcCareFormDsl || (view.fields.length === 0 && view.followUpStepCount > 0) ? null : (
             <>
           <div className="b700" style={{ margin: "8px 0" }}>
             {copy(pageContract, "label.steps_questions")}{" "}
@@ -447,6 +463,8 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, onEditCapture, ed
             <NotebookPen className="ic" />{" "}
             {editPending
               ? copy(pageContract, "action.opening_editor")
+              : view.phoneTask
+                ? copy(pageContract, "ptask.action.edit")
               : view.followUpStepCount > 0
                 ? copy(pageContract, "action.edit_operator_steps")
                 : view.inspectionFormDsl

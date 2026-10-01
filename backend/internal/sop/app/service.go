@@ -1065,7 +1065,10 @@ func evaluationRequiresProof(evaluation domain.DryRunResponse) bool {
 // on 2026-09-20, found by publishing each document through the real service rather than calling
 // its own contract in a unit test. Adding a section here is what makes a new module-owned document
 // editable from the web at all.
-var moduleOwnedSections = []string{"vendor_form", "feed_purchase_form", "toxin", "pc_care"}
+// phone_task (2026-10-01, docs/decisions/simple-task-phone-tabs.md): a simple task authored on a
+// module's SOP page; its questions and captures live in the section's own evidence, never in
+// fields. Found the same way as the others -- the web editor's first save was refused.
+var moduleOwnedSections = []string{"vendor_form", "feed_purchase_form", "toxin", "pc_care", "phone_task"}
 
 // fieldlessSOPCodes are the documents that never carry a capture form of their own: their whole
 // substance is a workflow track or a module-owned section. Naming the CODE (not only the section)

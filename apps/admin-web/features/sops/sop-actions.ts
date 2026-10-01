@@ -28,9 +28,12 @@ import {
   buildGeneralFollowUp,
   buildProofPolicy,
   buildSopCode,
+  generalProofPolicy,
   hasProofField,
   type SopBuilderInput,
+  type SopScopeDomain,
 } from "./sop-derive";
+import { phoneTaskFormDsl, type PhoneTaskDoc } from "./phone-task-model";
 
 export interface SaveSopResult {
   ok: boolean;
@@ -534,4 +537,69 @@ export async function publishCaptureCardVersion(sopId: string, captureCard: Reco
   if (!res.ok) return { ok: false, message: res.error.message ?? "publish failed", code: res.error.code };
   for (const path of SOP_PAGE_PATHS) revalidatePath(path);
   return { ...saved, ok: true, message: `Published v${saved.versionNumber ?? ""}. Reports raised from now on use this capture form.` };
+}
+
+// TASK WITH ITS OWN PHONE TAB (maintainer decision 2026-10-01, docs/decisions/simple-task-phone-tabs.md):
+// the phone-task editor saves a version whose form_dsl carries the `phone_task` document (and an
+// empty capture form); publishing it writes the phone tab and one routine per park inside the
+// publish transaction. A NEW task first creates the SOP, its code `<module prefix>.<slug of the
+// name>` -- the module is the SOP page itself, never a field. Every refusal (an invalid document, a
+// person who does not work at that park) is the backend's farm sentence, returned verbatim in
+// `message`; an empty `message` means the backend sent none and the editor shows its own words.
+//
+// No revalidatePath here (the toxin shape): the action RETURNS its result and the editor renders
+// from it; on publish the editor navigates to the library and calls router.refresh().
+export type PhoneTaskSaveResult = InspectionSaveResult & { sopId?: string };
+
+export async function savePhoneTaskVersion(input: {
+  /** Absent for a task that has no SOP yet. */
+  sopId?: string;
+  domain: SopScopeDomain;
+  name: string;
+  phoneTask: PhoneTaskDoc;
+}): Promise<PhoneTaskSaveResult> {
+  let sopId = input.sopId ?? "";
+  let base: Record<string, unknown> | null = null;
+  if (sopId) {
+    const detail = await getSop(sopId);
+    if (!detail.ok) return { ok: false, message: detail.error.message ?? "", code: detail.error.code, sopId };
+    const version = detail.data.published_version ?? detail.data.latest_version;
+    base = version ? ((version.form_dsl ?? {}) as Record<string, unknown>) : null;
+  } else {
+    const name = input.name.trim();
+    const def = await createSop({ code: buildSopCode({ name, domain: input.domain }), name, description: `${SOP_SLICE_LABEL[input.domain]} · phone task` });
+    if (!def.ok) return { ok: false, message: def.error.message ?? "", code: def.error.code };
+    sopId = def.data.sop.sop_id;
+  }
+  const version = await createSopVersion(sopId, {
+    version_label: "phone task",
+    form_dsl: phoneTaskFormDsl(input.phoneTask, base),
+    // The task's captures are its evidence (per question and task-wide); the SOP-level proof
+    // policy asks for nothing of its own.
+    proof_policy: generalProofPolicy() as CreateSOPVersionRequest["proof_policy"],
+  });
+  if (!version.ok) return { ok: false, message: version.error.message ?? "", code: version.error.code, sopId };
+  const report = version.data.version.validation_report;
+  if (report && !report.valid) {
+    return { ok: false, message: report.errors?.[0]?.message ?? "", code: report.errors?.[0]?.code, sopId, report };
+  }
+  return {
+    ok: true,
+    message: "",
+    sopId,
+    versionId: version.data.version.sop_version_id,
+    rowVersion: version.data.version.row_version,
+    versionNumber: version.data.version.version,
+    report,
+  };
+}
+
+export async function publishPhoneTaskVersion(input: { sopId?: string; domain: SopScopeDomain; name: string; phoneTask: PhoneTaskDoc }): Promise<PhoneTaskSaveResult> {
+  const saved = await savePhoneTaskVersion(input);
+  if (!saved.ok || !saved.sopId || !saved.versionId || saved.rowVersion === undefined) return saved;
+  const res = await publishSopVersion(saved.sopId, saved.versionId, saved.rowVersion);
+  // A publish refusal (422 invalid_phone_task / not_assignable / no_assignee) carries the farm
+  // sentence; the SOP id still travels back so the next attempt builds on the same SOP.
+  if (!res.ok) return { ok: false, message: res.error.message ?? "", code: res.error.code, sopId: saved.sopId };
+  return { ...saved, ok: true, versionNumber: res.data.version.version };
 }

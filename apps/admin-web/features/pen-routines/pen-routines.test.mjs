@@ -9,6 +9,10 @@ const read = (rel) => readFileSync(new URL(rel, here), "utf8");
 const page = read("../../app/(admin)/routines/page.tsx");
 const feature = read("./routines-page.tsx");
 const drawer = read("./routine-drawer.tsx");
+// The schedule and what-to-record sections moved into routine-sections.tsx (shared with the SOP
+// page's phone-task editor); assertions about the drawer's FORM read both files together.
+const sections = read("./routine-sections.tsx");
+const drawerForm = `${drawer}\n${sections}`;
 const filter = read("./routine-filter.tsx");
 const actions = read("./pen-routine-actions.ts");
 const featureFiles = readdirSync(here).filter((name) => name.endsWith(".tsx"));
@@ -227,9 +231,10 @@ test("the drawer assigns ONE person like a task, offers a whole-park scope and e
   assert.match(drawer, /copy\(pageContract, "empty\.role_people"\)/);
   assert.match(drawer, /copy\(pageContract, "hint\.assignee_roles"\)/);
   assert.match(drawer, /copy\(pageContract, "hint\.park_scope"\)/);
-  assert.match(drawer, /field\("interval_days"\)/);
-  assert.match(drawer, /field\("start_date"\)/);
-  assert.match(drawer, /(option\.key|key) === "after_work" && draft\.scopeKind === "park"/, "after work is unavailable for a whole-park task");
+  assert.match(drawerForm, /field\("interval_days"\)/);
+  assert.match(drawerForm, /field\("start_date"\)/);
+  assert.match(sections, /key === "after_work" && disableAfterWork/);
+  assert.match(drawer, /disableAfterWork=\{draft\.scopeKind === "park"\}/, "after work is unavailable for a whole-park task");
   assert.doesNotMatch(drawer, /assignee_user_ids|field\("assignees"\)|hint\.assignees/);
   assert.match(feature, /routine\.assignee_roles\.map\(\(option\) => option\.label\)/);
   assert.match(feature, /c\("table\.people\.preview"\)/);
@@ -275,10 +280,11 @@ test("decoder: a question's proof travels only as a recognised medium; none/blan
 });
 
 test("the drawer offers per-question proof from the catalog's own vocabulary, never a local list", () => {
-  const drawer = readFileSync(new URL("./routine-drawer.tsx", import.meta.url), "utf8");
-  assert.match(drawer, /catalog\?\.question_proof_kinds/);
-  assert.match(drawer, /catalog\?\.question_proof_counts/);
-  assert.match(drawer, /"field\.question_proof"/);
-  assert.match(drawer, /"field\.question_proof_count"/);
-  assert.doesNotMatch(drawer, /<option[^>]*>\s*(Photo|Video|Photo or video|No proof)\s*<\/option>/, "proof option labels are backend copy");
+  // The evidence section reads the vocabulary it is handed; the drawer hands it the catalog.
+  assert.match(drawer, /<EvidenceFields[^>]*vocabulary=\{catalog\}/);
+  assert.match(sections, /vocabulary\?\.question_proof_kinds/);
+  assert.match(sections, /vocabulary\?\.question_proof_counts/);
+  assert.match(sections, /"field\.question_proof"/);
+  assert.match(sections, /"field\.question_proof_count"/);
+  assert.doesNotMatch(drawerForm, /<option[^>]*>\s*(Photo|Video|Photo or video|No proof)\s*<\/option>/, "proof option labels are backend copy");
 });

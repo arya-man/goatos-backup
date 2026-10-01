@@ -22,8 +22,35 @@ import { ShiftingEditor } from "./shifting-editor";
 import { parseShifting } from "./shifting-model";
 import { CaptureCardEditor } from "./capture-editor";
 import { parseCaptureCard } from "./capture-model";
+import { PhoneTaskEditor, type PhoneTaskParkOption } from "./phone-task-editor";
+import { blankPhoneTask, parsePhoneTask } from "./phone-task-model";
+import { sliceAuthorsPhoneTasks } from "@/features/pen-routines/sop-managed";
+import { getPenRoutineCatalog, listPenRoutines, listPenRoutineTabs } from "@/lib/api/pen-routines-server";
 
 type renderSopExtraNodeFactory<t = AdminWebPageContract> = (pageContract: t, sp: RouteSearchParams) => Promise<ReactNode>;
+
+// TASK WITH ITS OWN PHONE TAB (docs/decisions/simple-task-phone-tabs.md): what the phone-task editor
+// offers -- the tab's icon and filter vocabularies, every park, and per park its pens and the people
+// who may do it there. One catalog read per park (two parks today), never per pen or person.
+const MAX_PHONE_TASK_PARKS = 8;
+
+async function loadPhoneTaskEditorData() {
+  const [tabs, list] = await Promise.all([listPenRoutineTabs(), listPenRoutines({})]);
+  // A farm has a handful of parks (two today); the cap keeps the per-park catalog reads bounded
+  // whatever the list returns.
+  const parks = (list.ok ? list.data.parks : []).slice(0, MAX_PHONE_TASK_PARKS);
+  const catalogs = await Promise.all(parks.map((park) => getPenRoutineCatalog(park.park_id))); // request-plan:ignore owner=admin-web issue=simple-task-phone-tabs expires=2027-03-31 reason=parks is capped to MAX_PHONE_TASK_PARKS before the one-catalog-per-park read; there is no multi-park catalog endpoint
+  const options: PhoneTaskParkOption[] = parks.map((park, i) => {
+    const catalog = catalogs[i];
+    return { parkId: park.park_id, name: park.name, catalog: catalog && catalog.ok ? catalog.data : null };
+  });
+  return {
+    icons: tabs.ok ? tabs.data.icons : [],
+    filters: tabs.ok ? tabs.data.filters : [],
+    parks: options,
+    loadFailed: !tabs.ok || !list.ok,
+  };
+}
 
 // Shared server renderer for the per-module SOP pages (SOP split, maintainer decision 2026-08-18):
 // /vaccination/sops, /counts/sops, and /feed/sops each mount this with their own page-contract key,
@@ -53,6 +80,32 @@ export async function renderSopModulePage(
         // The editor opens the version IN FORCE (what the phone runs); an abandoned draft or a
         // retired version above it is never the base of the next publish.
         const version = detail.data.published_version ?? detail.data.latest_version;
+        // A "Task with its own phone tab" SOP opens its own editor, checked first: its form_dsl is
+        // the phone_task document and nothing else (docs/decisions/simple-task-phone-tabs.md).
+        if (version.form_dsl && typeof version.form_dsl === "object" && "phone_task" in version.form_dsl) {
+          const data = await loadPhoneTaskEditorData();
+          const initial = parsePhoneTask(
+            detail.data.sop.name,
+            version.form_dsl,
+            data.parks.map((park) => park.parkId),
+          );
+          if (initial) {
+            return (
+              <PhoneTaskEditor
+                pageContract={pageContract}
+                basePath={basePath}
+                domain={slice}
+                sopId={editId}
+                versionLabel={`${version.version_label} · ${version.status}`}
+                initial={initial}
+                icons={data.icons}
+                filters={data.filters}
+                parks={data.parks}
+                loadFailed={data.loadFailed}
+              />
+            );
+          }
+        }
         // HERD OPERATIONS CAPTURE CARD (maintainer decision 4, 2026-09-16): `&part=capture` opens
         // the Add birth / Add death form's SOP extras; the operator steps ride along verbatim.
         if (sp.part === "capture") {
@@ -253,15 +306,37 @@ export async function renderSopModulePage(
       }
     }
     const pageContract = await pageContractPromise;
+    // `?compose=1&type=phone_task`: a NEW task with its own phone tab, on a module SOP page only.
+    if (sp.type === "phone_task" && sliceAuthorsPhoneTasks(slice)) {
+      const data = await loadPhoneTaskEditorData();
+      const defaults = data.parks.find((park) => park.catalog)?.catalog?.defaults;
+      return (
+        <PhoneTaskEditor
+          pageContract={pageContract}
+          basePath={basePath}
+          domain={slice}
+          initial={blankPhoneTask(
+            data.parks.map((park) => park.parkId),
+            defaults,
+          )}
+          icons={data.icons}
+          filters={data.filters}
+          parks={data.parks}
+          loadFailed={data.loadFailed}
+        />
+      );
+    }
     return <SopBuilder pageContract={pageContract} basePath={basePath} domain={slice} />;
   }
   const [pageContract, listed] = await Promise.all([pageContractPromise, listSops({ limit: 200 })]);
+  // "New phone task" sits beside "New SOP" on every module SOP page, never on Work instructions.
+  const phoneTaskHref = sliceAuthorsPhoneTasks(slice) ? `${basePath}?compose=1&type=phone_task` : undefined;
 
   if (!listed.ok) {
     if (isAuthRequiredError(listed.error)) {
-      return <SopLibrary sops={[]} authRequired pageContract={pageContract} basePath={basePath} extraNode={extraNode} />;
+      return <SopLibrary sops={[]} authRequired pageContract={pageContract} basePath={basePath} extraNode={extraNode} phoneTaskHref={phoneTaskHref} />;
     }
-    return <SopLibrary sops={[]} error={{ code: listed.error.code, message: listed.error.message }} pageContract={pageContract} basePath={basePath} extraNode={extraNode} />;
+    return <SopLibrary sops={[]} error={{ code: listed.error.code, message: listed.error.message }} pageContract={pageContract} basePath={basePath} extraNode={extraNode} phoneTaskHref={phoneTaskHref} />;
   }
 
   // Module scoping: each page lists only its own module's SOP codes. A SOP outside every module
@@ -277,5 +352,5 @@ export async function renderSopModulePage(
   // `?published=<sop_id>&v=<n>` is where an editor lands after Publish: the library says which
   // version just went live and lights up that card, so the change is visibly reflected instead
   // of a small note above an unchanged editor (maintainer report 2026-09-15).
-  return <SopLibrary sops={sops} pageContract={pageContract} basePath={basePath} published={publishedFromSearch(sp)} extraNode={extraNode} />;
+  return <SopLibrary sops={sops} pageContract={pageContract} basePath={basePath} published={publishedFromSearch(sp)} extraNode={extraNode} phoneTaskHref={phoneTaskHref} />;
 }

@@ -9,6 +9,13 @@ import assert from "node:assert/strict";
 const dir = new URL("./", import.meta.url);
 const backend = readFileSync(new URL("../../../../backend/internal/adminui/app/service.go", import.meta.url), "utf8");
 const declared = new Set([...backend.matchAll(/"([a-z0-9_.]+)"(?::\s+"|\]\s*=\s*")/g)].map((m) => m[1]));
+// The phone-task editor's keys ship with a LOCAL fallback in lib/admin-ui-contract.ts
+// (PHONE_TASK_COPY) until the backend SOP contracts carry them; `copy()` resolves those, so they
+// cannot blank the page. Only that named block is read -- any other undeclared key still fails.
+const contract = readFileSync(new URL("../../lib/admin-ui-contract.ts", import.meta.url), "utf8");
+const phoneTaskBlock = contract.match(/const PHONE_TASK_COPY: Record<string, string> = \{([\s\S]*?)\n\};/);
+assert.ok(phoneTaskBlock, "PHONE_TASK_COPY must exist in lib/admin-ui-contract.ts");
+for (const m of phoneTaskBlock[1].matchAll(/"([a-z0-9_.]+)":/g)) declared.add(m[1]);
 // Keys composed at runtime from a closed vocabulary (kind / capture), listed explicitly here.
 for (const k of ["choice", "multi", "text", "number", "media", "vendor"]) declared.add(`inspection.kind.${k}`);
 for (const k of ["photo", "video", "both"]) declared.add(`inspection.accepts.${k}`);

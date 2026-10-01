@@ -357,6 +357,9 @@ export type SopCardView = {
   // PC CARE SOP (maintainer decision 2026-09-22): the form_dsl when it carries a `pc_care` cards
   // section (the removal rules and one capture card per work category); null otherwise.
   pcCareFormDsl: unknown;
+  // TASK WITH ITS OWN PHONE TAB (2026-10-01): the version carries a `phone_task` document -- the
+  // card reads as a phone task and Edit opens the phone-task editor.
+  phoneTask: boolean;
 };
 
 // toSopView maps the real API rows to the card facets. Everything is derived — no invented inventory.
@@ -387,6 +390,7 @@ export function toSopView(def: SopDefLike, version: SopVersionLike | null): SopC
     feedFormDsl: version && hasFeedCards(version.form_dsl) ? version.form_dsl : null,
     shiftingFormDsl: version && hasShiftingCards(version.form_dsl) ? version.form_dsl : null,
     toxinFormDsl: version && hasSection(version.form_dsl, "toxin") ? version.form_dsl : null,
+    phoneTask: Boolean(version && hasSection(version.form_dsl, "phone_task")),
     inspectionQuestionCount: version ? deriveInspectionQuestionCount(version.form_dsl) + deriveInspectionQuestionCount(version.form_dsl, "vendor_form") + deriveInspectionQuestionCount(version.form_dsl, "feed_purchase_form") : 0,
     fields: version
       ? deriveFields(version.form_dsl).map((f) => ({ label: f.label, type: f.type, required: f.required, options: f.options, helpText: f.helpText }))
