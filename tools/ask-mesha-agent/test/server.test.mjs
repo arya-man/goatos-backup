@@ -491,3 +491,8 @@ test("stripLeadingNarration drops echoed writing instructions with no newline (l
   assert.equal(stripLeadingNarration("Give or take, 3 pens are behind."), "Give or take, 3 pens are behind.");
   assert.equal(stripLeadingNarration("Always 2 lines of feed per pen are issued."), "Always 2 lines of feed per pen are issued.");
 });
+
+test("stripLeadingNarration drops 'Do not use any text you previously drafted. Use exactly the tone requested in the rules.'", async () => {
+  const { stripLeadingNarration } = await import("../lib.mjs");
+  assert.equal(stripLeadingNarration("Do not use any text you previously drafted. Use exactly the tone requested in the rules.The records for Castro 1 show 31.3 kg."), "The records for Castro 1 show 31.3 kg.");
+});

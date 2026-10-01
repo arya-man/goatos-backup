@@ -435,7 +435,7 @@ const RULE_ECHO = /system prompt|the rules|no narration|no file names|no raw col
 // An imperative sentence about how to write the answer ("Answer in exactly 2-4 lines, in plain language.",
 // "Give exactly what the prompt asks for.", "If you need a chart and you have the data, include exactly one.").
 const IMPERATIVE_START = /^\s*(?:answer|give|write|follow|provide|use|keep|include|respond|reply|state|be|do not|don't|never|always|if you need|make sure)\b/i;
-const RULE_WORDS = /\bexactly\b|\bprompt\b|plain language|formatting|\bchart\b|\brestate\b|\brules?\b|\blines?\b|business language|allowed to say|instructions?/i;
+const RULE_WORDS = /\btone\b|previously drafted|\brequested\b|\bexactly\b|\bprompt\b|plain language|formatting|\bchart\b|\brestate\b|\brules?\b|\blines?\b|business language|allowed to say|instructions?/i;
 export function stripEchoedRules(text) {
   let t = String(text || "");
   for (let guard = 0; guard < 12; guard++) {

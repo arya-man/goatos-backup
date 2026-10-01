@@ -262,3 +262,13 @@ Path: .agents/skills/mesha-data-map/references/logic/<card>.md — each card = s
 - Upcoming vaccinations ("what's due", "next vaccinations"): give the NEXT due dates with counts (group by due_business_day,
   status scheduled/deferred, earliest 3 dates, DD/MM/YYYY), e.g. "1 on 14/10, 58 on 20/10" — never only the total of all future doses.
 - Deaths: when the cause is not recorded, say so ONCE for the whole list, not per animal.
+- ONE-QUERY SHORTCUTS (answer in 1-2 turns, no exploration): feed paid vs billed this month = ONE run_sql with two scalar
+  subqueries: sum(feed_purchase_payments.amount_rupees) by paid_on in the month, sum(feed_purchases.total_cost) by purchase_date
+  in the month (0 = say "Rs 0", not "nothing recorded"). Vendor dues = ONE run_sql: sum(greatest(total_cost - greatest(coalesce(
+  payment_released,0), coalesce(ledger paid,0)),0)) over payment_status='Pending' bills, ledger paid = sum(feed_purchase_payments)
+  per feed_purchase_id; plus the 'marked Paid but short' count in the same query.
+- WEEKLY GROWTH TIMELINE (average weight per week per pen, Weighing > growth timeline): whole-pen weighs =
+  weighing_shed_observations (average_weight_kg, accepted_at, withdrawn_at IS NULL) JOIN weighing_campaign_sheds USING
+  (campaign_shed_id) -> locations l ON l.location_id = cs.location_id (pen name) and cs.park_id -> park. Per pen per IST week
+  (Monday start) take the LATEST weighing in that week (array_agg ... ORDER BY accepted_at DESC)[1], like the dashboard; never average
+  several weighs in a week. Individual weighs (weighing_observations) only when the pen has no whole-pen weigh that week.
