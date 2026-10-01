@@ -941,6 +941,38 @@
       "max_seconds": 60
     },
     {
+      "id": "pens-behind-verification",
+      "tags": [
+        "verification",
+        "starter"
+      ],
+      "question": "Which pens are behind on weighing verification?",
+      "truth": {
+        "sql": "SELECT count(*) pens, count(*) FILTER (WHERE park_label ILIKE 'Coimbatore%') cbe, count(*) FILTER (WHERE park_label ILIKE 'Channapatna%') cpt, sum(pending) pending, sum(rework) rework FROM ceo_ai.weighing_verification_status WHERE pending > 0 OR rework > 0"
+      },
+      "expect": [
+        {
+          "label": "pens",
+          "col": "pens",
+          "tol_pct": 5,
+          "zero_words": true
+        },
+        {
+          "label": "pending",
+          "col": "pending",
+          "tol_pct": 3,
+          "zero_words": true
+        },
+        {
+          "label": "rework",
+          "col": "rework",
+          "tol_pct": 5,
+          "zero_words": true
+        }
+      ],
+      "max_seconds": 90
+    },
+    {
       "id": "verification-backlog-person",
       "tags": [
         "verification",

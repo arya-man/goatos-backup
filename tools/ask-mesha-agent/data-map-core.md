@@ -25,7 +25,7 @@ topic -> view -> key columns -> date column
 - weights per round -> weighing_capture_activity -> sum(scan_weight_avg_kg*scan_count)/sum(scan_count) -> planned_business_date.
   "Average herd weight"/current avg weight = run_reference('herd-avg-weight.sql') (latest weigh per ALIVE animal,
   pen average for pens weighed whole); say how many of the herd it covers (24/09: 28.2 kg, 723 of 1,562).
-- weighing verification -> weighing_verification_status -> pending, rework, verified, oldest_pending_at -> none. BY PERSON: raw
+- weighing verification -> weighing_verification_status -> pending, rework, verified, oldest_pending_at -> none. "Pens behind on verification" = rows with pending>0 OR rework>0 (one row per pen; count rows per park_label, and report sum(pending) and sum(rework) separately: pending excludes rework). BY PERSON: raw
   public.verification_items (module='weighing'; status pending=awaiting verifier, rejected=sent back for rework, approved, withdrawn;
   operator_id=who captured, verified_by/verified_at=verifier; captured_at). Overdue = pending and captured_at older than 24h (verification SLA).
   "Who verified most" = verification_items by verified_by, verified_at in window, all modules (auto-approved by system = auto_resolution='not_sampled', 713 on 25/09; do NOT use verified_by NULL - 11 non-auto approvals also have it).
@@ -68,6 +68,13 @@ metrics -> how (exact defs + SQL: SKILL.md "Metric definitions"; never invent a 
   (feed_direction_issue_rows, issued/amended/locked) x latest same-park per_kg_cost on/before each feed day; gain kg = pen ADG x fed head-days.
   Only pens weighed twice count, so feed and gain are the SAME animals. MUST run_reference('cost-per-kg-gain.sql', params={from_date, to_date, sex, ...}) (03/08-23/09:
   all sexes Rs 334/kg, male Rs 318 = the tab; tab default sex is male). NEVER divide whole-park feed bills by a weighed subset's gain. Answer: Rs/kg per park + total, feed Rs and kg gain, 1 line method.
+- WEEKLY ADG trend / chart: a week's ADG needs the SAME animal (or pen) weighed twice with both weighings inside that
+  week's window; pens are weighed ~weekly, so 7-day windows are mostly empty. Use run_reference('adg-by-park.sql') per
+  week with a 14-day trailing window (from_date = week end - 13) or per fortnight/month, and say which. A week with no
+  pair is "not enough weighings" (null in the chart, never 0). A negative ADG (e.g. -230 g/day) is a data signal, not a
+  trend point to plot silently: name the pen/dates behind it and add a "Worth checking:" line.
+- "No data available" on Weighing > Growth rows (growth-director.tsx): the pen has only one weighing in the window, so
+  there is no gain yet; it fills in after the pen's second weighing. Say that, with the pen's last weighing date.
 - pen ADG between two weighings: whole-pen arm (SKILL.md) (last avg - first avg)*1000/days computed in SQL -> g/day.
 - ADG / daily-gain ANSWER SHAPE: headline g/day per park (and total), how many animals/pens it covers, then ONE line of method
   ("from animals/pens weighed twice this month, gain / days between weighings"). NO per-pen table of first/last avg/days unless asked;
