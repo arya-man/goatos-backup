@@ -215,7 +215,7 @@ svg text{font-family:var(--f-b);fill:var(--ink)}
       <text x="755" y="490" text-anchor="middle" font-size="13" class="t-mute">queue (outbox)</text>
       <g id="d-env"></g>
       <path d="M840 415 L900 300" class="ln-mute flow" id="d-pipe"/>
-      <text x="930" y="420" text-anchor="end" font-size="14" class="t-mute fx" id="d-qnote">phones keep working</text>
+      <text x="978" y="470" text-anchor="end" font-size="14" class="t-mute fx" id="d-qnote">phones keep working</text>
     </svg>
   </div>
 </section>
@@ -264,7 +264,7 @@ svg text{font-family:var(--f-b);fill:var(--ink)}
   <h2>Seller promised 70, only 50 are acceptable. <em>The saga branches, not a blind undo.</em></h2>
   <div class="stage">
     <div class="ctl"><button data-act="replay">Replay</button><button data-act="pause">Pause</button></div>
-    <svg viewBox="0 0 1000 500" role="img" aria-label="Seller promised 70, 50 acceptable; four recovery options: accept 50 and reopen sourcing, renegotiate price, reject load and recover advance, escalate.">
+    <svg viewBox="0 0 1000 500" role="img" aria-label="Seller promised 70, 50 acceptable; Procurement Director picks: accept 50 and reopen sourcing, renegotiate price, or reject load and recover advance.">
       <text x="60" y="90" font-size="20" class="t-b">Promised</text>
       <rect x="200" y="66" width="700" height="38" rx="10" fill="var(--panel2)" stroke="var(--line)" stroke-width="2"/>
       <text x="920" y="92" font-size="20" class="t-d">70</text>
@@ -272,11 +272,10 @@ svg text{font-family:var(--f-b);fill:var(--ink)}
       <rect x="200" y="146" width="500" height="38" rx="10" fill="var(--brand)" class="grow" style="--d:1.6s" id="q-bar"/>
       <text x="720" y="172" font-size="20" class="t-d t-brand fx" id="q-50">50</text>
       <g class="fx" id="q-gap"><rect x="702" y="146" width="198" height="38" rx="10" fill="none" stroke="var(--danger)" stroke-width="3" stroke-dasharray="8 6"/><text x="801" y="172" text-anchor="middle" font-size="18" class="t-danger t-b">20 short</text></g>
-      <g class="fx" id="q-ar"><path d="M800 190 L130 290" class="ln-brand flow"/><path d="M800 190 L370 290" class="ln-brand flow"/><path d="M800 190 L620 290" class="ln-brand flow"/><path d="M800 190 L860 290" class="ln-brand flow"/></g>
-      <g class="pop" id="q-t1"><rect x="30" y="290" width="220" height="110" rx="14" class="box"/><text x="46" y="322" font-size="16" class="t-b t-brand">A</text><text x="46" y="350" font-size="16" class="t-b">Accept 50</text><text x="46" y="374" font-size="14" class="t-mute">reopen sourcing for 20</text></g>
-      <g class="pop" id="q-t2"><rect x="270" y="290" width="220" height="110" rx="14" class="box"/><text x="286" y="322" font-size="16" class="t-b t-brand">B</text><text x="286" y="350" font-size="16" class="t-b">Renegotiate price</text></g>
-      <g class="pop" id="q-t3"><rect x="510" y="290" width="220" height="110" rx="14" class="box"/><text x="526" y="322" font-size="16" class="t-b t-brand">C</text><text x="526" y="350" font-size="16" class="t-b">Reject load</text><text x="526" y="374" font-size="14" class="t-mute">recover advance</text></g>
-      <g class="pop" id="q-t4"><rect x="750" y="290" width="220" height="110" rx="14" class="box-warn"/><text x="766" y="322" font-size="16" class="t-b t-warn">D</text><text x="766" y="350" font-size="16" class="t-b">Escalate</text><text x="766" y="374" font-size="14" class="t-mute">Procurement Director</text></g>
+      <g class="fx" id="q-ar"><path d="M800 190 L500 228" class="ln-brand flow"/><rect x="330" y="228" width="340" height="44" rx="22" class="box-warn"/><text x="500" y="256" text-anchor="middle" font-size="17" class="t-b t-warn">Procurement Director decides</text><path d="M500 272 L170 318" class="ln-brand flow"/><path d="M500 272 L500 318" class="ln-brand flow"/><path d="M500 272 L830 318" class="ln-brand flow"/></g>
+      <g class="pop" id="q-t1"><rect x="40" y="318" width="270" height="100" rx="14" class="box"/><text x="58" y="348" font-size="16" class="t-b t-brand">A</text><text x="58" y="374" font-size="17" class="t-b">Accept 50</text><text x="58" y="398" font-size="14" class="t-mute">reopen sourcing for 20</text></g>
+      <g class="pop" id="q-t2"><rect x="365" y="318" width="270" height="100" rx="14" class="box"/><text x="383" y="348" font-size="16" class="t-b t-brand">B</text><text x="383" y="374" font-size="17" class="t-b">Renegotiate price</text></g>
+      <g class="pop" id="q-t3"><rect x="690" y="318" width="270" height="100" rx="14" class="box"/><text x="708" y="348" font-size="16" class="t-b t-brand">C</text><text x="708" y="374" font-size="17" class="t-b">Reject load</text><text x="708" y="398" font-size="14" class="t-mute">recover advance</text></g>
     </svg>
   </div>
 </section>
@@ -461,8 +460,8 @@ Scene(document.querySelector('[data-scene="ponr"]'),a=>({
 
 /* PARTIAL */
 Scene(document.querySelector('[data-scene="partial"]'),a=>({
-  reset(){["#q-bar","#q-50","#q-gap","#q-ar","#q-t1","#q-t2","#q-t3","#q-t4"].forEach(s=>a.on(s,false))},
-  steps:[[300,()=>a.on("#q-bar")],[2000,()=>a.on("#q-50")],[2700,()=>a.on("#q-gap")],[3600,()=>a.on("#q-ar")],[4100,()=>a.on("#q-t1")],[4700,()=>a.on("#q-t2")],[5300,()=>a.on("#q-t3")],[5900,()=>a.on("#q-t4")]]
+  reset(){["#q-bar","#q-50","#q-gap","#q-ar","#q-t1","#q-t2","#q-t3"].forEach(s=>a.on(s,false))},
+  steps:[[300,()=>a.on("#q-bar")],[2000,()=>a.on("#q-50")],[2700,()=>a.on("#q-gap")],[3600,()=>a.on("#q-ar")],[4100,()=>a.on("#q-t1")],[4700,()=>a.on("#q-t2")],[5300,()=>a.on("#q-t3")]]
 }));
 
 /* DATE */
