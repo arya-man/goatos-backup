@@ -6,7 +6,7 @@ guards and proof. A slice is not done until the proof column is real: a Chrome s
 Postgres E2E that drives the production path (workflow → kernel task → completion signal → next
 stage), never a seeded readback. **Engine:** slices follow the delivery phases of
 `docs/decisions/procurement-journey-orchestration-engine.md` (Temporal + saga, scoped to the `procurement_journey`
-module). Slices 0 and 1 start only after the conflicts in `docs/decisions/procurement-journey.md`
+module). Delivery slices 0 and 1 start only after the conflicts in `docs/decisions/procurement-journey.md`
 are answered.
 
 | # | slice | contents | tests and guards | proof |
