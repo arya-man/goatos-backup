@@ -432,14 +432,22 @@ const SELF_INSTRUCTION = /^(?:(?:do not|don't|never|always|remember|make sure|av
 // prompt: no narration, no file names, no SQL ... Provide a chart only if instructed.") is dropped up to where the real
 // answer starts (often glued on: "...if there is data.The ADG ...").
 const RULE_ECHO = /system prompt|the rules|no narration|no file names|no raw column|no sql|no code talk|only if instructed|do not answer questions that|do not invent|do not apologi[sz]e|never mention|my instructions/i;
+// An imperative sentence about how to write the answer ("Answer in exactly 2-4 lines, in plain language.",
+// "Give exactly what the prompt asks for.", "If you need a chart and you have the data, include exactly one.").
+const IMPERATIVE_START = /^\s*(?:answer|give|write|follow|provide|use|keep|include|respond|reply|state|be|do not|don't|never|always|if you need|make sure)\b/i;
+const RULE_WORDS = /\bexactly\b|\bprompt\b|plain language|formatting|\bchart\b|\brestate\b|\brules?\b|\blines?\b|business language|allowed to say|instructions?/i;
 export function stripEchoedRules(text) {
   let t = String(text || "");
   for (let guard = 0; guard < 12; guard++) {
     const m = t.match(/^\s*([^\n]*?[.!?])(?=\s|[A-Z]|$)/);
-    if (!m || !RULE_ECHO.test(m[1])) break;
+    if (!m) break;
+    // Instruction sentences carry no figures (apart from a "2-4 lines" length rule); answers do.
+    const noFigures = !/\d/.test(m[1].replace(/\d+\s*-\s*\d+\s*lines?/gi, ""));
+    if (!m || !noFigures || !(RULE_ECHO.test(m[1]) || (IMPERATIVE_START.test(m[1]) && RULE_WORDS.test(m[1])))) break;
     t = t.slice(m[0].length);
   }
-  return t.replace(/^\s+/, "");
+  t = t.replace(/^\s+/, "");
+  return t || String(text || "");
 }
 export function stripLeadingNarration(text) {
   const t = stripEchoedRules(text);

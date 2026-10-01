@@ -152,8 +152,8 @@ export function isRetryable(err) {
 
 const sleep = (ms, signal) => new Promise((r) => { const t = setTimeout(r, ms); signal?.addEventListener("abort", () => { clearTimeout(t); r(); }, { once: true }); });
 
-export const MAX_STEPS_NOTE = "You have used all your lookup steps. Answer now from what you already found, and say plainly what you could not finish checking.";
-export const TIME_UP_NOTE = "Write the final answer for the CEO now, from the results you already have (no more lookups). Write only the answer, once: no reasoning, no mention of time, steps, filters or anything you did not run. Give only figures that came from the results above; for any figure from the question or a screenshot that the results do not confirm, say plainly \"I couldn't confirm X from the records\" instead of repeating it.";
+export const MAX_STEPS_NOTE = "[status: lookup step limit reached; tools are now unavailable. Next output = the final answer to the CEO's question from the results above, noting anything left unchecked.]";
+export const TIME_UP_NOTE = "[status: lookup time for this question has ended; tools are now unavailable. Next output = the final answer to the CEO's question, built only from the results above; figures the results do not confirm are reported as unconfirmed.]";
 
 // The forced final turn sometimes writes the same answer twice back to back; keep one copy.
 export function dedupeRepeatedAnswer(text) {
@@ -198,7 +198,7 @@ export async function mapLimit(items, limit, fn) {
   return out;
 }
 
-export const EMPTY_TURN_NUDGE = "Continue: use the tools you need, then write the final answer for the user.";
+export const EMPTY_TURN_NUDGE = "[status: the previous turn was empty. Continue the lookup or give the final answer to the CEO's question.]";
 
 // The loop. tools: { declarations: [...], call(name, args) -> {text, isError, inline?} }.
 // Returns { text (last turn), steps, usage, costUsd, error } where error is null | "error_max_turns" |

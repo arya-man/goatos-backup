@@ -409,7 +409,7 @@ test("runAgent: time guard forces a tool-less answer turn", async () => {
   assert.equal(r.text, "Answer from what I have.");
   assert.equal(r.error, null, "a time-guarded answer is a normal answer, not a cut-off");
   assert.equal(ai.calls.at(-1).config.tools, undefined);
-  assert.match(ai.calls.at(-1).contents.at(-1).parts.at(-1).text, /final answer for the CEO now/);
+  assert.match(ai.calls.at(-1).contents.at(-1).parts.at(-1).text, /status: lookup time/);
 });
 
 test("runAgent: a dropped DB connection is retried once, other tool errors are not", async () => {

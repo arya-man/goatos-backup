@@ -480,3 +480,14 @@ test("stripLeadingNarration drops restated rules glued onto the answer (live WG-
   assert.doesNotMatch(out, /system prompt|no narration|Follow the exact form/);
   assert.equal(stripLeadingNarration("The herd has 1,562 animals. No SQL was harmed."), "The herd has 1,562 animals. No SQL was harmed.");
 });
+
+test("stripLeadingNarration drops echoed writing instructions with no newline (live screenshot + deaths outputs)", async () => {
+  const { stripLeadingNarration } = await import("../lib.mjs");
+  const shot = stripLeadingNarration(fs.readFileSync(new URL("./fixtures/echoed-r4q10.txt", import.meta.url), "utf8"));
+  assert.match(shot, /^I can confirm the 536g daily gain/);
+  const deaths = stripLeadingNarration(fs.readFileSync(new URL("./fixtures/echoed-r4q1.txt", import.meta.url), "utf8"));
+  assert.match(deaths, /^Last week \(21 to 27 September\), exactly 1 animal died/);
+  // Real answers that start with an imperative-looking word survive.
+  assert.equal(stripLeadingNarration("Give or take, 3 pens are behind."), "Give or take, 3 pens are behind.");
+  assert.equal(stripLeadingNarration("Always 2 lines of feed per pen are issued."), "Always 2 lines of feed per pen are issued.");
+});
