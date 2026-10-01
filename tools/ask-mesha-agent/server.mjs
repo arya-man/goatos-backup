@@ -36,7 +36,7 @@ const GEMINI = geminiConfig(process.env);
 const MODEL = GEMINI.model;
 const DEEP_MODEL = GEMINI.deepModel;
 const EFFORT = process.env.ASK_MESHA_EFFORT || "low"; // Gemini thinkingLevel for quick lookups; deep = high
-const ai = createClient(GEMINI);
+const ai = createClient(GEMINI); // ADC; ASK_MESHA_GEMINI_AUTH=gcloud uses the local gcloud user token (dev only)
 // Answer checker (checker.mjs): a second, tool-less call that checks the draft's wording against the
 // query results before the final answer lands. ASK_MESHA_CHECKER=0 turns it off.
 const CHECKER_ON = process.env.ASK_MESHA_CHECKER !== "0";
@@ -118,7 +118,7 @@ async function recordMetric(m) {
   await store.recordMetric(m).catch((e) => console.error("[metric] store failed:", e.message));
   console.log(
     `[metric] total=${m.total_ms}ms turns=${m.turns ?? "-"} cache_read=${m.cache_read_tokens ?? "-"} cache_write=${m.cache_creation_tokens ?? "-"} first_progress=${m.first_progress_ms}ms first_tool=${m.first_tool_ms ?? "-"}ms ` +
-      `first_token=${m.first_token_ms ?? "-"}ms tools=${m.tool_calls} db=${m.db_queries} model=${m.model} provider=${m.provider ?? "-"}ok=${m.ok}`,
+      `first_token=${m.first_token_ms ?? "-"}ms tools=${m.tool_calls} db=${m.db_queries} model=${m.model} provider=${m.provider ?? "-"} ok=${m.ok}`,
   );
 }
 

@@ -10,7 +10,9 @@
 //   {type:"tool_call", id, name, args}    the model called a tool (before it runs)
 //   {type:"tool_result", id, name, args, text, isError}
 //   {type:"turn_end", final}              final=true: the turn had no tool calls
+import { execFileSync } from "node:child_process";
 import { GoogleGenAI } from "@google/genai";
+import { OAuth2Client } from "google-auth-library";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
@@ -31,8 +33,27 @@ export function geminiConfig(env = process.env) {
   };
 }
 
-export function createClient({ project, location }) {
+// ADC by default (Cloud Run runtime SA). Local dev whose ADC needs a browser re-auth can set
+// ASK_MESHA_GEMINI_AUTH=gcloud: requests then carry `gcloud auth print-access-token` (the
+// signed-in user), refreshed every 30 min. Never used on Cloud Run (K_SERVICE set).
+export function createClient({ project, location }, env = process.env) {
+  if (env.ASK_MESHA_GEMINI_AUTH === "gcloud" && !env.K_SERVICE) return gcloudUserClient({ project, location });
   return new GoogleGenAI({ vertexai: true, project, location });
+}
+function gcloudUserClient({ project, location }) {
+  let cached = { client: null, at: 0 };
+  const fresh = () => {
+    if (cached.client && Date.now() - cached.at < 30 * 60_000) return cached.client;
+    const token = execFileSync("gcloud", ["auth", "print-access-token"], { encoding: "utf8", timeout: 15_000 }).trim();
+    const authClient = new OAuth2Client();
+    authClient.setCredentials({ access_token: token, expiry_date: Date.now() + 40 * 60_000 });
+    cached = { client: new GoogleGenAI({ vertexai: true, project, location, googleAuthOptions: { authClient } }), at: Date.now() };
+    return cached.client;
+  };
+  return { models: {
+    generateContentStream: (a) => fresh().models.generateContentStream(a),
+    generateContent: (a) => fresh().models.generateContent(a),
+  } };
 }
 
 // USD per 1M tokens (Vertex list prices; override with ASK_MESHA_PRICE_<IN|OUT>_PER_M when they change).
@@ -112,6 +133,8 @@ export function isRetryable(err) {
 
 const sleep = (ms, signal) => new Promise((r) => { const t = setTimeout(r, ms); signal?.addEventListener("abort", () => { clearTimeout(t); r(); }, { once: true }); });
 
+export const EMPTY_TURN_NUDGE = "Continue: use the tools you need, then write the final answer for the user.";
+
 // The loop. tools: { declarations: [...], call(name, args) -> {text, isError, inline?} }.
 // Returns { text (last turn), steps, usage, costUsd, error } where error is null | "error_max_turns" |
 // "error_max_budget_usd" | a message. Throws only on abort or a non-retryable API failure.
@@ -125,6 +148,7 @@ export async function runAgent({
   let error = null;
   const convo = [...contents];
   let callSeq = 0;
+  let nudged = false;
   for (let step = 0; ; step++) {
     if (signal?.aborted) throw new Error("client_aborted");
     const finalOnly = step >= maxSteps; // out of steps: one last turn without tools to write the answer
@@ -178,6 +202,12 @@ export async function runAgent({
     }
     if (turnText) lastText = turnText;
     convo.push({ role: "model", parts: modelParts.length ? modelParts : [{ text: "" }] });
+    // A turn with no calls and no text (seen live after a get_skill call): ask once for the answer.
+    if (!calls.length && !turnText && !finalOnly && !nudged) {
+      nudged = true;
+      convo.push({ role: "user", parts: [{ text: EMPTY_TURN_NUDGE }] });
+      continue;
+    }
     if (!calls.length || finalOnly) {
       onEvent({ type: "turn_end", final: true });
       return { text: lastText, steps: step + 1, usage, costUsd, error };
