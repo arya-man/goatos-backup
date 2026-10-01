@@ -1,11 +1,15 @@
 # Procurement journey: what the tasks/SOP engine must learn
 
-Inventory taken 2026-10-01 against origin/main `21895dc6a`. Each gap is generic (it lands in
-`backend/internal/tasks` and the SOP studio, not in procurement) so the next long workflow gets it
-for free. Order matters: G1–G3 block stage 2 onward; G4–G6 can land beside the stages that need
-them.
+Inventory taken 2026-10-01 against origin/main `21895dc6a`.
+
+**Engine:** G1, G2, G3 and G6 are closed by the `procurement_journey` Temporal workflow (see
+`docs/decisions/procurement-journey-orchestration-engine.md`); their original task-engine designs below are kept for reference
+only. G4, G5, G7, G8 and G9 are unchanged build work in `backend/internal/tasks` and the SOP
+studio. G1–G3 block stage 2 onward; G4–G6 can land beside the stages that need them.
 
 ## G1 — Workflow chaining: a completed workflow opens the next (blocks everything after stage 1)
+
+**Status:** closed by the `procurement_journey` Temporal workflow (see `docs/decisions/procurement-journey-orchestration-engine.md`).
 
 **Today:** `sop_definitions.triggers jsonb` exists and nothing reads it; `WithCompletionHook` has
 one registration (counts reconcile). Every opener is a domain event.
@@ -27,6 +31,8 @@ is the engine's). Publish refuses a cycle.
 
 ## G2 — Day-unit and date-anchored schedules (blocks stages 4, 5, 8)
 
+**Status:** closed by the `procurement_journey` Temporal workflow (see `docs/decisions/procurement-journey-orchestration-engine.md`).
+
 **Today:** `after_event{offset_minutes}`, `at_fixed_time{day_offset, time}`,
 `after_step{offset_minutes}`, `series.from_event{interval_minutes, count}`. Minutes only; the only
 anchor is `EventAt` or a prior step.
@@ -47,6 +53,8 @@ anchor is `EventAt` or a prior step.
 `TestTemplateVarsResolveAtOpenAndRefuseUnknownAtPublish`.
 
 ## G3 — Series anchored on a step, ended by a step (blocks stage 7)
+
+**Status:** closed by the `procurement_journey` Temporal workflow (see `docs/decisions/procurement-journey-orchestration-engine.md`).
 
 **Today:** `series.from_event` runs a fixed `count` from `EventAt`; it cannot start at a step's
 completion or stop on a condition.
@@ -105,6 +113,8 @@ phone renders the step with a deep link (`opens: <route-template>` on the task t
 
 ## G6 — Lateness is a kernel sweep with a push, not a label (stages 5, 7, 9)
 
+**Status:** closed by the `procurement_journey` Temporal workflow (see `docs/decisions/procurement-journey-orchestration-engine.md`).
+
 **Today:** an overdue `workflow_actions` row is only a "late" chip; no consumer reads lateness.
 
 **Build:** a generic `workflow-lateness` kernel stage (`kernelstages`): keyset over
@@ -156,6 +166,7 @@ rule.
 - The stock weighing, tagging, fix-vendor, load approval, vehicle and ledger screens are
   procurement's own write paths with their own tables; the engine only learns (G5) to refuse a
   hand-complete until they have rows and to deep-link to them.
-- The journey status column is a projection written by procurement's hooks; the engine does not
-  know what "in_transit" means.
-- No private scheduler: every clock is a `workflow_actions.due_at` and every push a catalog row.
+- The journey status column is a projection written by the `procurement_journey` workflow
+  (`RecordJourneyEvent`); the task engine does not know what "in_transit" means.
+- Every clock a person sees is a kernel `workflow_actions.due_at` / `available_at` and every push a
+  catalog row; the Temporal workflow holds no timer that decides when a person sees work or is late.

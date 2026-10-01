@@ -47,6 +47,15 @@ personal finding requires attribution, notice, appeal, and an independent
 decision; any HR action is a separate boundary and the task kernel never
 changes payroll.
 
+Amendment (K1, per `docs/decisions/procurement-journey-orchestration-engine.md`):
+a module-scoped durable orchestrator is allowed for `procurement_journey` (on
+Temporal) for sequencing, signal waits, branching, compensation, forward
+recovery and exception subflows, provided every human step is a kernel task
+with a real owner and `due_at` (and future `available_at` where needed), and
+lateness, contact and escalation stay the kernel's. The orchestrator holds no
+timer that decides when a person sees work or is late. No other module gains
+this allowance without its own decision.
+
 ## Precedence
 
 This is the governing active decision for operational coordination. Where an

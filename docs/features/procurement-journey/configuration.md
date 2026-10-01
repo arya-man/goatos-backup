@@ -8,7 +8,7 @@ not a shortcut.
 
 | home | what goes there | edited on | changes take effect |
 |---|---|---|---|
-| **SOP documents** (`sop_versions.form_dsl`) | steps, their order, who does each, proof counts, questions and branches, schedules, instructions, the request form, the NDA/terms checklist, the truck checklist | Procurement › Procurement SOP (List \| Flow) | the NEXT stage opened; a stage already open keeps its pinned version |
+| **SOP documents** (`sop_versions.form_dsl`) | steps, their order, who does each, proof counts, questions and branches, schedules, instructions, the request form, the NDA/terms checklist, the truck checklist | Procurement › Procurement SOP (List \| Flow) | journeys opened after the publish; a running journey keeps everything it started with (profile snapshot + every stage SOP version pinned at journey open) |
 | **Journey profiles** (`procurement_journey_profiles`) | the numbers and references per kind of purchase: durations, medicines, feeds, milestone template, check intervals | Configuration › Items & settings › Procurement journey profiles | the NEXT journey fixed; an open journey keeps its snapshot |
 | **Registers** (existing catalogs) | purposes, species/sex/breed, vendors, vendor record types, parks and pens, vaccines, medicines, feed items, designations, people | the register's own page (Configuration › Items, People, Vendors, …) | immediately for new picks; stored picks keep their reference |
 | **Notification audiences** (`notification_alert_audiences`) | who hears each push | People / HRMS → Notifications | immediately |
@@ -54,7 +54,8 @@ reading `{profile.warmup_vacine}` to a phone.
 
 ## What is deliberately NOT configurable
 
-- **Which stage opens which** (the chain in `journey-map.md`). Order is the engine's; the
+- **Which stage opens which** (the chain in `journey-map.md`). Order is the engine's (the
+  `procurement_journey` Temporal workflow, see `docs/decisions/procurement-journey-orchestration-engine.md`); the
   farm authors the steps inside a stage, and may delete a whole stage's steps down to the engine
   hooks, but cannot put transit before loading.
 - **The engine-hook steps** (`vendor_fixed`, `load_approval`, `journey_tag_animals`,

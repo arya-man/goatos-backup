@@ -74,7 +74,7 @@
   <!-- SYSTEM DESIGN -->
   <section id="sysdesign">
     <h2>1 · System design</h2>
-    <p class="lead">GCP-native, modular monolith on Cloud Run. Postgres = source of truth; Cloud Tasks holds only near-term timers. No Temporal/Redpanda/n8n; no Kubernetes.</p>
+    <p class="lead">GCP-native, modular monolith on Cloud Run. Postgres = source of truth; Cloud Tasks holds only near-term timers. No Redpanda/n8n; no Kubernetes. Temporal is allowed only inside the <code>procurement_journey</code> module (journey sequencing and saga; the task kernel keeps every human-visible clock), per <code>docs/decisions/procurement-journey-orchestration-engine.md</code>; nowhere else.</p>
     <div class="scrollx">
       <svg viewBox="0 0 1080 500" width="1080" style="min-width:880px" font-family="ui-monospace,monospace">
         <defs>

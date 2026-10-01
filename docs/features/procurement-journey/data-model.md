@@ -97,7 +97,7 @@ Add `journey_id`, `stage` (`weighed` \| `inspected` \| `decided`), `verified_wei
 |---|---|---|
 | `procurement.request.raised` | request write | opener: request + sourcing tracks; push to Procurement Director/Manager |
 | `procurement.journey.opened` | fix-vendor write | opener: stock verification + payments; `vendor_fixed` hook; creates the `animal_purchase_loads` row; push to CXO |
-| `procurement.journey.stage_completed{stage}` | `OnWorkflowCompleted` for every journey template | next-stage opener(s); journey status projection |
+| `procurement.journey.stage_completed{stage}` | `OnWorkflowCompleted` for every journey template | signal to the `procurement_journey` workflow, which opens the next stage; a fact for other modules (it opens nothing itself) |
 | `procurement.journey.load_approved` / `.load_rejected` | approval write | `load_approval` hook; opens warm-up + transport prep / closes journey; push |
 | `procurement.journey.departed` | departure step | `departure_recorded` hook, transit opener, status |
 | `procurement.journey.arrived` | arrival step | `arrival_recorded` hook, ends transit series, arrival opener, push |
@@ -187,8 +187,9 @@ ticks: `procurement` module gains levels View (read) / Do (execute + sourcing wr
   journey from `procurement_journeys` (the funnel counts are columns, not computed).
 - The transit series is bounded: `count ≤ 100` at mint, and the arrival hook cancels the
   unminted remainder in one `UPDATE … WHERE series_key = …`.
-- Stage opening is one transaction per stage: compile, insert actions, emit; the opener is
-  idempotent on `(template_key, subject_ref_id)` as today.
+- Stage opening is one transaction per stage: compile, insert actions, emit; the stage is opened
+  by the `procurement_journey` workflow through the tasks port, idempotent on
+  `(template_key, subject_ref_id)` as today (engine: `docs/decisions/procurement-journey-orchestration-engine.md`).
 - The lateness sweep over `workflow_actions` (new, generic) is keyset-chunked `FOR UPDATE SKIP
   LOCKED` on `(due_at, action_id)` with `status = 'pending'`, the sweeper shape the obligation
   sweeper uses; it is the first consumer of workflow lateness and belongs to the kernel, not to

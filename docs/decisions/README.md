@@ -90,3 +90,16 @@ Pending sign-off ADRs:
   submissions and per-cell completion idempotency, publish the expanded E2E
   story report, and reconcile the older "batch is the drive/work unit" decision
   before code.
+- `docs/decisions/procurement-journey-orchestration-engine.md` - Proposed
+  engine for the procurement journey: a new hexagonal `procurement_journey`
+  module runs one Temporal workflow per journey (child workflow per stage),
+  scoped to that module only. Core rule: the kernel owns every human-visible
+  clock (`wait_until` opens tasks with future `available_at`; the kernel ladder
+  owns lateness and escalation); Temporal owns sequencing, signal waits,
+  branching, compensation, forward recovery after departure and exception
+  subflows. Signals enter only via the outbox; Postgres projection is the read
+  model; tagged goats are `in_procurement` until placed. Flags conflicts K1-K9;
+  K1 amendment line added to `operational-task-kernel-non-deviation.md`.
+- `docs/decisions/procurement-journey.md` - Proposed procurement journey
+  (request to pen, ten stages, roles, money, views); build spec in
+  `docs/features/procurement-journey/`; engine per the orchestration ADR above.

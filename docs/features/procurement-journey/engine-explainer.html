@@ -1,0 +1,480 @@
+<title>Procurement Journey Brain</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* Layout: scroll story. Each scene = big animated drawing + one headline + one line. Dark first, Mesha green. */
+:root{
+  --bg:#0E1512; --panel:#161F1A; --panel2:#1C2821; --line:#2A3A30; --ink:#E9F1EA; --mute:#8FA394;
+  --brand:#7CCB45; --brand-soft:rgba(124,203,69,.16); --on-brand:#08130B;
+  --warn:#E0A53A; --danger:#F0635F; --info:#5B9BE8; --teal:#34C2A6; --road:#2B3830;
+  --f-d:"Bricolage Grotesque",ui-sans-serif,system-ui,sans-serif;
+  --f-b:"IBM Plex Sans",ui-sans-serif,system-ui,sans-serif;
+  --f-m:"JetBrains Mono",ui-monospace,Menlo,monospace;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]){
+  --bg:#F4F7F2; --panel:#FFFFFF; --panel2:#EEF3EB; --line:#D3DDCF; --ink:#16201B; --mute:#5A6B5F;
+  --brand:#4E9A27; --brand-soft:rgba(78,154,39,.14); --on-brand:#FFFFFF;
+  --warn:#B97A0C; --danger:#C93C38; --info:#2F6FC0; --teal:#14907A; --road:#D9E2D5; color-scheme:light}}
+:root[data-theme="light"]{
+  --bg:#F4F7F2; --panel:#FFFFFF; --panel2:#EEF3EB; --line:#D3DDCF; --ink:#16201B; --mute:#5A6B5F;
+  --brand:#4E9A27; --brand-soft:rgba(78,154,39,.14); --on-brand:#FFFFFF;
+  --warn:#B97A0C; --danger:#C93C38; --info:#2F6FC0; --teal:#14907A; --road:#D9E2D5; color-scheme:light}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 var(--f-b)}
+.wrap{max-width:1120px;margin:0 auto;padding-inline:16px;padding-block:24px 60px}
+.scene{padding-block:48px;display:grid;gap:14px}
+.eb{font:700 12px/1 var(--f-m);letter-spacing:.16em;text-transform:uppercase;color:var(--brand)}
+h1,h2{font-family:var(--f-d);margin:0;text-wrap:balance;letter-spacing:-.015em}
+h1{font-size:clamp(36px,6.4vw,76px);line-height:1;font-weight:800}
+h1 em,h2 em{font-style:normal;color:var(--brand)}
+h2{font-size:clamp(26px,3.8vw,44px);line-height:1.05;font-weight:800}
+.cap{color:var(--mute);font-size:clamp(15px,1.7vw,19px);max-width:62ch;margin:0}
+.stage{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:20px;overflow:hidden}
+.stage svg{display:block;width:100%;height:auto}
+.ctl{position:absolute;bottom:10px;right:12px;display:flex;gap:6px;z-index:2}
+.ctl button{font:600 12px/1 var(--f-m);padding:8px 10px;border-radius:999px;border:1px solid var(--line);background:var(--panel2);color:var(--ink);cursor:pointer}
+.ctl button:hover{border-color:var(--brand)}
+.ctl button:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+.scn-chips{display:flex;flex-wrap:wrap;gap:8px}
+.scn-chips button{font:600 13px/1 var(--f-b);padding:9px 12px;border-radius:999px;border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer}
+.scn-chips button[aria-pressed="true"]{background:var(--brand);color:var(--on-brand);border-color:var(--brand)}
+
+/* svg text + shapes */
+svg text{font-family:var(--f-b);fill:var(--ink)}
+.t-m{font-family:var(--f-m)!important}
+.t-mute{fill:var(--mute)}
+.t-brand{fill:var(--brand)} .t-warn{fill:var(--warn)} .t-danger{fill:var(--danger)} .t-info{fill:var(--info)}
+.t-b{font-weight:700} .t-d{font-family:var(--f-d)!important;font-weight:800}
+.box{fill:var(--panel2);stroke:var(--line);stroke-width:2}
+.box-brand{fill:var(--brand-soft);stroke:var(--brand);stroke-width:2}
+.box-warn{fill:color-mix(in srgb,var(--warn) 14%,var(--panel2));stroke:var(--warn);stroke-width:2}
+.box-danger{fill:color-mix(in srgb,var(--danger) 16%,var(--panel2));stroke:var(--danger);stroke-width:2}
+.box-info{fill:color-mix(in srgb,var(--info) 14%,var(--panel2));stroke:var(--info);stroke-width:2}
+.road{stroke:var(--road);stroke-width:26;stroke-linecap:round;fill:none}
+.lane{stroke:var(--mute);stroke-width:2;stroke-dasharray:14 14;fill:none;opacity:.5}
+.ln{stroke:var(--line);stroke-width:3;fill:none}
+.ln-brand{stroke:var(--brand);stroke-width:3;fill:none}
+.ln-mute{stroke:var(--mute);stroke-width:2.5;fill:none}
+.flow{stroke-dasharray:8 9;animation:flow 1s linear infinite}
+@keyframes flow{to{stroke-dashoffset:-17}}
+.dot{fill:var(--panel2);stroke:var(--mute);stroke-width:3;transition:fill .4s,stroke .4s}
+.dot.lit{fill:var(--brand);stroke:var(--brand)}
+.dot.late{fill:var(--warn);stroke:var(--warn)}
+
+/* animation primitives */
+.fx{opacity:0;transition:opacity .45s ease}
+.fx.on{opacity:1}
+.pop{transform-box:fill-box;transform-origin:center;transform:scale(.6);opacity:0;transition:transform .45s cubic-bezier(.2,1.5,.4,1),opacity .3s}
+.pop.on{transform:none;opacity:1}
+.mv{transition:transform var(--d,1.2s) cubic-bezier(.55,0,.25,1)}
+.grow{transform-box:fill-box;transform-origin:left center;transform:scaleX(0);transition:transform var(--d,1.2s) cubic-bezier(.55,0,.25,1)}
+.grow.on{transform:scaleX(1)}
+.shake{animation:shake .5s}
+@keyframes shake{20%{transform:translateX(-10px)}40%{transform:translateX(10px)}60%{transform:translateX(-6px)}80%{transform:translateX(6px)}}
+.pulse{transform-box:fill-box;transform-origin:center;animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{50%{transform:scale(1.08)}}
+.spin{transform-box:fill-box;transform-origin:center;animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.wheel{transform-box:fill-box;transform-origin:center;animation:spin .6s linear infinite}
+.noanim,.noanim *{transition:none!important}
+.grey,.pop.on.grey{filter:grayscale(1);opacity:.35;transition:opacity .4s,filter .4s}
+.close{text-align:left}
+.foot{color:var(--mute);font-size:13px}
+</style>
+
+<div class="wrap">
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="truck" viewBox="0 0 120 64">
+      <rect x="2" y="6" width="78" height="40" rx="6" fill="var(--panel2)" stroke="var(--brand)" stroke-width="3"/>
+      <circle cx="20" cy="22" r="6" fill="var(--ink)"/><circle cx="34" cy="20" r="6" fill="var(--ink)"/><circle cx="48" cy="23" r="6" fill="var(--ink)"/><circle cx="62" cy="21" r="6" fill="var(--ink)"/>
+      <circle cx="27" cy="33" r="6" fill="var(--ink)"/><circle cx="42" cy="34" r="6" fill="var(--ink)"/><circle cx="57" cy="33" r="6" fill="var(--ink)"/>
+      <path d="M82 18h20l14 14v14H82z" fill="var(--brand)"/>
+      <rect x="88" y="22" width="12" height="9" rx="2" fill="var(--panel)"/>
+      <circle cx="24" cy="52" r="9" fill="var(--ink)"/><circle cx="24" cy="52" r="4" fill="var(--panel)"/>
+      <circle cx="96" cy="52" r="9" fill="var(--ink)"/><circle cx="96" cy="52" r="4" fill="var(--panel)"/>
+    </symbol>
+    <symbol id="person" viewBox="0 0 40 48"><circle cx="20" cy="12" r="10" fill="currentColor"/><path d="M2 46c0-12 8-20 18-20s18 8 18 20z" fill="currentColor"/></symbol>
+    <symbol id="phone" viewBox="0 0 40 64"><rect x="2" y="2" width="36" height="60" rx="8" fill="var(--panel2)" stroke="var(--ink)" stroke-width="3"/><rect x="14" y="8" width="12" height="3" rx="1.5" fill="var(--ink)"/></symbol>
+    <symbol id="server" viewBox="0 0 120 120"><rect x="4" y="4" width="112" height="34" rx="8" fill="var(--panel2)" stroke="currentColor" stroke-width="3"/><rect x="4" y="44" width="112" height="34" rx="8" fill="var(--panel2)" stroke="currentColor" stroke-width="3"/><rect x="4" y="84" width="112" height="32" rx="8" fill="var(--panel2)" stroke="currentColor" stroke-width="3"/><circle cx="22" cy="21" r="5" fill="currentColor"/><circle cx="22" cy="61" r="5" fill="currentColor"/><circle cx="22" cy="100" r="5" fill="currentColor"/></symbol>
+    <symbol id="env" viewBox="0 0 40 28"><rect x="1" y="1" width="38" height="26" rx="4" fill="var(--info)"/><path d="M2 3l18 13L38 3" stroke="var(--panel)" stroke-width="3" fill="none"/></symbol>
+  </defs>
+</svg>
+
+<!-- HERO -->
+<section class="scene" data-scene="hero" data-loop="11000">
+  <span class="eb">GoatOS · Procurement journey</span>
+  <h1>One load. Ten stages. Five weeks. <em>One coordinator.</em></h1>
+  <p class="cap">Example on every screen below: 75 male sheep bought for the Coimbatore park.</p>
+  <div class="stage">
+    <div class="ctl"><button data-act="replay">Replay</button><button data-act="pause">Pause</button></div>
+    <svg viewBox="0 0 1000 380" role="img" aria-label="Truck travels through ten procurement stages from request to payment over 33 days">
+      <path class="road" d="M70 210 H930"/>
+      <path class="lane" d="M70 210 H930"/>
+      <g id="h-dots"></g>
+      <g id="h-labels"></g>
+      <g class="mv" id="h-truck" style="--d:.9s"><use href="#truck" x="10" y="150" width="110" height="58"/></g>
+      <text x="70" y="60" class="t-m t-mute" font-size="22">Request #12 · 75 male sheep · 15–17 kg · ₹400/kg</text>
+      <text x="930" y="60" text-anchor="end" class="t-d t-brand" font-size="40" id="h-day">Day 0</text>
+      <text x="930" y="92" text-anchor="end" class="t-mute" font-size="18" id="h-who">CXO raises request</text>
+    </svg>
+  </div>
+</section>
+
+<!-- WHY NOT BEFORE -->
+<section class="scene" data-scene="why" data-loop="10000">
+  <span class="eb">Why we never needed it before</span>
+  <h2>Our flows today are short. <em>This one is not.</em></h2>
+  <p class="cap">Vaccination and feed run on GoatOS events, tasks and the kernel. They fit because they are short and nothing outside has to be unwound.</p>
+  <div class="stage">
+    <div class="ctl"><button data-act="replay">Replay</button><button data-act="pause">Pause</button></div>
+    <svg viewBox="0 0 1000 520" role="img" aria-label="Length comparison: vaccination one day, feed one day, procurement journey five weeks with six roles and money">
+      <g class="t-mute" font-size="15">
+        <line x1="250" y1="470" x2="950" y2="470" class="ln"/>
+        <text x="250" y="498" class="t-m t-mute">day 0</text><text x="450" y="498" class="t-m t-mute">day 10</text><text x="650" y="498" class="t-m t-mute">day 20</text><text x="850" y="498" class="t-m t-mute">day 30</text>
+      </g>
+      <!-- rows -->
+      <text x="30" y="110" font-size="24" class="t-b">Vaccination</text>
+      <text x="30" y="136" font-size="15" class="t-mute">1 goat · 1 dose</text>
+      <rect x="250" y="92" width="22" height="26" rx="6" fill="var(--teal)" class="grow" style="--d:.5s" id="w-b1"/>
+      <g class="fx" id="w-c1"><text x="290" y="112" font-size="18" class="t-mute">cancel = one status change · nothing booked</text></g>
+
+      <text x="30" y="230" font-size="24" class="t-b">Feed</text>
+      <text x="30" y="256" font-size="15" class="t-mute">4 steps · fixed 07:00 clock</text>
+      <rect x="250" y="212" width="22" height="26" rx="6" fill="var(--info)" class="grow" style="--d:.5s" id="w-b2"/>
+      <g class="fx" id="w-c2"><text x="290" y="232" font-size="18" class="t-mute">same day, every day · edits frozen</text></g>
+
+      <text x="30" y="350" font-size="24" class="t-b t-brand">Procurement</text>
+      <text x="30" y="376" font-size="15" class="t-mute">10 stages · 6 roles</text>
+      <rect x="250" y="332" width="660" height="26" rx="8" fill="var(--brand)" class="grow" style="--d:2.2s" id="w-b3"/>
+      <g class="fx" id="w-c3">
+        <g color="var(--ink)"><use href="#person" x="262" y="270" width="26" height="32"/><use href="#person" x="360" y="270" width="26" height="32"/><use href="#person" x="470" y="270" width="26" height="32"/><use href="#person" x="600" y="270" width="26" height="32"/><use href="#person" x="740" y="270" width="26" height="32"/><use href="#person" x="860" y="270" width="26" height="32"/></g>
+      </g>
+      <g class="fx" id="w-c4">
+        <rect x="380" y="384" width="140" height="34" rx="17" class="box-warn"/><text x="450" y="407" text-anchor="middle" font-size="15" class="t-warn t-b">truck + labour</text>
+        <rect x="540" y="384" width="150" height="34" rx="17" class="box-warn"/><text x="615" y="407" text-anchor="middle" font-size="15" class="t-warn t-b">₹ advance paid</text>
+        <rect x="710" y="384" width="190" height="34" rx="17" class="box-warn"/><text x="805" y="407" text-anchor="middle" font-size="15" class="t-warn t-b">dispatch date moves</text>
+      </g>
+    </svg>
+  </div>
+</section>
+
+<!-- CHAOS VS COORDINATOR -->
+<section class="scene" data-scene="split" data-loop="12000">
+  <span class="eb">Same problem, two ways</span>
+  <h2>Truck runs 6 hours late. <em>Who handles it?</em></h2>
+  <div class="stage">
+    <div class="ctl"><button data-act="replay">Replay</button><button data-act="pause">Pause</button></div>
+    <svg viewBox="0 0 1000 560" role="img" aria-label="Left: phones and messages pile up and the load is blocked. Right: the coordinator opens three tasks and the load stays on track.">
+      <line x1="500" y1="40" x2="500" y2="540" class="ln"/>
+      <text x="250" y="52" text-anchor="middle" font-size="20" class="t-b t-mute">Events + phones only</text>
+      <text x="750" y="52" text-anchor="middle" font-size="20" class="t-b t-brand">With a coordinator</text>
+      <g class="pop" id="s-ev"><rect x="380" y="74" width="240" height="44" rx="22" class="box-danger"/><text x="500" y="103" text-anchor="middle" font-size="18" class="t-danger t-b">Truck delayed 6 h</text></g>
+      <!-- left -->
+      <g id="s-phones"><use href="#phone" x="60" y="160" width="40" height="64"/><use href="#phone" x="60" y="300" width="40" height="64"/><use href="#phone" x="60" y="420" width="40" height="64"/></g>
+      <g id="s-bub" font-size="15"></g>
+      <g class="fx" id="s-blk"><rect x="300" y="470" width="170" height="46" rx="12" class="box-danger"/><text x="385" y="500" text-anchor="middle" font-size="18" class="t-danger t-b">Blocked</text></g>
+      <text x="130" y="530" font-size="16" class="t-mute">calls &amp; messages:</text>
+      <text x="270" y="531" font-size="28" class="t-d t-warn" id="s-cnt">0</text>
+      <!-- right -->
+      <g id="s-brain"><circle cx="620" cy="300" r="56" class="box-brand"/><circle cx="620" cy="300" r="56" fill="none" stroke="var(--brand)" stroke-width="2" class="pulse"/><text x="620" y="296" text-anchor="middle" font-size="16" class="t-b t-brand">Coordinator</text><text x="620" y="318" text-anchor="middle" font-size="13" class="t-m t-mute">one per load</text></g>
+      <g class="fx" id="s-a1"><path d="M676 280 L760 190" class="ln-brand flow"/></g>
+      <g class="fx" id="s-a2"><path d="M678 300 L760 300" class="ln-brand flow"/></g>
+      <g class="fx" id="s-a3"><path d="M676 320 L760 410" class="ln-brand flow"/></g>
+      <g class="pop" id="s-t1"><rect x="760" y="160" width="220" height="62" rx="12" class="box"/><text x="776" y="186" font-size="16" class="t-b">New arrival time 23:10</text><text x="776" y="208" font-size="13" class="t-mute">Park Head · pen Castro 2</text></g>
+      <g class="pop" id="s-t2"><rect x="760" y="270" width="220" height="62" rx="12" class="box"/><text x="776" y="296" font-size="16" class="t-b">Feed &amp; water stop</text><text x="776" y="318" font-size="13" class="t-mute">Riding AM · due 15:00</text></g>
+      <g class="pop" id="s-t3"><rect x="760" y="380" width="220" height="62" rx="12" class="box"/><text x="776" y="406" font-size="16" class="t-b">CXO told, labour moved</text><text x="776" y="428" font-size="13" class="t-mute">Transit manager</text></g>
+      <g class="fx" id="s-ok"><rect x="560" y="470" width="200" height="46" rx="12" class="box-brand"/><text x="660" y="500" text-anchor="middle" font-size="18" class="t-brand t-b">On track</text></g>
+    </svg>
+  </div>
+</section>
+
+<!-- TEMPORAL -->
+<section class="scene" data-scene="temporal" data-loop="13000">
+  <span class="eb">What is Temporal</span>
+  <h2>A coordinator that writes every step in a <em>diary</em>.</h2>
+  <p class="cap">Server crashes? A new one reads the diary and carries on from the same step. Nothing redone, nothing lost.</p>
+  <div class="stage">
+    <div class="ctl"><button data-act="replay">Replay</button><button data-act="pause">Pause</button></div>
+    <svg viewBox="0 0 1000 540" role="img" aria-label="Diary of steps; server crashes; new server replays the diary and resumes. Phone messages queue while engine is down and drain after.">
+      <rect x="40" y="40" width="420" height="460" rx="16" class="box"/>
+      <text x="64" y="80" font-size="16" class="t-m t-mute">DIARY · THIS LOAD</text>
+      <g id="d-rows" font-size="17"></g>
+      <rect x="44" y="96" width="412" height="44" rx="8" fill="var(--brand-soft)" class="fx mv" id="d-scan" style="--d:1.4s"/>
+      <g id="d-srv1" color="var(--brand)"><use href="#server" x="640" y="70" width="140" height="140"/></g>
+      <g class="fx" id="d-boom"><circle cx="710" cy="140" r="90" fill="var(--danger)" opacity=".25"/><text x="710" y="250" text-anchor="middle" font-size="22" class="t-danger t-b">Server crashed</text></g>
+      <g class="fx" id="d-srv2" color="var(--brand)"><use href="#server" x="820" y="70" width="140" height="140"/><text x="890" y="250" text-anchor="middle" font-size="18" class="t-brand t-b">New server</text></g>
+      <text x="710" y="40" text-anchor="middle" font-size="15" class="t-m t-mute">engine</text>
+      <!-- queue -->
+      <use href="#phone" x="560" y="380" width="44" height="70"/>
+      <text x="582" y="480" text-anchor="middle" font-size="13" class="t-mute">riding AM</text>
+      <rect x="680" y="370" width="150" height="90" rx="12" class="box"/>
+      <text x="755" y="490" text-anchor="middle" font-size="13" class="t-mute">queue (outbox)</text>
+      <g id="d-env"></g>
+      <path d="M840 415 L900 300" class="ln-mute flow" id="d-pipe"/>
+      <text x="930" y="420" text-anchor="end" font-size="14" class="t-mute fx" id="d-qnote">phones keep working</text>
+    </svg>
+  </div>
+</section>
+
+<!-- SAGA -->
+<section class="scene" data-scene="saga" data-loop="12000">
+  <span class="eb">What is a saga</span>
+  <h2>Saga = forward journey + <em>a planned recovery path for every important step.</em></h2>
+  <p class="cap">One long deal cannot sit in one database transaction. Each step completes on its own; if the journey cannot continue normally, the saga runs the planned recovery. Temporal is the engine that remembers and runs it.</p>
+  <div class="stage">
+    <div class="ctl"><button data-act="replay">Replay</button><button data-act="pause">Pause</button></div>
+    <svg viewBox="0 0 1000 620" role="img" aria-label="Forward steps from fix vendor to arrival, each important step linked to its recovery action">
+      <text x="60" y="44" font-size="16" class="t-m t-brand">FORWARD STEPS</text>
+      <text x="600" y="44" font-size="16" class="t-m t-warn">RECOVERY PATH</text>
+      <line x1="140" y1="70" x2="140" y2="580" class="ln"/>
+      <g id="g-fw"></g><g id="g-rc"></g>
+    </svg>
+  </div>
+</section>
+
+<!-- POINT OF NO RETURN -->
+<section class="scene" data-scene="ponr" data-loop="11000">
+  <span class="eb">Undo has a limit</span>
+  <h2>Once the truck leaves, you can't undo. <em>You recover forward.</em></h2>
+  <div class="stage">
+    <div class="ctl"><button data-act="replay">Replay</button><button data-act="pause">Pause</button></div>
+    <svg viewBox="0 0 1000 560" role="img" aria-label="Before departure undo is possible; after the departure gate undo greys out and the truck diverts to the nearest park or returns to the vendor.">
+      <path class="road" d="M40 300 H560 C640 300 660 140 760 140 H960"/>
+      <path class="road" d="M560 300 C640 300 660 420 760 420 H960"/>
+      <path class="lane" d="M40 300 H560"/>
+      <line x1="470" y1="210" x2="470" y2="380" stroke="var(--warn)" stroke-width="5" stroke-dasharray="10 8"/>
+      <text x="470" y="200" text-anchor="middle" font-size="18" class="t-warn t-b">Truck departed</text>
+      <g id="p-undo"><rect x="110" y="120" width="230" height="56" rx="14" class="box-brand"/><text x="225" y="155" text-anchor="middle" font-size="18" class="t-brand t-b">↶ Undo possible</text></g>
+      <g class="fx" id="p-x"><line x1="110" y1="120" x2="340" y2="176" stroke="var(--danger)" stroke-width="5"/><line x1="340" y1="120" x2="110" y2="176" stroke="var(--danger)" stroke-width="5"/></g>
+      <g class="pop" id="p-f1"><rect x="560" y="50" width="190" height="46" rx="12" class="box-info"/><text x="655" y="79" text-anchor="middle" font-size="17" class="t-info t-b">Nearest park</text></g>
+      <g class="pop" id="p-f2"><rect x="560" y="455" width="190" height="42" rx="12" class="box-info"/><text x="655" y="482" text-anchor="middle" font-size="16" class="t-info t-b">Back to vendor</text></g>
+      <g class="mv" id="p-truck" style="--d:1.6s"><use href="#truck" x="40" y="246" width="110" height="58"/></g>
+      <g class="fx" id="p-note"><text x="40" y="482" font-size="18" class="t-mute">Procurement Director picks the recovery</text></g>
+    </svg>
+  </div>
+</section>
+
+<!-- PARTIAL DELIVERY + MOVING DATE -->
+<section class="scene" data-scene="partial" data-loop="11000">
+  <span class="eb">Real life changes the plan</span>
+  <h2>Seller promised 70, only 50 are acceptable. <em>The saga branches, not a blind undo.</em></h2>
+  <div class="stage">
+    <div class="ctl"><button data-act="replay">Replay</button><button data-act="pause">Pause</button></div>
+    <svg viewBox="0 0 1000 500" role="img" aria-label="Seller promised 70, 50 acceptable; four recovery options: accept 50 and reopen sourcing, renegotiate price, reject load and recover advance, escalate.">
+      <text x="60" y="90" font-size="20" class="t-b">Promised</text>
+      <rect x="200" y="66" width="700" height="38" rx="10" fill="var(--panel2)" stroke="var(--line)" stroke-width="2"/>
+      <text x="920" y="92" font-size="20" class="t-d">70</text>
+      <text x="60" y="170" font-size="20" class="t-b">Acceptable</text>
+      <rect x="200" y="146" width="500" height="38" rx="10" fill="var(--brand)" class="grow" style="--d:1.6s" id="q-bar"/>
+      <text x="720" y="172" font-size="20" class="t-d t-brand fx" id="q-50">50</text>
+      <g class="fx" id="q-gap"><rect x="702" y="146" width="198" height="38" rx="10" fill="none" stroke="var(--danger)" stroke-width="3" stroke-dasharray="8 6"/><text x="801" y="172" text-anchor="middle" font-size="18" class="t-danger t-b">20 short</text></g>
+      <g class="fx" id="q-ar"><path d="M800 190 L130 290" class="ln-brand flow"/><path d="M800 190 L370 290" class="ln-brand flow"/><path d="M800 190 L620 290" class="ln-brand flow"/><path d="M800 190 L860 290" class="ln-brand flow"/></g>
+      <g class="pop" id="q-t1"><rect x="30" y="290" width="220" height="110" rx="14" class="box"/><text x="46" y="322" font-size="16" class="t-b t-brand">A</text><text x="46" y="350" font-size="16" class="t-b">Accept 50</text><text x="46" y="374" font-size="14" class="t-mute">reopen sourcing for 20</text></g>
+      <g class="pop" id="q-t2"><rect x="270" y="290" width="220" height="110" rx="14" class="box"/><text x="286" y="322" font-size="16" class="t-b t-brand">B</text><text x="286" y="350" font-size="16" class="t-b">Renegotiate price</text></g>
+      <g class="pop" id="q-t3"><rect x="510" y="290" width="220" height="110" rx="14" class="box"/><text x="526" y="322" font-size="16" class="t-b t-brand">C</text><text x="526" y="350" font-size="16" class="t-b">Reject load</text><text x="526" y="374" font-size="14" class="t-mute">recover advance</text></g>
+      <g class="pop" id="q-t4"><rect x="750" y="290" width="220" height="110" rx="14" class="box-warn"/><text x="766" y="322" font-size="16" class="t-b t-warn">D</text><text x="766" y="350" font-size="16" class="t-b">Escalate</text><text x="766" y="374" font-size="14" class="t-mute">Procurement Director</text></g>
+    </svg>
+  </div>
+</section>
+
+<section class="scene" data-scene="date" data-loop="10000">
+  <h2>Dispatch moves from 18th to 16th. <em>Everything tied to it moves too.</em></h2>
+  <div class="stage">
+    <div class="ctl"><button data-act="replay">Replay</button><button data-act="pause">Pause</button></div>
+    <svg viewBox="0 0 1000 420" role="img" aria-label="Calendar: dispatch pin moves two days earlier and dependent tasks slide with it; truck booking needs re-confirmation.">
+      <g id="m-cal"></g>
+      <g class="mv" id="m-dis" style="--d:1.2s"><rect x="742" y="60" width="96" height="44" rx="10" fill="var(--brand)"/><text x="790" y="89" text-anchor="middle" font-size="17" class="t-b" style="fill:var(--on-brand)">Dispatch</text><line x1="790" y1="104" x2="790" y2="160" stroke="var(--brand)" stroke-width="4"/></g>
+      <g class="mv" id="m-p1" style="--d:1.4s"><rect x="560" y="250" width="150" height="58" rx="10" class="box" id="m-p1b"/><text x="635" y="276" text-anchor="middle" font-size="15" class="t-b">Truck &amp; labour</text><text x="635" y="296" text-anchor="middle" font-size="13" class="t-mute" id="m-p1t">booked</text></g>
+      <g class="mv" id="m-p2" style="--d:1.4s"><rect x="660" y="330" width="150" height="58" rx="10" class="box"/><text x="735" y="356" text-anchor="middle" font-size="15" class="t-b">Feed packed</text><text x="735" y="376" text-anchor="middle" font-size="13" class="t-mute">Park Head</text></g>
+      <g class="mv" id="m-p3" style="--d:1.4s"><rect x="410" y="330" width="150" height="58" rx="10" class="box"/><text x="485" y="356" text-anchor="middle" font-size="15" class="t-b">Warm-up ends</text><text x="485" y="376" text-anchor="middle" font-size="13" class="t-mute">Health check</text></g>
+    </svg>
+  </div>
+</section>
+
+<!-- WHO OWNS TIME -->
+<section class="scene" data-scene="time" data-loop="11000">
+  <span class="eb">Who owns the clock</span>
+  <h2>GoatOS keeps every deadline and chase. <em>The coordinator decides what's next.</em></h2>
+  <div class="stage">
+    <div class="ctl"><button data-act="replay">Replay</button><button data-act="pause">Pause</button></div>
+    <svg viewBox="0 0 1000 440" role="img" aria-label="Transit check task clock runs out; GoatOS escalates to transit manager then Procurement Director.">
+      <rect x="40" y="130" width="300" height="140" rx="16" class="box"/>
+      <text x="64" y="170" font-size="19" class="t-b">Transit check 3</text>
+      <text x="64" y="198" font-size="15" class="t-mute">Riding AM · video</text>
+      <text x="64" y="240" font-size="22" class="t-d" id="c-clock">due 11:40</text>
+      <circle cx="285" cy="200" r="34" fill="none" stroke="var(--line)" stroke-width="8"/>
+      <circle cx="285" cy="200" r="34" fill="none" stroke="var(--brand)" stroke-width="8" stroke-dasharray="214" stroke-dashoffset="214" transform="rotate(-90 285 200)" id="c-ring" style="transition:stroke-dashoffset 2.6s linear, stroke .3s"/>
+      <g class="fx" id="c-a1"><path d="M340 200 L470 120" class="ln-mute flow" style="stroke:var(--warn)"/></g>
+      <g class="pop" id="c-tm" color="var(--warn)"><use href="#person" x="480" y="70" width="40" height="48"/><text x="540" y="92" font-size="17" class="t-b">Transit manager</text><text x="540" y="114" font-size="14" class="t-mute">“call the riding AM” · +12 min</text></g>
+      <g class="fx" id="c-a2"><path d="M500 130 L500 260" class="ln-mute flow" style="stroke:var(--danger)"/></g>
+      <g class="pop" id="c-pd" color="var(--danger)"><use href="#person" x="480" y="270" width="40" height="48"/><text x="540" y="292" font-size="17" class="t-b">Procurement Director</text><text x="540" y="314" font-size="14" class="t-mute">if still nobody acts</text></g>
+      <rect x="40" y="360" width="440" height="50" rx="12" class="box-info"/><text x="60" y="392" font-size="16" class="t-info t-b">GoatOS task kernel: deadlines &amp; chasing</text>
+      <rect x="520" y="360" width="440" height="50" rx="12" class="box-brand"/><text x="540" y="392" font-size="16" class="t-brand t-b">Coordinator: which step opens next</text>
+    </svg>
+  </div>
+</section>
+
+<!-- FIT -->
+<section class="scene" data-scene="fit" data-loop="9000">
+  <span class="eb">How it fits GoatOS</span>
+  <h2>GoatOS stays as it is. <em>Temporal runs only this journey.</em></h2>
+  <div class="stage">
+    <div class="ctl"><button data-act="replay">Replay</button><button data-act="pause">Pause</button></div>
+    <svg viewBox="0 0 1000 520" role="img" aria-label="GoatOS backend with kernel, outbox and Pub/Sub unchanged; Temporal beside it for procurement journey only; task done flows to Temporal, Temporal opens tasks.">
+      <rect x="30" y="40" width="600" height="440" rx="20" class="box"/>
+      <text x="56" y="80" font-size="20" class="t-b">GoatOS backend · unchanged</text>
+      <g font-size="15">
+        <rect x="56" y="104" width="170" height="50" rx="10" class="box"/><text x="141" y="135" text-anchor="middle">Vaccination</text>
+        <rect x="240" y="104" width="170" height="50" rx="10" class="box"/><text x="325" y="135" text-anchor="middle">Feed</text>
+        <rect x="424" y="104" width="180" height="50" rx="10" class="box"/><text x="514" y="135" text-anchor="middle">Health · Tagging</text>
+        <rect x="56" y="170" width="170" height="50" rx="10" class="box"/><text x="141" y="201" text-anchor="middle">Procurement</text>
+        <rect x="240" y="170" width="170" height="50" rx="10" class="box"/><text x="325" y="201" text-anchor="middle">Payments</text>
+        <rect x="424" y="170" width="180" height="50" rx="10" class="box"/><text x="514" y="201" text-anchor="middle">Notifications</text>
+      </g>
+      <rect x="56" y="250" width="260" height="70" rx="12" class="box-info"/><text x="186" y="282" text-anchor="middle" font-size="17" class="t-info t-b">Task kernel</text><text x="186" y="304" text-anchor="middle" font-size="13" class="t-mute">tasks · deadlines · chasing</text>
+      <rect x="344" y="250" width="260" height="70" rx="12" class="box"/><text x="474" y="282" text-anchor="middle" font-size="17" class="t-b">Outbox → Pub/Sub</text><text x="474" y="304" text-anchor="middle" font-size="13" class="t-mute">events, as today</text>
+      <rect x="56" y="350" width="548" height="100" rx="12" class="box"/><text x="330" y="392" text-anchor="middle" font-size="18" class="t-b">Postgres · business records</text><text x="330" y="418" text-anchor="middle" font-size="14" class="t-mute">journey status for every screen</text>
+      <rect x="700" y="150" width="270" height="200" rx="20" class="box-brand"/>
+      <circle cx="835" cy="215" r="34" class="box-brand pulse"/>
+      <text x="835" y="290" text-anchor="middle" font-size="20" class="t-brand t-b">Temporal</text>
+      <text x="835" y="316" text-anchor="middle" font-size="14" class="t-mute">procurement journey only</text>
+      <path d="M604 270 C660 270 650 210 700 210" class="ln-brand flow"/>
+      <text x="640" y="196" font-size="13" class="t-mute">task done</text>
+      <path d="M700 300 C650 300 600 300 316 300" class="ln-mute flow" style="stroke:var(--info)"/>
+      <text x="640" y="330" font-size="13" class="t-mute">open next task</text>
+      <g class="pop" id="f-tok"><circle cx="0" cy="0" r="9" fill="var(--brand)"/></g>
+    </svg>
+  </div>
+</section>
+
+
+</div>
+
+<script>
+const NS="http://www.w3.org/2000/svg";
+const mk=(tag,attrs={},txt)=>{const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);if(txt!=null)e.textContent=txt;return e};
+const STAGES=["Request","Sourcing","Stock check","Approval","Warm-up","Transport prep","Loading","Transit","Arrival","Payments"];
+const WHO=["CXO raises request","Manager calls vendors","Weights in the evening","Director + CXO approve 72","14 days at the vendor","Truck, labour, riding AM","Injection, feed, tubs, tarps","Check every 3 h","Park Head counts 71","Last 10% paid"];
+const DAYS=[0,2,2,3,3,12,17,17,17,33];
+const sx=i=>70+i*(860/9);
+
+/* hero dots */
+(()=>{const g=document.getElementById("h-dots"),l=document.getElementById("h-labels");
+ STAGES.forEach((s,i)=>{g.append(mk("circle",{cx:sx(i),cy:210,r:13,class:"dot","data-i":i}));
+  l.append(mk("text",{x:sx(i),y:i%2?262:270,"text-anchor":"middle","font-size":15,class:"t-mute",dy:i%2?28:0},s));});})();
+/* sim dots */
+(()=>{const g=document.getElementById("sim-dots"),l=document.getElementById("sim-lbl");
+ STAGES.forEach((s,i)=>{const x=60+i*(880/9);g.append(mk("circle",{cx:x,cy:170,r:11,class:"dot"}));
+  l.append(mk("text",{x,y:i%2?222:206,"text-anchor":"middle","font-size":14,class:"t-mute"},s));});})();
+/* calendar */
+(()=>{const g=document.getElementById("m-cal");for(let d=10;d<=20;d++){const x=60+(d-10)*82;
+ g.append(mk("rect",{x,y:170,width:76,height:60,rx:10,class:"box"}));g.append(mk("text",{x:x+38,y:208,"text-anchor":"middle","font-size":20,class:"t-d"},d));}})();
+
+/* scene engine */
+function Scene(root,build){
+  const loop=+root.dataset.loop||0, q=s=>root.querySelector(s);
+  let token=0,timers=[],playing=false,paused=false;
+  const api={q,
+    on:(s,b=true)=>{const e=typeof s==="string"?q(s):s;e&&e.classList.toggle("on",b)},
+    mv:(s,x,y)=>{const e=typeof s==="string"?q(s):s;e.style.transform=`translate(${x}px,${y}px)`},
+    txt:(s,t)=>{q(s).textContent=t}};
+  const {reset,steps}=build(api);
+  function clear(){timers.forEach(clearTimeout);timers=[]}
+  function hardReset(){root.classList.add("noanim");reset();root.getBoundingClientRect();requestAnimationFrame(()=>root.classList.remove("noanim"))}
+  function jumpEnd(){clear();root.classList.add("noanim");reset();steps.forEach(([,f])=>f(true));root.getBoundingClientRect();requestAnimationFrame(()=>root.classList.remove("noanim"))}
+  function run(){clear();const my=++token;hardReset();
+    steps.forEach(([t,f])=>timers.push(setTimeout(()=>{if(my===token)f(false)},t+60)));
+    if(loop)timers.push(setTimeout(()=>{if(my===token&&playing&&!paused)run()},loop));}
+  jumpEnd();
+  new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting&&!playing){playing=true;paused=false;run()}else if(!e.isIntersecting&&playing){playing=false;token++;jumpEnd()}}),{threshold:.35}).observe(root);
+  root.querySelectorAll("[data-act]").forEach(b=>b.onclick=()=>{if(b.dataset.act==="replay"){paused=false;playing=true;run();root.querySelector('[data-act="pause"]').textContent="Pause"}else{paused=!paused;b.textContent=paused?"Play":"Pause";if(paused){token++;clear()}else run()}});
+}
+
+/* HERO */
+Scene(document.querySelector('[data-scene="hero"]'),a=>{
+  const dots=[...a.q("#h-dots").children];
+  return{reset(){dots.forEach(d=>d.classList.remove("lit"));a.mv("#h-truck",0,0);a.txt("#h-day","Day 0");a.txt("#h-who",WHO[0])},
+   steps:STAGES.map((s,i)=>[400+i*950,()=>{a.mv("#h-truck",sx(i)-70,0);dots.forEach((d,j)=>d.classList.toggle("lit",j<=i));a.txt("#h-day","Day "+DAYS[i]);a.txt("#h-who",WHO[i])}])};
+});
+
+/* WHY */
+Scene(document.querySelector('[data-scene="why"]'),a=>({
+  reset(){["#w-b1","#w-b2","#w-b3","#w-c1","#w-c2","#w-c3","#w-c4"].forEach(s=>a.on(s,false))},
+  steps:[[300,()=>a.on("#w-b1")],[900,()=>a.on("#w-c1")],[1700,()=>a.on("#w-b2")],[2300,()=>a.on("#w-c2")],[3200,()=>a.on("#w-b3")],[5000,()=>a.on("#w-c3")],[6200,()=>a.on("#w-c4")]]
+}));
+
+/* SPLIT */
+Scene(document.querySelector('[data-scene="split"]'),a=>{
+  const B=[["Where is the truck?",130,150],["Labour waiting at park?",230,185],["Pay driver extra?",130,230],["Is feed enough?",250,280],["Who tells CXO?",130,330],["Pen ready tonight?",250,380],["Call me back!!",130,430]];
+  const g=a.q("#s-bub");
+  return{reset(){g.innerHTML="";a.txt("#s-cnt","0");["#s-ev","#s-blk","#s-a1","#s-a2","#s-a3","#s-t1","#s-t2","#s-t3","#s-ok"].forEach(s=>a.on(s,false))},
+   steps:[[200,()=>a.on("#s-ev")],
+     ...B.map(([t,x,y],i)=>[1000+i*650,(end)=>{const w=t.length*8.4+26;const b=mk("g",{class:"pop"});b.append(mk("rect",{x,y,width:w,height:34,rx:12,class:"box-warn"}));b.append(mk("text",{x:x+13,y:y+23,"font-size":15},t));g.append(b);requestAnimationFrame(()=>b.classList.add("on"));if(end)b.classList.add("on");a.txt("#s-cnt",String((i+1)*2))}]),
+     [5800,()=>a.on("#s-blk")],
+     [1300,()=>a.on("#s-a1")],[1700,()=>a.on("#s-t1")],[2500,()=>a.on("#s-a2")],[2900,()=>a.on("#s-t2")],[3700,()=>a.on("#s-a3")],[4100,()=>a.on("#s-t3")],[5000,()=>a.on("#s-ok")]]};
+});
+
+/* TEMPORAL */
+Scene(document.querySelector('[data-scene="temporal"]'),a=>{
+  const R=["Vendor fixed · 10% due","72 approved · 20% due","Warm-up timer · 14 days","Truck, labour, riding AM","Loaded 71 · departed","Resumed: check 1 on road"];
+  const g=a.q("#d-rows"),env=a.q("#d-env");
+  const row=(i,end)=>{const y=100+i*62;const r=mk("g",{class:"pop"});r.append(mk("rect",{x:56,y,width:388,height:48,rx:10,class:i===5?"box-brand":"box"}));r.append(mk("text",{x:74,y:y+31,"font-size":17,class:"t-m"},`#${i+1}  `+R[i]));g.append(r);if(end)r.classList.add("on");else requestAnimationFrame(()=>r.classList.add("on"))};
+  const envs=n=>{env.innerHTML="";for(let k=0;k<n;k++)env.append(mk("use",{href:"#env",x:696+(k%3)*42,y:386+Math.floor(k/3)*34,width:36,height:26}))};
+  return{reset(){g.innerHTML="";env.innerHTML="";["#d-boom","#d-srv2","#d-scan","#d-qnote"].forEach(s=>a.on(s,false));a.q("#d-srv1").style.opacity=1;a.mv("#d-scan",0,0)},
+   steps:[[300,e=>row(0,e)],[1100,e=>row(1,e)],[1900,e=>row(2,e)],[2700,e=>row(3,e)],[3500,e=>row(4,e)],
+     [4400,e=>{a.on("#d-boom");a.q("#d-srv1").style.opacity=.25;if(!e){const s=a.q("#d-srv1");s.classList.remove("shake");void s.getBoundingClientRect();s.classList.add("shake")}}],
+     [4800,()=>{envs(2);a.on("#d-qnote")}],[5600,()=>envs(4)],[6400,()=>envs(6)],
+     [7200,()=>a.on("#d-srv2")],
+     [7800,()=>{a.on("#d-scan")}],[8000,()=>a.mv("#d-scan",0,248)],
+     [9600,()=>{a.on("#d-scan",false);envs(3)}],[10100,()=>envs(0)],[10300,e=>row(5,e)]]};
+});
+
+/* SAGA */
+Scene(document.querySelector('[data-scene="saga"]'),a=>{
+  const F=[["Fix vendor","Reopen sourcing"],["Take NDA & terms","Mark seller breach"],["Arrange truck","Cancel truck"],["Reserve labour","Inform labour"],["Pay advance","Recover / adjust advance · update ledger"],["Start warm-up",""],["Load animals",""],["Transit",""],["Arrival",""]];
+  const fw=a.q("#g-fw"),rc=a.q("#g-rc");
+  const add=(g,el,end)=>{g.append(el);if(end)el.classList.add("on");else requestAnimationFrame(()=>el.classList.add("on"))};
+  const step=(i,end)=>{const y=74+i*56;const g=mk("g",{class:"pop"});g.append(mk("circle",{cx:140,cy:y+20,r:9,fill:"var(--brand)"}));g.append(mk("rect",{x:170,y,width:260,height:40,rx:10,class:"box-brand"}));g.append(mk("text",{x:186,y:y+26,"font-size":17,class:"t-b"},F[i][0]));add(fw,g,end)};
+  const rec=(i,end)=>{if(!F[i][1])return;const y=74+i*56;const g=mk("g",{class:"pop"});g.append(mk("path",{d:`M430 ${y+20} H590`,class:"ln-mute flow",style:"stroke:var(--warn)"}));g.append(mk("rect",{x:590,y,width:370,height:40,rx:10,class:"box-warn"}));g.append(mk("text",{x:606,y:y+26,"font-size":16,class:"t-b"},F[i][1]));add(rc,g,end)};
+  return{reset(){fw.innerHTML="";rc.innerHTML=""},
+   steps:[...F.map((f,i)=>[300+i*550,e=>step(i,e)]),...F.map((f,i)=>[5600+i*500,e=>rec(i,e)])]};
+});
+
+/* POINT OF NO RETURN */
+Scene(document.querySelector('[data-scene="ponr"]'),a=>({
+  reset(){a.mv("#p-truck",0,0);["#p-x","#p-f1","#p-f2","#p-note"].forEach(s=>a.on(s,false));a.q("#p-undo").classList.remove("grey")},
+  steps:[[300,()=>a.mv("#p-truck",300,0)],[2400,()=>a.mv("#p-truck",520,0)],[3600,()=>{a.q("#p-undo").classList.add("grey");a.on("#p-x")}],
+    [4600,()=>{a.on("#p-f1");a.on("#p-f2")}],[5400,()=>a.on("#p-note")],[6400,()=>a.mv("#p-truck",780,-160)]]
+}));
+
+/* PARTIAL */
+Scene(document.querySelector('[data-scene="partial"]'),a=>({
+  reset(){["#q-bar","#q-50","#q-gap","#q-ar","#q-t1","#q-t2","#q-t3","#q-t4"].forEach(s=>a.on(s,false))},
+  steps:[[300,()=>a.on("#q-bar")],[2000,()=>a.on("#q-50")],[2700,()=>a.on("#q-gap")],[3600,()=>a.on("#q-ar")],[4100,()=>a.on("#q-t1")],[4700,()=>a.on("#q-t2")],[5300,()=>a.on("#q-t3")],[5900,()=>a.on("#q-t4")]]
+}));
+
+/* DATE */
+Scene(document.querySelector('[data-scene="date"]'),a=>({
+  reset(){["#m-dis","#m-p1","#m-p2","#m-p3"].forEach(s=>a.mv(s,0,0));a.q("#m-p1b").setAttribute("class","box");a.txt("#m-p1t","booked")},
+  steps:[[900,()=>a.mv("#m-dis",-164,0)],[2300,()=>{a.mv("#m-p1",-164,0);a.mv("#m-p2",-164,0)}],[2700,()=>a.mv("#m-p3",-82,0)],
+    [4000,()=>{a.q("#m-p1b").setAttribute("class","box-warn");a.txt("#m-p1t","re-confirm for 14th")}]]
+}));
+
+/* TIME */
+Scene(document.querySelector('[data-scene="time"]'),a=>({
+  reset(){const r=a.q("#c-ring");r.style.strokeDashoffset=214;r.style.stroke="var(--brand)";a.txt("#c-clock","due 11:40");["#c-a1","#c-tm","#c-a2","#c-pd"].forEach(s=>a.on(s,false))},
+  steps:[[300,()=>{a.q("#c-ring").style.strokeDashoffset=0}],[3000,()=>{a.q("#c-ring").style.stroke="var(--warn)";a.txt("#c-clock","late 12 min")}],
+    [3500,()=>a.on("#c-a1")],[3900,()=>a.on("#c-tm")],[6000,()=>{a.q("#c-ring").style.stroke="var(--danger)";a.txt("#c-clock","late 40 min")}],[6400,()=>a.on("#c-a2")],[6800,()=>a.on("#c-pd")]]
+}));
+
+/* FIT: token travels task done -> temporal -> open task */
+Scene(document.querySelector('[data-scene="fit"]'),a=>{
+  const tok=a.q("#f-tok");const pts=[[316,285],[604,270],[700,210],[835,215],[700,300],[316,300]];
+  return{reset(){a.on(tok,false);tok.style.transition="none";tok.style.transform=`translate(${pts[0][0]}px,${pts[0][1]}px)`},
+   steps:[[200,()=>a.on(tok)],...pts.map((p,i)=>[300+i*900,()=>{tok.style.transition="transform .85s ease-in-out, opacity .3s";tok.style.transform=`translate(${p[0]}px,${p[1]}px)`}])]};
+});
+
+</script>

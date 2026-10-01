@@ -157,8 +157,8 @@ picked per journey; neither is a new designation.
 
 ## Stage 6 — Loading (`procurement.loading`, subject = journey)
 
-Opens when stages 4 and 5 are both complete (engine-gaps G1: an opener may wait on two
-`stage_completed` events).
+Opens when stages 4 and 5 are both complete (engine-gaps G1, closed by the `procurement_journey`
+workflow, which waits on both stage signals; see the engine ADR).
 
 | # | key | title | task type | owner | proof | schedule |
 |---|---|---|---|---|---|---|
@@ -182,7 +182,7 @@ is the tagged list. A loaded count lower than the accepted count forces a
 | 3 | transit_loss | Any animal down or dead? | record_yes_no | [pick:riding_am] | — | with each check (only if check = distress) |
 | 4 | transit_loss_detail | Which animals | mark_removed (reason = in_transit) | [pick:riding_am] | 1 photo | only if transit_loss = yes |
 | 5 | review_check_{n} | Review transit check {n} | record_select (all fine / called the AM / escalated) | [pick:transit_manager] | — | after transit_check_{n} |
-| 6 | check_missed_{n} | Check {n} is overdue — contact the AM | do_and_confirm (minted by the lateness sweep, G6) | [pick:transit_manager] | — | transit_check_{n} due + grace |
+| 6 | check_missed_{n} | Check {n} is overdue — contact the AM | do_and_confirm (opened by the kernel lateness ladder, G6) | [pick:transit_manager] | — | transit_check_{n} due + grace |
 | 7 | distress_call | Decide what the AM should do (continue / stop and rest / divert to a vet) | record_select | [pick:transit_manager] | — | only if any transit_check = distress |
 | 8 | arrival | Truck has reached the park | **arrival_recorded** (engine hook; writes `arrived_at`) | [pick:riding_am], park_head | 1 video | — |
 | 9 | handover_confirmed | Transit manager confirms the handover to the Park Head | do_and_confirm | [pick:transit_manager] | — | after arrival |

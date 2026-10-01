@@ -100,10 +100,12 @@ use. Each is its own document so the farm can publish warm-up changes without to
 | 8 Arrival and park warm-up | `procurement.arrival` | journey | arrival recorded |
 | 9 Payments | `procurement.payments` | journey | vendor fixed; milestones unlock as stages complete |
 
-Stages chain through **domain events, never through a hidden scheduler**: a stage's completion
-hook emits `procurement.journey.stage_completed{stage}`, and the opener for the next stage consumes
-it, exactly as `sales.deal.recorded` opens the sale today. This is the `triggers` phase-2 item of
-`docs/decisions/sop-driven-herd-operations.md`, built generically (see `engine-gaps.md` G1).
+**Engine:** stages are sequenced by one Temporal workflow per journey inside the new
+`procurement_journey` module (saga: stage order, waiting on task signals, branching, ordered human
+undo tasks, forward recovery and exceptions), per `docs/decisions/procurement-journey-orchestration-engine.md`. Every human step is still
+a kernel task with an owner and `due_at`; every clock a person sees, lateness and escalation stay
+the kernel's. A stage's completion still emits `procurement.journey.stage_completed{stage}` as a
+fact for other modules; it no longer opens the next stage (see `engine-gaps.md` G1).
 
 The existing `procurement.animal_purchase_intake` document is **retired into stages 3 and 8**:
 its record/loading-photo/decision steps become the selection stage's seed, its arrival steps
@@ -149,13 +151,15 @@ per kind of purchase. They are the **journey profile** (`procurement_journey_pro
 - the inspection SOP version policy (always latest published).
 
 A journey **snapshots its profile when the vendor is fixed** (`procurement_journeys.profile_snapshot`
-jsonb, the same pin the SOP version gets). Changing the profile changes the next journey, never one
-in flight. The Procurement Director may override durations and the milestone list on the journey at
+jsonb) and pins every stage's SOP version at the same moment (journey open). A running journey keeps
+everything it started with; changing the profile or an SOP changes the next journey, never one in
+flight. The Procurement Director may override durations and the milestone list on the journey at
 fix time, inside the profile's allowed range; the override is stored on the journey.
 
 The SOP documents reference profile values by name (`{profile.source_warmup_days}`) in schedules and
 step titles, so the warm-up document says "Day {n} of {profile.source_warmup_days}" and the engine
-resolves it at open. That is the schedule-anchor work in `engine-gaps.md` G2.
+resolves it at open. That is the schedule-anchor work in `engine-gaps.md` G2, closed by the
+`procurement_journey` workflow (see the engine ADR).
 
 ## Decision 4: money is a ledger per journey, and a milestone is a step that reads it
 
@@ -200,8 +204,8 @@ through the existing death path with reason `in_transit`.
 ## Decision 7: transit is bounded work with a server clock, like the toxin waits
 
 "Every three hours a video" is a `series` on the transit SOP anchored at the **departure step's
-completion** and ending at the **arrival step's completion** (engine-gaps G3: `series.from_step` /
-`until_step`). Each check is one step, due at its time, late when missed; the riding AM's screen is
+completion** and ending at the **arrival step's completion** (engine-gaps G3, closed by the
+`procurement_journey` transit child workflow). Each check is one step, due at its time, late when missed; the riding AM's screen is
 the list of checks with the next one at the top, and the transit manager's screen is the same list
 seen from the office: each check to review as it lands, the chase when one is overdue, the call
 when the AM reports distress. Stops (feed/water) are steps the SOP
