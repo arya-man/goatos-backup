@@ -153,6 +153,7 @@ export function isRetryable(err) {
 const sleep = (ms, signal) => new Promise((r) => { const t = setTimeout(r, ms); signal?.addEventListener("abort", () => { clearTimeout(t); r(); }, { once: true }); });
 
 export const MAX_STEPS_NOTE = "You have used all your lookup steps. Answer now from what you already found, and say plainly what you could not finish checking.";
+export const TIME_UP_NOTE = "Time is up for this answer. Answer now from what you already found (no more lookups), and say plainly what you could not finish checking.";
 export const MAX_PARALLEL_TOOLS = 4;
 // Images/PDFs sent to the model in one answer (attachments + read_file), base64 chars.
 export const INLINE_BUDGET_CHARS = 20 * 1024 * 1024;
@@ -179,7 +180,7 @@ export const EMPTY_TURN_NUDGE = "Continue: use the tools you need, then write th
 export async function runAgent({
   ai, model, systemInstruction, contents, tools, onEvent = () => {}, signal,
   maxSteps = 40, budgetUsd = Infinity, thinkingLevel, env = process.env, retryDelayMs = 1000,
-  fallbackModel = null, inlineBudget = INLINE_BUDGET_CHARS,
+  fallbackModel = null, inlineBudget = INLINE_BUDGET_CHARS, deadlineMs = Infinity, now = Date.now,
 }) {
   const usage = { input: 0, output: 0, cached: 0, thoughts: 0 };
   let costUsd = 0;
@@ -188,14 +189,17 @@ export async function runAgent({
   const convo = [...contents];
   let callSeq = 0;
   let nudged = false;
+  const t0 = now();
   let inlineUsed = contents.reduce((n, c) => n + (c.parts || []).reduce((m, p) => m + String(p.inlineData?.data || "").length, 0), 0);
   for (let step = 0; ; step++) {
     if (signal?.aborted) throw new Error("client_aborted");
-    const finalOnly = step >= maxSteps; // out of steps: one last turn without tools to write the answer
+    // Out of steps, or out of time for this kind of answer: one last turn without tools to write the answer.
+    const outOfTime = step > 0 && now() - t0 > deadlineMs;
+    const finalOnly = step >= maxSteps || outOfTime;
     if (finalOnly) {
-      error = "error_max_turns";
+      if (!outOfTime) error = "error_max_turns";
       // Folded into the tool-results turn: two user turns in a row is not a valid Gemini history.
-      appendUserText(convo, MAX_STEPS_NOTE);
+      appendUserText(convo, outOfTime ? TIME_UP_NOTE : MAX_STEPS_NOTE);
     }
     onEvent({ type: "step" });
     const config = {

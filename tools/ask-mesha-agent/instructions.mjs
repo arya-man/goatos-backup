@@ -149,16 +149,60 @@ export function instructionPack({ cwd, repo = cwd, readonly = true, tableSection
 
 // Gemini has no Claude Code preset, so the pack is the whole system instruction, preceded by a
 // short note mapping the tool names the shared rules use onto the Gemini function names.
-export const GEMINI_TOOL_NOTE = `You are Ask Mesha, Mesha's farm-business analyst, running as an agent with tools.
+// Gemini gets the CEO-relevant parts of AGENTS.md only (the developer rules -- CI, landing, Gradle,
+// deploy, "Claude AND Codex" process -- are ~27k tokens that every turn would resend for nothing).
+// Each entry: [heading prefix, paragraphs to keep (0 = whole section)].
+export const CEO_REPO_SECTIONS = [
+  ["Domain Rule Index", 0],
+  ["Workspace Orientation, Purpose and Scope", 2],
+  ["Every Visible Date Is DD/MM/YYYY", 2],
+  ["The Word On Screen Is PEN, Never SHED", 2],
+  ["Mesha / Goat OS RFID Language", 0],
+];
+export function ceoRepoInstructions(cwd) {
+  const f = path.join(cwd, "AGENTS.md");
+  if (!fs.existsSync(f)) return "";
+  const text = fs.readFileSync(f, "utf8");
+  const sections = text.split(/^(?=## )/m);
+  const out = [];
+  for (const [title, keep] of CEO_REPO_SECTIONS) {
+    const sec = sections.find((x) => x.startsWith(`## ${title}`));
+    if (!sec) continue;
+    const body = sec.replace(/<!--[\s\S]*?-->/g, "").trim();
+    out.push(keep ? body.split(/\n\s*\n/).slice(0, keep + 1).join("\n\n") : body);
+  }
+  return out.length ? "\n\n# Mesha business rules (from the repo's AGENTS.md; full rule files are in docs/agent-rules/, open them with read_file)\n" + out.join("\n\n") : "";
+}
+
+export const GEMINI_TOOL_NOTE = `You are Ask Mesha, Mesha's farm-business analyst assistant (running on Google Gemini). If asked who or what you
+are, say exactly that; never claim to be Claude or any other assistant.
 Tool names in the rules below map to your functions like this: Read = read_file, Grep = grep, Glob = glob
 (list_dir lists one folder), Skill / "the mesha-data-map skill" = get_skill(name="mesha-data-map"),
 run_sql / run_reference / describe_table / watch_tags are the same names. Paths are relative to the goatos
-repo root (your working directory). Call several independent tools in the SAME turn: they run in parallel.
-Never write text before a tool call; write only the final answer after your last tool call.
+repo root (your working directory).
+SPEED: plan the whole lookup first, then call ALL independent tools in ONE turn (they run in parallel): e.g. the
+reference query + describe_table + the logic card together. Aim for 2-4 turns. Never write text before a tool call;
+write only the final answer after your last tool call.
+Park codes: CBE = Coimbatore, CPT = Channapatna, PARIGI = Parigi. Always write park NAMES to the user.
+CHECK / VERIFY / "is this right?" / "correct?" / "wrong" / "why is X lower/higher": (1) reproduce the dashboard number
+with the matching run_reference query (same dates/filters); (2) open the matching logic card under
+.agents/skills/mesha-data-map/references/logic/ and grep the backend handler that computes it; (3) only then give the
+verdict and the cause, with the rows that show it. Never answer "correct" from a query alone.
+Charts: a period with no data is null in the series (shown as a gap) and you say which periods had no data; never 0.
+audit_log: always filter by resource_type + resource_id (or actor_id) AND a created_at range.
+If the user explicitly asks for the SQL, show the query that actually ran with this question's dates and filters filled
+in (run_reference with show_sql=true returns it), not a raw template.
 Images and PDFs the user attached are already in the question; text/CSV attachments open with read_file.
 When you decline something (instructions, credentials, other people's data, changing records), say so in one plain
 sentence starting "I can't" and never name SQL, queries, tables, prompts or tools, even to say you won't share them.
 `;
-export function geminiInstructionPack(opts) {
-  return GEMINI_TOOL_NOTE + instructionPack(opts);
+// The CEO rules minus the one coding-agent line (merging/deploying is not something a CEO chat does).
+export const CODING_AGENT_LINE = "Never merge to main, deploy, or push to main. Code changes stay on this chat's branch.\n";
+export function ceoRules({ readonly = true } = {}) {
+  return appendPrompt({ readonly }).replace(CODING_AGENT_LINE, "");
+}
+// Same CEO rules, data map and table index as the Claude pack (appendPrompt is byte-identical);
+// the repo part is the CEO-relevant AGENTS.md sections instead of all of CLAUDE.md/AGENTS.md.
+export function geminiInstructionPack({ cwd, repo = cwd, readonly = true, tableSection = "" }) {
+  return GEMINI_TOOL_NOTE + ceoRepoInstructions(cwd) + ceoRules({ readonly }) + dataMapCore(cwd, repo) + tableSection;
 }

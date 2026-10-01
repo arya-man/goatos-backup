@@ -14,7 +14,7 @@ import {
   MAX_STEPS_NOTE, MAX_PARALLEL_TOOLS, mapLimit,
 } from "../gemini.mjs";
 import { createCodeTools, isSecretPath, CODE_TOOL_DECLARATIONS } from "../code-tools.mjs";
-import { appendPrompt, instructionPack, geminiInstructionPack, GEMINI_TOOL_NOTE, tableIndexSection } from "../instructions.mjs";
+import { appendPrompt, instructionPack, geminiInstructionPack, GEMINI_TOOL_NOTE, tableIndexSection, ceoRepoInstructions, ceoRules, CODING_AGENT_LINE } from "../instructions.mjs";
 
 const sha = (s) => crypto.createHash("sha256").update(s).digest("hex");
 
@@ -36,7 +36,10 @@ test("instructions: pack = CLAUDE.md(+@imports) + rules + data map + table index
   assert.equal(pack,
     "\n\n# Repository instructions (CLAUDE.md)\n# Agents rules\n\n## Local\n" + appendPrompt({ readonly: true }) +
     "\n\n# Mesha data map (cheat-sheet)\nMAP" + table);
-  assert.equal(geminiInstructionPack({ cwd: dir, tableSection: table }), GEMINI_TOOL_NOTE + pack);
+  assert.equal(geminiInstructionPack({ cwd: dir, tableSection: table }),
+    GEMINI_TOOL_NOTE + ceoRepoInstructions(dir) + ceoRules() + "\n\n# Mesha data map (cheat-sheet)\nMAP" + table);
+  assert.ok(appendPrompt().includes(CODING_AGENT_LINE));
+  assert.ok(!ceoRules().includes("Never merge to main"));
   assert.equal(tableIndexSection(""), "");
 });
 
@@ -373,4 +376,38 @@ test("runAgent: spend is reported after every model call (failed runs are charge
   await assert.rejects(runAgent({ ai, model: "gemini-3.1-pro-preview", contents: [], env: {}, onEvent: (x) => x.type === "usage" && usage.push(x.costUsd), tools: { declarations: [], call: async () => ({ text: "" }) } }));
   assert.equal(usage.length, 1);
   assert.equal(usage[0].toFixed(2), "0.20");
+});
+
+test("instructions: Gemini gets only the CEO-relevant AGENTS.md sections", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agents-"));
+  fs.writeFileSync(path.join(dir, "AGENTS.md"), [
+    "# Top", "", "## Domain Rule Index", "", "- Weighing -> docs/agent-rules/weighing.md", "",
+    "## Main Merge Requires Exact-SHA CI Evidence", "", "make land-main only (Claude AND Codex)", "",
+    "## Every Visible Date Is DD/MM/YYYY (maintainer lock)", "", "p1 dates", "", "p2 more", "", "p3 dev detail", "",
+    "## Mesha / Goat OS RFID Language", "", "animal_identifier_1", "",
+  ].join("\n"));
+  const t = ceoRepoInstructions(dir);
+  assert.match(t, /weighing\.md/);
+  assert.match(t, /p1 dates[\s\S]*p2 more/);
+  assert.doesNotMatch(t, /p3 dev detail|land-main|Claude AND Codex/);
+  assert.match(t, /animal_identifier_1/);
+  // The real repo: the Gemini pack is much smaller than the full CLAUDE.md pack and has no dev process rules.
+  const repo = path.resolve(new URL("../../..", import.meta.url).pathname);
+  const g = geminiInstructionPack({ cwd: repo });
+  assert.ok(g.length < instructionPack({ cwd: repo }).length * 0.7);
+  assert.doesNotMatch(ceoRepoInstructions(repo), /make land-main|Gradle|Claude AND Codex/);
+  assert.match(GEMINI_TOOL_NOTE, /CPT = Channapatna/);
+  assert.match(GEMINI_TOOL_NOTE, /Google Gemini/);
+});
+
+test("runAgent: time guard forces a tool-less answer turn", async () => {
+  let t = 0;
+  const call = [chunk([{ functionCall: { name: "run_sql", args: {} } }])];
+  const ai = fakeAi([call, call, [chunk([{ text: "Answer from what I have." }])]]);
+  const r = await runAgent({ ai, model: "m", contents: [], env: {}, deadlineMs: 50, now: () => (t += 30),
+    tools: { declarations: [], call: async () => ({ text: "rows" }) } });
+  assert.equal(r.text, "Answer from what I have.");
+  assert.equal(r.error, null, "a time-guarded answer is a normal answer, not a cut-off");
+  assert.equal(ai.calls.at(-1).config.tools, undefined);
+  assert.match(ai.calls.at(-1).contents.at(-1).parts.at(-1).text, /Time is up/);
 });

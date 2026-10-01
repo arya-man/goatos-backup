@@ -36,6 +36,8 @@ const GEMINI = geminiConfig(process.env);
 const MODEL = GEMINI.model;
 const DEEP_MODEL = GEMINI.deepModel;
 const EFFORT = process.env.ASK_MESHA_EFFORT || "low"; // Gemini thinkingLevel for quick lookups; deep = high
+const ANSWER_SECONDS = Number(process.env.ASK_MESHA_ANSWER_SECONDS) || 50;
+const ANSWER_DEEP_SECONDS = Number(process.env.ASK_MESHA_DEEP_ANSWER_SECONDS) || 240;
 const ai = createClient(GEMINI); // ADC; ASK_MESHA_GEMINI_AUTH=gcloud uses the local gcloud user token (dev only)
 // Answer checker (checker.mjs): a second, tool-less call that checks the draft's wording against the
 // query results before the final answer lands. ASK_MESHA_CHECKER=0 turns it off.
@@ -229,6 +231,7 @@ function meshaToolsFor(user, watchCtx) {
           where: z.string().optional().describe("Optional SQL boolean over the file's output columns"),
           order_by: z.string().optional().describe("Optional ORDER BY list over output columns"),
           limit: z.number().int().min(1).max(500).optional(),
+          show_sql: z.boolean().optional().describe("Only when the user explicitly asks for the SQL: also return the exact query that ran"),
           // Explicit keys, not z.record: a record schema makes the SDK drop the whole tool from the model's list.
           params: z.object({
             from_date: z.string().optional().describe("YYYY-MM-DD (adg-by-park.sql, adg-by-breed.sql)"),
@@ -240,7 +243,7 @@ function meshaToolsFor(user, watchCtx) {
             days: z.number().int().min(1).max(3650).optional().describe("window days back from today (cost-per-kg-gain.sql)"),
           }).optional().describe("Only params the file declares ('-- param:' lines); others are refused"),
         },
-        async ({ name, where, order_by, limit, params }) => {
+        async ({ name, where, order_by, limit, params, show_sql }) => {
           const p = referencePath(REPO, name);
           if (!p.ok) return { content: [{ type: "text", text: p.out }], isError: true };
           let text;
@@ -248,7 +251,8 @@ function meshaToolsFor(user, watchCtx) {
           const built = buildReferenceSql(text, { name, where, order_by, limit, params });
           if (!built.ok) return { content: [{ type: "text", text: built.out }], isError: true };
           const r = await runSql(built.sql);
-          return { content: [{ type: "text", text: r.out || "(no rows)" }], isError: !r.ok };
+          const sqlNote = show_sql ? `\n\n-- SQL that ran (this question's filters filled in):\n${built.sql}` : "";
+          return { content: [{ type: "text", text: (r.out || "(no rows)") + sqlNote }], isError: !r.ok };
         },
         RO,
       ),
@@ -635,6 +639,8 @@ async function ask(req, res, user) {
     try {
       const r = await runAgent({
         ai, model: metric.model, signal: abort.signal, budgetUsd: capUsd, maxSteps: GEMINI.maxSteps, fallbackModel: GEMINI.fastModel,
+        // Time guard: past this the next turn must answer (quick lookups ~1 min; investigations longer).
+        deadlineMs: (deep ? ANSWER_DEEP_SECONDS : ANSWER_SECONDS) * 1000,
         thinkingLevel: metric.effort === "high" ? "high" : "low",
         systemInstruction: geminiSystemInstruction(cwd),
         contents, tools,
