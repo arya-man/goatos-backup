@@ -686,11 +686,47 @@ EOF
   return 2
 }
 
+# admin_web_deps: a fresh worktree has no node_modules, and `npm ci` there cost ~393s on every
+# landing. node_modules is a pure function of package-lock.json, so keep one copy per lockfile hash
+# and clone it in (APFS clonefile via `cp -c`: instant, copy-on-write, so a run that writes into
+# node_modules/.cache never touches the cached copy). A lockfile change misses the cache and runs
+# the real `npm ci` once, then seeds it. GOATOS_CI_NPM_CACHE=0 forces plain `npm ci`.
+admin_web_deps() {
+  [ -d apps/admin-web/node_modules ] && return 0
+  local lock_hash cache_root cached
+  lock_hash="$(shasum -a 256 apps/admin-web/package-lock.json | cut -c1-16)"
+  cache_root="${GOATOS_CI_NPM_CACHE_DIR:-$HOME/.cache/goatos-ci/admin-web-node_modules}"
+  cached="${cache_root}/${lock_hash}"
+  if [ "${GOATOS_CI_NPM_CACHE:-1}" != "0" ] && [ -f "${cached}/.complete" ]; then
+    if cp -cR "${cached}/node_modules" apps/admin-web/node_modules 2>/dev/null \
+      || cp -R "${cached}/node_modules" apps/admin-web/node_modules; then
+      echo "── ci-local: admin-web deps cloned from lockfile cache ${lock_hash}"
+      return 0
+    fi
+    rm -rf apps/admin-web/node_modules
+  fi
+  npm --prefix apps/admin-web ci || return 1
+  if [ "${GOATOS_CI_NPM_CACHE:-1}" != "0" ]; then
+    local tmp="${cache_root}/.tmp-${lock_hash}-$$"
+    rm -rf "$tmp" && mkdir -p "$tmp" \
+      && { cp -cR apps/admin-web/node_modules "$tmp/node_modules" 2>/dev/null || cp -R apps/admin-web/node_modules "$tmp/node_modules"; } \
+      && touch "$tmp/.complete" && rm -rf "$cached" && mv "$tmp" "$cached" || rm -rf "$tmp"
+  fi
+}
+
+# admin_web_browsers: browser tests fail ~20 min in with "Executable doesn't exist" when the
+# Playwright browser for the installed version was never downloaded (or was cleaned up). Install
+# it up front instead; a no-op when it is already there.
+admin_web_browsers() {
+  (cd apps/admin-web && node -e 'const fs=require("fs");const {chromium}=require("@playwright/test");process.exit(fs.existsSync(chromium.executablePath())?0:1)') 2>/dev/null \
+    && return 0
+  (cd apps/admin-web && npx --no-install playwright install chromium chromium-headless-shell)
+}
+
 run_admin_web() {
   current_job="admin-web"
-  if [ ! -d apps/admin-web/node_modules ]; then
-    step "admin-web deps" npm --prefix apps/admin-web ci
-  fi
+  step "admin-web deps" admin_web_deps
+  step "admin-web playwright browsers" admin_web_browsers
   step "frontend-foundations-guard" make frontend-foundations-guard
   step "admin-web lint"          npm --prefix apps/admin-web run lint
   step "admin-web typecheck"     npm --prefix apps/admin-web run typecheck
