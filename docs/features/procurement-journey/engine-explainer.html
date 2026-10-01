@@ -32,7 +32,8 @@ h2{font-size:clamp(26px,3.8vw,44px);line-height:1.05;font-weight:800}
 .cap{color:var(--mute);font-size:clamp(15px,1.7vw,19px);max-width:62ch;margin:0}
 .stage{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:20px;overflow:hidden}
 .stage svg{display:block;width:100%;height:auto}
-.ctl{position:absolute;bottom:10px;right:12px;display:flex;gap:6px;z-index:2}
+.stage{display:flex;flex-direction:column}
+.ctl{order:2;display:flex;justify-content:flex-end;gap:6px;padding:0 12px 12px}
 .ctl button{font:600 12px/1 var(--f-m);padding:8px 10px;border-radius:999px;border:1px solid var(--line);background:var(--panel2);color:var(--ink);cursor:pointer}
 .ctl button:hover{border-color:var(--brand)}
 .ctl button:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
@@ -344,7 +345,7 @@ svg text{font-family:var(--f-b);fill:var(--ink)}
       <path d="M604 270 C660 270 650 210 700 210" class="ln-brand flow"/>
       <text x="640" y="196" font-size="13" class="t-mute">task done</text>
       <path d="M700 300 C650 300 600 300 316 300" class="ln-mute flow" style="stroke:var(--info)"/>
-      <text x="640" y="330" font-size="13" class="t-mute">open next task</text>
+      <text x="612" y="374" font-size="13" class="t-mute">open next task</text>
       <g class="pop" id="f-tok"><circle cx="0" cy="0" r="9" fill="var(--brand)"/></g>
     </svg>
   </div>
@@ -365,33 +366,41 @@ const sx=i=>70+i*(860/9);
 (()=>{const g=document.getElementById("h-dots"),l=document.getElementById("h-labels");
  STAGES.forEach((s,i)=>{g.append(mk("circle",{cx:sx(i),cy:210,r:13,class:"dot","data-i":i}));
   l.append(mk("text",{x:sx(i),y:i%2?262:270,"text-anchor":"middle","font-size":15,class:"t-mute",dy:i%2?28:0},s));});})();
-/* sim dots */
-(()=>{const g=document.getElementById("sim-dots"),l=document.getElementById("sim-lbl");
- STAGES.forEach((s,i)=>{const x=60+i*(880/9);g.append(mk("circle",{cx:x,cy:170,r:11,class:"dot"}));
-  l.append(mk("text",{x,y:i%2?222:206,"text-anchor":"middle","font-size":14,class:"t-mute"},s));});})();
 /* calendar */
 (()=>{const g=document.getElementById("m-cal");for(let d=10;d<=20;d++){const x=60+(d-10)*82;
  g.append(mk("rect",{x,y:170,width:76,height:60,rx:10,class:"box"}));g.append(mk("text",{x:x+38,y:208,"text-anchor":"middle","font-size":20,class:"t-d"},d));}})();
 
-/* scene engine */
+/* scene engine: rAF clock, steps applied by elapsed time (survives timer throttling) */
+const SCENES=[];
 function Scene(root,build){
   const loop=+root.dataset.loop||0, q=s=>root.querySelector(s);
-  let token=0,timers=[],playing=false,paused=false;
   const api={q,
     on:(s,b=true)=>{const e=typeof s==="string"?q(s):s;e&&e.classList.toggle("on",b)},
     mv:(s,x,y)=>{const e=typeof s==="string"?q(s):s;e.style.transform=`translate(${x}px,${y}px)`},
     txt:(s,t)=>{q(s).textContent=t}};
   const {reset,steps}=build(api);
-  function clear(){timers.forEach(clearTimeout);timers=[]}
-  function hardReset(){root.classList.add("noanim");reset();root.getBoundingClientRect();requestAnimationFrame(()=>root.classList.remove("noanim"))}
-  function jumpEnd(){clear();root.classList.add("noanim");reset();steps.forEach(([,f])=>f(true));root.getBoundingClientRect();requestAnimationFrame(()=>root.classList.remove("noanim"))}
-  function run(){clear();const my=++token;hardReset();
-    steps.forEach(([t,f])=>timers.push(setTimeout(()=>{if(my===token)f(false)},t+60)));
-    if(loop)timers.push(setTimeout(()=>{if(my===token&&playing&&!paused)run()},loop));}
+  const st={playing:false,paused:false,start:0,next:0,visible:false};
+  const sorted=steps.slice().sort((a,b)=>a[0]-b[0]);
+  function quiet(fn){root.classList.add("noanim");fn();root.getBoundingClientRect();setTimeout(()=>root.classList.remove("noanim"),30)}
+  function jumpEnd(){quiet(()=>{reset();sorted.forEach(([,f])=>f(true))})}
+  function restart(now){quiet(reset);st.start=now;st.next=0}
+  st.tick=now=>{
+    if(!st.playing||st.paused)return;
+    if(!st.start)restart(now);
+    const el=now-st.start;
+    while(st.next<sorted.length&&sorted[st.next][0]<=el){sorted[st.next][1](false);st.next++}
+    if(loop&&el>loop)restart(now);
+  };
   jumpEnd();
-  new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting&&!playing){playing=true;paused=false;run()}else if(!e.isIntersecting&&playing){playing=false;token++;jumpEnd()}}),{threshold:.35}).observe(root);
-  root.querySelectorAll("[data-act]").forEach(b=>b.onclick=()=>{if(b.dataset.act==="replay"){paused=false;playing=true;run();root.querySelector('[data-act="pause"]').textContent="Pause"}else{paused=!paused;b.textContent=paused?"Play":"Pause";if(paused){token++;clear()}else run()}});
+  st.enter=()=>{if(!st.playing){st.playing=true;st.paused=false;st.start=0}};
+  st.leave=()=>{if(st.playing){st.playing=false;jumpEnd()}};
+  root.querySelectorAll("[data-act]").forEach(b=>b.onclick=()=>{
+    if(b.dataset.act==="replay"){st.playing=true;st.paused=false;st.start=0;root.querySelector('[data-act="pause"]').textContent="Pause"}
+    else{st.paused=!st.paused;b.textContent=st.paused?"Play":"Pause";if(!st.paused)st.start=0}});
+  st.root=root;SCENES.push(st);
 }
+setInterval(()=>{const now=performance.now();SCENES.forEach(s=>s.tick(now))},50);
+function watch(){const vis=r=>{const b=r.getBoundingClientRect();return b.bottom>innerHeight*0.15&&b.top<innerHeight*0.85};const upd=()=>SCENES.forEach(s=>vis(s.root)?s.enter():s.leave());upd();addEventListener("scroll",upd,{passive:true});addEventListener("resize",upd)}
 
 /* HERO */
 Scene(document.querySelector('[data-scene="hero"]'),a=>{
@@ -477,4 +486,5 @@ Scene(document.querySelector('[data-scene="fit"]'),a=>{
    steps:[[200,()=>a.on(tok)],...pts.map((p,i)=>[300+i*900,()=>{tok.style.transition="transform .85s ease-in-out, opacity .3s";tok.style.transform=`translate(${p[0]}px,${p[1]}px)`}])]};
 });
 
+watch();
 </script>
