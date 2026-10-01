@@ -26,7 +26,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { type SopCardView, type SopTrigger } from "./sop-derive";
+import { type PhoneTaskSummary, type SopCardView, type SopTrigger } from "./sop-derive";
 import { FollowUpStepsSummary } from "./followup-summary";
 import { InspectionSummary } from "./inspection-summary";
 import { PcCareSummary } from "./pc-care-summary";
@@ -253,12 +253,14 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
                       {s.phoneTask ? <span className="tag t-info">{copy(pageContract, "ptask.card.tag")}</span> : null}
                       {s.trigger ? <span className="tag t-info">{s.trigger}</span> : null}
                       {s.inspectionQuestionCount > 0 ? <span className="tag t-info">{s.inspectionQuestionCount} {copy(pageContract, "label.inspection_questions")}</span> : null}
-                      {s.stepCount !== null ? <span className="tag t-ok">{s.stepCount} {copy(pageContract, "label.steps")}</span> : null}
+                      {s.stepCount !== null && !s.phoneTask ? <span className="tag t-ok">{s.stepCount} {copy(pageContract, "label.steps")}</span> : null}
                       {s.followUpStepCount > 0 ? <span className="tag t-info">{s.followUpStepCount} {copy(pageContract, "label.operator_steps")}</span> : null}
                       <StatusTag view={s} />
                     </div>
                     <div className="muted small">
-                      {s.gates.length > 0 ? s.gates.slice(0, 3).join(" · ") : s.hasVersion ? copy(pageContract, "label.no_proof_gates") : copy(pageContract, "label.no_published_version")}
+                      {s.phoneTaskSummary
+                        ? phoneTaskSummaryLine(s.phoneTaskSummary, (key) => copy(pageContract, key))
+                        : s.gates.length > 0 ? s.gates.slice(0, 3).join(" · ") : s.hasVersion ? copy(pageContract, "label.no_proof_gates") : copy(pageContract, "label.no_published_version")}
                     </div>
                   </div>
                 </div>
@@ -483,4 +485,14 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, onEditCapture, ed
       </div>
     </>
   );
+}
+
+/** "2 parks · 2 videos · 1 question": what a phone task asks for, for its library card. */
+export function phoneTaskSummaryLine(summary: PhoneTaskSummary, word: (key: string) => string): string {
+  const part = (n: number, one: string, many: string) => `${n} ${word(n === 1 ? one : many)}`;
+  const parts = [part(summary.parks, "ptask.card.park", "ptask.card.parks")];
+  if (summary.videos > 0) parts.push(part(summary.videos, "ptask.card.video", "ptask.card.videos"));
+  if (summary.photos > 0) parts.push(part(summary.photos, "ptask.card.photo", "ptask.card.photos"));
+  if (summary.questions > 0) parts.push(part(summary.questions, "ptask.card.question", "ptask.card.questions"));
+  return parts.join(" · ");
 }

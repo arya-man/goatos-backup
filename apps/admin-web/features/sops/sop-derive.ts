@@ -360,7 +360,29 @@ export type SopCardView = {
   // TASK WITH ITS OWN PHONE TAB (2026-10-01): the version carries a `phone_task` document -- the
   // card reads as a phone task and Edit opens the phone-task editor.
   phoneTask: boolean;
+  // What a phone task asks for, counted from its own document (the card reads it instead of
+  // "steps" / "proof gates", which a phone task does not have); null for every other SOP.
+  phoneTaskSummary: PhoneTaskSummary | null;
 };
+
+export type PhoneTaskSummary = { parks: number; videos: number; photos: number; questions: number };
+
+/** Counts a version's phone_task document: parks, the least videos / photos asked, questions. */
+export function derivePhoneTaskSummary(formDsl: unknown): PhoneTaskSummary | null {
+  const doc = asObject(asObject(formDsl)?.phone_task);
+  if (!doc) return null;
+  const evidence = asObject(doc.evidence);
+  const min = (kind: string) => {
+    const n = Number(asObject(evidence?.[kind])?.min);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+  };
+  return {
+    parks: Array.isArray(doc.parks) ? doc.parks.length : 0,
+    videos: min("video"),
+    photos: min("photo"),
+    questions: Array.isArray(evidence?.questions) ? (evidence?.questions as unknown[]).length : 0,
+  };
+}
 
 // toSopView maps the real API rows to the card facets. Everything is derived — no invented inventory.
 export function toSopView(def: SopDefLike, version: SopVersionLike | null): SopCardView {
@@ -391,6 +413,7 @@ export function toSopView(def: SopDefLike, version: SopVersionLike | null): SopC
     shiftingFormDsl: version && hasShiftingCards(version.form_dsl) ? version.form_dsl : null,
     toxinFormDsl: version && hasSection(version.form_dsl, "toxin") ? version.form_dsl : null,
     phoneTask: Boolean(version && hasSection(version.form_dsl, "phone_task")),
+    phoneTaskSummary: version ? derivePhoneTaskSummary(version.form_dsl) : null,
     inspectionQuestionCount: version ? deriveInspectionQuestionCount(version.form_dsl) + deriveInspectionQuestionCount(version.form_dsl, "vendor_form") + deriveInspectionQuestionCount(version.form_dsl, "feed_purchase_form") : 0,
     fields: version
       ? deriveFields(version.form_dsl).map((f) => ({ label: f.label, type: f.type, required: f.required, options: f.options, helpText: f.helpText }))

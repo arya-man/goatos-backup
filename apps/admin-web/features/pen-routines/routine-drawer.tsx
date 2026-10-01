@@ -269,7 +269,7 @@ export function RoutineDrawerForm({
         <input type="hidden" name={FORM_JSON_FIELDS.evidence} value={JSON.stringify(evidenceBodyFromDraft(draft))} />
         <input type="hidden" name="occupied_only" value={draft.occupiedOnly ? "on" : "off"} />
 
-        {isEdit ? <div className="note">{copy(pageContract, "hint.versions")}</div> : null}
+        {isEdit && !managedNote ? <div className="note">{copy(pageContract, "hint.versions")}</div> : null}
         {managedNote ? <div className="note prt-managed">{managedNote}</div> : null}
         {!managedNote && readOnly ? <div className="note">{copy(pageContract, "configure.disabled_no_access")}</div> : null}
 

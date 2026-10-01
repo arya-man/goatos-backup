@@ -135,3 +135,13 @@ test("every module SOP page offers New phone task and opens a phone-task SOP in 
   const phoneActions = actions.slice(actions.indexOf("export async function savePhoneTaskVersion"));
   assert.doesNotMatch(phoneActions, /revalidatePath/);
 });
+
+test("a phone-task SOP card reads its parks, videos, photos and questions, never steps or gates", async () => {
+  const { derivePhoneTaskSummary } = await import("./sop-derive.ts");
+  const summary = derivePhoneTaskSummary({ fields: [], phone_task: { parks: [{}, {}], evidence: { video: { min: 2, max: 2 }, photo: { min: 0, max: 0 }, questions: [{}] } } });
+  assert.deepEqual(summary, { parks: 2, videos: 2, photos: 0, questions: 1 });
+  assert.equal(derivePhoneTaskSummary({ fields: [{}] }), null);
+  const lib = readFileSync(new URL("./sop-library.tsx", import.meta.url), "utf8");
+  assert.match(lib, /s\.stepCount !== null && !s\.phoneTask/);
+  assert.match(lib, /s\.phoneTaskSummary\s*\?\s*phoneTaskSummaryLine/);
+});
