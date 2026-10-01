@@ -38,14 +38,16 @@ import {
   VIDEO_LOG_SHED_TOKEN,
 } from "./video-log-params";
 import { VideoLog } from "./video-log";
-import { FeedVerification, FEED_VERIFICATION_PARK_TOKEN } from "./feed-verification";
+import { FeedVerification } from "./feed-verification";
 import { FeedVerificationPanel } from "./feed-verification-panel";
+import type { FeedVerificationViewProps } from "./feed-verification-view";
 // Server-safe module on purpose: see video-log-params.ts.
 import {
   FEED_VERIFICATION_DATE_KEY,
   FEED_VERIFICATION_PANEL_ID,
   FEED_VERIFICATION_PANEL_SELECTION_KEY,
   FEED_VERIFICATION_PARK_KEY,
+  FEED_VERIFICATION_PARK_TOKEN,
 } from "./feed-verification-params";
 import { VerificationReviewDrawer } from "./verification-review-drawer";
 import { VerificationQueueTelemetry } from "./verification-queue-telemetry";
@@ -128,6 +130,40 @@ export async function VerificationReviewPage({
   if (authError) redirect(INTERNAL_LOGIN_PATH);
 
   const items = queue.ok ? queue.data.items : [];
+  // FEED VERIFICATION's render props, shared by the server render (deep link) and the drawer's own
+  // load (button open), so both draw the same day the same way.
+  const feedVerificationOpenInQuery = one(sp, FEED_VERIFICATION_PANEL_SELECTION_KEY) === FEED_VERIFICATION_PANEL_ID;
+  const feedVerificationDay = one(sp, FEED_VERIFICATION_DATE_KEY) || undefined;
+  const feedVerificationView: FeedVerificationViewProps = {
+    pageContract,
+    parkFilter: one(sp, FEED_VERIFICATION_PARK_KEY) || undefined,
+    // Both hrefs re-assert the panel key in the QUERY so the drawer survives the navigation.
+    parkHrefTemplate: hrefWith(sp, {
+      [FEED_VERIFICATION_PARK_KEY]: FEED_VERIFICATION_PARK_TOKEN,
+      [FEED_VERIFICATION_PANEL_SELECTION_KEY]: FEED_VERIFICATION_PANEL_ID,
+    }),
+    allParksHref: hrefWith(sp, {
+      [FEED_VERIFICATION_PARK_KEY]: null,
+      [FEED_VERIFICATION_PANEL_SELECTION_KEY]: FEED_VERIFICATION_PANEL_ID,
+    }),
+    basePath: PATHNAME,
+    today,
+    dateKey: FEED_VERIFICATION_DATE_KEY,
+    panelKey: FEED_VERIFICATION_PANEL_SELECTION_KEY,
+    panelId: FEED_VERIFICATION_PANEL_ID,
+    dateLabels: {
+      field: copy(pageContract, "feed_verification.day"),
+      today: copy(pageContract, "filter.date.today"),
+      single: copy(pageContract, "filter.date.single"),
+      range: copy(pageContract, "filter.date.range"),
+      aria: copy(pageContract, "filter.date.aria"),
+      previousMonth: copy(pageContract, "filter.date.previous_month"),
+      nextMonth: copy(pageContract, "filter.date.next_month"),
+      rangeStartHint: copy(pageContract, "filter.date.range_start_hint"),
+      rangeEndHint: copy(pageContract, "filter.date.range_end_hint"),
+      rangeSeparator: copy(pageContract, "filter.date.range_separator"),
+    },
+  };
   const selectedId = one(sp, "vi_row") ?? (one(sp, "vi_open_first") === "1" ? items[0]?.item_id : undefined);
   // `?? []` is not defensive noise: admin-web and the API deploy separately, so a browser can hit a
   // backend one release behind that has no `modules` in its filter options. The contract declares
@@ -403,40 +439,17 @@ export async function VerificationReviewPage({
               [FEED_VERIFICATION_DATE_KEY]: null,
               [FEED_VERIFICATION_PARK_KEY]: null,
             })}
-            initialOpen={one(sp, FEED_VERIFICATION_PANEL_SELECTION_KEY) === FEED_VERIFICATION_PANEL_ID}
+            initialOpen={feedVerificationOpenInQuery}
+            view={feedVerificationView}
+            feedDay={feedVerificationDay}
+            parkId={scope.parkId || undefined}
           >
-            <FeedVerification
-              pageContract={pageContract}
-              feedDay={one(sp, FEED_VERIFICATION_DATE_KEY) || undefined}
-              parkId={scope.parkId || undefined}
-              parkFilter={one(sp, FEED_VERIFICATION_PARK_KEY) || undefined}
-              // Both hrefs re-assert the panel key in the QUERY so the drawer survives the navigation.
-              parkHrefTemplate={hrefWith(sp, {
-                [FEED_VERIFICATION_PARK_KEY]: FEED_VERIFICATION_PARK_TOKEN,
-                [FEED_VERIFICATION_PANEL_SELECTION_KEY]: FEED_VERIFICATION_PANEL_ID,
-              })}
-              allParksHref={hrefWith(sp, {
-                [FEED_VERIFICATION_PARK_KEY]: null,
-                [FEED_VERIFICATION_PANEL_SELECTION_KEY]: FEED_VERIFICATION_PANEL_ID,
-              })}
-              basePath={PATHNAME}
-              today={today}
-              dateKey={FEED_VERIFICATION_DATE_KEY}
-              panelKey={FEED_VERIFICATION_PANEL_SELECTION_KEY}
-              panelId={FEED_VERIFICATION_PANEL_ID}
-              dateLabels={{
-                field: copy(pageContract, "feed_verification.day"),
-                today: copy(pageContract, "filter.date.today"),
-                single: copy(pageContract, "filter.date.single"),
-                range: copy(pageContract, "filter.date.range"),
-                aria: copy(pageContract, "filter.date.aria"),
-                previousMonth: copy(pageContract, "filter.date.previous_month"),
-                nextMonth: copy(pageContract, "filter.date.next_month"),
-                rangeStartHint: copy(pageContract, "filter.date.range_start_hint"),
-                rangeEndHint: copy(pageContract, "filter.date.range_end_hint"),
-                rangeSeparator: copy(pageContract, "filter.date.range_separator"),
-              }}
-            />
+            {/* The day is read HERE only when the URL already asks for the panel. A closed panel
+                -- the queue landing, every Accept redirect to the next video -- makes no feed
+                read; the drawer loads the day itself when its button opens it. */}
+            {feedVerificationOpenInQuery ? (
+              <FeedVerification {...feedVerificationView} feedDay={feedVerificationDay} parkId={scope.parkId || undefined} />
+            ) : null}
           </FeedVerificationPanel>
         ) : null}
         {/* RANDOMIZATION: how much of each module's proof the verifier is required to watch

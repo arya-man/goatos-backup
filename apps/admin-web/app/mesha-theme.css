@@ -920,21 +920,29 @@
   /* ===== Feed Verification (maintainer decisions 2026-09-28): one feed day per pen and session --
      planned, packed yesterday, fed today. Reuses the Video Log's table and head rules (.vr-videolog,
      .vl-tbl); only what differs is here. Same width as the Analytics drawer: eight columns. ===== */
-  aside.drawer.vr-feedverify-drawer{width:min(940px,96vw)}
+  aside.drawer.vr-feedverify-drawer{width:min(1120px,96vw)}
   /* Picker, "Packed on", CSV: wraps on a phone rather than pushing the drawer sideways. */
   .vr-feedverify .vl-head{flex-wrap:wrap}
+  /* The selection bar stays pinned while the drawer body (.dc, 20px top padding) scrolls the table. */
+  .vr-feedverify .fv-top{position:sticky;top:-20px;z-index:2;background:var(--bg);margin-top:-20px;padding-top:20px}
+  .vr-feedverify .fv-top .vl-head{margin-bottom:10px}
+  .vr-feedverify .fv-top .fv-parks{margin-bottom:0;padding-bottom:12px}
   .vr-feedverify .fv-packed{flex:none}
   .vr-feedverify .fv-packed b{color:var(--ink);font-variant-numeric:tabular-nums}
   .vr-feedverify .fv-parks{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
   .vr-feedverify .fv-parks a{background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:3px 11px;font-size:12px;font-weight:650;color:var(--muted);text-decoration:none}
   .vr-feedverify .fv-parks a.on{border-color:var(--brand);color:var(--brand-d);background:var(--brand-soft)}
-  .vr-feedverify .fv-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-bottom:14px}
+  .vr-feedverify .fv-counts{display:flex;flex-wrap:wrap;gap:6px 18px;margin:2px 0 10px}
+  .vr-feedverify .fv-count b{color:var(--ink);font-variant-numeric:tabular-nums;font-size:14px}
+  .vr-feedverify .fv-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:14px}
   .vr-feedverify .fv-kpi{border:1px solid var(--line2);border-radius:10px;padding:8px 10px;min-width:0}
   .vr-feedverify .fv-kpi-v{font-size:16px;font-weight:750;color:var(--ink);font-variant-numeric:tabular-nums}
   /* The table owns its horizontal scroll; the page body never scrolls sideways (phone-390 rule). */
   .vr-feedverify .fv-tablewrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
   .vr-feedverify .fv-table{min-width:640px}
   .vr-feedverify .fv-table .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  /* Number headers may wrap ("Packed yesterday" over "(kg)") so nine columns fit the drawer. */
+  .screen .vr-feedverify .fv-table th.num{white-space:normal;vertical-align:bottom;max-width:110px}
   .screen .vr-feedverify .fv-table th.num{text-align:right}
   .vr-feedverify .fv-table .fv-over{color:var(--amber);font-weight:650}
   .vr-feedverify .fv-table .fv-under{color:var(--danger);font-weight:650}
@@ -951,6 +959,7 @@
   /* Phone: park, session and both statuses fold into the pen cell (fv-phone) and their columns drop
      (fv-desk), so planned / packed / fed / difference fit 390px without panning. */
   @media (max-width:600px){
+    .vr-feedverify .fv-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
     .vr-feedverify .fv-desk{display:none}
     .vr-feedverify .fv-phone{display:block}
     .vr-feedverify .fv-phone-tags{display:block}

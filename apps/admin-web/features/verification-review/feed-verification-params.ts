@@ -14,3 +14,6 @@ export const FEED_VERIFICATION_DATE_KEY = "fv_date";
  * whatever the top bar already selected, without reshaping the queue behind the drawer.
  */
 export const FEED_VERIFICATION_PARK_KEY = "fv_park";
+
+/** Placeholder the page puts in the park href template; only URL-safe characters, so it survives. */
+export const FEED_VERIFICATION_PARK_TOKEN = "__FVPARK__";

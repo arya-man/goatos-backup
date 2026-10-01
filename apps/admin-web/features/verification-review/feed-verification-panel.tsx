@@ -3,19 +3,28 @@
 import { LocalOverlayLink, useLocalOverlaySelection } from "@/components/local-overlay-link";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { Scale, X } from "lucide-react";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+
+import { loadFeedVerificationLogAction } from "./feed-verification-actions";
+import { FeedVerificationView, type FeedVerificationViewProps } from "./feed-verification-view";
 
 /**
  * Opens FEED VERIFICATION in a drawer beside the Video Log (maintainer decision 2026-09-28): for one
  * feed day, per park, pen and session, the planned feed beside the weight the verifier entered for
  * the bag packed the day before.
  *
- * A sibling of VideoLogPanel, same mechanics: the content is SERVER-rendered and passed in as
- * `children`, so opening is instant client-local state with no request; `useLocalOverlaySelection`
+ * A sibling of VideoLogPanel for opening and closing: instant client-local state with no request;
+ * `useLocalOverlaySelection`
  * keeps a real `#vi_feed_verify=open` deep link with Back/Escape/scrim/X close and focus
  * restoration. Not gated here: the caller renders this only when the `feed_verification` contract
  * control is enabled -- the same capability (permissions.VerificationFeedPackingLog, verifier + CXO)
  * that gates the endpoint behind `children`.
+ *
+ * THE DAY IS NOT FETCHED BY THE PAGE UNLESS THE URL ASKS FOR THE PANEL. `children` is the
+ * server-rendered day only when the query already says open (a deep link, or a date / park change
+ * made inside the panel). Otherwise it is absent, and the drawer loads the day ITSELF the first
+ * time it opens (loadFeedVerificationLogAction) -- so a /verify render with the panel closed, which
+ * is every queue landing and every Accept redirect to the next video, makes no feed read at all.
  *
  * Keys arrive as props, not imports: a constant imported into a "use client" module from the
  * server page is fine, but this panel must not become the module the page imports them FROM (see
@@ -27,6 +36,9 @@ export function FeedVerificationPanel({
   initialOpen,
   selectionKey,
   panelId,
+  view,
+  feedDay,
+  parkId,
   children,
 }: {
   pageContract: AdminUiPageContract;
@@ -36,7 +48,13 @@ export function FeedVerificationPanel({
   initialOpen?: boolean;
   selectionKey: string;
   panelId: string;
-  children: ReactNode;
+  /** How to render a day the drawer loaded itself. */
+  view: FeedVerificationViewProps;
+  /** The day and top-bar park scope the drawer loads when it has no server-rendered day. */
+  feedDay?: string;
+  parkId?: string;
+  /** The server-rendered day, present only when the URL already asked for the panel. */
+  children?: ReactNode;
 }) {
   const { drawerOpen, displayedItem, closeDrawer, closeButtonRef } = useLocalOverlaySelection({
     items: PANEL_ITEMS,
@@ -45,6 +63,34 @@ export function FeedVerificationPanel({
     initialSelectedId: initialOpen ? panelId : undefined,
     closeHref,
   });
+  const serverRendered = children != null;
+  const [loaded, setLoaded] = useState<
+    { state: "loading" } | { state: "ready"; log: Parameters<typeof FeedVerificationView>[0]["log"] } | { state: "failed" } | null
+  >(null);
+  // A closed drawer forgets the day it loaded, so the next open reads it again: the verifier keeps
+  // deciding videos with the drawer shut, and a reopened drawer must not show the old totals.
+  useEffect(() => {
+    if (!drawerOpen) setLoaded(null);
+  }, [drawerOpen]);
+  // Load on open, only when the page did not already render the day. The request is cancelled
+  // only by the drawer CLOSING (or the inputs changing) -- never by its own "loading" state, which
+  // would discard the answer it is waiting for.
+  const needsLoad = drawerOpen && !serverRendered;
+  useEffect(() => {
+    if (!needsLoad) return;
+    let live = true;
+    setLoaded({ state: "loading" });
+    loadFeedVerificationLogAction(feedDay, parkId)
+      .then((result) => {
+        if (live) setLoaded(result.ok ? { state: "ready", log: result.log } : { state: "failed" });
+      })
+      .catch(() => {
+        if (live) setLoaded({ state: "failed" });
+      });
+    return () => {
+      live = false;
+    };
+  }, [needsLoad, feedDay, parkId]);
   const title = copy(pageContract, "feed_verification.title");
   const closeLabel = copy(pageContract, "feed_verification.close");
 
@@ -83,7 +129,21 @@ export function FeedVerificationPanel({
                 <X className="ic" />
               </button>
             </div>
-            <div className="dc">{children}</div>
+            <div className="dc">
+              {serverRendered ? (
+                children
+              ) : loaded?.state === "ready" ? (
+                <FeedVerificationView {...view} log={loaded.log} />
+              ) : loaded?.state === "failed" ? (
+                <div className="small muted">{copy(pageContract, "feed_verification.unavailable")}</div>
+              ) : (
+                <div className="vr-feedverify" aria-busy="true">
+                  <div className="skel" style={{ width: 220, height: 32 }} />
+                  <div className="skel" style={{ width: "100%", height: 56, marginTop: 12 }} />
+                  <div className="skel" style={{ width: "100%", height: 180, marginTop: 12 }} />
+                </div>
+              )}
+            </div>
           </aside>
         </>
       ) : null}
