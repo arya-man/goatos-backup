@@ -90,7 +90,11 @@ export function mcpToolToDeclaration(t) {
 
 // Connect an MCP client to an in-process McpServer (the same "mesha" server the tools live in)
 // and expose its tools as {declarations, call(name,args)}.
-export async function connectMcp(server, { timeoutMs = 2_100_000 } = {}) {
+// Per-call timeout: watch_tags may legitimately run up to its 30-min cap (+1 min slack); every
+// other tool is a bounded read (SQL is killed at 75 s), so 2 min is plenty.
+export const MCP_TIMEOUT_MS = 120_000;
+export const MCP_WATCH_TIMEOUT_MS = 31 * 60_000;
+export async function connectMcp(server, { timeoutMs = MCP_TIMEOUT_MS, watchTimeoutMs = MCP_WATCH_TIMEOUT_MS, signal } = {}) {
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   await server.connect(serverSide);
   const client = new Client({ name: "ask-mesha-gemini", version: "1.0.0" });
@@ -100,7 +104,9 @@ export async function connectMcp(server, { timeoutMs = 2_100_000 } = {}) {
     names: tools.map((t) => t.name),
     declarations: tools.map(mcpToolToDeclaration),
     async call(name, args) {
-      const r = await client.callTool({ name, arguments: args || {} }, undefined, { timeout: timeoutMs });
+      const r = await client.callTool({ name, arguments: args || {} }, undefined, {
+        timeout: name === "watch_tags" ? watchTimeoutMs : timeoutMs, ...(signal ? { signal } : {}),
+      });
       const text = (r.content || []).filter((c) => c.type === "text").map((c) => c.text).join("\n");
       return { text, isError: Boolean(r.isError) };
     },
@@ -133,6 +139,25 @@ export function isRetryable(err) {
 
 const sleep = (ms, signal) => new Promise((r) => { const t = setTimeout(r, ms); signal?.addEventListener("abort", () => { clearTimeout(t); r(); }, { once: true }); });
 
+export const MAX_STEPS_NOTE = "You have used all your lookup steps. Answer now from what you already found, and say plainly what you could not finish checking.";
+export const MAX_PARALLEL_TOOLS = 4;
+// Images/PDFs sent to the model in one answer (attachments + read_file), base64 chars.
+export const INLINE_BUDGET_CHARS = 20 * 1024 * 1024;
+function appendUserText(convo, text) {
+  const last = convo[convo.length - 1];
+  if (last?.role === "user") last.parts.push({ text });
+  else convo.push({ role: "user", parts: [{ text }] });
+}
+// Map with at most `limit` in flight, results in input order.
+export async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) { const i = next++; out[i] = await fn(items[i], i); }
+  }));
+  return out;
+}
+
 export const EMPTY_TURN_NUDGE = "Continue: use the tools you need, then write the final answer for the user.";
 
 // The loop. tools: { declarations: [...], call(name, args) -> {text, isError, inline?} }.
@@ -141,6 +166,7 @@ export const EMPTY_TURN_NUDGE = "Continue: use the tools you need, then write th
 export async function runAgent({
   ai, model, systemInstruction, contents, tools, onEvent = () => {}, signal,
   maxSteps = 40, budgetUsd = Infinity, thinkingLevel, env = process.env, retryDelayMs = 2000,
+  fallbackModel = null, inlineBudget = INLINE_BUDGET_CHARS,
 }) {
   const usage = { input: 0, output: 0, cached: 0, thoughts: 0 };
   let costUsd = 0;
@@ -149,12 +175,14 @@ export async function runAgent({
   const convo = [...contents];
   let callSeq = 0;
   let nudged = false;
+  let inlineUsed = contents.reduce((n, c) => n + (c.parts || []).reduce((m, p) => m + String(p.inlineData?.data || "").length, 0), 0);
   for (let step = 0; ; step++) {
     if (signal?.aborted) throw new Error("client_aborted");
     const finalOnly = step >= maxSteps; // out of steps: one last turn without tools to write the answer
     if (finalOnly) {
       error = "error_max_turns";
-      convo.push({ role: "user", parts: [{ text: "You have used all your lookup steps. Answer now from what you already found, and say plainly what you could not finish checking." }] });
+      // Folded into the tool-results turn: two user turns in a row is not a valid Gemini history.
+      appendUserText(convo, MAX_STEPS_NOTE);
     }
     onEvent({ type: "step" });
     const config = {
@@ -189,7 +217,11 @@ export async function runAgent({
         break;
       } catch (e) {
         if (signal?.aborted || e?.name === "AbortError") throw new Error("client_aborted");
-        if (!streamed && attempt < 2 && isRetryable(e)) { await sleep(retryDelayMs * (attempt + 1), signal); continue; }
+        if (!streamed && isRetryable(e)) {
+          if (attempt < 3) { await sleep(retryDelayMs * 2 ** attempt, signal); continue; }
+          // Still rate-limited after backoff (shared preview quota): finish the answer on the fallback model.
+          if (fallbackModel && model !== fallbackModel) { onEvent({ type: "model_fallback", from: model, to: fallbackModel }); model = fallbackModel; attempt = -1; continue; }
+        }
         throw e;
       }
     }
@@ -205,26 +237,32 @@ export async function runAgent({
     // A turn with no calls and no text (seen live after a get_skill call): ask once for the answer.
     if (!calls.length && !turnText && !finalOnly && !nudged) {
       nudged = true;
-      convo.push({ role: "user", parts: [{ text: EMPTY_TURN_NUDGE }] });
+      appendUserText(convo, EMPTY_TURN_NUDGE);
       continue;
     }
     if (!calls.length || finalOnly) {
       onEvent({ type: "turn_end", final: true });
-      return { text: lastText, steps: step + 1, usage, costUsd, error };
+      return { text: lastText, steps: step + 1, usage, costUsd, error, model };
     }
     onEvent({ type: "turn_end", final: false });
     if (costUsd >= budgetUsd) {
       // Same contract as the SDK's maxBudgetUsd: stop spending, keep what was written.
-      return { text: lastText, steps: step + 1, usage, costUsd, error: "error_max_budget_usd" };
+      return { text: lastText, steps: step + 1, usage, costUsd, error: "error_max_budget_usd", model };
     }
     const withIds = calls.map((c) => ({ ...c, _id: c.id || `call_${++callSeq}` }));
     for (const c of withIds) onEvent({ type: "tool_call", id: c._id, name: c.name, args: c.args || {} });
-    const results = await Promise.all(withIds.map(async (c) => {
+    const results = await mapLimit(withIds, MAX_PARALLEL_TOOLS, async (c) => {
       let r;
       try { r = await tools.call(c.name, c.args || {}); } catch (e) { r = { text: `Tool failed: ${String(e?.message || e).slice(0, 500)}`, isError: true }; }
       onEvent({ type: "tool_result", id: c._id, name: c.name, args: c.args || {}, text: r.text, isError: Boolean(r.isError) });
+      // Image budget per answer: past it, the tool still answers in text but the image is not sent.
+      if (r.inline) {
+        const size = String(r.inline.data || "").length;
+        if (inlineUsed + size > inlineBudget) r = { ...r, inline: undefined, text: `${r.text || ""}\n(Not shown: this answer already looked at as many images as it can.)` };
+        else inlineUsed += size;
+      }
       return { c, r };
-    }));
+    });
     if (signal?.aborted) throw new Error("client_aborted");
     convo.push({ role: "user", parts: results.map(({ c, r }) => ({
       functionResponse: {

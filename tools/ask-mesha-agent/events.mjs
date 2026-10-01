@@ -33,7 +33,7 @@ export function classifyFailure(error, { aborted = false } = {}) {
   if (/max_budget|per_answer_cap/i.test(e)) return "per_answer_cap";
   if (/timeout|timed out|ETIMEDOUT|statement_timeout/i.test(e)) return "timeout";
   if (/pgenv|psql|postgres|ECONNREFUSED|ask_mesha\.|relation .* does not exist|database/i.test(e)) return "db_error";
-  if (/^error_|claude|anthropic|vertex|sdk|process exited|overloaded|rate.?limit|api error/i.test(e)) return "sdk_error";
+  if (/^error_|gemini|vertex|resource_exhausted|\b429\b|sdk|process exited|overloaded|rate.?limit|api error/i.test(e)) return "sdk_error";
   return "unknown";
 }
 

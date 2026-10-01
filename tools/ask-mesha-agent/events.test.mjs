@@ -21,7 +21,7 @@ test("classifyFailure maps errors to classes", () => {
   const cases = {
     error_max_budget_usd: "per_answer_cap",
     error_during_execution: "sdk_error",
-    "Claude Code process exited with code 1": "sdk_error",
+    "{\"error\":{\"code\":429,\"status\":\"RESOURCE_EXHAUSTED\"}}": "sdk_error",
     "missing /x/.pgenv; create it": "db_error",
     'relation "ask_mesha.chats" does not exist': "db_error",
     "Request timed out": "timeout",

@@ -16,6 +16,13 @@ export const INLINE_MAX_BYTES = 7 * 1024 * 1024;
 
 // Credential-shaped names (the image scrub removes these too; this is the runtime net).
 const SECRET_RE = /(^|\/)(\.env(\..*)?|\.pgenv|\.npmrc|\.netrc|\.git-credentials|id_(rsa|ed25519|ecdsa)[^/]*|[^/]*\.(pem|key|p12|pfx|jks|keystore)|[^/]*(service[-_]?account|credentials?)[^/]*\.json|application_default_credentials\.json)$/i;
+// The same credential shapes as ripgrep globs, so grep/glob never list or search them.
+export const SECRET_GLOBS = [
+  "**/.env", "**/.env.*", "**/.pgenv", "**/.npmrc", "**/.netrc", "**/.git-credentials", "**/id_rsa*", "**/id_ed25519*", "**/id_ecdsa*",
+  "**/*.pem", "**/*.key", "**/*.p12", "**/*.pfx", "**/*.jks", "**/*.keystore",
+  "**/*service-account*.json", "**/*service_account*.json", "**/*serviceaccount*.json", "**/*credential*.json", "**/application_default_credentials.json",
+  "**/.git/**", "**/node_modules/**",
+];
 export function isSecretPath(p) {
   return SECRET_RE.test(String(p).replace(/\\/g, "/"));
 }
@@ -27,18 +34,23 @@ export function inlineMime(p) {
 const clip = (s, max = TOOL_OUTPUT_MAX_CHARS) => (s.length > max ? s.slice(0, max) + `\n… (output clipped at ${max} chars; narrow the search)` : s);
 
 // roots: directories readable besides the repo (this chat's attachment dirs).
-export function createCodeTools({ repo, roots = [], rgBin = "rg", execImpl = execFile } = {}) {
+export function createCodeTools({ repo, roots = [], rgBin = "rg", execImpl = execFile, signal } = {}) {
   const allRoots = [repo, ...roots];
   function resolveSafe(p, { mustExist = true } = {}) {
     const raw = String(p ?? "").trim() || ".";
     const abs = path.resolve(repo, raw);
     if (!pathAllowed(abs, repo, allRoots)) return { ok: false, out: "Ask Mesha can only read the goatos repo and this chat's attachments." };
-    if (isSecretPath(abs) || abs.split(path.sep).includes(".git")) return { ok: false, out: "That file is not readable here." };
     if (mustExist && !fs.existsSync(abs)) return { ok: false, out: `No such file or directory: ${raw}` };
-    return { ok: true, abs };
+    // Deny checks on the path as written AND its realpath (a symlink named notes.txt -> .env).
+    let realAbs = abs;
+    try { realAbs = fs.realpathSync(abs); } catch {}
+    for (const p of [abs, realAbs]) {
+      if (isSecretPath(p) || p.split(path.sep).includes(".git")) return { ok: false, out: "That file is not readable here." };
+    }
+    return { ok: true, abs: realAbs };
   }
   const rg = (args, cwd) => new Promise((resolve) => {
-    execImpl(rgBin, ["--no-config", "--color=never", ...args], { cwd, timeout: 20_000, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
+    execImpl(rgBin, ["--no-config", "--color=never", ...args], { cwd, timeout: 20_000, maxBuffer: 8 * 1024 * 1024, ...(signal ? { signal } : {}) }, (err, stdout, stderr) => {
       // rg exits 1 for "no matches": not an error.
       if (err && err.code !== 1) return resolve({ ok: false, out: String(stderr || err.message).slice(0, 2000) });
       resolve({ ok: true, out: String(stdout || "") });
@@ -74,14 +86,15 @@ export function createCodeTools({ repo, roots = [], rgBin = "rg", execImpl = exe
     const args = [];
     if (case_insensitive) args.push("-i");
     if (glob) args.push("--glob", String(glob));
-    for (const g of ["!**/.env*", "!**/*.pem", "!**/*.key", "!**/.pgenv", "!**/node_modules/**"]) args.push("--glob", g);
+    for (const g of SECRET_GLOBS) args.push("--glob", `!${g}`);
     if (output_mode === "content") { args.push("-n"); if (context) args.push("-C", String(Math.min(10, Number(context) || 0))); }
     else if (output_mode === "count") args.push("-c");
     else args.push("-l");
     args.push("--max-columns", "400", "-e", String(pattern), "--", r.abs);
     const res = await rg(args, repo);
     if (!res.ok) return { text: res.out, isError: true };
-    let lines = res.out.split("\n").filter(Boolean).map((l) => (l.startsWith(repo + path.sep) ? l.slice(repo.length + 1) : l));
+    let lines = res.out.split("\n").filter(Boolean).map((l) => (l.startsWith(repo + path.sep) ? l.slice(repo.length + 1) : l))
+      .filter((l) => !isSecretPath(l.split(":")[0]));
     const lim = Math.max(1, Math.min(1000, Number(head_limit) || 250));
     const total = lines.length;
     lines = lines.slice(0, lim);
@@ -92,7 +105,7 @@ export function createCodeTools({ repo, roots = [], rgBin = "rg", execImpl = exe
     if (!pattern) return { text: "Give a glob pattern, e.g. backend/internal/**/weigh*.go", isError: true };
     const r = resolveSafe(p || ".");
     if (!r.ok) return { text: r.out, isError: true };
-    const res = await rg(["--files", "--glob", String(pattern), "--glob", "!**/node_modules/**", r.abs], repo);
+    const res = await rg(["--files", "--glob", String(pattern), ...SECRET_GLOBS.flatMap((g) => ["--glob", `!${g}`]), r.abs], repo);
     if (!res.ok) return { text: res.out, isError: true };
     const files = res.out.split("\n").filter(Boolean).filter((f) => !isSecretPath(f)).map((f) => rel(path.resolve(repo, f))).sort();
     const shown = files.slice(0, GLOB_MAX_FILES);

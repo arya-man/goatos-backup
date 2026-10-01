@@ -22,7 +22,7 @@ import {
 import { createWatchRegistry, WATCH_TAGS_DESCRIPTION, watchTagsHandler, watchTagsSchema } from "./watch.mjs";
 import { checkAnswer, makeEvidence, needsCheck } from "./checker.mjs";
 import { geminiInstructionPack, tableIndexSection, TABLE_INDEX_SQL } from "./instructions.mjs";
-import { geminiConfig, createClient, connectMcp, runAgent, generateOnce, historyContents } from "./gemini.mjs";
+import { geminiConfig, createClient, connectMcp, runAgent, generateOnce, historyContents, INLINE_BUDGET_CHARS } from "./gemini.mjs";
 import { createCodeTools, CODE_TOOL_DECLARATIONS, inlineMime, INLINE_MAX_BYTES } from "./code-tools.mjs";
 
 const PORT = Number(process.env.PORT || 8787);
@@ -608,18 +608,22 @@ async function ask(req, res, user) {
     // Stateless across turns: the stored chat history is replayed as real user/model turns.
     const userParts = [{ text: prompt }];
     // Screenshots/PDFs reach the model directly as inline parts (and stay readable via read_file).
+    let inlineChars = 0;
     for (const f of up.files) {
       const mime = inlineMime(f.name) || (/^image\/(png|jpe?g|gif|webp)$|^application\/pdf$/.test(f.type) ? f.type : null);
       if (!mime) continue;
       try {
         const st = fs.statSync(f.path);
-        if (st.size <= INLINE_MAX_BYTES) userParts.push({ inlineData: { mimeType: mime, data: fs.readFileSync(f.path).toString("base64") } });
+        if (st.size > INLINE_MAX_BYTES || inlineChars + Math.ceil(st.size / 3) * 4 > INLINE_BUDGET_CHARS) continue;
+        const data = fs.readFileSync(f.path).toString("base64");
+        inlineChars += data.length;
+        userParts.push({ inlineData: { mimeType: mime, data } });
       } catch {}
     }
     const contents = [...historyContents(history), { role: "user", parts: userParts }];
     if (abort.signal.aborted) throw new Error("client_aborted"); // deleted/closed before the model started
-    const code = createCodeTools({ repo: cwd, roots: [WORKTREES, path.join(os.tmpdir(), "ask-mesha", chat.id), path.join(STATE, "uploads", chat.id)] });
-    const mcp = await connectMcp(meshaToolsFor(user, { send, signal: abort.signal, stopReason: () => stopReason, chatId: chat.id, tenantId: user.tenantId, allowAllTenants: user.email === "bench@local", evCtx: trackCtx, run, snapshotOnly: !streaming }));
+    const code = createCodeTools({ repo: cwd, signal: abort.signal, roots: [WORKTREES, path.join(os.tmpdir(), "ask-mesha", chat.id), path.join(STATE, "uploads", chat.id)] });
+    const mcp = await connectMcp(meshaToolsFor(user, { send, signal: abort.signal, stopReason: () => stopReason, chatId: chat.id, tenantId: user.tenantId, allowAllTenants: user.email === "bench@local", evCtx: trackCtx, run, snapshotOnly: !streaming }), { signal: abort.signal });
     const codeNames = new Set(CODE_TOOL_DECLARATIONS.map((d) => d.name));
     const tools = {
       declarations: [...mcp.declarations, ...CODE_TOOL_DECLARATIONS],
@@ -629,7 +633,7 @@ async function ask(req, res, user) {
     started = true;
     try {
       const r = await runAgent({
-        ai, model: metric.model, signal: abort.signal, budgetUsd: capUsd, maxSteps: GEMINI.maxSteps,
+        ai, model: metric.model, signal: abort.signal, budgetUsd: capUsd, maxSteps: GEMINI.maxSteps, fallbackModel: GEMINI.fastModel,
         thinkingLevel: metric.effort === "high" ? "high" : "low",
         systemInstruction: geminiSystemInstruction(cwd),
         contents, tools,
@@ -660,6 +664,9 @@ async function ask(req, res, user) {
             if (ev.name === "run_sql" || ev.name === "run_reference") metric.db_queries += 1;
             track.toolStart(ev.id, legacy, label);
             send({ type: "progress", phase: "querying", label });
+          } else if (ev.type === "model_fallback") {
+            console.warn(`[model] ${requestId} ${ev.from} rate-limited after retries; continuing on ${ev.to}`);
+            metric.model_fallback = ev.to;
           } else if (ev.type === "tool_result") {
             track.toolEnd(ev.id, ev.isError, ev.text);
             if (EVIDENCE_NAMES.has(ev.name) && !ev.isError) evidence.add(ev.text);
@@ -667,6 +674,7 @@ async function ask(req, res, user) {
         },
       });
       metric.turns = r.steps;
+      metric.model = r.model || metric.model;
       metric.input_tokens = r.usage.input;
       metric.output_tokens = r.usage.output + r.usage.thoughts;
       metric.cache_read_tokens = r.usage.cached;

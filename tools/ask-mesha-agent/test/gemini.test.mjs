@@ -11,6 +11,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
   runAgent, connectMcp, mcpToolToDeclaration, historyContents, callCostUsd, isRetryable, geminiConfig, DEFAULT_MODEL, DEFAULT_FAST_MODEL, EMPTY_TURN_NUDGE,
+  MAX_STEPS_NOTE, MAX_PARALLEL_TOOLS, mapLimit,
 } from "../gemini.mjs";
 import { createCodeTools, isSecretPath, CODE_TOOL_DECLARATIONS } from "../code-tools.mjs";
 import { appendPrompt, instructionPack, geminiInstructionPack, GEMINI_TOOL_NOTE, tableIndexSection } from "../instructions.mjs";
@@ -125,6 +126,11 @@ test("runAgent: max steps -> one tool-less final turn and error_max_turns", asyn
   assert.equal(r.error, "error_max_turns");
   assert.equal(r.text, "Partial answer.");
   assert.equal(ai.calls[2].config.tools, undefined, "final turn has no tools");
+  // The note rides on the tool-results turn: roles still alternate user/model.
+  const last = ai.calls[2].contents;
+  assert.deepEqual(last.map((c) => c.role), ["model", "user", "model", "user"]);
+  assert.equal(last.at(-1).parts.at(-1).text, MAX_STEPS_NOTE);
+  assert.ok(last.at(-1).parts[0].functionResponse);
 });
 
 test("runAgent: budget cap stops before running more tools", async () => {
@@ -249,3 +255,79 @@ test("code tools: get_skill lists and loads repo skills", async () => {
 function hasRg() {
   try { return Boolean(execFileSync("rg", ["--version"])); } catch { return false; }
 }
+
+test("runAgent: at most MAX_PARALLEL_TOOLS tool calls run at once, results stay in order", async () => {
+  const many = Array.from({ length: 9 }, (_, i) => ({ functionCall: { name: "run_sql", args: { i } } }));
+  const ai = fakeAi([[chunk(many)], [chunk([{ text: "done" }])]]);
+  let live = 0, peak = 0;
+  await runAgent({ ai, model: "m", contents: [], env: {}, tools: { declarations: [], call: async (_n, a) => {
+    live++; peak = Math.max(peak, live); await new Promise((r) => setTimeout(r, 5)); live--; return { text: `r${a.i}` };
+  } } });
+  assert.equal(peak, MAX_PARALLEL_TOOLS);
+  assert.deepEqual(ai.calls[1].contents.at(-1).parts.map((p) => p.functionResponse.response.output), many.map((_, i) => `r${i}`));
+  assert.deepEqual(await mapLimit([1, 2, 3], 2, async (x) => x * 2), [2, 4, 6]);
+});
+
+test("runAgent: image budget per answer counts attachments, then drops further images", async () => {
+  const contents = [{ role: "user", parts: [{ text: "q" }, { inlineData: { mimeType: "image/png", data: "A".repeat(8) } }] }];
+  const ai = fakeAi([[chunk([{ functionCall: { name: "read_file", args: {} } }, { functionCall: { name: "read_file", args: {} } }])], [chunk([{ text: "ok" }])]]);
+  await runAgent({ ai, model: "m", contents, env: {}, inlineBudget: 12, tools: { declarations: [], call: async () => ({ text: "img", inline: { mimeType: "image/png", data: "B".repeat(4) } }) } });
+  const parts = ai.calls[1].contents.at(-1).parts.map((p) => p.functionResponse);
+  assert.ok(parts[0].parts, "first image fits (8 + 4 = 12)");
+  assert.equal(parts[1].parts, undefined, "second image is over budget");
+  assert.match(parts[1].response.output, /Not shown/);
+});
+
+test("runAgent: persistent 429 moves the rest of the answer to the fallback model", async () => {
+  const e = () => Object.assign(new Error("RESOURCE_EXHAUSTED"), { status: 429 });
+  const ai = fakeAi([e(), e(), e(), e(), [chunk([{ text: "flash answer" }])]]);
+  const events = [];
+  const r = await runAgent({ ai, model: "gemini-3.1-pro-preview", fallbackModel: "gemini-3.8-flash", contents: [], retryDelayMs: 1, env: {}, onEvent: (x) => events.push(x), tools: { declarations: [], call: async () => ({}) } });
+  assert.equal(r.text, "flash answer");
+  assert.equal(r.model, "gemini-3.8-flash");
+  assert.deepEqual(ai.calls.map((c) => c.model), ["gemini-3.1-pro-preview", "gemini-3.1-pro-preview", "gemini-3.1-pro-preview", "gemini-3.1-pro-preview", "gemini-3.8-flash"]);
+  assert.ok(events.some((x) => x.type === "model_fallback"));
+  // Without a fallback the error surfaces.
+  await assert.rejects(runAgent({ ai: fakeAi([e(), e(), e(), e()]), model: "m", contents: [], retryDelayMs: 1, env: {}, tools: { declarations: [], call: async () => ({}) } }), /RESOURCE_EXHAUSTED/);
+});
+
+test("connectMcp: watch_tags gets the long timeout, other tools the short one; abort cancels", async () => {
+  const s = new McpServer({ name: "mesha", version: "1" });
+  s.registerTool("slow", { description: "d", inputSchema: {} }, async () => { await new Promise((r) => setTimeout(r, 200)); return { content: [{ type: "text", text: "late" }] }; });
+  s.registerTool("watch_tags", { description: "d", inputSchema: {} }, async () => { await new Promise((r) => setTimeout(r, 60)); return { content: [{ type: "text", text: "watched" }] }; });
+  const m = await connectMcp(s, { timeoutMs: 30, watchTimeoutMs: 1000 });
+  await assert.rejects(m.call("slow", {}), /timed out|Timeout/i);
+  assert.equal((await m.call("watch_tags", {})).text, "watched");
+  await m.close();
+  const ac = new AbortController();
+  const s2 = new McpServer({ name: "mesha", version: "1" });
+  s2.registerTool("slow", { description: "d", inputSchema: {} }, async () => { await new Promise((r) => setTimeout(r, 200)); return { content: [] }; });
+  const m2 = await connectMcp(s2, { signal: ac.signal });
+  const p = m2.call("slow", {});
+  ac.abort();
+  await assert.rejects(p);
+  await m2.close();
+});
+
+test("code tools: a symlink to a secret inside the repo is refused (realpath checked)", async () => {
+  const { root } = fixtureRepo();
+  fs.symlinkSync(path.join(root, ".env"), path.join(root, "notes.txt"));
+  fs.mkdirSync(path.join(root, "docs"));
+  fs.symlinkSync(path.join(root, ".agents"), path.join(root, "docs/alias"));
+  const t = createCodeTools({ repo: root });
+  assert.equal((await t.read_file({ path: "notes.txt" })).isError, true);
+  assert.match((await t.read_file({ path: "docs/alias/skills/mesha-data-map/SKILL.md" })).text, /data map skill/, "harmless in-repo symlinks still work");
+});
+
+test("code tools: grep/glob never search or list credential-shaped files", { skip: !hasRg() && "ripgrep not installed" }, async () => {
+  const { root } = fixtureRepo();
+  for (const f of ["gcp-credentials.json", "my-service-account.json", "id_rsa", "id_rsa.pub", "cert.p12", ".env.local", "config/application_default_credentials.json"]) {
+    fs.mkdirSync(path.dirname(path.join(root, f)), { recursive: true });
+    fs.writeFileSync(path.join(root, f), "TOPSECRET\n");
+  }
+  const t = createCodeTools({ repo: root });
+  assert.equal((await t.grep({ pattern: "TOPSECRET" })).text, "No matches.");
+  assert.equal((await t.grep({ pattern: "TOPSECRET", output_mode: "content" })).text, "No matches.");
+  assert.doesNotMatch((await t.glob({ pattern: "**/*" })).text, /credentials|service-account|id_rsa|\.p12|\.env/);
+  assert.match((await t.glob({ pattern: "**/*" })).text, /adg\.go/);
+});
