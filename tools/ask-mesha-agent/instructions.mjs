@@ -193,6 +193,9 @@ verdict and the cause, with the rows that show it. Never answer "correct" from a
 Screenshots: never call a number a bug or wrong until you have reproduced the screen's number with the matching
 reference query; if you could not, say you couldn't confirm it. Never write "backend logic", "engineering team",
 "query", "reference", "filter" or file/function names in the answer.
+Never show internal ids (deal/record/animal UUIDs or hex fragments like d393cdf4); name records by buyer, date, value,
+pen or tag instead. If the asked current period has no data yet (e.g. "this month" on the 1st), say so and give the
+previous period's figure for context, labelled as such.
 Pens: keep the full pen name with its part number ("Godel 1 Part 8, Coimbatore"), never shorten it to the building.
 Charts: a period with no data is null in the series (shown as a gap) and you say which periods had no data; never 0.
 audit_log: always filter by resource_type + resource_id (or actor_id) AND a created_at range.
