@@ -225,7 +225,7 @@ function meshaToolsFor(user, watchCtx) {
       ),
       tool(
         "run_reference",
-        `Run one of the vetted Mesha reference queries BY NAME (read-only), instead of retyping it into run_sql. Wrapped as SELECT * FROM (<file>) q [WHERE where] [ORDER BY order_by] [LIMIT limit]. Files: ${REFERENCE_FILES.join(", ")}. Filter on the file's OUTPUT columns, e.g. pens.sql / pen-weighing-latest.sql where="pen_code='G1P3' AND park_code='CBE'" (or grp='Godel 1'); load-wise-sales.sql where="load_no='126'". Windows via params only: adg-by-park.sql {from_date, to_date} (YYYY-MM-DD), adg-by-breed.sql {from_date, to_date, park_code, sex, origin, weighing} (= the app's Breed-wise ADG tab filters), cost-per-kg-gain.sql {days}. Several calls in one turn run in parallel.`,
+        `Run one of the vetted Mesha reference queries BY NAME (read-only), instead of retyping it into run_sql. Wrapped as SELECT * FROM (<file>) q [WHERE where] [ORDER BY order_by] [LIMIT limit]. Files: ${REFERENCE_FILES.join(", ")}. Filter on the file's OUTPUT columns, e.g. pens.sql / pen-weighing-latest.sql where="pen_code='G1P3' AND park_code='CBE'" (or grp='Godel 1'); load-wise-sales.sql where="load_no='126'". Windows via params only: adg-by-park.sql {from_date, to_date} (YYYY-MM-DD), adg-by-breed.sql {from_date, to_date, park_code, sex, origin, weighing} (= the app's Breed-wise ADG tab filters), cost-per-kg-gain.sql {from_date, to_date, park_code, sex, origin, weighing}. Several calls in one turn run in parallel.`,
         {
           name: z.enum(REFERENCE_FILES).describe("Reference file name (no path)"),
           where: z.string().optional().describe("Optional SQL boolean over the file's output columns"),
@@ -234,13 +234,12 @@ function meshaToolsFor(user, watchCtx) {
           show_sql: z.boolean().optional().describe("Only when the user explicitly asks for the SQL: also return the exact query that ran"),
           // Explicit keys, not z.record: a record schema makes the SDK drop the whole tool from the model's list.
           params: z.object({
-            from_date: z.string().optional().describe("YYYY-MM-DD (adg-by-park.sql, adg-by-breed.sql)"),
-            to_date: z.string().optional().describe("YYYY-MM-DD, inclusive (adg-by-park.sql, adg-by-breed.sql)"),
+            from_date: z.string().optional().describe("YYYY-MM-DD (adg-by-park.sql, adg-by-breed.sql, cost-per-kg-gain.sql)"),
+            to_date: z.string().optional().describe("YYYY-MM-DD, inclusive (adg-by-park.sql, adg-by-breed.sql, cost-per-kg-gain.sql)"),
             park_code: z.string().optional().describe("CBE | CPT | PARIGI; omit = all parks (adg-by-breed.sql)"),
             sex: z.enum(["all", "male", "female"]).optional().describe("omit/all = both sexes (adg-by-breed.sql)"),
             origin: z.enum(["all", "farm_born", "purchased"]).optional().describe("omit/all = both (adg-by-breed.sql)"),
             weighing: z.enum(["all", "individual", "whole_pen"]).optional().describe("weighing type; omit/all = both (adg-by-breed.sql)"),
-            days: z.number().int().min(1).max(3650).optional().describe("window days back from today (cost-per-kg-gain.sql)"),
           }).optional().describe("Only params the file declares ('-- param:' lines); others are refused"),
         },
         async ({ name, where, order_by, limit, params, show_sql }) => {

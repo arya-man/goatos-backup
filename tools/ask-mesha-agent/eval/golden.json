@@ -7,7 +7,8 @@
     "expect[]: a truth value that must appear in the answer. col + optional row {col: value} (default first row); tol (abs) or tol_pct; each_row: every truth row.",
     "   zero_words: a 0 truth may be written as none/no/zero. mention_cols: truth TEXT values that must appear. mention_if: regex required only when the truth column is truthy.",
     "must_mention / must_not_mention: regexes (case-insensitive). Every item also gets the default code-talk ban unless allow_code_words.",
-    "ui_api (optional): the SAME backend read the admin-web screen calls; extract[].label must match an expect label. Needs ASK_MESHA_EVAL_BEARER + ASK_MESHA_EVAL_TENANT."
+    "ui_api (optional): the SAME backend read the admin-web screen calls; extract[].label must match an expect label. Needs ASK_MESHA_EVAL_BEARER + ASK_MESHA_EVAL_TENANT.",
+    "2026-10-02: cost-per-kg-gain truth uses the asked 30-day window (was the dashboard default window); adg-by-park asks the last 30 days (a month-to-date question has no truth on the 1st); feed-paid-vs-billed accepts zero words."
   ],
   "defaults": {
     "max_seconds": 90
@@ -273,9 +274,13 @@
         "weighing",
         "core"
       ],
-      "question": "What is our ADG (daily gain) this month, by park?",
+      "question": "What is our ADG (daily gain) over the last 30 days, by park?",
       "truth": {
-        "reference": "adg-by-park.sql"
+        "reference": "adg-by-park.sql",
+        "params": {
+          "from_date": "{{days_ago_30}}",
+          "to_date": "{{today}}"
+        }
       },
       "expect": [
         {
@@ -307,7 +312,7 @@
       "ui_api": {
         "path": "/weighing/leadership/growth",
         "query": {
-          "from": "{{month_start}}",
+          "from": "{{days_ago_30}}",
           "to": "{{today}}"
         },
         "extract": [
@@ -376,7 +381,11 @@
       ],
       "question": "What is our feed cost per kg of gain over the last 30 days?",
       "truth": {
-        "reference": "cost-per-kg-gain.sql"
+        "reference": "cost-per-kg-gain.sql",
+        "params": {
+          "from_date": "{{days_ago_30}}",
+          "to_date": "{{today}}"
+        }
       },
       "expect": [
         {
@@ -484,12 +493,14 @@
         {
           "label": "paid",
           "col": "paid",
-          "tol_pct": 1.5
+          "tol_pct": 1.5,
+          "zero_words": true
         },
         {
           "label": "billed",
           "col": "billed",
-          "tol_pct": 1.5
+          "tol_pct": 1.5,
+          "zero_words": true
         }
       ],
       "max_seconds": 75
