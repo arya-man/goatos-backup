@@ -61,8 +61,9 @@ reading `{profile.warmup_vacine}` to a phone.
   `departure_recorded`, `arrival_recorded`, `arrival_reconcile`, `place_in_pen`, `pc_handoff`,
   `payment_milestone`, `animal_purchase_decision`). They are the facts the system records on its
   own; a version that drops one is refused at publish (`engine_step_removed`, the existing rule).
-- **"Every transit has a transit manager."** The transit document must contain a `pick_person`
-  step and every step in it must be owned by that pick (`transit_manager_required` at publish).
+- **"Every transit has a transit manager."** The transit document must contain two `pick_person`
+  steps, the riding AM (with the load) and the transit manager (at the park or main office), and
+  every other step in it must be owned by one of them (`transit_roles_required` at publish).
 - **The free-flow shape of stock weighing** (temp tag + weight, no roster, no gate). Weighing at
   the vendor is procurement's own table, not the Weighing module's; it knows nothing about
   `goats`.
@@ -86,7 +87,8 @@ reading `{profile.warmup_vacine}` to a phone.
 | Before intended date of dispatch: truck + its SOP, labour, responsible AM | stage 5, anchored on `planned_dispatch_on` |
 | Loading: injection, feed pack, tubs, tarps | stage 6 + profile `loading_medicine`, `journey_feed_days` |
 | Route planning by Procurement Director | stage 5 `route_plan` |
-| Every transit has a transit manager | `pick_person` + publish rule |
+| Send a responsible AM (rides with the load) | `pick_riding_am` |
+| Every transit has a transit manager (at the park or main office, in contact with the AM) | `pick_transit_manager` + publish rule |
 | Video every three hours; where to stop | stage 7 series + profile `transit_check_hours`, `transit_stop_hours` |
 | Payments 10% / 20% at each step | profile milestone template, editable per journey at fix |
 | Two weeks fattening, six weeks breeding | profile per purpose |

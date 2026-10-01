@@ -48,7 +48,8 @@ write carries an idempotency key and fingerprint in the same transaction as its 
 | `sight_removed_count`, `weighing_removed_count`, `health_rejected_count`, `accepted_count`, `loaded_count`, `arrived_count`, `lost_count` | the funnel, each written by its hook |
 | `agreed_value` numeric | recomputed at selection and departure |
 | `status` | `sourced` \| `verifying` \| `selecting` \| `approval_pending` \| `warming_up` \| `ready_to_load` \| `in_transit` \| `arrived` \| `closed` \| `rejected` \| `cancelled` |
-| `transit_manager_user_id` | written by the pick step |
+| `riding_am_user_id` | the Assistant Manager with the load, written by `pick_riding_am` |
+| `transit_manager_user_id` | the person at the park or main office in contact with the AM, written by `pick_transit_manager` |
 | `rejected_reason` | |
 
 Status is a **projection of stage completion** written by the hooks, never by a client; the
@@ -123,7 +124,8 @@ wiring, test).
 | `load_approval` | none | `load_approval` | `load_approved` / `load_rejected` |
 | `arrange_vehicle` | none | — | hand, refused until the vehicle row exists |
 | `pick_person` | `person` (new answer kind) | — | hand |
-| `journey_tag_animals` | none | `journey_tag_animals` | tagging confirm |
+| `journey_tag_animals` | none | `journey_tag_animals` | tagging confirm (stage 4, at the vendor) |
+| `scan_roll_call` | none | — | hand, refused until every tagged animal is scanned or removed (stage 6) |
 | `departure_recorded` | none | `departure_recorded` | the step's own complete writes `departed_at` (hook + tap in one transaction) |
 | `arrival_recorded` | none | `arrival_recorded` | same shape |
 | `arrival_reconcile` | none | `arrival_reconcile` | engine, when loaded = arrived + losses |
@@ -165,15 +167,16 @@ service + repository method in `subject_hook_reconciliation.go`, `eventwiring` r
 | `procurement.sourcing.write` | ✓ | ✓ | | | ✓ |
 | `procurement.sourcing.fix` | | ✓ | | | ✓ |
 | `procurement.journey.read` | ✓ | ✓ | ✓ | ✓ (own park) | ✓ |
-| `procurement.journey.execute` | ✓ | ✓ | | ✓ (own park) + the picked transit manager per journey | ✓ |
+| `procurement.journey.execute` | ✓ | ✓ | | ✓ (own park) + the picked riding AM and transit manager per journey | ✓ |
 | `procurement.journey.approve` | | ✓ | | | ✓ |
 | `procurement.journey.pay` | | ✓ | | | ✓ |
 | `procurement.animal_purchase.decide` (existing) | | | **✓ (new)** | | ✓ |
 | `procurement.profile.write` | | | | | ✓ |
 
-The transit manager is a **per-journey grant**: `assignee_user_id` on the step row admits that
-person to that journey's execute routes (`JourneyAssignee` check in the handler, inside the same
-read as the owner gate), so an AM needs no standing procurement permission. Per-person module
+The riding AM and the transit manager are **per-journey grants**: `assignee_user_id` on the step
+row admits that person to that journey's execute routes (`JourneyAssignee` check in the handler,
+inside the same read as the owner gate), so an AM needs no standing procurement permission and a
+park head picked as transit manager reaches a journey bound for another park's vendor. Per-person module
 ticks: `procurement` module gains levels View (read) / Do (execute + sourcing write) / Oversee
 (approve + pay + fix); `animal_purchases` Oversee moves to the Health Director's default ticks
 (migration backfill, the 000245 pattern), the CEO keeps it.

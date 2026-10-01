@@ -5,8 +5,8 @@ document** the farm edits on Procurement › Procurement SOP; nothing in a table
 constant. `{profile.*}` values come from the journey's snapshotted profile (`configuration.md`).
 
 Legend for the *task type* column: existing registry keys are plain; **bold** keys are new rows
-(`data-model.md` → task types). *Owner* is a designation code; `[pick:transit_manager]` means
-"the person picked in the `pick_transit_manager` step".
+(`data-model.md` → task types). *Owner* is a designation code; `[pick:riding_am]` means
+"the Assistant Manager picked in the `pick_riding_am` step"; `[pick:transit_manager]` the person picked in `pick_transit_manager` (at the park or main office).
 
 ```
 CXO ask ──► Request ──► Sourcing ──► vendor fixed ──► Stock verification ──► Selection
@@ -119,13 +119,18 @@ profile references so the document never names a product.
 | # | key | title | task type | owner | proof | schedule |
 |---|---|---|---|---|---|---|
 | 1 | warmup_start | Confirm warm-up has started at the vendor | do_and_confirm | procurement_manager | 1 video | immediately |
+| 1b | tag_animals | Tag every accepted animal | **journey_tag_animals** (engine hook; deep-links to the tagging screen; completes when every accepted candidate has an RFID) | procurement_manager, procurement_director | — | after warmup_start |
 | 2 | warmup_vaccine | Give {profile.warmup_vaccine} to every animal | administer | procurement_manager | 1 video | day 1, 09:00 |
 | 3 | warmup_feed_day_{n} | Day {n}: give {profile.warmup_feed} | administer | procurement_manager | 1 photo | series: daily, days = {profile.source_warmup_days} |
 | 4 | warmup_check | Any animal sick or dead during warm-up? | record_yes_no | procurement_manager | — | day {profile.source_warmup_days} |
 | 5 | warmup_losses | Record the animals lost or removed | mark_removed | procurement_manager | — | only if warmup_check = yes |
 | 6 | warmup_done | Warm-up complete | do_and_confirm | procurement_director | — | after warmup_check |
 
-`warmup_done` completing emits `stage_completed{source_warmup}`. The dispatch date on the journey
+Tagging happens here, at the vendor's place during warm-up and before loading (maintainer,
+2026-10-01): every accepted animal gets its RFID on the first warm-up day, so the vaccine and feed
+steps that follow are recorded against tagged animals and the loading day only loads. This is
+where an accepted candidate becomes a goat (decision 6). `warmup_done` completing emits
+`stage_completed{source_warmup}`. The dispatch date on the journey
 is validated at fix time to be ≥ load approval + warm-up days, and the warm-up track's last day is
 the earliest the loading stage can open.
 
@@ -139,10 +144,16 @@ Anchored to `journey.planned_dispatch_on` ("before intended date of dispatch").
 | 2 | arrange_truck | Arrange the truck | **arrange_vehicle** (opens the vehicle form: transporter vendor, vehicle number, driver name/phone, capacity, agreed charge) | procurement_manager | — | dispatch − {profile.transport_prep_days} |
 | 3 | truck_sop | Truck checklist | authored checklist (bedding, partitions, ventilation, tarp, tubs, ramp) — each item a yes/no with a photo | procurement_manager | 1 photo per item | after arrange_truck |
 | 4 | arrange_labour | Arrange loading labour | do_and_confirm | procurement_manager | — | dispatch − 2 days |
-| 5 | pick_transit_manager | Who rides with this load? | **pick_person** (options = AMs at the destination park) | procurement_director, park_head | — | dispatch − 2 days |
-| 6 | pack_journey_feed | Pack feed for {profile.journey_feed_days} days | do_and_confirm | park_head | 1 photo | dispatch − 1 day |
-| 7 | transit_manager_departs | Transit manager has left for the vendor | do_and_confirm | [pick:transit_manager] | — | dispatch − 1 day |
-| 8 | prep_done | Transport ready | do_and_confirm | procurement_director | — | after all |
+| 5 | pick_riding_am | Which Assistant Manager rides with this load? | **pick_person** (options = AMs at the destination park) | procurement_director, park_head | — | dispatch − 2 days |
+| 6 | pick_transit_manager | Who is the transit manager for this load? | **pick_person** (options = people holding procurement_manager, procurement_director or park_head) | procurement_director | — | dispatch − 2 days |
+| 7 | pack_journey_feed | Pack feed for {profile.journey_feed_days} days | do_and_confirm | park_head | 1 photo | dispatch − 1 day |
+| 8 | riding_am_departs | The Assistant Manager has left for the vendor | do_and_confirm | [pick:riding_am] | — | dispatch − 1 day |
+| 9 | prep_done | Transport ready | do_and_confirm | procurement_director | — | after all |
+
+Two people, two roles (maintainer, 2026-10-01): the **riding AM** is with the load and does every
+field step from tagging to arrival; the **transit manager** stays at the park or the main office,
+is the one person in contact with the AM, and owns the monitoring steps in stage 7. Both are
+picked per journey; neither is a new designation.
 
 ## Stage 6 — Loading (`procurement.loading`, subject = journey)
 
@@ -151,29 +162,37 @@ Opens when stages 4 and 5 are both complete (engine-gaps G1: an opener may wait 
 
 | # | key | title | task type | owner | proof | schedule |
 |---|---|---|---|---|---|---|
-| 1 | tag_animals | Tag every accepted animal | **journey_tag_animals** (engine hook; deep-links to the tagging screen; completes when every accepted candidate has an RFID) | [pick:transit_manager], procurement_manager | — | immediately |
-| 2 | loading_injection | Give {profile.loading_medicine} to every animal | administer | [pick:transit_manager] | 1 video | after tag_animals |
-| 3 | load_animals | Load the animals | video_record | [pick:transit_manager] | 1 video | after loading_injection |
-| 4 | load_feed_and_kit | Load feed, tubs and tarps | photo_record | [pick:transit_manager] | 2 photos | after load_animals |
-| 5 | loaded_count | How many animals are on the truck? | record_number | [pick:transit_manager] | — | after load_animals |
-| 6 | departure | Truck has left | **departure_recorded** (engine hook; the tap writes `departed_at` and the loaded count on the journey) | [pick:transit_manager] | 1 photo | after loaded_count |
+| 1 | tags_checked | Check every tag reads before loading | **scan_roll_call** (scan each RFID; completes when every tagged animal is scanned or marked removed) | [pick:riding_am], procurement_manager | — | immediately |
+| 2 | loading_injection | Give {profile.loading_medicine} to every animal | administer | [pick:riding_am] | 1 video | after tags_checked |
+| 3 | load_animals | Load the animals | video_record | [pick:riding_am] | 1 video | after loading_injection |
+| 4 | load_feed_and_kit | Load feed, tubs and tarps | photo_record | [pick:riding_am] | 2 photos | after load_animals |
+| 5 | loaded_count | How many animals are on the truck? | record_number | [pick:riding_am] | — | after load_animals |
+| 6 | departure | Truck has left | **departure_recorded** (engine hook; the tap writes `departed_at` and the loaded count on the journey) | [pick:riding_am] | 1 photo | after loaded_count |
 
-Tagging writes the `goats` rows (decision 6). A loaded count lower than the accepted count forces a
+The animals are already tagged (stage 4); the roll call is a scan of every tag so the loaded list
+is the tagged list. A loaded count lower than the accepted count forces a
 `mark_removed` for the difference before `departure` can complete (publish rule on the document).
 
 ## Stage 7 — Transit (`procurement.transit`, subject = journey)
 
 | # | key | title | task type | owner | proof | schedule |
 |---|---|---|---|---|---|---|
-| 1 | transit_check_{n} | Transit check {n} — how are the animals? | video_record + record_select (fine / some distress / need to stop) | [pick:transit_manager] | 1 video | series: every {profile.transit_check_hours} h from departure until arrival |
-| 2 | feed_water_stop | Stop for feed and water | do_and_confirm | [pick:transit_manager] | 1 video | series: every {profile.transit_stop_hours} h from departure until arrival |
-| 3 | transit_loss | Any animal down or dead? | record_yes_no | [pick:transit_manager] | — | with each check (only if check = distress) |
-| 4 | transit_loss_detail | Which animals | mark_removed (reason = in_transit) | [pick:transit_manager] | 1 photo | only if transit_loss = yes |
-| 5 | arrival | Truck has reached the park | **arrival_recorded** (engine hook; writes `arrived_at`) | [pick:transit_manager], park_head | 1 video | — |
+| 1 | transit_check_{n} | Transit check {n} — how are the animals? | video_record + record_select (fine / some distress / need to stop) | [pick:riding_am] | 1 video | series: every {profile.transit_check_hours} h from departure until arrival |
+| 2 | feed_water_stop | Stop for feed and water | do_and_confirm | [pick:riding_am] | 1 video | series: every {profile.transit_stop_hours} h from departure until arrival |
+| 3 | transit_loss | Any animal down or dead? | record_yes_no | [pick:riding_am] | — | with each check (only if check = distress) |
+| 4 | transit_loss_detail | Which animals | mark_removed (reason = in_transit) | [pick:riding_am] | 1 photo | only if transit_loss = yes |
+| 5 | review_check_{n} | Review transit check {n} | record_select (all fine / called the AM / escalated) | [pick:transit_manager] | — | after transit_check_{n} |
+| 6 | check_missed_{n} | Check {n} is overdue — contact the AM | do_and_confirm (minted by the lateness sweep, G6) | [pick:transit_manager] | — | transit_check_{n} due + grace |
+| 7 | distress_call | Decide what the AM should do (continue / stop and rest / divert to a vet) | record_select | [pick:transit_manager] | — | only if any transit_check = distress |
+| 8 | arrival | Truck has reached the park | **arrival_recorded** (engine hook; writes `arrived_at`) | [pick:riding_am], park_head | 1 video | — |
+| 9 | handover_confirmed | Transit manager confirms the handover to the Park Head | do_and_confirm | [pick:transit_manager] | — | after arrival |
 
-A check not recorded within `{profile.transit_check_grace_minutes}` of its due time is late on the
-card and pushes `procurement.transit_check_missed` to the Procurement Director. Arrival ends the
-series (no further checks are minted).
+The AM records; the transit manager watches. Every check the AM records opens a review step for
+the transit manager, so the office has a step of its own for every three hours on the road, and a
+check not recorded within `{profile.transit_check_grace_minutes}` of its due time mints
+`check_missed_{n}` for the transit manager and pushes `procurement.transit_check_missed` to them
+(the Procurement Director gets the second push if that step is itself late). Arrival ends both
+series (no further checks or reviews are minted).
 
 ## Stage 8 — Arrival and park warm-up (`procurement.arrival`, subject = journey)
 

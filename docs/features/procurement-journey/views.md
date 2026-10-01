@@ -46,7 +46,7 @@ it; a new leaf without a row fails `TestEveryNavLeafIsATickablePage`.
   due (red when late), park, money chip (paid/agreed). Columns scroll inside their own
   `overflow-x: auto` rail on phone.
 - **List view:** table: J-no · Request # · Vendor · Species · Agreed → Accepted → Loaded → Arrived
-  (four small numbers) · Stage · Next step · Due · Transit manager · Paid / Agreed · Park.
+  (four small numbers) · Stage · Next step · Due · Riding AM · Transit manager · Paid / Agreed · Park.
 - Row/card click navigates to W3 (it is a real detail page, not a drawer: it has tabs).
 
 ### W3 `/procurement/journeys/[journey_id]` — Journey detail
@@ -58,13 +58,13 @@ it; a new leaf without a row fails `TestEveryNavLeafIsATickablePage`.
   rejected by health 2 → accepted 72 → loaded 72 → arrived 71 → lost 1) as a horizontal bar
   funnel with counts, each bar labelled; profile snapshot card (durations, medicines, feed); dates
   card (fixed, approved, dispatch planned, departed, arrived; countdown to dispatch); people card
-  (director, manager, health director, transit manager, park head); vendor card.
+  (director, manager, health director, riding AM, transit manager, park head); vendor card.
 - **Animals:** table (keyset): temp tag · verified weight · inspection verdict · health decision ·
   RFID · outcome (accepted / removed at … / lost in …) · pen. Filter chips by outcome. Row click
   opens the existing candidate drawer (answers + media lightbox).
 - **Steps:** every stage as a collapsible section listing its steps (title, owner label, due,
   status chip, proof thumbnails that open on click, answer). Read-only on web except the office's
-  own steps (**load approval**, route plan, pick transit manager, payment milestones), which act in
+  own steps (**load approval**, route plan, pick the riding AM and the transit manager, review transit checks, payment milestones), which act in
   place via the step's own control. The load approval control opens the **approval drawer**: the
   funnel again, money (accepted × rate × avg kg = agreed value; estimated landed from profile),
   pen picker (partition catalog of the destination park), "Approve" / "Reject with reason" (two
@@ -105,10 +105,11 @@ has.
 ## Phone (Android, module `vendors` → renamed **Procurement**)
 
 Bottom bar (module registry, backend-composed): **Requests** · **Journeys** · Vendors · Feed
-Purchases. Selection review stays on the web (it is a desk screen). The transit manager, who has
-no procurement permission, sees the journey under **Tasks › For me** (the generic "work the system
+Purchases. Selection review stays on the web (it is a desk screen). The riding AM, who has no
+procurement permission, sees the journey under **Tasks › For me** (the generic "work the system
 owes this person" tab, decision 2026-09-14) as a card type "Transit · J-27", and that card opens the
-same Journey steps screen limited to his steps.
+same Journey steps screen limited to their steps. The transit manager sees their monitoring steps
+there too when they hold no procurement module, and under Journeys when they do.
 
 ### P1 Requests list
 
@@ -166,20 +167,31 @@ shows "inspected ✓ / not yet / removed"; the weight field is prefilled from P6
 The funnel as stacked rows, money card, pen picker (partition catalog), Approve / Reject with
 reason. Same write as the web drawer.
 
-### P10 Tagging (loading day)
+### P10 Tagging (first warm-up day, at the vendor)
 
 List of accepted candidates (temp tag, weight, sex); tap a row → scan RFID (the existing
 scanner surface) → row shows the RFID; "Confirm tagging" when every accepted row has one (or the
 missing ones are marked removed via P7). Confirm writes the goats rows server-side in one
 transaction and completes the step.
 
-### P11 Transit manager screen
+### P11 Riding AM screen (with the load)
 
 Reached from Tasks › For me or P5. Header: "J-27 · departed 05:40 · 6h 20m on the road". Next
 check card at the top with a countdown from server time and a "Record check" button (video +
 condition chips); list of done checks with their condition; stops list; "Animal down?" shortcut
-to P7 (reason in_transit); "Reached the park" (the arrival step: video). Every due time is the
-server's; the screen never computes a gate from the phone clock (the toxin rule).
+to P7 (reason in_transit); "Reached the park" (the arrival step: video). The transit manager's
+name and number sit under the header as selectable text. Every due time is the server's; the
+screen never computes a gate from the phone clock (the toxin rule).
+
+### P14 Transit manager screen (at the park or main office)
+
+The same journey from the office side, on the phone and on W3's Transport tab. Header: "J-27 ·
+AM: Suresh · last check 08:40 · next due 11:40". A review card for each check as it lands (the
+AM's video, the condition chip, "All fine / Called the AM / Escalated"); an overdue card the
+moment a check passes its grace ("Check 3 overdue by 12 min — contact the AM", with the AM's
+number); a distress card when the AM reports it (continue / stop and rest / divert to a vet); the
+handover confirmation after the Park Head records arrival. The transit manager records nothing
+about the animals; every fact comes from the AM.
 
 ### P12 Arrival (Park Head)
 
@@ -200,8 +212,9 @@ photo) for `procurement.journey.pay` holders.
 | `procurement.journey_opened` | CXO | W3 / P5 |
 | `procurement.load_approval_pending` | Procurement Director + CXO | P9 |
 | `procurement.load_approved` | Park Head (destination), Procurement Manager | P5 |
-| `procurement.dispatch_tomorrow` | transit manager, Park Head | P11 |
-| `procurement.transit_check_missed` | Procurement Director | W3 Transport |
+| `procurement.dispatch_tomorrow` | riding AM, transit manager, Park Head | P11 / P14 |
+| `procurement.transit_check_missed` | transit manager; Procurement Director if the chase step is itself late | P14 |
+| `procurement.transit_distress` | transit manager | P14 |
 | `procurement.arrived` | Park Head, Health Director | P12 / W4 |
 | `procurement.milestone_due` / `_overdue` | Procurement Director | P13 |
 | `procurement.journey_closed` | CXO | W3 |

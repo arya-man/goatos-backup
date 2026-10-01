@@ -71,14 +71,20 @@ intervals, none after arrival), mutation-tested by dropping the cancel.
 - A `pick_person` task type with answer kind `person`: options are compiled at open from the
   people holding the designations in `options_from: {designations: [...], park: subject}` (reads
   `workforce_members` + active grants, the roster the leadership-tasks picker already uses). The
-  answer is a `user_id`; the step's `assignee_user_id` and the subject's `transit_manager_user_id`
-  are written in the answer's transaction.
+  answer is a `user_id`; the step's `assignee_user_id` and the subject's named column
+  (`riding_am_user_id` or `transit_manager_user_id`, declared on the pick step as `writes_to`) are
+  written in the answer's transaction. A document may carry several pick steps; each dependent
+  step names which one it follows.
 - `owner_from_step: <key>` on a step: at open the step carries `owner_from_action_key`; when the
   pick is answered, every dependent step gets `assignee_user_id` in the same transaction; until
   then those steps are blocked `awaiting_assignee`. The owner gate passes the assignee OR the
   listed designations OR the CEO floor.
 - Publish rule (per-SOP, declared with the definition): `assignee_required` — a document must
-  contain a pick step and every step must name it. This is "every transit has a transit manager".
+  contain the named pick steps and every other step must name one of them. For
+  `procurement.transit` that is two picks: the riding AM for field steps and the transit manager
+  for monitoring steps. This is "every transit has a transit manager".
+- A step minted by the lateness sweep (G6) for a late sibling (`on_late: {open: <key>, owner_from_step}`)
+  so "check 3 is overdue, contact the AM" is a real step for the transit manager, not only a push.
 
 **Pinned by:** `TestStepOwnedByAnyOfListedDesignations`, `TestPickedPersonOwnsDependentSteps`,
 `TestTransitDocumentRefusedWithoutAPick` (mutation-tested).

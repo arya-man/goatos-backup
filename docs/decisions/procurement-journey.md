@@ -115,20 +115,26 @@ where it is and keeps being the questions stage 3 asks per animal.
 Every step carries `owner` as today (designation code, catalog-checked at publish). Two things the
 journey needs that the engine does not have:
 
-1. **A step owned by a PERSON chosen earlier in the journey.** "Send a responsible AM" picks a
-   person; every transit step is then that person's. The engine gets `owner_from_step: <key>`
-   (the key of a `pick_person` step) and a `pick_person` answer kind whose options are the people
-   holding a named designation at the journey's park. "Every transit has a transit manager" is then
-   a publish-time rule on `procurement.transit` (a pick step must exist and every step must name
-   it), not a column nobody fills.
+1. **A step owned by a PERSON chosen earlier in the journey.** Two people are picked per
+   journey, and they are not the same person (maintainer clarification, 2026-10-01): the
+   **riding AM** ("send a responsible AM") is with the load and does the field steps from tagging
+   to arrival; the **transit manager** stays at the park or the main office and is the one person
+   in contact with the AM, owning the review of every check, the chase when one is missed, the
+   call on a distress report and the handover confirmation. The engine gets `owner_from_step:
+   <key>` (the key of a `pick_person` step) and a `pick_person` answer kind whose options are the
+   people holding named designations, optionally at the journey's park. "Every transit has a
+   transit manager" is then a publish-time rule on `procurement.transit` (a `pick_transit_manager`
+   step must exist and every monitoring step must name it, every field step must name the AM
+   pick), not a column nobody fills.
 2. **Two designations may own one step.** "Procurement Director OR Procurement Manager" sources;
    "Procurement Director with COO" approves. `owner` becomes a list; the first to act completes
    it. An approval that must be taken by two people is two steps.
 
 Designations used, all already in `designation_catalog`: `ceo_internal` (CXO), `procurement_director`,
-`procurement_manager`, `health_director`, `park_head`, `am_farming` / `am_health` (the AM pool a
-transit manager is picked from). **No new designation is created.** A transit manager is a person
-on a journey, not a job title.
+`procurement_manager`, `health_director`, `park_head`, `am_farming` / `am_health` (the AM pool the
+riding AM is picked from; the transit manager is picked from the procurement desk and park heads).
+**No new designation is created.** A riding AM and a transit manager are people on a journey, not
+job titles.
 
 ## Decision 3: the numbers the farm decides up front live in a journey PROFILE, not in a step
 
@@ -179,11 +185,12 @@ load acceptance on the **Procurement Director with COO**. So:
 This is a CHANGE to a shipped decision (`docs/decisions/animal-purchases.md` rule 6, the CXO
 decides) and is listed under conflicts below.
 
-## Decision 6: accepted animals BECOME goats at loading, in the Warmup stage
+## Decision 6: accepted animals BECOME goats when tagged, at the vendor's place during warm-up
 
 Rule 7 of `animal-purchases.md` ("stops at the decision; no goats row, no RFID") was right for a
-stage that ended at the decision. The journey continues, and the tagging step on loading day is
-where an animal gets its RFID and its `goats` row: species, sex, breed, weight from stock
+stage that ended at the decision. The journey continues, and the tagging step, which happens at
+the vendor's place on the first warm-up day, before loading (maintainer, 2026-10-01), is where an
+animal gets its RFID and its `goats` row: species, sex, breed, weight from stock
 verification, `management_stage` = the purpose's warm-up stage (`Fattening Male Warmup`, `Warmup
 Buck`, …), `shed_id` = the destination pen chosen on the load approval, origin = the journey (so
 `procurement_load_goats` is written too and Load wise / origin filter keep working). Until then a
@@ -194,8 +201,10 @@ through the existing death path with reason `in_transit`.
 
 "Every three hours a video" is a `series` on the transit SOP anchored at the **departure step's
 completion** and ending at the **arrival step's completion** (engine-gaps G3: `series.from_step` /
-`until_step`). Each check is one step, due at its time, late when missed, and the transit manager's
-screen is the list of checks with the next one at the top. Stops (feed/water) are steps the SOP
+`until_step`). Each check is one step, due at its time, late when missed; the riding AM's screen is
+the list of checks with the next one at the top, and the transit manager's screen is the same list
+seen from the office: each check to review as it lands, the chase when one is overdue, the call
+when the AM reports distress. Stops (feed/water) are steps the SOP
 authors with their own instructions and proof. Nothing on the phone computes a gate from its own
 clock; every due time is the server's.
 
@@ -203,7 +212,8 @@ clock; every due time is the server's.
 
 Every upward push (request raised → Procurement Director/Manager; vendor fixed → CXO; load
 approval pending → Procurement Director + CXO; load approved → Park Head of the destination park;
-dispatch tomorrow → transit manager; transit check missed → Procurement Director; arrived → Park
+dispatch tomorrow → riding AM + transit manager; transit check missed → transit manager, then the
+Procurement Director if the chase itself is late; arrived → Park
 Head + Health Director; milestone due → Procurement Director) is a row in the designation audience
 catalog (`notificationaudience/domain`), switchable on People / HRMS → Notifications. Overdue
 steps surface on the Work Board under a new **procurement** source (the lane exists and is hidden
@@ -222,13 +232,13 @@ engine hooks. Until then nothing touches it.
 | # | existing rule / source | new instruction | question |
 |---|---|---|---|
 | C1 | `animal-purchases.md` rule 6: the CXO decides each candidate on the web; `AnimalPurchaseDecide` is CEO-only | whiteboard: Health Director verifies the health SOP per animal; load approval is Procurement Director with COO | Does the Health Director now hold the per-animal decision, with the CXO only approving the load? Or does the CXO keep per-animal and the Health Director adds a prior gate? |
-| C2 | `animal-purchases.md` rule 7: accepted animals are not goats | journey continues to tagging, transport, pen | Confirm tagging day is the goats-row birth (Decision 6), or arrival day. |
+| C2 | `animal-purchases.md` rule 7: accepted animals are not goats | journey continues to tagging at the vendor during warm-up, then transport, then pen | Confirm the tagging day (first warm-up day at the vendor) is the goats-row birth (Decision 6). A tagged animal lost during warm-up or transit then closes through the death/exit path. |
 | C3 | `procurement.animal_purchase_intake` seed (CXO decision → park head arrival steps) | stages 3 and 8 | Retire that document into the two stages, or keep it as a short-form path for small buys? |
 | C4 | `procurementDirectorStockOnly` lens hard-codes the Procurement Director's pages; `per-person-page-access.md` says lenses are retired except the verifier's | the journey gives that role requests, journeys, approvals | Delete the lens and let `/people` ticks govern (the recorded direction), or keep it? |
 | C5 | `load-landed-cost-and-growth.md`: a load's purchase value is landed cost from `procurement_load_cost_lines` | journey has a payment ledger and a profile-estimated landed cost | Ledger writes the cost lines at arrival (Decision 4); confirm no second cost truth. |
 | C6 | `glossary.md`: source warm-up 4–5 weeks (V1 holding farm) | voice brief: fattening about two weeks, breeding six weeks | Profile defaults 14 / 42 days; confirm per purpose. |
 | C7 | leadership-tasks: a director asks a CXO | a CXO asks procurement | A purchase request is NOT a leadership task (opposite direction, needs steps). Confirm it is its own record. |
-| C8 | `operator` designation retired 2026-09-23; AM tiers are `am_feed/health/farming/cleaning` | "send a responsible AM" | Which AM tiers may be picked as transit manager? Proposed: any AM at the destination park. |
+| C8 | `operator` designation retired 2026-09-23; AM tiers are `am_feed/health/farming/cleaning` | "send a responsible AM" rides; the transit manager stays at the park or main office | Which AM tiers may be picked to ride? Proposed: any AM at the destination park. Who may be the transit manager? Proposed: the Procurement Manager, Procurement Director or the destination Park Head, picked per journey. |
 | C9 | the loading injection is called "chocolate injection" on the board | copy firewall | It is a configurable medicine from the register; the on-screen name is whatever the register row says. No step title hard-codes a medicine. |
 
 Build order and what each slice proves are in `delivery-plan.md`. Nothing from stage 2 onward
