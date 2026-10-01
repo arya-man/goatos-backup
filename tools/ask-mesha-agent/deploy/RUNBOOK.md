@@ -64,87 +64,64 @@ CREATE SCHEMA IF NOT EXISTS ask_mesha AUTHORIZATION ask_mesha;
 REVOKE CONNECT ON DATABASE goatos FROM ask_mesha;
 ```
 
-## 3b. Claude access (deploy flag `ASK_MESHA_CLAUDE_AUTH`, Cloud Build `_ASK_MESHA_CLAUDE_AUTH`)
+## 3b. Model access: Gemini on Vertex AI (no key, no secret)
 
-**auto (default):** the service gets both the Vertex env (below) and `ANTHROPIC_API_KEY` from
-`goatos-stg-ask-mesha-anthropic-api-key` (§4; the runtime SA needs `secretAccessor` on it). It
-probes Vertex (one `rawPredict`, `max_tokens` 1, token from the metadata server) at startup and every
-15 min while on the key; once Vertex answers (quota approved) new questions use Vertex with no
-redeploy, and it re-checks hourly. A Vertex 429/403/404 during a question marks Vertex down and reruns
-that question once on the key (only if nothing was shown yet and no tool ran); the failed attempt's cost (or its
-cap if it returned no result) is added to that answer. Logs: `[provider] switched to vertex`;
-every metric/event row carries `provider` (`vertex` | `anthropic`); `/healthz` shows the current one:
+The agent calls Gemini on Vertex AI with its runtime service account (ADC from the metadata
+server). There is no model API key and no model secret. One-time setup:
 
 ```bash
-curl -s -H "Authorization: Bearer $(gcloud auth print-identity-token)" "$URL/healthz"
-# {"ok":true,"provider":"anthropic"}   (probe reasons are in the logs: [provider] ...)
-```
-
-Force one provider (a config change -> new revision of the same image, not a build):
-
-```bash
-gcloud run services update goatos-ask-mesha-stg --project=$PROJECT --region=asia-south1 \
-  --update-env-vars=ASK_MESHA_CLAUDE_AUTH=vertex   # or api-key; back to auto the same way
-```
-
-After Vertex is live and `/healthz` has shown `"provider":"vertex"` for a day, retire the key:
-set `ASK_MESHA_CLAUDE_AUTH=vertex` as above, then disable the key
-(`gcloud secrets versions disable 1 --secret=goatos-stg-ask-mesha-anthropic-api-key --project=$PROJECT`)
-and revoke it in the Anthropic Console. Future builds then need `_ASK_MESHA_CLAUDE_AUTH=vertex`
-(deploy preflight refuses auto/api-key without an enabled key version). The $100 monthly cap (§3c) is
-one cap summed across both providers.
-
-**vertex:** no key; Claude is billed to the GCP project.
-
-```bash
-# Enable Claude Sonnet 5 / Opus 5.5 once in Console → Vertex AI → Model Garden (accept terms), then:
 gcloud services enable aiplatform.googleapis.com --project=$PROJECT
 gcloud projects add-iam-policy-binding $PROJECT \
   --member="serviceAccount:goatos-ask-mesha-stg@$PROJECT.iam.gserviceaccount.com" --role=roles/aiplatform.user
 ```
 
-Region: `ASK_MESHA_VERTEX_REGION` (a `deploy-stg.sh` input, passed to the service as `CLOUD_ML_REGION`) defaults to **`global`**. Verified 2026-09-24 against the Vertex publisher-model API:
-`claude-sonnet-5` and `claude-opus-5-5` are GA **only on `global`** (404 in `asia-south1` and `us-east5`).
-`global` routes inference to available capacity (not pinned to India); chats, files and the database stay in asia-south1.
+`deploy-stg.sh` refuses to deploy if the runtime SA lacks `roles/aiplatform.user` (it never grants it).
 
-**Quota (blocking):** a new project has 0 quota for Claude on Vertex. A test call on goatos-stg returned
-`429 Quota exceeded for aiplatform.googleapis.com/global_online_prediction_requests_per_base_model (anthropic-claude-sonnet)`.
-Console -> IAM & Admin -> Quotas -> filter `global_online_prediction_requests_per_base_model` for base models
-`anthropic-claude-sonnet` and `anthropic-claude-opus` -> request e.g. 60 requests/min each, and accept both models'
-terms in Model Garden. Verify (expect the text `OK`):
+Models (env, all optional; defaults live in `gemini.mjs`):
+
+| Env | Default | Used for |
+|---|---|---|
+| `ASK_MESHA_MODEL` | `gemini-3.1-pro-preview` (newest Pro) | every answer |
+| `ASK_MESHA_DEEP_MODEL` | = `ASK_MESHA_MODEL` | investigations (`deep:`, screenshots); thinking level high |
+| `ASK_MESHA_FAST_MODEL` / `ASK_MESHA_CHECK_MODEL` | `gemini-3.8-flash` (newest Flash) | the answer checker |
+| `ASK_MESHA_GEMINI_PROJECT` / `ASK_MESHA_GEMINI_LOCATION` | `goatos-stg` / `global` | Vertex endpoint |
+
+Newest models are served on the **`global`** endpoint. Verify a model id before changing it
+(expect HTTP 200 and `"modelVersion"` equal to the id):
 
 ```bash
-curl -s -X POST -H "Authorization: Bearer $(gcloud auth print-access-token)" -H "x-goog-user-project: $PROJECT" \
-  -H "Content-Type: application/json" \
-  "https://aiplatform.googleapis.com/v1/projects/$PROJECT/locations/global/publishers/anthropic/models/claude-sonnet-5:rawPredict" \
-  -d '{"anthropic_version":"vertex-2023-10-16","max_tokens":5,"messages":[{"role":"user","content":"Reply OK"}]}'
+M=gemini-3.1-pro-preview
+curl -s -X POST -H "Authorization: Bearer $(gcloud auth print-access-token)" -H "Content-Type: application/json" \
+  "https://aiplatform.googleapis.com/v1/projects/$PROJECT/locations/global/publishers/google/models/${M}:generateContent" \
+  -d '{"contents":[{"role":"user","parts":[{"text":"Reply OK"}]}]}'
 ```
 
-**api-key:** Anthropic Console key (set a monthly spend limit there) → secret `goatos-stg-ask-mesha-anthropic-api-key` (§4).
+(zsh: write `${M}` with braces; `$M:g...` is a zsh modifier and mangles the URL into a Google HTML 404.)
+List what the project can see: `curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)"
+-H "x-goog-user-project: $PROJECT" "https://aiplatform.googleapis.com/v1beta1/publishers/google/models?pageSize=300"`.
 
-**oauth:** `claude setup-token` token → secret `goatos-stg-ask-mesha-claude-oauth-token`. Personal
-Pro/Max plans are for the subscriber's own use; a service used by several people should use
-vertex or api-key instead.
+Switch model without a build: `gcloud run services update goatos-ask-mesha-stg --project=$PROJECT
+--region=asia-south1 --update-env-vars=ASK_MESHA_MODEL=<id>`; for builds set `_ASK_MESHA_MODEL`.
+`/healthz` returns `{"ok":true,"provider":"gemini","model":"<id>"}`.
 
 ## 3c. Spend cap ($100/month)
 
 The agent enforces the cap itself: once this month's summed answer cost reaches
 `ASK_MESHA_MONTHLY_BUDGET_USD` (default 100) new questions get a "budget reached" reply
-without calling Claude; `ASK_MESHA_PER_ANSWER_BUDGET_USD` (default 1) and, for investigations,
+without calling the model; `ASK_MESHA_PER_ANSWER_BUDGET_USD` (default 1) and, for investigations,
 `ASK_MESHA_DEEP_ANSWER_BUDGET_USD` (default 5) abort a single runaway answer. GCP budgets only alert (they never stop spend), so add one as a backstop:
 
 ```bash
 BILLING=$(gcloud billing projects describe $PROJECT --format='value(billingAccountName)' | sed 's#billingAccounts/##')
 gcloud billing budgets create --billing-account=$BILLING \
-  --display-name="Ask Mesha Claude (Vertex) ~\$100" --budget-amount=8800INR \
+  --display-name="Ask Mesha Gemini (Vertex) ~\$100" --budget-amount=8800INR \
   --filter-projects=projects/$PROJECT --filter-services=services/C7E2-9256-1C43 \
   --threshold-rule=percent=0.5 --threshold-rule=percent=0.8 --threshold-rule=percent=1.0
 ```
 
 (Billing account 01FEDE-96BCB3-76D992 is INR: a USD amount is rejected with INVALID_ARGUMENT, and
 `--filter-services` needs the billing service ID (`C7E2-9256-1C43` = Vertex AI), not the API name.
-That filter covers all Vertex AI use in the project; Ask Mesha is the only Claude user today.)
-With `auto` or `api-key`, also set a $100 monthly limit in the Anthropic Console.
+That filter covers all Vertex AI use in the project, not only Ask Mesha.)
 
 ## 3d. Harden the read-only DB role (required before enabling)
 
@@ -230,18 +207,13 @@ datasource: `deploy/grafana/README.md` (events-only SELECT, uid `ask-mesha-postg
 ## 4. Secrets (values piped from stdin, never echoed)
 
 ```bash
-# api-key mode only: paste the key into stdin, then Ctrl-D
-gcloud secrets create goatos-stg-ask-mesha-anthropic-api-key --project=$PROJECT \
-  --replication-policy=automatic --data-file=-
 printf 'postgresql://ask_mesha:%s@/ask_mesha?host=/cloudsql/%s:%s:%s' \
   "$ASK_PW" $PROJECT $REGION $INSTANCE | \
   gcloud secrets create goatos-stg-ask-mesha-db-url --project=$PROJECT \
   --replication-policy=automatic --data-file=-
 unset ASK_PW
-# Only the secrets the chosen auth mode uses (vertex: no Claude secret at all).
+# The only secrets the service mounts (the model needs none: Vertex via the runtime SA).
 SECRETS="goatos-stg-ask-mesha-db-url mesha-ceo-readonly-db-url"
-# api-key: SECRETS="$SECRETS goatos-stg-ask-mesha-anthropic-api-key"
-# oauth:   SECRETS="$SECRETS goatos-stg-ask-mesha-claude-oauth-token"
 for s in $SECRETS; do
   gcloud secrets add-iam-policy-binding $s --project=$PROJECT \
     --member=serviceAccount:$SA --role=roles/secretmanager.secretAccessor

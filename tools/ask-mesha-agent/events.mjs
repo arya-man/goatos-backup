@@ -225,7 +225,7 @@ export async function createEvents({ stateDir, sink, log = (line) => console.log
       chat_id: ctx.chat_id ?? null,
       email: ctx.email ?? null,
       tenant_id: ctx.tenant_id ?? null,
-      // vertex | anthropic: which Claude backend served (or would serve) this request.
+      // gemini: the model provider that served this request.
       ...(ctx.provider ? { provider: ctx.provider } : {}),
       // "mcp" when the question came through the hosted MCP connector (X-Mesha-Client: mcp).
       ...(ctx.source ? { source: ctx.source } : {}),

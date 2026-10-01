@@ -12,7 +12,7 @@
 # Env:
 #   GOATOS_REPO       repo to fetch from (default: repo containing this script)
 #   STATE_DIR         default ~/.local/state/mesha-data-map (worktree, state, log)
-#   PGENV_FILE        default /Users/raviteja/airnd/agent-local/.pgenv (read-only DB user)
+#   PGENV_FILE        default $HOME/mesha/ask-mesha-local/.pgenv (read-only DB user)
 #   CLAUDE_BIN        default claude
 set -euo pipefail
 
@@ -28,7 +28,7 @@ done
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GOATOS_REPO="${GOATOS_REPO:-$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)}"
 STATE_DIR="${STATE_DIR:-$HOME/.local/state/mesha-data-map}"
-PGENV_FILE="${PGENV_FILE:-/Users/raviteja/airnd/agent-local/.pgenv}"
+PGENV_FILE="${PGENV_FILE:-$HOME/mesha/ask-mesha-local/.pgenv}"
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
 WT="$STATE_DIR/main-worktree"
 STATE_FILE="$STATE_DIR/last-seen"      # lines: sha=<main sha>, objects=<hash of ceo_ai object set>

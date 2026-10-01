@@ -20,8 +20,8 @@ substitutions:
   # tools/ask-mesha-agent/deploy/RUNBOOK.md exists; the Slack bot never sets these,
   # so existing backend/web/mobile deploys are unchanged. Set "true" per build.
   _ASK_MESHA_DEPLOY: "false"
-  # Claude auth for the agent: auto (API key until Vertex quota works, then Vertex) | vertex | api-key.
-  _ASK_MESHA_CLAUDE_AUTH: "auto"
+  # The agent runs Gemini on Vertex AI with its runtime SA (no model key). Empty = default model.
+  _ASK_MESHA_MODEL: ""
   # Additionally point goatos-admin-web-stg at the agent (CEO_AI_AGENT_URL/AUDIENCE).
   _ASK_MESHA_WIRE_ADMIN_WEB: "false"
   # Additionally point the hosted MCP (goatos-mcp-stg) ask_goatos at the agent
@@ -267,7 +267,7 @@ steps:
       - ASK_MESHA_DEPLOY=${_ASK_MESHA_DEPLOY}
       - ASK_MESHA_WIRE_ADMIN_WEB=${_ASK_MESHA_WIRE_ADMIN_WEB}
       - ASK_MESHA_WIRE_MCP=${_ASK_MESHA_WIRE_MCP}
-      - ASK_MESHA_CLAUDE_AUTH=${_ASK_MESHA_CLAUDE_AUTH}
+      - ASK_MESHA_MODEL=${_ASK_MESHA_MODEL}
       - REQUESTED_COMMIT_SHA=${_COMMIT_SHA}
       - RESOLVED_COMMIT_SHA=$REVISION_ID
     args:

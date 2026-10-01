@@ -29,7 +29,7 @@ const PORT = Number(process.env.PORT || 8787);
 // 127.0.0.1 locally; the container sets HOST=0.0.0.0 (Cloud Run fronts it with IAM).
 const HOST = process.env.HOST || "127.0.0.1";
 const STATE = process.env.ASK_MESHA_STATE_DIR || path.join(process.env.HOME, ".ask-mesha-agent");
-const REPO = process.env.GOATOS_REPO || path.join(process.env.HOME, "airnd/goatos-live");
+const REPO = process.env.GOATOS_REPO || path.join(process.env.HOME, "mesha/goatos");
 // Gemini on Vertex (gemini.mjs): newest Pro by default; ASK_MESHA_MODEL / ASK_MESHA_DEEP_MODEL /
 // ASK_MESHA_FAST_MODEL / ASK_MESHA_GEMINI_PROJECT / ASK_MESHA_GEMINI_LOCATION override.
 const GEMINI = geminiConfig(process.env);

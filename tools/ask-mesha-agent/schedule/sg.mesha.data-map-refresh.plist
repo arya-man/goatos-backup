@@ -15,7 +15,7 @@
   <key>EnvironmentVariables</key>
   <dict>
     <key>GOATOS_REPO</key><string>/Users/raviteja/mesha/goatos</string>
-    <key>PGENV_FILE</key><string>/Users/raviteja/airnd/agent-local/.pgenv</string>
+    <key>PGENV_FILE</key><string>/Users/raviteja/mesha/ask-mesha-local/.pgenv</string>
   </dict>
   <key>StartCalendarInterval</key>
   <dict><key>Hour</key><integer>7</integer><key>Minute</key><integer>30</integer></dict>

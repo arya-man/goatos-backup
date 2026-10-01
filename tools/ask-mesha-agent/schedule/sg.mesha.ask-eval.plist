@@ -17,7 +17,7 @@
   </array>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>ASK_MESHA_STATE_DIR</key><string>/Users/raviteja/airnd/agent-local</string>
+    <key>ASK_MESHA_STATE_DIR</key><string>/Users/raviteja/mesha/ask-mesha-local</string>
     <key>ASK_MESHA_EVAL_SUBSET</key><string></string>
     <key>ASK_MESHA_EVAL_BUDGET_USD</key><string>7</string>
   </dict>

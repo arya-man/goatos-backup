@@ -6,8 +6,13 @@ Read this before touching the admin-web **Ask Mesha** panel, `apps/admin-web/app
 ## What it is
 
 - The 4 CEOs use the existing Ask Mesha panel in admin-web. With the flag set, it is answered by
-  a **Claude Agent SDK agent** that reads the goatos code (read-only) and queries goatos-stg
-  **read-only**, instead of the legacy Go/Vertex `ceo-ai` backend.
+  a **Gemini agent on Vertex AI** (`tools/ask-mesha-agent/gemini.mjs`, newest Gemini Pro) that reads the
+  goatos code (read-only) and queries goatos-stg **read-only**, instead of the legacy Go/Vertex `ceo-ai`
+  backend. No Anthropic/Claude credentials exist in the runtime path.
+- **One instruction pack, model-neutral:** `tools/ask-mesha-agent/instructions.mjs` builds the system
+  instruction from `CLAUDE.md` (+ `@AGENTS.md`), the CEO answer rules, `data-map-core.md` and the live
+  table index. Edit the rules there, not in `server.mjs`. Its CEO-rule text is byte-identical to the
+  pre-Gemini prompt (hash-tested in `test/gemini.test.mjs`).
 - **Kill switch / flag:** `CEO_AI_AGENT_URL` on admin-web (`apps/admin-web/app/api/ceo-ai/_forward.ts`).
   Unset => legacy backend `ceo-ai`, unchanged. Never modify the legacy backend to make the agent work.
 - Same HTTP contract as the backend: `/ceo-ai/starters`, `/conversations` (list/create/get/patch/soft
@@ -15,7 +20,7 @@ Read this before touching the admin-web **Ask Mesha** panel, `apps/admin-web/app
   `token`, `reset`, `watch`, `final{answer, chart, conversation_id, message_id}`, `error`), `/events`
   (`stop_pressed` / `watch_stop` for a `request_id`; checked against the user who started that request,
   so Stop works before the chat row exists), `/metrics`, `/metrics/users`, `/metrics/recent`, `/healthz`
-  (`{ok, provider}`).
+  (`{ok, provider:"gemini", model}`).
 
 ## Audience rules (non-negotiable)
 
@@ -31,15 +36,18 @@ Read this before touching the admin-web **Ask Mesha** panel, `apps/admin-web/app
 
 ## Read-only guarantees (keep all four layers)
 
-1. **Tools:** `ASK_MESHA_READONLY=1` (default) gives the agent only `Read/Grep/Glob/Skill/TodoWrite`
-   plus the MCP tools `run_sql`, `mcp__mesha__run_reference` (runs an allow-listed `.agents/skills/mesha-data-map/references/*.sql`
+1. **Tools (always read-only, there is no other mode):** the agent gets only the code tools
+   `read_file` (line ranges; images/PDFs come back inline), `grep` (ripgrep), `glob`, `list_dir`, `get_skill`
+   (`code-tools.mjs`: realpath sandbox to the repo + this chat's upload dirs, `.git` and credential-shaped
+   files refused) plus the tools of the in-process **`mesha` MCP server** (`McpServer` in `server.mjs`, reached
+   by Gemini through an MCP client over an in-memory transport, so the handlers are the same code): `run_sql`, `mcp__mesha__run_reference` (runs an allow-listed `.agents/skills/mesha-data-map/references/*.sql`
    file by name as `SELECT * FROM (<file>) q [WHERE] [ORDER BY] [LIMIT]` through `run_sql`'s same read-only path; typed
    `params` fill only `/*param:x*/…/*end*/` spans declared by `-- param: x date|uuid|int|number`, so the model never retypes ~5KB SQL), `mcp__mesha__watch_tags` (live tag watch, below) and `mcp__mesha__describe_table` (fixed catalog read of up to 6 tables per
    call — `table` comma list and/or `tables` array — returning columns, FK join targets and, for base tables
    <= ~2M rows, top values of up to 6 category/status-like text columns; every name must match strict
    `schema.table` identifiers before it is interpolated, and all reads go through `run_sql`'s same read-only
    path). A `run_sql` "column/relation does not exist" error comes back with the real column lists of up to
-   4 tables the query referenced (same validated describe path). No Bash, Edit, Write, NotebookEdit, Web*, Task, Agent. Read paths are limited
+   4 tables the query referenced (same validated describe path). No shell, edit, write, web or sub-agent tool exists. Read paths are limited
    to the repo and upload dirs (no `/proc`, no `.pgenv`).
 2. **run_sql:** no query rules — any SQL over any table/schema, no tenant filter (single tenant). Runs in
    `BEGIN READ ONLY` with `default_transaction_read_only=on`, 60 s `statement_timeout` (psql process
@@ -52,9 +60,10 @@ Read this before touching the admin-web **Ask Mesha** panel, `apps/admin-web/app
 3. **Chat privacy:** `mesha_ceo_readonly` has NO access to assistant chat tables (`ceo_ai_conversations`, `ceo_ai_messages`, `ceo_ai_assistant_audit`, `ceo_ai_response_cache`, `ceo_ai_rate_limit`, and never the `ask_mesha` schema); each CEO sees only their own chats (service-enforced ownership).
 4. **Platform (the real guarantee):** DB role `mesha_ceo_readonly` has SELECT on **every table** in public/analytics/audit/ceo_ai/forensic_repair (+ default privileges for new tables) and **no write privilege anywhere** (granted 2026-09-24 via audit.begin_change; revoke `dblink` + `public` CREATE —
    RUNBOOK §3d); container runs non-root with the repo baked **read-only** at `/repo`; no git/GitHub/cloud
-   credentials; agent env is an allow-list (`agentEnv()` in `server.mjs`).
+   credentials; there is no model subprocess or shell, and the model credential is the runtime SA (ADC), never a key.
 - Proof to re-run after changes: ask "edit AGENTS.md" and "git push --force" — both must be refused and
-  the checkout unchanged; a data question must still answer with 1 query.
+  the checkout unchanged; a data question must still answer with 1 query. Sandbox/secret refusals are unit-tested
+  in `test/gemini.test.mjs` ("code tools: sandbox ...").
 
 ## Multi-tenant isolation — REQUIRED before onboarding a 2nd tenant
 
@@ -168,13 +177,13 @@ so a brand-new migration trips it too). Then:
 - Every answer records a timing event (first progress/tool/token, total, tool + DB-query counts, tokens,
   cost) to the metrics store; `GET /metrics` returns p50/p90. `node tools/ask-mesha-agent/bench.mjs`
   drives the real `/ask` path (local only: the token's `/ask` login bypass is off on Cloud Run; there it only unlocks `/metrics*`).
-- Why it's fast: `CLAUDE.md`/`AGENTS.md` are injected into the **system prompt** (cached, 1 h TTL via
-  `ENABLE_PROMPT_CACHING_1H=1`, `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`) and all chats share one checkout,
-  so the large prefix is read from cache instead of re-written per chat. Per-chat worktrees break the
-  cache; keep `ASK_MESHA_WORKTREE_PER_CHAT` off. Quick lookups: `claude-sonnet-5`, effort `low`.
-  Investigations (attachment, `deep:` prefix, or verify/check/why/bug/wrong/explain…) automatically use
-  `claude-opus-5-5`, effort `high`, and must explain with a worked example (readings, arithmetic, verdict).
-  Baseline: 84 s / $0.64 → lookups ~15–30 s / ~$0.10; investigations ~1–2 min / ~$1.
+- Why it's fast: the instruction pack (`CLAUDE.md`/`AGENTS.md`, rules, data map, table index) is one
+  byte-stable system instruction and all chats share one checkout, so Vertex implicit context caching
+  serves the prefix (`cache_read_tokens` on each metric). Per-chat worktrees break the cache; keep
+  `ASK_MESHA_WORKTREE_PER_CHAT` off. Quick lookups: `ASK_MESHA_MODEL` with thinking level `low`.
+  Investigations (attachment, `deep:` prefix, or verify/check/why/bug/wrong/explain…) use
+  `ASK_MESHA_DEEP_MODEL` with thinking level `high`, and must explain with a worked example.
+  Each model turn is ~8-12 s on `gemini-3.1-pro-preview`: lookups ~30-60 s, investigations 2-8 min (2026-10-01 local run).
 - Streaming: server sends `reset` before a tool call (pre-tool narration is cleared); the panel
   typewriter reveals tokens per frame; a Codex-style activity trail shows plain-English steps and
   "Worked for Xm · N steps".
@@ -254,7 +263,7 @@ rules say which truth numbers must appear in the answer (exact or `tol` / `tol_p
 `must_not_mention` regexes (SQL/table words are always banned), and `max_seconds`.
 
 - Run on demand (local agent on :8787, bench token):
-  `ASK_MESHA_STATE_DIR=~/airnd/agent-local ASK_MESHA_BENCH_TOKEN=... node tools/ask-mesha-agent/eval/run.mjs`
+  `ASK_MESHA_STATE_DIR=~/mesha/ask-mesha-local ASK_MESHA_BENCH_TOKEN=... node tools/ask-mesha-agent/eval/run.mjs`
   Options: `--subset <n|tag|id,...>` (e.g. `core`, `trap`, `adg-by-park`), `--concurrency 2`, `--budget-usd 6`
   (stops asking once measured spend passes it; skipped items don't fail), `--truth-only` (runs every truth
   query + UI read, no agent calls, $0: use it to check a new golden), `--no-ui`. Prints a table, writes
@@ -289,9 +298,9 @@ rules say which truth numbers must appear in the answer (exact or `tol` / `tol_p
 ## Cost controls
 
 - `ASK_MESHA_MONTHLY_BUDGET_USD` (default **100**): once this month's summed answer cost reaches it,
-  `/ask` replies "Ask Mesha is paused for this month. Please contact the Mesha team." without calling Claude.
+  `/ask` replies "Ask Mesha is paused for this month. Please contact the Mesha team." without calling the model.
   Fails closed if spend can't be read ("unavailable for a moment").
-- Per-answer caps (SDK `maxBudgetUsd`, counted inside the monthly cap): `ASK_MESHA_PER_ANSWER_BUDGET_USD`
+- Per-answer caps (the agent loop stops before running more tools once the answer's token cost passes its cap; counted inside the monthly cap): `ASK_MESHA_PER_ANSWER_BUDGET_USD`
   (default 1) for lookups, `ASK_MESHA_DEEP_ANSWER_BUDGET_USD` (default 5) for investigations.
   Each running answer reserves its cap: a new ask is refused when spent + in-flight caps >= the monthly
   cap, and its own cap is clipped to what is left.
@@ -299,45 +308,47 @@ rules say which truth numbers must appear in the answer (exact or `tol` / `tol_p
   `chat_busy` (logged as a `chat_busy` event).
 - Input limits: question <= 20,000 characters (413 `question_too_long`); at most 5 attachments, ~10 MB together
   (request body cap 15 MB incl. base64, 413 `too_large`).
-- No SDK result (tab closed, crash): the answer's cap is charged (`cost_estimated`). A Vertex attempt that fails
-  over to the key adds its own cost (its cap when it produced no result) to the answer, on every exit path.
-- Cost = SDK `total_cost_usd` per answer (tokens × list price incl. cache reads/writes), stored with the
-  metric; monthly spend = sum since the 1st (UTC). It is an estimate; the GCP bill is authoritative.
-- GCP budgets only alert; RUNBOOK §3c adds a $100 Vertex budget alert as a backstop (plus an Anthropic Console limit for the key).
+- No result (tab closed, crash): the answer's cap is charged (`cost_estimated`).
+- Cost = Gemini `usageMetadata` per model call × Vertex list price (`priceFor()` in `gemini.mjs`; thinking tokens
+  bill as output, cached input at 10%, long-context rate over 200k prompt tokens; override with
+  `ASK_MESHA_PRICE_IN_PER_M` / `ASK_MESHA_PRICE_OUT_PER_M`), stored with the metric; monthly spend = sum since the
+  1st (UTC). It is an estimate; the GCP bill is authoritative.
+- GCP budgets only alert; RUNBOOK §3c adds a $100 Vertex budget alert as a backstop.
 
-## Claude access
+## Model access (Gemini on Vertex AI)
 
-- `ASK_MESHA_CLAUDE_AUTH=auto` (deploy default): the service carries both the Vertex env and the
-  Anthropic API key. `provider.mjs` probes Vertex (tiny `rawPredict`, metadata-server token; locally
-  `gcloud auth print-access-token` if installed) at startup and every 15 min while on the key, hourly once
-  on Vertex. Each question uses Vertex iff the last probe passed, else the key; a Vertex 429/403/404 before
-  any token is shown and before any tool call (so no query or live watch runs twice) marks Vertex down and
-  reruns that question once on the key (the failed attempt's Vertex spend — or its cap when it returned no
-  result — is added to that answer's cost; its session and session cost are rolled back). So STG runs on the key
-  now and moves to Vertex by itself when quota is approved — no redeploy. `provider` (`vertex` |
-  `anthropic`) is on every metric row and event, `/healthz` shows it, logs say `[provider] switched to …`.
-  The monthly cap is one cap across both. Force a provider with
-  `gcloud run services update … --update-env-vars=ASK_MESHA_CLAUDE_AUTH=vertex|api-key` (config change,
-  no build); after Vertex is live, switch to `vertex` and disable the key's secret version (RUNBOOK §3b).
-- `ASK_MESHA_CLAUDE_AUTH=vertex`: Claude Sonnet 5 / Opus 5.5 via Vertex AI with the
-  runtime service account (`roles/aiplatform.user`), billed to GCP, no key. Model ids `claude-sonnet-5` /
-  `claude-opus-5-5` verified GA on Vertex 2026-09-24 **only on the `global` endpoint** (not asia-south1/us-east5;
-  `global` is not India-pinned). goatos-stg needs a Claude quota increase first (it returned 429) — RUNBOOK §3b.
-- `api-key`: Anthropic Console key in Secret Manager. `oauth`: `claude setup-token` — a personal
-  Pro/Max plan is for its owner's own use; do not power the shared service with it.
-- Local laptop testing may use the developer's own Claude login.
+- The service calls Gemini on Vertex AI (`@google/genai`, `vertexai: true`) with the Cloud Run runtime service
+  account (`roles/aiplatform.user`, ADC from the metadata server). No API key, no model secret.
+  `deploy-stg.sh` refuses to deploy when the SA lacks the role.
+- Models (verified with a live `generateContent` 200 on goatos-stg, location `global`, 2026-10-01):
+  `ASK_MESHA_MODEL` default **`gemini-3.1-pro-preview`** (newest Pro), `ASK_MESHA_FAST_MODEL` /
+  `ASK_MESHA_CHECK_MODEL` default **`gemini-3.8-flash`** (newest Flash, used by the answer checker),
+  `ASK_MESHA_DEEP_MODEL` defaults to `ASK_MESHA_MODEL`. Endpoint: `ASK_MESHA_GEMINI_PROJECT` (goatos-stg),
+  `ASK_MESHA_GEMINI_LOCATION` (`global`). Do not pin a model Google has announced for retirement.
+- Agent loop (`runAgent`): stream a turn, run all its function calls in parallel, return results (errors as
+  data so the model fixes its call), repeat; max `ASK_MESHA_MAX_STEPS` (40) turns, then one tool-less turn
+  to answer (`error_max_turns`); one nudge if a turn comes back empty; 429/5xx retried twice before any text.
+  Gemini 3 thought signatures are echoed back verbatim. SSE events are unchanged (`progress`/`reset`/`token`/
+  `replace`/`final`), so admin-web needs no change.
+- Skills: exposed as the `get_skill` tool (list, then load `SKILL.md` by name) like the SDK's on-demand Skill
+  tool, so the cached system instruction stays small; `data-map-core.md` is always inlined.
+- Screenshots: image/PDF attachments go to the model as inline parts in the user turn and stay readable with
+  `read_file`; text/CSV attachments are read with `read_file`.
+- `provider` (`gemini`) and `model` are on every metric row, event and saved answer; `/healthz` shows them.
+- Local laptop: ADC (`gcloud auth application-default login`), or `ASK_MESHA_GEMINI_AUTH=gcloud` to use the
+  signed-in `gcloud` user token when ADC needs a browser re-auth (ignored on Cloud Run).
 
 ## Storage and sessions
 
-- `ASK_MESHA_DATABASE_URL` => Postgres schema `ask_mesha` (chats, messages, metrics, SDK
-  `session_entries`) with a **separate writable app user** — never `mesha_ceo_readonly`.
+- `ASK_MESHA_DATABASE_URL` => Postgres schema `ask_mesha` (chats, messages, metrics; the legacy SDK
+  `session_entries` table is no longer written) with a **separate writable app user** — never `mesha_ceo_readonly`.
   DDL `tools/ask-mesha-agent/sql/001_init.sql` + `002_events.sql` (idempotent, applied when `ASK_MESHA_DB_MIGRATE=1`).
   Chats are owned by **email + tenant**; delete is soft (`deleted_at`).
 - `ASK_MESHA_UPLOADS_BUCKET` => GCS `uploads/<chat>/<fileId>-<name>`; files re-display after reload via
   the owner-checked file route; only images/PDF are served inline (others download, `nosniff`).
 - Unset => JSON/local files under `ASK_MESHA_STATE_DIR` (local dev only).
-- Sessions resume across Cloud Run instances via the SDK `sessionStore` (Postgres); if a transcript is
-  missing the last 20 messages are replayed as context.
+- Turns are stateless: every question replays the chat's last 20 stored messages as user/model turns, so any
+  instance can answer any chat (older chats that started on Claude continue the same way).
 
 ## Deploy (STG) — same authority as everything else
 
@@ -379,36 +390,31 @@ rules say which truth numbers must appear in the answer (exact or `tol` / `tol_p
 
 - `cloud-sql-proxy --port 55432 goatos-stg:asia-south1:goatos-stg-core-db`; `.pgenv` from secret
   `mesha-ceo-readonly-db-url`. If the proxy logs `invalid_rapt`, run `gcloud auth application-default login`.
-- Agent: `node tools/ask-mesha-agent/server.mjs` (port 8787). admin-web against live STG API with the flag:
+- Agent: `node tools/ask-mesha-agent/server.mjs` (port 8787; `ASK_MESHA_GEMINI_AUTH=gcloud` if ADC is stale;
+  `GOATOS_REPO` = a clean `origin/main` worktree under `~/mesha`). admin-web against live STG API with the flag:
   `tools/ask-mesha-agent/start-admin-web.sh prod` (port 3300; `prod` avoids 20–35 s dev compiles).
 - Visual check every UI change at 390×844 and 1440×900 (normal + maximized) before handing back.
 
-## Playbook: move Ask Mesha from the Anthropic key to Vertex (for Claude/Codex)
+## Playbook: change the Gemini model (for Claude/Codex)
 
-Use when Ravi says "Vertex is approved, switch Ask Mesha". Project `goatos-stg`, service
-`goatos-ask-mesha-stg`, region `asia-south1`, secret `goatos-stg-ask-mesha-anthropic-api-key`.
+Use when Ravi says "move Ask Mesha to <model>" or Google announces a retirement. Project `goatos-stg`,
+service `goatos-ask-mesha-stg`, region `asia-south1`.
 
-1. **Check Vertex really works** (expect HTTP 200, not 429/404):
+1. **Find the id and prove it serves** (expect HTTP 200 and `modelVersion` = the id; in zsh write `${M}`):
    ```bash
-   T=$(gcloud auth print-access-token); curl -s -o /dev/null -w "%{http_code}\n" -X POST -H "Authorization: Bearer $T" -H "x-goog-user-project: goatos-stg" -H "Content-Type: application/json" "https://aiplatform.googleapis.com/v1/projects/goatos-stg/locations/global/publishers/anthropic/models/claude-sonnet-5:rawPredict" -d '{"anthropic_version":"vertex-2023-10-16","max_tokens":5,"messages":[{"role":"user","content":"hi"}]}'
+   T=$(gcloud auth print-access-token); M=gemini-3.1-pro-preview
+   curl -s -H "Authorization: Bearer $T" -H "x-goog-user-project: goatos-stg" "https://aiplatform.googleapis.com/v1beta1/publishers/google/models?pageSize=300" | grep -o '"name": "publishers/google/models/gemini[^"]*"'
+   curl -s -w "\n%{http_code}\n" -H "Authorization: Bearer $T" -H "Content-Type: application/json" "https://aiplatform.googleapis.com/v1/projects/goatos-stg/locations/global/publishers/google/models/${M}:generateContent" -d '{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}'
    ```
-   Repeat with `claude-opus-5-5`. Both must be 200.
-2. **Auto mode usually switches by itself** within 15 min. Confirm: `curl <service-url>/healthz` (with an
-   ID token) shows `"provider":"vertex"`, or Cloud Logging has `[provider] switched to vertex`.
-3. **Pin it to Vertex** (config change, no build, ~30 s):
-   ```bash
-   gcloud run services update goatos-ask-mesha-stg --project=goatos-stg --region=asia-south1 --update-env-vars=ASK_MESHA_CLAUDE_AUTH=vertex
-   ```
-4. **Make future builds use Vertex:** trigger Cloud Build with `_ASK_MESHA_CLAUDE_AUTH=vertex` (or change the
-   default in `cloudbuild.stg.yaml` via a PR landed with `make land-main`). Do this BEFORE step 5, or the
-   next deploy's preflight fails on a disabled key.
-5. **Retire the key:** `gcloud secrets versions disable 1 --secret=goatos-stg-ask-mesha-anthropic-api-key --project=goatos-stg`,
-   then ask Ravi to revoke the key in console.anthropic.com (never do Console actions yourself).
-6. **Verify:** ask one question in the panel; the metric/event row shows `provider: vertex`; spend keeps
-   counting under the same $100 cap.
+2. **Run the golden eval locally on the new id** (`ASK_MESHA_MODEL=<id>` on the local server, then
+   `node tools/ask-mesha-agent/eval/run.mjs --url http://127.0.0.1:<port>`); it must not score below the current model.
+3. **Switch the live service** (config change, no build, ~30 s):
+   `gcloud run services update goatos-ask-mesha-stg --project=goatos-stg --region=asia-south1 --update-env-vars=ASK_MESHA_MODEL=<id>`
+4. **Make builds keep it:** change the default in `gemini.mjs` via a PR landed with `make land-main`
+   (or trigger Cloud Build with `_ASK_MESHA_MODEL=<id>`).
+5. **Verify:** `/healthz` shows the id; ask one question in the panel; its metric row shows the model.
 
-Rollback (Vertex failing): `--update-env-vars=ASK_MESHA_CLAUDE_AUTH=auto` (needs an enabled key version) or `=api-key`.
-Never store the key in the repo, env files or logs; it lives only in Secret Manager.
+Rollback: the same `--update-env-vars=ASK_MESHA_MODEL=<previous id>`.
 
 ## Code snapshot in the image (what the chat can read)
 

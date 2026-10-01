@@ -19,7 +19,7 @@ them away: `docs/architecture/operational-read-model-contract.md`
 
 - Ask Mesha leadership chat (admin-web panel, `CEO_AI_AGENT_URL` flag, `tools/ask-mesha-agent/`, read-only code + read-only stg DB, data map, spend cap, Cloud Run deploy) -> `docs/agent-rules/ask-mesha.md`. Keep all three read-only layers; never modify the legacy backend ceo-ai to make the agent work.
 - Ask Mesha before onboarding a second tenant: session-bound tenant + DB row-level security per tenant read-only login -> `docs/agent-rules/ask-mesha.md` "Multi-tenant isolation".
-- Ask Mesha provider switch (Anthropic API key -> Vertex, no redeploy; auto mode, pin, retire key) -> `docs/agent-rules/ask-mesha.md` "Playbook: move Ask Mesha from the Anthropic key to Vertex".
+- Ask Mesha model: Gemini on Vertex AI (runtime SA, no key; newest Pro default, env `ASK_MESHA_MODEL`; change model, verify id, rollback) -> `docs/agent-rules/ask-mesha.md` "Model access" and "Playbook: change the Gemini model".
 - Ask Mesha read-only guarantees are four layers (agent tools, run_sql, chat privacy, DB role `mesha_ceo_readonly`); keep all four -> `docs/agent-rules/ask-mesha.md` "Read-only guarantees".
 - Ask Mesha from the hosted MCP (`ask_goatos`, `MESHA_MCP_AGENT_URL` flag, `stream:false`, `_ASK_MESHA_WIRE_MCP`) -> `docs/agent-rules/ask-mesha.md` "MCP".
 - Ask Mesha accuracy regression (golden questions vs live truth SQL + admin-web API; run after data-map/saved-query/app-logic changes, before landing, weekly; every CEO-found wrong answer becomes a golden) -> `node tools/ask-mesha-agent/eval/run.mjs`, `docs/agent-rules/ask-mesha.md` "Accuracy regression".

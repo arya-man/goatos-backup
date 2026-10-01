@@ -1,4 +1,4 @@
-# Ask Mesha coding agent (Claude Agent SDK) for Cloud Run: goatos-ask-mesha-stg.
+# Ask Mesha coding agent (Gemini on Vertex AI) for Cloud Run: goatos-ask-mesha-stg.
 # Build context = repo root at the deployed SHA:
 #   docker build -f tools/ask-mesha-agent/Dockerfile .
 # Ignore rules: tools/ask-mesha-agent/Dockerfile.dockerignore (BuildKit per-Dockerfile
@@ -6,10 +6,7 @@
 FROM node:24-slim AS deps
 WORKDIR /app
 COPY tools/ask-mesha-agent/package.json tools/ask-mesha-agent/package-lock.json ./
-# npm ci pulls the glibc linux-x64 native `claude` binary as an optional dep.
-RUN npm ci --omit=dev --no-audit --no-fund \
- && test -d node_modules/@anthropic-ai/claude-agent-sdk-linux-x64 \
- || (echo "missing @anthropic-ai/claude-agent-sdk-linux-x64 (build with --platform linux/amd64)" >&2; exit 1)
+RUN npm ci --omit=dev --no-audit --no-fund
 
 FROM node:24-slim
 RUN apt-get update \
@@ -29,11 +26,11 @@ WORKDIR /app
 COPY --from=deps --chown=root:root /app/node_modules ./node_modules
 COPY --chown=root:root tools/ask-mesha-agent/ ./
 COPY --chown=root:root tools/ask-mesha-agent/deploy/entrypoint.sh /usr/local/bin/ask-mesha-entrypoint
-# Runtime = server.mjs lib.mjs events.mjs store.mjs uploads.mjs sql/*.sql package*.json;
+# Runtime = server.mjs gemini.mjs code-tools.mjs instructions.mjs lib.mjs ... sql/*.sql package*.json;
 # data-map-core.md is read from /repo (GOATOS_REPO). Drop tests, bench, dev tooling.
 RUN rm -rf /app/deploy /app/test /app/*.test.mjs /app/bench.mjs /app/schedule \
       /app/gen-data-map.mjs /app/refresh-data-map.sh /app/start-admin-web.sh /app/README.md \
- && for f in server.mjs lib.mjs events.mjs store.mjs uploads.mjs provider.mjs watch.mjs sql/001_init.sql sql/002_events.sql; do \
+ && for f in server.mjs gemini.mjs code-tools.mjs instructions.mjs checker.mjs lib.mjs events.mjs store.mjs uploads.mjs watch.mjs sql/001_init.sql sql/002_events.sql; do \
       test -f "/app/$f" || { echo "missing runtime file $f" >&2; exit 1; }; done \
  && test -f /repo/tools/ask-mesha-agent/data-map-core.md \
  && chmod 0755 /usr/local/bin/ask-mesha-entrypoint
