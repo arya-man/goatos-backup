@@ -113,7 +113,8 @@ test("run_reference has a plain progress label", () => {
 test("server registers run_reference read-only and allows it", () => {
   const src = fs.readFileSync(path.join(ROOT, "tools/ask-mesha-agent/server.mjs"), "utf8");
   assert.match(src, /"run_reference",[\s\S]*?buildReferenceSql[\s\S]*?runSql\(built\.sql\)[\s\S]*?\n\s+RO,\n/);
-  assert.match(src, /allowedTools: \[[^\]]*"mcp__mesha__run_reference"/);
+  // Every tool on the mesha MCP server reaches Gemini (connectMcp lists them all).
+  assert.match(src, /declarations: \[\.\.\.mcp\.declarations, \.\.\.CODE_TOOL_DECLARATIONS\]/);
   const block = src.slice(src.indexOf('"run_reference",'), src.indexOf('"describe_table",'));
   assert.doesNotMatch(block, /z\.record\(/, "z.record hides the tool from the model");
 });

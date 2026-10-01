@@ -250,108 +250,6 @@ test("monthly cap: in-flight reservation is taken before any await after the bud
   assert.equal((body.slice(reserve, body.indexOf("if (!locked)")).match(/activeRuns\.delete\(requestId\)/g) || []).length, 2);
 });
 
-// ---- Claude provider switch (provider.mjs) ----------------------------------
-import {
-  authMode, selectProvider, envForProvider, combinedCost, parseProbeResponse, isVertexUnavailable, shouldFallback, probeVertex, createProviderSwitch, vertexUrl,
-} from "../provider.mjs";
-
-test("provider: auth mode + per-request selection", () => {
-  assert.equal(authMode({ ASK_MESHA_CLAUDE_AUTH: "auto" }), "auto");
-  assert.equal(authMode({ CLAUDE_CODE_USE_VERTEX: "1" }), "vertex");
-  assert.equal(authMode({}), "api-key");
-  assert.equal(selectProvider("auto", { vertexOk: false }), "anthropic");
-  assert.equal(selectProvider("auto", { vertexOk: true }), "vertex");
-  assert.equal(selectProvider("vertex", { vertexOk: false }), "vertex");
-  assert.equal(selectProvider("api-key", { vertexOk: true }), "anthropic");
-  assert.equal(selectProvider("oauth", { vertexOk: true }), "anthropic");
-});
-
-test("provider: agent env carries only the chosen backend's credentials", () => {
-  const env = { PATH: "/bin", ANTHROPIC_API_KEY: "k", CLAUDE_CODE_USE_VERTEX: "1", ANTHROPIC_VERTEX_PROJECT_ID: "p", CLOUD_ML_REGION: "global" };
-  const a = envForProvider("anthropic", env);
-  assert.equal(a.ANTHROPIC_API_KEY, "k");
-  assert.equal(a.CLAUDE_CODE_USE_VERTEX, undefined);
-  assert.equal(a.ANTHROPIC_VERTEX_PROJECT_ID, undefined);
-  const v = envForProvider("vertex", env);
-  assert.equal(v.ANTHROPIC_API_KEY, undefined);
-  assert.equal(v.CLAUDE_CODE_USE_VERTEX, "1");
-  assert.equal(v.ANTHROPIC_VERTEX_PROJECT_ID, "p");
-  assert.equal(env.ANTHROPIC_API_KEY, "k", "input env not mutated");
-});
-
-test("provider: probe response parsing", () => {
-  assert.deepEqual(parseProbeResponse(200, JSON.stringify({ type: "message", content: [{ type: "text", text: "o" }] })), { ok: true, reason: "ok" });
-  assert.equal(parseProbeResponse(200, "<html>").ok, false);
-  assert.equal(parseProbeResponse(429, '{"error":{"code":429,"status":"RESOURCE_EXHAUSTED","message":"Quota exceeded"}}').reason, "quota_429");
-  assert.equal(parseProbeResponse(429, "slow down").reason, "rate_limited_429");
-  assert.equal(parseProbeResponse(403, "").reason, "forbidden_403");
-  assert.equal(parseProbeResponse(404, "").reason, "not_found_404");
-  assert.equal(parseProbeResponse(500, "").reason, "http_500");
-  assert.equal(vertexUrl({ project: "p", region: "global", model: "m" }), "https://aiplatform.googleapis.com/v1/projects/p/locations/global/publishers/anthropic/models/m:rawPredict");
-  assert.match(vertexUrl({ project: "p", region: "us-east5", model: "m" }), /^https:\/\/us-east5-aiplatform/);
-});
-
-test("provider: probeVertex sends max_tokens 1 and never throws", async () => {
-  let sent;
-  const ok = await probeVertex({ project: "p", region: "global", model: "m", tokenFn: async () => "t",
-    fetchImpl: async (url, init) => { sent = { url, init }; return { status: 200, text: async () => '{"type":"message","content":[]}' }; } });
-  assert.deepEqual(ok, { ok: true, reason: "ok" });
-  assert.equal(JSON.parse(sent.init.body).max_tokens, 1);
-  assert.equal(sent.init.headers.Authorization, "Bearer t");
-  assert.equal((await probeVertex({ project: "p", region: "global", model: "m", tokenFn: async () => null })).reason, "no_token");
-  assert.equal((await probeVertex({ project: "p", region: "global", model: "m", tokenFn: async () => "t", fetchImpl: async () => { throw new Error("x"); } })).reason, "network");
-});
-
-test("provider: mid-flight fallback decision", () => {
-  const base = { mode: "auto", provider: "vertex", attempt: 0, streamed: false };
-  assert.equal(shouldFallback({ ...base, status: 429 }), true);
-  assert.equal(shouldFallback({ ...base, status: 403 }), true);
-  assert.equal(shouldFallback({ ...base, status: 404 }), true);
-  assert.equal(shouldFallback({ ...base, error: "API Error: 429 RESOURCE_EXHAUSTED Quota exceeded" }), true);
-  assert.equal(shouldFallback({ ...base, error: "rate_limit" }), true);
-  assert.equal(shouldFallback({ ...base, status: 529, error: "overloaded" }), false, "overload isn't a provider problem");
-  assert.equal(shouldFallback({ ...base, status: 429, streamed: true }), false, "tokens already on screen");
-  assert.equal(shouldFallback({ ...base, status: 429, attempt: 1 }), false, "only one retry");
-  assert.equal(shouldFallback({ ...base, provider: "anthropic", status: 429 }), false);
-  assert.equal(shouldFallback({ ...base, mode: "vertex", status: 429 }), false, "forced vertex never falls back");
-  assert.equal(shouldFallback({ ...base, status: 429, toolCalls: 2 }), false, "queries/watch already ran: no rerun");
-  assert.equal(shouldFallback({ ...base, status: 429, toolCalls: 0 }), true);
-  assert.equal(isVertexUnavailable({ error: "PERMISSION_DENIED on aiplatform.endpoints.predict" }), true);
-});
-
-test("provider: switch probes, flips to vertex, re-probes on schedule, and marks vertex down", async () => {
-  const logs = [];
-  const timers = [];
-  let probeResult = { ok: false, reason: "quota_429" };
-  const sw = createProviderSwitch({
-    mode: "auto", probe: async () => probeResult, log: (l) => logs.push(l),
-    setTimer: (fn, ms) => { timers.push(ms); return { fn }; }, clearTimer: () => {},
-  });
-  assert.equal(sw.current(), "anthropic");
-  await sw.probeNow();
-  assert.equal(sw.current(), "anthropic");
-  assert.equal(timers.at(-1), 15 * 60_000);
-  probeResult = { ok: true, reason: "ok" };
-  await sw.probeNow();
-  assert.equal(sw.current(), "vertex");
-  assert.equal(timers.at(-1), 60 * 60_000);
-  assert.ok(logs.includes("[provider] switched to vertex (probe ok)"));
-  sw.markVertexDown("api_retry 429 rate_limit");
-  assert.equal(sw.current(), "anthropic");
-  assert.equal(sw.status().vertex_ok, false);
-  assert.equal(timers.at(-1), 15 * 60_000);
-  const fixed = createProviderSwitch({ mode: "api-key", probe: async () => ({ ok: true }) });
-  await fixed.probeNow();
-  assert.equal(fixed.current(), "anthropic");
-});
-
-test("provider: failed attempt's cost is counted once on top of the retry", () => {
-  assert.equal(combinedCost(0.2, 0), 0.2);
-  assert.equal(combinedCost(0.2, 0.05), 0.25);
-  assert.equal(combinedCost(null, 0.05), 0.05, "retry without a result still carries the first attempt");
-  assert.equal(combinedCost(null, 0), null, "no result stays null so the cap estimate kicks in");
-});
-
 test("stripLeadingNarration drops a working line, keeps real answers", async () => {
   const { stripLeadingNarration, makeTurnGate } = await import("../lib.mjs");
   assert.equal(stripLeadingNarration("Confirming there's genuinely no weighing activity…\n\n**No goats were weighed today.**"), "**No goats were weighed today.**");
@@ -385,12 +283,12 @@ test("deleting a chat mid-answer aborts the run and nothing is saved into it", (
   assert.match(del.slice(0, 800), /activeRuns\.values\(\)\) if \(r\.chatId === chat\.id\) r\.chatDeleted/);
   assert.match(askSrc, /chatDeleted: \(\) => \{ stopReason = "chat_deleted"; onDeleted\(\); \}/);
   assert.match(askSrc, /onDeleted = \(\) => abort\.abort\(\)/);
-  // The abort check sits between the SDK loop and the assistant message save.
+  // The abort check sits between the agent loop and the assistant message save.
   const save = askSrc.indexOf("await store.addMessage(chat.id, assistantMsg)");
   const guard = askSrc.lastIndexOf('if (abort.signal.aborted) throw new Error("client_aborted")', save);
-  assert.ok(guard > askSrc.indexOf("for await (const msg of stream)") && guard < save);
-  // And before Claude is started at all.
-  assert.ok(askSrc.indexOf('if (abort.signal.aborted) throw new Error("client_aborted")') < askSrc.indexOf("const stream = query("));
+  assert.ok(guard > askSrc.indexOf("await runAgent(") && guard < save);
+  // And before the model is started at all.
+  assert.ok(askSrc.indexOf('if (abort.signal.aborted) throw new Error("client_aborted")') < askSrc.indexOf("await runAgent("));
 });
 
 test("the first progress frame carries the chat id (a cut-off stream stays resumable)", () => {
@@ -464,25 +362,16 @@ test("fallback then crash: the failed attempt's cost is still counted when the r
   assert.deepEqual(finalAnswerCost({ costUsd: 0.2, started: true, capUsd: 1, failedAttemptCost: 0.04 }), { cost: 0.24, estimated: false });
   // Never started: nothing spent.
   assert.deepEqual(finalAnswerCost({ costUsd: null, started: false, capUsd: 1 }), { cost: null, estimated: false });
-  // The finally block (every exit path, incl. throw) is where failed attempts are added.
+  // The finally block (every exit path, incl. throw) charges the cap when no cost arrived.
   const fin = askSrc.slice(askSrc.lastIndexOf("} finally {"));
-  assert.match(fin, /finalAnswerCost\(\{ costUsd: metric\.cost_usd, started, capUsd, failedAttemptCost \}\)/);
-  assert.ok(askSrc.indexOf("let failedAttemptCost = 0") < askSrc.indexOf("\n  try {\n    // conversation_id up front"), "declared outside the try");
+  assert.match(fin, /finalAnswerCost\(\{ costUsd: metric\.cost_usd, started, capUsd \}\)/);
 });
 
-test("fallback: a failed attempt with no result message counts its cap, not 0", () => {
+test("failedAttemptCostUsd: no result message counts the cap, not 0", () => {
   assert.equal(failedAttemptCostUsd(null, 1.5), 1.5);
   assert.equal(failedAttemptCostUsd(undefined, 1.5), 1.5);
   assert.equal(failedAttemptCostUsd(0, 1.5), 0, "a real $0 result is kept");
   assert.equal(failedAttemptCostUsd(0.03, 1.5), 0.03);
-  assert.match(askSrc, /failedAttemptCost \+= failedAttemptCostUsd\(metric\.cost_usd, capUsd\)/);
-});
-
-test("fallback: the failed attempt's session_cost_usd is rolled back", () => {
-  const rb = askSrc.slice(askSrc.indexOf("providerSwitch.markVertexDown"), askSrc.indexOf("// metric.cost_usd is this attempt's cost only"));
-  assert.match(rb, /chat\.session_cost_usd = origSessionCostUsd/);
-  assert.match(rb, /updateChat\(chat\.id, \{ session_cost_usd: origSessionCostUsd \}\)/);
-  assert.match(rb, /metric\.session_cost_usd = null/);
 });
 
 test("Stop pressed before the chat exists is recorded against the request's owner", () => {
@@ -497,12 +386,12 @@ test("Stop pressed before the chat exists is recorded against the request's owne
   assert.match(askSrc, /chatId: chat\?\.id \?\? null, capUsd, email: user\.email, tenantId: user\.tenantId/);
 });
 
-test("chat deleted between lock and stream start: aborted before anything is written or Claude runs", () => {
+test("chat deleted between lock and stream start: aborted before anything is written or the model runs", () => {
   assert.ok(askSrc.indexOf('if (stopReason === "chat_deleted") abort.abort()') > askSrc.indexOf("store.tryLock"));
   const tryStart = askSrc.indexOf('label: "Starting agent"');
   const guard = askSrc.indexOf('if (abort.signal.aborted) throw new Error("client_aborted")', tryStart);
   assert.ok(guard > tryStart);
-  for (const write of ["store.updateChat(chat.id, { title", "store.addMessage(chat.id, userMsg)", "uploads.save(", "const stream = query("])
+  for (const write of ["store.updateChat(chat.id, { title", "store.addMessage(chat.id, userMsg)", "uploads.save(", "await runAgent("])
     assert.ok(guard < askSrc.indexOf(write), write);
 });
 
