@@ -21,6 +21,7 @@ const publicDashboardPrefixes = [
   "/favicon.ico",
   "/icon.png",
   "/login",
+  "/ask-harness", // LOCAL-ONLY visual harness (never in the PR)
 ];
 
 export function proxy(request: NextRequest) {

@@ -1,7 +1,21 @@
 "use client";
 
+import { CeoAiMarkdown, CopyButton } from "./ceo-ai-markdown";
 import {
+  Lightbox,
+  type PreviewFile,
+  Thumb,
+  shrinkImage,
+  toPreview,
+} from "./ceo-ai-attachments";
+import {
+  Maximize2,
   MessageSquarePlus,
+  Mic,
+  MicOff,
+  Paperclip,
+  Minimize2,
+  Minus,
   PanelLeft,
   Pencil,
   Send,
@@ -9,7 +23,15 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { type FormEvent, type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type FormEvent,
+  type ReactElement,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { readCeoAiStream } from "@/lib/ceo-ai-stream";
 import {
   createConversation,
@@ -20,7 +42,12 @@ import {
   renameConversation,
 } from "./ceo-ai-client";
 import { CeoAiChart } from "./ceo-ai-chart";
-import { CeoAiStyles, GoatAvatar, GoatWalking, MeshaLogo } from "./ceo-ai-styles";
+import {
+  CeoAiStyles,
+  GoatAvatar,
+  GoatWalking,
+  MeshaLogo,
+} from "./ceo-ai-styles";
 import { CeoAiEvents, trackCeoAiError, trackCeoAiEvent } from "./telemetry";
 import type { AssistantCopy, ChatMessage, ConversationSummary } from "./types";
 
@@ -38,17 +65,26 @@ const CHROME = {
   save: "Save",
   stop: "Stop generating",
   degraded: "Assistant temporarily unavailable",
-  timedOut: "That took too long to answer. The assistant may be busy — please try again.",
-  rateLimited: "You're asking a lot right now — please wait a moment and try again.",
+  timedOut:
+    "That took too long to answer. The assistant may be busy — please try again.",
+  rateLimited:
+    "You're asking a lot right now — please wait a moment and try again.",
   emptyReason: "No records found for the requested scope.",
   liveData: "Live data",
   planning: "Planning your answer…",
   querying: "Checking live Mesha data…",
   synthesizing: "Composing the answer…",
-  staleToolFailure: "That old answer came from a broken local data route. Ask again and I’ll use the live Mesha read API.",
+  staleToolFailure:
+    "That old answer came from a broken local data route. Ask again and I’ll use the live Mesha read API.",
 } as const;
 
-function progressStatusLabel(progress: { phase: string; label?: string }): string {
+function progressStatusLabel(progress: {
+  phase: string;
+  label?: string;
+}): string {
+  // The coding-agent backend sends a specific step label; prefer it.
+  if (progress.label && progress.label !== "Starting agent")
+    return progress.label;
   switch (progress.phase) {
     case "planning":
       return CHROME.planning;
@@ -86,7 +122,8 @@ function modeLabel(mode: string | undefined, copy: AssistantCopy): string {
 // that change (and any future adapter that forgets) may still carry
 // "Cube · active_animals" or a snake_case id — defensively strip the plumbing
 // prefix and humanize a residual snake_case token so the chip stays clean.
-const PLUMBING_PREFIX = /^(cube|mesha mcp toolbox|mesha read-only sql fallback|mesha read model|toolbox|sql)\s*·?\s*/i;
+const PLUMBING_PREFIX =
+  /^(cube|mesha mcp toolbox|mesha read-only sql fallback|mesha read model|toolbox|sql)\s*·?\s*/i;
 function formatCitationSurface(surface: string | undefined): string {
   const raw = (surface ?? "").trim();
   if (!raw) return "Mesha operational data";
@@ -146,7 +183,8 @@ function formatSource(source: string | undefined): string {
 function cleanAssistantText(text: string | undefined): string {
   const raw = (text ?? "").trim();
   if (!raw) return "";
-  if (/cube:\s*could not be retrieved/i.test(raw)) return CHROME.staleToolFailure;
+  if (/cube:\s*could not be retrieved/i.test(raw))
+    return CHROME.staleToolFailure;
   return raw
     .replace(/\bHere is what I found from the live read models:\s*/gi, "")
     .replace(/\bcube:\s*/gi, "")
@@ -168,10 +206,25 @@ function formatFreshness(asOf: string | undefined): string {
   if (diffMs >= 0 && diffMin < 60) return `${diffMin} min ago`;
   const ist = "Asia/Kolkata";
   const sameDay =
-    new Intl.DateTimeFormat("en-CA", { timeZone: ist, year: "numeric", month: "2-digit", day: "2-digit" }).format(then) ===
-    new Intl.DateTimeFormat("en-CA", { timeZone: ist, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(now));
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: ist,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(then) ===
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: ist,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date(now));
   if (sameDay) {
-    const t = new Intl.DateTimeFormat("en-US", { timeZone: ist, hour: "numeric", minute: "2-digit", hour12: true }).format(then);
+    const t = new Intl.DateTimeFormat("en-US", {
+      timeZone: ist,
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    }).format(then);
     return `as of ${t}`;
   }
   return new Intl.DateTimeFormat("en-GB", {
@@ -183,14 +236,201 @@ function formatFreshness(asOf: string | undefined): string {
 }
 
 function newId(): string {
-  return typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `id-${Date.now()}-${Math.random()}`;
+  return typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `id-${Date.now()}-${Math.random()}`;
+}
+
+// Browser speech-to-text (Chrome/Edge/Safari). Hidden when unsupported (most
+// Android WebViews), so the mic never appears as a dead button.
+type SpeechRecognitionLike = {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  onresult:
+    | ((event: {
+        results: ArrayLike<ArrayLike<{ transcript: string }>>;
+      }) => void)
+    | null;
+  onend: (() => void) | null;
+  onerror: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+function speechRecognitionCtor():
+  (new () => SpeechRecognitionLike) | undefined {
+  if (typeof window === "undefined") return undefined;
+  const w = window as unknown as Record<string, unknown>;
+  return (w.SpeechRecognition ?? w.webkitSpeechRecognition) as
+    (new () => SpeechRecognitionLike) | undefined;
+}
+
+function fileToAttachment(
+  file: File,
+): Promise<{ name: string; type: string; data: string }> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = String(reader.result);
+      resolve({
+        name: file.name,
+        type: file.type,
+        data: url.slice(url.indexOf(",") + 1),
+      });
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+// Smooth, ChatGPT-style reveal: tokens arrive in bursts; show them a few characters
+// per animation frame. The step grows with the backlog so it never lags far behind.
+function createTypewriter(render: (shown: string) => void) {
+  let shown = "";
+  let pending = "";
+  let raf = 0;
+  let waiters: (() => void)[] = [];
+  let guard: ReturnType<typeof setTimeout> | undefined;
+  const settle = () => {
+    if (guard) clearTimeout(guard);
+    guard = undefined;
+    const w = waiters;
+    waiters = [];
+    w.forEach((fn) => fn());
+  };
+  const tick = () => {
+    raf = 0;
+    if (!pending) return settle();
+    const step = Math.max(2, Math.ceil(pending.length / 18));
+    shown += pending.slice(0, step);
+    pending = pending.slice(step);
+    render(shown);
+    raf = requestAnimationFrame(tick);
+  };
+  const kick = () => {
+    if (!raf) raf = requestAnimationFrame(tick);
+  };
+  const api = {
+    push(text: string) {
+      pending += text;
+      kick();
+    },
+    reset() {
+      shown = "";
+      pending = "";
+      render("");
+    },
+    flush() {
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+      shown += pending;
+      pending = "";
+      render(shown);
+      settle();
+    },
+    shown: () => shown.trim(),
+    drain() {
+      if (!pending && !raf) return Promise.resolve();
+      // Background tabs don't run rAF: never wait more than 1.5s.
+      return new Promise<void>((resolve) => {
+        waiters.push(resolve);
+        if (!guard) guard = setTimeout(() => api.flush(), 1500);
+      });
+    },
+  };
+  return api;
+}
+
+// Codex-style activity trail: live step list while the agent works, then a
+// collapsed "Worked for 1m 12s · 6 steps" summary the user can expand.
+function AgentSteps(props: {
+  steps: string[];
+  live: boolean;
+  startedAt?: number;
+  workedMs?: number;
+}) {
+  const { steps, live, startedAt, workedMs } = props;
+  const [open, setOpen] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!live) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [live]);
+  const ms = live ? now - (startedAt ?? now) : (workedMs ?? 0);
+  const secs = Math.max(0, Math.round(ms / 1000));
+  const took =
+    secs >= 60 ? `${Math.floor(secs / 60)}m ${secs % 60}s` : `${secs}s`;
+  const expanded = live || open;
+  return (
+    <div className={`mzai-steps${live ? " live" : ""}`}>
+      <button
+        type="button"
+        className="mzai-steps-head"
+        onClick={() => !live && setOpen((v) => !v)}
+        aria-expanded={expanded}
+      >
+        {live
+          ? `Working… ${took}`
+          : `Worked for ${took} · ${steps.length} step${steps.length === 1 ? "" : "s"}`}
+        {!live ? (
+          <span className="mzai-steps-chev">{open ? "▾" : "›"}</span>
+        ) : null}
+      </button>
+      {expanded ? (
+        <ol>
+          {steps.map((s, i) => (
+            <li
+              key={`${i}-${s}`}
+              className={live && i === steps.length - 1 ? "now" : "done"}
+            >
+              {s}
+            </li>
+          ))}
+        </ol>
+      ) : null}
+    </div>
+  );
+}
+
+const BUBBLE_POS_KEY = "mzai-bubble-pos";
+const clamp = (v: number, lo: number, hi: number) =>
+  Math.max(lo, Math.min(hi, v));
+// Per-device convenience only; storage may be unavailable (private mode).
+function readBubblePos(): { x: number; y: number } | null {
+  try {
+    const raw =
+      typeof window !== "undefined"
+        ? window.localStorage.getItem(BUBBLE_POS_KEY)
+        : null;
+    const p = raw ? (JSON.parse(raw) as { x?: unknown; y?: unknown }) : null;
+    if (!p || typeof p.x !== "number" || typeof p.y !== "number") return null;
+    // Keep it on screen if the viewport shrank since it was saved.
+    return {
+      x: clamp(p.x, 4, window.innerWidth - 60),
+      y: clamp(p.y, 4, window.innerHeight - 60),
+    };
+  } catch {
+    return null;
+  }
+}
+function writeBubblePos(p: { x: number; y: number }) {
+  try {
+    window.localStorage.setItem(BUBBLE_POS_KEY, JSON.stringify(p));
+  } catch {
+    /* storage unavailable: position just isn't remembered */
+  }
 }
 
 function asksAllParks(question: string): boolean {
-  return /\b(all parks|across all parks|company(?:-wide)?|overall|whole company|tenant-wide)\b/i.test(question);
+  return /\b(all parks|across all parks|company(?:-wide)?|overall|whole company|tenant-wide)\b/i.test(
+    question,
+  );
 }
 
-function currentPageScope(question: string): { park_id?: string; shed_id?: string } | undefined {
+function currentPageScope(
+  question: string,
+): { park_id?: string; shed_id?: string } | undefined {
   if (typeof window === "undefined") return undefined;
   if (asksAllParks(question)) return undefined;
   const params = new URLSearchParams(window.location.search);
@@ -200,18 +440,117 @@ function currentPageScope(question: string): { park_id?: string; shed_id?: strin
   return { park_id: park, shed_id: shed };
 }
 
-export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | null {
+export function CeoAiPanel({
+  copy,
+}: {
+  copy: AssistantCopy;
+}): ReactElement | null {
   const [allowed, setAllowed] = useState<boolean | null>(null);
   const [starters, setStarters] = useState<string[]>(copy.starters);
   const [open, setOpen] = useState(false);
-  const [showThreads, setShowThreads] = useState(true);
+  // Window state: "normal" floating panel, "max" fills the viewport, "min" docks
+  // to a header-only bar. Conversation state survives every transition.
+  const [view, setView] = useState<"normal" | "max" | "min">("normal");
+  // Draggable launcher (chat-head style): free position, snaps to the nearest side,
+  // remembered per device. A tap (< 6px of movement) still opens the chat.
+  const [bubblePos, setBubblePos] = useState<{ x: number; y: number } | null>(
+    readBubblePos,
+  );
+  const dragRef = useRef<{
+    id: number;
+    dx: number;
+    dy: number;
+    sx: number;
+    sy: number;
+    moved: boolean;
+  } | null>(null);
+  const suppressClickRef = useRef(false);
+  // Thread list starts open on desktop, closed on phones (it overlays the chat there).
+  // The panel renders only after the client-side capability probe, so reading the
+  // viewport in the initializers is safe (no server render to mismatch).
+  const isNarrow = () =>
+    typeof window !== "undefined" &&
+    window.matchMedia("(max-width:620px)").matches;
+  const [showThreads, setShowThreads] = useState(() => !isNarrow());
+  const [narrow, setNarrow] = useState(isNarrow);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width:620px)");
+    const sync = () => setNarrow(mq.matches);
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
-  const [conversationId, setConversationId] = useState<string | undefined>(undefined);
+  const [conversationId, setConversationId] = useState<string | undefined>(
+    undefined,
+  );
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+  const previews = useMemo(() => files.map(toPreview), [files]);
+  const [lightbox, setLightbox] = useState<{
+    files: PreviewFile[];
+    start: number;
+  } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [listening, setListening] = useState(false);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const speechSupported = useMemo(
+    () => typeof window !== "undefined" && Boolean(speechRecognitionCtor()),
+    [],
+  );
+
+  // Esc restores a maximized/minimized panel to its normal size.
+  useEffect(() => {
+    if (!open || view === "normal") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setView("normal");
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, view]);
+
+  const toggleVoice = useCallback(() => {
+    if (listening) {
+      recognitionRef.current?.stop();
+      return;
+    }
+    const Ctor = speechRecognitionCtor();
+    if (!Ctor) return;
+    const rec = new Ctor();
+    rec.lang = navigator.language || "en-IN";
+    rec.interimResults = true;
+    rec.continuous = true;
+    const base = input ? input.replace(/\s*$/, " ") : "";
+    rec.onresult = (event) => {
+      let heard = "";
+      for (let i = 0; i < event.results.length; i++)
+        heard += event.results[i][0].transcript;
+      setInput(base + heard);
+    };
+    rec.onend = () => {
+      setListening(false);
+      recognitionRef.current = null;
+    };
+    rec.onerror = () => setListening(false);
+    recognitionRef.current = rec;
+    setListening(true);
+    rec.start();
+  }, [input, listening]);
+
+  const addFiles = useCallback((list: FileList | null) => {
+    if (!list) return;
+    const incoming = Array.from(list);
+    void Promise.all(incoming.map((f) => shrinkImage(f).catch(() => f))).then(
+      (shrunk) => setFiles((prev) => [...prev, ...shrunk].slice(0, 5)),
+    );
+  }, []);
+  const [dragging, setDragging] = useState(false);
   const [pending, setPending] = useState(false);
   const [showStarters, setShowStarters] = useState(true);
-  const [banner, setBanner] = useState<{ kind: "err" | "warn"; text: string } | null>(null);
+  const [banner, setBanner] = useState<{
+    kind: "err" | "warn";
+    text: string;
+  } | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameText, setRenameText] = useState("");
 
@@ -233,7 +572,9 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
   }, [messages, open, pending]);
 
   const refreshThreads = useCallback(() => {
-    listConversations().then((res) => setConversations(res.conversations)).catch(() => undefined);
+    listConversations()
+      .then((res) => setConversations(res.conversations))
+      .catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -249,14 +590,11 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
     };
   }, [open]);
 
-  const helloMessage = useMemo<ChatMessage>(
-    () => ({ id: "hello", role: "assistant", text: copy.hello, state: "complete", source: copy.helloMeta }),
-    [copy.hello, copy.helloMeta],
-  );
+  const shown = messages;
 
-  const shown = messages.length ? messages : [helloMessage];
-
+  const typerRef = useRef<ReturnType<typeof createTypewriter> | null>(null);
   const stopGenerating = useCallback(() => {
+    typerRef.current?.flush();
     abortRef.current?.abort();
     abortRef.current = null;
     setPending(false);
@@ -264,9 +602,15 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
   }, []);
 
   const ask = useCallback(
-    async (raw: string) => {
-      const question = raw.trim();
-      if (!question || pending) return;
+    async (raw: string, attached: File[] = []) => {
+      const typed = raw.trim();
+      if ((!typed && !attached.length) || pending) return;
+      recognitionRef.current?.stop();
+      const question = typed || "Please look at the attached file(s).";
+      const attachments = attached.length
+        ? await Promise.all(attached.map(fileToAttachment))
+        : undefined;
+      setFiles([]);
       setInput("");
       setBanner(null);
       setPending(true);
@@ -276,32 +620,73 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
       const assistantId = newId();
       setMessages((prev) => [
         ...prev,
-        { id: newId(), role: "user", text: question, state: "complete" },
-        { id: assistantId, role: "assistant", text: "", state: "streaming" },
+        {
+          id: newId(),
+          role: "user",
+          text: question,
+          files: attached.length ? attached.map(toPreview) : undefined,
+          state: "complete",
+        },
+        {
+          id: assistantId,
+          role: "assistant",
+          text: "",
+          state: "streaming",
+          startedAt: Date.now(),
+        },
       ]);
 
       const controller = new AbortController();
       abortRef.current = controller;
 
       const patch = (fields: Partial<ChatMessage>) =>
-        setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, ...fields } : m)));
+        setMessages((prev) =>
+          prev.map((m) => (m.id === assistantId ? { ...m, ...fields } : m)),
+        );
 
       try {
+        const typer = createTypewriter((shown) =>
+          setMessages((prev) =>
+            prev.map((m) =>
+              // First revealed text clears the coarse progress status.
+              m.id === assistantId
+                ? {
+                    ...m,
+                    text: shown,
+                    progress: shown ? undefined : m.progress,
+                  }
+                : m,
+            ),
+          ),
+        );
+        typerRef.current = typer;
         const final = await readCeoAiStream(
-          { question, conversationId, pageScope: currentPageScope(question), signal: controller.signal },
           {
-            onToken: (text) =>
-              setMessages((prev) =>
-                prev.map((m) =>
-                  // First token clears the coarse progress status; the answer body takes over.
-                  m.id === assistantId ? { ...m, text: m.text + text, progress: undefined } : m,
-                ),
-              ),
+            question,
+            attachments,
+            conversationId,
+            pageScope: currentPageScope(question),
+            signal: controller.signal,
+          },
+          {
+            onToken: (text) => typer.push(text),
+            onReset: () => typer.reset(),
             onProgress: (progress) =>
               setMessages((prev) =>
                 prev.map((m) =>
-                  m.id === assistantId && !m.text
-                    ? { ...m, progress: progressStatusLabel(progress) }
+                  m.id === assistantId
+                    ? {
+                        ...m,
+                        progress: m.text
+                          ? m.progress
+                          : progressStatusLabel(progress),
+                        steps:
+                          progress.label &&
+                          progress.label !== "Starting agent" &&
+                          m.steps?.at(-1) !== progress.label
+                            ? [...(m.steps ?? []), progress.label]
+                            : m.steps,
+                      }
                     : m,
                 ),
               ),
@@ -311,26 +696,48 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
                 patch({ text: CHROME.rateLimited, state: "error" });
               } else if (status === 504) {
                 setBanner({ kind: "warn", text: CHROME.timedOut });
-                patch({ text: CHROME.timedOut, state: "error", mode: "degraded" });
+                patch({
+                  text: CHROME.timedOut,
+                  state: "error",
+                  mode: "degraded",
+                });
               } else if (status === 401) {
                 setBanner({ kind: "err", text: copy.unavailable });
                 patch({ text: copy.unavailable, state: "error" });
               } else {
                 setBanner({ kind: "err", text: CHROME.degraded });
-                patch({ text: message || CHROME.degraded, state: "error", mode: "degraded" });
+                patch({
+                  text: message || CHROME.degraded,
+                  state: "error",
+                  mode: "degraded",
+                });
               }
               trackCeoAiError("ask", message, status);
             },
           },
         );
 
+        // Let the typewriter finish revealing what already streamed before the
+        // final metadata lands, so the answer never jumps.
+        await typer.drain();
         if (final) {
-          if (final.conversation_id && final.conversation_id !== conversationId) {
+          if (
+            final.conversation_id &&
+            final.conversation_id !== conversationId
+          ) {
             setConversationId(final.conversation_id);
             refreshThreads();
           }
+          const answer = final.answer || copy.noAnswer;
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId && m.startedAt
+                ? { ...m, workedMs: Date.now() - m.startedAt }
+                : m,
+            ),
+          );
           patch({
-            text: final.answer || copy.noAnswer,
+            text: typer.shown() === answer.trim() ? typer.shown() : answer,
             state: "complete",
             source: final.source ?? copy.sourceFallback,
             mode: final.mode,
@@ -354,7 +761,8 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
             ),
           );
         } else {
-          const message = error instanceof Error ? error.message : "assistant_error";
+          const message =
+            error instanceof Error ? error.message : "assistant_error";
           setBanner({ kind: "err", text: CHROME.degraded });
           patch({ text: CHROME.degraded, state: "error", mode: "degraded" });
           trackCeoAiError("ask_throw", message);
@@ -369,7 +777,7 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
 
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    void ask(input);
+    void ask(input, files);
   };
 
   const startNewChat = useCallback(async () => {
@@ -388,6 +796,7 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
 
   const resumeThread = useCallback(
     async (id: string) => {
+      if (isNarrow()) setShowThreads(false);
       if (id === conversationId) return;
       stopGenerating();
       setConversationId(id);
@@ -396,17 +805,25 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
       trackCeoAiEvent(CeoAiEvents.ResumeChat);
       const stored = await loadConversationMessages(id).catch(() => []);
       const restoredMessages: ChatMessage[] = stored.map((m) => {
-        const role: ChatMessage["role"] = m.role === "user" ? "user" : "assistant";
+        const role: ChatMessage["role"] =
+          m.role === "user" ? "user" : "assistant";
         const message: ChatMessage = {
           id: m.id ?? m.message_id ?? newId(),
           role,
-          text: role === "user" ? m.content ?? "" : cleanAssistantText(m.content),
+          text:
+            role === "user" ? (m.content ?? "") : cleanAssistantText(m.content),
           state: "complete" as const,
           source: m.source,
           mode: m.mode,
           requestId: m.request_id,
           messageId: m.message_id ?? m.id,
           citations: m.citations,
+          chart: m.chart,
+          files: m.files?.map((f) => ({
+            name: f.name,
+            type: f.type ?? "",
+            url: `/api/ceo-ai/conversations/${encodeURIComponent(id)}/files/${encodeURIComponent(f.id)}`,
+          })),
         };
         return message;
       });
@@ -415,6 +832,7 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
     [conversationId, stopGenerating],
   );
 
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const removeThread = useCallback(
     async (id: string) => {
       const ok = await deleteConversation(id).catch(() => false);
@@ -448,20 +866,72 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
   const startersVisible = showStarters || messages.length === 0;
 
   const rootStyle = open
-    ? {
-        right: PANEL_MARGIN,
-        bottom: PANEL_MARGIN,
-        width: `min(${PANEL_WIDTH}px, calc(100vw - ${PANEL_MARGIN * 2}px))`,
-        height: `min(640px, calc(100vh - ${PANEL_MARGIN * 2}px))`,
-      }
-    : { right: 24, bottom: 24 };
+    ? view === "max"
+      ? {
+          right: PANEL_MARGIN,
+          bottom: PANEL_MARGIN,
+          top: PANEL_MARGIN,
+          left: PANEL_MARGIN,
+        }
+      : view === "min"
+        ? {
+            right: PANEL_MARGIN,
+            bottom: PANEL_MARGIN,
+            width: `min(360px, calc(100vw - ${PANEL_MARGIN * 2}px))`,
+          }
+        : {
+            right: PANEL_MARGIN,
+            bottom: PANEL_MARGIN,
+            width: `min(${PANEL_WIDTH}px, calc(100vw - ${PANEL_MARGIN * 2}px))`,
+            height: `min(640px, calc(100dvh - ${PANEL_MARGIN * 2}px))`,
+          }
+    : bubblePos
+      ? { left: bubblePos.x, top: bubblePos.y, right: "auto", bottom: "auto" }
+      : { right: 24, bottom: 24 };
 
   return (
-    <div className={`mzai-root ${open ? "mzai-open" : "mzai-closed"}`} style={rootStyle}>
+    <div
+      className={`mzai-root ${open ? "mzai-open" : "mzai-closed"} mzai-view-${view}${!open && bubblePos ? " mzai-free" : ""}`}
+      style={rootStyle}
+    >
       <CeoAiStyles />
       {open ? (
-        <section className="mzai-panel" aria-label={copy.title}>
-          <div className="mzai-head">
+        <section
+          className={`mzai-panel${dragging ? " mzai-dragging" : ""}`}
+          aria-label={copy.title}
+          onDragEnter={(e) => {
+            if (e.dataTransfer.types.includes("Files")) {
+              e.preventDefault();
+              setDragging(true);
+            }
+          }}
+          onDragOver={(e) => {
+            if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+          }}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null))
+              setDragging(false);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragging(false);
+            addFiles(e.dataTransfer.files);
+            if (view === "min") setView("normal");
+          }}
+        >
+          {dragging ? (
+            <div className="mzai-drop">Drop files to attach</div>
+          ) : null}
+          <div
+            className="mzai-head"
+            onClick={view === "min" ? () => setView("normal") : undefined}
+            onDoubleClick={
+              view === "min"
+                ? undefined
+                : () => setView(view === "max" ? "normal" : "max")
+            }
+            role={view === "min" ? "button" : undefined}
+          >
             <button
               type="button"
               className="mzai-icon"
@@ -479,18 +949,60 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
               <b>{copy.title}</b>
               <small>{copy.subtitle}</small>
             </span>
-            <div className="mzai-hbtns">
-              <button type="button" className="mzai-icon" onClick={() => setOpen(false)} aria-label={copy.close}>
+            <div className="mzai-hbtns" onClick={(e) => e.stopPropagation()}>
+              <button
+                type="button"
+                className="mzai-icon"
+                onClick={() => setView(view === "min" ? "normal" : "min")}
+                aria-label={view === "min" ? "Restore" : "Minimize"}
+                title={view === "min" ? "Restore" : "Minimize"}
+              >
+                <Minus className="ic" />
+              </button>
+              <button
+                type="button"
+                className="mzai-icon mzai-hide-mobile"
+                onClick={() => setView(view === "max" ? "normal" : "max")}
+                aria-label={view === "max" ? "Restore size" : "Maximize"}
+                title={view === "max" ? "Restore size" : "Maximize"}
+              >
+                {view === "max" ? (
+                  <Minimize2 className="ic" />
+                ) : (
+                  <Maximize2 className="ic" />
+                )}
+              </button>
+              <button
+                type="button"
+                className="mzai-icon"
+                onClick={() => {
+                  setOpen(false);
+                  setView("normal");
+                }}
+                aria-label={copy.close}
+              >
                 <X className="ic" />
               </button>
             </div>
           </div>
 
           <div className="mzai-body">
+            {showThreads ? (
+              <button
+                type="button"
+                className="mzai-scrim"
+                aria-label="Close chats"
+                onClick={() => setShowThreads(false)}
+              />
+            ) : null}
             <aside className={`mzai-side${showThreads ? "" : " mzai-hide"}`}>
               <div className="mzai-side-head">
                 <span>{CHROME.threads}</span>
-                <button type="button" className="mzai-newbtn" onClick={() => void startNewChat()}>
+                <button
+                  type="button"
+                  className="mzai-newbtn"
+                  onClick={() => void startNewChat()}
+                >
                   <MessageSquarePlus className="ic" /> {CHROME.newChat}
                 </button>
               </div>
@@ -501,10 +1013,38 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
                   conversations.map((thread) => (
                     <div
                       key={thread.id}
-                      className={`mzai-thread${thread.id === conversationId ? " mzai-on" : ""}`}
-                      onClick={() => void resumeThread(thread.id)}
+                      className={`mzai-thread${thread.id === conversationId ? " mzai-on" : ""}${confirmDelete === thread.id ? " mzai-confirming" : ""}`}
+                      onClick={() =>
+                        confirmDelete !== thread.id &&
+                        void resumeThread(thread.id)
+                      }
                     >
-                      {renaming === thread.id ? (
+                      {confirmDelete === thread.id ? (
+                        <span
+                          className="mzai-confirm"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <span>Delete this chat?</span>
+                          <button
+                            type="button"
+                            className="mzai-confirm-yes"
+                            autoFocus
+                            onClick={() => {
+                              setConfirmDelete(null);
+                              void removeThread(thread.id);
+                            }}
+                          >
+                            Delete
+                          </button>
+                          <button
+                            type="button"
+                            className="mzai-confirm-no"
+                            onClick={() => setConfirmDelete(null)}
+                          >
+                            Cancel
+                          </button>
+                        </span>
+                      ) : renaming === thread.id ? (
                         <input
                           autoFocus
                           value={renameText}
@@ -521,31 +1061,35 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
                           {thread.title || CHROME.newChat}
                         </span>
                       )}
-                      <button
-                        type="button"
-                        className="mzai-thread-act"
-                        aria-label={CHROME.rename}
-                        title={CHROME.rename}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setRenaming(thread.id);
-                          setRenameText(thread.title);
-                        }}
-                      >
-                        <Pencil className="ic" />
-                      </button>
-                      <button
-                        type="button"
-                        className="mzai-thread-act"
-                        aria-label={CHROME.delete}
-                        title={CHROME.delete}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void removeThread(thread.id);
-                        }}
-                      >
-                        <Trash2 className="ic" />
-                      </button>
+                      {confirmDelete === thread.id ? null : (
+                        <>
+                          <button
+                            type="button"
+                            className="mzai-thread-act"
+                            aria-label={CHROME.rename}
+                            title={CHROME.rename}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setRenaming(thread.id);
+                              setRenameText(thread.title);
+                            }}
+                          >
+                            <Pencil className="ic" />
+                          </button>
+                          <button
+                            type="button"
+                            className="mzai-thread-act"
+                            aria-label={CHROME.delete}
+                            title={CHROME.delete}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setConfirmDelete(thread.id);
+                            }}
+                          >
+                            <Trash2 className="ic" />
+                          </button>
+                        </>
+                      )}
                     </div>
                   ))
                 )}
@@ -555,65 +1099,136 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
             <div className="mzai-main">
               <div ref={scrollRef} className="mzai-log">
                 {shown.map((message) => (
-                  <div key={message.id} className={`mzai-msg-wrap ${message.role}`}>
+                  <div
+                    key={message.id}
+                    className={`mzai-msg-wrap ${message.role}`}
+                  >
                     {message.role === "assistant" && (
                       <div className="mzai-avatar">
                         <MeshaLogo width={32} height={32} />
                       </div>
                     )}
-                    <div className={`mzai-msg ${message.role} ${message.state}`}>
-                      <div className="mzai-bub">
-                        {message.text}
-                        {message.state === "streaming" && message.text ? <span className="mzai-caret" /> : null}
-                      </div>
-                    {message.role === "assistant" && message.state === "complete" && message.chart ? (
-                      <CeoAiChart chart={message.chart} />
-                    ) : null}
-                    {message.state === "streaming" && !message.text ? (
-                      <div className="mzai-progress">
-                        <div className="mzai-skel" aria-label={copy.checking}>
-                          <span />
-                          <span />
-                          <span />
+                    <div
+                      className={`mzai-msg ${message.role} ${message.state}`}
+                    >
+                      {message.role === "assistant" && message.steps?.length ? (
+                        <AgentSteps
+                          steps={message.steps}
+                          live={message.state === "streaming"}
+                          startedAt={message.startedAt}
+                          workedMs={message.workedMs}
+                        />
+                      ) : null}
+                      {/* No empty assistant bubble while the agent works; the progress line shows instead. */}
+                      {message.role === "user" || message.text ? (
+                        <div className="mzai-bub">
+                          {message.role === "assistant" ? (
+                            <CeoAiMarkdown text={message.text} />
+                          ) : (
+                            message.text
+                          )}
+                          {message.files?.length ? (
+                            <div className="mzai-msg-files">
+                              {message.files.map((f, i) => (
+                                <Thumb
+                                  key={f.url}
+                                  file={f}
+                                  onOpen={() =>
+                                    setLightbox({
+                                      files: message.files ?? [],
+                                      start: i,
+                                    })
+                                  }
+                                />
+                              ))}
+                            </div>
+                          ) : null}
+                          {message.state === "streaming" && message.text ? (
+                            <span className="mzai-caret" />
+                          ) : null}
                         </div>
-                        {message.progress ? (
-                          <span className="mzai-progress-label" aria-live="polite">
-                            {message.progress}
-                          </span>
-                        ) : null}
-                      </div>
-                    ) : null}
-                    {message.role === "assistant" && message.state === "complete" && message.citations?.length ? (
-                      <div className="mzai-cites">
-                        {message.citations.map((cite, i) => {
-                          const freshness = formatFreshness(cite.as_of);
-                          return (
-                            <span key={`${message.id}-c${i}`} className={`mzai-cite tier-${cite.tier ?? "api"}`}>
-                              <b>{formatCitationSurface(cite.surface)}</b>
-                              {freshness ? ` · ${freshness}` : ""}
+                      ) : null}
+                      {message.role === "assistant" &&
+                      message.state === "complete" &&
+                      message.id !== "hello" &&
+                      message.text ? (
+                        <div className="mzai-actions">
+                          <CopyButton text={message.text} />
+                        </div>
+                      ) : null}
+                      {message.role === "assistant" &&
+                      message.state === "complete" &&
+                      message.chart ? (
+                        <CeoAiChart chart={message.chart} />
+                      ) : null}
+                      {message.state === "streaming" && !message.text ? (
+                        <div className="mzai-progress">
+                          <div className="mzai-skel" aria-label={copy.checking}>
+                            <span />
+                            <span />
+                            <span />
+                          </div>
+                          {message.progress ? (
+                            <span
+                              className="mzai-progress-label"
+                              aria-live="polite"
+                            >
+                              {message.progress}
                             </span>
-                          );
-                        })}
-                      </div>
-                    ) : null}
-                    {message.role === "assistant" && message.state === "complete" && message.id !== "hello" ? (
-                      <div className="mzai-foot">
-                        <span className={`mzai-mode${message.mode === "degraded" ? " degraded" : ""}`}>
-                          {formatSource(message.source) ? `${formatSource(message.source)} · ` : ""}
-                          {modeLabel(message.mode, copy)}
-                        </span>
-                      </div>
-                    ) : null}
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {message.role === "assistant" &&
+                      message.state === "complete" &&
+                      message.citations?.length ? (
+                        <div className="mzai-cites">
+                          {message.citations.map((cite, i) => {
+                            const freshness = formatFreshness(cite.as_of);
+                            return (
+                              <span
+                                key={`${message.id}-c${i}`}
+                                className={`mzai-cite tier-${cite.tier ?? "api"}`}
+                              >
+                                <b>{formatCitationSurface(cite.surface)}</b>
+                                {freshness ? ` · ${freshness}` : ""}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                      {message.role === "assistant" &&
+                      message.state === "complete" &&
+                      message.id !== "hello" &&
+                      message.mode !== "agent" ? (
+                        <div className="mzai-foot">
+                          <span
+                            className={`mzai-mode${message.mode === "degraded" ? " degraded" : ""}`}
+                          >
+                            {formatSource(message.source)
+                              ? `${formatSource(message.source)} · `
+                              : ""}
+                            {modeLabel(message.mode, copy)}
+                          </span>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 ))}
               </div>
 
-              {banner ? <div className={`mzai-banner ${banner.kind}`}>{banner.text}</div> : null}
+              {banner ? (
+                <div className={`mzai-banner ${banner.kind}`}>
+                  {banner.text}
+                </div>
+              ) : null}
 
               {messages.length > 0 ? (
                 <div className="mzai-suggestbar">
-                  <button type="button" onClick={() => setShowStarters((v) => !v)} aria-expanded={startersVisible}>
+                  <button
+                    type="button"
+                    onClick={() => setShowStarters((v) => !v)}
+                    aria-expanded={startersVisible}
+                  >
                     <Sparkles className="ic" />
                     Suggestions
                   </button>
@@ -638,7 +1253,41 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
                 </div>
               ) : null}
 
+              {previews.length ? (
+                <div className="mzai-files">
+                  {previews.map((f, i) => (
+                    <Thumb
+                      key={f.url}
+                      file={f}
+                      onOpen={() => setLightbox({ files: previews, start: i })}
+                      onRemove={() =>
+                        setFiles((prev) => prev.filter((_, j) => j !== i))
+                      }
+                    />
+                  ))}
+                </div>
+              ) : null}
               <form className="mzai-form" onSubmit={onSubmit}>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  hidden
+                  accept="image/*,application/pdf,.csv,.xlsx,.xls,.txt,.md,.json"
+                  onChange={(e) => {
+                    addFiles(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+                <button
+                  type="button"
+                  className="mzai-tool"
+                  onClick={() => fileInputRef.current?.click()}
+                  aria-label="Attach files"
+                  title="Attach files"
+                >
+                  <Paperclip size={18} />
+                </button>
                 <textarea
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
@@ -648,21 +1297,63 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
                       e.currentTarget.form?.requestSubmit();
                     }
                   }}
+                  onPaste={(e) => {
+                    if (e.clipboardData.files.length) {
+                      e.preventDefault();
+                      addFiles(e.clipboardData.files);
+                    }
+                  }}
                   rows={1}
-                  placeholder={copy.placeholder}
+                  placeholder={
+                    listening
+                      ? "Listening…"
+                      : narrow
+                        ? "Ask Mesha…"
+                        : copy.placeholder
+                  }
                 />
+                {speechSupported ? (
+                  <button
+                    type="button"
+                    className={`mzai-tool${listening ? " on" : ""}`}
+                    onClick={toggleVoice}
+                    aria-pressed={listening}
+                    aria-label={listening ? "Stop voice input" : "Voice input"}
+                    title={listening ? "Stop voice input" : "Voice input"}
+                  >
+                    {listening ? <MicOff size={18} /> : <Mic size={18} />}
+                  </button>
+                ) : null}
                 {pending ? (
-                  <button type="button" className="mzai-send stop" onClick={stopGenerating} aria-label={CHROME.stop} title={CHROME.stop}>
+                  <button
+                    type="button"
+                    className="mzai-send stop"
+                    onClick={stopGenerating}
+                    aria-label={CHROME.stop}
+                    title={CHROME.stop}
+                  >
                     <GoatWalking />
                   </button>
                 ) : (
-                  <button type="submit" className="mzai-send" aria-label={copy.send} disabled={!input.trim()}>
+                  <button
+                    type="submit"
+                    className="mzai-send"
+                    aria-label={copy.send}
+                    disabled={!input.trim() && !files.length}
+                  >
                     <Send className="ic" />
                   </button>
                 )}
               </form>
             </div>
           </div>
+          {lightbox ? (
+            <Lightbox
+              files={lightbox.files}
+              start={lightbox.start}
+              onClose={() => setLightbox(null)}
+            />
+          ) : null}
         </section>
       ) : (
         <>
@@ -670,7 +1361,58 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
           <button
             type="button"
             className="mzai-bubble"
+            onPointerDown={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              dragRef.current = {
+                id: e.pointerId,
+                dx: e.clientX - r.left,
+                dy: e.clientY - r.top,
+                sx: e.clientX,
+                sy: e.clientY,
+                moved: false,
+              };
+              e.currentTarget.setPointerCapture(e.pointerId);
+            }}
+            onPointerMove={(e) => {
+              const d = dragRef.current;
+              if (!d || d.id !== e.pointerId) return;
+              if (
+                !d.moved &&
+                Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 6
+              )
+                return;
+              d.moved = true;
+              const size = e.currentTarget.offsetWidth;
+              setBubblePos({
+                x: clamp(e.clientX - d.dx, 4, window.innerWidth - size - 4),
+                y: clamp(e.clientY - d.dy, 4, window.innerHeight - size - 4),
+              });
+            }}
+            onPointerUp={(e) => {
+              const d = dragRef.current;
+              dragRef.current = null;
+              if (!d?.moved) return;
+              suppressClickRef.current = true;
+              const size = e.currentTarget.offsetWidth;
+              const r = e.currentTarget.getBoundingClientRect();
+              const snapped = {
+                x:
+                  r.left + size / 2 < window.innerWidth / 2
+                    ? 12
+                    : window.innerWidth - size - 12,
+                y: clamp(r.top, 12, window.innerHeight - size - 12),
+              };
+              setBubblePos(snapped);
+              writeBubblePos(snapped);
+            }}
+            onPointerCancel={() => {
+              dragRef.current = null;
+            }}
             onClick={() => {
+              if (suppressClickRef.current) {
+                suppressClickRef.current = false;
+                return;
+              }
               setOpen(true);
               trackCeoAiEvent(CeoAiEvents.Open);
             }}

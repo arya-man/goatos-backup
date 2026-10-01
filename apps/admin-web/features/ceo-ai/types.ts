@@ -8,6 +8,8 @@ export type { CeoAiChart, CeoAiCitation, CeoAiFinal };
 export type ChatMessageState = "streaming" | "complete" | "error";
 
 export type ChatMessage = {
+  // Files attached to a user turn (object URLs; previews only for this session).
+  files?: { name: string; type: string; url: string }[];
   id: string;
   role: "user" | "assistant";
   text: string;
@@ -22,6 +24,10 @@ export type ChatMessage = {
   // first answer token (planning / querying / synthesizing). Cleared once answer
   // text arrives. Never carries chain-of-thought — only a coarse route label.
   progress?: string;
+  // Coding-agent activity: step labels as they happen, and how long the run took.
+  steps?: string[];
+  startedAt?: number;
+  workedMs?: number;
 };
 
 // A conversation thread summary in the sidebar (backend-owned list).
@@ -34,6 +40,9 @@ export type ConversationSummary = {
 // Backend messages payload row (for resuming a thread).
 export type StoredMessage = {
   id?: string;
+  // Coding-agent backend only: attachment refs on user turns, chart on answers.
+  files?: { id: string; name: string; type?: string }[];
+  chart?: CeoAiChart;
   message_id?: string;
   role?: string;
   content?: string;

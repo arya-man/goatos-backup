@@ -18,7 +18,29 @@ type AskBody = {
   stream?: unknown;
   locale?: unknown;
   page_scope?: unknown;
+  attachments?: unknown;
 };
+
+const MAX_ATTACHMENTS = 5;
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+
+// cleanAttachments keeps well-formed {name,type,data(base64)} entries within the
+// count/size budget. Only the coding-agent backend reads them; the legacy
+// backend ignores unknown fields.
+function cleanAttachments(raw: unknown): { name: string; type: string; data: string }[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  let total = 0;
+  const out: { name: string; type: string; data: string }[] = [];
+  for (const item of raw.slice(0, MAX_ATTACHMENTS)) {
+    if (!item || typeof item !== "object") continue;
+    const a = item as Record<string, unknown>;
+    if (typeof a.name !== "string" || typeof a.data !== "string") continue;
+    total += Math.floor((a.data.length * 3) / 4);
+    if (total > MAX_ATTACHMENT_BYTES) break;
+    out.push({ name: a.name.slice(0, 200), type: typeof a.type === "string" ? a.type.slice(0, 100) : "", data: a.data });
+  }
+  return out.length ? out : undefined;
+}
 
 function cleanPageScope(raw: unknown): Record<string, string> | undefined {
   if (!raw || typeof raw !== "object") return undefined;
@@ -37,7 +59,9 @@ export async function POST(request: NextRequest): Promise<Response> {
     return Response.json({ error: "invalid_json" }, { status: 400 });
   }
 
-  const question = typeof body.question === "string" ? body.question.trim().slice(0, 1200) : "";
+  const attachments = cleanAttachments(body.attachments);
+  const typed = typeof body.question === "string" ? body.question.trim().slice(0, 1200) : "";
+  const question = typed || (attachments ? "Please look at the attached file(s)." : "");
   if (!question) {
     return Response.json({ error: "question_required" }, { status: 400 });
   }
@@ -51,6 +75,9 @@ export async function POST(request: NextRequest): Promise<Response> {
   }
   if (typeof body.locale === "string" && body.locale) {
     payload.locale = body.locale;
+  }
+  if (attachments) {
+    payload.attachments = attachments;
   }
   const pageScope = cleanPageScope(body.page_scope);
   if (pageScope) {

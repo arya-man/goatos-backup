@@ -51,7 +51,10 @@ async function callBackend(path: string, init: ForwardInit, accept: string): Pro
   if (init.body !== undefined) headers["Content-Type"] = "application/json";
 
   try {
-    const response = await fetch(`${baseUrl}${path}`, {
+    // Feature flag: CEO_AI_AGENT_URL diverts the assistant to the coding-agent
+    // service (same /ceo-ai/* contract). Unset => legacy backend ceo-ai.
+    const agentUrl = process.env.CEO_AI_AGENT_URL?.replace(/\/$/, "");
+    const response = await fetch(`${agentUrl ?? baseUrl.replace(/\/$/, "")}${path}`, {
       method: init.method,
       headers,
       body: init.body,
@@ -121,5 +124,21 @@ export async function forwardStream(path: string, init: ForwardInit): Promise<Re
   return new Response(text, {
     status: upstream.status,
     headers: { "Content-Type": contentType || "application/json", ...NO_STORE },
+  });
+}
+
+// forwardBinary proxies a file download (attachment previews) with its content
+// type, streaming the body through untouched.
+export async function forwardBinary(path: string, init: ForwardInit): Promise<Response> {
+  const call = await callBackend(path, init, "*/*");
+  if (!call.ok) return unreachable(call);
+  const upstream = call.response;
+  return new Response(upstream.body, {
+    status: upstream.status,
+    headers: {
+      "Content-Type": upstream.headers.get("Content-Type") ?? "application/octet-stream",
+      "Content-Disposition": upstream.headers.get("Content-Disposition") ?? "inline",
+      "Cache-Control": "private, max-age=86400",
+    },
   });
 }
