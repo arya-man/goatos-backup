@@ -83,6 +83,40 @@ open_items AS (
   WHERE vi.tenant_id = $1::uuid
     AND vi.status = 'pending'
     AND vi.closed_at IS NULL
+),
+-- The rows to resolve are found by PROBING notification_requests_event_idx (tenant_id,
+-- calendar_event_id) once per event id, and only then updated by primary key. Do not fold this
+-- back into one WHERE on notification_requests: written as
+-- "calendar_event_id IN (SELECT ... FROM scope) OR ($3 <> '' AND ...)" the planner turns the IN into
+-- a hashed SubPlan filter and SEQ-SCANS the whole table on every approve (stg 2026-10-01: 246k
+-- rows / 709 MB, verdict p50 0.10 s -> 0.49 s, p99 to 9 s after 000403 shipped).
+targets AS (
+  SELECT nr.notification_request_id
+  FROM scope s
+  JOIN notification_requests nr
+    ON nr.tenant_id = $1::uuid
+   AND nr.calendar_event_id = 'verification:' || s.item_id::text
+  WHERE nr.read_at IS NULL
+    AND nr.status <> 'read'
+    AND nr.notification_type = 'verification_pending'
+    AND CASE
+      WHEN nr.context->>'event_key' LIKE 'verification.item.pending:submission:%'
+        THEN NOT EXISTS (
+          SELECT 1 FROM open_submissions o
+          WHERE nr.context->>'event_key' = 'verification.item.pending:submission:' || o.source_submission_id::text)
+      ELSE NOT EXISTS (
+          SELECT 1 FROM open_items oi
+          WHERE nr.calendar_event_id = 'verification:' || oi.item_id::text)
+    END
+  UNION
+  SELECT nr.notification_request_id
+  FROM notification_requests nr
+  WHERE $3::text <> ''
+    AND nr.tenant_id = $1::uuid
+    AND nr.calendar_event_id = 'verification:' || $3::text
+    AND nr.read_at IS NULL
+    AND nr.status <> 'read'
+    AND nr.context->>'message_key' = 'vaccination.drive.ready_to_close'
 )
 UPDATE notification_requests nr
 SET read_at = now(),
@@ -92,29 +126,9 @@ SET read_at = now(),
       ELSE nr.status
     END,
     updated_at = now()
-WHERE nr.tenant_id = $1::uuid
-  AND nr.read_at IS NULL
-  AND nr.status <> 'read'
-  AND (
-    (
-      nr.notification_type = 'verification_pending'
-      AND nr.calendar_event_id IN (SELECT 'verification:' || s.item_id::text FROM scope s)
-      AND CASE
-        WHEN nr.context->>'event_key' LIKE 'verification.item.pending:submission:%'
-          THEN NOT EXISTS (
-            SELECT 1 FROM open_submissions o
-            WHERE nr.context->>'event_key' = 'verification.item.pending:submission:' || o.source_submission_id::text)
-        ELSE NOT EXISTS (
-            SELECT 1 FROM open_items oi
-            WHERE nr.calendar_event_id = 'verification:' || oi.item_id::text)
-      END
-    )
-    OR (
-      $3::text <> ''
-      AND nr.calendar_event_id = 'verification:' || $3::text
-      AND nr.context->>'message_key' = 'vaccination.drive.ready_to_close'
-    )
-  )`
+FROM targets t
+WHERE nr.notification_request_id = t.notification_request_id
+  AND nr.tenant_id = $1::uuid`
 
 // resolveDecisionNotifications runs ONCE, last, inside a decision's transaction (see above).
 // driveBatchID is "" unless the transaction closed a vaccination drive.
