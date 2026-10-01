@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/vgoats/goatos/backend/internal/platform/kmetrics"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"strings"
 	"time"
 
@@ -53,6 +54,15 @@ type VersionStatusEvent struct {
 // be written is never published (the atomic transition + read-model rule).
 type VersionStatusHook func(ctx context.Context, tx pgx.Tx, e VersionStatusEvent) error
 
+// The two reads a publish / retire hook event is built from, hoisted for the scale guard.
+const (
+	sqlVersionStatusHookRead = `
+SELECT d.code, d.name, v.version, v.form_dsl
+FROM sop_versions v JOIN sop_definitions d ON d.tenant_id = v.tenant_id AND d.sop_id = v.sop_id
+WHERE v.tenant_id = $1::uuid AND v.sop_version_id = $2::uuid`
+	sqlSOPStillPublished = `SELECT EXISTS (SELECT 1 FROM sop_versions WHERE tenant_id = $1::uuid AND sop_id = $2::uuid AND status = 'published')`
+)
+
 // WithVersionStatusHook registers a module-owned publish / retire hook.
 func (r *Repository) WithVersionStatusHook(h VersionStatusHook) *Repository {
 	r.hooks = append(r.hooks, h)
@@ -75,7 +85,7 @@ func (r *Repository) ListSOPs(ctx context.Context, params ports.ListSOPsParams) 
 		cursorUpdatedAt = params.Cursor.UpdatedAt
 		cursorSOPID = params.Cursor.SOPID
 	}
-	rows, err := r.pool.Query(ctx, sopSelectSQL(`
+	bound := sqlbind.MustBind(sopSelectSQL(`
 WHERE sd.tenant_id = $1::uuid
   AND ($2 = '' OR sd.status = $2)
   AND ($3 = '' OR sd.code LIKE $3 || '%')
@@ -84,6 +94,7 @@ WHERE sd.tenant_id = $1::uuid
   AND ($8 = '' OR sd.kind = $8)
 ORDER BY sd.updated_at DESC, sd.sop_id DESC
 LIMIT $7`), params.TenantID, params.Status, params.CodePrefix, params.Search, cursorUpdatedAt, cursorSOPID, params.Limit, params.Kind)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, err
 	}
@@ -119,10 +130,11 @@ RETURNING sop_id::text`, cmd.TenantID, cmd.Body.Code, cmd.Body.Name, cmd.Body.De
 func (r *Repository) GetSOP(ctx context.Context, tenantID, sopID string) (domain.SOPDefinition, *domain.SOPVersion, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, sopSelectSQL(`
+	bound := sqlbind.MustBind(sopSelectSQL(`
 WHERE sd.tenant_id = $1::uuid
   AND sd.sop_id = $2::uuid
 LIMIT 1`), tenantID, sopID)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return domain.SOPDefinition{}, nil, err
 	}
@@ -204,11 +216,12 @@ RETURNING sop_version_id::text`,
 func (r *Repository) GetVersion(ctx context.Context, tenantID, sopID, versionID string) (domain.SOPVersion, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, versionSelectSQL(`
+	bound := sqlbind.MustBind(versionSelectSQL(`
 WHERE sv.tenant_id = $1::uuid
   AND sv.sop_id = $2::uuid
   AND sv.sop_version_id = $3::uuid
 LIMIT 1`), tenantID, sopID, versionID)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return domain.SOPVersion{}, err
 	}
@@ -225,10 +238,11 @@ LIMIT 1`), tenantID, sopID, versionID)
 func (r *Repository) GetVersionByID(ctx context.Context, tenantID, versionID string) (domain.SOPVersion, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, versionSelectSQL(`
+	bound := sqlbind.MustBind(versionSelectSQL(`
 WHERE sv.tenant_id = $1::uuid
   AND sv.sop_version_id = $2::uuid
 LIMIT 1`), tenantID, versionID)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return domain.SOPVersion{}, err
 	}
@@ -245,7 +259,7 @@ LIMIT 1`), tenantID, versionID)
 func (r *Repository) GetPublishedVersionByCode(ctx context.Context, tenantID, sopCode string) (domain.SOPVersion, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, versionSelectSQL(`
+	bound := sqlbind.MustBind(versionSelectSQL(`
 JOIN sop_definitions sd_filter
   ON sd_filter.tenant_id = sv.tenant_id
  AND sd_filter.sop_id = sv.sop_id
@@ -253,6 +267,7 @@ WHERE sv.tenant_id = $1::uuid
   AND sd_filter.code = $2
   AND sv.status = 'published'
 LIMIT 1`), tenantID, sopCode)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return domain.SOPVersion{}, err
 	}
@@ -284,9 +299,10 @@ WHERE st.tenant_id = $1::uuid
   AND ($4 = '' OR st.scope_type = $4)
 	  AND ($5 = '' OR st.scope_id = $5::uuid)`
 	if !params.AppView {
-		rows, err := r.pool.Query(ctx, taskSelectSQL(filters+`
+		bound := sqlbind.MustBind(taskSelectSQL(filters+`
 ORDER BY st.due_at NULLS LAST, st.updated_at DESC, st.task_id DESC
 LIMIT $6`), params.TenantID, params.State, params.AssignedTo, params.ScopeType, params.ScopeID, params.Limit)
+		rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 		if err != nil {
 			return ports.TaskListPage{}, err
 		}
@@ -306,7 +322,7 @@ LIMIT $6`), params.TenantID, params.State, params.AssignedTo, params.ScopeType, 
 		cursorTaskID = params.Cursor.TaskID
 		cursorDueAt = params.Cursor.DueAt
 	}
-	rows, err := r.pool.Query(ctx, taskSelectSQL(filters+`
+	bound := sqlbind.MustBind(taskSelectSQL(filters+`
   AND (
     $6::uuid IS NULL
     OR (
@@ -325,6 +341,7 @@ LIMIT $6`), params.TenantID, params.State, params.AssignedTo, params.ScopeType, 
   )
 ORDER BY st.due_at ASC NULLS LAST, st.task_id ASC
 LIMIT $8`), params.TenantID, params.State, params.AssignedTo, params.ScopeType, params.ScopeID, cursorTaskID, cursorDueAt, params.Limit)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return ports.TaskListPage{}, err
 	}
@@ -418,10 +435,11 @@ RETURNING task_id::text`,
 func (r *Repository) GetTask(ctx context.Context, tenantID, taskID string) (domain.TaskSummary, *domain.SOPVersion, []domain.SubmissionSummary, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, taskSelectSQL(`
+	bound := sqlbind.MustBind(taskSelectSQL(`
 WHERE st.tenant_id = $1::uuid
   AND st.task_id = $2::uuid
 LIMIT 1`), tenantID, taskID)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return domain.TaskSummary{}, nil, nil, err
 	}
@@ -444,11 +462,12 @@ LIMIT 1`), tenantID, taskID)
 }
 
 func (r *Repository) getTaskByObligationBatchID(ctx context.Context, tx pgx.Tx, tenantID, batchID string) (domain.TaskSummary, bool, error) {
-	rows, err := tx.Query(ctx, taskSelectSQL(`
+	bound := sqlbind.MustBind(taskSelectSQL(`
 WHERE st.tenant_id = $1::uuid
   AND st.context ->> 'obligation_batch_id' = $2
 ORDER BY st.created_at ASC, st.task_id ASC
 LIMIT 1`), tenantID, batchID)
+	rows, err := tx.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return domain.TaskSummary{}, false, err
 	}
@@ -620,11 +639,12 @@ SELECT $2::uuid = $3::uuid
 
 // getVersionForTaskCreation is a helper to resolve SOP version within a transaction
 func (r *Repository) getVersionForTaskCreation(ctx context.Context, tx pgx.Tx, tenantID, versionID string) (domain.SOPVersion, error) {
-	rows, err := tx.Query(ctx, versionSelectSQL(`
+	bound := sqlbind.MustBind(versionSelectSQL(`
 WHERE sv.tenant_id = $1::uuid
   AND sv.sop_version_id = $2::uuid
   AND sv.status = 'published'
 LIMIT 1`), tenantID, versionID)
+	rows, err := tx.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return domain.SOPVersion{}, err
 	}
@@ -1998,13 +2018,10 @@ RETURNING sop_version_id::text`, cmd.TenantID, cmd.SOPID, cmd.SOPVersionID, cmd.
 	if len(r.hooks) > 0 {
 		ev := VersionStatusEvent{TenantID: cmd.TenantID, ActorID: cmd.ActorID, SOPID: cmd.SOPID, VersionID: versionID, Status: status}
 		var raw []byte
-		if err := tx.QueryRow(ctx, `
-SELECT d.code, d.name, v.version, v.form_dsl
-FROM sop_versions v JOIN sop_definitions d ON d.tenant_id = v.tenant_id AND d.sop_id = v.sop_id
-WHERE v.tenant_id = $1::uuid AND v.sop_version_id = $2::uuid`, cmd.TenantID, versionID).Scan(&ev.SOPCode, &ev.SOPName, &ev.Version, &raw); err != nil {
+		if err := tx.QueryRow(ctx, sqlVersionStatusHookRead, cmd.TenantID, versionID).Scan(&ev.SOPCode, &ev.SOPName, &ev.Version, &raw); err != nil {
 			return domain.SOPVersion{}, err
 		}
-		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM sop_versions WHERE tenant_id = $1::uuid AND sop_id = $2::uuid AND status = 'published')`, cmd.TenantID, cmd.SOPID).Scan(&ev.StillPublished); err != nil {
+		if err := tx.QueryRow(ctx, sqlSOPStillPublished, cmd.TenantID, cmd.SOPID).Scan(&ev.StillPublished); err != nil {
 			return domain.SOPVersion{}, err
 		}
 		if err := json.Unmarshal(raw, &ev.FormDSL); err != nil {
@@ -2058,11 +2075,12 @@ RETURNING task_id::text`, tenantID, taskID, rowVersion, state, ptrValue(assigned
 }
 
 func (r *Repository) latestVersion(ctx context.Context, tenantID, sopID string) (domain.SOPVersion, error) {
-	rows, err := r.pool.Query(ctx, versionSelectSQL(`
+	bound := sqlbind.MustBind(versionSelectSQL(`
 WHERE sv.tenant_id = $1::uuid
   AND sv.sop_id = $2::uuid
 ORDER BY sv.version DESC
 LIMIT 1`), tenantID, sopID)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return domain.SOPVersion{}, err
 	}
@@ -2081,12 +2099,13 @@ LIMIT 1`), tenantID, sopID)
 func (r *Repository) PublishedVersion(ctx context.Context, tenantID, sopID string) (domain.SOPVersion, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, versionSelectSQL(`
+	bound := sqlbind.MustBind(versionSelectSQL(`
 WHERE sv.tenant_id = $1::uuid
   AND sv.sop_id = $2::uuid
   AND sv.status = 'published'
 ORDER BY sv.version DESC
 LIMIT 1`), tenantID, sopID)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return domain.SOPVersion{}, err
 	}
@@ -2152,11 +2171,12 @@ func (r *Repository) LatestVersionsFor(ctx context.Context, tenantID string, sop
 
 func (r *Repository) resolveTaskVersion(ctx context.Context, tx pgx.Tx, cmd ports.CreateTaskCommand) (domain.SOPVersion, error) {
 	if cmd.Body.SOPVersionID != nil && *cmd.Body.SOPVersionID != "" {
-		rows, err := tx.Query(ctx, versionSelectSQL(`
+		bound := sqlbind.MustBind(versionSelectSQL(`
 WHERE sv.tenant_id = $1::uuid
   AND sv.sop_version_id = $2::uuid
   AND sv.status = 'published'
 LIMIT 1`), cmd.TenantID, *cmd.Body.SOPVersionID)
+		rows, err := tx.Query(ctx, bound.SQL(), bound.Args()...)
 		if err != nil {
 			return domain.SOPVersion{}, err
 		}
@@ -2169,11 +2189,12 @@ LIMIT 1`), cmd.TenantID, *cmd.Body.SOPVersionID)
 		}
 		return items[0], nil
 	}
-	rows, err := tx.Query(ctx, versionSelectSQL(`
+	bound := sqlbind.MustBind(versionSelectSQL(`
 WHERE sv.tenant_id = $1::uuid
   AND sd.code = $2
   AND sv.status = 'published'
 LIMIT 1`), cmd.TenantID, cmd.Body.SOPCode)
+	rows, err := tx.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return domain.SOPVersion{}, err
 	}

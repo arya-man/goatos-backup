@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -39,10 +40,10 @@ func (r *Repository) SyncPhoneTaskSOP(ctx context.Context, tx pgx.Tx, ev PhoneTa
 		}
 		// The SOP is no longer published: its tab leaves every bar and its routines raise nothing
 		// new. Open tasks are untouched, the same as retiring a routine by hand.
-		if _, err := tx.Exec(ctx, sqlSOPRetireTab, ev.TenantID, ev.SOPCode, nullIfEmpty(ev.ActorID), r.now().UTC()); err != nil {
+		if err := execBound(ctx, tx, sqlSOPRetireTab, ev.TenantID, ev.SOPCode, nullIfEmpty(ev.ActorID), r.now().UTC()); err != nil {
 			return fmt.Errorf("pen routine: retire sop tab: %w", err)
 		}
-		if _, err := tx.Exec(ctx, sqlSOPRetireRoutines, ev.TenantID, ev.SOPCode, []string{}, nullIfEmpty(ev.ActorID), r.now().UTC()); err != nil {
+		if err := execBound(ctx, tx, sqlSOPRetireRoutines, ev.TenantID, ev.SOPCode, []string{}, nullIfEmpty(ev.ActorID), r.now().UTC()); err != nil {
 			return fmt.Errorf("pen routine: retire sop routines: %w", err)
 		}
 		return nil
@@ -56,12 +57,13 @@ func (r *Repository) SyncPhoneTaskSOP(ctx context.Context, tx pgx.Tx, ev PhoneTa
 	}
 	now := r.now().UTC()
 	var tabID string
-	if err := tx.QueryRow(ctx, sqlSOPUpsertTab, ev.TenantID, domain.PhoneTabKeyForSOPCode(ev.SOPCode), strings.TrimSpace(ev.SOPName),
+	if err := queryRowBound(ctx, tx, sqlSOPUpsertTab, ev.TenantID, domain.PhoneTabKeyForSOPCode(ev.SOPCode), strings.TrimSpace(ev.SOPName),
 		domain.PhoneModuleForSOPCode(ev.SOPCode), doc.Tab.Icon, nonNilStrings(doc.Tab.Filters), ev.SOPCode, nullIfEmpty(ev.ActorID), now).Scan(&tabID); err != nil {
 		return fmt.Errorf("pen routine: write sop tab: %w", err)
 	}
 	existing := map[string]string{}
-	rows, err := tx.Query(ctx, sqlSOPRoutines, ev.TenantID, ev.SOPCode)
+	bound := sqlbind.MustBind(sqlSOPRoutines, ev.TenantID, ev.SOPCode)
+	rows, err := tx.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return fmt.Errorf("pen routine: read sop routines: %w", err)
 	}
@@ -79,8 +81,7 @@ func (r *Repository) SyncPhoneTaskSOP(ctx context.Context, tx pgx.Tx, ev PhoneTa
 	}
 	today := r.today()
 	parks := make([]string, 0, len(doc.Parks))
-	// scale-guard:ignore: bounded by the tenant's parks (two today) named in ONE authored document; each park is one routine write.
-	for _, park := range doc.Parks {
+	for _, park := range doc.Parks { // scale-guard:ignore: bounded by the tenant's parks (two today) in ONE authored document; each park is one routine write.
 		d := doc.DefinitionFor(ev.SOPName, park, today)
 		if err := resolveAssignee(ctx, tx, ev.TenantID, d.ParkID, &d); err != nil {
 			return err
@@ -98,10 +99,10 @@ func (r *Repository) SyncPhoneTaskSOP(ctx context.Context, tx pgx.Tx, ev PhoneTa
 				return err
 			}
 			next := before.Definition.CurrentVersion + 1
-			if _, err := tx.Exec(ctx, sqlAuthoring2, ev.TenantID, routineID, next, strings.TrimSpace(d.Name), d.Instruction, evidenceJSON, d.ReviewKind, nullIfEmpty(ev.ActorID), now); err != nil {
+			if err := execBound(ctx, tx, sqlAuthoring2, ev.TenantID, routineID, next, strings.TrimSpace(d.Name), d.Instruction, evidenceJSON, d.ReviewKind, nullIfEmpty(ev.ActorID), now); err != nil {
 				return fmt.Errorf("pen routine: sop version: %w", err)
 			}
-			if _, err := tx.Exec(ctx, sqlAuthoring3,
+			if err := execBound(ctx, tx, sqlAuthoring3,
 				ev.TenantID, routineID, strings.TrimSpace(d.Name), d.ScopeKind, d.OccupiedOnly, d.CadenceKind,
 				toInt16s(d.Weekdays), toInt16s(d.MonthDays), domain.SortWorkKinds(d.AfterWorkKinds), d.DueOffsetDays,
 				d.NotifyTime, d.ReviewKind, next, nullIfEmpty(ev.ActorID), now, before.Definition.RowVersion,
@@ -109,12 +110,12 @@ func (r *Repository) SyncPhoneTaskSOP(ctx context.Context, tx pgx.Tx, ev PhoneTa
 			); err != nil {
 				return mapAuthoringError(err, "sop update")
 			}
-			if _, err := tx.Exec(ctx, sqlAuthoring4, ev.TenantID, routineID); err != nil {
+			if err := execBound(ctx, tx, sqlAuthoring4, ev.TenantID, routineID); err != nil {
 				return fmt.Errorf("pen routine: sop clear pens: %w", err)
 			}
 		} else {
 			action = "pen_routine.created"
-			if err := tx.QueryRow(ctx, sqlAuthoring1,
+			if err := queryRowBound(ctx, tx, sqlAuthoring1,
 				ev.TenantID, d.ParkID, strings.TrimSpace(d.Name), d.ScopeKind, d.OccupiedOnly, d.CadenceKind,
 				toInt16s(d.Weekdays), toInt16s(d.MonthDays), domain.SortWorkKinds(d.AfterWorkKinds), d.DueOffsetDays,
 				d.NotifyTime, d.ReviewKind, nullIfEmpty(ev.ActorID), now,
@@ -122,14 +123,14 @@ func (r *Repository) SyncPhoneTaskSOP(ctx context.Context, tx pgx.Tx, ev PhoneTa
 			).Scan(&routineID); err != nil {
 				return mapAuthoringError(err, "sop create")
 			}
-			if _, err := tx.Exec(ctx, sqlAuthoring2, ev.TenantID, routineID, 1, strings.TrimSpace(d.Name), d.Instruction, evidenceJSON, d.ReviewKind, nullIfEmpty(ev.ActorID), now); err != nil {
+			if err := execBound(ctx, tx, sqlAuthoring2, ev.TenantID, routineID, 1, strings.TrimSpace(d.Name), d.Instruction, evidenceJSON, d.ReviewKind, nullIfEmpty(ev.ActorID), now); err != nil {
 				return fmt.Errorf("pen routine: sop first version: %w", err)
 			}
 		}
 		if err := writeMembers(ctx, tx, ev.TenantID, routineID, d); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, sqlSOPStampRoutine, ev.TenantID, routineID, tabID, ev.SOPCode); err != nil {
+		if err := execBound(ctx, tx, sqlSOPStampRoutine, ev.TenantID, routineID, tabID, ev.SOPCode); err != nil {
 			return fmt.Errorf("pen routine: stamp sop routine: %w", err)
 		}
 		if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
@@ -142,10 +143,22 @@ func (r *Repository) SyncPhoneTaskSOP(ctx context.Context, tx pgx.Tx, ev PhoneTa
 		}
 	}
 	// A park the new version no longer names stops raising work.
-	if _, err := tx.Exec(ctx, sqlSOPRetireRoutines, ev.TenantID, ev.SOPCode, parks, nullIfEmpty(ev.ActorID), now); err != nil {
+	if err := execBound(ctx, tx, sqlSOPRetireRoutines, ev.TenantID, ev.SOPCode, parks, nullIfEmpty(ev.ActorID), now); err != nil {
 		return fmt.Errorf("pen routine: retire dropped sop routines: %w", err)
 	}
 	return nil
+}
+
+// execBound and queryRowBound run a package-level statement through the bind-contract check.
+func execBound(ctx context.Context, tx pgx.Tx, query string, args ...any) error {
+	bound := sqlbind.MustBind(query, args...)
+	_, err := tx.Exec(ctx, bound.SQL(), bound.Args()...)
+	return err
+}
+
+func queryRowBound(ctx context.Context, tx pgx.Tx, query string, args ...any) pgx.Row {
+	bound := sqlbind.MustBind(query, args...)
+	return tx.QueryRow(ctx, bound.SQL(), bound.Args()...)
 }
 
 // SQL hoisted to package level so the scale guard and query-plan tests can reach it.

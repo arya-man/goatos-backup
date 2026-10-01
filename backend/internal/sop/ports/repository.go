@@ -219,4 +219,6 @@ type PublishRefusedError struct {
 	Message string
 }
 
-func (e *PublishRefusedError) Error() string { return "sop publish refused: " + e.Code + ": " + e.Message }
+func (e *PublishRefusedError) Error() string {
+	return "sop publish refused: " + e.Code + ": " + e.Message
+}
