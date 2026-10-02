@@ -5,7 +5,7 @@ import { Tag } from "@/components/ui-primitives";
 import { useCallback, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Iconify, type IconifyName } from "@/components/minimal/iconify";
-import { type SopCardView } from "./sop-derive";
+import { sopVersionCaption, type SopCardView } from "./sop-derive";
 import { SummaryEmpty, SummaryList, SummaryMeta, SummaryRow, SummaryTitle } from "./sop-summary";
 import { FollowUpStepsSummary } from "./followup-summary";
 import { InspectionSummary } from "./inspection-summary";
@@ -476,7 +476,7 @@ function SopItem({ view, facets, pageContract, justPublished, onView, onEdit }: 
           {view.name}
         </Link>
       }
-      secondary={view.versionLabel ?? undefined}
+      secondary={sopVersionCaption(view.name, view.versionLabel, view.versionNumber) ?? undefined}
       meta={
         <Label variant="soft" color={STATUS_COLOR[view.status]}>
           {statusText(view)}
@@ -550,7 +550,7 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, onEditCapture, ed
             {[
               [copy(pageContract, "label.domain"), view.domainLabel],
               [copy(pageContract, "label.trigger"), view.trigger ?? copy(pageContract, "label.placeholder")],
-              [copy(pageContract, "label.version_status"), `${view.versionLabel ?? copy(pageContract, "label.placeholder")} · ${view.versionStatus ?? view.status}`],
+              [copy(pageContract, "label.version_status"), `${sopVersionCaption(view.name, view.versionLabel, view.versionNumber) ?? copy(pageContract, "label.placeholder")} · ${view.versionStatus ?? view.status}`],
             ].map(([k, v]) => (
               <Box key={k} sx={{ minWidth: 0 }}>
                 <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{k}</Typography>

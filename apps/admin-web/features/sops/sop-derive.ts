@@ -1080,3 +1080,19 @@ export function isVersionFaithfullyEditable(formDsl: unknown): boolean {
   }
   return true;
 }
+
+/**
+ * The version line a SOP card shows under its title. The authored version_label repeats the SOP
+ * name ("Feed purchase form v1" under "Feed purchase form") and can carry an internal kind token
+ * ("Animal Purchase Inspection · inspection"). A trailing lower-case token after " · " is dropped,
+ * and a label that merely restates the name collapses to "v{n}". Anything else the author wrote
+ * (e.g. "Monsoon dosing update") is kept.
+ */
+export function sopVersionCaption(name: string, versionLabel: string | null, versionNumber: number | null): string | null {
+  const short = versionNumber != null ? `v${versionNumber}` : null;
+  if (!versionLabel) return short;
+  const label = versionLabel.replace(/\s*·\s*[a-z][a-z0-9_]*$/, "").trim();
+  const title = name.trim().toLowerCase();
+  if (label === "" || (title !== "" && label.toLowerCase().startsWith(title))) return short;
+  return label;
+}
