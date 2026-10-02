@@ -13,6 +13,7 @@ import { KpiWidget } from "@/components/app/kpi-widget";
 import { FCRPensChart } from "./fcr-pens-chart";
 import { FCRPensTable } from "./fcr-pens-table";
 import { cohortWord } from "./fcr-labels";
+import { fcrAxisCeiling, isOffScale } from "./fcr-scale";
 import { copy, table, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate } from "@/lib/format";
 import type { GrowthFCRGroup, GrowthFCRResponse, GrowthFCRPen } from "@/lib/api/server";
@@ -83,15 +84,28 @@ function GroupCard({
   id,
   groups,
   rupee,
+  breakEven,
 }: {
   pageContract: AdminUiPageContract;
   id: string;
   groups: GrowthFCRGroup[];
   rupee: string;
+  breakEven: number | null;
 }) {
   const measured = (groups ?? []).filter((group): group is GrowthFCRGroup & { fcr: number } => group.fcr != null);
   const categories = measured.map((group) => groupLabel(pageContract, group, id));
   const notes = measured.map((group) => penCount(pageContract, group.pens));
+  // The same ceiling as FCR by pen: one group that barely gained (a 35 kg+ band at 463 kg/kg) set the
+  // axis to 500 and flattened every other band to a hairline. A group past the ceiling is drawn to
+  // it and its tooltip prints the true ratio, marked off scale.
+  const ratios = measured.map((group) => Number(group.fcr.toFixed(2)));
+  const ceiling = fcrAxisCeiling(ratios, breakEven);
+  const unit = copy(pageContract, "unit.fcr");
+  const ratioNotes = measured.map((group, index) =>
+    isOffScale(ratios[index], ceiling)
+      ? `${num(ratios[index], 2)} ${unit} ${copy(pageContract, "label.fcr.off_scale")} · ${notes[index]}`
+      : notes[index],
+  );
   const caption = copy(pageContract, `section.fcr.${id}.caption`, "");
   return (
     <BalanceStatisticsCard
@@ -104,9 +118,15 @@ function GroupCard({
           {
             name: copy(pageContract, "series.fcr"),
             categories,
-            unit: copy(pageContract, "unit.fcr"),
+            unit,
             digits: 2,
-            data: [{ name: copy(pageContract, "series.fcr"), data: measured.map((group) => Number(group.fcr.toFixed(2))), notes }],
+            data: [
+              {
+                name: copy(pageContract, "series.fcr"),
+                data: ratios.map((ratio) => (ceiling !== undefined && ratio > ceiling ? ceiling : ratio)),
+                notes: ratioNotes,
+              },
+            ],
           },
           ...(measured.some((group) => group.margin_inr != null)
             ? [
@@ -339,19 +359,19 @@ export function FCRTab({
       </Grid>
 
       <Grid size={{ xs: 12, md: 6 }}>
-        <GroupCard pageContract={pageContract} id="breed" groups={fcr.estimated_by_breed ?? fcr.by_breed} rupee={rupee} />
+        <GroupCard pageContract={pageContract} id="breed" groups={fcr.estimated_by_breed ?? fcr.by_breed} rupee={rupee} breakEven={s.break_even_fcr} />
       </Grid>
       <Grid size={{ xs: 12, md: 6 }}>
-        <GroupCard pageContract={pageContract} id="sex" groups={fcr.by_sex} rupee={rupee} />
+        <GroupCard pageContract={pageContract} id="sex" groups={fcr.by_sex} rupee={rupee} breakEven={s.break_even_fcr} />
       </Grid>
       <Grid size={{ xs: 12, md: 6 }}>
-        <GroupCard pageContract={pageContract} id="band" groups={fcr.by_weight_band} rupee={rupee} />
+        <GroupCard pageContract={pageContract} id="band" groups={fcr.by_weight_band} rupee={rupee} breakEven={s.break_even_fcr} />
       </Grid>
       <Grid size={{ xs: 12, md: 6 }}>
-        <GroupCard pageContract={pageContract} id="park" groups={fcr.by_park} rupee={rupee} />
+        <GroupCard pageContract={pageContract} id="park" groups={fcr.by_park} rupee={rupee} breakEven={s.break_even_fcr} />
       </Grid>
       <Grid size={12}>
-        <GroupCard pageContract={pageContract} id="origin" groups={fcr.by_origin} rupee={rupee} />
+        <GroupCard pageContract={pageContract} id="origin" groups={fcr.by_origin} rupee={rupee} breakEven={s.break_even_fcr} />
       </Grid>
 
       <Grid size={12}>
