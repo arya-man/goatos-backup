@@ -67,6 +67,7 @@ test("visual smoke visits every live sidebar navigation leaf", () => {
     ["sales-loads-farm-born", "/sales/loads?scope_mode=company&view=farm_born"],
     ["sales-market-analytics", "/sales/market-analytics?scope_mode=company"],
     ["sales-buyer-analytics", "/sales/buyer-analytics?scope_mode=company"],
+    ["sales-executive-analytics", "/sales/executive-analytics?scope_mode=company"],
     ["sales-farm-born", "/sales/farm-born?scope_mode=company"],
     ["sales-config", "/sales/config?scope_mode=company"],
     ["sales-sops", "/sales/sops?scope_mode=company"],

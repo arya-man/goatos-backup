@@ -18,14 +18,20 @@ import type {
   SalesExecutiveAnalytics,
 } from "@/lib/api/procurement";
 import { fmtDate, fmtDateTime } from "@/lib/format";
-import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
+import { one, type RouteSearchParams } from "@/lib/search-params";
 import { countKey, inr, num } from "./sales-format";
 import { SalesPageHeader, hrefWithQuery } from "./sales-chrome";
 import { salesErrorText } from "./sales-error";
 
 const PAGE_PATH = "/sales/executive-analytics";
-/** The backend's own offset ceiling; a deeper offset in the URL is bounded, not sent. */
-const MAX_OFFSET = 10000;
+
+function queryInt(value: string | undefined): number | undefined {
+  if (value === undefined || value.trim() === "") return undefined;
+  const trimmed = value.trim();
+  if (!/^-?\d+$/.test(trimmed)) return Number.NaN;
+  const parsed = Number.parseInt(trimmed, 10);
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
 
 /** Fills a backend copy template's `{name}` slots; the sentence itself stays backend-owned. */
 function fill(template: string, values: Record<string, string>): string {
@@ -531,18 +537,9 @@ export async function SalesExecutiveAnalyticsPage({
   pageContract: AdminUiPageContract;
 }) {
   const sp = searchParams;
-  const requested = Number.parseInt(one(sp, "days") ?? "", 10);
-  // An unknown period falls back to the backend's default rather than erroring the page.
-  const days = (FALLBACK_PERIODS as readonly number[]).includes(requested)
-    ? requested
-    : undefined;
-  const activityOffset = boundedInt(
-    one(sp, "activity_offset"),
-    0,
-    0,
-    MAX_OFFSET,
-  );
-  const vendorOffset = boundedInt(one(sp, "vendor_offset"), 0, 0, MAX_OFFSET);
+  const days = queryInt(one(sp, "days"));
+  const activityOffset = queryInt(one(sp, "activity_offset"));
+  const vendorOffset = queryInt(one(sp, "vendor_offset"));
   const result = await getSalesExecutiveAnalytics({
     days,
     activityOffset,
