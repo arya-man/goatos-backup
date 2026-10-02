@@ -523,6 +523,7 @@ export async function VaccinationActionCenterPage({
             noun={copy(pageContract, "filter.rows_label")}
             hrefForPage={boardPagerHref}
             hrefForPageSize={boardPageSizeHref}
+            dense={false}
           />
           </Stack>
           </UrlSuspense>

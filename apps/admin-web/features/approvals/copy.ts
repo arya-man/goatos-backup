@@ -80,6 +80,8 @@ export const APPROVALS_COPY = {
     rowsPerPage: "Rows per page:",
     dense: "Dense",
     of: "of",
+    // An empty tab's range reads as a count of something, never a bare "0" (pr294 L-A11).
+    none: "0 requests",
   },
   kpi: {
     rowsInView: "Rows in view",

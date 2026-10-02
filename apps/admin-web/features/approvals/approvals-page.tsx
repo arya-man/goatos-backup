@@ -216,7 +216,7 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
               // Template range text ("1–5") on the newest page; a later cursor page has no known offset.
               // The newest page says how many there are as far as it knows (A11, pr294: a bare "1–20"):
               // "of 20" when it is the only page, "of 20+" when an older page exists.
-              rangeLabel={items.length === 0 ? "0" : cursor ? `${COPY.kpi.rowsInView}: ${items.length}` : `1–${items.length} ${COPY.pager.of} ${items.length}${nextCursor ? "+" : ""}`}
+              rangeLabel={items.length === 0 ? COPY.pager.none : cursor ? `${COPY.kpi.rowsInView}: ${items.length}` : `1–${items.length} ${COPY.pager.of} ${items.length}${nextCursor ? "+" : ""}`}
               prevHref={cursor ? hrefWith(sp, { ap_cursor: null, ...clearRow }) : null}
               nextHref={nextCursor ? hrefWith(sp, { ap_cursor: nextCursor, ...clearRow }) : null}
               prevLabel={COPY.pager.first}
