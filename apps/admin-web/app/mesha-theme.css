@@ -4798,6 +4798,17 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
 .sales-vendor-search input{flex:1 1 auto;min-width:0}
 .sales-vendor-search .btn{flex:0 0 auto;white-space:nowrap}
 .sales-kpi-row .kpi .dl{color:var(--muted)}
+/* Sales executive analytics: the latest-activity feed, one person + what they recorded per line. */
+.sales-exec-feed{list-style:none;margin:0;padding:0}
+/* The two list cards sit side by side at ONE height: each card stretches to the row and its list
+   scrolls inside a fixed window, so neither card ends short of the other. */
+.sales-exec-pair{align-items:stretch}
+.sales-exec-pair>.sales-exec-list{display:flex;flex-direction:column;min-width:0}
+.sales-exec-pair>.sales-exec-list>.bd{flex:1;display:flex;flex-direction:column;min-height:0}
+.sales-exec-scroll{height:560px;overflow-y:auto;overflow-x:auto}
+@media(max-width:760px){.sales-exec-scroll{height:420px}}
+.sales-exec-feed li{padding:8px 0;border-bottom:1px solid var(--line);min-width:0;overflow-wrap:anywhere}
+.sales-exec-feed li:last-child{border-bottom:0}
 /* The Farm value row: the Over 35 kg card carries its margin footer, so the other two cards get
    a little more room and their content is spread down the card rather than sitting on the lid. */
 .sales-farm-value-row .kpi{padding:18px 18px 16px}

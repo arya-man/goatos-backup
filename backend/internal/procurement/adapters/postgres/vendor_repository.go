@@ -12,7 +12,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
+
 	"github.com/vgoats/goatos/backend/internal/procurement/domain"
 	"github.com/vgoats/goatos/backend/internal/procurement/ports"
 )
@@ -208,7 +210,10 @@ func (r *Repository) ListVendors(ctx context.Context, tenantID string, filter do
 	query := fmt.Sprintf(`SELECT %s FROM public.procurement_vendors v WHERE %s ORDER BY v.business_name, v.vendor_id LIMIT %d OFFSET %d`, // scale-guard:ignore: bounded authored contact book pagination; see note above
 		vendorColumns, where, limit, offset)
 
-	bound := sqlbind.MustBind(query, args...)
+	bound, bindErr := sqlbind.Bind(query, args...)
+	if bindErr != nil {
+		return ports.VendorPage{}, fmt.Errorf("procurement: bind list vendors: %w", bindErr)
+	}
 	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return ports.VendorPage{}, fmt.Errorf("list vendors: %w", err)
@@ -236,7 +241,10 @@ func (r *Repository) ListVendors(ctx context.Context, tenantID string, filter do
 	// two can never drift -- a hand-written second copy is how a screen reports "306 vendors" over a
 	// list filtered to 89.
 	countQuery := fmt.Sprintf(`SELECT count(*) FROM public.procurement_vendors v WHERE %s`, where)
-	countBound := sqlbind.MustBind(countQuery, args...)
+	countBound, bindErr := sqlbind.Bind(countQuery, args...)
+	if bindErr != nil {
+		return ports.VendorPage{}, fmt.Errorf("procurement: bind count vendors: %w", bindErr)
+	}
 	if err := r.pool.QueryRow(ctx, countBound.SQL(), countBound.Args()...).Scan(&page.Total); err != nil {
 		return ports.VendorPage{}, fmt.Errorf("count vendors: %w", err)
 	}
@@ -249,7 +257,10 @@ func (r *Repository) GetVendor(ctx context.Context, tenantID, vendorID string, i
 	defer cancel()
 
 	query := fmt.Sprintf(`SELECT %s FROM public.procurement_vendors v WHERE v.tenant_id = $1 AND v.vendor_id = $2`, vendorColumns)
-	bound := sqlbind.MustBind(query, tenantID, vendorID)
+	bound, err := sqlbind.Bind(query, tenantID, vendorID)
+	if err != nil {
+		return domain.Vendor{}, fmt.Errorf("procurement: bind get vendor: %w", err)
+	}
 	v, err := scanVendor(r.pool.QueryRow(ctx, bound.SQL(), bound.Args()...))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Vendor{}, ports.ErrVendorNotFound
@@ -300,7 +311,7 @@ func (r *Repository) CreateVendor(ctx context.Context, tenantID string, write do
 		nullIf("$24"), nullIf("$25"),
 		vendorColumns)
 
-	bound := sqlbind.MustBind(query,
+	bound, err := sqlbind.Bind(query,
 		tenantID, w.RecordType, w.BusinessName, w.ContactPersonName, w.PhoneNumber,
 		w.Status, w.FilteredStock, w.PricePerGoat, w.ReadyToFiltered,
 		w.ETAAfterOrderDays, w.State, w.City,
@@ -310,6 +321,9 @@ func (r *Repository) CreateVendor(ctx context.Context, tenantID string, write do
 		w.CapacityQuantity, w.CapacityUnit, w.SupplyFrequency, w.VoiceNoteProofRef,
 		w.AverageAnimalWeightKg, vendorAnswersJSON(w.SOPAnswers), w.QuestionnaireVersion, w.QuestionnaireSOPCode,
 	)
+	if err != nil {
+		return domain.Vendor{}, fmt.Errorf("procurement: bind create vendor: %w", err)
+	}
 	v, err := scanVendor(r.pool.QueryRow(ctx, bound.SQL(), bound.Args()...))
 	if err != nil {
 		if isNaturalKeyViolation(err) {
@@ -400,7 +414,7 @@ func (r *Repository) UpdateVendor(ctx context.Context, tenantID, vendorID string
 		nullIf("$27"), nullIf("$28"),
 		vendorColumns)
 
-	bound := sqlbind.MustBind(query,
+	bound, err := sqlbind.Bind(query,
 		tenantID, vendorID, w.RecordType, w.BusinessName,
 		w.ContactPersonName, w.PhoneNumber, w.Breed, w.Feed,
 		w.Status, w.FilteredStock, w.PricePerGoat, w.ReadyToFiltered,
@@ -413,6 +427,9 @@ func (r *Repository) UpdateVendor(ctx context.Context, tenantID, vendorID string
 		// it never saw: the stored answers and their version are kept, like finance above.
 		w.SOPAnswers == nil, vendorAnswersJSON(w.SOPAnswers), w.QuestionnaireVersion, w.QuestionnaireSOPCode,
 	)
+	if err != nil {
+		return domain.Vendor{}, fmt.Errorf("procurement: bind update vendor: %w", err)
+	}
 	v, err := scanVendor(tx.QueryRow(ctx, bound.SQL(), bound.Args()...))
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Zero rows means the tenant+id+version triple did not match. Re-read without the version to
@@ -428,6 +445,12 @@ func (r *Repository) UpdateVendor(ctx context.Context, tenantID, vendorID string
 			return domain.Vendor{}, ports.ErrVendorDuplicate
 		}
 		return domain.Vendor{}, fmt.Errorf("update vendor: %w", err)
+	}
+	if err := recordVendorEditAudit(ctx, tx, tenantID, actorID, "procurement.vendor.update", v.VendorID, map[string]any{
+		"idempotency_key": idempotencyKey,
+		"operation_id":    idempotencyKey,
+	}); err != nil {
+		return domain.Vendor{}, err
 	}
 	if err := completeIdempotency(ctx, tx, tenantID, idemScopeVendorUpdate, idempotencyKey, "procurement_vendor", v.VendorID); err != nil {
 		return domain.Vendor{}, fmt.Errorf("procurement: complete vendor update idempotency: %w", err)
@@ -509,9 +532,12 @@ func (r *Repository) ListVendorCatalog(ctx context.Context, tenantID string, act
 			SELECT DISTINCT btrim(city) AS city
 			FROM public.procurement_vendors
 			WHERE tenant_id = $1 AND btrim(coalesce(city, '')) <> ''
-			) c
-			ORDER BY kind, sort_order, value`
-	bound := sqlbind.MustBind(query, tenantID, activeOnly)
+		) c
+		ORDER BY kind, sort_order, value`
+	bound, err := sqlbind.Bind(query, tenantID, activeOnly)
+	if err != nil {
+		return nil, fmt.Errorf("procurement: bind vendor catalog: %w", err)
+	}
 	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("list vendor catalog: %w", err)
@@ -620,9 +646,19 @@ func (r *Repository) UpdateVendorStatus(ctx context.Context, tenantID, vendorID,
 		WHERE v.tenant_id = $1 AND v.vendor_id = $2 AND v.row_version = $5
 		RETURNING %s`, "$4", vendorColumns)
 
-	bound := sqlbind.MustBind(query, tenantID, vendorID, status, nullableActor(actorID), rowVersion)
-	v, err := scanVendor(r.pool.QueryRow(ctx, bound.SQL(), bound.Args()...))
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.Vendor{}, fmt.Errorf("procurement: begin update vendor status: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	bound, err := sqlbind.Bind(query, tenantID, vendorID, status, nullableActor(actorID), rowVersion)
+	if err != nil {
+		return domain.Vendor{}, fmt.Errorf("procurement: bind update vendor status: %w", err)
+	}
+	v, err := scanVendor(tx.QueryRow(ctx, bound.SQL(), bound.Args()...))
 	if errors.Is(err, pgx.ErrNoRows) {
+		_ = tx.Rollback(ctx)
 		// Same two-case split as UpdateVendor: "gone" and "someone saved first" need different words.
 		if _, getErr := r.GetVendor(ctx, tenantID, vendorID, false); errors.Is(getErr, ports.ErrVendorNotFound) {
 			return domain.Vendor{}, ports.ErrVendorNotFound
@@ -631,6 +667,14 @@ func (r *Repository) UpdateVendorStatus(ctx context.Context, tenantID, vendorID,
 	}
 	if err != nil {
 		return domain.Vendor{}, fmt.Errorf("update vendor status: %w", err)
+	}
+	if err := recordVendorEditAudit(ctx, tx, tenantID, actorID, "procurement.vendor.status", v.VendorID, map[string]any{
+		"status": status,
+	}); err != nil {
+		return domain.Vendor{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.Vendor{}, fmt.Errorf("procurement: commit update vendor status: %w", err)
 	}
 	// The status change never returns finance to the caller: this path exists for a quick flip from
 	// the list, and the row is re-read by the page afterwards under the caller's own permission.
@@ -665,4 +709,31 @@ func nullableActor(actorID string) any {
 		return nil
 	}
 	return actorID
+}
+
+// recordVendorEditAudit writes one audit row for a vendor edit INSIDE the edit's transaction
+// (migration-free: audit_log already exists). The register keeps only its LAST editor on the row;
+// this row is what lets Sales > Sales executive analytics count every edit by every person
+// (docs/decisions/sales-executive-analytics.md). A failed audit rolls the edit back.
+func recordVendorEditAudit(ctx context.Context, tx pgx.Tx, tenantID, actorID, action, vendorID string, extra map[string]any) error {
+	metadata := map[string]any{
+		"domain":   "procurement",
+		"module":   "vendors",
+		"category": "vendor",
+	}
+	for k, v := range extra {
+		metadata[k] = v
+	}
+	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+		TenantID:     tenantID,
+		ActorID:      strings.TrimSpace(actorID),
+		ActorType:    "human",
+		Action:       action,
+		ResourceType: "procurement_vendor",
+		ResourceID:   vendorID,
+		Metadata:     metadata,
+	}); err != nil {
+		return fmt.Errorf("procurement: audit %s: %w", action, err)
+	}
+	return nil
 }

@@ -11541,6 +11541,48 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /procurement/sales-executive-analytics:
+    get:
+      tags:
+        - Procurement
+      operationId: getSalesExecutiveAnalytics
+      summary: What the sales desk recorded, per person and per day, for the Sales > Sales executive analytics page.
+      description: >-
+        One ACTIVITY per row of the underlying read, folded per person and per IST business day
+        over the last `days` business days ending today (and the same number of days before, as
+        `previous`). Kinds and grain: `vendor_added` one vendor with a known adder;
+        `vendor_edited` one (person, vendor, business day) -- several saves count once;
+        `market_call` one (person, market city, survey day); `lead_call` one recorded buyer or
+        farmer-group call or call outcome; `sale_recorded`, `payment_recorded` and `deal_status`
+        one audited sales write. Buckets are DISJOINT by kind. Vendors imported from the old
+        sheet carry no adder and are counted only in `imported_vendors`.
+      parameters:
+        - name: days
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [7, 30, 90]
+          description: The period in business days ending today. Absent is 30; any other value is refused with `invalid_days`.
+        - name: activity_offset
+          in: query
+          required: false
+          schema: { type: integer, minimum: 0, maximum: 10000 }
+          description: Row offset into the period's activity feed (newest first, 20 a page). Out of range is refused with `invalid_offset`.
+        - name: vendor_offset
+          in: query
+          required: false
+          schema: { type: integer, minimum: 0, maximum: 10000 }
+          description: Row offset into the vendor register (newest first, 20 a page). Out of range is refused with `invalid_offset`.
+      responses:
+        "200":
+          description: The sales executive analytics read.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesExecutiveAnalytics"
+        "400":
+          $ref: "#/components/responses/BadRequest"
   /procurement/buyer-analytics:
     get:
       tags:
@@ -22222,6 +22264,115 @@ components:
         phones_visible:
           type: boolean
           description: Whether phone numbers were included at all for this caller.
+    SalesExecutiveCounts:
+      type: object
+      description: One set of activity counts (the period, the period before, or one person). Buckets are disjoint by kind; `calls` is `market_calls` + `lead_calls` and `total` is every activity.
+      required: [vendors_added, vendors_edited, market_calls, lead_calls, calls, sales_recorded, sales_value, payments_recorded, payments_value, deal_status_changes, total]
+      properties:
+        vendors_added: { type: integer }
+        vendors_edited: { type: integer }
+        market_calls: { type: integer }
+        lead_calls: { type: integer }
+        calls: { type: integer }
+        sales_recorded: { type: integer }
+        sales_value: { type: number, description: Rupees -- the current value of the sales recorded. }
+        payments_recorded: { type: integer }
+        payments_value: { type: number, description: Rupees. }
+        deal_status_changes: { type: integer }
+        total: { type: integer }
+    SalesExecutiveDay:
+      type: object
+      description: One trend bucket -- a business day, or seven business days counted forward from `period_from` (the last may be shorter), per `trend_grain`.
+      required: [date, date_to, vendors_added, vendors_edited, calls, sales]
+      properties:
+        date: { type: string, format: date, description: The bucket's first IST business date. }
+        date_to: { type: string, format: date, description: The bucket's last IST business date; equal to `date` at the day grain. }
+        vendors_added: { type: integer }
+        vendors_edited: { type: integer }
+        calls: { type: integer }
+        sales: { type: integer }
+    SalesExecutivePerson:
+      type: object
+      required: [actor_id, name, counts, active_days, last_active_at, last_activity_kind]
+      properties:
+        actor_id: { type: string }
+        name: { type: string, description: Empty when the person cannot be named. }
+        counts:
+          $ref: "#/components/schemas/SalesExecutiveCounts"
+        active_days: { type: integer, description: Business days of the period this person recorded anything. }
+        last_active_at: { type: string, format: date-time }
+        last_activity_kind:
+          $ref: "#/components/schemas/SalesExecutiveActivityKind"
+    SalesExecutiveActivityKind:
+      type: string
+      enum: [vendor_added, vendor_edited, market_call, lead_call, sale_recorded, payment_recorded, deal_status]
+    SalesExecutiveActivity:
+      type: object
+      required: [kind, actor_name, at, business_date, subject, animals, amount]
+      properties:
+        kind:
+          $ref: "#/components/schemas/SalesExecutiveActivityKind"
+        actor_name: { type: string, description: Empty when the person cannot be named. }
+        at: { type: string, format: date-time }
+        business_date: { type: string, format: date }
+        subject: { type: string, description: The vendor, market city or buyer the activity was about; empty when the vendor is no longer in the register. }
+        category: { type: string, description: The vendor's category, the call outcome, or the new deal status, by kind. }
+        animals: { type: number, description: Animals on a recorded sale; prices recorded on a market call. }
+        amount: { type: number, description: Rupees on a recorded sale or payment. }
+    SalesExecutiveLatestVendor:
+      type: object
+      required: [vendor_id, business_name, category, added_by_name, added_by_known, added_at]
+      properties:
+        vendor_id: { type: string }
+        business_name: { type: string }
+        category: { type: string }
+        place: { type: string }
+        added_by_name: { type: string }
+        added_by_known: { type: boolean, description: False for a vendor imported from the old sheet. }
+        added_at: { type: string, format: date-time }
+    SalesExecutiveAnalytics:
+      type: object
+      required: [days, days_options, trend_grain, period_from, period_to, current, previous, active_people, register_vendors, imported_vendors, daily, people, recent, recent_total, activity_offset, latest_vendors, vendor_offset, page_size]
+      properties:
+        days: { type: integer }
+        days_options:
+          type: array
+          items: { type: integer }
+        trend_grain:
+          type: string
+          enum: [day, week]
+          description: "`day` for a 7-day period, `week` for longer ones, so the whole period fits on one screen."
+        period_from: { type: string, format: date }
+        period_to: { type: string, format: date }
+        current:
+          $ref: "#/components/schemas/SalesExecutiveCounts"
+        previous:
+          $ref: "#/components/schemas/SalesExecutiveCounts"
+        active_people: { type: integer }
+        register_vendors: { type: integer }
+        imported_vendors: { type: integer }
+        daily:
+          type: array
+          items:
+            $ref: "#/components/schemas/SalesExecutiveDay"
+        people:
+          type: array
+          items:
+            $ref: "#/components/schemas/SalesExecutivePerson"
+        recent:
+          type: array
+          description: One page of the period's activities, newest first.
+          items:
+            $ref: "#/components/schemas/SalesExecutiveActivity"
+        recent_total: { type: integer, description: Every activity of the period; `recent` is one page of it. }
+        activity_offset: { type: integer }
+        latest_vendors:
+          type: array
+          description: One page of the vendor register, newest first; `register_vendors` is its total.
+          items:
+            $ref: "#/components/schemas/SalesExecutiveLatestVendor"
+        vendor_offset: { type: integer }
+        page_size: { type: integer }
     FarmBornBucket:
       type: object
       description: One row of a Farm born breakdown (a breed, a sex, a stage or a pen). `on_farm` is today's count; `sold`, `sold_priced` and `revenue` are the window's.

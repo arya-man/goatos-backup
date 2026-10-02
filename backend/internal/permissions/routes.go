@@ -378,6 +378,9 @@ var protectedRoutes = []Route{
 	// handler blanks it unless the caller also holds VendorRead -- the same reason the
 	// /sales/vendors leaf rides VendorRead. Pattern byte-identical to procurementhttp.RegisterBuyerAnalytics.
 	{OperationID: "listBuyerAnalytics", Method: "GET", Pattern: "/procurement/buyer-analytics", Permissions: []string{SalesRead}},
+	// Sales executive analytics (maintainer request 2026-10-02): what the sales desk recorded, per
+	// person and day. Pattern byte-identical to procurementhttp.RegisterSalesExecutiveAnalytics.
+	{OperationID: "getSalesExecutiveAnalytics", Method: "GET", Pattern: "/procurement/sales-executive-analytics", Permissions: []string{SalesRead}},
 	// FARM BORN (maintainer request 2026-09-18): the animals born on this farm -- on farm
 	// today, sold in a window, by breed / sex / stage / pen, and the money. Sales money, so
 	// SalesRead. Pattern byte-identical to procurementhttp.RegisterFarmBornSales.

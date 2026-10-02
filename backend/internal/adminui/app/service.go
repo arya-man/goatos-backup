@@ -189,6 +189,10 @@ func navigation() domain.NavigationContract {
 					// Buyer analytics (maintainer request 2026-09-15): who the farm sells to, one row
 					// per buyer -- name, phone, category, purchases so far and whether they come back.
 					navLeaf("sales-buyer-analytics", "Buyer analytics", "/sales/buyer-analytics", nil),
+					// Sales executive analytics (maintainer request 2026-10-02): what the sales desk
+					// is doing -- vendors added and changed, calls, sales and payments recorded --
+					// per person and per day.
+					navLeaf("sales-executive-analytics", "Sales executive analytics", "/sales/executive-analytics", nil),
 					// The SELLING side of the one vendor register (maintainer decision 2026-09-05).
 					// Same table and same endpoint as Procurement > Vendors, narrowed to the record
 					// types the farm SELLS to. It is a Sales leaf because the person recording a sale
@@ -324,6 +328,7 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/sales/sold", Label: "Summary", Match: "exact"},
 		{Pattern: "/sales/market-analytics", Label: "Market analytics", Match: "exact"},
 		{Pattern: "/sales/buyer-analytics", Label: "Buyer analytics", Match: "exact"},
+		{Pattern: "/sales/executive-analytics", Label: "Sales executive analytics", Match: "exact"},
 		{Pattern: "/sales/loads", Label: "Load wise", Match: "exact"},
 		{Pattern: "/sales/farm-born", Label: "Farm born", Match: "exact"},
 		{Pattern: "/sales/farm-value", Label: "Farm value", Match: "exact"},
@@ -657,6 +662,12 @@ func pages() []domain.PageContract {
 		// number is register data and follows VendorRead, exactly as the Vendors leaf does.
 		page("sales-buyer-analytics", "/sales/buyer-analytics", "/sales/buyer-analytics", "Buyer analytics", "Who buys from the farm — each buyer's contact, how many times they have bought, how many animals, how much, and whether they come back.", "module-surface",
 			[]domain.TableContract{withoutRowClick(buyerAnalyticsTable())}),
+		// SALES EXECUTIVE ANALYTICS (maintainer request 2026-10-02): who on the sales desk added or
+		// changed vendors, recorded calls, sales and payments, per person and per day, from the
+		// procurement read over the register stamps, the sales audit trail and the market survey
+		// (docs/decisions/sales-executive-analytics.md). READ-ONLY by contract: no control at all.
+		page("sales-executive-analytics", "/sales/executive-analytics", "/sales/executive-analytics", "Sales executive analytics", "What the sales desk is doing — vendors added and changed, calls made, sales and payments recorded, by person and by day.", "module-surface",
+			[]domain.TableContract{}),
 		// SALES > VENDORS (maintainer decision 2026-09-05): the vendor register's SELLING half.
 		//
 		// The SAME table contract and the SAME data source as /procurement/vendors, because it is
@@ -4980,6 +4991,88 @@ func pageSpecificCopy(id string) map[string]string {
 
 			"empty.buyers": "No buyers yet. Buyers appear here as sales close.",
 			"error.load":   "Could not load the buyer figures. Refresh to try again.",
+		}
+	case "sales-executive-analytics":
+		// Backend-owned copy for the Sales executive analytics page (maintainer request
+		// 2026-10-02). The client renders these verbatim; vendor, city and buyer names and the
+		// call / deal statuses are the farm's own data, served on each row.
+		return map[string]string{
+			"crumb": "Sales",
+
+			"filter.period":      "Period",
+			"filter.period.days": "Last {days} days",
+
+			"section.headline.aria":  "Sales desk headline figures",
+			"kpi.vendors_added":      "Vendors added",
+			"kpi.vendors_edited":     "Vendors changed",
+			"kpi.calls":              "Calls recorded",
+			"kpi.calls.detail":       "{market} market · {leads} buyer",
+			"kpi.sales":              "Sales recorded",
+			"kpi.sales.detail":       "{value} · {payments} payments",
+			"kpi.vs_previous":        "{previous} in the {days} days before",
+			"kpi.vendors.register":   "{total} vendors in the register",
+			"kpi.vendors_edited.who": "by {people} people",
+
+			"section.trend.title":         "Day by day",
+			"section.trend.subtitle":      "What was recorded each day of the period.",
+			"section.trend.title.week":    "Week by week",
+			"section.trend.subtitle.week": "What was recorded each week of the period. The last week may be shorter.",
+			"value.week_to":               "to {date}",
+			"series.vendors_added":        "Vendors added",
+			"series.vendors_edited":       "Vendors changed",
+			"series.calls":                "Calls",
+			"series.sales":                "Sales",
+			"empty.trend":                 "Nothing was recorded in this period.",
+
+			"section.people.title":    "Who is doing what",
+			"section.people.subtitle": "One row per person who recorded anything in the period, busiest first.",
+			"column.person":           "Person",
+			"column.vendors_added":    "Vendors added",
+			"column.vendors_edited":   "Vendors changed",
+			"column.calls":            "Calls",
+			"column.sales":            "Sales",
+			"column.payments":         "Payments",
+			"column.status_changes":   "Sale updates",
+			"column.active_days":      "Days active",
+			"column.last_active":      "Last active",
+			"empty.people":            "Nobody recorded any sales work in this period.",
+
+			"section.vendors.title":    "Latest vendors",
+			"section.vendors.subtitle": "The newest vendors in the register and who added them.",
+			"column.vendor":            "Vendor",
+			"column.category":          "Category",
+			"column.added_by":          "Added by",
+			"column.added_on":          "Added on",
+			"value.imported":           "From the old sheet",
+			"empty.vendors":            "The vendor register is empty.",
+
+			"section.recent.title":      "Latest activity",
+			"section.recent.subtitle":   "The most recent things the sales desk recorded in this period.",
+			"activity.vendor_added":     "Added vendor {subject}",
+			"activity.vendor_edited":    "Changed vendor {subject}",
+			"activity.market_call":      "Called {subject} market",
+			"activity.lead_call":        "Called {subject}",
+			"activity.sale_recorded":    "Recorded a sale to {subject}",
+			"activity.payment_recorded": "Recorded a payment from {subject}",
+			"activity.deal_status":      "Moved the sale to {subject} to {category}",
+			"activity.unnamed":          "a vendor no longer in the register",
+			"value.prices":              "{count} prices",
+			"value.price":               "1 price",
+			"value.animals":             "{count} animals",
+			"value.animal":              "1 animal",
+			"empty.recent":              "Nothing was recorded in this period.",
+
+			"value.unknown_person": "Someone not on the people list",
+			"pager.page":           "Page",
+			"pager.of":             "of",
+			"pager.activities":     "activities",
+			"pager.vendors":        "vendors",
+			"action.prev_page":     "Back",
+			"action.next_page":     "Next",
+			"value.none":           "None",
+			"hint.edits":           "A vendor changed several times by one person on one day counts once.",
+
+			"error.load": "Could not load the sales desk figures. Refresh to try again.",
 		}
 	case "sales-market-analytics":
 		// Backend-owned copy for the Market analytics page (maintainer decision 2026-09-14). The

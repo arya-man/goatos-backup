@@ -8,6 +8,7 @@ export { SalesFarmBornPage } from "./sales-farm-born";
 export { SalesLoadsPage } from "./sales-loads";
 export { MarketAnalyticsPage } from "./market-analytics";
 export { SalesBuyerAnalyticsPage } from "./sales-buyer-analytics";
+export { SalesExecutiveAnalyticsPage } from "./sales-executive-analytics";
 export { SalesSoldPage } from "./sales-sold";
 export { SourceEntryBoardPage } from "./source-entry-board";
 export { VendorBoardPage } from "./vendor-board";
