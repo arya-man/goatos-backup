@@ -1,5 +1,6 @@
 "use client";
 
+import { useSelectedTabInView } from "./selected-tab-in-view";
 import { TASK_DATES_BUTTON_WIDTH, TASK_SCOPE_WIDTH, TASK_SORT_WIDTH } from "./tasks-layout";
 import { LinkSelect, type LinkSelectOption } from "@/components/app/link-select";
 import Link from "@/components/no-prefetch-link";
@@ -265,15 +266,7 @@ export function LeadershipTasksFilters({
   // The selected status tab is scrolled into the strip's view. On a phone the strip shows three
   // tabs, so a deep link to a later one (?filter=overdue) opened with NO tab visibly selected.
   const statusTabsRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const strip = statusTabsRef.current;
-    const tab = strip?.querySelector<HTMLElement>('[aria-current="true"]');
-    const scroller = tab?.closest<HTMLElement>(".MuiTabs-scroller");
-    if (!tab || !scroller) return;
-    // Scrolls the strip only, never the page.
-    const offset = tab.offsetLeft - (scroller.clientWidth - tab.offsetWidth) / 2;
-    scroller.scrollLeft = Math.max(0, offset);
-  }, [selectedChipKey]);
+  useSelectedTabInView(statusTabsRef, selectedChipKey);
 
   const searchLabel = copy(pageContract, "filter.search_label");
   /**

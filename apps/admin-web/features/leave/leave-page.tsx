@@ -21,7 +21,7 @@ import { CourseWidgetSummary } from "@/components/minimal/sections/overview/cour
 import { COURSE_WIDGET_ICONS } from "@/lib/minimal-icons";
 import { TableHeadCustom } from "@/components/app/table";
 import { Label, type LabelColor } from "@/components/minimal/label";
-import { TemplateTabs } from "@/components/app/template-tabs";
+import { LeaveStatusTabs } from "./leave-status-tabs";
 import { redirect } from "next/navigation";
 
 import { controlEnabled, control, copy, table, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -300,7 +300,7 @@ export async function LeavePage({
               />
               {/* Template user list: the status Tabs (Label counts) are the card's first row; scroll
                   arrows keep every status reachable on a phone. */}
-              <TemplateTabs
+              <LeaveStatusTabs
                     scrollButtons="auto"
                     sx={{ px: { xs: 1, sm: 2.5 }, mb: 2 }}
                     ariaLabel={t("filter.status.all")}
