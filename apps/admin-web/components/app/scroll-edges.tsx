@@ -79,7 +79,7 @@ export function ScrollEdges() {
         const height = Math.max(0, bottom - top);
         // A tab strip sits on the page background; a table sits on its card. The fade is the
         // colour of what is underneath and stops at the card's rounded corners.
-        const isTabs = el.classList.contains("kit-tabs") || el.classList.contains("MuiTabs-scroller");
+        const isTabs = el.matches(".kit-tabs, .MuiTabs-scroller");
         // A tab strip INSIDE a card (status tabs over a table) sits on the card, not the page.
         const host = el.closest<HTMLElement>(".card, .MuiCard-root, .kit-tablecard");
         const card = isTabs ? null : host;

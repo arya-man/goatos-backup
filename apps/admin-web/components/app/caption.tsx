@@ -13,7 +13,9 @@ export const CAPTION_MAX = 72;
  * case must stay a plain string, never a nested paragraph). Non-strings pass through.
  */
 export function cardSubheader(subheader: ReactNode): ReactNode {
-  return typeof subheader === "string" && subheader.trim().length > CAPTION_MAX ? <Caption>{subheader}</Caption> : subheader;
+  const long = typeof subheader === "string" && subheader.trim().length > CAPTION_MAX;
+  if (!long) return subheader;
+  return <Caption>{subheader}</Caption>;
 }
 
 /**
