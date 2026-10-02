@@ -19,7 +19,10 @@ func TestMotherValuationUsesFemaleRateDespiteRecordedMaleSex(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO tenants (tenant_id,name,status) VALUES ($1,'Valuation regression','active')`, tenant); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO goats (tenant_id,sex,lifecycle_status,management_stage,custodian_party_id) VALUES ($1,'male','alive','Mother',$2), ($1,'male','alive','Buck',$2)`, tenant, party); err != nil {
+	// Species is part of the bucket (2026-10-02): a goat Mother, a goat Buck and a sheep Buck. The
+	// register only admits goat or sheep (goats_species_check), so every live animal has one.
+	if _, err := pool.Exec(ctx, `INSERT INTO goats (tenant_id,species,sex,lifecycle_status,management_stage,custodian_party_id) VALUES
+		($1,'goat','male','alive','Mother',$2), ($1,'goat','male','alive','Buck',$2), ($1,'sheep','male','alive','Buck',$2)`, tenant, party); err != nil {
 		t.Fatal(err)
 	}
 	// #389 folded the valuation read into GetOverview's single pgx.Batch; read it back through it.
@@ -28,7 +31,7 @@ func TestMotherValuationUsesFemaleRateDespiteRecordedMaleSex(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := overview.FarmValuation
-	for _, key := range []string{"adult_female", "adult_male"} {
+	for _, key := range []string{"adult_goat_female", "adult_goat_male", "adult_sheep_male"} {
 		found := false
 		for _, bucket := range got.Buckets {
 			if bucket.Bucket != key {
@@ -36,7 +39,7 @@ func TestMotherValuationUsesFemaleRateDespiteRecordedMaleSex(t *testing.T) {
 			}
 			found = true
 			want := 24000.0
-			if key == "adult_male" {
+			if key != "adult_goat_female" {
 				want = 30000
 			}
 			if bucket.AnimalCount != 1 || bucket.ValueRupees != want {
@@ -46,5 +49,8 @@ func TestMotherValuationUsesFemaleRateDespiteRecordedMaleSex(t *testing.T) {
 		if !found {
 			t.Fatalf("missing %s", key)
 		}
+	}
+	if got.ExcludedAnimals != 0 || got.ValuedAnimals != 3 {
+		t.Fatalf("every goat and sheep must be valued: valued=%d excluded=%d %+v", got.ValuedAnimals, got.ExcludedAnimals, got.NotValued)
 	}
 }

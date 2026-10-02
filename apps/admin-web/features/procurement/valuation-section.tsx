@@ -2,8 +2,8 @@
 
 // FARM VALUATION section on Sales Config (maintainer instruction 2026-09-19; the stage list became
 // the farm's own on 2026-09-24). The herd is valued in the stages written here: what each is
-// called, which entries of the farm's herd register it covers, and what a female and a male in it
-// are carried at. One form, one save, landing in place.
+// called, which entries of the farm's herd register it covers, and what a goat and a sheep of each
+// gender in it are carried at. One form, one save, landing in place.
 //
 // The stage the valuation could not price is the reason this screen exists. On the day it was
 // built 58 kids stood in Warmup -- a stage the register has always carried -- valued at nothing,
@@ -25,9 +25,13 @@ const INITIAL: ValuationActionState = { status: "idle", code: "", message: "", t
 
 /** A stage as the screen holds it: the authored row plus the id that keeps its inputs mounted. */
 type EditRow = ValuationStage & { rid: string };
-const GENDERS = [
-  { key: "female", copyKey: "valuation.gender.female" },
-  { key: "male", copyKey: "valuation.gender.male" },
+// Every stage is priced per SPECIES and gender (maintainer decision 2026-10-02): four columns of
+// figures, keyed `<stage>_<species>_<gender>` -- the order and the keys the backend validates.
+const GROUPS = [
+  { key: "goat_female", speciesKey: "valuation.species.goat", genderKey: "valuation.gender.female" },
+  { key: "goat_male", speciesKey: "valuation.species.goat", genderKey: "valuation.gender.male" },
+  { key: "sheep_female", speciesKey: "valuation.species.sheep", genderKey: "valuation.gender.female" },
+  { key: "sheep_male", speciesKey: "valuation.species.sheep", genderKey: "valuation.gender.male" },
 ] as const;
 
 // The same slug the backend derives a new stage's key from, so the figures typed beside a stage
@@ -143,9 +147,9 @@ export function ValuationSection({
                 <tr>
                   <th>{copy(pageContract, "valuation.stage")}</th>
                   <th>{copy(pageContract, "valuation.covers")}</th>
-                  {GENDERS.map((g) => (
+                  {GROUPS.map((g) => (
                     <th key={g.key} colSpan={2}>
-                      {copy(pageContract, g.copyKey)}
+                      {copy(pageContract, g.speciesKey)} · {copy(pageContract, g.genderKey)}
                     </th>
                   ))}
                   <th aria-label={copy(pageContract, "valuation.stage.remove")} />
@@ -153,7 +157,7 @@ export function ValuationSection({
                 <tr>
                   <th />
                   <th />
-                  {GENDERS.map((g) => [
+                  {GROUPS.map((g) => [
                     <th key={`${g.key}-w`} className="small muted">
                       {copy(pageContract, "valuation.fixed_weight")}
                     </th>,
@@ -222,7 +226,7 @@ export function ValuationSection({
                           ) : null}
                         </div>
                       </td>
-                      {GENDERS.map((g) => {
+                      {GROUPS.map((g) => {
                         const bucket = `${key}_${g.key}`;
                         const b = byBucket.get(bucket);
                         return [
@@ -236,7 +240,7 @@ export function ValuationSection({
                               defaultValue={b?.fixed_weight_kg ?? ""}
                               placeholder={copy(pageContract, "valuation.fixed_weight.measured")}
                               disabled={!canEdit}
-                              aria-label={`${copy(pageContract, "valuation.fixed_weight")} · ${s.label} · ${copy(pageContract, g.copyKey)}`}
+                              aria-label={`${copy(pageContract, "valuation.fixed_weight")} · ${s.label} · ${copy(pageContract, g.speciesKey)} · ${copy(pageContract, g.genderKey)}`}
                             />
                           </td>,
                           <td key={`${bucket}-p`}>
@@ -249,7 +253,7 @@ export function ValuationSection({
                               defaultValue={b?.price_per_kg ?? ""}
                               required
                               disabled={!canEdit}
-                              aria-label={`${copy(pageContract, "valuation.price_per_kg")} · ${s.label} · ${copy(pageContract, g.copyKey)}`}
+                              aria-label={`${copy(pageContract, "valuation.price_per_kg")} · ${s.label} · ${copy(pageContract, g.speciesKey)} · ${copy(pageContract, g.genderKey)}`}
                               data-testid={`valuation-price-${bucket}`}
                             />
                           </td>,

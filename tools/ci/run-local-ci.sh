@@ -689,6 +689,7 @@ run_backend() {
   step "stg-operator-scope-guard" make stg-operator-scope-guard
   step "cascade-event-wiring-guard" make cascade-event-wiring-guard
   step "procurement-sop-guard"      make procurement-sop-guard
+  step "loadwise-stock-valuation-guard" make loadwise-stock-valuation-guard
   step "weighing-sop-guard"         make weighing-sop-guard
   step "pc-care-sop-guard"          make pc-care-sop-guard
   step "shifting-sop-guard"         make shifting-sop-guard

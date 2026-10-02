@@ -55,6 +55,10 @@ func (r *Repository) GetValuationAssumptions(ctx context.Context, tenantID strin
 		out.Stages = domain.SeededValuationStages
 	}
 	out.UnsoldStockPriceRupees = unsold
+	// A row stored before the species split (pre-000470) is shown split, each species carrying the
+	// one figure the row had -- the same reading farmvaluation's rate CTE gives it -- so the editor
+	// opens filled in, and its next save stores the species keys.
+	domain.UpgradeLegacyValuationBuckets(&out)
 	return out, nil
 }
 

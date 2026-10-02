@@ -3,7 +3,14 @@ package postgres
 import (
 	"strings"
 	"testing"
+
+	"github.com/vgoats/goatos/backend/internal/farmvaluation"
 )
+
+// fvSQL is the farm valuation as it RUNS: the statement with the shared pricing fragments
+// (farmvaluation) spliced in. Shape assertions read this, not the format string, so they see the
+// stage, species and rate SQL the database actually receives.
+var fvSQL = farmValuationQuery("")
 
 func TestFarmValuationSQLUsesCurrentInventoryShape(t *testing.T) {
 	for _, want := range []string{
@@ -13,9 +20,9 @@ func TestFarmValuationSQLUsesCurrentInventoryShape(t *testing.T) {
 		"g.lifecycle_status NOT IN ('dead', 'sold', 'culled', 'transferred', 'lost', 'merged', 'inactive')",
 		// The stage an animal is valued in is AUTHORED (2026-09-24): the CASE that named F2 and K0
 		// is replaced by the farm's own rows, matched on the register entries they cover.
-		"stage_rules AS (",
-		"jsonb_to_recordset(a.stages) AS st(stage text, display_order int, matches jsonb)",
-		"jsonb_array_elements_text(st.matches) AS m(match)",
+		"fv_stage_rules AS (",
+		"jsonb_to_recordset(va.stages) AS st(stage text, display_order int, matches jsonb)",
+		"jsonb_array_elements_text(st.matches) AS mt(match)",
 		"total_inventory AS",
 		"count(*) FILTER (WHERE bucket <> 'unmapped')::int AS valued_animals",
 		"count(*) FILTER (WHERE bucket = 'unmapped')::int AS excluded_animals",
@@ -29,23 +36,23 @@ func TestFarmValuationSQLUsesCurrentInventoryShape(t *testing.T) {
 		"450::float8",
 		"600::float8",
 	} {
-		if !strings.Contains(farmValuationSQL, want) {
+		if !strings.Contains(fvSQL, want) {
 			t.Fatalf("farm valuation SQL missing %q", want)
 		}
 	}
-	if strings.Contains(farmValuationSQL, "public.farms") {
+	if strings.Contains(fvSQL, "public.farms") {
 		t.Fatal("farm valuation must use the locations register; public.farms does not exist in OCI/stg")
 	}
-	if strings.Contains(farmValuationSQL, "purpose") {
+	if strings.Contains(fvSQL, "purpose") {
 		t.Fatal("farm valuation must use current herd stage, not historical procurement purpose")
 	}
-	if strings.Contains(farmValuationSQL, "g.lifecycle_status = 'alive'") {
+	if strings.Contains(fvSQL, "g.lifecycle_status = 'alive'") {
 		t.Fatal("farm valuation must not hard-code alive-only; Counts/stg current inventory excludes terminal statuses")
 	}
-	if strings.Contains(farmValuationSQL, "g.management_stage ILIKE '%%kid%%'") {
+	if strings.Contains(fvSQL, "g.management_stage ILIKE '%%kid%%'") {
 		t.Fatal("K0 valuation must be literal K0, not every unhandled kid-like stage such as ICU-Kid")
 	}
-	if strings.Contains(farmValuationSQL, "animal_identifier_1 AS identifier") {
+	if strings.Contains(fvSQL, "animal_identifier_1 AS identifier") {
 		t.Fatal("fattening weights must resolve through canonical goat_identifiers, not procurement-load snapshots")
 	}
 }
@@ -56,18 +63,18 @@ func TestFarmValuationSQLMultipleDimensionsWeightsEachAnimalOnce(t *testing.T) {
 		"ORDER BY i.tenant_id, i.goat_id, w.accepted_at DESC",
 		"LEFT JOIN goat_weight gw ON gw.tenant_id = g.tenant_id AND gw.goat_id = g.goat_id",
 	} {
-		if !strings.Contains(farmValuationSQL, want) {
+		if !strings.Contains(fvSQL, want) {
 			t.Fatalf("farm valuation SQL missing one-animal weight grain proof %q", want)
 		}
 	}
-	if strings.Count(farmValuationSQL, "JOIN latest_weight") != 1 {
-		t.Fatalf("farm valuation should join latest weights once, got %d joins", strings.Count(farmValuationSQL, "JOIN latest_weight"))
+	if strings.Count(fvSQL, "JOIN latest_weight") != 1 {
+		t.Fatalf("farm valuation should join latest weights once, got %d joins", strings.Count(fvSQL, "JOIN latest_weight"))
 	}
 }
 
 func TestFarmValuationSQLPageBoundaryTotalsAreWholeInventory(t *testing.T) {
 	for _, blocked := range []string{" LIMIT ", " OFFSET ", "FETCH FIRST", "ROW_NUMBER()"} {
-		if strings.Contains(strings.ToUpper(farmValuationSQL), blocked) {
+		if strings.Contains(strings.ToUpper(fvSQL), blocked) {
 			t.Fatalf("farm valuation must be a whole-inventory projection, found page boundary marker %q", blocked)
 		}
 	}
@@ -76,7 +83,7 @@ func TestFarmValuationSQLPageBoundaryTotalsAreWholeInventory(t *testing.T) {
 		"FROM classified",
 		"CROSS JOIN total_inventory ti",
 	} {
-		if !strings.Contains(farmValuationSQL, want) {
+		if !strings.Contains(fvSQL, want) {
 			t.Fatalf("farm valuation SQL missing whole-result total proof %q", want)
 		}
 	}
@@ -107,11 +114,11 @@ func TestFarmValuationSQLEveryStatusBucketsExcludeOnlyTerminalInventory(t *testi
 		"count(*) FILTER (WHERE bucket = 'unmapped')::int AS excluded_animals",
 		"not_valued AS",
 	} {
-		if !strings.Contains(farmValuationSQL, want) {
+		if !strings.Contains(fvSQL, want) {
 			t.Fatalf("farm valuation SQL missing status bucket proof %q", want)
 		}
 	}
-	if strings.Contains(farmValuationSQL, "g.lifecycle_status = 'alive'") {
+	if strings.Contains(fvSQL, "g.lifecycle_status = 'alive'") {
 		t.Fatal("farm valuation status matrix must not hard-code alive and silently drop non-terminal live inventory")
 	}
 }
@@ -122,27 +129,29 @@ func TestFarmValuationNotValuedBreakdownAggregateProjectionMultipleDimensionsPag
 		"jsonb_agg(jsonb_build_object('label', label, 'count', animal_count) ORDER BY animal_count DESC, label)",
 		"g.management_stage",
 		"g.milk_cohort",
-		"coalesce(nullif(btrim(management_stage), ''), nullif(btrim(milk_cohort), ''), 'Unmapped') AS label",
+		"ELSE coalesce(nullif(btrim(management_stage), ''), nullif(btrim(milk_cohort), ''), 'Unmapped') END AS label",
+		// An animal of neither species is named as such, not under a stage it IS priced in.
+		"THEN 'No species recorded'",
 		"WHERE bucket = 'unmapped'",
 		"CROSS JOIN not_valued nv",
 		"nv.breakdown",
 	} {
-		if !strings.Contains(farmValuationSQL, want) {
+		if !strings.Contains(fvSQL, want) {
 			t.Fatalf("farm valuation not-valued breakdown missing aggregate projection proof %q", want)
 		}
 	}
-	if strings.Contains(farmValuationSQL, "LIMIT") || strings.Contains(farmValuationSQL, "OFFSET") {
+	if strings.Contains(fvSQL, "LIMIT") || strings.Contains(fvSQL, "OFFSET") {
 		t.Fatal("farm valuation not-valued breakdown must stay whole-inventory, not page-local")
 	}
 }
 
 func TestFarmValuationClassifiedProjectsNotValuedBreakdownInputs(t *testing.T) {
-	classifiedStart := strings.Index(farmValuationSQL, "classified AS (")
-	notValuedStart := strings.Index(farmValuationSQL, "not_valued AS (")
+	classifiedStart := strings.Index(fvSQL, "classified AS (")
+	notValuedStart := strings.Index(fvSQL, "not_valued AS (")
 	if classifiedStart < 0 || notValuedStart < 0 || notValuedStart <= classifiedStart {
 		t.Fatal("farm valuation SQL must keep classified before not_valued")
 	}
-	classified := farmValuationSQL[classifiedStart:notValuedStart]
+	classified := fvSQL[classifiedStart:notValuedStart]
 	for _, want := range []string{
 		"g.management_stage",
 		"g.milk_cohort",
@@ -167,7 +176,7 @@ func TestFarmValuationClinicalStagesAreValuedThroughTheirCohort(t *testing.T) {
 		// farm can move rather than an arm nobody could reach.
 		"('adult', 2, 'MOTHER')",
 	} {
-		if !strings.Contains(farmValuationSQL, want) {
+		if !strings.Contains(fvSQL, want) {
 			t.Fatalf("farm valuation must value clinically housed animals; missing %q", want)
 		}
 	}
@@ -175,7 +184,7 @@ func TestFarmValuationClinicalStagesAreValuedThroughTheirCohort(t *testing.T) {
 	// authored stage list safe: a stage nobody has placed -- Warmup, 58 live kids the day this
 	// changed -- stands in the not-valued breakdown asking to be priced, instead of falling into
 	// whichever bucket a fallback would have chosen for it. Do not add a fallback.
-	if !strings.Contains(farmValuationSQL, "CASE WHEN coalesce(sc.stage, sm.stage) IS NULL THEN 'unmapped'") {
+	if !strings.Contains(fvSQL, "CASE WHEN COALESCE(fv_sc.stage, fv_sm.stage) IS NULL OR") || !strings.Contains(fvSQL, "THEN 'unmapped'") {
 		t.Fatal("an animal in no authored stage must stay unmapped and reach the not-valued breakdown")
 	}
 	// THE MILK COHORT WINS over the management stage, which is the order the retired CASE read
@@ -183,15 +192,15 @@ func TestFarmValuationClinicalStagesAreValuedThroughTheirCohort(t *testing.T) {
 	// while the register still knew its milk band stayed valued as that band. Reading the stage
 	// first flips exactly that animal from a 3-15 kg kid row to a 40-60 kg adult one, on a herd
 	// where nothing carries both today and so nothing would show it.
-	cohort := strings.Index(farmValuationSQL, "LEFT JOIN stage_by_match sc")
-	stage := strings.Index(farmValuationSQL, "LEFT JOIN stage_by_match sm")
+	cohort := strings.Index(fvSQL, "LEFT JOIN fv_stage_by_match fv_sc")
+	stage := strings.Index(fvSQL, "LEFT JOIN fv_stage_by_match fv_sm")
 	if cohort < 0 || stage < 0 || cohort > stage {
 		t.Fatal("the milk cohort must be matched BEFORE the management stage, as the retired CASE did")
 	}
-	if strings.Contains(farmValuationSQL, "coalesce(sm.stage, sc.stage)") {
+	if strings.Contains(fvSQL, "COALESCE(fv_sm.stage, fv_sc.stage)") {
 		t.Fatal("coalesce order decides the precedence: the cohort must come first")
 	}
-	if strings.Contains(farmValuationSQL, "g.age_band = 'adult'") {
+	if strings.Contains(fvSQL, "g.age_band = 'adult'") {
 		t.Fatal("the age_band catch-all is retired: it is what made an unpriced stage invisible")
 	}
 }
@@ -200,26 +209,21 @@ func TestFarmValuationClinicalStagesAreValuedThroughTheirCohort(t *testing.T) {
 // carries both 'ICU- kid' and 'ICU-Kid', so raw equality would value one spelling and drop the
 // other -- the defect migration 000166 already had to repair once for milk cohorts.
 func TestFarmValuationNormalizesTheClinicalStageOnce(t *testing.T) {
-	const normalizer = "upper(regexp_replace(btrim(coalesce(g.management_stage, '')), '[^A-Za-z0-9]+', '', 'g')) AS stage_norm"
-	if !strings.Contains(farmValuationSQL, normalizer) {
-		t.Fatal("clinical stage must use the 000166 normalizer so 'ICU- kid' and 'ICU-Kid' are one tag")
+	// The animal's management stage and milk cohort are normalized by ONE Go helper
+	// (farmvaluation.NormSQL), the authored side by the same pattern inside PricingCTEs. The
+	// statement itself writes no normalizer of its own: a hand copy is how 000166 drifted.
+	for _, want := range []string{farmvaluation.NormSQL("g.management_stage"), farmvaluation.NormSQL("g.milk_cohort")} {
+		if !strings.Contains(fvSQL, want) {
+			t.Fatalf("clinical stage must use the 000166 normalizer so 'ICU- kid' and 'ICU-Kid' are one tag: missing %q", want)
+		}
 	}
-	// THREE normalizations, and each is a different SIDE of one comparison rather than a copy of
-	// another: the animal's management stage, the animal's milk cohort, and the authored match the
-	// two are compared against. A fourth would be a copy, and copies drift apart -- which is the
-	// defect 000166 had to repair for milk cohorts.
-	if n := strings.Count(farmValuationSQL, "regexp_replace"); n != 3 {
-		t.Fatalf("stage normalization must have one definition per side, found %d -- copies drift apart", n)
+	if strings.Contains(farmValuationSQL, "regexp_replace") {
+		t.Fatal("the farm valuation statement must not normalize stages itself; use farmvaluation.NormSQL")
 	}
-	if !strings.Contains(farmValuationSQL, "'[^A-Za-z0-9]+', '', 'g')) AS match_norm") {
+	if !strings.Contains(fvSQL, "'[^A-Za-z0-9]+', '', 'g')) AS match_norm") {
 		t.Fatal("the authored side must be normalized the SAME way, or a stage the farm picks files nothing")
 	}
-	if !strings.Contains(farmValuationSQL, "CROSS JOIN LATERAL (") {
-		t.Fatal("the animal's own normalizer must reach the bucket through a lateral, not inline copies")
-	}
-	// Literal tags only. An ILIKE over clinical-looking text would sweep in stages nobody named,
-	// which is the same trap the K0 branch is already guarded against above.
-	if strings.Contains(farmValuationSQL, "ILIKE") {
+	if strings.Contains(fvSQL, "ILIKE") {
 		t.Fatal("clinical valuation must name its tags literally, never ILIKE over kid-like or clinical-looking text")
 	}
 }
@@ -239,53 +243,47 @@ func TestFarmValuationNormalizesTheClinicalStageOnce(t *testing.T) {
 // scope=tenant plus the optional farm predicate and the same park/farm location joins, all of
 // which sit after the lateral and are untouched by it.
 func TestFarmValuationClinicalStagesMultipleDimensionsPageBoundaryParkScopeEveryStatus(t *testing.T) {
-	lateralStart := strings.Index(farmValuationSQL, "CROSS JOIN LATERAL (")
-	if lateralStart < 0 {
-		t.Fatal("clinical stage normalization must come through a lateral")
+	// CARDINALITY. The stage joins read fv_stage_by_match, one row per register entry (DISTINCT
+	// ON), and the rates are one row per bucket (DISTINCT ON): neither can fan the herd out.
+	for _, want := range []string{
+		"SELECT DISTINCT ON (match_norm) match_norm, stage",
+		"SELECT DISTINCT ON (bucket) bucket, label, fixed_weight_kg, price_per_kg, display_order",
+	} {
+		if !strings.Contains(fvSQL, want) {
+			t.Fatalf("a stage or rate join could fan the herd out: missing %q", want)
+		}
 	}
-	lateralEnd := strings.Index(farmValuationSQL[lateralStart:], ") s")
-	if lateralEnd < 0 {
-		t.Fatal("lateral must be aliased so the CASE can name it")
-	}
-	// Slice the BODY, past the "CROSS JOIN LATERAL (" header itself -- the header carries the
-	// word JOIN and would otherwise trip the read-no-table check below on every run.
-	bodyStart := lateralStart + len("CROSS JOIN LATERAL (")
-	lateral := farmValuationSQL[bodyStart : lateralStart+lateralEnd]
-
-	// CARDINALITY. The lateral reads no table, so it returns exactly one row per goat and cannot
-	// fan the herd out. A lateral that grew a FROM would double-count every animal it matched
-	// twice -- silently inflating both the head counts and the rupee total.
-	if strings.Contains(strings.ToUpper(lateral), "FROM") || strings.Contains(strings.ToUpper(lateral), "JOIN") {
-		t.Fatalf("the stage lateral must stay a scalar over the goat's own row, never a table read: %s", lateral)
-	}
-
-	// PAGE BOUNDARY. The cards are whole-inventory; a window would make the clinical animals
-	// appear or vanish with the page rather than with the herd.
-	if strings.Contains(farmValuationSQL, "LIMIT") || strings.Contains(farmValuationSQL, "OFFSET") {
+	// PAGE BOUNDARY. The cards are whole-inventory.
+	if strings.Contains(fvSQL, "LIMIT") || strings.Contains(fvSQL, "OFFSET") {
 		t.Fatal("farm valuation must stay a whole-inventory aggregate")
 	}
-
-	// PARK/FARM SCOPE. The lateral is joined before the scope predicates, so those must still be
-	// there and still apply to the newly valued animals.
+	// PARK/FARM SCOPE. The scope joins and the tenant predicate sit in classified, after the stage
+	// joins, so they apply to every valued animal.
+	joins := strings.Index(fvSQL, "LEFT JOIN fv_stage_by_match fv_sc")
 	for _, want := range []string{
 		"LEFT JOIN public.locations park ON park.tenant_id = g.tenant_id",
 		"LEFT JOIN public.locations farm ON farm.tenant_id = g.tenant_id",
 		"WHERE g.tenant_id = $1",
 	} {
-		idx := strings.Index(farmValuationSQL, want)
-		if idx < 0 || idx < lateralStart {
-			t.Fatalf("scope predicate %q must survive, and stay after the stage lateral", want)
+		idx := strings.Index(fvSQL, want)
+		if idx < 0 || idx < joins {
+			t.Fatalf("scope predicate %q must survive, and stay after the stage joins", want)
 		}
 	}
-
-	// EVERY STATUS. A clinical tag must not resurrect a terminal animal: the CASE lives inside
-	// classified, whose WHERE already excludes sold/dead/culled, and the clinical arms add no
-	// status branch of their own.
-	if !strings.Contains(farmValuationSQL, "g.lifecycle_status NOT IN ('dead', 'sold', 'culled', 'transferred', 'lost', 'merged', 'inactive')") {
+	// EVERY STATUS. A clinical tag must not resurrect a terminal animal.
+	if !strings.Contains(fvSQL, "g.lifecycle_status NOT IN ('dead', 'sold', 'culled', 'transferred', 'lost', 'merged', 'inactive')") {
 		t.Fatal("clinical valuation must inherit the terminal-status exclusion, never value a dead or sold animal")
 	}
-	if strings.Contains(farmValuationSQL, "stage_norm = 'ICU' AND g.lifecycle_status") {
-		t.Fatal("the clinical arms must not carry a status rule of their own; classified already owns that")
+}
+
+// SPECIES (maintainer decision 2026-10-02): the bucket an animal is priced in names its species,
+// the same way Load wise names it -- both read the shared farmvaluation fragments.
+func TestFarmValuationPricesBySpeciesThroughTheSharedRule(t *testing.T) {
+	if !strings.Contains(fvSQL, farmvaluation.BucketKeySQL(farmvaluation.NormSQL("g.management_stage"), "g.species", "g.sex")) {
+		t.Fatal("the bucket must be the shared stage_species_gender key")
+	}
+	if !strings.Contains(fvSQL, "fattening_sheep_female") || !strings.Contains(fvSQL, "fattening_goat_male") {
+		t.Fatal("the seeded fallback must carry a row per species")
 	}
 }
 
@@ -301,7 +299,7 @@ func TestFarmValuationSQLSexCountsShareOneBucketRollupMultipleDimensions(t *test
 		"coalesce(c.male_count, 0) AS male_count",
 		"coalesce(c.sex_missing_count, 0) AS sex_missing_count",
 	} {
-		if !strings.Contains(farmValuationSQL, want) {
+		if !strings.Contains(fvSQL, want) {
 			t.Fatalf("farm valuation SQL missing %q", want)
 		}
 	}
@@ -309,7 +307,7 @@ func TestFarmValuationSQLSexCountsShareOneBucketRollupMultipleDimensions(t *test
 	// the count drift apart, and a join inside it (say, back to goat_identifiers) would count a
 	// double-tagged animal twice. The measured-weight CTE groups by the same key elsewhere and is
 	// LEFT JOINed 1:0..1, which is why the whole-file count is no longer the assertion.
-	counts := farmValuationSQL[strings.Index(farmValuationSQL, "counts AS ("):strings.Index(farmValuationSQL, "total_inventory AS (")]
+	counts := fvSQL[strings.Index(fvSQL, "counts AS ("):strings.Index(fvSQL, "total_inventory AS (")]
 	if strings.Count(counts, "GROUP BY bucket") != 1 {
 		t.Fatalf("the sex counts must ride one bucket rollup, got %d GROUP BY bucket in counts", strings.Count(counts, "GROUP BY bucket"))
 	}
@@ -322,13 +320,13 @@ func TestFarmValuationSQLSexCountsShareOneBucketRollupMultipleDimensions(t *test
 // else (blank, NULL, an unknown token) counted as missing -- never dropped, never folded into a
 // side. So the three add up to the bucket's animals by construction.
 func TestFarmValuationSQLSexSplitStatusBucketsAreDisjointAndExhaustive(t *testing.T) {
-	if !strings.Contains(farmValuationSQL, "coalesce(g.sex, '')") {
+	if !strings.Contains(fvSQL, "coalesce(g.sex, '')") {
 		t.Fatal("a NULL sex must normalise to the empty string so it is counted missing, not skipped")
 	}
-	if !strings.Contains(farmValuationSQL, "FILTER (WHERE sex NOT IN ('male', 'female'))") {
+	if !strings.Contains(fvSQL, "FILTER (WHERE sex NOT IN ('male', 'female'))") {
 		t.Fatal("missing must be the complement of male and female, not a third literal that leaves gaps")
 	}
-	if strings.Contains(farmValuationSQL, "sex = 'unknown'") || strings.Contains(farmValuationSQL, "sex = ''") {
+	if strings.Contains(fvSQL, "sex = 'unknown'") || strings.Contains(fvSQL, "sex = ''") {
 		t.Fatal("missing must not be a literal match; an unexpected token would then vanish from all three")
 	}
 }
@@ -337,7 +335,7 @@ func TestFarmValuationSQLSexSplitStatusBucketsAreDisjointAndExhaustive(t *testin
 // CBE/CPT park scope as the figure it divides, and there is no page: the card is whole inventory.
 func TestFarmValuationSQLSexSplitObeysParkScopeAndHasNoPageBoundary(t *testing.T) {
 	classified := farmValuationSQL[strings.Index(farmValuationSQL, "classified AS ("):strings.Index(farmValuationSQL, "not_valued AS (")]
-	if !strings.Contains(classified, "%s") {
+	if !strings.Contains(classified, "%[1]s") {
 		t.Fatal("the farm predicate placeholder must sit inside classified, ahead of every count")
 	}
 	if strings.Contains(farmValuationSQL, "LIMIT") || strings.Contains(farmValuationSQL, "OFFSET") {

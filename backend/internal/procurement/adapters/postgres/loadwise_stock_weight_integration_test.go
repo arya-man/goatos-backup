@@ -82,13 +82,13 @@ RETURNING load_id::text`, testTenant, fx.loadA).Scan(&loadX); err != nil {
 		t.Fatal(err)
 	}
 	// Three live K3 goats: two scanned in LW Weigh Shed, one standing alone in LW Whole Pen.
-	goat := func(stage, sex, shed, tag string) string {
+	animal := func(species, stage, sex, shed, tag string) string {
 		var id string
 		if err := pool.QueryRow(ctx, `
 INSERT INTO goats (tenant_id, species, sex, management_stage, lifecycle_status, custodian_party_id, park_id, shed_id)
-SELECT tenant_id, 'goat', $3, $4, 'alive', source_party_id, $5::uuid, $6::uuid
+SELECT tenant_id, $7, $3, $4, 'alive', source_party_id, $5::uuid, $6::uuid
 FROM procurement_loads WHERE tenant_id = $1 AND load_id = $2::uuid
-RETURNING goat_id::text`, testTenant, loadX, sex, stage, cbe, shed).Scan(&id); err != nil {
+RETURNING goat_id::text`, testTenant, loadX, sex, stage, cbe, shed, species).Scan(&id); err != nil {
 			t.Fatal(err)
 		}
 		exec(`
@@ -101,6 +101,7 @@ VALUES ($1::uuid, $2::uuid, 'animal_identifier_1', $3, upper(btrim($3)), 'tenant
 		}
 		return id
 	}
+	goat := func(stage, sex, shed, tag string) string { return animal("goat", stage, sex, shed, tag) }
 	firstGoat := goat("K3", "male", shedP, "lw-tag-1")
 	goat("K3", "female", shedP, "lw-tag-2")
 	goat("K3", "male", penQ, "")
@@ -110,13 +111,16 @@ INSERT INTO weighing_observations (tenant_id, campaign_id, campaign_shed_id, sca
 VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6::uuid, $7::uuid, $8, $9::timestamptz, $9::timestamptz, $10)`,
 			testTenant, campaign, scanBucket, tag, kg, proof, operator, fmt.Sprintf("lw:%s:%s", tag, at), at, status)
 	}
-	// Sales Config's Farm valuation: K3 male 500 ₹/kg, K3 female 400 ₹/kg. A Weighing Assumptions
+	// Sales Config's Farm valuation: K3 goat male 500 ₹/kg, goat female 400; sheep male 430, sheep
+	// female 380. A Weighing Assumptions
 	// price must play no part, so one is set and must be ignored.
 	exec(`
 INSERT INTO sales_valuation_assumptions (tenant_id, buckets, stages)
 VALUES ($1::uuid,
-  '[{"bucket":"K3_female","label":"K3 · Female","fixed_weight_kg":15,"price_per_kg":400,"display_order":1},
-    {"bucket":"K3_male","label":"K3 · Male","fixed_weight_kg":15,"price_per_kg":500,"display_order":2}]'::jsonb,
+  '[{"bucket":"K3_goat_female","label":"K3 · Goat · Female","fixed_weight_kg":15,"price_per_kg":400,"display_order":1},
+    {"bucket":"K3_goat_male","label":"K3 · Goat · Male","fixed_weight_kg":15,"price_per_kg":500,"display_order":2},
+    {"bucket":"K3_sheep_female","label":"K3 · Sheep · Female","fixed_weight_kg":15,"price_per_kg":380,"display_order":3},
+    {"bucket":"K3_sheep_male","label":"K3 · Sheep · Male","fixed_weight_kg":15,"price_per_kg":430,"display_order":4}]'::jsonb,
   '[{"stage":"K3","label":"K3","display_order":1,"matches":["K3"]}]'::jsonb)
 ON CONFLICT (tenant_id) DO UPDATE SET buckets = EXCLUDED.buckets, stages = EXCLUDED.stages`, testTenant)
 	exec(`INSERT INTO growth_sale_price_assumptions (tenant_id, species, management_stage, sex, price_per_kg_inr, effective_from, set_by)
@@ -254,5 +258,28 @@ VALUES ($1::uuid, $2::uuid, 'animal_identifier_2', 'lw-tag-1b', 'LW-TAG-1B', 'te
 			}
 		}
 		t.Fatalf("load %s missing from its own park's view", loadX)
+	})
+
+	// 8. SPECIES (maintainer decision 2026-10-02): a sheep in the same stage and gender as a goat is
+	// priced at the SHEEP rate. A 10 kg K3 sheep male adds 10 x 430, never the goat male's 10 x 500.
+	t.Run("MultipleDimensionsSheepIsPricedAtTheSheepRate", func(t *testing.T) {
+		animal("sheep", "K3", "male", shedP, "lw-tag-sheep")
+		exec(`UPDATE procurement_loads SET expected_count = 7 WHERE load_id = $1::uuid`, loadX)
+		scan("lw-tag-sheep", 10, "2026-09-15T08:00:00Z", "verified")
+		got := read()
+		if math.Abs(valueOf(got)-(32700+4300)) > 0.01 {
+			t.Fatalf("sheep must take the sheep rate: value=%v (goat rate would be %v)", valueOf(got), 32700+5000)
+		}
+	})
+
+	// 9. An UNWEIGHED sheep carries the SHEEP average of its load (10 kg, the one weighed sheep),
+	// never the goats' 24 kg: + 10 x 380 for a K3 sheep female.
+	t.Run("MultipleDimensionsUnweighedSheepCarriesTheSheepAverage", func(t *testing.T) {
+		animal("sheep", "K3", "female", shedP, "")
+		exec(`UPDATE procurement_loads SET expected_count = 8 WHERE load_id = $1::uuid`, loadX)
+		got := read()
+		if math.Abs(valueOf(got)-(37000+3800)) > 0.01 {
+			t.Fatalf("an unweighed sheep must carry the sheep average: value=%v", valueOf(got))
+		}
 	})
 }

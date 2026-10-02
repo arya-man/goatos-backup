@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/vgoats/goatos/backend/internal/farmvaluation"
 	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/procurement/domain"
 )
@@ -13,8 +14,8 @@ import (
 //
 // Load wise carries the animals a load still holds at an ASSUMED value: each live animal's latest
 // weight x the ₹/kg of its stage-and-sex bucket on Sales Config's Farm valuation. An animal with no
-// weight yet carries the load's CURRENT AVERAGE weight (the mean latest weight of the load's
-// weighed live animals). No sold price is ever spread over the animals left. This read supplies
+// weight yet carries the CURRENT AVERAGE weight of its species in the load (else the whole load's
+// when none of its species is weighed). No sold price is ever spread over the animals left. This read supplies
 // the facts per load at request time -- nothing is stored or backfilled.
 //
 // RECORDED CROSS-MODULE REPORTING READ, pointing OUT of procurement the same way loadwiseSalesSQL
@@ -33,14 +34,12 @@ import (
 //
 // A scan wins a tie, being the animal's own figure.
 //
-// PRICE per kg: Sales Config's Farm valuation (sales_valuation_assumptions), resolved EXACTLY as
-// sales farmValuationSQL resolves it, so Load wise and Farm value never price one animal two ways:
-// the animal's valuation stage is the authored stage whose register entries name its milk cohort
-// (which wins) or its management stage, the bucket is that stage plus its gender (a Mother is
-// female; an animal with no gender on file reads female), and the price is that bucket's
-// price_per_kg. A tenant with no assumptions row reads the seeded stages and rates. The bucket's
-// fixed_weight_kg is NOT used here: Load wise values by the animal's own weight. An animal whose
-// stage no valuation stage names has NO price; it is counted and named, never priced at a guess.
+// PRICE per kg: Sales Config's Farm valuation, through farmvaluation's SHARED fragments -- the very
+// SQL Farm value runs -- so the two pages cannot price one animal two ways: authored stage (milk
+// cohort first, then management stage), SPECIES (goat or sheep, 2026-10-02), gender (Mother is
+// female; none on file reads female), bucket `<stage>_<species>_<gender>`, that bucket's ₹/kg. The
+// bucket's fixed_weight_kg is NOT used here: Load wise values by the animal's own weight. An animal
+// whose stage or species has no price is left out of the value, never priced at a guess.
 //
 // PEN IDENTITY: a weighing bucket often names a legacy per-pen location ("Godel 2 - Part 1", no
 // partition) while the register names the building plus a partition ("Godel 2" + "Part 1"). Both
@@ -49,7 +48,7 @@ import (
 // projection-review: membership=live accepted load animals of the served loads, one row per goat via the loadwise DISTINCT ON total order; group_key=load_id on the output, 1:1 with loadwiseSalesSQL's served rows; join_cardinality=goats PK and goat_shed_partitions PK 1:1, alias 0..1 per location (LIMIT 1 lateral), latest scan and latest pen weigh each collapsed to 0..1 per animal by DISTINCT ON / ORDER BY LIMIT 1, price 0..1 per animal (stage_by_match DISTINCT ON match_norm for the cohort and the stage joins, rates DISTINCT ON bucket; the load average is a window over the same per-goat rows, so it adds no row); pagination=bound to the served load ids ($2); scope=tenant_id on every table
 //
 // scale-guard:plan-proof-exempt: PENDING at-scale plan test (docs/progress/plan-proof-backlog.md); guarded by served load ids but not yet proven at 500k rows.
-const loadStockWeightSQL = /* scale-guard:ignore: god-cte -- one bounded reporting read over the served loads' live animals (the 5k-50k envelope), their weighs and one price table, run once per Load wise request */ `
+var loadStockWeightSQL = /* scale-guard:ignore: god-cte -- one bounded reporting read over the served loads' live animals (the 5k-50k envelope), their weighs and one price table, run once per Load wise request */ `
 WITH member AS (
     SELECT DISTINCT ON (plg.goat_id) plg.goat_id, plg.load_id
     FROM public.procurement_load_goats plg
@@ -77,12 +76,7 @@ alias AS (
 ),
 live AS (
     SELECT m.load_id, g.goat_id,
-           lower(btrim(COALESCE(g.species, ''))) AS sp,
-           btrim(COALESCE(g.management_stage, '')) AS st,
-           upper(regexp_replace(btrim(COALESCE(g.management_stage, '')), '[^A-Za-z0-9]+', '', 'g')) AS st_norm,
-           upper(regexp_replace(btrim(COALESCE(g.milk_cohort, '')), '[^A-Za-z0-9]+', '', 'g')) AS cohort_norm,
-           btrim(COALESCE(g.milk_cohort, '')) AS cohort,
-           CASE WHEN lower(btrim(COALESCE(g.sex, ''))) = 'male' THEN 'male' ELSE 'female' END AS sx,
+           g.management_stage AS stage_raw, g.milk_cohort AS cohort_raw, g.species AS species_raw, g.sex AS sex_raw,
            CASE WHEN COALESCE(NULLIF(lower(btrim(gsp.partition_label)), 'whole'), '') <> '' THEN g.shed_id
                 ELSE COALESCE(a.phys_id, g.shed_id) END AS phys_id,
            CASE WHEN COALESCE(NULLIF(lower(btrim(gsp.partition_label)), 'whole'), '') <> ''
@@ -149,60 +143,21 @@ latest AS (
     FROM (SELECT goat_id, w, at, 0 AS pref FROM scan UNION ALL SELECT goat_id, w, at, 1 FROM pen) x
     ORDER BY goat_id, at DESC, pref
 ),
--- The SAME stage and rate resolution as sales farmValuationSQL (see the header): authored stages,
--- else the seeded six; authored buckets, else the seeded twelve.
-stage_rules AS (
-    SELECT st.stage, st.display_order,
-           upper(regexp_replace(btrim(mt.match), '[^A-Za-z0-9]+', '', 'g')) AS match_norm
-    FROM public.sales_valuation_assumptions va
-    CROSS JOIN LATERAL jsonb_to_recordset(va.stages) AS st(stage text, display_order int, matches jsonb)
-    CROSS JOIN LATERAL jsonb_array_elements_text(st.matches) AS mt(match)
-    WHERE va.tenant_id = $1
-    UNION ALL
-    SELECT * FROM (VALUES
-        ('fattening', 1, 'F2'), ('fattening', 1, 'F2MALE'), ('fattening', 1, 'F2FEMALE'),
-        ('adult', 2, 'BUCK'), ('adult', 2, 'MOTHER'), ('adult', 2, 'MILKING'), ('adult', 2, 'M0'),
-        ('adult', 2, 'PREGNANT'), ('adult', 2, 'NONPREGNANT'), ('adult', 2, 'ICU'),
-        ('K0', 3, 'K0'), ('K1', 4, 'K1'),
-        ('K2', 5, 'K2'), ('K2', 5, 'ICUKID'), ('K3', 6, 'K3')
-    ) d(stage, display_order, match_norm)
-    WHERE NOT EXISTS (SELECT 1 FROM public.sales_valuation_assumptions va WHERE va.tenant_id = $1)
-),
-stage_by_match AS (
-    SELECT DISTINCT ON (match_norm) match_norm, stage
-    FROM stage_rules
-    ORDER BY match_norm, display_order, stage
-),
-rates AS (
-    SELECT DISTINCT ON (bucket) bucket, price_per_kg
-    FROM (
-        SELECT b.bucket, b.price_per_kg, b.display_order
-        FROM public.sales_valuation_assumptions va
-        CROSS JOIN LATERAL jsonb_to_recordset(va.buckets) AS b(bucket text, price_per_kg float8, display_order int)
-        WHERE va.tenant_id = $1
-        UNION ALL
-        SELECT * FROM (VALUES
-            ('fattening_female', 450::float8, 1), ('fattening_male', 450::float8, 2),
-            ('adult_female', 600::float8, 3), ('adult_male', 500::float8, 4),
-            ('K0_female', 500::float8, 5), ('K0_male', 500::float8, 6),
-            ('K1_female', 500::float8, 7), ('K1_male', 500::float8, 8),
-            ('K2_female', 500::float8, 9), ('K2_male', 500::float8, 10),
-            ('K3_female', 500::float8, 11), ('K3_male', 500::float8, 12)
-        ) d(bucket, price_per_kg, display_order)
-        WHERE NOT EXISTS (SELECT 1 FROM public.sales_valuation_assumptions va WHERE va.tenant_id = $1)
-    ) x
-    WHERE price_per_kg IS NOT NULL AND price_per_kg > 0
-    ORDER BY bucket, display_order
-),
--- projection-review: membership=live accepted animals of the served loads, one row per goat (member DISTINCT ON goat, live filter = loadwiseSalesSQL's remaining outcome); group_key=load_id, and the load average is a window over those same per-goat rows; join_cardinality=stage_by_match 0..1 per register entry for the cohort and the stage joins, rates 0..1 per bucket (DISTINCT ON), latest 0..1 per goat; pagination=bound to the served load ids ($2), so a smaller page never changes a load's value; scope=tenant_id on every table, park narrowing happens upstream on the served loads
+-- THE PRICING RULE IS SHARED with Farm value (farmvaluation.PricingCTEs): authored stages, the
+-- species x gender buckets and their ₹/kg. Spliced, never copied (loadwise-stock-valuation-guard).
+` + farmvaluation.PricingCTEs + `,
+-- projection-review: membership=live accepted animals of the served loads, one row per goat (member DISTINCT ON goat, live filter = loadwiseSalesSQL's remaining outcome); group_key=load_id, and the load average is a window over those same per-goat rows; join_cardinality=fv_stage_by_match 0..1 per register entry for the cohort and the stage joins, fv_rates 0..1 per stage_species_gender bucket (DISTINCT ON), latest 0..1 per goat; pagination=bound to the served load ids ($2), so a smaller page never changes a load's value; scope=tenant_id on every table, park narrowing happens upstream on the served loads
 priced AS (
     SELECT l.load_id, l.goat_id, lt.w, r.price_per_kg AS price,
-           COALESCE(NULLIF(l.st, ''), NULLIF(l.cohort, ''), 'no stage') AS stage_label,
-           avg(lt.w) OVER (PARTITION BY l.load_id) AS load_avg
+           CASE WHEN lower(btrim(COALESCE(l.species_raw, ''))) NOT IN ('goat', 'sheep') THEN 'animals with no species recorded'
+                ELSE COALESCE(NULLIF(btrim(COALESCE(l.stage_raw, '')), ''), NULLIF(btrim(COALESCE(l.cohort_raw, '')), ''), 'no stage') END AS stage_label,
+           -- An unweighed animal carries its OWN SPECIES' average in the load (sheep and goats grow
+           -- to different weights), else the whole load's when no animal of its species is weighed.
+           COALESCE(avg(lt.w) OVER (PARTITION BY l.load_id, lower(btrim(COALESCE(l.species_raw, '')))),
+                    avg(lt.w) OVER (PARTITION BY l.load_id)) AS load_avg
     FROM live l
-    LEFT JOIN stage_by_match sc ON l.cohort_norm <> '' AND sc.match_norm = l.cohort_norm
-    LEFT JOIN stage_by_match sm ON sm.match_norm = l.st_norm
-    LEFT JOIN rates r ON r.bucket = COALESCE(sc.stage, sm.stage) || '_' || CASE WHEN l.st_norm = 'MOTHER' THEN 'female' ELSE l.sx END
+    ` + farmvaluation.StageJoinsSQL(farmvaluation.NormSQL("l.cohort_raw"), farmvaluation.NormSQL("l.stage_raw")) + `
+    LEFT JOIN fv_rates r ON r.bucket = ` + farmvaluation.BucketKeySQL(farmvaluation.NormSQL("l.stage_raw"), "l.species_raw", "l.sex_raw") + `
     LEFT JOIN latest lt ON lt.goat_id = l.goat_id
 )
 SELECT load_id::text,

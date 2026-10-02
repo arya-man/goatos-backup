@@ -5,13 +5,15 @@ import (
 	"testing"
 )
 
-// withStage is the shape a write arrives in: a stage list plus two bucket rows per stage.
+// withStage is the shape a write arrives in: a stage list plus four bucket rows per stage.
 func withStage(stages []ValuationStage) ValuationAssumptions {
 	v := ValuationAssumptions{Stages: stages}
 	kg := 10.0
 	for _, s := range stages {
-		for _, g := range ValuationGenders {
-			v.Buckets = append(v.Buckets, ValuationBucketRate{Bucket: ValuationBucketKey(s.Stage, g.Key), Label: BucketLabel(s.Label, g.Label), FixedWeightKg: &kg, PricePerKg: 500})
+		for _, sp := range ValuationSpecies {
+			for _, g := range ValuationGenders {
+				v.Buckets = append(v.Buckets, ValuationBucketRate{Bucket: ValuationBucketKey(s.Stage, sp.Key, g.Key), Label: BucketLabel(s.Label, sp.Label, g.Label), FixedWeightKg: &kg, PricePerKg: 500})
+			}
 		}
 	}
 	return v
@@ -19,13 +21,15 @@ func withStage(stages []ValuationStage) ValuationAssumptions {
 
 // THE FARM CAN ADD A STAGE (maintainer instruction 2026-09-24). Warmup is the case that prompted
 // it: a stage the herd register has always carried, with 58 live kids standing in it, that the
-// valuation could not price without a deploy. Adding it is a stage row and two figures.
+// valuation could not price without a deploy. Adding it is a stage row and its four figures.
 func TestTheFarmCanAddAStageAndPriceIt(t *testing.T) {
 	v := DefaultValuationAssumptions()
 	v.Stages = append(v.Stages, ValuationStage{Label: "Warmup", Matches: []string{"Warmup"}})
 	kg := 12.0
-	for _, g := range ValuationGenders {
-		v.Buckets = append(v.Buckets, ValuationBucketRate{Bucket: "warmup_" + g.Key, FixedWeightKg: &kg, PricePerKg: 520})
+	for _, sp := range ValuationSpecies {
+		for _, g := range ValuationGenders {
+			v.Buckets = append(v.Buckets, ValuationBucketRate{Bucket: "warmup_" + sp.Key + "_" + g.Key, FixedWeightKg: &kg, PricePerKg: 520})
+		}
 	}
 	NormalizeValuationAssumptions(&v)
 	if err := ValidateValuationAssumptions(v); err != nil {
@@ -41,7 +45,7 @@ func TestTheFarmCanAddAStageAndPriceIt(t *testing.T) {
 			labels = append(labels, b.Label)
 		}
 	}
-	if len(labels) != 2 || labels[0] != "Warmup · Female" || labels[1] != "Warmup · Male" {
+	if len(labels) != 4 || labels[0] != "Warmup · Goat · Female" || labels[3] != "Warmup · Sheep · Male" {
 		t.Fatalf("the cards are named from the stage, got %v", labels)
 	}
 }
@@ -58,7 +62,7 @@ func TestRenamingAStageKeepsItsKeyAndItsFigures(t *testing.T) {
 	if err := ValidateValuationAssumptions(v); err != nil {
 		t.Fatalf("a rename must stay valid: %v", err)
 	}
-	if v.Buckets[0].Label != "Fattening (farm) · Female" {
+	if v.Buckets[0].Label != "Fattening (farm) · Goat · Female" {
 		t.Fatalf("the card follows the stage's words, got %q", v.Buckets[0].Label)
 	}
 }
@@ -169,5 +173,36 @@ func TestDefaultAssumptionsDoNotShareTheSeededStages(t *testing.T) {
 	}
 	if len(SeededValuationStages[0].Matches) != 3 {
 		t.Fatalf("the seeded rows themselves were rewritten: %v", SeededValuationStages[0].Matches)
+	}
+}
+
+// A row stored before the species split reads as split, both species at the one figure it had, so
+// the editor opens filled in rather than with empty sheep prices.
+func TestLegacyBucketsReadAsSplitBySpeciesAtTheOneFigure(t *testing.T) {
+	kg := 40.0
+	v := ValuationAssumptions{
+		Stages: []ValuationStage{{Stage: "adult", Label: "Adult", Matches: []string{"Buck"}}},
+		Buckets: []ValuationBucketRate{
+			{Bucket: "adult_female", Label: "Adult females", FixedWeightKg: &kg, PricePerKg: 600},
+			{Bucket: "adult_male", Label: "Adult males", PricePerKg: 500},
+		},
+	}
+	UpgradeLegacyValuationBuckets(&v)
+	if err := ValidateValuationAssumptions(v); err != nil {
+		t.Fatalf("an upgraded row must be a valid write: %v", err)
+	}
+	want := map[string]float64{"adult_goat_female": 600, "adult_goat_male": 500, "adult_sheep_female": 600, "adult_sheep_male": 500}
+	for _, b := range v.Buckets {
+		if want[b.Bucket] != b.PricePerKg {
+			t.Fatalf("%s = %v, want %v", b.Bucket, b.PricePerKg, want[b.Bucket])
+		}
+	}
+	if v.Buckets[2].Label != "Adult · Sheep · Female" {
+		t.Fatalf("label = %q", v.Buckets[2].Label)
+	}
+	before := len(v.Buckets)
+	UpgradeLegacyValuationBuckets(&v)
+	if len(v.Buckets) != before {
+		t.Fatal("an already-split row must be left alone")
 	}
 }

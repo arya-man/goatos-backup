@@ -4518,6 +4518,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"valuation.covers":                "Herd stages it covers",
 			"valuation.covers.add":            "Add a herd stage",
 			"valuation.covers.remove":         "Remove",
+			"valuation.species.goat":          "Goat",
+			"valuation.species.sheep":         "Sheep",
 			"valuation.gender.female":         "Female",
 			"valuation.gender.male":           "Male",
 			"valuation.unvalued":              "These herd stages have animals and no price. Add one to value them:",
