@@ -149,12 +149,25 @@ function readWindow(sp: RouteSearchParams): { from?: string; to?: string } {
  * than dropped, because hiding it would quietly shrink a total the KPI above still
  * reports in full.
  */
-function toBars(points: HerdAnalyticsSeriesPoint[], unassignedLabel: string): SvgBarDatum[] {
-  return points.map((point) => ({
+function toBars(points: HerdAnalyticsSeriesPoint[], unassignedLabel: string, byCount = true): SvgBarDatum[] {
+  const bars = points.map((point) => ({
     key: point.key || unassignedLabel,
     label: stageLabel(point.label) || unassignedLabel,
     value: point.count,
   }));
+  return byCount ? sortByCount(bars) : bars;
+}
+
+/**
+ * Biggest share first, as /counts/breakdown orders the same mixes; equal counts keep the backend's
+ * order. An alphabetical breed list hid the herd's main breed mid-card (PR #294 O12). The AGE bands
+ * are not passed through here: they have their own natural order (kid before adult).
+ */
+export function sortByCount<T extends { value: number }>(bars: readonly T[]): T[] {
+  return bars
+    .map((bar, index) => ({ bar, index }))
+    .sort((a, b) => b.bar.value - a.bar.value || a.index - b.index)
+    .map(({ bar }) => bar);
 }
 
 /** Composition rows as template EcommerceSalesOverview progress rows: count + share of the whole. */
@@ -257,7 +270,8 @@ export async function HerdAnalyticsPage({
   const servedFrom = data.window_from;
   const servedTo = data.window_to;
 
-  const ageBars = toBars(data.age_band, ha(pageContract, "label.unassigned_stage"));
+  // Age bands keep their natural order (kid before adult); the other mixes read biggest first.
+  const ageBars = toBars(data.age_band, ha(pageContract, "label.unassigned_stage"), false);
   const sexBars = toBars(data.sex, ha(pageContract, "label.unassigned_sex"));
   const sexTotal = sexBars.reduce((sum, bar) => sum + Math.max(bar.value, 0), 0);
   const showParks = data.park.length > 1;
