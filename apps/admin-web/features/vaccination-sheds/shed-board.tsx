@@ -81,7 +81,7 @@ function DriveOperatorsCell({ row, pageContract }: { row: VaccinationShedSummary
   const names = row.driveOperatorNames?.filter(Boolean) ?? [];
   if (names.length === 0) return <Tag tone="dng">{copy(pageContract, "label.operators_unassigned")}</Tag>;
   return (
-    <Typography component="span" variant="body2" noWrap title={names.join(", ")}>
+    <Typography component="span" variant="body2" title={names.join(", ")}>
       {names.join(", ")}
     </Typography>
   );
@@ -301,8 +301,8 @@ export async function VaccinationShedBoard({
                 {rows.map((row, rowIndex) => {
                   const href = detailHref(row);
                   // The row is one link (stretched over the row, under the checkbox and ⋮ cells).
-                  const cell = (content: React.ReactNode, options: { numeric?: boolean; muted?: boolean; rowLink?: boolean } = {}) => (
-                    <TableCell align={options.numeric ? "right" : undefined} sx={{ whiteSpace: "nowrap", ...(options.muted ? { color: "text.secondary" } : null) }}>
+                  const cell = (content: React.ReactNode, options: { numeric?: boolean; muted?: boolean; rowLink?: boolean; wrap?: boolean } = {}) => (
+                    <TableCell align={options.numeric ? "right" : undefined} sx={{ whiteSpace: options.wrap ? "normal" : "nowrap", ...(options.wrap ? { minWidth: 140, maxWidth: 180 } : null), ...(options.muted ? { color: "text.secondary" } : null) }}>
                       {options.rowLink ? (
                         <Box
                           component={Link}
@@ -361,7 +361,9 @@ export async function VaccinationShedBoard({
                       {cell(row.done, { numeric: true, muted: true })}
                       {cell(row.sessions, { numeric: true })}
                       {cell(row.nextDue ? fmtDate(row.nextDue) : copy(pageContract, "label.placeholder"), { muted: true })}
-                      {cell(<DriveOperatorsCell row={row} pageContract={pageContract} />)}
+                      {/* Operator names wrap (C10, pr294): two names on one line pushed the Assignment
+                          and Status columns past the 1440 card edge. */}
+                      {cell(<DriveOperatorsCell row={row} pageContract={pageContract} />, { wrap: true })}
                       {cell(<Tag tone={row.sessions > 1 ? "warn" : "mut"}>{assignmentLabel(row, pageContract)}</Tag>)}
                       {cell(
                         <Tag tone={optionTone(pageContract, "shed_status_chips", row.status) as Tone}>
