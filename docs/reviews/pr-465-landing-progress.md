@@ -15,11 +15,13 @@ and update the CEO AI shed capacity reporting view.
 - First `make land-main` attempt at `279b1ccaa6ac752f9062916fda9b38589e0e483f`
   stopped before any push because the required query-plan PostgreSQL connection to
   `127.0.0.1:15432` was refused.
+- Started the approved OCI tunnel on `127.0.0.1:15432`; focused diagnostic rerun
+  `GOATOS_CI_ONLY_STEP='required PostgreSQL query plans' tools/ci/run-local-ci.sh
+  query-plans` passed at `940b38336b4505fd5388199a8b5c08600fc95a2e`.
 
 ## Pending
 
 - Rebase the candidate onto current `origin/main`.
-- Restart or repair the approved OCI query-plan tunnel on `127.0.0.1:15432`.
 - Rerun the required local landing receipt with `make land-main`.
 - Verify local `HEAD`, `origin/main`, and remote `main` all match the certified SHA.
 
@@ -29,10 +31,10 @@ and update the CEO AI shed capacity reporting view.
   the DB-backed Postgres tests.
 - The isolated worktree initially lacked admin-web dependencies, so `npm --prefix apps/admin-web
   run typecheck` could not start because `tsc` was missing.
-- First landing attempt failed before push on infrastructure only: the query-plan database tunnel
-  was not accepting connections.
+- The focused query-plan rerun was diagnostic only and wrote no landing receipt; it does not
+  authorize a push without the full `make land-main` gate.
 
 ## Current State
 
-- Candidate with this progress note: `279b1ccaa6ac752f9062916fda9b38589e0e483f`.
+- Candidate with this progress note: `940b38336b4505fd5388199a8b5c08600fc95a2e`.
 - Deployment state: not deployed; this request is only for main landing.
