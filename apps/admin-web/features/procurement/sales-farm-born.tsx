@@ -106,12 +106,15 @@ function resolveLimit(raw: string | undefined, offered: readonly number[], fallb
  */
 function BreakdownCard({
   title,
+  dimension,
   rows,
   totalSold,
   pageContract,
   pager,
 }: {
   title: string;
+  /** The first column's header: what each row is (Breed / Sex / Stage / Pen). */
+  dimension: string;
   rows: FarmBornBucket[];
   totalSold: number;
   pageContract: AdminUiPageContract;
@@ -143,7 +146,7 @@ function BreakdownCard({
         <Table sx={FB_TABLE_SX}>
           <TableHead>
             <TableRow>
-              <TableCell component="th" />
+              <TableCell component="th">{dimension}</TableCell>
               <TableCell component="th" align="right">{copy(pageContract, "column.on_farm")}</TableCell>
               <TableCell component="th" align="right" title={copy(pageContract, "value.tagged_not_closed.hint")}>
                 {copy(pageContract, "column.tagged_not_closed")}
@@ -279,18 +282,20 @@ function FarmBornSections({
           the right column mostly blank. */}
       <Grid container spacing={3} sx={{ mt: 3 }}>
         <Grid size={SALES_GRID.bornHalf}>
-          <BreakdownCard title={copy(pageContract, "section.by_breed.title")} rows={data.by_breed} totalSold={s.sold} pageContract={pageContract} />
+          <BreakdownCard title={copy(pageContract, "section.by_breed.title")} dimension={copy(pageContract, "filter.breed.label")} rows={data.by_breed} totalSold={s.sold} pageContract={pageContract} />
         </Grid>
         <Grid size={SALES_GRID.bornHalf}>
           <Stack spacing={3}>
             <BreakdownCard
               title={copy(pageContract, "section.by_sex.title")}
+              dimension={copy(pageContract, "filter.sex.label")}
               rows={data.by_sex.map((row) => ({ ...row, label: sexLabel(row.key) === row.key ? row.label : sexLabel(row.key) }))}
               totalSold={s.sold}
               pageContract={pageContract}
             />
             <BreakdownCard
               title={copy(pageContract, "section.by_stage.title")}
+              dimension={copy(pageContract, "filter.stage.label")}
               rows={data.by_stage.map((row) => ({ ...row, label: stageVocabularyLabel(row.label, stageNames) }))}
               totalSold={s.sold}
               pageContract={pageContract}
@@ -300,6 +305,7 @@ function FarmBornSections({
         <Grid size={12}>
           <BreakdownCard
             title={copy(pageContract, "section.by_pen.title")}
+            dimension={copy(pageContract, "filter.pen.label")}
             rows={data.by_pen}
             totalSold={s.sold}
             pageContract={pageContract}
