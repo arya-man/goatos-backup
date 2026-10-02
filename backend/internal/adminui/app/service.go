@@ -6236,7 +6236,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"fcr.price.missing": "No assumed sale price is set for this species, so its gain is not valued.",
 			"fcr.price.shared":  "The Comparison tab values stock at the same prices.",
 			// Maintainer decision 2026-09-24: prices may also be set per stage and sex.
-			"fcr.price.overrides": "set by stage and sex; each animal is valued at its own",
+			"fcr.price.overrides": "prices set by stage and sex",
 
 			"section.fcr.pens.title":     "FCR by pen",
 			"section.fcr.pens.caption":   "Kg of feed eaten per kg gained; the dashed line is break-even",
@@ -6278,6 +6278,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.fcr.procured_no_load": "Procured (no load)",
 			"label.fcr.procured_load":    "Procured (load)",
 			"label.fcr.break_even":       "Break-even",
+			"label.fcr.off_scale":        "off scale",
 			"label.fcr.whole_pen":        "whole pen",
 			"label.fcr.scanned":          "scanned",
 
