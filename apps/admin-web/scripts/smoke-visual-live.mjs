@@ -52,7 +52,7 @@ const wideTableScrollOwnerSelector =
   // .feed-scroll is Feed Config's own scroll box (overflow-x:auto around each of its tables). Leaving
   // it out made the phone lane report the experiment table as "cannot be horizontally scrolled"
   // while it scrolled correctly inside that box (found 2026-09-24).
-  ".tablewrap,.twrap,.cfgtablewrap,.feed-stock-tablewrap,.feed-scroll,.pa-gridwrap,.lt-tablewrap,.sales-market-wrap,.health-analytics-scroll,.cbm-future-table-wrap,.vplan .scroll";
+  ".tablewrap,.twrap,.cfgtablewrap,.feed-stock-tablewrap,.feed-scroll,.pa-gridwrap,.lt-tablewrap,.sales-market-wrap,.health-analytics-scroll,.cbm-future-table-wrap,.vplan .scroll,.nmatrix-wrap";
 const smokeWideWindowTo = new Date().toISOString().slice(0, 10);
 const smokeWideWindowFrom = new Date(Date.now() - 43 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
@@ -1968,12 +1968,20 @@ async function closeManifestOverlays(page) {
 // 328px body (the global `.main table{min-width:540px}` floor won), which put every tick off-screen
 // while the PAGE still measured 0px of overflow -- the exact case a body-only check cannot see.
 async function assertPersonAccessEditorFits(page, routeName, viewportLabel) {
-  const opener = page.getByRole("button", { name: /^Access — / }).first();
-  if ((await opener.count()) === 0) return;
+  const openers = page.getByRole("button", { name: /^Access — / });
+  if ((await openers.count()) === 0) return;
   const editor = page.locator('.vr-modal.on[role=dialog][aria-label^="Access for"]');
-  for (let attempt = 0; attempt < 4 && (await editor.count()) === 0; attempt++) {
-    await opener.click({ timeout: 5_000 }).catch(() => {});
+  // The first rows can be people who have left (their access read answers "no longer on the
+  // roster", correctly); judge the editor on the first person whose editor opens.
+  const tries = Math.min(await openers.count(), 5);
+  for (let row = 0; row < tries && (await editor.count()) === 0; row++) {
+    await openers.nth(row).scrollIntoViewIfNeeded().catch(() => {});
+    await openers.nth(row).click({ timeout: 5_000 }).catch(() => {});
     await editor.waitFor({ timeout: 10_000 }).catch(() => {});
+    if ((await editor.count()) === 0) {
+      await page.keyboard.press("Escape").catch(() => {});
+      await closeManifestOverlays(page);
+    }
   }
   if ((await editor.count()) === 0) throw new Error(`${routeName} ${viewportLabel}: the Access editor did not open`);
   await editor.locator(".pa-grid tbody tr").first().waitFor({ timeout: 15_000 });

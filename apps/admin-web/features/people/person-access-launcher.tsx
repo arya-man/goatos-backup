@@ -1,7 +1,7 @@
 "use client";
 
-import { KeyRound } from "lucide-react";
-import { useCallback, useState, useTransition } from "react";
+import { KeyRound, X } from "lucide-react";
+import { useCallback, useEffect, useState, useTransition } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { PersonAccess } from "@/lib/api/server";
@@ -53,6 +53,18 @@ export function PersonAccessLauncher({
     setError("");
   }, []);
 
+  // The loading / refused dialog closes like every other overlay -- Escape and a Close button --
+  // not only by tapping outside it, which a phone user has no reason to guess (People / HRMS
+  // fixes, 2026-10-02: someone who has left the farm answers "no longer on the roster" here).
+  useEffect(() => {
+    if (!open || access) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, access, close]);
+
   return (
     <>
       <button
@@ -72,7 +84,21 @@ export function PersonAccessLauncher({
 
       {open && !access ? (
         <div className="vr-modal-scrim on" onMouseDown={close}>
-          <div className="vr-modal on" role="dialog" aria-modal="true" aria-label={personName}>
+          <div
+            className="vr-modal on"
+            role="dialog"
+            aria-modal="true"
+            aria-label={personName}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="vr-modal-hd">
+              <div>
+                <h2>{personName}</h2>
+              </div>
+              <button type="button" className="x" onClick={close} aria-label={copy(pageContract, "action.close")}>
+                <X size={18} aria-hidden />
+              </button>
+            </div>
             <div className="vr-modal-bd">
               {error ? (
                 <div className="alert" role="alert">

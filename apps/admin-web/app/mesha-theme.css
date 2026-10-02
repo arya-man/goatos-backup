@@ -2331,15 +2331,17 @@
      pinned left so the row being ticked stays named while panning. */
   .nmatrix-intro{display:flex;align-items:flex-start;gap:6px;margin-top:8px}
   .nmatrix-intro svg{flex:none;margin-top:2px}
-  .nmatrix-wrap{--nmatrix-alert-w:280px;--nmatrix-col-w:92px;margin-top:12px;overflow-x:auto;max-width:100%}
+  /* Bounded to the screen and scrolled both ways inside: the header row stays pinned while
+     scrolling down forty alerts, the alert column while scrolling across the titles. */
+  .nmatrix-wrap{--nmatrix-alert-w:280px;--nmatrix-col-w:92px;margin-top:12px;overflow:auto;max-width:100%;max-height:calc(100vh - 140px);max-height:calc(100dvh - 140px);overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y}
   .nmatrix{table-layout:fixed;border-collapse:separate;border-spacing:0}
   .nmatrix .nmatrix-alert-col{width:var(--nmatrix-alert-w)}
   .nmatrix .nmatrix-title-col{width:var(--nmatrix-col-w)}
   .nmatrix th,.nmatrix td{border-bottom:1px solid var(--line)}
-  .nmatrix thead th{background:var(--panel);vertical-align:bottom}
+  .nmatrix thead th{background:var(--panel);vertical-align:bottom;position:sticky;top:0;z-index:2}
   .nmatrix th.nmatrix-title{text-align:center;text-transform:none;letter-spacing:0;font-size:11px;line-height:1.3;padding:8px 6px;white-space:normal;overflow-wrap:break-word;word-break:normal;hyphens:auto}
   .nmatrix .nmatrix-alert{position:sticky;left:0;z-index:1;background:var(--panel);text-align:left;white-space:normal;padding:10px 12px;box-shadow:1px 0 0 var(--line)}
-  .nmatrix thead .nmatrix-alert{z-index:2}
+  .nmatrix thead .nmatrix-alert{z-index:3}
   .nmatrix td.nmatrix-cell{text-align:center;padding:6px 4px}
   .nmatrix th.nmatrix-group{text-align:left;background:var(--panel-2);padding:0}
   .nmatrix th.nmatrix-group span{position:sticky;left:0;display:inline-block;padding:9px 12px}

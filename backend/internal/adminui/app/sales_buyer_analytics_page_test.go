@@ -224,3 +224,32 @@ func TestSalesBuyerAnalyticsBuyerDetailCopyIsAdditive(t *testing.T) {
 		t.Fatalf("new standalone buyer detail = %q", got)
 	}
 }
+
+// TestPeoplePageControlsFollowThePersonsTicks (People / HRMS fixes, 2026-10-02): the Clock tab,
+// Save access and Save notifications were compiled from ROLE grants, so a CEO-role account whose
+// ticks carry no Clock oversight saw the tab enabled and then a raw "permission_denied".
+func TestPeoplePageControlsFollowThePersonsTicks(t *testing.T) {
+	const tenant = "00000000-0000-4000-8000-000000000001"
+	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{TenantID: tenant, ActorID: "00000000-0000-4000-8000-000000000099"})
+	access := permissions.PageAccess{Pages: map[string]struct{}{"people": {}}, Modules: map[string]struct{}{"operators": {}}}
+	for _, p := range permissions.ModulePages() {
+		if p.Href == "/people" {
+			access.Pages[p.Key] = struct{}{}
+			access.Modules[p.Module] = struct{}{}
+		}
+	}
+	readOnly := applyPersonPageLens(resp, access, []string{permissions.OperatorsRead}, true)
+	page := pageByRouteID(t, readOnly.Pages, "people")
+	for _, id := range []string{"view_clock", "edit_access", "edit_notifications"} {
+		if c := controlByID(t, page.Controls, id); c.Enabled || c.DisabledReason == "" {
+			t.Fatalf("%s must be disabled with a reason for a person whose ticks do not carry it: %+v", id, c)
+		}
+	}
+	full := applyPersonPageLens(resp, access, []string{permissions.OperatorsRead, permissions.ClockPresenceRead, permissions.OperatorsManageCapability}, true)
+	page = pageByRouteID(t, full.Pages, "people")
+	for _, id := range []string{"view_clock", "edit_access", "edit_notifications"} {
+		if c := controlByID(t, page.Controls, id); !c.Enabled {
+			t.Fatalf("%s must be enabled when the ticks carry it: %+v", id, c)
+		}
+	}
+}

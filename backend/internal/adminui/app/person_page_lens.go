@@ -195,6 +195,29 @@ func applyPersonPageControlLens(page domain.PageContract, personPerms []string, 
 		allowed := personPermsResolved && personPermissionsAuthorize(personPerms, permissions.PenRoutinesConfigure)
 		page.Controls = penRoutineControls(page.Controls, allowed, page.Copy)
 		return page
+	case "people":
+		// People / HRMS fixes (2026-10-02): the page's own controls were compiled from ROLE
+		// grants, so a person whose ticks do not carry Clock oversight saw the Clock tab enabled
+		// and then a raw "permission_denied" from the route, which reads their ticks. Each
+		// control now follows the person's own permission, keeping its disabled reason.
+		for _, c := range []struct{ id, perm, reasonKey, fallback string }{
+			{"view_clock", permissions.ClockPresenceRead, "clock.tab.locked", "Clock oversight is limited to leadership."},
+			{"edit_access", permissions.OperatorsManageCapability, "disabled.access_write", "Your current role can view access but not change it."},
+			{"edit_notifications", permissions.OperatorsManageCapability, "disabled.notifications_write", "Your current role can see who receives each alert but not change it."},
+		} {
+			allowed := personPermsResolved && personPermissionsAuthorize(personPerms, c.perm)
+			for i := range page.Controls {
+				if page.Controls[i].ID != c.id {
+					continue
+				}
+				page.Controls[i].Enabled = allowed
+				page.Controls[i].DisabledReason = ""
+				if !allowed {
+					page.Controls[i].DisabledReason = controlCopy(page.Copy, c.reasonKey, c.fallback)
+				}
+			}
+		}
+		return page
 	case "sales-buyer-analytics":
 	default:
 		return page

@@ -237,7 +237,13 @@ function inspectOverlayInPage({ overlay, header, body, kind, minWidthRatio, mark
     const m = cs.transform.match(/matrix\(([^)]+)\)/);
     if (m) {
       const [, , , , tx, ty] = m[1].split(",").map(Number);
-      if (Math.abs(tx) >= r.width * 0.5 || Math.abs(ty) >= r.height * 0.5) flag(el, `off-screen transform ${cs.transform}`);
+      // A large translate is only "off-screen" when the box actually sits off-screen. The rect
+      // already includes the transform, so judge by it: `translate(-50%, -50%)` is how every
+      // centred .vr-modal is placed (exactly half its own size), and flagging that by the
+      // translate alone failed every centred dialog that was in plain view (2026-10-02).
+      const vis = Math.max(0, Math.min(r.right, vw) - Math.max(r.left, 0)) * Math.max(0, Math.min(r.bottom, vh) - Math.max(r.top, 0));
+      const onScreen = r.width > 0 && r.height > 0 ? vis / (r.width * r.height) : 0;
+      if ((Math.abs(tx) >= r.width * 0.5 || Math.abs(ty) >= r.height * 0.5) && onScreen < 0.9) flag(el, `off-screen transform ${cs.transform}`);
     }
   }
   if (r.width > 2 && r.height > 2) {
