@@ -90,7 +90,7 @@ export function UserTableRow({ id, name, nameHref, nameLinkComponent, nameLinkPr
 
   return (
     <>
-      <TableRow hover selected={selected} aria-checked={selected} tabIndex={-1}>
+      <TableRow hover selected={selected} tabIndex={-1}>
         {onSelectRow ? (
           <TableCell padding="checkbox">
             <Checkbox
