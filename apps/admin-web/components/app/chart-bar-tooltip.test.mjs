@@ -24,3 +24,15 @@ test("chart-bar-shared-tooltip: horizontal conversion bars pin + wrap the toolti
   assert.match(conv, /replace\(\/&\/g, "&amp;"\)\.replace\(\/<\/g, "&lt;"\)/, "title HTML is escaped");
   assert.doesNotMatch(conv, /apexcharts-tooltip/, "no CSS on the tooltip");
 });
+
+// PR #294 K3/K4: bar value labels sit after the bar end in the text colour (never a white label
+// straddling the end), and a negative bar wears the error tone.
+import { test as kTest } from "node:test";
+kTest("conversion-rates bars: outside value labels, red negatives", async () => {
+  const { readFileSync: read } = await import("node:fs");
+  const src = read(new URL("./conversion-rates-card.tsx", import.meta.url), "utf8");
+  const { match } = (await import("node:assert/strict")).default;
+  match(src, /textAnchor: "start",\s*offsetX: 6,/);
+  match(src, /colors: \[theme\.vars\.palette\.text\.primary\]/);
+  match(src, /ranges: \[\{ from: -Number\.MAX_SAFE_INTEGER, to: -Number\.EPSILON, color: theme\.vars\.palette\.error\.main \}\]/);
+});
