@@ -39,10 +39,13 @@ and update the CEO AI shed capacity reporting view.
   `scripts/procurement-answer-accessibility.test.mjs`.
 - Applied a narrow test-only timeout adjustment for those browser fixtures so the local CI lane can
   complete after Playwright startup instead of terminating the test process early.
+- Focused diagnostic rerun
+  `GOATOS_CI_ONLY_STEP='admin-web unit tests' tools/ci/run-local-ci.sh admin-web` passed at
+  `b8064d6060433ce5d51d9664473759e9d53c8936` with 1337 passing tests, 0 failures, and 3
+  expected skips. The run was partial and wrote no landing receipt.
 
 ## Pending
 
-- Rerun the focused `admin-web unit tests` lane after the timeout adjustment.
 - Rebase the candidate onto current `origin/main`.
 - Rerun the required local landing receipt with `make land-main`.
 - Verify local `HEAD`, `origin/main`, and remote `main` all match the certified SHA.
@@ -61,8 +64,10 @@ and update the CEO AI shed capacity reporting view.
 - The Playwright browser install is local test infrastructure only; rerun the full receipt after it.
 - The focused admin-web unit rerun after browser install was diagnostic only and wrote no landing
   receipt.
+- The focused admin-web unit rerun after timeout adjustment was diagnostic only and wrote no landing
+  receipt.
 
 ## Current State
 
-- Candidate with this progress note: `7071951e13dd79311c4ea29f42e63ca77d8b912d`.
+- Candidate with this progress note: `b8064d6060433ce5d51d9664473759e9d53c8936`.
 - Deployment state: not deployed; this request is only for main landing.
