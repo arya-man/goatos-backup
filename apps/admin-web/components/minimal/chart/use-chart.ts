@@ -7,9 +7,6 @@ import { varAlpha } from 'minimal-shared/utils';
 
 import { useTheme } from '@mui/material/styles';
 
-import { CHART_CATEGORICAL } from '@/theme/chart-palette';
-import { categoryAxisOptions } from '@/components/chart-axis-label';
-
 // ----------------------------------------------------------------------
 
 export function useChart(updatedOptions?: ChartOptions): ChartOptions {
@@ -17,16 +14,10 @@ export function useChart(updatedOptions?: ChartOptions): ChartOptions {
 
   const baseOptions = useMemo(() => baseChartOptions(theme), [theme]);
 
-  return useMemo(() => {
-    if (!updatedOptions) return baseOptions;
-    // A category x axis keeps the HEAD of each label and truncates its end, with the full text in
-    // the tooltip (components/chart-axis-label.ts): a rotated long label was cut at its START and
-    // lost the load number (PR #294 B3/E1/E2). Layered UNDER the caller's options; a fresh object,
-    // so the memoised base is never mutated.
-    const axis = categoryAxisOptions(updatedOptions as Parameters<typeof categoryAxisOptions>[0]);
-    const base = axis ? merge(merge({}, baseOptions), axis as ChartOptions) : merge({}, baseOptions);
-    return merge(base, updatedOptions);
-  }, [baseOptions, updatedOptions]);
+  return useMemo(
+    () => (updatedOptions ? merge(baseOptions, updatedOptions) : baseOptions),
+    [baseOptions, updatedOptions]
+  );
 }
 
 // ----------------------------------------------------------------------
@@ -71,9 +62,17 @@ const baseChartOptions = (theme: Theme): ChartOptions => {
      * Colors
      * https://apexcharts.com/docs/options/colors/
      *************************************** */
-    // One hue per series (theme/chart-palette.ts), for the scheme in force: the template's list
-    // repeated the theme's six hues in shades, so a many-series chart put lookalikes side by side.
-    colors: CHART_CATEGORICAL.map((slot) => slot[theme.palette.mode === 'light' ? 'light' : 'dark']),
+    colors: [
+      theme.palette.primary.main,
+      theme.palette.warning.main,
+      theme.palette.info.main,
+      theme.palette.error.main,
+      theme.palette.success.main,
+      theme.palette.warning.dark,
+      theme.palette.success.darker,
+      theme.palette.info.dark,
+      theme.palette.info.darker,
+    ],
 
     /** **************************************
      * States

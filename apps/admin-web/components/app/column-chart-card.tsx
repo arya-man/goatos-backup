@@ -1,5 +1,6 @@
 "use client";
 
+import { CATEGORY_AXIS_LABELS, fullCategoryTitle } from "@/components/chart-axis-label";
 import type { CardProps } from "@mui/material/Card";
 import type { ChartOptions } from "@/components/minimal/chart";
 
@@ -51,9 +52,14 @@ export function ColumnChartCard({ title, subheader, empty, valueNoun, chart, sx,
       </Card>
     );
   }
+  // The axis keeps each category's head and the tooltip title names it in full
+  // (components/chart-axis-label). A caller that brings its own xaxis keeps it whole.
+  const categories = chart.categories ?? [];
   const options: ChartOptions = {
+    xaxis: { categories, labels: CATEGORY_AXIS_LABELS },
     yaxis: { labels: { formatter: (value: number) => formatValue(value, chart.unit ?? "", 0) } },
     tooltip: {
+      x: { formatter: fullCategoryTitle(categories) },
       y: {
         formatter: (value: number, opts?: { seriesIndex: number; dataPointIndex: number }) => {
           const note = opts == null ? null : chart.series[opts.seriesIndex]?.notes?.[opts.dataPointIndex];

@@ -13,6 +13,7 @@ import { chartColor, useChartTheme } from "./app/chart-colors";
 import { EmptyState } from "./app/empty-state";
 import { Chart, useChart, type ChartOptions } from "./minimal/chart";
 import { niceCeiling } from "./chart-scale";
+import { CATEGORY_AXIS_LABELS } from "./chart-axis-label";
 import { SeriesLegendView } from "./series-charts";
 import { inrAxisTick, numAxisTick } from "@/features/procurement/sales-format";
 
@@ -121,7 +122,8 @@ export function GroupedColumns({
         pattern: { style: "slantedLines", width: HATCH_TILE, height: HATCH_TILE, strokeWidth: HATCH_STROKE },
       },
       stroke: { width: 2, colors: ["transparent"] },
-      xaxis: { categories: data.map((d) => d.axisLabel) },
+      // The axis keeps each label's head (the load number); the tooltip names it in full.
+      xaxis: { categories: data.map((d) => d.axisLabel), labels: CATEGORY_AXIS_LABELS },
       // Four round ticks on a nice ceiling, ONE unit per axis picked from the top.
       yaxis: { min: 0, max, tickAmount: 4, labels: { formatter: (v: number) => axisTick(v, max) } },
       tooltip: {

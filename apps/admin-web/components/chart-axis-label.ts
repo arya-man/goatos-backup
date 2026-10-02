@@ -1,5 +1,6 @@
-// Category x-axis labels for every ApexCharts chart (components/minimal/chart/use-chart.ts installs
-// these as the base axis options). Pure functions, no copy.
+// Category x-axis labels for the shared chart wrappers (GroupedColumns, TrendChart, ColumnBars,
+// ColumnChartCard, BalanceStatisticsCard). Pure functions, no copy. (The template's useChart stays
+// verbatim -- guard chart-wrapper-verbatim -- so the wrappers apply this, not the base options.)
 //
 // WHY. Apex turns a crowded category axis 45 degrees with `text-anchor: end`, so a label's END sits
 // under its tick and its START runs down-left, into a label band capped at `maxHeight`. A long label
@@ -30,31 +31,13 @@ export function fullCategoryLabel(value: unknown): unknown {
   return Array.isArray(value) ? value.join(" · ") : value;
 }
 
-type AxisOptions = {
-  xaxis?: { type?: string; categories?: unknown; labels?: { formatter?: unknown } };
-  tooltip?: { x?: { formatter?: unknown } };
-};
+/** `xaxis.labels` for a category axis: end-truncated labels. */
+export const CATEGORY_AXIS_LABELS = { formatter: (value: unknown) => formatCategoryLabel(value) as string };
 
 /**
- * Whether a chart's x axis is a plain CATEGORY axis this module should format: categories given,
- * not a datetime/numeric axis, and the caller has not supplied its own label formatter.
+ * A tooltip title formatter that shows the FULL category at the hovered index: Apex otherwise
+ * reuses the axis label formatter for the title, which would print the truncated label.
  */
-export function wantsCategoryLabels(options: AxisOptions | undefined): boolean {
-  const xaxis = options?.xaxis;
-  if (!xaxis || xaxis.type === "datetime" || xaxis.type === "numeric") return false;
-  if (xaxis.labels?.formatter !== undefined) return false;
-  return Array.isArray(xaxis.categories) && xaxis.categories.length > 0;
-}
-
-/**
- * The axis/tooltip options to layer under a category chart's own: end-truncated axis labels, and a
- * tooltip title that shows the whole category (Apex otherwise reuses the axis formatter for it).
- * A caller's own tooltip.x.formatter still wins.
- */
-export function categoryAxisOptions(options: AxisOptions | undefined) {
-  if (!wantsCategoryLabels(options)) return null;
-  return {
-    xaxis: { labels: { formatter: (value: unknown) => formatCategoryLabel(value) } },
-    ...(options?.tooltip?.x?.formatter === undefined ? { tooltip: { x: { formatter: (value: unknown) => fullCategoryLabel(value) } } } : null),
-  };
+export function fullCategoryTitle(categories: readonly unknown[]) {
+  return (value: unknown, opts?: { dataPointIndex?: number }) => String(fullCategoryLabel(categories[opts?.dataPointIndex ?? -1] ?? value) ?? "");
 }

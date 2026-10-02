@@ -5,6 +5,7 @@ import Card from '@mui/material/Card';
 import CardHeader from '@mui/material/CardHeader';
 
 import { chartRamp, useChartTheme } from '@/components/app/chart-colors';
+import { CATEGORY_AXIS_LABELS, fullCategoryTitle } from '@/components/chart-axis-label';
 import { BankingBalanceStatistics, formatSeriesValue } from '@/components/app/sections/overview/banking/banking-balance-statistics';
 
 
@@ -17,8 +18,8 @@ import { BankingBalanceStatistics, formatSeriesValue } from '@/components/app/se
  */
 function withSharedTooltip(chart: Props['chart']) {
   const only = chart.series.length === 1 ? chart.series[0] : null;
-  if (!only || chart.options?.tooltip) return chart.options;
-  return {
+  if (!only || chart.options?.tooltip) return withCategoryAxis(chart, chart.options);
+  return withCategoryAxis(chart, {
     tooltip: {
       shared: true,
       intersect: false,
@@ -31,6 +32,24 @@ function withSharedTooltip(chart: Props['chart']) {
       },
     },
     ...chart.options,
+  });
+}
+
+/**
+ * A one-series card's category axis keeps each label's head (a load number leads "131 (CPT Castro 1,
+ * CPT Castro 2)") and its tooltip title names the category in full (components/chart-axis-label;
+ * PR #294 E1/E2). The template sets `xaxis.categories` itself and the caller's options replace the
+ * whole `xaxis`, so this restates the categories; a caller with its own xaxis, or a card with a
+ * series select (categories follow the selection), keeps the template's axis.
+ */
+function withCategoryAxis(chart: Props['chart'], options: Props['chart']['options']) {
+  const only = chart.series.length === 1 ? chart.series[0] : null;
+  if (!only || options?.xaxis) return options;
+  const tooltip = (options?.tooltip ?? {}) as NonNullable<NonNullable<Props['chart']['options']>['tooltip']>;
+  return {
+    ...options,
+    xaxis: { categories: only.categories, labels: CATEGORY_AXIS_LABELS },
+    tooltip: { ...tooltip, x: tooltip.x ?? { formatter: fullCategoryTitle(only.categories) } },
   };
 }
 

@@ -4,6 +4,7 @@ import { useMemo, type ReactNode } from "react";
 import { Chart, useChart, type ChartOptions } from "@/components/minimal/chart";
 import { EmptyState } from "@/components/app/empty-state";
 import { chartColor, chartRamp, useChartTheme } from "@/components/app/chart-colors";
+import { CATEGORY_AXIS_LABELS } from "@/components/chart-axis-label";
 
 export type ChartSeries = {
   /** data key */
@@ -58,7 +59,10 @@ export type TrendChartProps = {
  * Bar: AnalyticsWebsiteVisits (stacked: AppAreaInstalled). Area / line: EcommerceYearlySales.
  * Mesha data rules kept on top of the template options:
  * - the value axis groups thousands ("1,000"), a count axis never shows half units and always
- *   carries at least two labelled ticks, an all-zero window still gets a readable 0..4 axis;
+ *   carries at least two labelled ticks;
+ * - a window with no figure at all (every value null or 0) is the empty state, not a bare 0..4
+ *   frame with no marks: /health/analytics "New cases by month" drew an empty axis beside sibling
+ *   cards that said "Nothing recorded" (PR #294 C1);
  * - a null value is ABSENT (a gap, and the missing mark in the tooltip), never 0;
  * - a point with no neighbour draws a dot, since a line cannot show it.
  * Axis labels are the caller's short labels; Apex hides the ones that would overlap, as in the
@@ -87,13 +91,11 @@ export function TrendChart({ data, xKey, series, height = 320, kind = "area", st
     : series.reduce((m, s) => Math.max(m, magnitude(s.key)), 0);
   const yaxis: YAxis = yDomain
     ? { min: yDomain[0], max: yDomain[1], tickAmount: integerY && yDomain[1] - yDomain[0] <= 5 ? Math.max(1, yDomain[1] - yDomain[0]) : 4 }
-    : allZero
-      ? { min: 0, max: 4, tickAmount: 4 }
-      : integerY && top <= 5
-        ? { min: 0, max: Math.max(1, Math.ceil(top)), tickAmount: Math.max(1, Math.ceil(top)) }
-        : integerY
-          ? { min: 0, forceNiceScale: true, decimalsInFloat: 0 }
-          : { forceNiceScale: true };
+    : integerY && top <= 5
+      ? { min: 0, max: Math.max(1, Math.ceil(top)), tickAmount: Math.max(1, Math.ceil(top)) }
+      : integerY
+        ? { min: 0, forceNiceScale: true, decimalsInFloat: 0 }
+        : { forceNiceScale: true };
   const leadIndex = series.reduce((best, s, i) => (magnitude(s.key) > magnitude(series[best].key) ? i : best), 0);
   const filled = series.map((s, i) => s.fill ?? (stacked || i === leadIndex));
 
@@ -115,7 +117,7 @@ export function TrendChart({ data, xKey, series, height = 320, kind = "area", st
               data.flatMap((_, k) => (has(s, k) && !has(s, k - 1) && !has(s, k + 1) ? [{ seriesIndex: i, dataPointIndex: k, size: 5, fillColor: colors[i], strokeColor: colors[i] }] : [])),
             ),
       },
-      xaxis: { categories, ...(isCat ? {} : { tooltip: { enabled: false } }) },
+      xaxis: { categories, labels: CATEGORY_AXIS_LABELS, ...(isCat ? {} : { tooltip: { enabled: false } }) },
       yaxis: { ...yaxis, labels: { minWidth: yWidth, formatter: (v: number) => (valueFormat ? valueFormat(v) : groupThousands(v)) } },
       ...(stacked ? { plotOptions: { bar: { columnWidth: "40%" } } } : {}),
       tooltip: {
@@ -138,7 +140,7 @@ export function TrendChart({ data, xKey, series, height = 320, kind = "area", st
   );
   const chartOptions = useChart(options);
 
-  if (data.length === 0 || series.length === 0) {
+  if (data.length === 0 || series.length === 0 || allZero) {
     return <EmptyState title={emptyLabel} />;
   }
   const chartSeries = series.map((s) => ({ name: s.label, data: data.map((r) => valueOf(r, s.key)) }));
