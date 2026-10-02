@@ -367,3 +367,55 @@ func TestRepeatEveryDaysIsAuthoredPerCardAndBounded(t *testing.T) {
 		t.Fatalf("repeat_every_days reported unknown: %v", unknown)
 	}
 }
+
+// Rotation (maintainer instruction 2026-10-02): a card may rotate through the pens instead of
+// repeating every N days -- never both; the gap is 0..365 and only under rotation; a rotation is
+// refused on work the feed & water removal applies to; the seed rotates nothing.
+func TestRotationIsAuthoredPerCardAndExclusiveWithTheInterval(t *testing.T) {
+	seed := SeededRules()
+	for _, c := range SOPCategories {
+		if _, ok := seed.RotationGapDays(c); ok {
+			t.Fatalf("seed rotates %s; the seed must repeat nothing", c)
+		}
+	}
+	with := func(category string, edit func(*CategoryRules)) PCCareSOP {
+		dsl := seed.PCCareSOP
+		cats := map[string]*CategoryRules{}
+		for k, v := range dsl.Categories {
+			cats[k] = v
+		}
+		block := *dsl.Categories[category]
+		edit(&block)
+		cats[category] = &block
+		dsl.Categories = cats
+		return dsl
+	}
+	ok := with(CategoryFumigation, func(b *CategoryRules) { b.RepeatMode = RepeatModeRotation; b.RotationGapDays = 7 })
+	if problems := ValidatePCCareSOP(ok); len(problems) > 0 {
+		t.Fatalf("rotation with a 7-day gap refused: %v", problems)
+	}
+	if gap, rot := (Rules{PCCareSOP: ok}).RotationGapDays(CategoryFumigation); !rot || gap != 7 {
+		t.Fatalf("RotationGapDays = %d,%v, want 7,true", gap, rot)
+	}
+	if (Rules{PCCareSOP: ok}).RepeatEveryDays(CategoryFumigation) != 0 {
+		t.Fatal("a rotating card must not also repeat on the interval")
+	}
+	bad := map[string]PCCareSOP{
+		"both":            with(CategoryFumigation, func(b *CategoryRules) { b.RepeatMode = RepeatModeRotation; b.RepeatEveryDays = 30 }),
+		"gap-no-rotation": with(CategoryFumigation, func(b *CategoryRules) { b.RotationGapDays = 3 }),
+		"gap-negative":    with(CategoryFumigation, func(b *CategoryRules) { b.RepeatMode = RepeatModeRotation; b.RotationGapDays = -1 }),
+		"gap-too-long":    with(CategoryFumigation, func(b *CategoryRules) { b.RepeatMode = RepeatModeRotation; b.RotationGapDays = MaxRepeatEveryDays + 1 }),
+		"unknown-mode":    with(CategoryFumigation, func(b *CategoryRules) { b.RepeatMode = "weekly" }),
+		// The seed's removal applies to deworming (optional), so a rotating deworming is refused.
+		"removal": with(CategoryDeworming, func(b *CategoryRules) { b.RepeatMode = RepeatModeRotation }),
+	}
+	for name, dsl := range bad {
+		if problems := ValidatePCCareSOP(dsl); len(problems) == 0 {
+			t.Fatalf("%s accepted", name)
+		}
+	}
+	unknown := UnknownPCCareSOPKeys(map[string]any{"pc_care": map[string]any{"categories": map[string]any{"fumigation": map[string]any{"repeat_mode": "rotation", "rotation_gap_days": 2}}}})
+	if len(unknown) != 0 {
+		t.Fatalf("rotation keys reported unknown: %v", unknown)
+	}
+}

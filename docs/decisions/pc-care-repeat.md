@@ -43,3 +43,8 @@ substituted.
 and `TestNoRepeatWhenTheCardSaysNone` (real Postgres: too early / on time / idempotent / chain
 continues from the repeat / an operator who left drops off / nobody left = skip + ONE alert /
 cleared = nothing; the one-alert rule was mutation-tested), and admin-web `pc-care-model.test.mjs`.
+
+## See also
+
+`docs/decisions/pc-care-rotation.md` (2026-10-02): the second repeat choice on the same card,
+"rotate through the pens" -- one pen a day round the park, then round again.

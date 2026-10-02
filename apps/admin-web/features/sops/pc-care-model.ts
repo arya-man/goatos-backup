@@ -69,7 +69,29 @@ export type PcCareCategoryRows = {
    * cleared field stays distinct from an explicit value.
    */
   repeatEveryDays: string;
+  /**
+   * "Rotate through the pens" (2026-10-02): one pen a day, in the park's pen order, through every
+   * pen with animals in it, then round again. Exclusive with repeatEveryDays.
+   */
+  rotate: boolean;
+  /** Days to wait after the last pen before the next round starts; blank = 0. Rotation only. */
+  rotationGapDays: string;
 };
+
+/** How a card repeats, as the editor's one picker shows it. */
+export type PcCareRepeatKind = "none" | "every" | "rotation";
+
+export function pcCareRepeatKind(block: PcCareCategoryRows): PcCareRepeatKind {
+  if (block.rotate) return "rotation";
+  return block.repeatEveryDays.trim() ? "every" : "none";
+}
+
+/** Switches a card's repeat picker; leaving a kind clears what only that kind used. */
+export function withPcCareRepeatKind(block: PcCareCategoryRows, kind: PcCareRepeatKind): PcCareCategoryRows {
+  if (kind === "rotation") return { ...block, rotate: true, repeatEveryDays: "" };
+  if (kind === "every") return { ...block, rotate: false, rotationGapDays: "" };
+  return { ...block, rotate: false, repeatEveryDays: "", rotationGapDays: "" };
+}
 
 /** The longest repeat interval an author may set (the backend's MaxRepeatEveryDays). */
 export const PC_CARE_MAX_REPEAT_DAYS = 365;
@@ -137,6 +159,8 @@ function parseCategory(raw: unknown): PcCareCategoryRows {
     proofs: proofsRaw.flatMap(parseCapture),
     questions: questionsRaw.flatMap(parseQuestion),
     repeatEveryDays: typeof block?.["repeat_every_days"] === "number" && (block["repeat_every_days"] as number) > 0 ? String(block["repeat_every_days"]) : "",
+    rotate: block?.["repeat_mode"] === "rotation",
+    rotationGapDays: typeof block?.["rotation_gap_days"] === "number" && (block["rotation_gap_days"] as number) > 0 ? String(block["rotation_gap_days"]) : "",
   };
 }
 
@@ -187,8 +211,15 @@ export function emitPcCare(rows: PcCareRows): Record<string, unknown> {
     out.proofs = block.proofs.map(emitCapture);
     out.questions = block.questions.map(emitQuestion);
     // Only a real interval is written: blank / 0 means no repeat, and the seed carries none.
-    const every = Number(block.repeatEveryDays);
-    if (block.repeatEveryDays.trim() && Number.isInteger(every) && every > 0) out.repeat_every_days = every;
+    if (block.rotate) {
+      // A rotation writes its mode and, only when set, its gap; never an interval beside it.
+      out.repeat_mode = "rotation";
+      const gap = Number(block.rotationGapDays);
+      if (block.rotationGapDays.trim() && Number.isInteger(gap) && gap > 0) out.rotation_gap_days = gap;
+    } else {
+      const every = Number(block.repeatEveryDays);
+      if (block.repeatEveryDays.trim() && Number.isInteger(every) && every > 0) out.repeat_every_days = every;
+    }
     categories[category] = out;
   }
   const removal: Record<string, unknown> = {
@@ -240,6 +271,15 @@ export function pcCareProblems(rows: PcCareRows, categoryLabel: (category: PcCar
     const every = Number(block.repeatEveryDays);
     if (block.repeatEveryDays.trim() && (!Number.isInteger(every) || every < 0 || every > PC_CARE_MAX_REPEAT_DAYS)) {
       problems.push(`${label}: repeat every must be a whole number of days from 1 to ${PC_CARE_MAX_REPEAT_DAYS}, or blank for no repeat`);
+    }
+    if (block.rotate) {
+      const gap = Number(block.rotationGapDays);
+      if (block.rotationGapDays.trim() && (!Number.isInteger(gap) || gap < 0 || gap > PC_CARE_MAX_REPEAT_DAYS)) {
+        problems.push(`${label}: the wait between rounds must be a whole number of days from 0 to ${PC_CARE_MAX_REPEAT_DAYS}`);
+      }
+      if (rows.removal.mode !== "off" && rows.removal.appliesTo.includes(category)) {
+        problems.push(`${label}: a rotation cannot carry feed and water removal. Take it off the removal list first.`);
+      }
     }
   }
   return problems;

@@ -121,10 +121,22 @@ type CategoryRules struct {
 	// one's PLANNED date, whether or not the last one is finished. 0 / absent = no repeat. Read
 	// from the PUBLISHED document when the next task is made (a planning act), never from a pin.
 	RepeatEveryDays int `json:"repeat_every_days,omitempty"`
+	// RepeatMode (maintainer instruction 2026-10-02, docs/decisions/pc-care-rotation.md) is blank
+	// for the per-pen interval above (or no repeat at all) and RepeatModeRotation for a ROUND
+	// ROBIN: one pen per day, in the park's pen order, through every pen with animals in it, then
+	// round again. The two are exclusive per card -- a card says one or the other.
+	RepeatMode string `json:"repeat_mode,omitempty"`
+	// RotationGapDays is how many days the farm waits after the LAST pen of a rotation before the
+	// first pen of the next one; 0 = start again the next day. Only meaningful under rotation.
+	RotationGapDays int `json:"rotation_gap_days,omitempty"`
 }
 
-// MaxRepeatEveryDays bounds the repeat interval an author may set (one year).
+// MaxRepeatEveryDays bounds the repeat interval an author may set (one year). It bounds the
+// rotation gap too.
 const MaxRepeatEveryDays = 365
+
+// RepeatModeRotation is the round-robin repeat mode (2026-10-02).
+const RepeatModeRotation = "rotation"
 
 // ProofSlots returns the category's slots as the shared authored type (for the validators).
 func (c CategoryRules) ProofSlots() []authored.ProofSlot {
@@ -293,6 +305,26 @@ func ValidatePCCareSOP(dsl PCCareSOP) []string {
 		if block.RepeatEveryDays < 0 || block.RepeatEveryDays > MaxRepeatEveryDays {
 			add("pc_care.categories.%s.repeat_every_days: 0 (no repeat) to %d days", c, MaxRepeatEveryDays)
 		}
+		switch block.RepeatMode {
+		case "":
+			if block.RotationGapDays != 0 {
+				add("pc_care.categories.%s.rotation_gap_days: only a rotation has a gap between rounds", c)
+			}
+		case RepeatModeRotation:
+			if block.RepeatEveryDays != 0 {
+				add("pc_care.categories.%s.repeat_mode: a card repeats every N days OR rotates through the pens, not both", c)
+			}
+			if block.RotationGapDays < 0 || block.RotationGapDays > MaxRepeatEveryDays {
+				add("pc_care.categories.%s.rotation_gap_days: 0 to %d days", c, MaxRepeatEveryDays)
+			}
+			if (Rules{PCCareSOP: dsl}).RemovalAppliesTo(c) {
+				// A rotation plans one pen for the next day; the removal crew's evening before would
+				// already be gone. Rotation is offered only for work with no removal.
+				add("pc_care.categories.%s.repeat_mode: a rotation cannot carry feed and water removal; take %s off the removal list first", c, c)
+			}
+		default:
+			add("pc_care.categories.%s.repeat_mode: %q is not blank or rotation", c, block.RepeatMode)
+		}
 	}
 	return problems
 }
@@ -345,7 +377,7 @@ func UnknownPCCareSOPKeys(formDSL map[string]any) []string {
 	}
 	if cats, ok := raw["categories"].(map[string]any); ok {
 		for c, block := range cats {
-			walk("categories."+c+".", block, map[string]bool{"instruction": true, "proofs": true, "questions": true, "repeat_every_days": true})
+			walk("categories."+c+".", block, map[string]bool{"instruction": true, "proofs": true, "questions": true, "repeat_every_days": true, "repeat_mode": true, "rotation_gap_days": true})
 			b, ok := block.(map[string]any)
 			if !ok {
 				continue
@@ -419,6 +451,15 @@ func (r Rules) RepeatEveryDays(category string) int {
 		return block.RepeatEveryDays
 	}
 	return 0
+}
+
+// RotationGapDays reports whether a category rotates through the pens under these rules and, if
+// so, the gap in days between the last pen of a round and the first of the next.
+func (r Rules) RotationGapDays(category string) (int, bool) {
+	if block := r.Categories[category]; block != nil && block.RepeatMode == RepeatModeRotation {
+		return block.RotationGapDays, true
+	}
+	return 0, false
 }
 
 // CategoryQuestions returns a category's per-animal questions (never nil).

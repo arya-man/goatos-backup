@@ -19,7 +19,7 @@ import (
 )
 
 // PcCareRepeatStage plans the next Preventive Care task of a pen when its SOP card says "repeat
-// every N days" (maintainer instruction 2026-09-30, docs/decisions/pc-care-repeat.md): same pens,
+// every N days", and the next pen of a card set to ROTATE through the pens (2026-10-02) (maintainer instruction 2026-09-30, docs/decisions/pc-care-repeat.md): same pens,
 // same operators, N days after the last task's planned date, RepeatLeadDays ahead. Idempotent
 // from the data -- a task is repeated at most once (unique repeat_of_task_id) and a skip is
 // recorded once -- so every tick after the first finds nothing to do for that pen. Registered on
@@ -74,6 +74,17 @@ func (s *PcCareRepeatStage) Run(ctx context.Context) error {
 		s.logger.InfoContext(ctx, "pc care repeat tick",
 			"rounds_created", result.RoundsCreated, "pens_created", result.PensCreated,
 			"pens_skipped", result.PensSkipped, "conflicts", result.Conflicts)
+	}
+	// The ROTATION half (2026-10-02, docs/decisions/pc-care-rotation.md) rides the same stage:
+	// same store, same published SOP, same skip alert. A card is either one or the other, so the
+	// two passes never plan the same work.
+	rotation, err := s.service.RunRotation(ctx, s.tenantID, s.store, s.alerter, s.limit)
+	if err != nil {
+		return err
+	}
+	if rotation.PensCreated > 0 || rotation.PensSkipped > 0 || rotation.Conflicts > 0 {
+		s.logger.InfoContext(ctx, "pc care rotation tick",
+			"pens_created", rotation.PensCreated, "pens_skipped", rotation.PensSkipped, "conflicts", rotation.Conflicts)
 	}
 	return nil
 }

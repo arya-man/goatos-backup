@@ -347,3 +347,42 @@ type RepeatStore interface {
 	OperatorsAvailableInPark(ctx context.Context, tenantID, parkID string, userIDs []string) ([]string, error)
 	RecordRepeatSkip(ctx context.Context, tenantID, sourceTaskID, reason string, dueDate time.Time, alertedUser string) (bool, error)
 }
+
+// RotationConfig is one work category that ROTATES through the pens under the PUBLISHED PC Care
+// SOP (2026-10-02): GapDays is the wait after the last pen of a round before the first pen of
+// the next.
+type RotationConfig struct {
+	Category string
+	GapDays  int
+}
+
+// RotationCandidate is one (category, park) whose latest task is fully SUBMITTED and whose next
+// pen -- the next pen with animals in it, in the park's pen order, wrapping to the first -- is
+// due on or before the stage's horizon, not yet planned from that task and not skipped.
+type RotationCandidate struct {
+	// SourceTaskID is the task of the LAST pen (in pen order) of the latest round: the one the
+	// next pen is planned from, and the one "repeated at most once" is stamped against.
+	SourceTaskID string
+	Category     string
+	ParkID       string
+	ParkName     string
+	CreatedBy    string
+	// AssigneeUserIDs are the source task's operators.
+	AssigneeUserIDs []string
+	// NextDate is the next pen's business date: the day after the later of the last submit and
+	// the last planned date (plus the gap on a wrap), never before today.
+	NextDate time.Time
+	// Next pen, its catalog identity and its display parts.
+	ShedID         string
+	ShedName       string
+	PartitionLabel string
+	// Wrapped is true when the next pen starts a NEW round of the rotation.
+	Wrapped bool
+}
+
+// RotationStore is the rotation stage's slice of the store.
+type RotationStore interface {
+	ListRotationCandidates(ctx context.Context, tenantID string, cfg []RotationConfig, today, through time.Time, limit int) ([]RotationCandidate, error)
+	OperatorsAvailableInPark(ctx context.Context, tenantID, parkID string, userIDs []string) ([]string, error)
+	RecordRepeatSkip(ctx context.Context, tenantID, sourceTaskID, reason string, dueDate time.Time, alertedUser string) (bool, error)
+}

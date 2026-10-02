@@ -48,6 +48,11 @@ func PCCareRepeatSkippedCopy(s pccareapp.RepeatSkip) (string, string) {
 	if s.Reason == pccareapp.RepeatSkipRemovalWindowClosed {
 		why = "it is too late to remove feed and water the evening before"
 	}
+	if s.Rotation {
+		title := work + " rotation stopped · " + pens
+		body := fmt.Sprintf("The %s rotation was due to reach %s on %s but stopped: %s. Plan %s with someone who can do it and the rotation carries on from there.", strings.ToLower(work), where, date, why, pens)
+		return title, body
+	}
 	title := work + " not repeated · " + pens
 	body := fmt.Sprintf("%s for %s was due again on %s but was not planned: %s. Please plan it with someone who can do it.", work, where, date, why)
 	return title, body

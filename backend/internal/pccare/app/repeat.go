@@ -52,6 +52,9 @@ type RepeatSkip struct {
 	PenLabels     []string
 	DueDate       time.Time
 	Reason        string
+	// Rotation marks a stopped ROTATION (2026-10-02): the pen named is the one the rotation would
+	// have gone to next.
+	Rotation bool
 }
 
 // RepeatAlerter tells the planner their work was not repeated. Production: the notification

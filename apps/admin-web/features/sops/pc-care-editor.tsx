@@ -23,6 +23,9 @@ import {
   PC_CARE_CATEGORIES,
   PC_CARE_REMOVAL_CATEGORIES,
   PC_CARE_MAX_REPEAT_DAYS,
+  pcCareRepeatKind,
+  withPcCareRepeatKind,
+  type PcCareRepeatKind,
   isPenCategory,
   pcCareReachCopyKey,
   blankCapture,
@@ -409,18 +412,50 @@ export function PcCareEditor({ pageContract: pc, basePath, sopId, sopName, versi
 
                   <div className="qcfg" style={{ marginTop: 10 }}>
                     <label className="numfield">
-                      <span className="numlbl">{copy(pc, "pcsop.category.repeat")}</span>
-                      <input
-                        type="number"
-                        min={1}
-                        max={PC_CARE_MAX_REPEAT_DAYS}
-                        value={block.repeatEveryDays}
-                        placeholder={copy(pc, "pcsop.category.repeat.none")}
-                        onChange={(e) => patchCategory(category, (c) => ({ ...c, repeatEveryDays: e.target.value }))}
-                        data-testid={`pcsop-repeat-${category}`}
-                      />
+                      <span className="numlbl">{copy(pc, "pcsop.category.repeat.kind")}</span>
+                      <select
+                        value={pcCareRepeatKind(block)}
+                        onChange={(e) => patchCategory(category, (c) => withPcCareRepeatKind(c, e.target.value as PcCareRepeatKind))}
+                        data-testid={`pcsop-repeat-kind-${category}`}
+                      >
+                        <option value="none">{copy(pc, "pcsop.category.repeat.none")}</option>
+                        <option value="every">{copy(pc, "pcsop.category.repeat.every")}</option>
+                        <option value="rotation">{copy(pc, "pcsop.category.repeat.rotation")}</option>
+                      </select>
                     </label>
-                    <span className="muted small">{copy(pc, "pcsop.category.repeat.hint")}</span>
+                    {pcCareRepeatKind(block) === "every" ? (
+                      <>
+                        <label className="numfield">
+                          <span className="numlbl">{copy(pc, "pcsop.category.repeat")}</span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={PC_CARE_MAX_REPEAT_DAYS}
+                            value={block.repeatEveryDays}
+                            onChange={(e) => patchCategory(category, (c) => ({ ...c, repeatEveryDays: e.target.value }))}
+                            data-testid={`pcsop-repeat-${category}`}
+                          />
+                        </label>
+                        <span className="muted small">{copy(pc, "pcsop.category.repeat.hint")}</span>
+                      </>
+                    ) : null}
+                    {pcCareRepeatKind(block) === "rotation" ? (
+                      <>
+                        <label className="numfield">
+                          <span className="numlbl">{copy(pc, "pcsop.category.rotation.gap")}</span>
+                          <input
+                            type="number"
+                            min={0}
+                            max={PC_CARE_MAX_REPEAT_DAYS}
+                            value={block.rotationGapDays}
+                            placeholder="0"
+                            onChange={(e) => patchCategory(category, (c) => ({ ...c, rotationGapDays: e.target.value }))}
+                            data-testid={`pcsop-rotation-gap-${category}`}
+                          />
+                        </label>
+                        <span className="muted small">{copy(pc, "pcsop.category.rotation.hint")}</span>
+                      </>
+                    ) : null}
                   </div>
 
                   <div className="qcfg" style={{ marginTop: 10 }}>

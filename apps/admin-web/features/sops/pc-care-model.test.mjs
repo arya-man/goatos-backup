@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { PC_CARE_CATEGORIES, blankCapture, emitPcCare, parsePcCare, pcCareProblems } from "./pc-care-model.ts";
+import { PC_CARE_CATEGORIES, blankCapture, emitPcCare, parsePcCare, pcCareProblems, pcCareRepeatKind, withPcCareRepeatKind } from "./pc-care-model.ts";
 
 // The seeded document, read from the backend's own embedded copy: the editor must round-trip the
 // card the farm is actually running, not a hand-written imitation of it.
@@ -120,4 +120,32 @@ test("repeat every N days round-trips, stays absent when blank, and is bounded",
     rows.categories.fumigation.repeatEveryDays = bad;
     assert.ok(pcCareProblems(rows, label, REMOVAL).some((p) => p.includes("repeat every")), `${bad} must be refused`);
   }
+});
+
+test("rotate through the pens round-trips, excludes the interval, and is refused with the removal", async () => {
+  const rows = parsePcCare({ pc_care: seed });
+  assert.equal(rows.categories.fumigation.rotate, false);
+  assert.equal(pcCareRepeatKind(rows.categories.fumigation), "none");
+  rows.categories.fumigation.repeatEveryDays = "30";
+  rows.categories.fumigation = withPcCareRepeatKind(rows.categories.fumigation, "rotation");
+  assert.equal(rows.categories.fumigation.repeatEveryDays, "", "switching to rotation clears the interval");
+  let out = emitPcCare(rows);
+  assert.equal(out.categories.fumigation.repeat_mode, "rotation");
+  assert.equal("repeat_every_days" in out.categories.fumigation, false);
+  assert.equal("rotation_gap_days" in out.categories.fumigation, false, "a blank gap writes nothing");
+  rows.categories.fumigation.rotationGapDays = "7";
+  out = emitPcCare(rows);
+  assert.equal(out.categories.fumigation.rotation_gap_days, 7);
+  const back = parsePcCare({ pc_care: out }).categories.fumigation;
+  assert.equal(pcCareRepeatKind(back), "rotation");
+  assert.equal(back.rotationGapDays, "7");
+  assert.deepEqual(pcCareProblems(rows, label, REMOVAL), []);
+  rows.categories.fumigation.rotationGapDays = "366";
+  assert.ok(pcCareProblems(rows, label, REMOVAL).some((p) => p.includes("between rounds")));
+  // The seed's removal applies to deworming: a rotating deworming is refused.
+  rows.categories.fumigation.rotationGapDays = "";
+  rows.categories.deworming = withPcCareRepeatKind(rows.categories.deworming, "rotation");
+  assert.ok(pcCareProblems(rows, label, REMOVAL).some((p) => p.includes("feed and water removal")));
+  rows.categories.deworming = withPcCareRepeatKind(rows.categories.deworming, "none");
+  assert.equal("repeat_mode" in emitPcCare(rows).categories.deworming, false);
 });
