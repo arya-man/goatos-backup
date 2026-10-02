@@ -10042,8 +10042,10 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 					option("K2", "K2", "", ""),
 					option("K3", "K3", "", ""),
 					option("Kid", "Kid", "", ""),
+					// ONE Fattening rung (C8, pr294): an "F2" option labelled "Fattening" beside it gave the
+					// matrix two identical "Fattening / Kid — fattening" rows -- rows are keyed by LABEL, and
+					// the stage map files every F2 stage under "Fattening" already.
 					option("Fattening", "Fattening", "", ""),
-					option("F2", "Fattening", "", ""),
 					option("Adults", "Adults", "", ""),
 				},
 			},
