@@ -12,6 +12,10 @@ import (
 // rather than a second person row for the same login.
 var ErrDuplicateEmail = errors.New("a person with this email already exists")
 
+// ErrRoleNotOffered refuses an Add Person role that is not an ACTIVE designation_catalog row:
+// the form offers exactly the catalog, so a role outside it was not on the form.
+var ErrRoleNotOffered = errors.New("role is not an active designation")
+
 type ListPeopleParams struct {
 	TenantID     string
 	ParkID       string

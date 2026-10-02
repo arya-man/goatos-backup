@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/adminui/domain"
-	"github.com/vgoats/goatos/backend/internal/permissions"
 )
 
 type Service struct {
@@ -9713,31 +9712,12 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 				},
 			},
 			{
-				// The roles the Add Person form may grant — the same closed set the
-				// backend enforces (workforce/app.grantablePersonRoles). Title carries
-				// the grant's SCOPE SHAPE ("park" or "tenant") so the form knows when
-				// the park select is required; it is a machine hint, not display copy.
-				ID: "people_roles",
-				Options: []domain.Option{
-					// The ground tiers, by department (maintainer decision 2026-09-23).
-					// These replace Operator; it stays grantable until the last person
-					// carrying it has been moved across.
-					option(permissions.RoleKey(permissions.TierManager, permissions.VerticalFeed), "Feed Manager", "park", ""),
-					option(permissions.RoleKey(permissions.TierManager, permissions.VerticalHealth), "Health Manager", "park", ""),
-					option(permissions.RoleKey(permissions.TierManager, permissions.VerticalFarming), "Farming Manager", "park", ""),
-					option(permissions.RoleKey(permissions.TierManager, permissions.VerticalCleaning), "Cleaning Manager", "park", ""),
-					option(permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalFeed), "Feed Assistant Manager", "park", ""),
-					option(permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalHealth), "Health Assistant Manager", "park", ""),
-					option(permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalFarming), "Farming Assistant Manager", "park", ""),
-					option(permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalCleaning), "Cleaning Assistant Manager", "park", ""),
-					option(permissions.RoleParkHead, "Park Head", "park", ""),
-					option(permissions.RoleVerifier, "Verifier", "tenant", ""),
-					option(permissions.RolePCDirector, "PC Director", "tenant", ""),
-					option(permissions.RoleGrowthDirector, "Growth Director", "tenant", ""),
-					option(permissions.RoleFeedDirector, "Feed Director", "tenant", ""),
-					option(permissions.RoleHealthDirector, "Health Director", "tenant", ""),
-					option(permissions.RoleBreedingDirector, "Breeding Director", "tenant", ""),
-				},
+				// The roles the Add Person form may grant. Declared EMPTY here and filled by
+				// compilePeopleRoles from the designation catalog (designation_catalog), the same
+				// rows the write path checks -- never a constant list (2026-10-02: the old literal
+				// list left out Sales Director, Sales Manager, Procurement Director/Manager and HR).
+				ID:      "people_roles",
+				Options: []domain.Option{},
 			},
 			{
 				ID: "people_designation_grades",

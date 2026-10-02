@@ -289,6 +289,24 @@ ORDER BY label`, tenantID)
 // not reserve the key: reservation happens in CreatePerson's DB transaction, so
 // an exact retry while the first request is between Firebase and Postgres sees a
 // single in-flight key instead of re-running the write side effects.
+// requireActiveDesignation refuses a role that is not an active designation_catalog row. The
+// Add Person form's role list IS that catalog (compiled into the people_roles option group),
+// so the write path accepts exactly what the form offers.
+func requireActiveDesignation(ctx context.Context, q interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}, role string) error {
+	var ok bool
+	if err := q.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM designation_catalog WHERE designation_code = $1 AND status = 'active')`,
+		role).Scan(&ok); err != nil {
+		return err
+	}
+	if !ok {
+		return ports.ErrRoleNotOffered
+	}
+	return nil
+}
+
 func (r *Repository) PreflightCreatePerson(ctx context.Context, cmd ports.PreflightCreatePersonCommand) (ports.PreflightCreatePersonResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -312,6 +330,9 @@ func (r *Repository) PreflightCreatePerson(ctx context.Context, cmd ports.Prefli
 		return ports.PreflightCreatePersonResult{Replay: &person}, nil
 	}
 
+	if err := requireActiveDesignation(ctx, r.pool, cmd.Role); err != nil {
+		return ports.PreflightCreatePersonResult{}, err
+	}
 	var existingID string
 	err = r.pool.QueryRow(ctx, `
 SELECT workforce_member_id::text
@@ -366,6 +387,10 @@ func (r *Repository) CreatePerson(ctx context.Context, cmd ports.CreatePersonCom
 		return person, nil
 	}
 
+	if err := requireActiveDesignation(ctx, tx, cmd.Role); err != nil {
+		return domain.PersonSummary{}, err
+	}
+
 	// Duplicate probe before insert so the caller gets a specific 409 rather
 	// than a generic constraint conflict.
 	var existingID string
@@ -408,12 +433,15 @@ RETURNING workforce_member_id::text`,
 	// park (if any) kept as the seat. The grant row is derived from that scope rather than
 	// inserted here, so there is exactly one place that decides where a role applies
 	// (internal/parkscope).
+	// The role IS a designation (requireActiveDesignation above), so the person's access header
+	// records the job title they started as -- the People board shows it.
+	designation := cmd.Role
 	scopeMode, scopeParks := "tenant", []string(nil)
 	if cmd.ScopeType == "park" {
 		scopeMode, scopeParks = "parks", []string{cmd.ScopeID}
 	}
 	if _, err := parkscope.WritePersonScope(ctx, tx, cmd.TenantID, cmd.ActorID, personID,
-		scopeMode, cmd.ParkID, scopeParks, nil, []string{cmd.Role}); err != nil {
+		scopeMode, cmd.ParkID, scopeParks, &designation, []string{cmd.Role}); err != nil {
 		return domain.PersonSummary{}, mapPersonWriteErr(err)
 	}
 	var grantID string

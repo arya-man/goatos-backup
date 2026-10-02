@@ -308,7 +308,7 @@ func TestGroundTiersKeepTheOperatorHintUntilTheAPKShips(t *testing.T) {
 		"am_health", "am_feed", "am_cleaning", "am_farming",
 	}
 	for _, role := range groundTiers {
-		spec, ok := grantablePersonRoles[role]
+		spec, ok := personRoleSpecFor(role)
 		if !ok {
 			t.Errorf("%s is not grantable; the ground tiers must stay on the Add Person form", role)
 			continue

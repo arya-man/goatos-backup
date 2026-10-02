@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/vgoats/goatos/backend/internal/permissions"
 )
 
 // ONE SOURCE FOR "WHICH PARK" (maintainer decision 2026-09-04).
@@ -52,17 +54,20 @@ type Result struct {
 // person holding one of these cannot be narrowed to parks -- the narrowing would either
 // lock them out (their routes refuse park-scoped grants) or, worse, silently show a
 // director half the herd. Narrowing is REFUSED with the role named, never applied.
-var TenantOnlyRoles = map[string]bool{
-	"ceo_internal":         true,
-	"verifier":             true,
-	"pc_director":          true,
-	"growth_director":      true,
-	"feed_director":        true,
-	"health_director":      true,
-	"procurement_director": true,
-	"counts_approver":      true,
-	"toxin_tester":         true,
-}
+//
+// Built from permissions.RoleWorksAcrossEveryPark, the one answer the Add Person form also
+// reads. It used to be a list of its own, and it drifted: Breeding Director (offered at tenant
+// scope since 2026-09-04), HR and every composite director key were missing, so creating any
+// of them from People / HRMS was refused.
+var TenantOnlyRoles = func() map[string]bool {
+	out := map[string]bool{}
+	for _, role := range permissions.KnownRoles() {
+		if permissions.RoleWorksAcrossEveryPark(role) {
+			out[role] = true
+		}
+	}
+	return out
+}()
 
 // TenantOnlyRoleError says which role stopped a parks-mode write.
 type TenantOnlyRoleError struct{ Role string }

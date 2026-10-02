@@ -1,6 +1,9 @@
 package permissions
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 // Org role model -- tier x vertical x park.
 //
@@ -136,6 +139,52 @@ func IsOrgRoleKey(role string) bool {
 func IsKnownRole(role string) bool {
 	_, ok := rolePermissions[role]
 	return ok
+}
+
+// RoleWorksAcrossEveryPark reports whether a role covers the whole farm by definition, so a
+// person holding it is granted at tenant scope and is never narrowed to parks. It is the ONE
+// answer to that question: the Add Person form's scope hint, its write path and the park-scope
+// derivation (internal/parkscope) all read it.
+//
+// It is a list on purpose and not "every director-grade designation": a park head is a manager
+// in one park, and HR / the directors are desks that see both parks. Every composite DIRECTOR
+// key (director_sales, director_procurement, ...) is farm-wide for the same reason the named
+// directors are. Before 2026-10-02 Breeding Director and HR were missing here while the form
+// offered Breeding Director at tenant scope, so creating one was refused ("a person with only
+// park roles must be limited to parks"); pinned by TestEveryFarmWideRoleIsTenantOnlyInParkScope.
+func RoleWorksAcrossEveryPark(role string) bool {
+	switch role {
+	case RoleCEOInternal, RoleVerifier, RolePCDirector, RoleGrowthDirector, RoleFeedDirector,
+		RoleHealthDirector, RoleBreedingDirector, RoleProcurementDirector, RoleHR,
+		RoleCountsApprover, RoleToxinTester:
+		return true
+	}
+	tier, _, ok := ParseRoleKey(role)
+	return ok && tier == TierDirector
+}
+
+// GrantableFromAddPerson reports whether the People / HRMS Add Person form may grant role. The
+// form's list is the designation catalog (designation_catalog); this is the RBAC half -- a
+// designation whose code is not a role this backend knows grants nothing, so it is not offered.
+//
+// ceo_internal is never grantable from a form: the platform-owner cohort is seed-owned (AGENTS.md
+// founder/builder visibility invariant). operator is retired (000394) -- its people moved onto
+// the department manager roles.
+func GrantableFromAddPerson(role string) bool {
+	if role == RoleCEOInternal || role == RoleOperator {
+		return false
+	}
+	return IsKnownRole(role)
+}
+
+// KnownRoles returns every role IsKnownRole accepts, sorted.
+func KnownRoles() []string {
+	out := make([]string, 0, len(rolePermissions))
+	for role := range rolePermissions {
+		out = append(out, role)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // KeepsOperatorPrimaryRoleHintUntilAPK reports the temporary compatibility

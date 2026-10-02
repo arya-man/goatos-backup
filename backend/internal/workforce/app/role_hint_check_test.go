@@ -1,6 +1,7 @@
 package app
 
 import (
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -59,7 +60,7 @@ func TestEveryGrantableRoleHintIsAcceptedByTheColumnCheck(t *testing.T) {
 	if accepted == nil {
 		t.Fatal("no migration re-adds workforce_members_role_hint_check; the parser or the schema moved")
 	}
-	for role, spec := range grantablePersonRoles {
+	for role, spec := range addPersonRoleSpecs() {
 		if _, ok := accepted[spec.RoleHint]; !ok {
 			t.Errorf("role %s stamps primary_role_hint=%q, which %s's workforce_members_role_hint_check does not accept -- Add Person would validate and then fail at the INSERT", role, spec.RoleHint, source)
 		}
@@ -115,7 +116,7 @@ func TestLegacyOperatorPathsAcceptTheBreedingDirectorHint(t *testing.T) {
 // derivation knows how to preserve tenant-wide, must also be grantable to an existing
 // person, or the write paths disagree about which roles exist.
 func TestEveryGrantableRoleIsAcceptedByTheGrantPreflight(t *testing.T) {
-	for role := range grantablePersonRoles {
+	for role := range addPersonRoleSpecs() {
 		if !validRole(role) {
 			t.Errorf("role %s is grantable from Add Person but CreateGrant's validRole refuses it", role)
 		}
@@ -125,4 +126,16 @@ func TestEveryGrantableRoleIsAcceptedByTheGrantPreflight(t *testing.T) {
 			t.Errorf("role %s is tenant-only in park-scope derivation but CreateGrant's validRole refuses it", role)
 		}
 	}
+}
+
+// addPersonRoleSpecs is every role the Add Person form could grant if the designation catalog
+// carried it: personRoleSpecFor over every known role.
+func addPersonRoleSpecs() map[string]personRoleSpec {
+	out := map[string]personRoleSpec{}
+	for _, role := range permissions.KnownRoles() {
+		if spec, ok := personRoleSpecFor(role); ok {
+			out[role] = spec
+		}
+	}
+	return out
 }

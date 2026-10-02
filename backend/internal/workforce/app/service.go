@@ -866,7 +866,7 @@ func validMemberStatus(value string) bool {
 // validRoleHint is the legacy operator create/update path's hint check. It must accept exactly
 // what workforce_members_role_hint_check accepts -- the DB list is the truth, and this is a
 // pre-flight so a bad hint is a 400 rather than a check_violation. The two lists, plus the
-// Add Person form's grantablePersonRoles hints, are pinned against each other by
+// Add Person form's personRoleSpecFor hints, are pinned against each other by
 // TestEveryGrantableRoleHintIsAcceptedByTheColumnCheck (PR #181 finding PC-181-003: this list
 // was left behind when 000247 widened the CHECK, so the operator edit path still refused
 // breeding_director).
@@ -888,7 +888,7 @@ func validRoleHint(value string) bool {
 }
 
 // validRole is CreateGrant's role pre-flight. Every role the Add Person form can grant
-// (grantablePersonRoles) and every tenant-only role the park-scope derivation preserves
+// (personRoleSpecFor) and every tenant-only role the park-scope derivation preserves
 // must pass here too, or a role that lands from the form/seed path cannot be added to an
 // existing person from the grants endpoint.
 func validRole(value string) bool {
@@ -897,7 +897,7 @@ func validRole(value string) bool {
 	// roles were added (2026-09-23): a Feed Manager could be created but not then granted
 	// to an existing person from the grants endpoint. Reading the map is what keeps them
 	// from drifting again; TestEveryGrantableRoleIsAcceptedByTheGrantPreflight pins it.
-	if _, ok := grantablePersonRoles[value]; ok {
+	if _, ok := personRoleSpecFor(value); ok {
 		return true
 	}
 	switch value {

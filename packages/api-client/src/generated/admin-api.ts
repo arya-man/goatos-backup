@@ -2909,8 +2909,8 @@ export interface components {
             first_name: string;
             last_name?: string;
             email: string;
-            /** @enum {string} */
-            role: "operator" | "park_head" | "verifier" | "pc_director" | "growth_director" | "feed_director" | "health_director";
+            /** @description An ACTIVE designation_catalog code that is a known RBAC role (never ceo_internal, never the retired operator). The set is served as the people_roles option group on the People page contract; the server refuses anything outside it with invalid_role. */
+            role: string;
             /** Format: uuid */
             park_id?: string;
             /** Format: uuid */

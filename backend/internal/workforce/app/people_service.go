@@ -23,58 +23,51 @@ type personRoleSpec struct {
 	RoleHint  string
 }
 
-// grantablePersonRoles is the closed set the Add Person form may grant.
-// ceo_internal is deliberately absent: the platform-owner cohort is seed-owned
-// (founder/builder visibility invariant), never created from a form.
-var grantablePersonRoles = map[string]personRoleSpec{
-	permissions.RoleParkHead:       {ScopeType: "park", RoleHint: "park_head"},
-	permissions.RoleVerifier:       {ScopeType: "tenant", RoleHint: "verifier"},
-	permissions.RolePCDirector:     {ScopeType: "tenant", RoleHint: "pc_director"},
-	permissions.RoleGrowthDirector: {ScopeType: "tenant", RoleHint: "growth_director"},
-	permissions.RoleFeedDirector:   {ScopeType: "tenant", RoleHint: "feed_director"},
-	permissions.RoleHealthDirector: {ScopeType: "tenant", RoleHint: "health_director"},
-	// Breeding Director (maintainer decision 2026-09-04): a director desk, tenant-scoped like
-	// the others -- hoof / hair trimming is planned across both parks.
-	permissions.RoleBreedingDirector: {ScopeType: "tenant", RoleHint: "breeding_director"},
-
-	// The ground tiers (maintainer decision 2026-09-23). The farm has no "operator": it has
-	// MANAGERS, by department, and ASSISTANT MANAGERS under them -- which is what the roster
-	// seats (feeding_manager, health_kidding_manager_1, cleaning_am1, farming_am) always
-	// said, while RBAC had only the one flat `operator` role to grant them.
-	//
-	// PARK-scoped, never tenant: a ground tier belongs to one park, and the operator-scope
-	// invariant this replaces is the same one (check-stg-operator-scope.mjs).
-	//
-	// THE HINT IS STILL `operator`, AND IT HAS TO BE UNTIL AN APK SHIPS. This looks wrong and
-	// is deliberate, so read this before "fixing" it to 'manager'.
-	//
-	// The INSTALLED Android app gates feed capture on an exact string equality against the
-	// hint -- FeedDirectionViewModel.kt:164 and FeedWastageViewModel.kt:146, both
-	// `primaryRoleHint == "operator"`, both defaulting the capability to FALSE. A hint of
-	// 'manager' therefore does not degrade gracefully on a phone already in somebody's
-	// pocket: it silently removes feed direction and feed wastage capture from a person who
-	// holds every feed permission there is. GoatOsShell.kt:825 keys on the same string to
-	// decide whether the drawer hides roadmap rows.
-	//
-	// Migration 000394 is careful about exactly this -- it moves each existing person's ROLE
-	// and deliberately leaves their hint alone -- and the Add Person form writing a different
-	// hint would have reopened the same hole for everybody hired AFTER the deploy, who are
-	// precisely the people nobody would think to check. A new Feed Manager would have been
-	// created correctly, looked correct in HRMS, and been unable to record feed.
-	//
-	// The tier hints 'manager' / 'assistant_manager' are already legal in the column CHECK
-	// (000393) and in validRoleHint, so flipping the four lines below is the whole change --
-	// it belongs in the same commit that replaces those two gates with backend capability
-	// flags and ships the APK. Pinned by TestGroundTiersKeepTheOperatorHintUntilTheAPKShips.
-	permissions.RoleKey(permissions.TierManager, permissions.VerticalHealth):   {ScopeType: "park", RoleHint: "operator"},
-	permissions.RoleKey(permissions.TierManager, permissions.VerticalFeed):     {ScopeType: "park", RoleHint: "operator"},
-	permissions.RoleKey(permissions.TierManager, permissions.VerticalCleaning): {ScopeType: "park", RoleHint: "operator"},
-	permissions.RoleKey(permissions.TierManager, permissions.VerticalFarming):  {ScopeType: "park", RoleHint: "operator"},
-
-	permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalHealth):   {ScopeType: "park", RoleHint: "operator"},
-	permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalFeed):     {ScopeType: "park", RoleHint: "operator"},
-	permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalCleaning): {ScopeType: "park", RoleHint: "operator"},
-	permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalFarming):  {ScopeType: "park", RoleHint: "operator"},
+// personRoleSpecFor is what the Add Person form grants for role: its scope shape and the
+// primary_role_hint stamped on the member. WHICH roles the form offers is the designation
+// catalog (designation_catalog, active rows) -- the write path checks membership in the same
+// transaction (ports.ErrRoleNotOffered) -- and this is only the RBAC half:
+//
+//   - the role must be one this backend knows (permissions.GrantableFromAddPerson), and never
+//     ceo_internal: the platform-owner cohort is seed-owned (founder/builder visibility
+//     invariant), never created from a form;
+//   - the scope is tenant for a farm-wide desk (permissions.RoleWorksAcrossEveryPark -- the same
+//     answer internal/parkscope enforces) and park for everyone else.
+//
+// Until 2026-10-02 this was a closed map of fifteen roles, so Sales Director, Sales Manager,
+// Procurement Director / Manager and HR -- all in the catalog -- could not be chosen.
+//
+// THE GROUND TIERS' HINT IS STILL `operator`, AND IT HAS TO BE UNTIL AN APK SHIPS. This looks
+// wrong and is deliberate, so read this before "fixing" it to 'manager'.
+//
+// The INSTALLED Android app gates feed capture on an exact string equality against the
+// hint -- FeedDirectionViewModel.kt:164 and FeedWastageViewModel.kt:146, both
+// `primaryRoleHint == "operator"`, both defaulting the capability to FALSE. A hint of
+// 'manager' therefore does not degrade gracefully on a phone already in somebody's
+// pocket: it silently removes feed direction and feed wastage capture from a person who
+// holds every feed permission there is. GoatOsShell.kt:825 keys on the same string to
+// decide whether the drawer hides roadmap rows. Migration 000394 moves each existing
+// person's ROLE and deliberately leaves their hint alone; the Add Person form writing a
+// different hint would reopen the same hole for everybody hired after the deploy.
+// Pinned by TestGroundTiersKeepTheOperatorHintUntilTheAPKShips.
+//
+// Any other role's hint is the role itself when the column CHECK knows it, else "other": the
+// hint is a legacy display field the People board never shows.
+func personRoleSpecFor(role string) (personRoleSpec, bool) {
+	if !permissions.GrantableFromAddPerson(role) {
+		return personRoleSpec{}, false
+	}
+	spec := personRoleSpec{ScopeType: "park", RoleHint: "other"}
+	if permissions.RoleWorksAcrossEveryPark(role) {
+		spec.ScopeType = "tenant"
+	}
+	switch {
+	case permissions.KeepsOperatorPrimaryRoleHintUntilAPK(role):
+		spec.RoleHint = "operator"
+	case validRoleHint(role):
+		spec.RoleHint = role
+	}
+	return spec, true
 }
 
 var validDesignationGrades = map[string]struct{}{
@@ -159,7 +152,7 @@ func (s *PeopleService) CreatePerson(ctx context.Context, tenantID, actorID, ide
 	}
 
 	role := strings.TrimSpace(body.Role)
-	spec, ok := grantablePersonRoles[role]
+	spec, ok := personRoleSpecFor(role)
 	if !ok {
 		return nil, BadRequest("invalid_role", "role is not grantable from this form")
 	}
@@ -206,6 +199,9 @@ func (s *PeopleService) CreatePerson(ctx context.Context, tenantID, actorID, ide
 	if err != nil {
 		if errors.Is(err, ports.ErrDuplicateEmail) {
 			return nil, &Error{Code: "duplicate_email", Message: "a person with this email already exists", HTTPStatus: 409, Retryable: false}
+		}
+		if errors.Is(err, ports.ErrRoleNotOffered) {
+			return nil, BadRequest("invalid_role", "role is not grantable from this form")
 		}
 		if errors.Is(err, ports.ErrIdempotencyConflict) {
 			return nil, &Error{Code: "idempotency_conflict", Message: "this request key was already used with different details", HTTPStatus: 409, Retryable: false}
@@ -259,6 +255,9 @@ func (s *PeopleService) CreatePerson(ctx context.Context, tenantID, actorID, ide
 	if err != nil {
 		if errors.Is(err, ports.ErrDuplicateEmail) {
 			return nil, &Error{Code: "duplicate_email", Message: "a person with this email already exists", HTTPStatus: 409, Retryable: false}
+		}
+		if errors.Is(err, ports.ErrRoleNotOffered) {
+			return nil, BadRequest("invalid_role", "role is not grantable from this form")
 		}
 		if errors.Is(err, ports.ErrIdempotencyConflict) {
 			return nil, &Error{Code: "idempotency_conflict", Message: "this request key was already used with different details", HTTPStatus: 409, Retryable: false}

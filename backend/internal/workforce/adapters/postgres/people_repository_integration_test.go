@@ -416,6 +416,66 @@ func TestCreatePersonAcceptsTheBreedingDirectorRoleHintWithDockerPostgres(t *tes
 	}
 }
 
+// TestCreatePersonGrantsASalesDirectorFromTheDesignationCatalogWithDockerPostgres: the Add Person
+// role list is the designation catalog (People / HRMS fixes, 2026-10-02). A Sales Director --
+// a catalog row since 000464, a composite org-role key since the baseline -- is created at
+// TENANT scope in one write, their access header records the designation, and a known role that
+// is NOT an active designation is refused before anything is written.
+func TestCreatePersonGrantsASalesDirectorFromTheDesignationCatalogWithDockerPostgres(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool := pgtest.StartPostgres(t, ctx)
+	repo := NewRepository(pool, 5*time.Second)
+	seedPeoplePark(t, ctx, pool)
+
+	cmd := peopleCreateCommand("people-key-sales-director")
+	cmd.UserID = "91000000-0000-4000-8000-000000000044"
+	cmd.Email = "sales-director@mesha.sg"
+	cmd.NormalizedEmail = "sales-director@mesha.sg"
+	cmd.DisplayName = "Sales Director"
+	cmd.Role = "director_sales"
+	cmd.ScopeType = "tenant"
+	cmd.ScopeID = peopleTenant
+	cmd.RoleHint = "other"
+	person, err := repo.CreatePerson(ctx, cmd)
+	if err != nil {
+		t.Fatalf("CreatePerson(director_sales): %v", err)
+	}
+	var scopeType, designation string
+	if err := pool.QueryRow(ctx, `
+SELECT g.scope_type, coalesce(pa.designation_code, '')
+  FROM user_scope_grants g
+  JOIN workforce_members m ON m.tenant_id = g.tenant_id AND m.user_id = g.user_id
+  LEFT JOIN person_access pa ON pa.tenant_id = m.tenant_id AND pa.workforce_member_id = m.workforce_member_id
+ WHERE m.workforce_member_id = $1::uuid AND g.role = 'director_sales' AND g.status = 'active'`,
+		person.PersonID).Scan(&scopeType, &designation); err != nil {
+		t.Fatalf("read grant: %v", err)
+	}
+	if scopeType != "tenant" || designation != "director_sales" {
+		t.Fatalf("grant scope=%q designation=%q, want tenant / director_sales", scopeType, designation)
+	}
+
+	// director_milk is a known org-role key with no designation row: not on the form, refused.
+	bad := peopleCreateCommand("people-key-not-a-designation")
+	bad.UserID = "91000000-0000-4000-8000-000000000045"
+	bad.Email = "milk-director@mesha.sg"
+	bad.NormalizedEmail = "milk-director@mesha.sg"
+	bad.Role = "director_milk"
+	bad.ScopeType = "tenant"
+	bad.ScopeID = peopleTenant
+	bad.RoleHint = "other"
+	if _, err := repo.PreflightCreatePerson(ctx, ports.PreflightCreatePersonCommand{
+		TenantID: peopleTenant, IdempotencyKey: "people-key-not-a-designation", NormalizedEmail: bad.NormalizedEmail,
+		FirstName: "Milk", Role: bad.Role, ScopeType: bad.ScopeType, ScopeID: bad.ScopeID,
+	}); !errors.Is(err, ports.ErrRoleNotOffered) {
+		t.Fatalf("PreflightCreatePerson(director_milk) err = %v, want ErrRoleNotOffered", err)
+	}
+	if _, err := repo.CreatePerson(ctx, bad); !errors.Is(err, ports.ErrRoleNotOffered) {
+		t.Fatalf("CreatePerson(director_milk) err = %v, want ErrRoleNotOffered", err)
+	}
+}
+
 // Marking a person inactive on People / HRMS must take them off every roster that reads seats. It
 // used to revoke their logins and leave their seats active, so an operator who had left the park
 // (Darshan Talwar on STG, inactive since 2026-08-24) still showed on the Vaccination operators

@@ -1131,6 +1131,7 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			out[i].Controls = compileConfigurationControls(out[i].Controls, input, out[i].Copy)
 		case "people":
 			out[i].Controls = compilePeopleControls(out[i].Controls, input, out[i].Copy)
+			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "people_roles", compilePeopleRoles(families.Designations))
 		case "counts-breakdown":
 			out[i].Controls = compileCountsBreakdownControls(out[i].Controls, input, out[i].Copy)
 			// The breed catalog for the inline breed correction, injected the same way Feed's
@@ -1776,6 +1777,27 @@ func compileFeedPurchaseControls(controls []domain.Control, input BootstrapInput
 // button reads as a broken page, and a disabled one carrying "your role can view access but not
 // change it" is an answer. The PUT route behind it requires the same permission, so a principal
 // who defeats the disabled state still gets 403 -- the control is the honest label, not the lock.
+// compilePeopleRoles is the Add Person form's role list: every ACTIVE designation whose code is a
+// role the form may grant (permissions.GrantableFromAddPerson -- never ceo_internal, never the
+// retired operator), in the catalog's order. Title carries the grant's SCOPE SHAPE ("park" or
+// "tenant", permissions.RoleWorksAcrossEveryPark) so the form knows when the park select is
+// required; it is a machine hint, not display copy. The write path
+// (workforce/app.personRoleSpecFor + the designation_catalog check) accepts exactly this set.
+func compilePeopleRoles(designations []ReferenceOption) []domain.Option {
+	out := make([]domain.Option, 0, len(designations))
+	for _, d := range designations {
+		if !permissions.GrantableFromAddPerson(d.Key) {
+			continue
+		}
+		scope := "park"
+		if permissions.RoleWorksAcrossEveryPark(d.Key) {
+			scope = "tenant"
+		}
+		out = append(out, option(d.Key, d.Label, scope, ""))
+	}
+	return out
+}
+
 func compilePeopleControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
 	allowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.OperatorsManageCapability})
 	reason := ""

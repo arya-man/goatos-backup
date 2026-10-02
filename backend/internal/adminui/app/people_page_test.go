@@ -96,11 +96,46 @@ func TestPeoplePageContractCarriesDirectoryAndTabs(t *testing.T) {
 	if len(tabs) < 4 || disabledWithReason == 0 {
 		t.Fatalf("people_view_tabs must declare the module strip with disabled placeholders, got %v", tabs)
 	}
-	if len(roles) == 0 {
-		t.Fatalf("people_roles must declare the grantable role set")
+	// people_roles is declared EMPTY on the static contract: compilePeopleRoles fills it from
+	// the designation catalog (TestAddPersonRolesComeFromTheDesignationCatalog).
+	if len(roles) != 0 {
+		t.Fatalf("people_roles must not carry a constant role list; it is compiled from designation_catalog, got %v", roles)
 	}
-	for _, role := range roles {
-		if role == permissions.RoleCEOInternal {
+}
+
+// TestAddPersonRolesComeFromTheDesignationCatalog: the Add Person role dropdown is the
+// designation catalog, filtered to roles the form may grant, each carrying its scope shape.
+// The old literal list left out Sales Director, Sales Manager, Procurement Director / Manager
+// and HR (People / HRMS fixes, 2026-10-02).
+func TestAddPersonRolesComeFromTheDesignationCatalog(t *testing.T) {
+	catalog := []ReferenceOption{
+		{Key: "ceo_internal", Label: "CEO / CXO"},
+		{Key: "director_sales", Label: "Sales Director"},
+		{Key: "procurement_director", Label: "Procurement Director"},
+		{Key: "hr", Label: "HR"},
+		{Key: "park_head", Label: "Park Head"},
+		{Key: "manager_sales", Label: "Sales Manager"},
+		{Key: "operator", Label: "Operator"},
+		{Key: "made_up_title", Label: "Not a role"},
+	}
+	got := compilePeopleRoles(catalog)
+	want := []struct{ key, label, scope string }{
+		{"director_sales", "Sales Director", "tenant"},
+		{"procurement_director", "Procurement Director", "tenant"},
+		{"hr", "HR", "tenant"},
+		{"park_head", "Park Head", "park"},
+		{"manager_sales", "Sales Manager", "park"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("people_roles = %+v, want %d options", got, len(want))
+	}
+	for i, w := range want {
+		if got[i].Key != w.key || got[i].Label != w.label || got[i].Title != w.scope {
+			t.Errorf("option %d = {%s %s %s}, want {%s %s %s}", i, got[i].Key, got[i].Label, got[i].Title, w.key, w.label, w.scope)
+		}
+	}
+	for _, opt := range got {
+		if opt.Key == permissions.RoleCEOInternal {
 			t.Fatalf("ceo_internal must never be grantable from the Add Person form")
 		}
 	}
