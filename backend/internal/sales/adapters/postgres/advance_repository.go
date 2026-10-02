@@ -24,6 +24,35 @@ const (
 	idemScopeDealSettlement = "sales.deal.advance_settlement"
 )
 
+const addDealLinesLockSQL = `
+	SELECT sale_date, farm, buyer_name, status, product_type IS NULL, payment_received
+	FROM public.sales_deals
+	WHERE tenant_id = $1 AND id = $2
+	FOR UPDATE`
+
+const updateDealLinesRollupSQL = `
+	UPDATE public.sales_deals
+	SET product_type = $3, breed = $4, animal_count = $5, male_count = $6, female_count = $7,
+	    total_weight_kg = $8, sales_value = $9, updated_at = now()
+	WHERE tenant_id = $1 AND id = $2`
+
+const settleDealAdvanceLockSQL = `
+	SELECT status, payment_received
+	FROM public.sales_deals
+	WHERE tenant_id = $1 AND id = $2
+	FOR UPDATE`
+
+const upsertDealAdvanceSettlementSQL = `
+	INSERT INTO public.sales_deal_advance_settlements
+	    (tenant_id, deal_id, refunded_rupees, refunded_on, note, settled_by)
+	VALUES ($1::uuid, $2::uuid, $3, nullif($4, '')::date, nullif($5, ''), $6)
+	ON CONFLICT (tenant_id, deal_id) DO UPDATE
+	SET refunded_rupees = EXCLUDED.refunded_rupees,
+	    refunded_on     = EXCLUDED.refunded_on,
+	    note            = EXCLUDED.note,
+	    settled_by      = EXCLUDED.settled_by,
+	    updated_at      = now()`
+
 // AddDealLines writes what was sold onto an advance-only sale, ONCE. The deal row becomes the
 // rollup of the lines, exactly as a sale recorded with them would have been, and
 // sales.deal.recorded is emitted HERE -- in the same transaction -- so the sale's workflow opens
@@ -60,11 +89,7 @@ func (r *Repository) AddDealLines(ctx context.Context, tenantID, dealID string, 
 		advanceOnly             bool
 		received                *float64
 	)
-	err = tx.QueryRow(ctx, `
-SELECT sale_date, farm, buyer_name, status, product_type IS NULL, payment_received
-FROM public.sales_deals
-WHERE tenant_id = $1 AND id = $2
-FOR UPDATE`, tenantID, dealID).Scan(&saleDate, &farm, &buyerName, &status, &advanceOnly, &received)
+	err = tx.QueryRow(ctx, addDealLinesLockSQL, tenantID, dealID).Scan(&saleDate, &farm, &buyerName, &status, &advanceOnly, &received)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Deal{}, ports.ErrDealNotFound
 	}
@@ -90,11 +115,13 @@ FOR UPDATE`, tenantID, dealID).Scan(&saleDate, &farm, &buyerName, &status, &adva
 	if _, err := insertDealLines(ctx, tx, tenantID, dealID, write.Lines); err != nil {
 		return domain.Deal{}, err
 	}
-	if _, err := tx.Exec(ctx, `
-UPDATE public.sales_deals
-SET product_type = $3, breed = $4, animal_count = $5, male_count = $6, female_count = $7,
-    total_weight_kg = $8, sales_value = $9, updated_at = now()
-WHERE tenant_id = $1 AND id = $2`,
+	// projection-review: membership=the one locked advance-only sales_deals row plus the line set
+	// accepted by DealLinesWrite.Validate; group_key=deal_id (the deal rollup row), with line facts
+	// collapsed in domain.RollupLines before this write; join_cardinality=no SQL joins in the rollup
+	// update, so multiple product lines cannot fan out the deal; pagination=none, this is a single
+	// command write whose result is later read by the paged GET /sales/deals ledger; status=the row
+	// lock refuses Deal Failed and refuses a second line-add once product_type is no longer null.
+	if _, err := tx.Exec(ctx, updateDealLinesRollupSQL,
 		tenantID, dealID, rollup.ProductType, rollup.Breed, rollup.AnimalCount, rollup.MaleCount,
 		rollup.FemaleCount, rollup.TotalWeightKg, rollup.SalesValue); err != nil {
 		return domain.Deal{}, fmt.Errorf("sales: write deal rollup: %w", err)
@@ -172,11 +199,7 @@ func (r *Repository) SettleDealAdvance(ctx context.Context, tenantID, dealID str
 
 	var status string
 	var received *float64
-	err = tx.QueryRow(ctx, `
-SELECT status, payment_received
-FROM public.sales_deals
-WHERE tenant_id = $1 AND id = $2
-FOR UPDATE`, tenantID, dealID).Scan(&status, &received)
+	err = tx.QueryRow(ctx, settleDealAdvanceLockSQL, tenantID, dealID).Scan(&status, &received)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Deal{}, ports.ErrDealNotFound
 	}
@@ -196,16 +219,7 @@ FOR UPDATE`, tenantID, dealID).Scan(&status, &received)
 		}
 	}
 
-	if _, err := tx.Exec(ctx, `
-INSERT INTO public.sales_deal_advance_settlements
-    (tenant_id, deal_id, refunded_rupees, refunded_on, note, settled_by)
-VALUES ($1::uuid, $2::uuid, $3, nullif($4, '')::date, nullif($5, ''), $6)
-ON CONFLICT (tenant_id, deal_id) DO UPDATE
-SET refunded_rupees = EXCLUDED.refunded_rupees,
-    refunded_on     = EXCLUDED.refunded_on,
-    note            = EXCLUDED.note,
-    settled_by      = EXCLUDED.settled_by,
-    updated_at      = now()`,
+	if _, err := tx.Exec(ctx, upsertDealAdvanceSettlementSQL,
 		tenantID, dealID, write.RefundedRupees, write.RefundedOn, write.Note, actorID); err != nil {
 		return domain.Deal{}, fmt.Errorf("sales: write advance settlement: %w", err)
 	}

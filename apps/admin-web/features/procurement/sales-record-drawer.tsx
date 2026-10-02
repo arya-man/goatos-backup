@@ -30,6 +30,9 @@ import {
 } from "./sales-actions";
 import { PAYMENT_IDEMPOTENCY_FIELD, paymentKeyFor, type MintedPaymentKey } from "./payment-idempotency";
 
+const STATUS_ADVANCE_PAID = "Advance Paid" satisfies SalesDeal["status"];
+const STATUS_DEAL_FAILED = "Deal Failed" satisfies SalesDeal["status"];
+
 /** Reads the selected deal from the address bar. "" means the drawer is closed; "new" is the form. */
 function readDealParam(): string {
   return new URL(window.location.href).searchParams.get("deal_id") ?? "";
@@ -540,10 +543,10 @@ export function SalesRecordDrawer({
               {advanceOnly ? (
                 // An advance-only sale is Advance Paid; nothing else is offered for it.
                 <div className="fld">
-                  <input type="hidden" name="status" value="Advance Paid" />
+                  <input type="hidden" name="status" value={STATUS_ADVANCE_PAID} />
                   <div className="k">{field("status")}</div>
-                  <Tag tone={dealStatusTone("Advance Paid")}>
-                    {dealStatusOptions.find((option) => option.key === "Advance Paid")?.label ?? "Advance Paid"}
+                  <Tag tone={dealStatusTone(STATUS_ADVANCE_PAID)}>
+                    {dealStatusOptions.find((option) => option.key === STATUS_ADVANCE_PAID)?.label}
                   </Tag>
                 </div>
               ) : (
@@ -635,7 +638,7 @@ export function SalesRecordDrawer({
             {/* WHAT WAS SOLD: one row per product/breed line (migration 000296). The product,
                 breed, animals, weight and value cells above are the backend's ROLLUP of these. */}
             {/* An advance whose products can be added here gets the editor's own heading instead. */}
-            {deal.advance_only && canAddDealLines && deal.status !== "Deal Failed" ? null : (
+            {deal.advance_only && canAddDealLines && deal.status !== STATUS_DEAL_FAILED ? null : (
               <div className="dgrp">{copy(pageContract, "section.lines.title")}</div>
             )}
             {deal.advance_only ? (
@@ -643,7 +646,7 @@ export function SalesRecordDrawer({
               // the sale's steps open then.
               <>
                 <div className="note">{copy(pageContract, "detail.lines.advance_only")}</div>
-                {canAddDealLines && deal.status !== "Deal Failed" ? (
+                {canAddDealLines && deal.status !== STATUS_DEAL_FAILED ? (
                   <AddSaleLinesForm
                     key={deal.deal_id}
                     deal={deal}
@@ -704,7 +707,7 @@ export function SalesRecordDrawer({
                 deal.payment_received == null ? null : inr(deal.payment_received),
               )}
               {/* BACKEND-derived; this cell renders the figure and never subtracts anything itself. */}
-              {deal.advance_only || deal.status === "Deal Failed"
+              {deal.advance_only || deal.status === STATUS_DEAL_FAILED
                 ? null
                 : cell(copy(pageContract, "payments.balance"), inr(deal.payment_balance))}
             </div>

@@ -121,13 +121,17 @@ test("the key holds while the form's outcome holds, and moves when it moves", ()
 });
 
 test("every payment form is rendered with its key and cannot be submitted while in flight", () => {
-  // Record, edit and remove each carry the hidden key field -- and so does the record-sale form.
-  assert.equal((drawerSource.match(/name=\{PAYMENT_IDEMPOTENCY_FIELD\}/g) ?? []).length, 4);
+  // Record, edit, remove, add-lines and settle-advance carry the hidden key field -- and so does the
+  // record-sale form.
+  assert.equal((drawerSource.match(/name=\{PAYMENT_IDEMPOTENCY_FIELD\}/g) ?? []).length, 6);
   assert.match(drawerSource, /usePaymentFormAction\(recordSalesDealPaymentAction/);
   assert.match(drawerSource, /usePaymentFormAction\(\s*updateSalesDealPaymentAction/);
   assert.match(drawerSource, /usePaymentFormAction\(deleteSalesDealPaymentAction/);
+  assert.match(drawerSource, /usePaymentFormAction\(addSalesDealLinesAction/);
+  assert.match(drawerSource, /usePaymentFormAction\(settleSalesDealAdvanceAction/);
   assert.match(drawerSource, /className="btn p" disabled=\{pending\}/);
   assert.equal((drawerSource.match(/\sdisabled=\{busy\}/g) ?? []).length, 2);
+  assert.equal((drawerSource.match(/\sdisabled=\{pending\}/g) ?? []).length, 3);
   // Submitted through onSubmit, never an action prop: React resets an action-prop form once the
   // action settles, which wiped a refused receipt's typed amount and note (seen on the live proof).
   assert.match(drawerSource, /<form onSubmit=\{onSubmit\} aria-busy=\{pending\}>/);

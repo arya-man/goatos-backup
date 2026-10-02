@@ -315,10 +315,11 @@ func attachDealLineRows(rows pgx.Rows, deals []domain.Deal, index map[string]int
 // against the store, never a page of it; scope=the deal's own (tenant_id, id) and the farm the
 // deal itself carries, never a park inferred from the lines. No ratio or cap is computed here.
 const feedDemandForDealSQL = `
-SELECT d.farm, d.status,
-       COALESCE(l.breed, ''),
-       COALESCE(SUM(l.quantity), 0)::float8,
-       MIN(l.line_no)
+	SELECT d.farm, d.status,
+	       -- projection-review: membership=public.sales_deal_lines rows of one deal, unique on (tenant_id, line_id); group_key=(d.farm, d.status, l.breed); join_cardinality=sales_deals joined 1:1 on (tenant_id, id) and the LEFT JOIN only groups that one deal's feed lines; pagination=none, one deal is read whole before store comparison; scope=the deal's own tenant_id/id plus its stored farm.
+	       COALESCE(l.breed, ''),
+	       COALESCE(SUM(l.quantity), 0)::float8,
+	       MIN(l.line_no)
 FROM public.sales_deals d
 LEFT JOIN public.sales_deal_lines l
        ON l.tenant_id = d.tenant_id AND l.deal_id = d.id AND l.product_kind = $3
@@ -863,6 +864,7 @@ func (r *Repository) CreateDeal(ctx context.Context, tenantID string, write doma
 	// would 500 instead of storing the NULL the column exists to hold for pre-register history.
 	// The "every app-recorded sale names a vendor" rule is enforced in domain.DealWrite.Validate,
 	// which is where a refusal can name the field and reach the operator.
+	// projection-review: membership=one sales_deals row and the DealWrite line set validated for this create request; group_key=deal_id, with product_type/breed/animals/weight/value stored as the row rollup and the per-line facts inserted separately by insertDealLines; join_cardinality=no SQL joins in the create rollup insert, so one-to-many lines cannot multiply the deal; pagination=none for this command write, while ListDeals attaches lines/settlements to the bounded ledger page after the keyset read; status=Deal Closed and open/failed/advance-paid statuses are validated by the domain state machine, and advance_only uses NULL product/breed until AddDealLines records the line set.
 	var dealID string
 	err = tx.QueryRow(ctx, `
 		INSERT INTO public.sales_deals (

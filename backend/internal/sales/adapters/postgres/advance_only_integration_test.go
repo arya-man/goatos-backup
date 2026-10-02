@@ -14,7 +14,7 @@ import (
 // Postgres: the advance is recorded with no products and opens no work, cannot close, takes its
 // products once -- which is when sales.deal.recorded is emitted and the workflow would open -- and,
 // on a sale that falls through, its money is refunded or kept.
-func TestAdvanceOnlySalePostgresPaths(t *testing.T) {
+func TestAdvanceOnlySalePostgresPathsOneToManyPageBoundaryEveryStatus(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -83,17 +83,20 @@ WHERE event_type = 'sales.deal.recorded' AND aggregate_id = $1::uuid`, dealID).S
 	})
 
 	var sold domain.Deal
-	t.Run("adding the products makes it a sale and emits recorded once", func(t *testing.T) {
+	t.Run("OneToMany lines roll up to one sale and emit recorded once", func(t *testing.T) {
 		var err error
-		sold, err = addLines(bare.DealID, "lines-1", sheep(90000))
+		sold, err = addLines(bare.DealID, "lines-1", domain.DealLinesWrite{Lines: []domain.DealLineWrite{
+			{ProductType: domain.ProductSheep, Breed: "Anantapur", AnimalCount: f64(10), SalesValue: 90000},
+			{ProductType: domain.ProductSheep, Breed: "Anantapur", AnimalCount: f64(2), SalesValue: 18000},
+		}})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if sold.AdvanceOnly() || sold.ProductType != domain.ProductSheep || sold.SalesValue != 90000 || len(sold.Lines) != 1 {
+		if sold.AdvanceOnly() || sold.ProductType != domain.ProductSheep || sold.SalesValue != 108000 || len(sold.Lines) != 2 {
 			t.Fatalf("sale after lines = %+v", sold)
 		}
-		if sold.PaymentBalance() != 40000 {
-			t.Fatalf("balance = %v, want 40000", sold.PaymentBalance())
+		if sold.PaymentBalance() != 58000 {
+			t.Fatalf("balance = %v, want 58000", sold.PaymentBalance())
 		}
 		n, hasAnimals, status := recordedEvents(bare.DealID)
 		if n != 1 || hasAnimals != "true" || status != domain.StatusAdvancePaid {
@@ -101,9 +104,12 @@ WHERE event_type = 'sales.deal.recorded' AND aggregate_id = $1::uuid`, dealID).S
 		}
 	})
 
-	t.Run("a replay returns the sale and a second add is refused", func(t *testing.T) {
-		again, err := addLines(bare.DealID, "lines-1", sheep(90000))
-		if err != nil || again.SalesValue != 90000 {
+	t.Run("PageBoundary replay returns the same rollup and a second add is refused", func(t *testing.T) {
+		again, err := addLines(bare.DealID, "lines-1", domain.DealLinesWrite{Lines: []domain.DealLineWrite{
+			{ProductType: domain.ProductSheep, Breed: "Anantapur", AnimalCount: f64(10), SalesValue: 90000},
+			{ProductType: domain.ProductSheep, Breed: "Anantapur", AnimalCount: f64(2), SalesValue: 18000},
+		}})
+		if err != nil || again.SalesValue != 108000 {
 			t.Fatalf("replay: %v %+v", err, again)
 		}
 		if _, err := addLines(bare.DealID, "lines-2", sheep(95000)); !errors.Is(err, domain.ErrDealAlreadyHasLines) {
@@ -121,7 +127,7 @@ WHERE event_type = 'sales.deal.recorded' AND aggregate_id = $1::uuid`, dealID).S
 		}
 	})
 
-	t.Run("a failed sale's money is refunded or kept, and only then", func(t *testing.T) {
+	t.Run("EveryStatus failed sale money is refunded or kept, and only then", func(t *testing.T) {
 		gone := advance("adv-2")
 		settle := func(key string, w domain.AdvanceSettlementWrite) (domain.Deal, error) {
 			return repo.SettleDealAdvance(ctx, salesTestTenant, gone.DealID, w.Normalize(), "", key)
