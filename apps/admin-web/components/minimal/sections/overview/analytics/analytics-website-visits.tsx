@@ -13,7 +13,7 @@ import { Chart, useChart } from '@/components/minimal/chart';
 
 type Props = CardProps & {
   title?: string;
-  subheader?: React.ReactNode;
+  subheader?: string;
   chart: {
     colors?: string[];
     categories?: string[];

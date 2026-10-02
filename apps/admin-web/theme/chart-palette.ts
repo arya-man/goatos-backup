@@ -14,19 +14,22 @@
 //
 // No error red: an ordinary category never wears the colour that means "at risk" elsewhere.
 // Slot 1 is the brand green, so a one-series chart still reads as the product's own.
+import { MESHA_TOKENS_DARK, MESHA_TOKENS_LIGHT } from './mesha-tokens';
+
+// The hexes live in theme/mesha-tokens.ts (the one palette file, design:guard brand-lock).
 export const CHART_CATEGORICAL = [
-  { key: "series-green", cssVar: "--chart-series-green", light: "#54A02C", dark: "#5EA834" },
-  { key: "series-blue", cssVar: "--chart-series-blue", light: "#2A78D6", dark: "#3987E5" },
-  { key: "series-orange", cssVar: "--chart-series-orange", light: "#EB6834", dark: "#D95926" },
-  { key: "series-violet", cssVar: "--chart-series-violet", light: "#4A3AA7", dark: "#9085E9" },
-  { key: "series-magenta", cssVar: "--chart-series-magenta", light: "#E87BA4", dark: "#D55181" },
-  { key: "series-olive", cssVar: "--chart-series-olive", light: "#8A9A00", dark: "#8F9A00" },
-  { key: "series-teal", cssVar: "--chart-series-teal", light: "#0E98B5", dark: "#1B93B0" },
-  { key: "series-yellow", cssVar: "--chart-series-yellow", light: "#EDA100", dark: "#C98500" },
-  { key: "series-indigo", cssVar: "--chart-series-indigo", light: "#5468D4", dark: "#6F80E8" },
-  { key: "series-aqua", cssVar: "--chart-series-aqua", light: "#1BAF7A", dark: "#199E70" },
-  { key: "series-plum", cssVar: "--chart-series-plum", light: "#A8329A", dark: "#C45AB6" },
-  { key: "series-brown", cssVar: "--chart-series-brown", light: "#A35D22", dark: "#B06A2C" },
+  { key: "series-green", cssVar: "--chart-series-green", light: MESHA_TOKENS_LIGHT["--chart-series-green"], dark: MESHA_TOKENS_DARK["--chart-series-green"] },
+  { key: "series-blue", cssVar: "--chart-series-blue", light: MESHA_TOKENS_LIGHT["--chart-series-blue"], dark: MESHA_TOKENS_DARK["--chart-series-blue"] },
+  { key: "series-orange", cssVar: "--chart-series-orange", light: MESHA_TOKENS_LIGHT["--chart-series-orange"], dark: MESHA_TOKENS_DARK["--chart-series-orange"] },
+  { key: "series-violet", cssVar: "--chart-series-violet", light: MESHA_TOKENS_LIGHT["--chart-series-violet"], dark: MESHA_TOKENS_DARK["--chart-series-violet"] },
+  { key: "series-magenta", cssVar: "--chart-series-magenta", light: MESHA_TOKENS_LIGHT["--chart-series-magenta"], dark: MESHA_TOKENS_DARK["--chart-series-magenta"] },
+  { key: "series-olive", cssVar: "--chart-series-olive", light: MESHA_TOKENS_LIGHT["--chart-series-olive"], dark: MESHA_TOKENS_DARK["--chart-series-olive"] },
+  { key: "series-teal", cssVar: "--chart-series-teal", light: MESHA_TOKENS_LIGHT["--chart-series-teal"], dark: MESHA_TOKENS_DARK["--chart-series-teal"] },
+  { key: "series-yellow", cssVar: "--chart-series-yellow", light: MESHA_TOKENS_LIGHT["--chart-series-yellow"], dark: MESHA_TOKENS_DARK["--chart-series-yellow"] },
+  { key: "series-indigo", cssVar: "--chart-series-indigo", light: MESHA_TOKENS_LIGHT["--chart-series-indigo"], dark: MESHA_TOKENS_DARK["--chart-series-indigo"] },
+  { key: "series-aqua", cssVar: "--chart-series-aqua", light: MESHA_TOKENS_LIGHT["--chart-series-aqua"], dark: MESHA_TOKENS_DARK["--chart-series-aqua"] },
+  { key: "series-plum", cssVar: "--chart-series-plum", light: MESHA_TOKENS_LIGHT["--chart-series-plum"], dark: MESHA_TOKENS_DARK["--chart-series-plum"] },
+  { key: "series-brown", cssVar: "--chart-series-brown", light: MESHA_TOKENS_LIGHT["--chart-series-brown"], dark: MESHA_TOKENS_DARK["--chart-series-brown"] },
 ] as const;
 
 export type ChartCategoricalKey = (typeof CHART_CATEGORICAL)[number]["key"];

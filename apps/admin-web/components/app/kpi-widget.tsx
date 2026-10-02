@@ -112,7 +112,7 @@ function figureSx(kind: "ecommerce" | "app" | "course", unit: { prefix: string; 
   const word = /^ /.test(unit.suffix);
   return {
     ...(unit.prefix ? { [`${box}::before`]: { content: cssString(unit.prefix) } } : null),
-    ...(unit.suffix ? { [`${box}::after`]: { content: cssString(unit.suffix), whiteSpace: "pre", ...(word ? { fontSize: "0.55em", fontWeight: 600 } : null) } } : null),
+    ...(unit.suffix ? { [`${box}::after`]: { content: cssString(unit.suffix), whiteSpace: "pre", ...(word ? { typography: "subtitle1" } : null) } } : null),
   };
 }
 

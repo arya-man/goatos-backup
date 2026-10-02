@@ -96,6 +96,19 @@ export const MESHA_TOKENS_DARK = {
   "--chart-3": "#E8524E",
   "--chart-4": "#E0A53A",
   "--scrim": "rgb(var(--g800-rgb)/.48)",
+  // Categorical chart series (theme/chart-palette.ts reads these; validated twelve-hue order).
+  "--chart-series-green": "#5EA834",
+  "--chart-series-blue": "#3987E5",
+  "--chart-series-orange": "#D95926",
+  "--chart-series-violet": "#9085E9",
+  "--chart-series-magenta": "#D55181",
+  "--chart-series-olive": "#8F9A00",
+  "--chart-series-teal": "#1B93B0",
+  "--chart-series-yellow": "#C98500",
+  "--chart-series-indigo": "#6F80E8",
+  "--chart-series-aqua": "#199E70",
+  "--chart-series-plum": "#C45AB6",
+  "--chart-series-brown": "#B06A2C",
 } as const;
 
 /** Light scheme overrides (`html.light`). */
@@ -174,4 +187,17 @@ export const MESHA_TOKENS_LIGHT = {
   "--chart-2": "#7BC13F",
   "--chart-3": "#B83232",
   "--chart-4": "#B5791A",
+  // Categorical chart series (theme/chart-palette.ts reads these; validated twelve-hue order).
+  "--chart-series-green": "#54A02C",
+  "--chart-series-blue": "#2A78D6",
+  "--chart-series-orange": "#EB6834",
+  "--chart-series-violet": "#4A3AA7",
+  "--chart-series-magenta": "#E87BA4",
+  "--chart-series-olive": "#8A9A00",
+  "--chart-series-teal": "#0E98B5",
+  "--chart-series-yellow": "#EDA100",
+  "--chart-series-indigo": "#5468D4",
+  "--chart-series-aqua": "#1BAF7A",
+  "--chart-series-plum": "#A8329A",
+  "--chart-series-brown": "#A35D22",
 } as const;

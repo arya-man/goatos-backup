@@ -74,7 +74,7 @@ export function ColumnChartCard({ title, subheader, empty, valueNoun, chart, sx,
   return (
     <AnalyticsWebsiteVisits
       title={title}
-      subheader={cardSubheader(subheader)}
+      subheader={subheader}
       chart={{
         colors: chart.colors,
         categories: chart.categories,

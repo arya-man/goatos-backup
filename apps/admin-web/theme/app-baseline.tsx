@@ -3,8 +3,8 @@
 import GlobalStyles from '@mui/material/GlobalStyles';
 
 import { layoutClasses } from '@/layouts/core/classes';
+import { chartClasses } from '@/components/minimal/chart/classes';
 
-import { CHART_CATEGORICAL } from './chart-palette';
 import { MESHA_TOKENS_DARK, MESHA_TOKENS_LIGHT } from './mesha-tokens';
 import { phoneStickyEdges } from '@/components/app/table/sticky-first-column';
 
@@ -37,20 +37,16 @@ import { phoneStickyEdges } from '@/components/app/table/sticky-first-column';
  */
 const CONTENT = `.${layoutClasses.content}`;
 
-/** The categorical chart slots as scheme-following variables (`--chart-series-blue`), which a
- * chart paints from before it has hydrated and knows the colour scheme (components/app/chart-colors). */
-const chartSeriesVars = (mode: 'light' | 'dark') =>
-  Object.fromEntries(CHART_CATEGORICAL.map((slot) => [slot.cssVar, slot[mode]]));
 
 export function AppBaseline() {
   return (
     <GlobalStyles
       styles={(theme) => ({
-        ':root': { ...MESHA_TOKENS_DARK, ...chartSeriesVars('dark'), colorScheme: 'dark' },
+        ':root': { ...MESHA_TOKENS_DARK, colorScheme: 'dark' },
         // The attribute too: MUI writes `data-theme` itself (colorSchemeSelector), so the Mesha tokens
         // follow the same switch as MUI's own variables even if the class lags.
-        ':root.light': { ...MESHA_TOKENS_LIGHT, ...chartSeriesVars('light'), colorScheme: 'light' },
-        ':root[data-theme="light"]': { ...MESHA_TOKENS_LIGHT, ...chartSeriesVars('light'), colorScheme: 'light' },
+        ':root.light': { ...MESHA_TOKENS_LIGHT, colorScheme: 'light' },
+        ':root[data-theme="light"]': { ...MESHA_TOKENS_LIGHT, colorScheme: 'light' },
         '*, *::before, *::after': { boxSizing: 'border-box' },
         'strong, b': { fontWeight: 'bolder' },
         'html, body': { maxWidth: '100%', overflowX: 'hidden' },
@@ -87,6 +83,12 @@ export function AppBaseline() {
         '@media (max-width: 860px)': {
           [`${CONTENT} table`]: { minWidth: 540 },
         },
+        // Chart legends (template ChartLegends, verbatim): an item never paints outside its own cell.
+        // The template label is flexShrink 0 in an unconstrained inline-flex, so in a two-column legend
+        // a long name ("Fattening animals · Female (₹20,76,766)") ran over the next item and off the
+        // card (PR #294 B2). Items cap at their cell and a long label wraps, whole.
+        [`:root .${chartClasses.legends.item.wrapper}, :root .${chartClasses.legends.item.root}`]: { minWidth: 0, maxWidth: '100%' },
+        [`:root .${chartClasses.legends.item.label}`]: { minWidth: 0, flexShrink: 1, overflowWrap: 'anywhere' },
         // Light top bar: the header icons are duotone (a solid layer plus a ~40% layer) on
         // action.active grey, so on white the dominant layer measured ~1.7:1 (PR #294 L2). Ink one
         // step darker and the soft layer lifted keep both layers >= 3:1; the white assistant goat

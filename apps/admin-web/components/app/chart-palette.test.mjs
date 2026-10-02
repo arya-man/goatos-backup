@@ -6,7 +6,17 @@
 // least 8 apart under simulated deuteranopia/protanopia.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { CHART_CATEGORICAL } from "../../theme/chart-palette.ts";
+import { readFileSync } from "node:fs";
+import { MESHA_TOKENS_DARK, MESHA_TOKENS_LIGHT } from "../../theme/mesha-tokens.ts";
+
+// theme/chart-palette.ts imports the hexes from theme/mesha-tokens.ts; rebuild its slot list from
+// its source (keys + token names, in order) so this test needs no TS module resolution.
+const paletteSource = readFileSync(new URL("../../theme/chart-palette.ts", import.meta.url), "utf8");
+const CHART_CATEGORICAL = [...paletteSource.matchAll(/key: "(series-[a-z]+)", cssVar: "(--chart-series-[a-z]+)"/g)].map(([, key, cssVar]) => ({
+  key,
+  light: MESHA_TOKENS_LIGHT[cssVar],
+  dark: MESHA_TOKENS_DARK[cssVar],
+}));
 
 const lin = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
 const rgb = (hex) => [1, 3, 5].map((i) => lin(parseInt(hex.slice(i, i + 2), 16) / 255));
@@ -48,7 +58,6 @@ for (const mode of ["light", "dark"]) {
 }
 
 test("the chartRamp order is the palette's validated order", async () => {
-  const { readFileSync } = await import("node:fs");
   const source = readFileSync(new URL("./chart-colors.ts", import.meta.url), "utf8");
   const ramp = [...source.match(/const RAMP: ChartColorKey\[\] = \[(.*)\];/)[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
   assert.deepEqual(ramp, CHART_CATEGORICAL.map((slot) => slot.key));
