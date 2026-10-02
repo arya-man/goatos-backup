@@ -327,7 +327,7 @@ func scanApprovalRow(rows ports.ResultRows, parkID string) (domain.Row, error) {
 	return domain.Row{
 		Module: domain.ModuleCounts, SourceType: ApprovalsSourceType, SourceID: requestID,
 		ParkID: parkID, ParkName: parkName, Pen: pen,
-		BusinessDate: biztime.BusinessDate(raisedAt), ClockLabel: "Raised " + raised.Format("15:04"),
+		BusinessDate: biztime.BusinessDate(raisedAt), ClockLabel: "Raised " + biztime.FarmDate(raisedAt) + " " + raised.Format("15:04"),
 		WorkState: state, Severity: severity,
 		Owner: domain.Owner{}, OwnerState: domain.OwnerStatePool,
 		Title: title, Subtitle: subtitle, Counts: counts,

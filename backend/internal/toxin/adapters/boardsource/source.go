@@ -17,6 +17,7 @@ package boardsource
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -276,7 +277,8 @@ func Subtitle(batchNo int, vendor string, quantityKg float64, origin, status, ou
 		parts = append(parts, v)
 	}
 	if quantityKg > 0 {
-		parts = append(parts, strconv.FormatFloat(quantityKg, 'f', -1, 64)+" kg")
+		// A weighbridge figure carries grams the farm never reads; show it to one decimal at most.
+		parts = append(parts, strconv.FormatFloat(math.Round(quantityKg*10)/10, 'f', -1, 64)+" kg")
 	}
 	if line := toxindomain.OriginLine(origin); line != "" {
 		parts = append(parts, line)
