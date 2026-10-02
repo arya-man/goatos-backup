@@ -45,19 +45,18 @@ const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt
 const near = (a: number, b: number, scale: number) => scale * 1e-6 >= Math.abs(a - b);
 
 /**
- * Phones (below sm): a day axis of 7-90 slots cannot print every date. Five flat dd/mm labels, Apex
- * hiding any that would still touch, instead of a crammed -45deg fan whose dates run into each
- * other ("01/09/202603/09/2026" on /feed/analytics at 390). guard: axis-label-overlap (r2 text-fit)
- * + phone-day-axis (series-charts-phone-axis.test.mjs).
+ * Phones (below sm): a day axis of 7-90 slots cannot print every date. Four flat labels, Apex hiding
+ * any that would still touch, instead of a crammed -45deg fan whose dates run into each other
+ * ("01/09/202603/09/2026" on /feed/analytics at 390). The labels stay FULL DD/MM/YYYY: every visible
+ * date has one shape and there is no compact variant (docs/decisions/date-display-format.md), so a
+ * narrow axis THINS its ticks rather than shortening them (PR #294 K11). guard: axis-label-overlap
+ * (r2 text-fit) + phone-day-axis (series-charts-phone-axis.test.mjs).
  */
 export const PHONE_DAY_AXIS_LABELS = {
-  tickAmount: 4,
+  tickAmount: 3,
   labels: {
-    // No rotate override (guard: chart-template-anatomy): short ticks leave Apex nothing to rotate.
+    // No rotate override (guard: chart-template-anatomy): four ten-character dates fit flat on a 390 plot.
     hideOverlappingLabels: true,
-    // "01/09/2026" -> "01/09": ten characters at five ticks still touch on a 390 plot; the tooltip
-    // title keeps the full date (its own formatter).
-    formatter: (value: string | number) => String(value ?? "").replace(/^(\d{2}\/\d{2})\/\d{4}$/, "$1"),
   },
 };
 
@@ -266,8 +265,8 @@ export function SeriesLinesChart({ categories, series, max, yTicks, secondary, h
       },
       // A day axis on a half-width laptop card (the per-item feed charts) printed every date and the
       // DD/MM/YYYY labels ran into one block (PR #294 D2): at most six labelled days, Apex hiding any
-      // that would still touch, and room on the left so the first date is not clipped. Phones keep
-      // their own five short dd/mm ticks (spread last, so they win).
+      // that would still touch, and room on the left so the first date is not clipped. Phones thin to
+      // four full dates (spread last, so they win).
       grid: { padding: { left: 12, right: 12 } },
       xaxis: { categories, tooltip: { enabled: false }, tickAmount: Math.min(Math.max(categories.length - 1, 1), 6), labels: { hideOverlappingLabels: true }, ...(phone ? PHONE_DAY_AXIS_LABELS : {}) },
       tooltip: {
