@@ -46,3 +46,9 @@ test("kpi-unit-with-figure: the unit lead joins the figure, a missing figure rea
   assert.deepEqual(liftFigureUnit(5, "kg · whole herd"), { prefix: "", suffix: " kg", caption: "whole herd", missing: false });
   assert.deepEqual(liftFigureUnit(75341, "₹"), { prefix: "₹", suffix: "", caption: undefined, missing: false });
 });
+
+test("kpi-unit-prop: KpiWidget's unit prop joins the caption convention", () => {
+  const adapter = readFileSync(new URL("../components/app/kpi-widget.tsx", import.meta.url), "utf8");
+  assert.match(adapter, /unit: unitProp/);
+  assert.match(adapter, /const rawCaption = unitProp \? \[unitProp, givenCaption\]/);
+});

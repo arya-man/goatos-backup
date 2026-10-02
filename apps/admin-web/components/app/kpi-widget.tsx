@@ -43,8 +43,12 @@ export type KpiWidgetProps = {
   title: string;
   /** The figure. null = unavailable: the template prints nothing and `caption` carries the no-data text. */
   total: number | null | undefined;
-  /** Visible sub-line: unit / remainder first ("kg", "of 30 deaths", "₹ lakh"), then detail. */
+  /** Visible sub-line: unit / remainder first ("kg", "of 30 deaths", "₹ lakh"), then detail. A
+   * leading unit is lifted onto the figure (lib/kpi-figure liftFigureUnit). */
   caption?: string;
+  /** The figure's unit, printed WITH it: "%" -> "80%", "₹" -> "₹75,341", "kg" -> "412 kg". Prefer
+   * this over leading the caption with the unit. */
+  unit?: string;
   color?: PaletteColorKey;
   icon?: KpiIcon;
   trend?: KpiTrend | null;
@@ -117,11 +121,13 @@ export function cssString(text: string): string {
   return `"${text.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\r?\n/g, " ")}"`;
 }
 
-export function KpiWidget({ title, total: rawTotal, caption: rawCaption, color = "primary", icon, trend, href, linkComponent, sx, "data-testid": testId }: KpiWidgetProps) {
+export function KpiWidget({ title, total: rawTotal, caption: givenCaption, unit: unitProp, color = "primary", icon, trend, href, linkComponent, sx, "data-testid": testId }: KpiWidgetProps) {
   // A lakh or more is compacted for the template figure (never under the corner icon / sparkline);
   // the scale word and the exact value lead the visible sub-line (guard: kpi-long-figure).
   const t: KpiTrend | null = trend ?? null;
   const monthLead = t && t.period === "month" ? monthChange(t.percent) : "";
+  // An explicit unit rides the caption convention, so compaction and lifting treat it the same way.
+  const rawCaption = unitProp ? [unitProp, givenCaption].filter(Boolean).join(" · ") : givenCaption;
   const compact = compactFigure(rawTotal, rawCaption);
   const total = compact.total;
   // The unit (or the missing-figure dash) leading the caption moves onto the figure.

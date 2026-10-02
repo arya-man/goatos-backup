@@ -200,7 +200,7 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     { name: "calendar-history", path: "/calendar?scope_mode=company&status=completed" },
     { name: "calendar-owner-pc", path: "/calendar?scope_mode=company&day=week&owner_key=pc" },
     { name: "protocol-adherence", path: "/protocol-adherence?scope_mode=company" },
-    { name: "protocol-adherence-high", path: "/protocol-adherence?scope_mode=company&severity=high" },
+    { name: "protocol-adherence-at-risk", path: "/protocol-adherence?scope_mode=company&severity=at_risk" },
     { name: "protocol-adherence-overdue", path: "/protocol-adherence?scope_mode=company&state=overdue" },
     { name: "workflows", path: "/workflows?scope_mode=company" },
     { name: "workflow-record", path: `/workflows/${encodeURIComponent(workflowRowId)}?scope_mode=company` },
