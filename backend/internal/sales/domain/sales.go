@@ -189,6 +189,11 @@ type DealPayment struct {
 // through this ledger. A sheet deal with no recorded value reads zero owed rather than inventing
 // a receivable.
 func (d Deal) PaymentBalance() float64 {
+	// A sale that fell through owes nothing: its money is refunded or kept (2026-10-02), never
+	// still due. Without this a failed sale read "₹30,000 still due" beside its refund.
+	if d.Status == StatusDealFailed {
+		return 0
+	}
 	received := 0.0
 	if d.PaymentReceived != nil {
 		received = *d.PaymentReceived

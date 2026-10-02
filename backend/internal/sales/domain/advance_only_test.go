@@ -157,3 +157,15 @@ func TestSettlementRulesAndOutcomes(t *testing.T) {
 		}
 	}
 }
+
+// A sale that fell through owes nothing: its money is refunded or kept, never "still due".
+func TestFailedSaleOwesNothing(t *testing.T) {
+	d := Deal{Status: StatusDealFailed, SalesValue: 40000, PaymentReceived: fp(10000)}
+	if got := d.PaymentBalance(); got != 0 {
+		t.Fatalf("failed sale balance = %v, want 0", got)
+	}
+	d.Status = StatusAdvancePaid
+	if got := d.PaymentBalance(); got != 30000 {
+		t.Fatalf("live sale balance = %v, want 30000", got)
+	}
+}

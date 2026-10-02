@@ -247,6 +247,13 @@ func productFieldLabel(field string) string {
 // salesFieldLabel renders a storage field name as the label the operator sees on the record-sale
 // drawer, so an error reads "Buyer name required." rather than "buyer_name required.".
 func salesFieldLabel(field string) string {
+	// A line's field ("lines[2].rate_per_unit") reads "Line 2 rate", never the raw key: the
+	// sentence reaches the sales desk verbatim.
+	if rest, ok := strings.CutPrefix(field, "lines["); ok {
+		if no, sub, ok := strings.Cut(rest, "]."); ok {
+			return "Line " + no + " " + strings.ToLower(salesFieldLabel(sub))
+		}
+	}
 	switch field {
 	case "sale_date":
 		return "Sale date"
@@ -331,6 +338,10 @@ func salesFieldLabel(field string) string {
 		return "Refund"
 	case "refunded_on":
 		return "Refund date"
+	case "rate_per_unit":
+		return "Rate"
+	case "quantity":
+		return "Quantity"
 	case "status":
 		return "Status"
 	default:
