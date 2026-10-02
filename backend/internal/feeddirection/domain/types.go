@@ -477,7 +477,8 @@ type PreviewSummary struct {
 	// Scope is always SummaryScopeFiltered. It is an explicit field rather than documentation so a
 	// client can assert the coverage guarantee instead of trusting a comment.
 	Scope string `json:"scope"`
-	// ShedCount is the number of distinct sheds in the whole filtered scope.
+	// ShedCount is the number of distinct PENS (shed + partition) in the whole filtered scope; the
+	// page itself is still sliced by physical shed so a shed's pens never split across pages.
 	ShedCount int32 `json:"shed_count"`
 	// RowCount is the number of generated rows in the whole filtered scope -- NOT len(items), which
 	// is the page. The two differ whenever the result is paged, and that is the point.
@@ -502,7 +503,8 @@ type PreviewSummary struct {
 type PackingSummary struct {
 	// Scope is always SummaryScopeFiltered.
 	Scope string `json:"scope"`
-	// ShedCount is the number of distinct sheds in the whole filtered scope.
+	// ShedCount is the number of distinct PENS (shed + partition) in the whole filtered scope; the
+	// page itself is still sliced by physical shed so a shed's pens never split across pages.
 	ShedCount int32 `json:"shed_count"`
 	// LineCount is the number of packing lines (pen x session) in the whole filtered scope.
 	LineCount int32 `json:"line_count"`

@@ -349,14 +349,15 @@ func SummarizeScope(rows []DirectionRow, items []FeedItem) PreviewSummary {
 	labels := map[string]string{}
 
 	for _, row := range rows {
-		sheds[row.ShedID] = struct{}{}
+		pen := penCountKey(row.ShedID, row.PartitionLabel)
+		sheds[pen] = struct{}{}
 		for _, item := range row.Items {
 			key := NormalizeConfigKey(item.FeedItem)
 			labels[key] = item.FeedItem
 			if item.Status == QuantityBlocked || item.QuantityKg == nil {
 				summary.BlockedCount++
 				blockedCells[key]++
-				blockedSheds[row.ShedID] = struct{}{}
+				blockedSheds[pen] = struct{}{}
 				continue
 			}
 			if grams, ok := kgStringToGrams(*item.QuantityKg); ok {
@@ -607,7 +608,8 @@ func SummarizePacking(lines []PackingRow, items []FeedItem) PackingSummary {
 	labels := map[string]string{}
 
 	for _, line := range lines {
-		sheds[line.ShedID] = struct{}{}
+		pen := penCountKey(line.ShedID, line.PartitionLabel)
+		sheds[pen] = struct{}{}
 		if line.Status == PackingStatusBlocked {
 			summary.BlockedLineCount++
 		}
@@ -624,7 +626,7 @@ func SummarizePacking(lines []PackingRow, items []FeedItem) PackingSummary {
 			if item.Status == QuantityBlocked || item.QuantityKg == nil {
 				summary.BlockedCount++
 				blockedCells[key]++
-				blockedSheds[line.ShedID] = struct{}{}
+				blockedSheds[pen] = struct{}{}
 				continue
 			}
 			if grams, ok := kgStringToGrams(*item.QuantityKg); ok {
@@ -637,6 +639,14 @@ func SummarizePacking(lines []PackingRow, items []FeedItem) PackingSummary {
 	summary.BlockedShedCount = int32(len(blockedSheds))
 	summary.TotalKgByFeedItem = feedItemTotals(labels, totals, blockedCells, items)
 	return summary
+}
+
+// penCountKey is the grain the summaries count: a PEN, which is shed + partition
+// (docs/decisions/partition-is-operational-shed.md). Counting the shed id alone read "Pens to pack
+// 6" over 25 pens (PR #294 O8). The partition goes through PartitionMatchKey, the matching key the
+// location collapse uses, so "Part 1" and "part 1 " are one pen and an undivided shed is one pen.
+func penCountKey(shedID, partitionLabel string) string {
+	return shedID + "\x00" + PartitionMatchKey(partitionLabel)
 }
 
 // feedItemTotals emits per-item totals in authored catalog display order, then appends any item
