@@ -40,7 +40,9 @@ test("the pen line takes its names from the backend, and disambiguates parks onl
 });
 
 test("the caption says the pens are there", () => {
-  assert.match(contract, /followed by the pens the load's animals are in today/);
+  // One short line (no prose under a chart title): the caption says the bracket holds the pens.
+  assert.match(contract, /"section\.load\.caption": "[^"]*its pens in brackets"/);
+  assert.match(contract, /"section\.load_value\.caption": "[^"]*its pens in brackets"/);
 });
 
 test("the value chart names the same pens as the weight chart beside it", () => {
@@ -57,7 +59,6 @@ test("the value chart names the same pens as the weight chart beside it", () => 
   // bracket and survives it -- this is the ONE place the two charts label a load differently, and
   // it is deliberate.
   assert.match(source, /heading: stockAnimals === 0 \? row\.heading : row\.chartHeading,/);
-  assert.match(contract, /no stock to value, and names no pen/);
 });
 
 test("the loads ledger names the pens too, on the template table card", () => {
@@ -65,7 +66,7 @@ test("the loads ledger names the pens too, on the template table card", () => {
   // the ONE place row.pens is rendered now -- the charts carry the shorter bracket -- and both are
   // composed from the same placements, so the surfaces cannot name one load's pens two ways.
   assert.match(source, /<TableCell component="th">\{copy\(pageContract, "table\.loads\.pens"\)\}<\/TableCell>/);
-  assert.match(source, /<TableCell>\{row\.pens \|\| none\}<\/TableCell>/);
+  assert.match(source, /<TableCell(?: sx=\{\{[^}]*\}\})?>\{row\.pens \|\| none\}<\/TableCell>/);
   assert.ok(contract.includes('"table.loads.pens"'), "the column label is backend copy");
   // The ledger is a template table card (Card + CardHeader, the table scrolling sideways in its own
   // box), never the legacy `.card.wtable` section with hand-set padding.

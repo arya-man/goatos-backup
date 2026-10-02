@@ -850,6 +850,7 @@ func (r *Repository) GetSalePrices(ctx context.Context, tenantID string, asOf ti
 		if err := rows.Scan(&p.Species, &p.ManagementStage, &p.Sex, &p.PricePerKgINR, &p.EffectiveFrom, &p.SetBy); err != nil {
 			return out, err
 		}
+		p.SetBy = domain.DisplaySetter(p.SetBy)
 		out.Prices = append(out.Prices, p)
 	}
 	return out, rows.Err()

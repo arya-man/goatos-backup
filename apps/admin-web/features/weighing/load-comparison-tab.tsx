@@ -324,8 +324,11 @@ export function LoadComparisonTab({
               <TableBody>
                 {rows.map((row) => (
                   <TableRow key={row.load.load_id} hover>
-                    <TableCell sx={{ typography: "subtitle2" }}>{row.heading}</TableCell>
-                    <TableCell>{row.load.vendor_name || none}</TableCell>
+                    {/* Phone 390: the table pans in its own region, so the load and vendor keep one
+                        line each and the pens list gets a readable column instead of one word a line
+                        (rows read ~450px tall when every cell squeezed to fit the card). */}
+                    <TableCell sx={{ typography: "subtitle2", whiteSpace: "nowrap" }}>{row.heading}</TableCell>
+                    <TableCell sx={{ whiteSpace: "nowrap" }}>{row.load.vendor_name || none}</TableCell>
                     <TableCell align="right">{row.load.purchased.toLocaleString("en-IN")}</TableCell>
                     <TableCell align="right">{row.purchasedAvg !== null ? kg(row.purchasedAvg) : none}</TableCell>
                     <TableCell align="right">{row.latestAvg !== null ? kg(row.latestAvg) : none}</TableCell>
@@ -334,7 +337,7 @@ export function LoadComparisonTab({
                     </TableCell>
                     {/* The SAME line both charts carry, so the three surfaces on this tab name one
                         load's pens identically. A load with no weighed pen reads as absent. */}
-                    <TableCell>{row.pens || none}</TableCell>
+                    <TableCell sx={{ minWidth: 240 }}>{row.pens || none}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

@@ -23,7 +23,6 @@ func TestEveryTimeWiseCopyKeyHasItsThirtyDayTwin(t *testing.T) {
 	// the tab means adding its key to this list and being told about the twin.
 	bucketAware := []string{
 		"section.time.title", "section.time.caption", "section.time.aria", "empty.time.body",
-		"note.time.gaps",
 		"section.time.breed.title", "section.time.breed.caption", "section.time.breed.aria", "empty.time.breed.body",
 		"section.time.pen.title", "section.time.pen.caption", "section.time.pen.aria", "empty.time.pen.body",
 		"section.time.load.title", "section.time.load.caption", "section.time.load.aria", "empty.time.load.body",

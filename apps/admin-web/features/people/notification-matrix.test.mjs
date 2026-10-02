@@ -84,6 +84,8 @@ test("every visible word is a backend copy key or the matrix payload", () => {
     "notifications.action.save",
     "notifications.action.saving",
     "notifications.action.use_default",
+    "notifications.action.edit_audience",
+    "notifications.action.close_audience",
     "notifications.saved",
     "notifications.empty",
   ]) {
@@ -106,9 +108,17 @@ test("guard: notification-matrix-header-floor -- designation headers never crush
   // card, alert column pinned). J2 P2-11: one line cut every title ("CEO / C…"), so the header now
   // breaks at words onto two lines (never letters), then ellipsis, with a Tooltip for the rest.
   const src = readFileSync(fileURLToPath(new URL("./notification-matrix.tsx", import.meta.url)), "utf8");
-  assert.match(src, /minWidth: 270 \+ 112 \* matrix\.designations\.length/);
-  assert.match(src, /<Box component="col" key=\{d\.code\} sx=\{\{ width: 112 \}\} \/>/);
-  assert.match(src, /WebkitLineClamp: 2,[\s\S]{0,120}wordBreak: "normal"/);
+  assert.match(src, /minWidth: 270 \+ 128 \* matrix\.designations\.length/);
+  assert.match(src, /<Box component="col" key=\{d\.code\} sx=\{\{ width: 128 \}\} \/>/);
+  assert.match(src, /WebkitLineClamp: 3,[\s\S]{0,120}wordBreak: "normal"/);
   assert.match(src, /<Tooltip title=\{d\.grade \? `\$\{d\.label\} · \$\{d\.grade\}` : d\.label\}>/);
   assert.doesNotMatch(src, /fontSize: 10\.5/);
+});
+
+test("phone: each alert's job-title checklist opens one alert at a time (pr294 E7)", () => {
+  // Nineteen designation rows under every alert made the phone tab ~55,000px tall.
+  const src = readFileSync(fileURLToPath(new URL("./notification-matrix.tsx", import.meta.url)), "utf8");
+  assert.match(src, /const \[openAlert, setOpenAlert\] = useState<string \| null>\(null\);/);
+  assert.match(src, /display: openAlert === alert\.key \? "grid" : "none"/);
+  assert.match(src, /aria-expanded=\{openAlert === alert\.key\}/);
 });

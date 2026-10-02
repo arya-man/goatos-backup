@@ -5,6 +5,7 @@ import { legacyCss } from "../../scripts/lib/legacy-css.mjs";
 
 const source = readFileSync(new URL("./weights.tsx", import.meta.url), "utf8");
 const analyticsSource = readFileSync(new URL("./weights-analytics.tsx", import.meta.url), "utf8");
+const sectionsSource = readFileSync(new URL("./demographics-sections.ts", import.meta.url), "utf8");
 const analyticsRouteSource = readFileSync(
   new URL("../../app/(admin)/weighing/analytics/page.tsx", import.meta.url),
   "utf8",
@@ -265,11 +266,15 @@ test("weights analytics tabs request only the growth sections they render", () =
 });
 
 test("weights analytics tabs request only the demographics sections they render", () => {
-  assert.match(analyticsSource, /tab === "breed"[\s\S]*\? "dimensions"/);
-  assert.match(analyticsSource, /tab === "birth"[\s\S]*\? "origin"/);
-  assert.match(analyticsSource, /tab === "shed"[\s\S]*\? "shed_type"/);
-  assert.match(analyticsSource, /tab === "weight"[\s\S]*\? "weight_bands"/);
-  assert.match(analyticsSource, /tab === "time"[\s\S]*\? "weekly_gain"/);
+  // The per-tab section table lives in demographics-sections.ts (pinned by its own test); the
+  // page must derive its read from it.
+  assert.match(sectionsSource, /general: "composition"/);
+  assert.match(sectionsSource, /breed: "dimensions"/);
+  assert.match(sectionsSource, /birth: "origin"/);
+  assert.match(sectionsSource, /shed: "shed_type"/);
+  assert.match(sectionsSource, /weight: "weight_bands"/);
+  assert.match(sectionsSource, /time: "weekly_gain"/);
+  assert.match(analyticsSource, /const demographicsSections = demographicsSectionsForTab\(tab\);/);
   assert.match(analyticsSource, /getWeightDemographics\(\{\s*\n\s*\.\.\.scope,\s*\n\s*\.\.\.readWindow,\s*\n\s*sections: demographicsSections,\s*\n\s*band_edges_kg: bandEdgesParam\(assumptionRows\),\s*\n\s*\.\.\.\(tab === "time" \? \{ bucket: gainBucket, \.\.\.penScope \} : \{\}\),/);
   assert.doesNotMatch(analyticsSource, /getWeightDemographics\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
 });

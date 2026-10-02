@@ -1459,9 +1459,9 @@ func weighingWeightsCopy() map[string]string {
 		"action.assumptions":                            "Assumptions",
 		"disabled.assumptions":                          "Your access can read the Weighing figures but not change them.",
 		"drawer.assumptions.title":                      "Assumptions",
-		"drawer.assumptions.caption":                    "Figures the Weighing pages are valued and judged against. A change applies the next time a page loads, whatever period the page is showing.",
+		"drawer.assumptions.caption":                    "The figures the Weighing pages value and judge against.",
 		"drawer.assumptions.prices.title":               "Live-weight sale price",
-		"drawer.assumptions.prices.hint":                "₹ per kg live weight, used to value weight gained (FCR tab) and stock on hand (Load-wise tab).",
+		"drawer.assumptions.prices.hint":                "₹ per kg live weight; values weight gained and stock on hand.",
 		"drawer.assumptions.prices.default":             "All stages",
 		"drawer.assumptions.prices.by_stage":            "By stage and sex",
 		"drawer.assumptions.prices.by_stage.hint":       "Only stages with weighed animals in them are listed. Leave a box blank to use the all-stages price above. Each animal is valued at its own stage and sex.",
@@ -1692,7 +1692,7 @@ func weighingWeightsCopy() map[string]string {
 		"chart.load.title":                       "Daily gain by load",
 		"chart.load.title_weight":                "Average weight by load",
 		"chart.load.aria":                        "Growth for each purchase load",
-		"chart.load.caption":                     "Kids are bought in loads from a supplier and put into pens. This is how each load's own animals are growing, wherever they are penned, so a supplier's stock can be judged on how it grows.",
+		"chart.load.caption":                     "How each load's own animals are growing, wherever they are penned",
 		"empty.load.body":                        "No load has a weighed pen yet. A load shows up here once the pens it went into have been weighed.",
 		"note.load.unmapped":                     "pens are not counted here — they have no load recorded, or they hold more than one load and a single pen average cannot be split between two suppliers.",
 		// The load chart says a supplier's stock is growing; this says WHERE. Without
@@ -5911,8 +5911,8 @@ func pageSpecificCopy(id string) map[string]string {
 			// the weight_kg_compare option group; the value is typed, never enumerated.
 			"filter.apply":             "Apply",
 			"filter.pens_bar_aria":     "Filter pens",
-			"filter.weight.label":      "Average weight (kg)",
-			"filter.weight.value_aria": "Average weight in kilograms",
+			"filter.weight.label":      "Average weight",
+			"filter.weight.value_aria": "kg",
 			"filter.weight.note":       "Only pens whose average weight matches",
 
 			// The Time-wise tab's own two controls (maintainer request 2026-09-21). They are
@@ -5942,7 +5942,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// weight covers every kid weighed, gain only those weighed twice. The caption has to
 			// say so, or the two bars read as one fact about one set of animals.
 			"section.breed.title":   "Breed-wise growth",
-			"section.breed.caption": "Daily gain and average weight for each breed, under the selected weighing mode. The two bars count different kids: weight covers every kid weighed, gain only those with a second weigh or a whole pen that moved.",
+			"section.breed.caption": "Daily gain and average weight per breed",
 			"section.breed.aria":    "Daily gain and average weight by breed",
 			"series.gain":           "Daily gain",
 			"series.weight":         "Average weight",
@@ -5951,7 +5951,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// Birth-wise. The two halves deliberately need not add up to the whole, and saying so
 			// is the difference between an honest gap and apparent missing data.
 			"section.birth.title":   "Farm born, procured (no load) and procured (load)",
-			"section.birth.caption": "Daily gain for each breed under the selected weighing mode, split by where the kids came from: born here, bought with no recorded load, or bought on a load. A breed shows a bar only for the kinds the farm has. Kids whose origin is not recorded are counted in none, so the bars need not add up to the breed's own total.",
+			"section.birth.caption": "Daily gain per breed, by where the kids came from",
 			"section.birth.aria":    "Daily gain by breed and origin",
 			"empty.birth.body":      "No breed has a farm-born or procured kid with a second weigh in this period.",
 
@@ -5959,7 +5959,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// the farm's Pen types register (migration 000437), served as the pen_types option group;
 			// no pen type is named in this copy (maintainer instruction 2026-09-25).
 			"section.shed.title":   "Daily gain by pen type",
-			"section.shed.caption": "Daily gain for each breed, split by pen type. Pen types are set in Configuration, Items and settings, Pen types, and each partition is given one. A pen with no type is left out rather than guessed.",
+			"section.shed.caption": "Daily gain per breed, by pen type",
 			"section.shed.aria":    "Daily gain by breed and pen type",
 			"empty.shed.body":      "No typed pen has daily gain in this period. Give partitions a pen type in Configuration, then weigh twice.",
 			// The two bars come out of a classification the reader cannot see on the chart, so each
@@ -5976,7 +5976,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// in it. The caption states the two things a reader would otherwise assume wrongly:
 			// that a whole pen sits in one bracket, and that the gain is drawn from a smaller set.
 			"section.weight.title":   "Weight-wise",
-			"section.weight.caption": "How many animals stand in each weight bracket under the selected weighing mode, and how fast each bracket is growing. A whole pen sits entirely in the bracket its average weight falls into. The daily gain beside each bracket comes only from the animals in it weighed twice, so its head count is the smaller one.",
+			"section.weight.caption": "Animals in each weight bracket and how fast each is growing",
 			"section.weight.aria":    "Animals and daily gain by weight bracket",
 			"empty.weight.body":      "No kid was weighed in this period.",
 			"series.animals":         "Animals",
@@ -5997,7 +5997,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// the feed is today's sheet (it is the latest LOCKED sheet, named in the line above
 			// the table).
 			"section.feed_band.title":         "Feed by weight band",
-			"info.feed_band.caption":          "What each pen is being fed, placed against the observed 5 kg weight band of its animals — not consumption per band.",
+			"info.feed_band.caption":          "What each pen is fed, against its animals' 5 kg weight band",
 			"section.feed_band.aria":          "Feed given by weight bracket and pen",
 			"empty.feed_band.body":            "No fed pen has a weighing in this period.",
 			"empty.feed_band.filtered":        "No row matches these filters.",
@@ -6008,7 +6008,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.feed_band.pen":            "Pen",
 			"filter.feed_band.group":          "Group",
 			"filter.feed_band.animals":        "Animals",
-			"filter.feed_band.search":         "Search pen, group, breed or feed",
+			"filter.feed_band.search":         "Search pens or feed",
 			"filter.feed_band.search_aria":    "Search the feed by weight band table",
 			"value.feed_band.type.normal":     "Normal",
 			"value.feed_band.type.experiment": "Experiment",
@@ -6118,7 +6118,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// Time-wise. It follows the same selected window as the other tabs so every tab slices
 			// one population. The default window begins at the first dense weighing run.
 			"section.time.title":   "Weekly growth",
-			"section.time.caption": "Daily gain by week inside the selected period under the selected weighing mode. The default period starts on 03/08/2026, where the reliable weighing run begins. Park, sex and origin filters still apply.",
+			"section.time.caption": "Daily gain by week in the selected period",
 			"section.time.aria":    "Daily gain by week",
 			"empty.time.body":      "No week in this period has a kid or a pen weighed twice.",
 			// The chip beside every bar on these charts counts ANIMALS, not kids. Nothing in
@@ -6130,10 +6130,9 @@ func pageSpecificCopy(id string) map[string]string {
 			// free-flow weighing cannot ask an animal its age; the word was the defect.
 			"value.time.animals":         "animals",
 			"section.time.breed.title":   "Weekly growth by breed",
-			"section.time.breed.caption": "The same selected period and weighing mode, one row per breed. A pen holding more than one breed is counted in the overall trend above but in no breed here, so the breed rows need not add up to it.",
+			"section.time.breed.caption": "The same weeks, one row per breed",
 			"section.time.breed.aria":    "Daily gain by breed and week",
 			"empty.time.breed.body":      "No breed has a kid or a single-breed pen weighed twice in this period.",
-			"note.time.gaps":             "A week nobody weighed in has no bar. It is left out rather than drawn as zero, which would read as a week the kids stopped growing.",
 			// Time-wise, per pen and per load (maintainer requests 2026-09-08 and 2026-09-14): one
 			// row per pen or purchased load, one column per calendar week, daily gain in each
 			// cell. A blank cell is a week that pen or load was not weighed twice -- absence,
@@ -6141,13 +6140,13 @@ func pageSpecificCopy(id string) map[string]string {
 			// load only when it is tagged to exactly that one load, the same attribution the
 			// Load-wise tab uses.
 			"section.time.pen.title":    "Weekly growth by pen",
-			"section.time.pen.caption":  "Daily gain for every pen in every week of the selected period, under the selected weighing mode. A pen is listed whatever it holds; the sex filter keeps a whole-pen weigh only when the pen holds that sex alone.",
+			"section.time.pen.caption":  "Daily gain for every pen, week by week",
 			"section.time.pen.aria":     "Daily gain by pen and week",
 			"empty.time.pen.body":       "No pen has a kid or a whole-pen weigh paired inside this period.",
 			"value.time.pen.blank":      "—",
 			"value.time.pen.unit":       "g/day",
 			"section.time.load.title":   "Weekly growth by load",
-			"section.time.load.caption": "The same weeks, one row per purchased load: the daily gain of that load's own animals, wherever they were weighed. A kid weighed on its own counts by its tag; a pen weighed as one total counts for each of the load's animals that was in it at both weighs. A load whose animals were not weighed twice in a week shows a blank for it.",
+			"section.time.load.caption": "Daily gain of each purchased load's own animals, week by week",
 			"section.time.load.aria":    "Daily gain by purchased load and week",
 			"empty.time.load.body":      "No purchased load has a pen weighed twice inside this period.",
 
@@ -6156,20 +6155,19 @@ func pageSpecificCopy(id string) map[string]string {
 			// name something the table no longer shows. The page picks one set or the other; it
 			// never edits either, and the two must stay a matched pair.
 			"section.time.title.month":         "Growth every thirty days",
-			"section.time.caption.month":       "Daily gain in each thirty-day block of the selected period under the selected weighing mode, counted back from the period's last day. The default period starts on 03/08/2026, where the reliable weighing run begins. Park, sex and origin filters still apply. A block the period starts part-way through is shorter than thirty days and is still headed by that block's own start date, which can fall before the period.",
+			"section.time.caption.month":       "Daily gain in each thirty-day block of the selected period",
 			"section.time.aria.month":          "Daily gain every thirty days",
 			"empty.time.body.month":            "No thirty-day block in this period has a kid or a pen weighed twice.",
 			"section.time.breed.title.month":   "Growth every thirty days by breed",
-			"section.time.breed.caption.month": "The same thirty-day blocks and weighing mode, one row per breed. A pen holding more than one breed is counted in the overall trend above but in no breed here, so the breed rows need not add up to it. A block the period starts part-way through is shorter than thirty days and is still headed by that block's own start date, which can fall before the period.",
+			"section.time.breed.caption.month": "The same thirty-day blocks, one row per breed",
 			"section.time.breed.aria.month":    "Daily gain by breed and thirty-day block",
 			"empty.time.breed.body.month":      "No breed has a kid or a single-breed pen weighed twice in this period.",
-			"note.time.gaps.month":             "A thirty-day block nobody weighed in has no bar. It is left out rather than drawn as zero, which would read as a block the kids stopped growing in.",
 			"section.time.pen.title.month":     "Growth every thirty days by pen",
-			"section.time.pen.caption.month":   "Daily gain for every pen in each thirty-day block of the selected period, under the selected weighing mode. A pen is listed whatever it holds; the sex filter keeps a whole-pen weigh only when the pen holds that sex alone. A block the period starts part-way through is shorter than thirty days and is still headed by that block's own start date, which can fall before the period.",
+			"section.time.pen.caption.month":   "Daily gain for every pen, thirty days at a time",
 			"section.time.pen.aria.month":      "Daily gain by pen and thirty-day block",
 			"empty.time.pen.body.month":        "No pen has a kid or a whole-pen weigh paired inside this period.",
 			"section.time.load.title.month":    "Growth every thirty days by load",
-			"section.time.load.caption.month":  "The same thirty-day blocks, one row per purchased load: the daily gain of that load's own animals, wherever they were weighed. A kid weighed on its own counts by its tag; a pen weighed as one total counts for each of the load's animals that was in it at both weighs. A load whose animals were not weighed twice in a block shows a blank for it. A block the period starts part-way through is shorter than thirty days and is still headed by that block's own start date, which can fall before the period.",
+			"section.time.load.caption.month":  "Daily gain of each purchased load's own animals, thirty days at a time",
 			"section.time.load.aria.month":     "Daily gain by purchased load and thirty-day block",
 			"empty.time.load.body.month":       "No purchased load has a pen weighed twice inside this period.",
 
@@ -6188,7 +6186,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"tab.fcr": "FCR",
 
 			"section.load.title":   "Purchased weight against the latest weighing",
-			"section.load.caption": "Average weight per animal in each purchased load — as bought, and at its latest weighing in the selected period. The figure above each pair is how many times the arrival weight the load now stands at, followed by the pens the load's animals are in today.",
+			"section.load.caption": "Average weight per animal in each load, bought vs latest; its pens in brackets",
 			"section.load.aria":    "Purchased weight against latest weighing by load",
 
 			"legend.load.purchased": "At purchase",
@@ -6204,7 +6202,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// The rates are the maintainer's assumptions, stated on the chart; a sold-out load
 			// has no stock to value and shows nothing here rather than a zero.
 			"section.load_value.title":   "Purchased value against current stock value",
-			"section.load_value.caption": "What each load cost, landed, against what its animals still on farm are worth today: remaining animals × latest average weight × each animal's assumed live-weight rate for its stage and sex, followed by the pens the load's animals are in today. Gain is the difference. A load that has sold out has no stock to value, and names no pen.",
+			"section.load_value.caption": "Each load's landed cost against its stock value today; its pens in brackets",
 			"section.load_value.aria":    "Purchased value against current stock value by load",
 			"legend.load.purchase_value": "Purchased value (₹)",
 			"legend.load.stock_value":    "Current stock value (₹)",
@@ -6252,25 +6250,25 @@ func pageSpecificCopy(id string) map[string]string {
 			"fcr.price.missing": "No assumed sale price is set for this species, so its gain is not valued.",
 			"fcr.price.shared":  "The Comparison tab values stock at the same prices.",
 			// Maintainer decision 2026-09-24: prices may also be set per stage and sex.
-			"fcr.price.overrides": "set by stage and sex; each animal is valued at its own",
+			"fcr.price.overrides": "prices set by stage and sex",
 
 			"section.fcr.pens.title":     "FCR by pen",
-			"section.fcr.pens.caption":   "Kilograms of feed the pen ate between its first and latest weighing in the period (directed feed less any leftover the verifier weighed), per kilogram the pen gained. Grouped by park, pens A to Z; the dashed line is break-even at today's prices.",
+			"section.fcr.pens.caption":   "Kg of feed eaten per kg gained; the dashed line is break-even",
 			"section.fcr.pens.aria":      "Feed conversion ratio by pen",
 			"section.fcr.money.title":    "Money by pen",
-			"section.fcr.money.caption":  "What each pen's gain is worth at the assumed sale price, what its feed cost at purchase prices, and the money made between the two. A bar below the line is a pen that ate more value than it put on.",
+			"section.fcr.money.caption":  "Each pen's gain value against its feed cost",
 			"section.fcr.money.aria":     "Gain value, feed cost and money made by pen",
 			"legend.fcr.gain_value":      "Gain value (₹)",
 			"legend.fcr.feed_cost":       "Feed cost (₹)",
 			"legend.fcr.margin":          "Money made (₹)",
 			"section.fcr.breed.title":    "FCR by breed",
-			"section.fcr.breed.caption":  "Mixed pens are split by resident headcount share so every breed is visible.",
+			"section.fcr.breed.caption":  "Mixed pens split by headcount share",
 			"section.fcr.breed.aria":     "Feed conversion ratio by breed",
 			"section.fcr.sex.title":      "FCR by sex",
 			"section.fcr.sex.caption":    "A pen counts under a sex only when every resident is that sex.",
 			"section.fcr.sex.aria":       "Feed conversion ratio by sex",
 			"section.fcr.weekly.title":   "FCR week by week",
-			"section.fcr.weekly.caption": "Each weighing round closes a segment for its pen: feed eaten since the previous round over the gain across it. Weeks are grouped by the round that closed them.",
+			"section.fcr.weekly.caption": "Feed per kg gained, by the week each weighing round closed",
 			"section.fcr.weekly.aria":    "Feed conversion ratio by week",
 			"section.fcr.band.title":     "FCR by weight band",
 			"section.fcr.band.caption":   "Band from the pen's average weight at its first weighing in the period.",
@@ -6278,7 +6276,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.fcr.park.title":     "FCR by park",
 			"section.fcr.park.aria":      "Feed conversion ratio by park",
 			"section.fcr.origin.title":   "Farm born, procured without a load and procured on a load",
-			"section.fcr.origin.caption": "A pen joins one of the three only when every live resident belongs to it: born here, bought with no recorded load, or bought on a load. A pen that mixes them, or holds an animal with no recorded origin, is shown as mixed.",
+			"section.fcr.origin.caption": "Pens whose residents all share one origin; others show as mixed",
 			"section.fcr.origin.aria":    "Feed conversion ratio by origin",
 
 			"series.fcr":                 "FCR",
@@ -6294,12 +6292,13 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.fcr.procured_no_load": "Procured (no load)",
 			"label.fcr.procured_load":    "Procured (load)",
 			"label.fcr.break_even":       "Break-even",
+			"label.fcr.off_scale":        "off scale",
 			"label.fcr.whole_pen":        "whole pen",
 			"label.fcr.scanned":          "scanned",
 
 			"table.fcr.title":                 "Pens",
 			"table.fcr.aria":                  "FCR by pen",
-			"table.fcr.caption":               "One row per pen. Feed is what the sheet directed between the two weighing dates, less any leftover the verifier weighed; gain is the pen's daily gain × the head-days actually fed. Blocked feed cells understate feed and are flagged.",
+			"table.fcr.caption":               "One row per pen; flagged feed cells understate feed",
 			"table.fcr.pen":                   "Pen",
 			"table.fcr.cohort":                "Cohort",
 			"table.fcr.animals":               "Kids",
@@ -6347,7 +6346,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// page's other filters cannot slice a load that is bought whole; and the latest
 			// weighing deliberately ignores the selected period, or a narrow window would
 			// erase a load's newest weigh and read as the animals shrinking.
-			"note.load.denominator": "At purchase averages over every animal bought; the latest weighing averages over the load's own animals weighed in the selected period, each at its latest weight — sold or lost animals count only while they were on the farm.",
+			"note.load.denominator": "At purchase: every animal bought. Latest: the load's animals weighed in the period",
 			"note.load.filters":     "This tab narrows by park and period. A load is bought whole and followed through every pen move, so the sex, origin and weighing-mode filters are hidden here.",
 
 			"empty.load.body": "No purchased loads recorded yet. When one is, its arrival weight and latest weighing will be compared here.",
@@ -9023,23 +9022,25 @@ func pageSpecificCopy(id string) map[string]string {
 			"disabled.access_write":     "Your current role can view access but not change it.",
 			// Notifications tab (maintainer decision 2026-09-08). "Desk" and "job title" are
 			// the farm words for a designation; the raw code (pc_director) is never shown.
-			"notifications.intro":              "Tick the job titles that should receive each alert. Everyone holding that title on an active login is told; nobody is named individually.",
-			"notifications.column.alert":       "Alert",
-			"notifications.column.setting":     "Setting",
-			"notifications.chip.default":       "Default",
-			"notifications.chip.custom":        "Customised",
-			"notifications.chip.unsaved":       "Unsaved",
-			"notifications.chip.nobody":        "Nobody receives this",
-			"notifications.action.save":        "Save",
-			"notifications.action.saving":      "Saving...",
-			"notifications.action.use_default": "Use default",
-			"notifications.action.reset_hint":  "Back to the standard audience for this alert.",
-			"notifications.always_told":        "The person doing the work is always told; these ticks only decide who else hears about it.",
-			"notifications.saved":              "Saved. New alerts go to the ticked job titles from now on.",
-			"notifications.error.load":         "The alert settings could not be loaded. Reload the page and try again.",
-			"notifications.error.save":         "That could not be saved. Reload the page to see the current settings, then try again.",
-			"notifications.empty":              "No alerts are configurable yet.",
-			"disabled.notifications_write":     "Your current role can see who receives each alert but not change it.",
+			"notifications.intro":                 "Tick the job titles that should receive each alert. Everyone holding that title on an active login is told; nobody is named individually.",
+			"notifications.column.alert":          "Alert",
+			"notifications.column.setting":        "Setting",
+			"notifications.chip.default":          "Default",
+			"notifications.chip.custom":           "Customised",
+			"notifications.chip.unsaved":          "Unsaved",
+			"notifications.chip.nobody":           "Nobody receives this",
+			"notifications.action.save":           "Save",
+			"notifications.action.saving":         "Saving...",
+			"notifications.action.use_default":    "Use default",
+			"notifications.action.edit_audience":  "Change who hears it",
+			"notifications.action.close_audience": "Done",
+			"notifications.action.reset_hint":     "Back to the standard audience for this alert.",
+			"notifications.always_told":           "The person doing the work is always told; these ticks only decide who else hears about it.",
+			"notifications.saved":                 "Saved. New alerts go to the ticked job titles from now on.",
+			"notifications.error.load":            "The alert settings could not be loaded. Reload the page and try again.",
+			"notifications.error.save":            "That could not be saved. Reload the page to see the current settings, then try again.",
+			"notifications.empty":                 "No alerts are configurable yet.",
+			"disabled.notifications_write":        "Your current role can see who receives each alert but not change it.",
 		}
 	// Vaccination is deliberately absent: its SOP page is gone, and its content lives on
 	// the vaccination plan console. milk and weighing arrived on main meanwhile and stay.
@@ -9087,6 +9088,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"status.draft":                            "draft",
 			"status.retired":                          "retired",
 			"label.steps":                             "steps",
+			"label.form_questions":                    "form questions",
+			"label.form_question":                     "form question",
 			"label.step":                              "step",
 			"label.no_proof_gates":                    "no proof gates",
 			"label.no_published_version":              "no published version",
@@ -9112,7 +9115,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.builder.field.name_domain":         "SOP name & domain",
 			"modal.builder.field.name":                "SOP name",
 			"modal.builder.placeholder.name":          "Vaccination session",
-			"modal.builder.domain_locked":             "domain locked",
+			"modal.builder.domain_locked":             "set by this page",
 			"modal.builder.policy_label":              "vaccination drive/session policy",
 			"modal.builder.field.trigger":             "Trigger — what starts it?",
 			"modal.builder.field.steps":               "Steps & questions — add/remove, pick a type, set conditional rules",
@@ -9497,9 +9500,9 @@ func pageSpecificCopy(id string) map[string]string {
 			m["action.assumptions"] = "Assumptions"
 			m["disabled.assumptions"] = "Your access can read the Weighing figures but not change them."
 			m["drawer.assumptions.title"] = "Assumptions"
-			m["drawer.assumptions.caption"] = "Figures the Weighing pages are valued and judged against. A change applies the next time a page loads, whatever period the page is showing."
+			m["drawer.assumptions.caption"] = "The figures the Weighing pages value and judge against."
 			m["drawer.assumptions.prices.title"] = "Live-weight sale price"
-			m["drawer.assumptions.prices.hint"] = "₹ per kg live weight, used to value weight gained (FCR tab) and stock on hand (Load-wise tab)."
+			m["drawer.assumptions.prices.hint"] = "₹ per kg live weight; values weight gained and stock on hand."
 			m["drawer.assumptions.prices.default"] = "All stages"
 			m["drawer.assumptions.prices.by_stage"] = "By stage and sex"
 			m["drawer.assumptions.prices.by_stage.hint"] = "Only stages with weighed animals in them are listed. Leave a box blank to use the all-stages price above. Each animal is valued at its own stage and sex."
@@ -10908,7 +10911,7 @@ func sopOptionGroups() []domain.OptionGroup {
 			ID: "sop_trigger_chips",
 			Options: []domain.Option{
 				option("form", "Form", "", ""),
-				option("cron", "Schedule / cron", "", ""),
+				option("cron", "Schedule", "", ""),
 				option("sensor", "Sensor", "", ""),
 				option("manual", "Manual", "", ""),
 			},
@@ -10927,17 +10930,17 @@ func sopOptionGroups() []domain.OptionGroup {
 		{
 			ID: "sop_step_types",
 			Options: []domain.Option{
-				option("text", "text", "", ""),
-				option("number", "number", "", ""),
-				option("yesno", "yes/no", "", ""),
-				option("select", "select", "", ""),
-				option("multiselect", "multiselect", "", ""),
+				option("text", "Text", "", ""),
+				option("number", "Number", "", ""),
+				option("yesno", "Yes / No", "", ""),
+				option("select", "Choose one", "", ""),
+				option("multiselect", "Choose several", "", ""),
 				option("goat_scan", "Animal ID scan", "", ""),
-				option("shed_picker", "pen picker", "", ""),
-				option("vaccine_batch_picker", "vaccine batch picker", "", ""),
-				option("medicine_picker", "medicine picker", "", ""),
-				option("photo_proof", "photo proof", "", ""),
-				option("video_proof", "video proof", "", ""),
+				option("shed_picker", "Pen picker", "", ""),
+				option("vaccine_batch_picker", "Vaccine batch picker", "", ""),
+				option("medicine_picker", "Medicine picker", "", ""),
+				option("photo_proof", "Photo proof", "", ""),
+				option("video_proof", "Video proof", "", ""),
 			},
 		},
 		{
@@ -10969,8 +10972,8 @@ func sopOptionGroups() []domain.OptionGroup {
 		{
 			ID: "proof_types",
 			Options: []domain.Option{
-				option("video", "video proof", "", ""),
-				option("photo", "photo proof", "", ""),
+				option("video", "Video proof", "", ""),
+				option("photo", "Photo proof", "", ""),
 			},
 		},
 		// SOP-DRIVEN HERD OPERATIONS (maintainer decision 2026-09-13): the follow-up step
@@ -11026,8 +11029,8 @@ func sopOptionGroups() []domain.OptionGroup {
 		{
 			ID: "subject_scopes",
 			Options: []domain.Option{
-				option("batch", "subject: batch", "", ""),
-				option("goat", "subject: per-goat", "", ""),
+				option("batch", "One proof for the whole pen", "", ""),
+				option("goat", "One proof per animal", "", ""),
 			},
 		},
 		{
@@ -12590,6 +12593,9 @@ func weighingSOPEditorCopy() map[string]string {
 		"wsop.removal.mode.off":                 "Never — no removal step, weighing can be planned for today",
 		"wsop.removal.instruction":              "Instruction on the removal card",
 		"wsop.removal.cutoff":                   "Removal evening starts at (IST)",
+		"wsop.removal.cutoff.hour":              "Hour",
+		"wsop.removal.cutoff.minute":            "Minute",
+		"wsop.proof.kind.label":                 "Capture type",
 		"wsop.removal.cutoff.hint":              "Before this time tomorrow is plannable; at or after it the earliest weigh day is the day after. Leave blank to use the farm-wide evening.",
 		"wsop.removal.cutoff.farm":              "the farm-wide evening",
 		"wsop.removal.proofs":                   "Captures each pen owes",

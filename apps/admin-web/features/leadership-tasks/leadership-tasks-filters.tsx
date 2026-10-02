@@ -262,6 +262,18 @@ export function LeadershipTasksFilters({
     statusChips.find((chip) => chip.selected)?.key ?? "all",
   );
   const chipSelected = (key: string) => (selectedChipKey || "all") === key;
+  // The selected status tab is scrolled into the strip's view. On a phone the strip shows three
+  // tabs, so a deep link to a later one (?filter=overdue) opened with NO tab visibly selected.
+  const statusTabsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const strip = statusTabsRef.current;
+    const tab = strip?.querySelector<HTMLElement>('[aria-current="true"]');
+    const scroller = tab?.closest<HTMLElement>(".MuiTabs-scroller");
+    if (!tab || !scroller) return;
+    // Scrolls the strip only, never the page.
+    const offset = tab.offsetLeft - (scroller.clientWidth - tab.offsetWidth) / 2;
+    scroller.scrollLeft = Math.max(0, offset);
+  }, [selectedChipKey]);
 
   const searchLabel = copy(pageContract, "filter.search_label");
   /**
@@ -451,6 +463,7 @@ export function LeadershipTasksFilters({
     >
       {/* ONE status group: alternatives, exactly one current -- the template's status tabs. */}
       <Tabs
+        ref={statusTabsRef}
         value={selectedChipKey || "all"}
         variant="scrollable"
         scrollButtons="auto"
@@ -478,7 +491,9 @@ export function LeadershipTasksFilters({
               iconPosition="end"
               label={chip.label}
               icon={
-                <Label variant={chip.key === "all" || on ? "filled" : "soft"} color={chipColor(chip.key)}>
+                // Only the SELECTED tab's count is filled: a filled "All" beside an unselected strip read as
+                // "All" being the current tab.
+                <Label variant={on ? "filled" : "soft"} color={chipColor(chip.key)}>
                   {Math.max(0, chip.count + chipDelta(chip.key))}
                 </Label>
               }

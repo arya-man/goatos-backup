@@ -2,6 +2,7 @@ package domain
 
 import (
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -130,4 +131,29 @@ type GatewayHeartbeatResponse struct {
 	// RebootDetected is true when ticks_cnt went backwards against the stored value.
 	RebootDetected bool   `json:"reboot_detected"`
 	TraceID        string `json:"trace_id"`
+}
+
+// SystemMappedBy is what the Tag Mapping list shows for a binding no person made -- the seed
+// migration that loaded the first smart-tag bindings, or any other system actor.
+const SystemMappedBy = "System setup"
+
+// DisplayMappedBy turns a stored mapped_by into what the Tag Mapping list may print. The seed
+// stamped its bindings "migration:000298_smart_ble_tag_mapping_seed", which reached the screen
+// verbatim (an internal word, and long enough to overprint the Bound-at cell on a phone). System
+// actors -- "migration:...", "seed...", "system", "maintainer" -- read as SystemMappedBy; a blank
+// stays absent; anything else (a person's id or name) passes through unchanged.
+func DisplayMappedBy(raw *string) *string {
+	if raw == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*raw)
+	lower := strings.ToLower(trimmed)
+	switch {
+	case trimmed == "":
+		return nil
+	case strings.HasPrefix(lower, "migration:"), strings.HasPrefix(lower, "seed"), lower == "system", lower == "maintainer":
+		label := SystemMappedBy
+		return &label
+	}
+	return &trimmed
 }

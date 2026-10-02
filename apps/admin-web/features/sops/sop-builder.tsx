@@ -326,6 +326,9 @@ export function SopBuilder({
               <Typography variant="subtitle2" component="span">{copy(pc, "modal.builder.field.trigger")}</Typography>
               <TemplateTabs
                 variant="pill"
+                // Scroll arrows on a phone: the four triggers do not fit 390, and without them the
+                // last one read "M".
+                scrollButtons="auto"
                 ariaLabel={copy(pc, "modal.builder.field.trigger")}
                 value={trigger}
                 items={triggerOptions.map((t) => ({ value: t.key, label: t.label }))}

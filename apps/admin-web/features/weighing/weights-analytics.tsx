@@ -65,6 +65,7 @@ import {
 import { WINDOW_FROM_PARAM, WINDOW_TO_PARAM } from "./landing-window-constants";
 import { SEX_ALL, resolveSexFilter, sexControlValue } from "./sex-filter";
 import { weightsSexChoices } from "./sex-filter-contract";
+import { demographicsSectionsForTab } from "./demographics-sections";
 import { GENERAL_GRID, WEIGHTS_DEFAULT_LIMIT, WEIGHTS_TABS } from "./weights-analytics-layout";
 
 const PAGE_PATH = "/weighing/analytics";
@@ -277,20 +278,10 @@ export async function WeighingWeightsAnalyticsPage({
   const growthSections =
     tab === "general" ? "headline,shed_leaderboard,by_park,weekly_gain" : tab === "time" ? "weekly_gain" : "";
   const wantsGrowth = growthSections !== "";
-  const wantsDemographics =
-    tab === "breed" || tab === "shed" || tab === "birth" || tab === "weight" || tab === "time";
-  const demographicsSections =
-    tab === "breed"
-      ? "dimensions"
-      : tab === "birth"
-        ? "origin"
-        : tab === "shed"
-          ? "shed_type"
-          : tab === "weight"
-            ? "weight_bands"
-            : tab === "time"
-              ? "weekly_gain"
-              : "";
+  // Which demographics section each tab reads lives in ONE table (demographics-sections.ts):
+  // General reads `composition` for the pens table's Breed column.
+  const demographicsSections = demographicsSectionsForTab(tab);
+  const wantsDemographics = demographicsSections !== "";
 
   // The Load-wise tab reads the purchase ledger beside the ONE shed-weights request every tab
   // makes. On that tab the shed read carries park + the selected period only: a load is bought
@@ -826,7 +817,7 @@ function GeneralTab({
     <Grid container spacing={3}>
       <Grid size={GENERAL_GRID.kpi}>
         <KpiWidget
-          title={`${copy(pageContract, "kpi.kids.label")} ${copy(pageContract, "kpi.kids.sub")}`}
+          title={copy(pageContract, "kpi.kids.label")}
           total={hasAnyData ? summary.animals_weighed : null}
           caption={hasAnyData ? kidsSplit : noData}
           sx={{ height: 1 }}
@@ -869,7 +860,7 @@ function GeneralTab({
         <WeeklyGrowthCard
           ariaLabel={copy(pageContract, "section.time.aria")}
           title={copy(pageContract, "section.time.title")}
-          subheader={copy(pageContract, "note.time.gaps")}
+          subheader={copy(pageContract, "section.time.caption")}
           emptyLabel={copy(pageContract, "empty.time.body")}
           seriesName={copy(pageContract, "series.gain")}
           points={weeklyGain.map((point) => ({ label: point.label, gain: point.gain, animalsLabel: animalCount(pageContract, point.animals) }))}
@@ -1082,6 +1073,9 @@ function BirthTab({ pageContract, demo }: { pageContract: AdminUiPageContract; d
     ORIGIN_KEYS.map((key) => [key, new Map(buckets.filter((b) => b.origin === key).map((b) => [b.label, b]))] as const),
   );
   const breeds = [...new Set(buckets.map((b) => b.label))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  // Only the origins the farm has a weighed kid of get a legend entry and a series: a legend naming
+  // "Procured (no load)" over a chart with no such bar promised data that is not there.
+  const origins = ORIGIN_KEYS.filter((key) => (byOrigin.get(key)?.size ?? 0) > 0);
 
   // All three origins share the g/day scale, unlike Breed-wise: these bars ARE the same measure
   // over three cohorts, which is the entire comparison. A breed the farm has no such kid of gets
@@ -1098,7 +1092,7 @@ function BirthTab({ pageContract, demo }: { pageContract: AdminUiPageContract; d
             name: copy(pageContract, "series.gain"),
             categories: breeds,
             unit: "g",
-            data: ORIGIN_KEYS.map((key) => ({
+            data: origins.map((key) => ({
               name: copy(pageContract, `view.origin.${key}`),
               data: breeds.map((breed) => {
                 const bucket = byOrigin.get(key)?.get(breed);
@@ -1490,12 +1484,12 @@ function TimeTab({
         />
       </Grid>
       {/* Titled through the bucket pair, so a heading can never describe columns the chart is not
-          showing. Columns, not a line: a week nobody weighed has no bar (the gaps note says so). */}
+          showing. Columns, not a line: a week nobody weighed has no bar. */}
       <Grid size={12}>
         <WeeklyGrowthCard
           ariaLabel={bucketCopy("section.time.aria")}
           title={bucketCopy("section.time.title")}
-          subheader={`${bucketCopy("section.time.caption")} ${bucketCopy("note.time.gaps")}`}
+          subheader={bucketCopy("section.time.caption")}
           emptyLabel={bucketCopy("empty.time.body")}
           seriesName={copy(pageContract, "series.gain")}
           points={weeklyPoints.map((point) => ({ label: point.label, gain: point.gain, animalsLabel: animalCount(pageContract, point.animals) }))}

@@ -7,10 +7,10 @@ import Typography from "@mui/material/Typography";
 
 import { EmptyState } from "@/components/app/empty-state";
 import { WorklistPager } from "@/components/worklist-pager";
-import { ConversionRatesCard } from "@/components/app/conversion-rates-card";
 import { ColumnChartCard } from "@/components/app/column-chart-card";
 import { BalanceStatisticsCard } from "@/components/app/balance-statistics-card";
 import { KpiWidget } from "@/components/app/kpi-widget";
+import { FCRPensChart } from "./fcr-pens-chart";
 import { FCRPensTable } from "./fcr-pens-table";
 import { cohortWord } from "./fcr-labels";
 import { copy, table, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -243,68 +243,55 @@ export function FCRTab({
             copy(pageContract, "fcr.price.missing")
           ) : (
             <>
-              {copy(pageContract, "fcr.price.prefix")}{" "}
-              {priceDefaults.map((price, i) => (
-                <span key={price.species}>
-                  {i > 0 ? " · " : ""}
+              {/* One line per species, then one line for the stage x sex prices and where else the
+                  prices are used: printed as one run-on sentence it read as a paragraph. */}
+              {priceDefaults.map((price) => (
+                <Box component="span" key={price.species} sx={{ display: "block" }}>
+                  {copy(pageContract, "fcr.price.prefix")}{" "}
                   <b>
                     {rupee}
                     {num(price.price_per_kg_inr, 0)}
                   </b>{" "}
-                  {copy(pageContract, "fcr.price.per_kg")} ({price.species}) — {copy(pageContract, "fcr.price.set")} {fmtDate(price.effective_from)}
+                  {copy(pageContract, "fcr.price.per_kg")} ({price.species}) · {copy(pageContract, "fcr.price.set")} {fmtDate(price.effective_from)}
                   {price.set_by ? ` ${copy(pageContract, "fcr.price.by")} ${price.set_by}` : ""}
-                </span>
+                </Box>
               ))}
               {/* Stage x sex prices (maintainer decision 2026-09-24) sit on top of these defaults; each
                   animal in a pen is valued at its own, so the caption says how many are in force. */}
-              {priceOverrides > 0 ? ` · ${priceOverrides} ${copy(pageContract, "fcr.price.overrides")}` : ""}
-              {" · "}
-              {copy(pageContract, "fcr.price.shared")}
+              <Box component="span" sx={{ display: "block", color: "text.secondary" }}>
+                {priceOverrides > 0 ? `${priceOverrides} ${copy(pageContract, "fcr.price.overrides")} · ` : ""}
+                {copy(pageContract, "fcr.price.shared")}
+              </Box>
             </>
           )}
         </Alert>
       </Grid>
 
       <Grid size={{ xs: 12, lg: 7 }}>
-        <ConversionRatesCard
-          aria-label={copy(pageContract, "section.fcr.pens.aria")}
+        <FCRPensChart
+          ariaLabel={copy(pageContract, "section.fcr.pens.aria")}
           title={copy(pageContract, "section.fcr.pens.title")}
           subheader={copy(pageContract, "section.fcr.pens.caption")}
           empty={<EmptyState title={copy(pageContract, "empty.fcr.body")} />}
-          chart={{
-            categories: ratedPens.map((pen) => pen.operational_location_display),
-            unit: copy(pageContract, "unit.fcr"),
-            digits: 2,
-            series: [
-              {
-                name: copy(pageContract, "series.fcr"),
-                data: ratedPens.map((pen) => Number(pen.fcr.toFixed(2))),
-                notes: ratedPens.map((pen) => `${cohortWord(pen.breed, tableLabels, "breed")} · ${cohortWord(pen.sex, tableLabels, "sex")}`),
-              },
-            ],
-            // The caption promises a dashed break-even line across every pen's bar, so a pen past it
-            // reads as losing money without comparing two numbers.
-            options:
-              s.break_even_fcr != null
-                ? {
-                    annotations: {
-                      xaxis: [
-                        {
-                          x: s.break_even_fcr,
-                          strokeDashArray: 4,
-                          label: { text: `${copy(pageContract, "label.fcr.break_even")}: ${num(s.break_even_fcr, 1)} ${copy(pageContract, "unit.fcr")}` },
-                        },
-                      ],
-                    },
-                  }
-                : undefined,
-          }}
-          sx={{ height: 1 }}
+          categories={ratedPens.map((pen) => pen.operational_location_display)}
+          values={ratedPens.map((pen) => Number(pen.fcr.toFixed(2)))}
+          notes={ratedPens.map((pen) => `${cohortWord(pen.breed, tableLabels, "breed")} · ${cohortWord(pen.sex, tableLabels, "sex")}`)}
+          seriesName={copy(pageContract, "series.fcr")}
+          unit={copy(pageContract, "unit.fcr")}
+          // The caption promises a dashed break-even line across every pen's bar, so a pen past it
+          // reads as losing money without comparing two numbers.
+          breakEven={s.break_even_fcr}
+          breakEvenLabel={
+            s.break_even_fcr == null
+              ? ""
+              : `${copy(pageContract, "label.fcr.break_even")}: ${num(s.break_even_fcr, 1)} ${copy(pageContract, "unit.fcr")}`
+          }
+          offScaleLabel={copy(pageContract, "label.fcr.off_scale")}
         >
           <Typography variant="body2" sx={{ px: 3, pb: 3, color: "text.secondary" }}>
             {copy(pageContract, "note.fcr.excluded")}
           </Typography>
-        </ConversionRatesCard>
+        </FCRPensChart>
       </Grid>
       <Grid size={{ xs: 12, lg: 5 }}>
         <ColumnChartCard

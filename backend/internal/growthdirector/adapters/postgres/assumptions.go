@@ -225,6 +225,7 @@ func readAssumptionValues(ctx context.Context, q querier, tenantID string) ([]do
 			continue // a row this build does not know: never rendered, never editable
 		}
 		v.Kind = key.Kind
+		v.SetBy = domain.DisplaySetter(v.SetBy)
 		if value != nil {
 			v.Value = *value
 		}
