@@ -7068,7 +7068,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"consumption.view.general":       "General",
 			"consumption.view.status":        "Status-wise",
 			"status.hint":                    "Each status is the pen's tag on the feed sheet, averaged over the selected range. Spend prices every feed at the farm's latest load rate; kg is all sheet feeds for one animal. Milk and pens with mixed tags are left out.",
-			"status.chart.cap":               "₹ spent per day (solid line) and kg per animal per day (dashed) · {count} animals on average",
+			"status.chart.cap":               "Average animals fed: {count}",
 			"status.series.spend":            "₹ spent",
 			"status.series.kg":               "kg per animal",
 			"status.spend_per_day":           "₹ / day",

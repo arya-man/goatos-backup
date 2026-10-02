@@ -28,7 +28,7 @@ test("execution variance table defaults to the latest packing day with measured 
   assert.match(source, /let variancePackingDay = favDay \|\| todayIso\(\);/);
   assert.match(source, /if \(!favDay && tab === "execution" && execution\?\.ok\) \{/);
   assert.match(source, /\.filter\(\(d\) => d\.actual_kg !== ""\)/);
-  assert.match(source, /const \[locations, directed, execution, experiment, stock, shedFeed, loads, followUp\] = await Promise\.all\(\[/);
+  assert.match(source, /const \[locations, directed, execution, experiment, stock, shedFeed, loads, followUp, stages\] = await Promise\.all\(\[/);
   assert.match(source, /const executionDay =\s*tab === "execution"\s*\?\s*await getFeedAnalyticsExecution\(\{/s);
   assert.match(source, /tab === "execution"\s*\?\s*await getFeedAnalyticsExecution\(\{/s);
   assert.match(source, /date_from: istDayPlus\(variancePackingDay, 1\),/);
