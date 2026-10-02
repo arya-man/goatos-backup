@@ -67,7 +67,10 @@ export function phoneLoadCardsSx(
       gridRow: slot.row,
       ...(slot.row === 1 && slot.nth === 1 ? { typography: "subtitle1" } : {}),
       ...(slot.secondary ? { color: "text.secondary", typography: "body2" } : {}),
-      ...(slot.alignEnd ? { justifySelf: "end", textAlign: "right" } : {}),
+      // A slot reads from its own start edge unless it is an end slot: the table cell's own
+      // alignment (a centred count on the laptop) would otherwise float it mid-card ("Animals 58"
+      // indented under the name, PR #294 S6).
+      ...(slot.alignEnd ? { justifySelf: "end", textAlign: "right" } : { justifySelf: "start", textAlign: "left" }),
     };
     if (slot.labelled) {
       // The header row is hidden on a phone, so a bare reading ("58") would carry no name: the
