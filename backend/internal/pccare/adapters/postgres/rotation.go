@@ -16,11 +16,6 @@ import (
 
 var _ ports.RotationStore = (*Repository)(nil)
 
-// rotationTaskPenSortSQL is a task's pen ORDER key, built exactly as penCoverageScopedPensSQL
-// builds pen_sort (same natural key over the shed name and the partition label), so "the pen
-// after this one" is decided on one ordering.
-var rotationTaskPenSortSQL = `(` + naturalSortKeySQL("ts.name") + ` || chr(1) || ` + naturalSortKeySQL("t.partition_label") + `) COLLATE "C"`
-
 // rotationCandidatesSQL ($1 tenant, $2 true, $3 empty parks, $4 ” -- the catalog CTE's own
 // parameters, asking for every park -- $5 categories, $6 gaps, $7 SOP versions, $8 today,
 // $9 horizon, $10 limit).
@@ -77,20 +72,25 @@ latest AS (
     AND t.gates_task_id IS NULL
   ORDER BY t.category, t.park_id, t.planned_business_date DESC, t.created_at DESC, t.task_id DESC
 ),
+pens AS (
+` + penCoverageScopedPensSQL + `),
 round_pens AS (
   -- The latest task's whole round (a hand-planned round may hold several pens), each with its
   -- pen order key. A round-less task is a round of one.
-  SELECT l.category, l.park_id, l.gap_days, l.sop_version, t.task_id, t.shed_id,
-         t.partition_key,
+  SELECT l.category, l.park_id, l.gap_days, l.sop_version, t.task_id, p.shed_id,
+         p.partition_key,
          t.submitted_at, t.planned_business_date, t.created_by,
-         ` + rotationTaskPenSortSQL + ` AS pen_sort
+         p.pen_sort
   FROM latest l
   JOIN pc_care_tasks t
     ON t.tenant_id = $1::uuid
    AND t.category = l.category
    AND t.work_state <> 'canceled'
    AND (t.task_id = l.task_id OR (l.round_id IS NOT NULL AND t.round_id = l.round_id))
-  JOIN locations ts ON ts.tenant_id = t.tenant_id AND ts.location_id = t.shed_id
+  JOIN pens p
+    ON p.park_id = l.park_id
+   AND p.shed_id = t.shed_id
+   AND p.partition_key = COALESCE(NULLIF(LOWER(BTRIM(t.partition_label)), ''), 'whole')
 ),
 rounds AS (
   SELECT r.category, r.park_id, max(r.gap_days) AS gap_days, max(r.sop_version) AS source_sop_version,
@@ -104,8 +104,6 @@ rounds AS (
   FROM round_pens r
   GROUP BY r.category, r.park_id
 ),
-pens AS (
-` + penCoverageScopedPensSQL + `),
 due AS (
   SELECT r.*, nxt.shed_id AS next_shed_id, nxt.shed_name AS next_shed_name,
          nxt.partition_label AS next_partition_label, nxt.wrapped,
