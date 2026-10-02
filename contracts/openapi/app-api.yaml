@@ -12113,6 +12113,101 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "500":
           $ref: "#/components/responses/ServerError"
+  /sales/deals/{deal_id}/lines:
+    post:
+      tags:
+        - Sales
+      operationId: addSalesDealLines
+      summary: Add what was sold to an advance-only sale.
+      description: >-
+        An ADVANCE-ONLY sale (maintainer decision 2026-10-02) holds only the buyer's advance --
+        no products and no value. This write adds its lines ONCE, judged by the same rules as
+        recording a sale; the deal row becomes their rollup, and the sale's workflow opens now
+        (sales.deal.recorded is emitted here, in the same transaction). Refused with 409 when the
+        sale already names what was sold or has failed, and with 400 when the lines are worth
+        less than the money already received. Requires an Idempotency-Key; an exact replay
+        returns the same sale.
+      parameters:
+        - name: deal_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SalesDealLinesWrite"
+      responses:
+        "200":
+          description: The sale with its lines.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesDeal"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /sales/deals/{deal_id}/advance-settlement:
+    put:
+      tags:
+        - Sales
+      operationId: settleSalesDealAdvance
+      summary: Refund or keep a failed sale's money.
+      description: >-
+        When a sale the buyer paid towards never happens (Deal Failed), the desk records what
+        became of the money, chosen per case (maintainer decision 2026-10-02): some or all of it
+        refunded on a date, and whatever was not refunded kept by the farm. Refunding nothing is
+        the "farm keeps it" decision. One settlement per sale; recording again replaces it.
+        Offered only where the sale's `can_settle` is true; refused with 409 otherwise, and with
+        400 for a refund larger than the money received. Requires an Idempotency-Key.
+      parameters:
+        - name: deal_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SalesDealAdvanceSettlementWrite"
+      responses:
+        "200":
+          description: The sale with its settlement.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesDeal"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /sales/buyer-leads:
     get:
       tags:
@@ -24303,8 +24398,8 @@ components:
           type: array
           description: >-
             What was sold, in entry order -- one line per product/breed with its own counts, weight
-            and value. Every deal has at least one; the pre-2026-09-12 history was backfilled as one
-            line each.
+            and value. Every deal has at least one, except an `advance_only` sale whose products
+            are not added yet; the pre-2026-09-12 history was backfilled as one line each.
           items:
             $ref: "#/components/schemas/SalesDealLine"
         payment_received:
@@ -24332,10 +24427,62 @@ components:
             Every status for a live deal; EMPTY for a Deal Failed deal, which is final -- its
             animals are back in the herd and its steps are closed, so selling again is a new sale.
             A status editor offers exactly this list and hides itself when it is empty.
+        advance_only:
+          type: boolean
+          description: >-
+            An ADVANCE-ONLY sale (maintainer decision 2026-10-02): money taken before the sale is
+            decided. It has no lines, `product_type` and `breed` are empty strings, `sales_value`
+            is 0, and it is never offered or allowed Deal Closed. Its products are added with
+            addSalesDealLines, which is when its workflow opens.
+        can_settle:
+          type: boolean
+          description: >-
+            BACKEND-decided: true for a Deal Failed sale the buyer paid towards, where the
+            refund-or-keep editor (settleSalesDealAdvance) applies. Clients never derive it.
+        settlement:
+          $ref: "#/components/schemas/SalesDealAdvanceSettlement"
         feedback: { type: string, nullable: true }
         comments: { type: string, nullable: true }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    SalesDealAdvanceSettlement:
+      type: object
+      nullable: true
+      description: What became of a failed sale's money. Null until the desk records it.
+      required: [outcome, outcome_label, refunded_rupees, refunded_on, kept_rupees, note, updated_at]
+      properties:
+        outcome: { type: string, enum: [refunded, part_refunded, kept] }
+        outcome_label:
+          type: string
+          description: Farm wording for the outcome, rendered verbatim.
+        refunded_rupees: { type: number }
+        refunded_on: { type: string, format: date, nullable: true }
+        kept_rupees:
+          type: number
+          description: BACKEND-derived money the farm keeps -- received minus refunded, never negative.
+        note: { type: string }
+        updated_at: { type: string, format: date-time }
+    SalesDealAdvanceSettlementWrite:
+      type: object
+      description: >-
+        Refund-or-keep body. refunded_rupees 0 keeps all the money and carries no date; more than
+        0 needs refunded_on, which may not be in the future, and may not exceed the money received.
+      required: [refunded_rupees]
+      properties:
+        refunded_rupees: { type: number, minimum: 0 }
+        refunded_on: { type: string, format: date }
+        note: { type: string, maxLength: 300 }
+    SalesDealLinesWrite:
+      type: object
+      description: What an advance-only sale sold. Same line rules as recording a sale.
+      required: [lines]
+      properties:
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/SalesDealLineWrite"
     SalesDealLine:
       type: object
       description: >-
@@ -24631,17 +24778,26 @@ components:
         are still accepted WITHOUT `lines` and record exactly one line. The farm is a closed
         vocabulary and the product is the tenant's own sellable-product registry (migration
         000422); both are validated server-side and rejected -- never silently defaulted -- when
-        unrecognised. Blank status records `Deal Closed`.
+        unrecognised. Blank status records `Deal Closed`. With `advance_only` true the body records
+        an ADVANCE-ONLY sale (maintainer decision 2026-10-02): no `lines`, no value or counts, a
+        required `advance_amount` above zero, status blank or `Advance Paid`.
       required: [sale_date, farm, buyer_name, buyer_vendor_id]
       properties:
         sale_date: { type: string, format: date }
         farm: { type: string, enum: [CBE, CPT] }
         lines:
           type: array
-          minItems: 1
+          minItems: 0
           maxItems: 20
+          description: At least one line, except on an `advance_only` body, which must send none.
           items:
             $ref: "#/components/schemas/SalesDealLineWrite"
+        advance_only:
+          type: boolean
+          description: >-
+            Record money taken before the sale is decided. Asked for explicitly: a body with no
+            lines and no flag is still refused, so an older client never records an advance by
+            omission. Its products are added later with addSalesDealLines.
         stock_shortfall_acknowledged:
           type: boolean
           description: >-

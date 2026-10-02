@@ -35,6 +35,8 @@ type SalesService interface {
 	SaveSellableProduct(ctx context.Context, tenantID string, write domain.ProductWrite, actorID string) (domain.Product, error)
 	DeleteSellableProduct(ctx context.Context, tenantID, code, actorID string) error
 	RecordDealPayment(ctx context.Context, tenantID, dealID string, write domain.DealPaymentWrite, actorID, idempotencyKey string) (domain.Deal, error)
+	AddDealLines(ctx context.Context, tenantID, dealID string, write domain.DealLinesWrite, actorID, idempotencyKey string) (domain.Deal, error)
+	SettleDealAdvance(ctx context.Context, tenantID, dealID string, write domain.AdvanceSettlementWrite, actorID, idempotencyKey string) (domain.Deal, error)
 	UpdateDealPayment(ctx context.Context, tenantID, dealID, paymentID string, write domain.DealPaymentWrite, actorID, idempotencyKey string) (domain.Deal, error)
 	DeleteDealPayment(ctx context.Context, tenantID, dealID, paymentID string, actorID, idempotencyKey string) (domain.Deal, error)
 	SetDealStatus(ctx context.Context, tenantID, dealID, status string, stockShortfallAcknowledged bool, actorID string) (domain.Deal, error)
@@ -85,6 +87,8 @@ func Register(mux *http.ServeMux, h *SalesHandler) {
 	mux.HandleFunc("PUT /sales/deals/{deal_id}/payments/{payment_id}", h.UpdateDealPayment)
 	mux.HandleFunc("DELETE /sales/deals/{deal_id}/payments/{payment_id}", h.DeleteDealPayment)
 	mux.HandleFunc("POST /sales/deals/{deal_id}/status", h.SetDealStatus)
+	mux.HandleFunc("POST /sales/deals/{deal_id}/lines", h.AddDealLines)
+	mux.HandleFunc("PUT /sales/deals/{deal_id}/advance-settlement", h.SettleDealAdvance)
 	mux.HandleFunc("GET /sales/buyer-leads", h.ListBuyerLeads)
 	mux.HandleFunc("POST /sales/buyer-leads", h.CreateBuyerLead)
 	mux.HandleFunc("POST /sales/buyer-leads/{lead_id}", h.UpdateBuyerLead)
@@ -435,4 +439,57 @@ func (h *SalesHandler) writeErr(w http.ResponseWriter, r *http.Request, appErr *
 
 func tenantID(r *http.Request) string {
 	return httpmiddleware.TenantIDFromContext(r.Context())
+}
+
+// decodeStrict reads one JSON object with no unknown fields and nothing after it.
+func decodeStrict(r *http.Request, into any) bool {
+	dec := json.NewDecoder(io.LimitReader(r.Body, maxSalesRequestBytes))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(into); err != nil {
+		return false
+	}
+	return errors.Is(dec.Decode(&struct{}{}), io.EOF)
+}
+
+// AddDealLines serves POST /sales/deals/{deal_id}/lines: what an advance-only sale sold.
+func (h *SalesHandler) AddDealLines(w http.ResponseWriter, r *http.Request) {
+	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if key == "" {
+		h.writeErr(w, r, app.BadRequest("missing_idempotency_key", "What was sold could not be saved safely. Try again."))
+		return
+	}
+	var body dealLinesWritePayload
+	if !decodeStrict(r, &body) {
+		h.writeErr(w, r, app.BadRequest("invalid_body", "That form could not be read. Check the fields and try again."))
+		return
+	}
+	updated, err := h.service.AddDealLines(r.Context(), tenantID(r), r.PathValue("deal_id"),
+		body.toDomain(), httpmiddleware.ActorIDFromContext(r.Context()), key)
+	if err != nil {
+		h.writeErr(w, r, app.SalesHTTPError(err))
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, toDealPayload(updated))
+}
+
+// SettleDealAdvance serves PUT /sales/deals/{deal_id}/advance-settlement: refund or keep a failed
+// sale's money.
+func (h *SalesHandler) SettleDealAdvance(w http.ResponseWriter, r *http.Request) {
+	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if key == "" {
+		h.writeErr(w, r, app.BadRequest("missing_idempotency_key", "This could not be saved safely. Try again."))
+		return
+	}
+	var body dealSettlementWritePayload
+	if !decodeStrict(r, &body) {
+		h.writeErr(w, r, app.BadRequest("invalid_body", "That form could not be read. Check the fields and try again."))
+		return
+	}
+	updated, err := h.service.SettleDealAdvance(r.Context(), tenantID(r), r.PathValue("deal_id"),
+		body.toDomain(), httpmiddleware.ActorIDFromContext(r.Context()), key)
+	if err != nil {
+		h.writeErr(w, r, app.SalesHTTPError(err))
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, toDealPayload(updated))
 }

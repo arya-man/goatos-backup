@@ -79,6 +79,14 @@ type dealPayload struct {
 	// disagree on product or breed).
 	Lines []dealLinePayload `json:"lines"`
 
+	// AdvanceOnly is a sale holding only the buyer's advance (2026-10-02): no lines, product_type
+	// and breed "", sales_value 0. Its products are added on POST .../lines; it cannot close first.
+	AdvanceOnly bool `json:"advance_only"`
+	// CanSettle offers the refund-or-keep editor: a failed sale the buyer paid towards.
+	CanSettle bool `json:"can_settle"`
+	// Settlement is what became of a failed sale's money; null until recorded.
+	Settlement *dealSettlementPayload `json:"settlement"`
+
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
 }
@@ -291,11 +299,14 @@ type dealWritePayload struct {
 	// (maintainer decision 2026-09-23). Only ever true because a person ticked it after being
 	// shown the balance.
 	StockShortfallAcknowledged bool `json:"stock_shortfall_acknowledged"`
+	// AdvanceOnly records money taken before the sale is decided (2026-10-02): no lines and no
+	// value; status Advance Paid. What was sold is added later on POST .../lines.
+	AdvanceOnly bool `json:"advance_only"`
 }
 
-func (p dealWritePayload) toDomain() domain.DealWrite {
-	lines := make([]domain.DealLineWrite, 0, len(p.Lines))
-	for _, l := range p.Lines {
+func lineWritesToDomain(in []dealLineWritePayload) []domain.DealLineWrite {
+	lines := make([]domain.DealLineWrite, 0, len(in))
+	for _, l := range in {
 		lines = append(lines, domain.DealLineWrite{
 			ProductType: l.ProductType, Breed: l.Breed,
 			Quantity: l.Quantity, RatePerUnit: l.RatePerUnit,
@@ -303,6 +314,66 @@ func (p dealWritePayload) toDomain() domain.DealWrite {
 			TotalWeightKg: l.TotalWeightKg, SalesValue: l.SalesValue,
 		})
 	}
+	return lines
+}
+
+// dealLinesWritePayload is POST /sales/deals/{deal_id}/lines: what an advance-only sale sold.
+type dealLinesWritePayload struct {
+	Lines []dealLineWritePayload `json:"lines"`
+}
+
+func (p dealLinesWritePayload) toDomain() domain.DealLinesWrite {
+	return domain.DealLinesWrite{Lines: lineWritesToDomain(p.Lines)}
+}
+
+// dealSettlementWritePayload is PUT /sales/deals/{deal_id}/advance-settlement.
+type dealSettlementWritePayload struct {
+	RefundedRupees float64 `json:"refunded_rupees"`
+	RefundedOn     string  `json:"refunded_on"`
+	Note           string  `json:"note"`
+}
+
+func (p dealSettlementWritePayload) toDomain() domain.AdvanceSettlementWrite {
+	return domain.AdvanceSettlementWrite{RefundedRupees: p.RefundedRupees, RefundedOn: p.RefundedOn, Note: p.Note}
+}
+
+// dealSettlementPayload is what became of a failed sale's money. outcome is the key a client may
+// style on; outcome_label is the farm wording, rendered verbatim.
+type dealSettlementPayload struct {
+	Outcome        string  `json:"outcome"`
+	OutcomeLabel   string  `json:"outcome_label"`
+	RefundedRupees float64 `json:"refunded_rupees"`
+	RefundedOn     *string `json:"refunded_on"`
+	KeptRupees     float64 `json:"kept_rupees"`
+	Note           string  `json:"note"`
+	UpdatedAt      string  `json:"updated_at"`
+}
+
+func toSettlementPayload(d domain.Deal) *dealSettlementPayload {
+	if d.Settlement == nil {
+		return nil
+	}
+	received := 0.0
+	if d.PaymentReceived != nil {
+		received = *d.PaymentReceived
+	}
+	outcome := domain.SettlementOutcome(*d.Settlement, received)
+	return &dealSettlementPayload{
+		Outcome: outcome, OutcomeLabel: domain.SettlementOutcomeLabel(outcome),
+		RefundedRupees: d.Settlement.RefundedRupees, RefundedOn: d.Settlement.RefundedOn,
+		KeptRupees: d.Settlement.KeptRupees(received), Note: d.Settlement.Note,
+		UpdatedAt: d.Settlement.UpdatedAt,
+	}
+}
+
+// canSettle reports whether the refund-or-keep editor applies: a failed sale the buyer paid
+// towards. The server decides it so neither client guesses from the status string.
+func canSettle(d domain.Deal) bool {
+	return d.Status == domain.StatusDealFailed && d.PaymentReceived != nil && *d.PaymentReceived > 0
+}
+
+func (p dealWritePayload) toDomain() domain.DealWrite {
+	lines := lineWritesToDomain(p.Lines)
 	return domain.DealWrite{
 		SaleDate: p.SaleDate, Farm: p.Farm, Lines: lines, ProductType: p.ProductType, Breed: p.Breed,
 		BuyerName: p.BuyerName, BuyerPlace: p.BuyerPlace, BuyerVendorID: p.BuyerVendorID,
@@ -311,6 +382,7 @@ func (p dealWritePayload) toDomain() domain.DealWrite {
 		Status:                     p.Status,
 		Comments:                   p.Comments,
 		StockShortfallAcknowledged: p.StockShortfallAcknowledged,
+		AdvanceOnly:                p.AdvanceOnly,
 	}
 }
 
@@ -346,8 +418,11 @@ func toDealPayload(d domain.Deal) dealPayload {
 		PaymentReceived: d.PaymentReceived, PaymentBalance: d.PaymentBalance(), Payments: payments,
 		Status: d.Status, Feedback: d.Feedback, Comments: d.Comments,
 		CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt,
-		StatusOptions:   domain.NextStatuses(d.Status),
+		StatusOptions:   domain.NextStatusesForDeal(d),
 		PlannedSaleDate: d.PlannedSaleDate,
+		AdvanceOnly:     d.AdvanceOnly(),
+		CanSettle:       canSettle(d),
+		Settlement:      toSettlementPayload(d),
 	}
 }
 

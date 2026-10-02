@@ -68,6 +68,22 @@ func SalesHTTPError(err error) *Error {
 		return Conflict("sale_deal_failed_is_final",
 			"This sale is marked failed, and a failed sale stays failed. To sell these animals, record a new sale.")
 
+	case errors.Is(err, domain.ErrAdvanceOnlyCannotClose):
+		return Conflict("sale_advance_only_cannot_close",
+			"Add what was sold to this sale before closing it. It only holds the buyer's advance so far.")
+
+	case errors.Is(err, domain.ErrDealAlreadyHasLines):
+		return Conflict("sale_already_has_lines",
+			"This sale already says what was sold.")
+
+	case errors.Is(err, domain.ErrSettlementNeedsFailedDeal):
+		return Conflict("sale_settlement_needs_failed_deal",
+			"Only a failed sale's money can be refunded or kept. Mark the sale failed first.")
+
+	case errors.Is(err, domain.ErrNothingToSettle):
+		return Conflict("sale_nothing_to_settle",
+			"The buyer paid nothing towards this sale, so there is nothing to refund or keep.")
+
 	case errors.Is(err, ports.ErrDealPaymentNotFound):
 		return NotFound("Payment not found.")
 

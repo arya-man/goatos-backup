@@ -409,3 +409,45 @@ with an authored fixed-time step a blind delta would misplace).
 
 Pinned by `TestPlannedSaleStepsAreDueOnTheSaleDateNotAtRecording` (Postgres),
 `TestPlannedSaleClockAnchorsOnTheSaleDate` and `TestSaleClockAnchorIsTheSaleDayOnlyWhenItIsAhead`.
+
+## An advance before anything is chosen (maintainer decision 2026-10-02)
+
+A buyer often hands the farm money for a FUTURE sale before anyone knows whether it will be
+animals, feed or manure. That money has to be recorded the day it arrives, but it maps to nothing
+yet. The maintainer chose, from three questions put to them:
+
+| Question | Chosen |
+|---|---|
+| How is it recorded? | As an **open sale with no lines** -- one advance belongs to exactly one future sale; its lines are added to the SAME sale later. (A per-buyer advance balance spread over several sales was offered and declined.) |
+| What if the sale never happens? | **Both, chosen per case**: refund some or all of it, the rest is kept by the farm. |
+| When does the sale's workflow open? | **Only when its lines are added** -- nobody sees a tag / load / gate-pass card for a sale nobody has decided. |
+
+How it works:
+
+1. **Recorded explicitly.** `POST /sales/deals` with `advance_only: true` records buyer, farm,
+   date and the advance: no lines, `sales_value` 0, status `Advance Paid`, `product_type` and
+   `breed` stored NULL (migration `000464`) and served as `""` with `advance_only: true`. The
+   advance is the sale's first receipt, exactly as on any sale (`000447`/`000448`). A body with
+   no lines and no flag is still refused "add at least one product line", so an older phone
+   never records an advance by omission.
+2. **No work, no revenue.** The record emits no `sales.deal.recorded`, so no workflow opens. The
+   sale cannot be closed (`409 sale_advance_only_cannot_close`; `status_options` never offers
+   Deal Closed), and the shape check `sales_deals_advance_only_shape` holds the same rule in the
+   database. Revenue, buyer analytics and the load-wise report read Deal Closed only, so an
+   advance never counts as a sale.
+3. **Lines added once.** `POST /sales/deals/{id}/lines` writes the lines under the same rules as
+   recording a sale, rolls the deal row up from them, and emits `sales.deal.recorded` in the same
+   transaction -- the existing tasks consumer then opens the workflow with the steps those lines
+   call for. A second add is refused (`409 sale_already_has_lines`): this is NOT the general
+   "edit a recorded sale's lines" path noted as not done above, which stays not done. Lines worth
+   less than the money already received are refused.
+4. **A failed sale's money is settled.** On a Deal Failed sale the buyer paid towards
+   (`can_settle`), `PUT /sales/deals/{id}/advance-settlement` records the refund (amount and the
+   day it went back) and the farm keeps the rest; refunding nothing is the "farm keeps it"
+   decision. One row per sale in `sales_deal_advance_settlements` (`000465`); recording again
+   replaces it. The settlement applies to ANY failed paid sale, not only an advance-only one.
+   It does not change revenue -- a failed sale was never revenue -- and money the farm keeps is
+   shown on the sale, not folded into any report.
+
+Pinned by `domain.TestAdvanceOnly*`, `TestSettlementRulesAndOutcomes` and, on real Postgres,
+`TestAdvanceOnlySalePostgresPaths` (mutation-tested: emitting the event at record time turns it red).

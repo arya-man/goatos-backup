@@ -39,7 +39,7 @@ const idemScopeDealCreate = "sales.deal.create"
 const dealColumns = `
 		d.id, d.tenant_id, d.sale_date, d.farm,
 		d.source_sales_id, d.source_purchase_id, d.source_row_no,
-		d.buyer_name, d.buyer_place, d.buyer_vendor_id, d.product_type, d.breed,
+		d.buyer_name, d.buyer_place, d.buyer_vendor_id, coalesce(d.product_type, ''), coalesce(d.breed, ''),
 		d.animal_count, d.male_count, d.female_count, d.total_weight_kg,
 		d.advance_amount, d.sales_value, d.payment_received, d.status, d.feedback, d.comments,
 		d.created_at, d.updated_at, d.planned_sale_date`
@@ -171,6 +171,9 @@ func (r *Repository) ListDeals(ctx context.Context, tenantID, farm string, limit
 	if err := r.attachDealLines(ctx, tenantID, deals); err != nil {
 		return ports.DealPage{}, err
 	}
+	if err := r.attachDealSettlements(ctx, tenantID, deals); err != nil {
+		return ports.DealPage{}, err
+	}
 
 	page := ports.DealPage{Deals: deals}
 	// Whole-filter total over the SAME predicates, built from the same buildDealFilter call so
@@ -208,6 +211,9 @@ func (r *Repository) getDeal(ctx context.Context, tenantID, dealID string) (doma
 		return domain.Deal{}, err
 	}
 	if err := r.attachDealLines(ctx, tenantID, deals); err != nil {
+		return domain.Deal{}, err
+	}
+	if err := r.attachDealSettlements(ctx, tenantID, deals); err != nil {
 		return domain.Deal{}, err
 	}
 	return deals[0], nil
@@ -391,11 +397,12 @@ func (r *Repository) SetDealStatus(ctx context.Context, tenantID, dealID, status
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var previous, farm string
+	var advanceOnly bool
 	err = tx.QueryRow(ctx, `
-SELECT status, farm
+SELECT status, farm, product_type IS NULL
 FROM public.sales_deals
 WHERE tenant_id = $1 AND id = $2
-FOR UPDATE`, tenantID, dealID).Scan(&previous, &farm)
+FOR UPDATE`, tenantID, dealID).Scan(&previous, &farm, &advanceOnly)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Deal{}, ports.ErrDealNotFound
 	}
@@ -409,6 +416,11 @@ FOR UPDATE`, tenantID, dealID).Scan(&previous, &farm)
 	// cannot slip past it.
 	if !domain.StatusChangeAllowed(previous, status) {
 		return domain.Deal{}, domain.ErrDealFailedIsFinal
+	}
+	// An advance-only sale names nothing it sold, so it cannot close (2026-10-02): closing would
+	// count the advance as revenue for goods nobody named. Its products are added first.
+	if advanceOnly && status == domain.StatusDealClosed {
+		return domain.Deal{}, domain.ErrAdvanceOnlyCannotClose
 	}
 	if previous != status {
 		// A CLOSED SALE USES THE CLOSE DATE (maintainer decision 2026-09-25): closing an open
@@ -822,6 +834,11 @@ func (r *Repository) CreateDeal(ctx context.Context, tenantID string, write doma
 		write.Comments, write.Status,
 		fpLines(write.Lines),
 	)
+	// Appended only for an advance-only sale, so every other request keeps the fingerprint it had
+	// before the flag existed and an in-flight retry across the deploy still replays.
+	if write.AdvanceOnly {
+		fingerprint = requestFingerprint(fingerprint, "advance_only")
+	}
 	reservation, err := reserveIdempotency(ctx, tx, tenantID, idemScopeDealCreate, idempotencyKey, fingerprint)
 	if err != nil {
 		return domain.Deal{}, err
@@ -855,7 +872,9 @@ func (r *Repository) CreateDeal(ctx context.Context, tenantID string, write doma
 			payment_received, status
 		) VALUES (
 			$1, $2::date, $3, $4, nullif(btrim($5), ''), nullif(btrim($6), '')::uuid,
-			$7, $8, $9, $10, $11,
+			-- NULL product and breed on an ADVANCE-ONLY sale (migration 000464): its products are
+			-- added later. Every other sale was refused blank by Validate.
+			nullif($7, ''), nullif($8, ''), $9, $10, $11,
 			$12, $13, $14, nullif(btrim($15), ''),
 			-- The advance IS money received: seed the running total the receipts ledger advances,
 			-- exactly as migration 000227 seeded sheet history, so a fresh deal's balance is honest.
@@ -916,9 +935,12 @@ func (r *Repository) CreateDeal(ctx context.Context, tenantID string, write doma
 	}
 
 	// The sale's WORK opens from this event (SALES SOP, 2026-09-19): same transaction as the row,
-	// so a recorded sale always has its steps and a rolled-back one never does.
-	if err := emitSaleRecorded(ctx, tx, tenantID, actorID, idempotencyKey, dealID, write); err != nil {
-		return domain.Deal{}, err
+	// so a recorded sale always has its steps and a rolled-back one never does. An ADVANCE-ONLY
+	// sale owes no work yet (2026-10-02): AddDealLines emits this event when its products arrive.
+	if !write.AdvanceOnly {
+		if err := emitSaleRecorded(ctx, tx, tenantID, actorID, idempotencyKey, dealID, write); err != nil {
+			return domain.Deal{}, err
+		}
 	}
 
 	if err := completeIdempotency(ctx, tx, tenantID, idemScopeDealCreate, idempotencyKey, "sales_deal", dealID); err != nil {

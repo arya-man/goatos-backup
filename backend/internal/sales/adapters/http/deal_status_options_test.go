@@ -19,8 +19,19 @@ func TestDealPayloadOffersNoStatusOnAFailedDeal(t *testing.T) {
 	if !strings.Contains(string(failed), `"status_options":[]`) {
 		t.Fatalf("a failed deal must offer an EMPTY status list, got %s", failed)
 	}
-	live := toDealPayload(domain.Deal{DealID: "d2", Status: domain.StatusAdvancePaid})
+	live := toDealPayload(domain.Deal{DealID: "d2", Status: domain.StatusAdvancePaid, ProductType: domain.ProductSheep, Breed: "Anantapur"})
 	if len(live.StatusOptions) != len(domain.Statuses) {
 		t.Fatalf("a live deal must offer every status, got %v", live.StatusOptions)
+	}
+	// An advance-only sale (2026-10-02) names no product yet and cannot close, so the editor is
+	// never offered a close the server would refuse.
+	bare := toDealPayload(domain.Deal{DealID: "d3", Status: domain.StatusAdvancePaid})
+	if !bare.AdvanceOnly {
+		t.Fatal("a sale with no product and no lines must read advance_only")
+	}
+	for _, s := range bare.StatusOptions {
+		if s == domain.StatusDealClosed {
+			t.Fatalf("an advance-only sale must not offer Deal Closed, got %v", bare.StatusOptions)
+		}
 	}
 }

@@ -487,3 +487,11 @@ func TestSalesFarmsAreTheTenantsParksNotAConstantPair(t *testing.T) {
 		t.Fatalf("a buyer lead at the new park must be recorded: %v", err)
 	}
 }
+
+func (f *fakeRepo) AddDealLines(_ context.Context, _ string, dealID string, _ domain.DealLinesWrite, _ domain.DealRollup, _ string, _ string) (domain.Deal, error) {
+	return domain.Deal{DealID: dealID}, nil
+}
+
+func (f *fakeRepo) SettleDealAdvance(_ context.Context, _ string, dealID string, _ domain.AdvanceSettlementWrite, _ string, _ string) (domain.Deal, error) {
+	return domain.Deal{DealID: dealID}, nil
+}

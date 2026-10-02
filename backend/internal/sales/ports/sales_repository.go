@@ -135,6 +135,17 @@ type SalesRepository interface {
 	// advances the deal's running payment_received total. Same idempotency contract as CreateDeal.
 	RecordDealPayment(ctx context.Context, tenantID, dealID string, write domain.DealPaymentWrite, actorID, idempotencyKey string) (domain.Deal, error)
 
+	// AddDealLines writes what was sold onto an ADVANCE-ONLY sale, once (2026-10-02), rolls the
+	// deal row up from the lines and emits sales.deal.recorded in the same transaction so the
+	// sale's workflow opens now. Refuses a sale that already has lines (domain.ErrDealAlreadyHasLines),
+	// a failed one, and lines worth less than the money already received. Same idempotency contract
+	// as CreateDeal.
+	AddDealLines(ctx context.Context, tenantID, dealID string, write domain.DealLinesWrite, rollup domain.DealRollup, actorID, idempotencyKey string) (domain.Deal, error)
+
+	// SettleDealAdvance records what became of a FAILED sale's money -- refunded in part or whole,
+	// the rest kept by the farm -- replacing any earlier settlement. Same idempotency contract.
+	SettleDealAdvance(ctx context.Context, tenantID, dealID string, write domain.AdvanceSettlementWrite, actorID, idempotencyKey string) (domain.Deal, error)
+
 	// UpdateDealPayment edits one receipt and adjusts the running payment_received total by the
 	// old/new delta in the SAME transaction.
 	UpdateDealPayment(ctx context.Context, tenantID, dealID, paymentID string, write domain.DealPaymentWrite, actorID, idempotencyKey string) (domain.Deal, error)

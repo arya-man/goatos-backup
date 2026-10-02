@@ -4645,6 +4645,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sales/deals/{deal_id}/lines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add what was sold to an advance-only sale.
+         * @description An ADVANCE-ONLY sale (maintainer decision 2026-10-02) holds only the buyer's advance -- no products and no value. This write adds its lines ONCE, judged by the same rules as recording a sale; the deal row becomes their rollup, and the sale's workflow opens now (sales.deal.recorded is emitted here, in the same transaction). Refused with 409 when the sale already names what was sold or has failed, and with 400 when the lines are worth less than the money already received. Requires an Idempotency-Key; an exact replay returns the same sale.
+         */
+        post: operations["addSalesDealLines"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sales/deals/{deal_id}/advance-settlement": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Refund or keep a failed sale's money.
+         * @description When a sale the buyer paid towards never happens (Deal Failed), the desk records what became of the money, chosen per case (maintainer decision 2026-10-02): some or all of it refunded on a date, and whatever was not refunded kept by the farm. Refunding nothing is the "farm keeps it" decision. One settlement per sale; recording again replaces it. Offered only where the sale's `can_settle` is true; refused with 409 otherwise, and with 400 for a refund larger than the money received. Requires an Idempotency-Key.
+         */
+        put: operations["settleSalesDealAdvance"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sales/buyer-leads": {
         parameters: {
             query?: never;
@@ -10714,7 +10754,7 @@ export interface components {
             advance_amount?: number | null;
             /** @description The sum of the lines' values, maintained with the lines in one transaction. */
             sales_value: number;
-            /** @description What was sold, in entry order -- one line per product/breed with its own counts, weight and value. Every deal has at least one; the pre-2026-09-12 history was backfilled as one line each. */
+            /** @description What was sold, in entry order -- one line per product/breed with its own counts, weight and value. Every deal has at least one, except an `advance_only` sale whose products are not added yet; the pre-2026-09-12 history was backfilled as one line each. */
             lines: components["schemas"]["SalesDealLine"][];
             /** @description Running total of money the buyer has handed over: seeded from the recorded advance, advanced by each receipt inside the same transaction. Null when nothing was received. */
             payment_received?: number | null;
@@ -10726,12 +10766,43 @@ export interface components {
             status: "Deal Closed" | "Deal Failed" | "In Discussion" | "Advance Paid";
             /** @description The statuses this deal may be set to, BACKEND-decided (maintainer decision 2026-09-25). Every status for a live deal; EMPTY for a Deal Failed deal, which is final -- its animals are back in the herd and its steps are closed, so selling again is a new sale. A status editor offers exactly this list and hides itself when it is empty. */
             status_options?: ("Deal Closed" | "Deal Failed" | "In Discussion" | "Advance Paid")[];
+            /** @description An ADVANCE-ONLY sale (maintainer decision 2026-10-02): money taken before the sale is decided. It has no lines, `product_type` and `breed` are empty strings, `sales_value` is 0, and it is never offered or allowed Deal Closed. Its products are added with addSalesDealLines, which is when its workflow opens. */
+            advance_only?: boolean;
+            /** @description BACKEND-decided: true for a Deal Failed sale the buyer paid towards, where the refund-or-keep editor (settleSalesDealAdvance) applies. Clients never derive it. */
+            can_settle?: boolean;
+            settlement?: components["schemas"]["SalesDealAdvanceSettlement"];
             feedback?: string | null;
             comments?: string | null;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
             updated_at: string;
+        };
+        /** @description What became of a failed sale's money. Null until the desk records it. */
+        SalesDealAdvanceSettlement: {
+            /** @enum {string} */
+            outcome: "refunded" | "part_refunded" | "kept";
+            /** @description Farm wording for the outcome, rendered verbatim. */
+            outcome_label: string;
+            refunded_rupees: number;
+            /** Format: date */
+            refunded_on: string | null;
+            /** @description BACKEND-derived money the farm keeps -- received minus refunded, never negative. */
+            kept_rupees: number;
+            note: string;
+            /** Format: date-time */
+            updated_at: string;
+        } | null;
+        /** @description Refund-or-keep body. refunded_rupees 0 keeps all the money and carries no date; more than 0 needs refunded_on, which may not be in the future, and may not exceed the money received. */
+        SalesDealAdvanceSettlementWrite: {
+            refunded_rupees: number;
+            /** Format: date */
+            refunded_on?: string;
+            note?: string;
+        };
+        /** @description What an advance-only sale sold. Same line rules as recording a sale. */
+        SalesDealLinesWrite: {
+            lines: components["schemas"]["SalesDealLineWrite"][];
         };
         /** @description One product slice of a sale, with its own counts, weight and value. The product vocabulary is the tenant's own sellable-product registry (migration 000422), so it is deliberately NOT an enum here: a farm adds what it sells without a contract change. */
         SalesDealLine: {
@@ -10905,13 +10976,16 @@ export interface components {
             /** @description The offset actually applied. Echoed so the client can render the page number. */
             offset: number;
         };
-        /** @description Record-sale body. ONE sale may carry several product/breed lines (maintainer decision 2026-09-12): send `lines`, one per product/breed, each with its own counts, weight and value; the deal's product_type/breed/counts/sales_value are then computed server-side as the rollup of the lines and any client-sent values for them are ignored. The legacy single-product fields (product_type, breed, animal_count..., sales_value at the top level) are still accepted WITHOUT `lines` and record exactly one line. The farm is a closed vocabulary and the product is the tenant's own sellable-product registry (migration 000422); both are validated server-side and rejected -- never silently defaulted -- when unrecognised. Blank status records `Deal Closed`. */
+        /** @description Record-sale body. ONE sale may carry several product/breed lines (maintainer decision 2026-09-12): send `lines`, one per product/breed, each with its own counts, weight and value; the deal's product_type/breed/counts/sales_value are then computed server-side as the rollup of the lines and any client-sent values for them are ignored. The legacy single-product fields (product_type, breed, animal_count..., sales_value at the top level) are still accepted WITHOUT `lines` and record exactly one line. The farm is a closed vocabulary and the product is the tenant's own sellable-product registry (migration 000422); both are validated server-side and rejected -- never silently defaulted -- when unrecognised. Blank status records `Deal Closed`. With `advance_only` true the body records an ADVANCE-ONLY sale (maintainer decision 2026-10-02): no `lines`, no value or counts, a required `advance_amount` above zero, status blank or `Advance Paid`. */
         SalesDealWrite: {
             /** Format: date */
             sale_date: string;
             /** @enum {string} */
             farm: "CBE" | "CPT";
+            /** @description At least one line, except on an `advance_only` body, which must send none. */
             lines?: components["schemas"]["SalesDealLineWrite"][];
+            /** @description Record money taken before the sale is decided. Asked for explicitly: a body with no lines and no flag is still refused, so an older client never records an advance by omission. Its products are added later with addSalesDealLines. */
+            advance_only?: boolean;
             /** @description The desk having seen what the feed store holds and said the sale is right anyway. A sale taking more feed than the store's ledger shows is refused once with `feed_stock_confirmation_required` (422) naming both figures; re-sent with this true, the same body records. Only ever true because a person ticked it after being shown the balance -- a client that sets it by default turns a confirmation into no confirmation. */
             stock_shortfall_acknowledged?: boolean;
             /** @description Legacy single-line body only; ignored when `lines` is sent. A product from the farm's registry. */
@@ -30051,6 +30125,74 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    addSalesDealLines: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                deal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesDealLinesWrite"];
+            };
+        };
+        responses: {
+            /** @description The sale with its lines. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesDeal"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    settleSalesDealAdvance: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                deal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesDealAdvanceSettlementWrite"];
+            };
+        };
+        responses: {
+            /** @description The sale with its settlement. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesDeal"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
             500: components["responses"]["ServerError"];
         };
     };

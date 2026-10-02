@@ -563,6 +563,10 @@ var protectedRoutes = []Route{
 	{OperationID: "updateSalesDealPayment", Method: "PUT", Pattern: "/sales/deals/{deal_id}/payments/{payment_id}", Permissions: []string{SalesWrite}},
 	{OperationID: "deleteSalesDealPayment", Method: "DELETE", Pattern: "/sales/deals/{deal_id}/payments/{payment_id}", Permissions: []string{SalesWrite}},
 	{OperationID: "setSalesDealStatus", Method: "POST", Pattern: "/sales/deals/{deal_id}/status", Permissions: []string{SalesWrite}},
+	// An advance-only sale's products, added later, and a failed sale's money refunded or kept
+	// (2026-10-02): both are writes on the same ledger, under the same authority as recording it.
+	{OperationID: "addSalesDealLines", Method: "POST", Pattern: "/sales/deals/{deal_id}/lines", Permissions: []string{SalesWrite}},
+	{OperationID: "settleSalesDealAdvance", Method: "PUT", Pattern: "/sales/deals/{deal_id}/advance-settlement", Permissions: []string{SalesWrite}},
 	{OperationID: "listSalesBuyerLeads", Method: "GET", Pattern: "/sales/buyer-leads", Permissions: []string{SalesRead}},
 	{OperationID: "createSalesBuyerLead", Method: "POST", Pattern: "/sales/buyer-leads", Permissions: []string{SalesWrite}},
 	{OperationID: "updateSalesBuyerLead", Method: "POST", Pattern: "/sales/buyer-leads/{lead_id}", Permissions: []string{SalesWrite}},

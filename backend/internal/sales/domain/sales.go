@@ -12,8 +12,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // Product types a deal can sell. Sheep and Goat are the LIVE types (they carry animal counts and
@@ -166,8 +164,13 @@ type Deal struct {
 
 	// Lines are what was sold, in entry order (migration 000296). ProductType, Breed, the counts,
 	// weight and SalesValue above are the ROLLUP of these lines: ProductMixed when the lines
-	// disagree. Every deal has at least one line; the pre-000296 history was backfilled as one.
+	// disagree. Every deal has at least one line, except an ADVANCE-ONLY sale (2026-10-02) whose
+	// products have not been added yet; the pre-000296 history was backfilled as one.
 	Lines []DealLine
+
+	// Settlement is what became of the money on a FAILED sale the buyer paid towards: refunded,
+	// part refunded, or kept by the farm (migration 000465). Nil until the desk records it.
+	Settlement *AdvanceSettlement
 }
 
 // DealPayment is one amount the buyer actually handed over for one deal.
@@ -320,6 +323,10 @@ type DealWrite struct {
 	// record an EXPECTED sale -- an advance received today for animals leaving on a future date is
 	// an Advance Paid deal, not a closed one, and only Deal Closed counts toward revenue.
 	Status string
+	// AdvanceOnly records money taken for a sale whose products are not decided yet (maintainer
+	// decision 2026-10-02): no lines, no value, status Advance Paid. Asked for EXPLICITLY, so a body
+	// that simply forgot its lines is still refused rather than becoming an advance.
+	AdvanceOnly bool
 }
 
 // ErrDealFailedIsFinal refuses moving a Deal Failed sale to any other status (maintainer decision
@@ -369,7 +376,9 @@ func (w DealWrite) Normalize(cat ProductCatalog) DealWrite {
 	out.Farm = strings.TrimSpace(w.Farm)
 	out.ProductType = strings.TrimSpace(w.ProductType)
 	out.Breed = collapse(w.Breed)
-	if len(w.Lines) == 0 {
+	if len(w.Lines) == 0 && w.AdvanceOnly {
+		out.Lines = nil
+	} else if len(w.Lines) == 0 {
 		out.Lines = out.linesFromLegacy()
 		for i := range out.Lines {
 			out.Lines[i] = out.Lines[i].normalize(cat)
@@ -404,6 +413,10 @@ func (w DealWrite) Normalize(cat ProductCatalog) DealWrite {
 			break
 		}
 	}
+	// An advance-only sale is Advance Paid; a blank status means that, not the sheet's Deal Closed.
+	if out.AdvanceOnly && out.Status == "" {
+		out.Status = StatusAdvancePaid
+	}
 	return out
 }
 
@@ -422,6 +435,9 @@ func (w DealWrite) Validate(cat ProductCatalog, farms []string) error {
 	if !IsFarm(w.Farm, farms) {
 		return ErrDealValidation{Field: "farm", Reason: ReasonUnknownFarm}
 	}
+	if w.AdvanceOnly {
+		return w.validateAdvanceOnly()
+	}
 	if len(w.Lines) == 0 {
 		return ErrDealValidation{Field: "lines", Reason: "add at least one product line"}
 	}
@@ -437,27 +453,8 @@ func (w DealWrite) Validate(cat ProductCatalog, farms []string) error {
 			return err
 		}
 	}
-	if w.BuyerName == "" {
-		return ErrDealValidation{Field: "buyer_name", Reason: "required"}
-	}
-	if len(w.BuyerName) > maxDealShortField {
-		return ErrDealValidation{Field: "buyer_name", Reason: "too long"}
-	}
-	if len(w.BuyerPlace) > maxDealShortField {
-		return ErrDealValidation{Field: "buyer_place", Reason: "too long"}
-	}
-	// Validate-or-reject, never silently defaulted: a sale with no vendor is refused rather than
-	// recorded against nobody. Only the SHAPE is checked here -- the domain must not read the
-	// procurement register (the 000173 lock), so that the id names a real vendor is the caller's
-	// guarantee, exactly as 000177 validates its sales_deal_id against the deal read.
-	if w.BuyerVendorID == "" {
-		return ErrDealValidation{Field: "buyer_vendor_id", Reason: "required; pick the buyer from the vendor register"}
-	}
-	if _, err := uuid.Parse(w.BuyerVendorID); err != nil {
-		return ErrDealValidation{Field: "buyer_vendor_id", Reason: "must be a vendor from the register"}
-	}
-	if len(w.Comments) > maxDealLongField {
-		return ErrDealValidation{Field: "comments", Reason: "too long"}
+	if err := w.validateBuyerAndComments(); err != nil {
+		return err
 	}
 	if w.SalesValue <= 0 {
 		return ErrDealValidation{Field: "sales_value", Reason: "must be more than zero"}
