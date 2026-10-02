@@ -249,6 +249,19 @@ async function revealCharts(page) {
       });
     }, CHART_SELECTOR, { timeout: 8_000 })
     .catch(() => {});
+  // A path EXISTS from the first frame of Apex's draw-in animation (series drawn flat on the zero
+  // line, growing up), so "has a path" is not "has painted". Wait until every series path is the same
+  // across two samples (PR #294 K12: a /feed/analytics expenditure line captured flat at 0 under an
+  // 80,000 axis while the live page drew it at ~67,000).
+  await page
+    .waitForFunction(() => {
+      const snap = [...document.querySelectorAll(".apexcharts-series path")].map((p) => p.getAttribute("d") ?? "").join("|");
+      const w = window;
+      const prev = w.__chartPathsSnap;
+      w.__chartPathsSnap = snap;
+      return prev !== undefined && prev === snap;
+    }, undefined, { timeout: 6_000, polling: 250 })
+    .catch(() => {});
 }
 async function resetScrollPosition(page) {
   await page
@@ -259,7 +272,9 @@ async function resetScrollPosition(page) {
         // The sidebar scrolls its ACTIVE leaf into view (mesha-shell); that scroll position is app
         // state, not leftover page scroll. Zeroing it hid the current leaf below the fold on a
         // 900px laptop and read as "no leaf highlighted" (PR #294 round 2, P1/K2).
-        if (el instanceof HTMLElement && el.closest("[data-keep-scroll]")) continue;
+        // The template nav column (layouts/core classes `*__layout__nav__*`) is matched by class: its
+        // markup is template-derived and carries no attribute of ours.
+        if (el instanceof HTMLElement && el.closest('[class*="layout__nav__vertical"], [class*="layout__nav__mobile"]')) continue;
         if (el instanceof HTMLElement && (el.scrollTop > 0 || el.scrollLeft > 0)) {
           el.scrollTop = 0;
           el.scrollLeft = 0;

@@ -53,9 +53,7 @@ export function NavVertical({
           data={data}
           cssVars={cssVars}
           checkPermissions={checkPermissions}
-          // pb: the last leaf of an expanded group (Procurement SOP on a 900px laptop) clears the
-          // column's bottom edge instead of sitting flush against it (PR #294 K2).
-          sx={{ px: 2, pb: 2, flex: '1 1 auto' }}
+          sx={{ px: 2, flex: '1 1 auto' }}
         />
 
         {slots?.bottomArea}
@@ -99,9 +97,6 @@ export function NavVertical({
       isNavMini={isNavMini}
       layoutQuery={layoutQuery}
       className={mergeClasses([layoutClasses.nav.root, layoutClasses.nav.vertical, className])}
-      // The shell scrolls the active leaf into view inside this column; capture tooling must keep
-      // that scroll (scripts/smoke-routes-visual.mjs resetScrollPosition skips [data-keep-scroll]).
-      data-keep-scroll=""
       sx={sx}
       {...other}
     >
