@@ -229,11 +229,11 @@ export function LoadwiseSection({
                   {summary.costed_loads > 0 ? signedInrCompact(summary.profit_loss) : none}
                 </div>
                 <div className="dl">{copy(pageContract, "loadwise.kpi.profit.hint")}</div>
-                {/* How much of that figure happened and how much is assumed, and how it was
-                    assumed -- the backend's own sentence, verbatim. */}
+                {/* How much of that figure is assumed, and how it was assumed -- the backend's own
+                    sentence, verbatim. The realised split is not shown (maintainer instruction
+                    2026-10-02): the profit is stated as one value. */}
                 {summary.costed_loads > 0 ? (
                   <div className="dl">
-                    {copy(pageContract, "loadwise.realised.label")} {signedInrCompact(summary.realised_profit_loss)} ·{" "}
                     {copy(pageContract, "loadwise.assumed.label")}{" "}
                     {summary.assumed_value > 0 ? inrCompact(summary.assumed_value) : copy(pageContract, "loadwise.assumed.none")}
                   </div>
@@ -295,11 +295,7 @@ export function LoadwiseSection({
                 // "not sold yet" the weight chart shows for it. Keyed on the backend's sold COUNT.
                 load.sold === 0 ? copy(pageContract, "value.not_sold_yet") : inrCompact(load.sold_value),
                 load.assumed_value == null ? copy(pageContract, "loadwise.assumed.none") : inrCompact(load.assumed_value),
-                load.profit_loss == null
-                  ? copy(pageContract, "value.cost_missing")
-                  : load.realised_profit_loss != null && load.assumed_value != null
-                    ? `${signedInrCompact(load.profit_loss)} · ${copy(pageContract, "loadwise.realised.label")} ${signedInrCompact(load.realised_profit_loss)}`
-                    : signedInrCompact(load.profit_loss),
+                load.profit_loss == null ? copy(pageContract, "value.cost_missing") : signedInrCompact(load.profit_loss),
               ],
               // The column the assumption sits on prints the TOTAL it reaches -- realised plus
               // assumed -- so the figure above a stacked bar is its height.

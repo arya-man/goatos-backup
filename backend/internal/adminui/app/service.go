@@ -4332,11 +4332,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"loadwise.kpi.tagged_not_closed": "tagged, sale not closed",
 			"value.tagged_not_closed.hint":   "Tagged to a sale that has not closed yet. Counted as sold once the deal closes; back on farm if the deal fails.",
 			// THE ASSUMPTION INSIDE THE PROFIT (maintainer request 2026-09-25). Profit carries the
-			// animals still on farm at a price someone set, so every place profit is shown says how
-			// much is realised and how much is assumed, and the backend's basis sentence says how.
+			// animals still on farm at a price someone set, so profit is shown beside how much of it
+			// is assumed, and the backend's basis sentence says how. The realised split is not
+			// shown (maintainer instruction 2026-10-02).
 			"chart.series.assumed_value":  "Assumed value of animals still on farm",
 			"loadwise.assumed.label":      "Assumed value",
-			"loadwise.realised.label":     "Realised",
 			"loadwise.assumed.none":       "nothing assumed",
 			"value.bought_on":             "Bought on",
 			"chart.series.purchase_value": "Purchase value",
@@ -4416,15 +4416,15 @@ func pageSpecificCopy(id string) map[string]string {
 			"value.profit_unrealised": "includes stock still on farm, not yet sold",
 			// The profit of a load that has sold nothing IS its stock valuation, so the number that
 			// produced it is shown beside it rather than hidden in a tooltip.
-			"value.profit_incl_stock":             "incl. stock",
-			"value.profit_unavailable":            "No cost recorded, so profit cannot be worked out.",
-			"value.cost_missing":                  "Cost not recorded",
-			"value.sold_unpriced":    "sold without a tagged sale",
-			"loadwise.row_hint":      "click a load to record its cost",
-			"loadwise.prior.title":   "Before these records",
-			"loadwise.prior.sold":    "Sold earlier",
-			"loadwise.prior.died":    "Died earlier",
-			"loadwise.prior.animals": "animals",
+			"value.profit_incl_stock":  "incl. stock",
+			"value.profit_unavailable": "No cost recorded, so profit cannot be worked out.",
+			"value.cost_missing":       "Cost not recorded",
+			"value.sold_unpriced":      "sold without a tagged sale",
+			"loadwise.row_hint":        "click a load to record its cost",
+			"loadwise.prior.title":     "Before these records",
+			"loadwise.prior.sold":      "Sold earlier",
+			"loadwise.prior.died":      "Died earlier",
+			"loadwise.prior.animals":   "animals",
 			// THE COST BREAKDOWN (maintainer decision 2026-09-01). Purchase value is the LANDED
 			// cost -- animals plus transport plus everything else it took to bring them in -- and
 			// these name the parts. One key per cost kind, resolved from the line's kind so the

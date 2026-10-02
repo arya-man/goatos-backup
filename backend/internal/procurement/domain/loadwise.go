@@ -200,7 +200,6 @@ type LoadwiseLoad struct {
 //   - TotalKg / AvgKg: the sum and the mean of those latest weights (AvgKg nil when none);
 //   - Value: sum over the live animals that HAVE a Sales Config price of (latest weight, or AvgKg
 //     when not weighed) x the ₹/kg of the animal's stage-and-sex bucket;
-//   - FilledAnimals: priced animals with no weight of their own, carried at AvgKg;
 //   - UnpricedAnimals / UnpricedStages: live animals whose stage no Sales Config valuation stage
 //     names, and those stage names -- left out of Value and named, never priced at a guess.
 type LoadStockWeight struct {
@@ -209,7 +208,6 @@ type LoadStockWeight struct {
 	TotalKg         float64
 	AvgKg           *float64
 	Value           float64
-	FilledAnimals   int
 	UnpricedAnimals int
 	UnpricedStages  []string
 }
@@ -225,28 +223,16 @@ func (w *LoadStockWeight) assumed(remaining int) (*float64, string) {
 		return nil, fmt.Sprintf("Not valued: none of the %d %s on farm is weighed yet", remaining, animalsWord(remaining))
 	}
 	valued := w.LiveAnimals - w.UnpricedAnimals
-	notes := []string{}
-	if w.FilledAnimals > 0 {
-		notes = append(notes, fmt.Sprintf("%d not weighed yet, carried at the load's average %s kg",
-			w.FilledAnimals, strconv.FormatFloat(math.Round(*w.AvgKg*10)/10, 'f', -1, 64)))
-	}
-	noPrice := ""
-	if w.UnpricedAnimals > 0 {
+	if valued <= 0 {
 		names := append([]string(nil), w.UnpricedStages...)
 		sort.Strings(names)
-		noPrice = "no Sales Config price for " + strings.Join(names, ", ")
-		notes = append(notes, fmt.Sprintf("%d not valued: %s", w.UnpricedAnimals, noPrice))
+		return nil, "Not valued: no Sales Config price for " + strings.Join(names, ", ")
 	}
-	if valued <= 0 {
-		return nil, "Not valued: " + noPrice
-	}
+	// The sentence states the rule and the total only (maintainer instruction 2026-10-02): how
+	// many were carried at the load's average weight or left unpriced is not shown.
 	value := w.Value
-	sentence := fmt.Sprintf("%d %s × latest weight × ₹/kg by stage and sex on Sales Config = %s",
+	return &value, fmt.Sprintf("%d %s × latest weight × ₹/kg by stage and sex on Sales Config = %s",
 		valued, animalsWord(valued), rupeesWhole(value))
-	if len(notes) > 0 {
-		sentence += " (" + strings.Join(notes, "; ") + ")"
-	}
-	return &value, sentence
 }
 
 // LoadwisePriorOutcome is one pre-GoatOS outcome block: how many animals, the revenue where the
@@ -426,7 +412,7 @@ func FinalizeLoadwise(loads []LoadwiseLoad, totalLoads int, asOf string) Loadwis
 }
 
 // summaryAssumedBasis states the one rule every load's stock is carried at.
-const summaryAssumedBasis = "Animals still on farm × their latest weight (the load's average when not weighed) × ₹/kg by stage and sex on Sales Config"
+const summaryAssumedBasis = "Animals still on farm × their latest weight × ₹/kg by stage and sex on Sales Config"
 
 func animalsWord(n int) string {
 	if n == 1 {
