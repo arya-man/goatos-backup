@@ -91,12 +91,16 @@ export function BankingBalanceStatistics({ title, subheader, chart, sx, children
       <CardHeader
         title={title}
         subheader={subheader}
+        // The series select only when there is a choice: with one series it repeated the card title as
+        // a select that ran off a 390 phone and squeezed the title to ~120px (PR #294 E1).
         action={
-          <ChartSelect
-            options={chart.series.map((item) => item.name)}
-            value={currentSeries?.name ?? ''}
-            onChange={handleChangeSeries}
-          />
+          chart.series.length > 1 ? (
+            <ChartSelect
+              options={chart.series.map((item) => item.name)}
+              value={currentSeries?.name ?? ''}
+              onChange={handleChangeSeries}
+            />
+          ) : undefined
         }
         sx={{ mb: 3 }}
       />
