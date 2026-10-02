@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -11,6 +12,10 @@ import (
 )
 
 func rotationService(repo *Repository, gap int, now time.Time) *pccareapp.Service {
+	return rotationServiceVersion(repo, gap, rotationSOPVersion, now)
+}
+
+func rotationServiceVersion(repo *Repository, gap, version int, now time.Time) *pccareapp.Service {
 	seed := domain.SeededRules()
 	cats := map[string]*domain.CategoryRules{}
 	for k, v := range seed.Categories {
@@ -20,7 +25,7 @@ func rotationService(repo *Repository, gap int, now time.Time) *pccareapp.Servic
 	cats[domain.CategoryFumigation].RepeatMode = domain.RepeatModeRotation
 	cats[domain.CategoryFumigation].RotationGapDays = gap
 	seed.Categories = cats
-	seed.Version = rotationSOPVersion
+	seed.Version = version
 	return pccareapp.NewService(repo).
 		WithRoundStore(repo).
 		WithSOPRules(ports.StaticRules{Rules: seed}, repo).
@@ -28,6 +33,34 @@ func rotationService(repo *Repository, gap int, now time.Time) *pccareapp.Servic
 }
 
 const rotationSOPVersion = 9
+
+func publishRotationFixtureVersion(t *testing.T, ctx context.Context, repo *Repository, version int) {
+	t.Helper()
+	seed := domain.SeededRules()
+	cats := map[string]*domain.CategoryRules{}
+	for k, v := range seed.Categories {
+		copied := *v
+		cats[k] = &copied
+	}
+	cats[domain.CategoryFumigation].RepeatMode = domain.RepeatModeRotation
+	seed.Categories = cats
+	raw, err := json.Marshal(map[string]any{"pc_care": seed.PCCareSOP})
+	if err != nil {
+		t.Fatalf("marshal rotation sop: %v", err)
+	}
+	tag, err := repo.pool.Exec(ctx, `
+INSERT INTO public.sop_versions (tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy, compatibility, validation_report, published_at)
+SELECT d.tenant_id, d.sop_id, $3::int, 'Rotation fixture', 'retired', $4::jsonb, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, now()
+FROM public.sop_definitions d
+WHERE d.tenant_id = $1::uuid AND d.code = $2
+ON CONFLICT DO NOTHING`, pcTenant, domain.SOPCodePCCare, version, string(raw))
+	if err != nil {
+		t.Fatalf("insert rotation sop v%d: %v", version, err)
+	}
+	if tag.RowsAffected() != 1 {
+		t.Fatalf("insert rotation sop v%d affected %d rows, want 1", version, tag.RowsAffected())
+	}
+}
 
 // PC CARE ROTATION (maintainer instruction 2026-10-02) against the real schema. CPT holds Castro
 // (undivided) and Godel 1 with Part 1, Part 2, Part 3 (EMPTY) and Part 10. The rotation goes
@@ -194,6 +227,44 @@ func TestRotationDoesNotWakeTasksFromBeforeTheRotatingSOPVersion(t *testing.T) {
 	}
 	if res, err := rotationService(repo, 0, istNoon(2026, 10, 1)).RunRotation(ctx, pcTenant, repo, nil, 100); err != nil || res.PensCreated != 1 {
 		t.Fatalf("fresh start tick: %+v %v, want the hand-started rotating pen to continue", res, err)
+	}
+}
+
+func TestRotationContinuesAfterLaterRotatingSOPPublish(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupPCCareDB(t, ctx)
+	seedCoverageGodel(t, ctx, repo)
+	coverageResidents(t, ctx, repo, pcPark, pcShedA+"|", covShedGodel+"|Part 1")
+	publishRotationFixtureVersion(t, ctx, repo, rotationSOPVersion)
+
+	start, err := repo.CreateRound(ctx, ports.CreateRoundParams{
+		TenantID: pcTenant, Category: domain.CategoryFumigation, ParkID: pcPark,
+		Pens: []domain.RoundPen{{ShedID: pcShedA}}, PlannedBusinessDate: pcBusinessDay(2026, 10, 1),
+		AssigneeUserIDs: []string{pcOperator1}, SOPVersion: rotationSOPVersion,
+		IdempotencyKey: "fum-rotation-v9-start", CreatedBy: pcVerifier, ActorID: pcVerifier, ActorType: "human",
+	})
+	if err != nil {
+		t.Fatalf("CreateRound start: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE pc_care_tasks SET status = 'pending_verification', submitted_at = $3 WHERE tenant_id = $1::uuid AND task_id = $2::uuid`,
+		pcTenant, start.Pens[0].TaskID, istNoon(2026, 10, 1)); err != nil {
+		t.Fatalf("submit start: %v", err)
+	}
+
+	res, err := rotationServiceVersion(repo, 0, rotationSOPVersion+1, istNoon(2026, 10, 1)).RunRotation(ctx, pcTenant, repo, nil, 100)
+	if err != nil || res.PensCreated != 1 {
+		t.Fatalf("later publish tick: %+v %v, want rotation to continue from the v%d source", res, err, rotationSOPVersion)
+	}
+	var repeatOf string
+	var version int
+	if err := pool.QueryRow(ctx, `
+SELECT repeat_of_task_id::text, coalesce(sop_version, 0)
+FROM pc_care_tasks
+WHERE tenant_id = $1::uuid AND repeat_of_task_id = $2::uuid`, pcTenant, start.Pens[0].TaskID).Scan(&repeatOf, &version); err != nil {
+		t.Fatalf("read rotated pen: %v", err)
+	}
+	if repeatOf != start.Pens[0].TaskID || version != rotationSOPVersion+1 {
+		t.Fatalf("rotated pen repeat/version = %s/v%d, want %s/v%d", repeatOf, version, start.Pens[0].TaskID, rotationSOPVersion+1)
 	}
 }
 

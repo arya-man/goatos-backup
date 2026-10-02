@@ -49,9 +49,22 @@ latest AS (
   JOIN cfg ON cfg.category = t.category
   WHERE t.tenant_id = $1::uuid
     -- Publishing rotation must not wake historical no-repeat / interval tasks. The first pen is a
-    -- planner action under the rotating published card, and from then on each rotated pen inherits
-    -- that same SOP version.
-    AND COALESCE(t.sop_version, 0) = cfg.sop_version
+    -- planner action under a rotating published card. Later SOP publishes may tune the card while
+    -- leaving rotation on, so an older task is still a valid rotation source when its PINNED SOP
+    -- version already had repeat_mode=rotation.
+    AND (
+      COALESCE(t.sop_version, 0) = cfg.sop_version
+      OR EXISTS (
+        SELECT 1
+        FROM public.sop_versions sv
+        JOIN public.sop_definitions sd ON sd.tenant_id = sv.tenant_id AND sd.sop_id = sv.sop_id
+        WHERE sv.tenant_id = t.tenant_id
+          AND sd.code = 'pc_care.tasks'
+          AND sv.version = COALESCE(t.sop_version, 0)
+          AND sv.status IN ('published', 'retired')
+          AND sv.form_dsl #>> ARRAY['pc_care','categories',t.category,'repeat_mode'] = 'rotation'
+      )
+    )
     -- A CLOSED pen is how a planner stops a rotation, so it is never "the latest": the submitted
     -- pen before it already has that closed pen as its follow-up (repeat_of_task_id), so nothing
     -- is planned from it, and a pen the planner plans by hand to restart -- even for an EARLIER
