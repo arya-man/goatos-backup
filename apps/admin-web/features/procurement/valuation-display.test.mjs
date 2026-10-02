@@ -32,3 +32,14 @@ test("Last saved reads DD/MM/YYYY HH:MM", () => {
   assert.equal(fmtValuationSavedAt("25-09-2026 13:05"), "25/09/2026 13:05");
   assert.equal(fmtValuationSavedAt("something else"), "something else");
 });
+
+test("a Farm value bucket label shows the stage's register name and keeps its gender", async () => {
+  const { valuationBucketDisplay } = await import("./valuation-display.ts");
+  const names = new Map([["k1", "Milk training"], ["k0", "Newborn"]]);
+  const stageName = (code) => names.get(code.trim().toLowerCase()) ?? code;
+  assert.equal(valuationBucketDisplay("K1 · Female", stageName), "Milk training · Female");
+  assert.equal(valuationBucketDisplay("K0 · Male", stageName), "Newborn · Male");
+  assert.equal(valuationBucketDisplay("Adult · Female", stageName), "Adult · Female");
+  assert.equal(valuationBucketDisplay("K0", stageName), "Newborn");
+  assert.doesNotMatch(valuationBucketDisplay("K3 · Male", (c) => (c === "K3" ? "Weaned kids" : c)), /K3/);
+});

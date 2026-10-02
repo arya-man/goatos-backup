@@ -106,12 +106,15 @@ function resolveLimit(raw: string | undefined, offered: readonly number[], fallb
  */
 function BreakdownCard({
   title,
+  dimension,
   rows,
   totalSold,
   pageContract,
   pager,
 }: {
   title: string;
+  /** The first column's header: what each row is (Breed / Sex / Stage / Pen). */
+  dimension: string;
   rows: FarmBornBucket[];
   totalSold: number;
   pageContract: AdminUiPageContract;
@@ -143,7 +146,7 @@ function BreakdownCard({
         <Table sx={FB_TABLE_SX}>
           <TableHead>
             <TableRow>
-              <TableCell component="th" />
+              <TableCell component="th">{dimension}</TableCell>
               <TableCell component="th" align="right">{copy(pageContract, "column.on_farm")}</TableCell>
               <TableCell component="th" align="right" title={copy(pageContract, "value.tagged_not_closed.hint")}>
                 {copy(pageContract, "column.tagged_not_closed")}
@@ -262,14 +265,15 @@ function FarmBornSections({
           <KpiWidget
             color="success"
             title={copy(pageContract, "kpi.revenue")}
-            total={s.revenue}
-            caption={[`₹`, unpriced > 0 ? `${num(s.sold_priced)} / ${num(s.sold)}` : undefined].filter(Boolean).join(" · ")}
+            total={Math.round(s.revenue)}
+            // The bare "71 / 73" said nothing: the unpriced remainder is named in the contract's words.
+            caption={[`₹`, unpriced > 0 ? copy(pageContract, "kpi.revenue.unpriced").replace("{count}", num(unpriced)) : undefined].filter(Boolean).join(" · ")}
             sx={{ height: 1 }}
           />
         </Grid>
         <Grid size={SALES_GRID.bornKpi}>
           <KpiWidget color="secondary" title={copy(pageContract, "kpi.avg_price")}
- caption={`${(s.sold_priced > 0 ? s.avg_price : null) == null ? "—" : `₹`}`} total={s.sold_priced > 0 ? s.avg_price : null} sx={{ height: 1 }} />
+ caption={s.sold_priced > 0 ? `₹ · ${copy(pageContract, "kpi.avg_price.detail")}` : "—"} total={s.sold_priced > 0 ? Math.round(s.avg_price) : null} sx={{ height: 1 }} />
         </Grid>
       </Grid>
 
@@ -278,18 +282,20 @@ function FarmBornSections({
           the right column mostly blank. */}
       <Grid container spacing={3} sx={{ mt: 3 }}>
         <Grid size={SALES_GRID.bornHalf}>
-          <BreakdownCard title={copy(pageContract, "section.by_breed.title")} rows={data.by_breed} totalSold={s.sold} pageContract={pageContract} />
+          <BreakdownCard title={copy(pageContract, "section.by_breed.title")} dimension={copy(pageContract, "filter.breed.label")} rows={data.by_breed} totalSold={s.sold} pageContract={pageContract} />
         </Grid>
         <Grid size={SALES_GRID.bornHalf}>
           <Stack spacing={3}>
             <BreakdownCard
               title={copy(pageContract, "section.by_sex.title")}
+              dimension={copy(pageContract, "filter.sex.label")}
               rows={data.by_sex.map((row) => ({ ...row, label: sexLabel(row.key) === row.key ? row.label : sexLabel(row.key) }))}
               totalSold={s.sold}
               pageContract={pageContract}
             />
             <BreakdownCard
               title={copy(pageContract, "section.by_stage.title")}
+              dimension={copy(pageContract, "filter.stage.label")}
               rows={data.by_stage.map((row) => ({ ...row, label: stageVocabularyLabel(row.label, stageNames) }))}
               totalSold={s.sold}
               pageContract={pageContract}
@@ -299,6 +305,7 @@ function FarmBornSections({
         <Grid size={12}>
           <BreakdownCard
             title={copy(pageContract, "section.by_pen.title")}
+            dimension={copy(pageContract, "filter.pen.label")}
             rows={data.by_pen}
             totalSold={s.sold}
             pageContract={pageContract}

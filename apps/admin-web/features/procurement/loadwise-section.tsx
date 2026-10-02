@@ -10,6 +10,7 @@ import { GroupedColumns, type GroupedSeries } from "@/components/grouped-columns
 import { withLoadPens, type LoadPen } from "@/lib/load-pens";
 import { Tag } from "@/components/ui-primitives";
 import { Label } from "@/components/minimal/label";
+import { InfoHint } from "@/components/app/info-hint";
 import { EcommerceSalesOverview } from "@/components/app/sections/overview/e-commerce/ecommerce-sales-overview";
 import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
@@ -192,15 +193,19 @@ export function LoadwiseSection({
   // The price every unsold animal is valued at: a soft Label on the register card's header (title =
   // the full backend sentence). Most of the profit figures below are stock, so the rate cannot be
   // buried, but it is a figure, not a paragraph.
+  const assumedBasis = view === "purchased" && summary && summary.assumed_value > 0 ? (summary.assumed_value_basis ?? "").trim() : "";
   const stockPriceLabel =
     view === "purchased" && data ? (
-      data.overall_avg_sold_price ? (
+      <Stack direction="row" spacing={0.5} sx={{ alignItems: "center" }}>
+      {data.overall_avg_sold_price ? (
         <Label variant="soft" color="default" title={`${copy(pageContract, "loadwise.stock_price_note")} ${inr(Math.round(data.overall_avg_sold_price))} ${copy(pageContract, "loadwise.stock_price_each")}`}>
           {inr(Math.round(data.overall_avg_sold_price))} {copy(pageContract, "loadwise.stock_price_each")}
         </Label>
       ) : (
         <Label variant="soft" color="default">{copy(pageContract, "loadwise.stock_price_unknown")}</Label>
-      )
+      )}
+      {assumedBasis ? <InfoHint text={assumedBasis} size={20} /> : null}
+      </Stack>
     ) : null;
 
   // Template chart card (AnalyticsWebsiteVisits / BankingBalanceStatistics anatomy): Card, CardHeader,
@@ -237,28 +242,30 @@ export function LoadwiseSection({
                 <KpiWidget
                   color="info"
                   title={copy(pageContract, "loadwise.kpi.purchase_value")}
-                  total={summary.costed_loads > 0 ? summary.purchase_value : null}
+                  total={summary.costed_loads > 0 ? Math.round(summary.purchase_value) : null}
                   caption={[`${(summary.costed_loads > 0 ? summary.purchase_value : null) == null ? "—" : `₹`}`, `${num(summary.costed_loads)} / ${num(loads.length)} ${copy(pageContract, "loadwise.kpi.purchase_value.hint")}`].filter(Boolean).join(" · ")}
                   icon="certificates"
                 />
                 <KpiWidget
                   color="success"
                   title={copy(pageContract, "loadwise.kpi.sold_value")}
-                  total={summary.sold_value > 0 ? summary.sold_value : null}
+                  total={summary.sold_value > 0 ? Math.round(summary.sold_value) : null}
                   caption={[`${(summary.sold_value > 0 ? summary.sold_value : null) == null ? "—" : `₹`}`, summary.sold_value > 0 ? undefined : none].filter(Boolean).join(" · ")}
                 />
                 {/* Signed and toned: a loss must not read like a profit at a glance. The caption is
-                    how much of that figure happened and how much is assumed -- the backend's own
-                    sentence, verbatim (main 7765efb29/c0b3a659f). */}
+                    how much of that figure happened and how much is assumed (main 7765efb29/
+                    c0b3a659f). The backend's methodology sentence for the assumed half
+                    (assumed_value_basis) is a paragraph, which stretched every tile in the row to
+                    ~370px: it rides the (i) beside the stock-price label instead. */}
                 <KpiWidget
                   color={summary.profit_loss < 0 ? "error" : "success"}
                   title={copy(pageContract, "loadwise.kpi.profit")}
-                  total={summary.costed_loads > 0 ? summary.profit_loss : null}
+                  total={summary.costed_loads > 0 ? Math.round(summary.profit_loss) : null}
                   caption={[`${(summary.costed_loads > 0 ? summary.profit_loss : null) == null ? "—" : `₹`}`, 
                     summary.costed_loads > 0
                       ? `${copy(pageContract, "loadwise.realised.label")} ${signedInrCompact(summary.realised_profit_loss)} · ${copy(pageContract, "loadwise.assumed.label")} ${
                           summary.assumed_value > 0 ? inrCompact(summary.assumed_value) : copy(pageContract, "loadwise.assumed.none")
-                        }${summary.assumed_value > 0 && summary.assumed_value_basis ? ` · ${summary.assumed_value_basis}` : ""}`
+                        }`
                       : none
                   ].filter(Boolean).join(" · ")}
                 />
@@ -486,6 +493,15 @@ export function LoadwiseSection({
               "& table": { minWidth: "100%" },
               // Single-line cells: short counts and money never wrap digit by digit.
               "& th, & td, & td .cell-link": { whiteSpace: "nowrap", overflowWrap: "normal", wordBreak: "normal" },
+              // Twelve columns: one-line headings ("Tagged, sale not closed") and the load's name
+              // pushed Purchase value and everything after it past a 1440 card. Headings wrap at
+              // word breaks (bottom-aligned so the figures line up), the load name may take two
+              // lines, and the cell gutter is the template's dense one. The rest still pans inside
+              // the card on narrower screens.
+              "& th": { whiteSpace: "normal", verticalAlign: "bottom", minWidth: 64 },
+              "& th, & td": { px: 1.25 },
+              "& th:first-of-type, & td:first-of-type": { pl: 2 },
+              "& td:first-of-type, & td:first-of-type .cell-link": { whiteSpace: "normal", minWidth: 150 },
               "& td.MuiTableCell-alignRight": { fontVariantNumeric: "tabular-nums" },
             }}
           >

@@ -44,11 +44,13 @@ import { SALES_DEFAULT_LIMIT, SALES_GRID } from "./sales-layout";
 import { PageRoot } from "@/components/app/page-root";
 
 // The buyer ledger is a fixed-layout table (template invoice list density) with set column shares;
-// it scrolls inside its card from a 70rem floor (65rem on a phone).
+// it scrolls inside its card below a 62rem floor (65rem on a phone, where it always pans). The floor
+// used to be 70rem (1120px), wider than the ~1060px card a 1440 laptop gives the page, so the last
+// column ("Still owed") sat past the card edge on every laptop.
 const pct = (w: string) => ({ width: w });
 const BUYER_TABLE_SX: SxProps<Theme> = {
   ...(cardTableScrollSx as object),
-  "& table.sales-buyer-analytics-table": { minWidth: { xs: "65rem", sm: "70rem" }, tableLayout: "fixed" },
+  "& table.sales-buyer-analytics-table": { minWidth: { xs: "65rem", sm: "62rem" }, tableLayout: "fixed" },
   "& table.sales-buyer-analytics-table :is(th, td)": {
     px: { xs: 1.25, sm: 1.375 },
     fontSize: "var(--fs-caption)",
@@ -184,7 +186,7 @@ function BuyerSections({
             <KpiWidget
               color="success"
               title={copy(pageContract, "kpi.repeat_revenue")}
-              total={summary.repeat_revenue}
+              total={Math.round(summary.repeat_revenue)}
               caption={[`₹`, `${num(summary.repeat_revenue_pct, 0)}% ${copy(pageContract, "kpi.repeat_revenue.detail")} · ${num(summary.purchases)} ${copy(pageContract, "kpi.purchases.detail")}`].filter(Boolean).join(" · ")}
               sx={{ height: 1 }}
             />
@@ -193,7 +195,7 @@ function BuyerSections({
             <KpiWidget
               color="warning"
               title={copy(pageContract, "kpi.outstanding")}
-              total={summary.outstanding}
+              total={Math.round(summary.outstanding)}
               caption={[`₹`, copy(pageContract, "kpi.outstanding.detail")].filter(Boolean).join(" · ")}
               sx={{ height: 1 }}
             />
@@ -207,8 +209,11 @@ function BuyerSections({
       <Grid size={SALES_GRID.side}>
         <RingCard
           title={copy(pageContract, "kpi.repeat_buyers")}
-          total={summary.repeat_buyers}
-          totalLabel={`/ ${num(summary.buyers)} ${copy(pageContract, "kpi.buyers")}`}
+          // Apex prints the centre caption ABOVE the figure, so "/ 29 Buyers" read over "15" as an
+          // inverted fraction. The centre is the whole: every buyer, captioned "Buyers"; the two
+          // rings beside it are the come-back shares of that whole.
+          total={summary.buyers}
+          totalLabel={copy(pageContract, "kpi.buyers")}
           series={[
               { label: copy(pageContract, "kpi.repeat_buyers"), value: Math.round(repeatPct * 10) / 10, display: `${num(repeatPct, 0)}%` },
               { label: copy(pageContract, "kpi.repeat_revenue"), value: Math.round(summary.repeat_revenue_pct * 10) / 10, display: `${num(summary.repeat_revenue_pct, 0)}%` },

@@ -226,10 +226,13 @@ export async function FeedPurchasesPage({
       <UrlSuspense searchParams={sp} watch={AGGREGATE_WATCH} fallback={<FeedPurchasesStripSkeleton />}>
       <Card sx={{ mb: { xs: 3, md: 5 } }}>
         <Scrollbar sx={{ minHeight: 108 }}>
+          {/* Each InvoiceAnalytic cell is at least 200px wide, so two side by side do not fit a
+              390 phone (the second cell's title and figure were cut at the card edge): the cells
+              stack there and sit in a row from sm up. */}
           <DividedStack
             dividerOrientation="vertical"
-            direction="row"
-            sx={{ py: 2 }}
+            direction={{ xs: "column", sm: "row" }}
+            sx={{ py: 2, rowGap: { xs: 2, sm: 0 } }}
           >
             {FEED_STRIP_CELLS.map((key) => (
               <Fragment key={key}>{stripCells[key]}</Fragment>
@@ -292,7 +295,10 @@ export async function FeedPurchasesPage({
         <UrlSuspense searchParams={sp} watch={LEDGER_WATCH} fallback={<FeedPurchasesRowsSkeleton columns={Math.max(columns.length, 1)} rows={limit} />}>
         <Box id="feed-purchases-ledger" tabIndex={0} role="region" aria-label={ledgerTable.title}>
           <Scrollbar>
-            <Table sx={{ minWidth: 1100 }} aria-label={ledgerTable.title}>
+            {/* An 1100px floor sat past the ~1060px card a 1440 laptop gives the page ("Remain…" cut):
+                the floor is 1000 and the headings wrap at word breaks, so all eleven columns fit a
+                laptop; a phone still pans the table inside the card. */}
+            <Table sx={{ minWidth: 1000, "& thead th": { whiteSpace: "normal", verticalAlign: "bottom" } }} aria-label={ledgerTable.title}>
               {/* Header labels come from the page contract IN ITS ORDER; the body cells below are
                   written in that same order. Both must move together if the contract's column list
                   changes. */}
@@ -305,7 +311,7 @@ export async function FeedPurchasesPage({
                   return (
                     <TableRow key={purchase.feed_purchase_id} hover>
                       {/* Template invoice row: the lead cell is a two-line date, the item cell a
-                          link + caption; short cells never wrap (a three-letter farm code broken
+                          link (the vendor has its own column, so it is not repeated under the feed); short cells never wrap (a three-letter farm code broken
                           across two lines reads as a different farm). */}
                       <TableCell sx={{ whiteSpace: "nowrap" }}>{fmtDate(purchase.purchase_date)}</TableCell>
                       <TableCell sx={{ whiteSpace: "nowrap" }}>{purchase.farm}</TableCell>
@@ -314,11 +320,6 @@ export async function FeedPurchasesPage({
                           <Link component={LocalOverlayLink} href={drawerHref} scroll={false} color="inherit" sx={{ cursor: "pointer" }}>
                             {purchase.feed_item}
                           </Link>
-                          {purchase.vendor ? (
-                            <Box component="span" sx={{ color: "text.disabled" }}>
-                              {purchase.vendor}
-                            </Box>
-                          ) : null}
                         </Stack>
                       </TableCell>
                       <TableCell sx={{ whiteSpace: "nowrap" }}>{purchase.batch_no}</TableCell>

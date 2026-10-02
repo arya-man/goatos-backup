@@ -117,7 +117,9 @@ located AS (
 // member scan, which reads the other half of the same herd.
 const farmBornAnimalsSQL = farmBornPopulationSQL + `
 SELECT l.goat_id::text, l.display_id, l.tag, l.species, l.breed, l.sex, l.stage,
-       COALESCE(l.park_id::text, ''), l.park_name,
+       -- The park as the page's farm chips name it (the code, "CBE"), so a pen row and the chip
+       -- above it never call one farm two names; the full name only when a park has no code.
+       COALESCE(l.park_id::text, ''), COALESCE(NULLIF(l.park_code, ''), l.park_name),
        COALESCE(l.shed_id::text, ''), l.shed_name, l.partition_label,
        l.bucket, COALESCE(l.sale_date::text, ''), l.share, l.buyer_name,
        COALESCE(l.sales_deal_id::text, '')

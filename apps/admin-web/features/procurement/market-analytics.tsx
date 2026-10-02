@@ -129,13 +129,14 @@ export async function MarketAnalyticsPage({
       <UrlSuspense searchParams={sp} watch={WINDOW_WATCH} fallback={<SalesMarketKpisSkeleton />}>
       <KpiGrid>
         <KpiWidget color="primary" title={copy(pageContract, "kpi.cities.label")} total={cities.length} />
-        <KpiWidget color="info" title={copy(pageContract, "kpi.days.label")} total={analytics.days} icon="certificates" />
-        {/* The template widget figure is a number: the latest survey date is the visible sub-line. */}
+        {/* The template widget figure is a number, so a date cannot be a tile's headline (it left
+            an empty figure slot): the latest survey date is the days tile's sub-line instead. */}
         <KpiWidget
-          color="secondary"
-          title={copy(pageContract, "kpi.latest.label")}
-          total={null}
-          caption={latestDate ? humanDate(latestDate) : none}
+          color="info"
+          title={copy(pageContract, "kpi.days.label")}
+          total={analytics.days}
+          caption={`${copy(pageContract, "kpi.latest.label")} ${latestDate ? humanDate(latestDate) : none}`}
+          icon="certificates"
         />
         <KpiWidget
           color="success"
@@ -182,7 +183,9 @@ export async function MarketAnalyticsPage({
             <Box sx={{ mt: 3 }}>
             <Scrollbar>
             <Box tabIndex={0} role="region" aria-label={copy(pageContract, "section.latest.title")}>
-              <Table sx={{ minWidth: 560 }}>
+              {/* Question headings ("Sheep carcass price") wrap at word breaks instead of holding one
+                  line each, which pushed the Recorded date past a 1440 card; the date stays whole. */}
+              <Table sx={{ minWidth: 560, "& thead th": { whiteSpace: "normal", verticalAlign: "bottom" }, "& tbody td:last-of-type": { whiteSpace: "nowrap" } }}>
                 <TableHeadCustom
                   headCells={[
                     { id: "city", label: copy(pageContract, "column.city") },

@@ -65,7 +65,7 @@ import { PageRoot } from "@/components/app/page-root";
 // Hook class for the phone load-card layout (procurement-sx targets `table.<hook>`); no stylesheet defines it.
 const LOADS_TABLE_HOOK = "ap-loads-table";
 
-const LOAD_CARDS_SX = phoneLoadCardsSx(LOADS_TABLE_HOOK, [{ nth: 1, column: "1", row: 1 }, { nth: 3, column: "2", row: 1, alignEnd: true }, { nth: 2, column: "1", row: 2, secondary: true }, { nth: 6, column: "2", row: 2, alignEnd: true }]);
+const LOAD_CARDS_SX = phoneLoadCardsSx(LOADS_TABLE_HOOK, [{ nth: 1, column: "1", row: 1 }, { nth: 3, column: "2", row: 1, alignEnd: true }, { nth: 2, column: "1", row: 2, secondary: true }, { nth: 6, column: "2", row: 2, alignEnd: true, labelled: true }]);
 
 const PATHNAME = "/procurement/animal-purchases";
 const DEFAULT_DECISION = "pending";
@@ -328,8 +328,10 @@ export async function AnimalPurchasesPage({
                       ap_status: null,
                       ap_code: null,
                     });
-                    const cellLink = (content: ReactNode) => (
-                      <Link href={filterHref} className={CELL_LINK} scroll={false} aria-current={selected ? "true" : undefined}>
+                    // `label` names the reading on a phone card, where the header row is hidden (the
+                    // awaiting-decision pill read as a bare "0").
+                    const cellLink = (content: ReactNode, label?: string) => (
+                      <Link href={filterHref} className={CELL_LINK} scroll={false} aria-current={selected ? "true" : undefined} data-label={label}>
                         {content}
                       </Link>
                     );
@@ -340,7 +342,7 @@ export async function AnimalPurchasesPage({
                         <TableCell>{cellLink(load.farm)}</TableCell>
                         <TableCell>{cellLink(num(load.expected_count))}</TableCell>
                         <TableCell>{cellLink(num(load.counts.total))}</TableCell>
-                        <TableCell>{cellLink(<Tag tone={load.counts.pending > 0 ? "warn" : "mut"}>{num(load.counts.pending)}</Tag>)}</TableCell>
+                        <TableCell>{cellLink(<Tag tone={load.counts.pending > 0 ? "warn" : "mut"}>{num(load.counts.pending)}</Tag>, loadColumns[5])}</TableCell>
                         <TableCell>{cellLink(num(load.counts.accepted))}</TableCell>
                         <TableCell>{cellLink(num(load.counts.rejected))}</TableCell>
                         <TableCell>{cellLink(fmtDate(load.created_at))}</TableCell>

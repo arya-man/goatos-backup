@@ -1,11 +1,11 @@
 "use client";
 
 import { OrderToolbarSkeleton, PageHeaderSkeleton, PageSkeleton, TableSkeleton, TabsSkeleton } from "@/components/app/skeletons";
-import { SOURCE_FILTER_BUTTON_TWIN_WIDTH, SOURCE_LOAD_COLUMNS, SOURCE_LOAD_SKELETON_ROWS, SOURCE_LOAD_TAB_STATES } from "./source-entry-layout";
+import { SOURCE_FILTER_BUTTON_TWIN_WIDTH, SOURCE_LOAD_SKELETON_ROWS, SOURCE_LOAD_TAB_STATES, SOURCE_LOAD_TABLE_COLUMNS } from "./source-entry-layout";
 
 
 /** The loads table rows (their UrlSuspense fallback). */
-export function SourceLoadRowsSkeleton({ columns = SOURCE_LOAD_COLUMNS.length }: { columns?: number }) {
+export function SourceLoadRowsSkeleton({ columns = SOURCE_LOAD_TABLE_COLUMNS.length }: { columns?: number }) {
   return <TableSkeleton bare header={false} columns={columns} rows={SOURCE_LOAD_SKELETON_ROWS} />;
 }
 
@@ -18,7 +18,7 @@ export function SourceEntrySkeleton() {
     <PageSkeleton root="page-root">
       <PageHeaderSkeleton crumbLink={false} actions={1} />
       <TableSkeleton
-        columns={SOURCE_LOAD_COLUMNS.length}
+        columns={SOURCE_LOAD_TABLE_COLUMNS.length}
         rows={SOURCE_LOAD_SKELETON_ROWS}
         header={false}
        

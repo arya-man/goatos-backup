@@ -177,8 +177,8 @@ function SoldSections({
           <Grid size={showFeed ? SALES_GRID.kpi5 : SALES_GRID.kpi}>
             <KpiWidget
               title={copy(pageContract, "kpi.revenue")}
-              total={summary.revenue}
-              caption={[`₹`, `${num(summary.deals)} ${copy(pageContract, "kpi.deals")}`].filter(Boolean).join(" · ")}
+              total={Math.round(summary.revenue)}
+              caption={[`₹`, `${num(summary.deals)} ${copy(pageContract, "kpi.deals").toLowerCase()}`].filter(Boolean).join(" · ")}
               icon="completed"
               color="primary"
               sx={{ height: 1 }}
@@ -207,8 +207,8 @@ function SoldSections({
           <Grid size={showFeed ? SALES_GRID.kpi5 : SALES_GRID.kpi}>
             <KpiWidget
               title={copy(pageContract, "kpi.manure")}
-              total={summary.manure_kg}
-              caption={[`${kgSuffix}`, `${inr(summary.manure_revenue)} · ${copy(pageContract, "kpi.manure.detail")}`].filter(Boolean).join(" · ")}
+              total={Math.round(summary.manure_kg)}
+              caption={[`${kgSuffix}`, `${inr(Math.round(summary.manure_revenue))} ${copy(pageContract, "kpi.manure.detail")}`].filter(Boolean).join(" · ")}
               color="warning"
               sx={{ height: 1 }}
             />
@@ -220,8 +220,8 @@ function SoldSections({
             <Grid size={SALES_GRID.kpi5}>
               <KpiWidget
                 title={copy(pageContract, "kpi.feed")}
-                total={summary.feed_kg}
-                caption={[`${kgSuffix}`, `${inr(summary.feed_revenue)} · ${copy(pageContract, "kpi.feed.detail")}`].filter(Boolean).join(" · ")}
+                total={Math.round(summary.feed_kg)}
+                caption={[`${kgSuffix}`, `${inr(Math.round(summary.feed_revenue))} ${copy(pageContract, "kpi.feed.detail")}`].filter(Boolean).join(" · ")}
               />
             </Grid>
           ) : null}

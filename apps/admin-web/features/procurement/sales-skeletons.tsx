@@ -167,7 +167,7 @@ export function SalesFarmBornBodySkeleton({ limit = SALES_DEFAULT_LIMIT }: { lim
 
 /** /sales/market-analytics KPI deck: cities, days, then latest survey and coverage with their sub-lines. */
 export function SalesMarketKpisSkeleton() {
-  return <KpiRowSkeleton count={4} shapes={[{}, {}, { hint: true }, { hint: true }]} />;
+  return <KpiRowSkeleton count={3} shapes={[{}, { hint: true }, { hint: true }]} />;
 }
 
 /** /sales/market-analytics window strip: SegmentTabs link pills, one per window. */
