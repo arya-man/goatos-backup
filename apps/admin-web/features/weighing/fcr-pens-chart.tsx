@@ -14,7 +14,7 @@ import { fcrAxisCeiling, isOffScale } from "./fcr-scale";
  *
  * 1. ONE RUNAWAY PEN DOES NOT FLATTEN THE REST. The value axis is capped (fcrAxisCeiling); a pen past
  *    the cap is drawn to the edge, its label and tooltip still print its TRUE ratio, marked off scale.
- * 2. THE BREAK-EVEN LINE SITS BEHIND THE BARS, so it never paints over a bar's value label
+ * 2. THE BREAK-EVEN LABEL SITS ABOVE THE PLOT, so it never paints over a bar's value label
  *    ("8.13" read ".13").
  *
  * Client-side because the axis and label formatters are functions, which cannot cross from the
@@ -105,8 +105,15 @@ export function FCRPensChart({
           ...(breakEven != null
             ? {
                 annotations: {
-                  position: "back",
-                  xaxis: [{ x: breakEven, strokeDashArray: 4, label: { text: breakEvenLabel } }],
+                  // The line's label sits ABOVE the plot (horizontal, offset up), clear of every bar's
+                  // value label; drawn along the line it painted over "8.13" so it read ".13".
+                  xaxis: [
+                    {
+                      x: breakEven,
+                      strokeDashArray: 4,
+                      label: { text: breakEvenLabel, orientation: "horizontal", position: "top", offsetY: -12 },
+                    },
+                  ],
                 },
               }
             : {}),
