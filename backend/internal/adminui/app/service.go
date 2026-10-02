@@ -524,7 +524,7 @@ func pages() []domain.PageContract {
 		// named here only so its page sizes are backend-owned.
 		page("work-board", "/work-board", "/work-board", "Work Board", "Every module's work for one park and one day. Column is automatic: nothing started, started, submitted, approved.", "command-lens",
 			[]domain.TableContract{
-				withoutRowClick(tableP("work-board", "Board", "/work-board/rows", []string{"title", "module", "park", "pen", "owner", "clock", "work_state", "counts"}, "row_key", []int{25, 50, 100})),
+				withoutRowClick(tableP("work-board", "Board", "/work-board/rows", []string{"title", "module", "park", "pen", "owner", "clock", "work_state", "counts"}, "row_key", []int{10, 25, 50})),
 				tableP("work-board-subtasks", "Subtasks", "/work-board/rows", []string{"name", "steps", "owner", "status"}, "row_key", []int{10, 25}),
 			}),
 		// Alerts (maintainer decision 2026-09-16). One table: the day's alerts for the parks in
@@ -1406,9 +1406,13 @@ func weightsGainThresholdTable() domain.TableContract {
 }
 
 func vaccinationShedTable() domain.TableContract {
-	t := tableP("shed-summary", "Vaccination by pen", "/vaccination/sheds", []string{"park", "shed", "animals", "due", "done", "sessions", "next_due", "manager", "backup", "status"}, "shed", []int{25, 50, 100})
+	t := tableP("shed-summary", "Vaccination by pen", "/vaccination/sheds", []string{"park", "shed", "animals", "due", "done", "sessions", "next_due", "manager", "status"}, "shed", []int{25, 50, 100})
+	// No separate "Assignment" column (pr294 L-C10): it restated the operator names as "2 operators"
+	// and pushed Status past the 1440 card edge. The Operators column says who and how many.
 	for i := range t.Columns {
 		switch t.Columns[i].Key {
+		case "manager":
+			t.Columns[i].Label = "Operators"
 		case "due":
 			t.Columns[i].Label = "Needs action"
 		case "done":
@@ -2156,7 +2160,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.overall_adherence":        "Overall adherence",
 			"label.open_process_gaps":        "Open process gaps",
 			"label.deferred_explained":       "Deferred / explained",
-			"label.on_track":                 "On-track (no action)",
+			"label.on_track":                 "No open gap",
+			"label.on_track_includes":        "medically deferred rows included",
 			"label.on_time_correct":          "on-time + correct",
 			"label.across_rules":             "across vaccination rules",
 			"label.deferred_scope":           "ICU / quarantine / sick",
@@ -2990,7 +2995,11 @@ func pageSpecificCopy(id string) map[string]string {
 			// Verifier video-review board copy. These are backend-owned like every other visible
 			// string here: the frontend previously carried them as local fallbacks, which is the
 			// hardcoded-visible-literal defect the contract rule exists to prevent.
-			"board.title":      "Verification Board",
+			"board.title": "Verification Board",
+			// The tab a `?status=all` link lands on (pr294 L-C12). The queue offers no All chip
+			// (maintainer 2026-08-06), but leadership links open /verify?status=all; without a tab
+			// for it the page showed no selected tab at all.
+			"tab.all_statuses": "All",
 			"filter.shed":      "Pen (optional)",
 			"filter.all_sheds": "All pens",
 			// The module filter row (maintainer request 2026-08-11). The module NAMES are not here:
@@ -3748,8 +3757,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.full_schedule.loading_operator_note": "Loading planned operator assignments.",
 			"section.full_schedule.empty_title":           "No schedule rows for this month",
 			"section.full_schedule.empty_body":            "Rows appear once due work is clubbed into vaccination drives for the selected month.",
-			"section.full_schedule.no_assignments_title":  "No operator drive rows",
-			"section.full_schedule.no_assignments_body":   "No vaccination drive has been given to an operator in this month yet.",
+			// This table reads persisted OPERATOR assignments; "Scheduled Ahead" reads the planned drives.
+			// A month whose drives are planned but not yet given to an operator must not read as a
+			// month with no drives (pr294 L-N6).
+			"section.full_schedule.no_assignments_title": "No drives given to an operator yet",
+			"section.full_schedule.no_assignments_body":  "Planned drives are listed under Scheduled Ahead until an operator is assigned to them. No operator assignment yet in",
 			// Human labels for the operator-drive-schedule CAPACITY pill. The read
 			// model emits the internal machine state (within_cap / over_cap /
 			// over_cap_required / capacity_breach); never render that token raw.
@@ -3989,6 +4001,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.done":                                       "done",
 			"label.all_status":                                 "All status",
 			"label.all_capacity":                               "All capacity",
+			"label.strip_status":                               "Pen status",
+			"label.strip_capacity":                             "Daily capacity",
 			"label.sheds_noun":                                 "pens",
 			"label.shed_noun":                                  "pen",
 			"status.scheduled_drive":                           "Drive scheduled",
@@ -11140,7 +11154,7 @@ func liveTrackerOptionGroups() []domain.OptionGroup {
 			Options: []domain.Option{
 				option("receiving", "receiving", "proof landing at a normal rate", "live"),
 				option("slow", "slow start", "under a quarter done well into the drive", "warn"),
-				option("review", "extra attempts", "finished, but animals were re-scanned — flagged for the verifier", "warn"),
+				option("review", "extra attempts", "finished, but animals were re-scanned — flagged for the verifier", "pur"), // not slow start's amber (pr294 L-N8)
 				option("done", "done", "every administration closed, no extra attempts", "ok"),
 				option("not_started", "not started", "no proof received yet", "dng"),
 			},

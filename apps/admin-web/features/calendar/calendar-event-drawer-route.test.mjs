@@ -40,3 +40,13 @@ test("calendar drive links preserve operational partition identity", () => {
   assert.match(drawerSource, /partition \? \{ partition_label: partition \} : \{\}/);
   assert.match(drawerSource, /scopeHref\(l\.appPath,\s*scope,\s*\{\},\s*l\.query \?\? \{\}\)/);
 });
+
+// pr294 L-N1: the drawer's Vaccine / dose cell rendered `${vaccine_name} · ${dose_code}`, i.e.
+// "Preventive Care Vaccination Matrix · blue_tongue_first" -- the protocol family and a raw config
+// token. The human label is the backend-mapped vaccine_labels; the raw fields are identifiers only.
+test("calendar drawer never renders the raw vaccine_name or dose_code", () => {
+  const code = drawerSource.replace(/\/\/[^\n]*/g, "");
+  assert.doesNotMatch(code, /event\.vaccine_name/);
+  assert.doesNotMatch(code, /event\.dose_code/);
+  assert.match(code, /event\.vaccine_labels\.join/);
+});

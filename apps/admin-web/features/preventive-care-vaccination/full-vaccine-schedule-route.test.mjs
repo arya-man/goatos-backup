@@ -232,3 +232,12 @@ test("vaccination schedule table scrolls inside its card on the template Scrollb
   assert.doesNotMatch(source, /style=\{\{/);
   assert.doesNotMatch(css, /full-vaccine-schedule-table|vaccination-schedule-(?:card|hd|summary|legend|tablewrap)/);
 });
+
+// pr294 L-N6: the operator schedule read "No operator drive rows in Oct 2026" while Scheduled Ahead
+// listed ten October drives -- the table reads persisted operator assignments, not planned drives.
+test("empty operator schedule points at Scheduled Ahead instead of denying the month's drives", async () => {
+  const { readFileSync: read } = await import("node:fs");
+  const service = read(new URL("../../../../backend/internal/adminui/app/service.go", import.meta.url), "utf8");
+  assert.match(service, /"section\.full_schedule\.no_assignments_title":\s+"No drives given to an operator yet"/);
+  assert.match(service, /"section\.full_schedule\.no_assignments_body":\s+"Planned drives are listed under Scheduled Ahead/);
+});

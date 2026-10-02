@@ -30,9 +30,10 @@ export function LiveStateTag({
 }) {
   const tone = optionTone(pageContract, group, stateKey);
   if (tone === "live") {
-    // Template Label (soft error) with a leading dot: the running state reads as "live".
+    // Template Label (soft info) with a leading dot: the running state reads as "live", and is not
+    // the red of "not started" / "idle" (pr294 L-N8).
     return (
-      <Label variant="soft" color="error" title={title} startIcon={<Box component="span" sx={{ width: "calc(0.5 * var(--spacing))", height: "calc(0.5 * var(--spacing))", borderRadius: "50%", bgcolor: "currentColor" }} />}>
+      <Label variant="soft" color="info" title={title} startIcon={<Box component="span" sx={{ width: "calc(0.5 * var(--spacing))", height: "calc(0.5 * var(--spacing))", borderRadius: "50%", bgcolor: "currentColor" }} />}>
         {children}
       </Label>
     );

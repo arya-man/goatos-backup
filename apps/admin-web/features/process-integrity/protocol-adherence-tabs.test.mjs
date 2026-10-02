@@ -24,3 +24,12 @@ test("guard: adherence-tabs-fit - no lone header info glyph", () => {
   const header = page.slice(page.indexOf("<PageHeader"), page.indexOf("/>", page.indexOf("<PageHeader")));
   assert.doesNotMatch(header, /actions=/);
 });
+
+// pr294 L-A4: the fourth tile counted process_intact rows (medically deferred included) under
+// "On-track (no action)", contradicting the ledger's only row "Watch / medically deferred".
+test("protocol adherence no-gap tile says deferred rows are inside it", () => {
+  const src = readFileSync(new URL("./protocol-adherence.tsx", import.meta.url), "utf8");
+  assert.match(src, /label\.on_track_includes/);
+  const service = readFileSync(new URL("../../../../backend/internal/adminui/app/service.go", import.meta.url), "utf8");
+  assert.doesNotMatch(service, /"label\.on_track":\s+"On-track \(no action\)"/);
+});

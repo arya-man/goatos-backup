@@ -18,6 +18,9 @@ func TestControlTowerDoseLabel(t *testing.T) {
 	}{
 		{name: "adult wave gets antigen + course + dose", protocolName: matrix, doseCode: "et_tt_adult_w2", want: "ET+TT adult course dose 2"},
 		{name: "kid wave gets antigen + course + dose", protocolName: matrix, doseCode: "ppr_kid_w1", want: "PPR kid course dose 1"},
+		// pr294 L-A7: the two ET+TT kid doses are told apart by the age they are given at.
+		{name: "kid age dose 4w names its age", protocolName: matrix, doseCode: "et_tt_kid_4w", want: "ET+TT kid course at 4 weeks"},
+		{name: "kid age dose 7w names its age", protocolName: matrix, doseCode: "et_tt_kid_7w", want: "ET+TT kid course at 7 weeks"},
 		{name: "booster gets booster tag", protocolName: matrix, doseCode: "ppr_booster", want: "PPR · Booster"},
 		{name: "goat pox adult wave", protocolName: matrix, doseCode: "goat_pox_adult_w1", want: "Goat Pox adult course dose 1"},
 		{name: "plain antigen", protocolName: matrix, doseCode: "hs", want: "HS"},

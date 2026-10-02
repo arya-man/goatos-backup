@@ -87,6 +87,7 @@ export function VaccinationTablePager({
   hrefForPage,
   hrefForPageSize,
   left,
+  dense = true,
 }: {
   pageContract: AdminUiPageContract;
   pageSizeOptions: readonly number[];
@@ -99,6 +100,9 @@ export function VaccinationTablePager({
   hrefForPage: (page: number) => string;
   hrefForPageSize: (pageSize: VaccinationPageSize) => string;
   left?: ReactNode;
+  /** False where the rows are not a table (the Action Center lane board): a density switch there
+   *  changes nothing on screen (pr294 L-A11). */
+  dense?: boolean;
 }) {
   const totalPages = cappedTotalPages(total, pageSize);
   const hasPrevious = page > 1;
@@ -125,7 +129,7 @@ export function VaccinationTablePager({
       prevLabel={previousLabel}
       nextLabel={nextLabel}
       /* Density switch on every table with more than a page of rows (frame spec). */
-      left={left ?? (total > 10 ? <DenseToggleAuto label={copy(pageContract, "pager.dense", "Dense")} /> : null)}
+      left={left ?? (dense && total > 10 ? <DenseToggleAuto label={copy(pageContract, "pager.dense", "Dense")} /> : null)}
     />
   );
 }

@@ -327,7 +327,11 @@ export async function ProtocolAdherencePage({
         },
         { key: "gaps", title: copy(pageContract, "label.open_process_gaps"), total: summary.open_gap_count, caption: copy(pageContract, "label.across_rules"), color: summary.open_gap_count > 0 ? "warning" : "info" },
         { key: "deferred", title: copy(pageContract, "label.deferred_explained"), total: summary.deferred_count, caption: `${copy(pageContract, "label.obligations")} · ${copy(pageContract, "label.deferred_scope")}`, color: "info" },
-        { key: "on-track", title: copy(pageContract, "label.on_track"), total: summary.process_intact_count, caption: `${copy(pageContract, "label.of")} ${(summary.open_gap_count + summary.process_intact_count).toLocaleString("en-IN")} ${copy(pageContract, "label.adherence_rows")}`, color: "success" },
+        // process_intact counts every row with no open gap, and a medically deferred row has none
+        // (it is explained, not missed). Titled "On-track (no action)" it read as a contradiction
+        // beside a "Watch / medically deferred" ledger row (pr294 L-A4), so the tile says what it
+        // counts and that deferred rows are inside it.
+        { key: "on-track", title: copy(pageContract, "label.on_track"), total: summary.process_intact_count, caption: `${copy(pageContract, "label.of")} ${(summary.open_gap_count + summary.process_intact_count).toLocaleString("en-IN")} ${copy(pageContract, "label.adherence_rows")} · ${copy(pageContract, "label.on_track_includes")}`, color: "success" },
       ]
     : [];
   const head = ledgerLabels.map((label, index) => ({ id: `c${index}`, label, width: LEDGER_WIDTHS[index] }));
@@ -435,8 +439,11 @@ export async function ProtocolAdherencePage({
 
           {/* Severity and work-state filter ONE ledger. Keyed on both, the body cross-fades. */}
           <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<TableSkeleton bare header={false} columns={ledgerLabels.length || 7} rows={requestedPageSize} />}>
+            {/* `&&` (0,2,0): AppBaseline's phone floor `.content table { min-width: 540px }` (0,1,1)
+                outranks a single-class sx min-width, so the ledger was squeezed to 540 on a phone
+                and "medically deferred" broke one syllable per line (pr294 L-F3). */}
             <Scrollbar>
-              <Table sx={{ minWidth: LEDGER_MIN_WIDTH }} aria-label={copy(pageContract, "section.ledger.aria")}>
+              <Table sx={{ "&&": { minWidth: LEDGER_MIN_WIDTH } }} aria-label={copy(pageContract, "section.ledger.aria")}>
                 <TableHeadCustom headCells={head} />
                 <TableBody>
                   {paged.total === 0 ? (

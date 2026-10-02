@@ -2567,6 +2567,7 @@ func scanCalendarEventWithDetail(rows eventScanner, detail *[]byte, linksOut *[]
 	if linksOut != nil {
 		*linksOut = links
 	}
+	presentVaccinationHistoryEvent(&event)
 	return event, nil
 }
 

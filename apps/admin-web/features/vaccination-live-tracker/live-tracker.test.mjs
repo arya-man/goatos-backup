@@ -454,3 +454,15 @@ test("live tracker hero is App-overview anatomy: one contained action, interval 
   assert.match(board, /extra=\{data\.generated_at && data\.is_live_day \? <LiveIntervalField/);
   assert.match(board, /live\.updated_prefix/);
 });
+
+// pr294 L-N8: the shed legend painted "receiving" and "not started" the same red, and "slow start" and
+// "extra attempts" the same amber.
+test("live-tracker legend gives opposite states distinct colours", async () => {
+  const { paletteOf } = await import("./format.ts");
+  assert.notEqual(paletteOf("live"), paletteOf("dng"));
+  const service = readFileSync(new URL("../../../../backend/internal/adminui/app/service.go", import.meta.url), "utf8");
+  const review = service.match(/option\("review", "extra attempts", "[^"]*", "([a-z]+)"\)/);
+  const slow = service.match(/option\("slow", "slow start", "[^"]*", "([a-z]+)"\)/);
+  assert.ok(review && slow);
+  assert.notEqual(review[1], slow[1]);
+});

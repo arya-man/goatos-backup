@@ -50,7 +50,8 @@ test("adherence-ledger-readable: ledger fits 1440, scrolls below it, and wraps i
   assert.ok(widths, "LEDGER_WIDTHS declared");
   const sum = widths[1].split(",").reduce((acc, n) => acc + Number(n.trim()), 0);
   assert.ok(sum <= 1060, `ledger min width ${sum} must fit the 1440 content column (1060)`);
-  assert.match(adherence, /<Scrollbar>\s*<Table sx=\{\{ minWidth: LEDGER_MIN_WIDTH \}\}/);
+  // `&&` so the ledger's own width beats AppBaseline's 540px phone table floor (pr294 L-F3).
+  assert.match(adherence, /<Scrollbar>\s*<Table sx=\{\{ "&&": \{ minWidth: LEDGER_MIN_WIDTH \} \}\}/);
   assert.doesNotMatch(adherence, /tableLayout/, "no fixed layout squeezing columns");
   assert.doesNotMatch(adherence, /ClipText/, "no ellipsis cells in the ledger");
   assert.match(adherence, /\{row\.next_action\} →/);
@@ -112,4 +113,12 @@ test("guard: action-center-dialog-actions - one Clear all, no lone info glyph", 
   assert.doesNotMatch(filters, /InfoHint|filter\.clear_local/);
   assert.equal((filters.match(/filter\.clear_all/g) ?? []).length, 1);
   assert.match(filters, /clearLocalFilters\(\);\s*setOpen\(false\);/);
+});
+
+// pr294 L-N4: five lanes clamped into the 1440 content column were ~190px each ("Skipped — sil…").
+test("action center lanes keep a 260px width and pan in the board scroller", () => {
+  const wb = readFileSync(new URL("./work-board.tsx", import.meta.url), "utf8");
+  assert.match(wb, /export const FIVE_LANE_MIN_WIDTH = "calc\(32\.5 \* var\(--spacing\)\)"/);
+  assert.match(wb, /md: FIVE_LANE_MIN_WIDTH/);
+  assert.doesNotMatch(wb, /\/ 5\), calc\(42/);
 });
