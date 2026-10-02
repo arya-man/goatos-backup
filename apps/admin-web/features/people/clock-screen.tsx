@@ -160,8 +160,11 @@ export async function ClockScreen({
         <CardHeader
           title={copy(pageContract, "clock.tab.title")}
           action={
+            // The rows on THIS page (PAGE_SIZE), not the filter's people: beside "Not clocked in 40"
+            // a bare "25 people" read as a contradiction. The tiles are the whole-filter counts.
             <Label variant="soft" color={items.length ? "info" : "default"}>
               {items.length} {copy(pageContract, "summary.count")}
+              {cursor || nextCursor ? ` ${copy(pageContract, "clock.summary.on_page")}` : ""}
             </Label>
           }
           sx={{ "& .MuiCardHeader-action": { alignSelf: "center" } }}

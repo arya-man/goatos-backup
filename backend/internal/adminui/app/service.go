@@ -8929,11 +8929,14 @@ func pageSpecificCopy(id string) map[string]string {
 			// Clock In / Out tab (maintainer decisions 2026-08-27/28). The chip
 			// templates keep composition backend-owned: the client substitutes
 			// the backend-composed time label into %s and nothing else.
-			"clock.tab.title":                     "Clock In / Out",
-			"clock.summary.working":               "Working now",
-			"clock.summary.worked":                "Worked",
-			"clock.summary.clocked_out":           "Clocked out",
-			"clock.summary.not_clocked_in":        "Not clocked in",
+			"clock.tab.title":              "Clock In / Out",
+			"clock.summary.working":        "Working now",
+			"clock.summary.worked":         "Worked",
+			"clock.summary.clocked_out":    "Clocked out",
+			"clock.summary.not_clocked_in": "Not clocked in",
+			// Suffix on the list's count Label when the list is paged: the count is this page's rows,
+			// the tiles above are the whole filter's.
+			"clock.summary.on_page":               "on this page",
 			"clock.summary.flagged":               "Flagged",
 			"clock.column.person":                 "Person",
 			"clock.column.park":                   "Park",
@@ -9894,7 +9897,9 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 			{
 				ID: "people_designation_grades",
 				Options: []domain.Option{
-					option("cxo", "CXO", "", ""),
+					// The grade reads as the designation that carries it: "CEO / CXO" on every People surface,
+					// never "CXO" beside "CEO / CXO" (PR #294 P7).
+					option("cxo", "CEO / CXO", "", ""),
 					option("director", "Director", "", ""),
 					option("manager", "Manager", "", ""),
 					option("assistant_manager", "Assistant Manager", "", ""),

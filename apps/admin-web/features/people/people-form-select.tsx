@@ -55,7 +55,9 @@ export function PeopleFormSelect({
           flushSync(() => setValue(event.target.value));
           if (autoSubmit && form) (document.getElementById(form) as HTMLFormElement | null)?.requestSubmit();
         }}
-        sx={{ minWidth: { xs: 0, sm: minWidth }, flexShrink: 0, maxWidth: 1 }}
+        // Fills its wrapper: on a phone the filter row stacks each wrapper full width, and a select
+        // sized to its "All" value shrank to ~100px and read "Desig…" (PR #294 P6).
+        sx={{ width: 1, minWidth: { xs: 0, sm: minWidth }, flexShrink: 0, maxWidth: 1 }}
         slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
       >
         {options.map((option) => (

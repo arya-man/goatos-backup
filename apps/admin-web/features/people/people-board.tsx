@@ -27,7 +27,7 @@ import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError, listWorkforcePeople, type WorkforcePerson } from "@/lib/api/server";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
-import { actionFeedbackCopy, copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { actionFeedbackCopy, copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { PersonAccessLauncher } from "./person-access-launcher";
 import { PersonAddDrawer } from "./person-add-drawer";
 import Alert from "@mui/material/Alert";
@@ -113,9 +113,12 @@ export async function PeopleBoard({
   // The designation ticked on People / HRMS ("Feed Manager"), composed by the backend. The HR
   // grade is only the fallback for somebody with no designation; role_hint is never shown --
   // it stays "operator" for installed phones (000394) and is not anybody's designation.
+  const gradeLabels = new Map(optionGroup(pageContract, "people_designation_grades").map((option) => [option.key, option.label]));
   const designation = (person: WorkforcePerson): string => {
     if (person.designation_label) return person.designation_label;
-    if (person.designation_grade) return humanizeEnum(person.designation_grade);
+    // The grade by the contract's own option label, never a humanized key: "cxo" read "Cxo" two
+    // rows above a designation reading "CEO / CXO" (PR #294 P7).
+    if (person.designation_grade) return gradeLabels.get(person.designation_grade) ?? humanizeEnum(person.designation_grade);
     return none;
   };
 
