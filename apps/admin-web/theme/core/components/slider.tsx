@@ -109,6 +109,11 @@ const MuiSlider: Components<Theme>['MuiSlider'] = {
       boxShadow: theme.vars.customShadows.z1,
       color: theme.vars.palette.common.white,
       border: `solid 1px ${varAlpha(theme.vars.palette.grey['500Channel'], 0.08)}`,
+      // Light scheme (PR #294 K6): a white thumb with an 8% hairline on a white card vanished at 0
+      // (/sales/farm-value Error margin). It carries a 2px slider-colour ring, so it reads at any value.
+      ...theme.applyStyles('light', {
+        border: `solid 2px ${theme.vars.palette.primary.main}`,
+      }),
       '&::before': {
         opacity: 0.4,
         boxShadow: 'none',
@@ -123,6 +128,8 @@ const MuiSlider: Components<Theme>['MuiSlider'] = {
     }),
     rail: ({ theme }) => ({
       opacity: 0.12,
+      // The empty rail is the only cue of the slider's extent on a white card: a touch stronger in light.
+      ...theme.applyStyles('light', { opacity: 0.24 }),
       backgroundColor: theme.vars.palette.grey[500],
       variants: [...railVariants],
     }),
