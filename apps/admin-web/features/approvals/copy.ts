@@ -52,12 +52,13 @@ export const APPROVALS_COPY = {
     death: "Death",
     shifting: "Shifting",
   } as Record<string, string>,
+  // "Park", the word every other screen's park filter uses (A11, pr294); the keys stay `farm`.
   farmTab: {
-    all: "All farms",
+    all: "All parks",
   },
   filter: {
     status: "Status",
-    farm: "Farm",
+    farm: "Park",
   },
   dateFilter: {
     field: "Raised",
@@ -78,6 +79,7 @@ export const APPROVALS_COPY = {
     first: "Back to newest",
     rowsPerPage: "Rows per page:",
     dense: "Dense",
+    of: "of",
   },
   kpi: {
     rowsInView: "Rows in view",

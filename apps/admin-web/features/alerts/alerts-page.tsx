@@ -84,7 +84,7 @@ export async function AlertsPage({ searchParams, pageContract }: { searchParams?
   if (authError) redirect(INTERNAL_LOGIN_PATH);
 
   const okReads = reads.filter((read) => read.result.ok);
-  const failedParks = reads.filter((read) => !read.result.ok).map((read) => read.park.label);
+  const failedParks = reads.filter((read) => !read.result.ok).map((read) => read.park.title || read.park.label);
   const pages: AlertsPageData[] = okReads.map((read) => (read.result as { ok: true; data: AlertsPageData }).data);
   const allRows: AlertRow[] = pages.flatMap((page) => page.rows);
   const rows = severity ? allRows.filter((row) => row.severity === severity) : allRows;
@@ -185,7 +185,9 @@ export async function AlertsPage({ searchParams, pageContract }: { searchParams?
               minWidth={200}
               options={[
                 { value: "all", label: t("filter.park.all"), href: href({ [PARAM_PARK]: null }) },
-                ...parks.map((park) => ({ value: park.key, label: park.label, href: href({ [PARAM_PARK]: park.key }) })),
+                // The park's NAME, as the table's Park column prints it (F8, pr294: the filter said "CBE" above
+                // rows saying "Coimbatore"); the option label is the park code, its title the name.
+                ...parks.map((park) => ({ value: park.key, label: park.title || park.label, href: href({ [PARAM_PARK]: park.key }) })),
               ]}
             />
             <Box role="group" aria-label={t("filter.date")} sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
@@ -242,10 +244,12 @@ export async function AlertsPage({ searchParams, pageContract }: { searchParams?
                             {t(`severity.${row.severity}`)}
                           </Label>
                         </TableCell>
-                        <TableCell sx={{ maxWidth: 360, typography: "subtitle2" }}>{row.title}</TableCell>
+                        <TableCell sx={{ minWidth: 200, maxWidth: 360, typography: "subtitle2" }}>{row.title}</TableCell>
                         <TableCell>{row.park_label}</TableCell>
                         <TableCell>{row.operational_location_display || <Box component="span" sx={{ color: "text.disabled" }}>—</Box>}</TableCell>
-                        <TableCell sx={{ maxWidth: 420, color: "text.secondary" }}>
+                        {/* A floor under the sentence (F5, pr294): the auto table layout gave Detail its min-content
+                            width, one word per line, and a ~600px row on the phone's panned table. */}
+                        <TableCell sx={{ minWidth: 280, maxWidth: 420, color: "text.secondary" }}>
                           {row.detail}
                           {row.href ? (
                             <>

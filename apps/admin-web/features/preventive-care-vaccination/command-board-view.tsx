@@ -43,7 +43,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import type { AppApiComponents } from "@goatos/api-client";
 import type { AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { copy, optionGroup } from "@/lib/admin-ui-contract";
-import { fmtDate } from "@/lib/format";
+import { fmtDate, todayIso } from "@/lib/format";
 import { operationalLocationLabel } from "@/lib/operational-location";
 import {
   driveSelectionValue,
@@ -57,6 +57,8 @@ import {
   type CommandBoardDriveOption,
 } from "./command-board-future-drives";
 import { TAP_MIN } from "@/theme/tap-target";
+import { byParkThen } from "@/lib/park-order";
+import { stageVocabularyLabel } from "@/lib/stage-display";
 
 // Build colored grid heatmap from flat shed-dose matrix
 interface GridCell {
@@ -179,6 +181,7 @@ function buildCohortFarms(
   matrix: CohortCellInput[],
   ladder: string[],
   stageMap: Map<string, string>,
+  parkOrder: readonly string[] = [],
 ): Array<{ farm: string; vaccines: string[]; rows: CohortPivotRow[] }> {
   const byFarm = new Map<string, CohortCellInput[]>();
   matrix.forEach((cell) => {
@@ -187,8 +190,10 @@ function buildCohortFarms(
     if (bucket) bucket.push(cell);
     else byFarm.set(farm, [cell]);
   });
+  // Park tabs in the backend's park order -- CBE, then CPT (C8, pr294) -- never by name, which put
+  // Channapatna (CPT) ahead of Coimbatore (CBE).
   return Array.from(byFarm.entries())
-    .sort((a, b) => a[0].localeCompare(b[0]))
+    .sort(byParkThen(parkOrder, ([farm]) => farm, (a, b) => a[0].localeCompare(b[0])))
     .map(([farm, cells]) => ({ farm, ...buildCohortPivot(cells, ladder, stageMap) }));
 }
 
@@ -408,6 +413,8 @@ function isOpenableShedVaccineCell(cell: ShedVaccineCell | undefined): cell is O
 interface CommandBoardViewProps {
   board: CommandBoard;
   pageContract: AdminUiPageContract;
+  /** Tenant stage vocabulary, code (lower-case) -> name: a cohort row reads "Newborn", not "K0". */
+  stageNames?: Record<string, string>;
   driveBatchId?: string;
   // Park of the selected drive. The API's drive-option grain is (batch, park), so the batch id
   // alone does not identify a row once the same batch runs in two parks.
@@ -571,7 +578,7 @@ function rowQualifier(pageContract: AdminUiPageContract, cohort: string): string
   return match?.title ?? "";
 }
 
-export function CommandBoardView({ board, pageContract, driveBatchId, driveParkId }: CommandBoardViewProps) {
+export function CommandBoardView({ board, pageContract, driveBatchId, driveParkId, stageNames }: CommandBoardViewProps) {
   // Vaccine + status filters operate on the fetched payload. Drive scope is a server read, but
   // blank selection deliberately keeps the all-drives board so leadership sees the full programme.
   const router = useRouter();
@@ -613,7 +620,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     () => enrichDriveOptions(driveCatalogue.options, shedDoseMatrix, cohortMatrix, board.kpis.targets),
     [driveCatalogue.options, shedDoseMatrix, cohortMatrix, board.kpis.targets],
   );
-  const futureDrives = useMemo(() => scheduledDriveRows(driveOptions), [driveOptions]);
+  const futureDrives = useMemo(() => scheduledDriveRows(driveOptions, todayIso()), [driveOptions]);
   const executedCampaigns = useMemo(() => executedDriveCampaigns(driveOptions), [driveOptions]);
   const selectedDrive = optimisticDrive?.from === currentSearch
     ? optimisticDrive.value
@@ -746,9 +753,12 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
       addBucket("verifying", cell.verifyingAnimals);
       byShed.set(key, row);
     });
-    return Array.from(byShed.values()).sort((a, b) =>
-      `${a.park ?? ""}:${a.name}`.localeCompare(`${b.park ?? ""}:${b.name}`),
-    );
+    // Only pens that OWE something (F11, pr294): the matrix carries every pen, so every pen with
+    // nothing behind / in rework / verifying used to list with an empty "Pending vaccines" cell
+    // under a header that said "8 / 112 pens have goats pending".
+    return Array.from(byShed.values())
+      .filter((row) => row.cells.length > 0)
+      .sort((a, b) => `${a.park ?? ""}:${a.name}`.localeCompare(`${b.park ?? ""}:${b.name}`));
   }, [view.shedVaccineColumns, view.shedVaccineMatrix]);
 
   const activateStatusKpi = (key: StatusKey) => {
@@ -1189,7 +1199,11 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
       optionGroup(pageContract, "command_board_cohort_stage_map").map((o) => [o.key.toUpperCase(), o.label]),
     );
     const readingOrder = cohortRowOrder(pageContract);
-    const farms = cohortMatrix.length === 0 ? [] : buildCohortFarms(view.cohortMatrix, ladder, stageMap).map((farmBlock) => ({
+    const parkOrder = (pageContract.option_groups.find((group) => group.id === "park_display_chips")?.options ?? []).map((park) => park.title || park.label);
+    const stageVocabulary = new Map(Object.entries(stageNames ?? {}));
+    // A cohort row is keyed by its ladder label ("K0"); a reader sees the tenant's word ("Newborn").
+    const cohortWords = (cohort: string) => stageVocabularyLabel(cohort, stageVocabulary);
+    const farms = cohortMatrix.length === 0 ? [] : buildCohortFarms(view.cohortMatrix, ladder, stageMap, parkOrder).map((farmBlock) => ({
       ...farmBlock,
       rows: [...farmBlock.rows].sort((a, b) => {
         const ai = readingOrder.indexOf(a.cohort);
@@ -1199,7 +1213,13 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     }));
     const activeFarm = Math.min(farmTab, Math.max(0, farms.length - 1));
     const current = farms[activeFarm];
-    const vaccines = current?.vaccines ?? [];
+    // A vaccine column only when some row of this park has work or a dose in it (C8, pr294): a
+    // column of nothing but "—" beside the live ones read as a broken load.
+    const vaccines = (current?.vaccines ?? []).filter((v) =>
+      (current?.rows ?? []).some(
+        (row) => row.animals > 0 && (row.pending[v] ?? 0) + (row.submitted[v] ?? 0) + (row.rejectedRework[v] ?? 0) + (row.verified[v] ?? 0) > 0,
+      ),
+    );
     const farm = current?.farm ?? "";
     const pendingWord = copy(pageContract, "command_board.cohort_matrix.pending_word");
     const reworkWord = copy(pageContract, "command_board.cohort_matrix.rework_word");
@@ -1234,7 +1254,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
         const selection: SelectedCohortCell = {
           key: cellKey,
           farm,
-          cohort: label,
+          cohort: cohortWords(label),
           vaccine: v,
           animals: row.animals,
           pending,
@@ -1275,7 +1295,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
       // Two rows of one farm can share a cohort label, so the row's position disambiguates.
       return (
         <TableRow key={`${farm || "no-farm"}|${row.cohort}|${rowIndex}`} hover>
-          <RowHeadCell primary={row.cohort} secondary={rowQualifier(pageContract, row.cohort) || undefined} />
+          <RowHeadCell primary={cohortWords(row.cohort)} secondary={rowQualifier(pageContract, row.cohort) || undefined} />
           {cells}
           <TableCell sx={{ whiteSpace: "nowrap" }}>{row.animals > 0 ? row.animals : "—"}</TableCell>
         </TableRow>

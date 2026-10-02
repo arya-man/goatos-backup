@@ -90,10 +90,12 @@ function gapLabel(pageContract: AdminUiPageContract, row: AdherenceRow): string 
     case "over_cap_required":
       if (driveCapacityWithinSlots(row)) return copyOr(pageContract, "gap.none", "none");
       return copyOr(pageContract, "gap.capacity_shortfall", "capacity shortfall");
+    // The chip names the gap only; the reason is a caption under it (gapReason). A chip carrying
+    // the whole sentence never wraps and starved every other ledger column (F3, pr294).
     case "medical_defer":
-      return row.drive_medical_defer_reason ? `medical defer: ${row.drive_medical_defer_reason}` : "medical defer";
+      return copyOr(pageContract, "gap.medical_defer", "medical defer");
     case "terminal_animal_closed":
-      return row.drive_medical_defer_reason ? `terminal closed: ${row.drive_medical_defer_reason}` : "terminal animal closed";
+      return copyOr(pageContract, "gap.terminal_closed", "terminal animal closed");
   }
   switch (row.gap) {
     case "proof_missing":
@@ -113,6 +115,12 @@ function gapLabel(pageContract: AdminUiPageContract, row: AdherenceRow): string 
     default:
       return row.gap.replaceAll("_", " ");
   }
+}
+
+/** The reason behind a medical-defer / terminal-closed gap, shown under its chip. */
+function gapReason(row: AdherenceRow): string | null {
+  if (row.drive_capacity_state !== "medical_defer" && row.drive_capacity_state !== "terminal_animal_closed") return null;
+  return row.drive_medical_defer_reason?.trim() || null;
 }
 
 function driveCapacityWithinSlots(row: AdherenceRow): boolean {
@@ -167,8 +175,15 @@ function readableAdherenceExpected(pageContract: AdminUiPageContract, raw: strin
   };
 }
 
-function readableAdherenceActual(pageContract: AdminUiPageContract, raw: string): string {
-  const text = raw.trim();
+function readableAdherenceActual(pageContract: AdminUiPageContract, raw: string, row?: AdherenceRow): string {
+  let text = raw.trim();
+  // "medically deferred: <reason>" repeats the Gap column's reason word for word (A5, pr294): the
+  // Actual column says what happened, the Gap column (chip + caption) says why.
+  const reason = row ? gapReason(row) : null;
+  if (reason) {
+    const at = text.toLowerCase().lastIndexOf(`: ${reason.toLowerCase()}`);
+    if (at > 0) text = text.slice(0, at).trim();
+  }
   const deferred = text.match(/^(\d+)\s+deferred\/ex/i);
   if (deferred) return `${deferred[1]} ${copy(pageContract, "actual.deferred_with_reason")}`;
   if (text.toLowerCase() === "not completed") return copy(pageContract, "actual.not_completed_yet");
@@ -277,7 +292,7 @@ export async function ProtocolAdherencePage({
       row,
       expectedTitle: expected.title,
       expectedDetail: locationDetail || expected.detail,
-      actual: readableAdherenceActual(pageContract, row.actual),
+      actual: readableAdherenceActual(pageContract, row.actual, row),
       gap: gapLabel(pageContract, row),
       owner: ownerOf(pageContract, row),
       workflowHref: workflowHref(row),
@@ -305,12 +320,14 @@ export async function ProtocolAdherencePage({
           key: "adherence",
           title: copy(pageContract, "label.overall_adherence"),
           total: Math.round(summary.adherence_percent),
-          caption: `% · ${copy(pageContract, "label.on_time_correct")}`,
+          // One grain per tile, said on the tile (A4, pr294): adherence / deferred are OBLIGATIONS
+          // (animals x vaccines), open gaps / on-track are ADHERENCE ROWS -- the ledger's own grain.
+          caption: `% · ${summary.completed_count.toLocaleString("en-IN")}/${summary.expected_count.toLocaleString("en-IN")} ${copy(pageContract, "label.obligations")} ${copy(pageContract, "label.done_suffix")}`,
           color: summary.adherence_percent >= 90 ? "success" : summary.adherence_percent >= 70 ? "warning" : "error",
         },
         { key: "gaps", title: copy(pageContract, "label.open_process_gaps"), total: summary.open_gap_count, caption: copy(pageContract, "label.across_rules"), color: summary.open_gap_count > 0 ? "warning" : "info" },
-        { key: "deferred", title: copy(pageContract, "label.deferred_explained"), total: summary.deferred_count, caption: copy(pageContract, "label.deferred_scope"), color: "info" },
-        { key: "on-track", title: copy(pageContract, "label.on_track"), total: summary.process_intact_count, caption: `${summary.completed_count}/${summary.expected_count} ${copy(pageContract, "label.done_suffix")}`, color: "success" },
+        { key: "deferred", title: copy(pageContract, "label.deferred_explained"), total: summary.deferred_count, caption: `${copy(pageContract, "label.obligations")} · ${copy(pageContract, "label.deferred_scope")}`, color: "info" },
+        { key: "on-track", title: copy(pageContract, "label.on_track"), total: summary.process_intact_count, caption: `${copy(pageContract, "label.of")} ${(summary.open_gap_count + summary.process_intact_count).toLocaleString("en-IN")} ${copy(pageContract, "label.adherence_rows")}`, color: "success" },
       ]
     : [];
   const head = ledgerLabels.map((label, index) => ({ id: `c${index}`, label, width: LEDGER_WIDTHS[index] }));
@@ -368,7 +385,9 @@ export async function ProtocolAdherencePage({
             ariaLabel={copy(pageContract, "label.all_states")}
             value={workStateFilter}
             items={[
-              { value: "all", label: copy(pageContract, "label.all_states"), count: summary?.expected_count, href: hrefWith({ state: "all", adh_page: "1" }) },
+              // The badge counts what the tab LISTS -- adherence rows -- and only on the All tab while it
+              // is the one shown (A4, pr294: "All states 10" counted obligations above a 1-row ledger).
+              { value: "all", label: copy(pageContract, "label.all_states"), count: workStateFilter === "all" && result.ok ? totalCount : undefined, href: hrefWith({ state: "all", adh_page: "1" }) },
               ...ADHERENCE_TAB_STATES.map((state) => ({ value: state, label: optionLabel(pageContract, "work_state_filter_chips", state), href: hrefWith({ state, adh_page: "1" }) })),
             ]}
           />
@@ -430,7 +449,8 @@ export async function ProtocolAdherencePage({
                     paged.items.map((row) => {
                       const href = rowDrawerHref(row);
                       const expected = readableAdherenceExpected(pageContract, row.expected);
-                      const actual = readableAdherenceActual(pageContract, row.actual);
+                      const actual = readableAdherenceActual(pageContract, row.actual, row);
+                      const reason = gapReason(row);
                       const expectedDetail = adherenceLocationDetail(row) || expected.detail;
                       const driveDetail = driveCapacityDetail(row);
                       return (
@@ -453,9 +473,9 @@ export async function ProtocolAdherencePage({
                           <TableCell>
                             <Box component={LocalOverlayLink} href={href} scroll={false} sx={CELL_LINK_SX}>
                               <Tag tone={workStateTone(pageContract, row.work_state)}>{gapLabel(pageContract, row)}</Tag>
-                              {driveDetail ? (
+                              {driveDetail || reason ? (
                                 <Box component="span" sx={{ display: "block", mt: 0.5, typography: "caption", color: "text.secondary" }}>
-                                  {driveDetail}
+                                  {driveDetail ?? reason}
                                 </Box>
                               ) : null}
                             </Box>

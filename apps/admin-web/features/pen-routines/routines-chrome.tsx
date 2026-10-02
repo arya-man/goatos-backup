@@ -13,6 +13,8 @@ import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
 import { ROUTINES_SELECT_WIDTH } from "./routines-layout";
 import { DateRangeField } from "@/components/app/date-range-field";
+import { ThemedDatePicker } from "@/components/themed-date-picker";
+import { fmtDate } from "@/lib/format";
 import { TablePaginationLinks } from "@/components/app/table/table-pagination-links";
 
 export type ChromeFilter = {
@@ -22,6 +24,20 @@ export type ChromeFilter = {
   value: string;
   allLabel: string;
   options: Array<{ value: string; label: string }>;
+  /** A choice that has no "all" (the Today table reads one park): the select offers only the options. */
+  noAll?: boolean;
+};
+
+/** One business day (the Today table reads exactly one): a single themed date field, never a range. */
+export type ChromeDay = {
+  param: string;
+  label: string;
+  /** YYYY-MM-DD. */
+  value: string;
+  max?: string;
+  previousMonthLabel: string;
+  nextMonthLabel: string;
+  invalidDateText: string;
 };
 
 export type ChromeDateRange = {
@@ -46,6 +62,7 @@ export type RoutinesChromeProps = {
   searchLabel: string;
   filters: ChromeFilter[];
   dateRange?: ChromeDateRange;
+  day?: ChromeDay;
   /** Params the "reset filters" action clears. */
   clearable: string[];
   /** Params dropped whenever a filter changes, so paging restarts. */
@@ -111,6 +128,7 @@ export function RoutinesToolbarRow({
   searchLabel,
   filters,
   dateRange,
+  day,
   clearable,
   cursorParams,
   shown,
@@ -132,13 +150,14 @@ export function RoutinesToolbarRow({
   const chips: Array<{ id: string; label: string; clear: () => void }> = [];
   if (searchValue) chips.push({ id: searchParam, label: `"${searchValue}"`, clear: () => { setQuery(""); patch({ [searchParam]: null }); } });
   for (const f of filters) {
-    if (!f.value) continue;
+    if (!f.value || f.noAll) continue;
     chips.push({ id: f.param, label: f.options.find((o) => o.value === f.value)?.label ?? f.value, clear: () => patch({ [f.param]: null }) });
   }
   if (dateRange && (dateRange.from || dateRange.to)) {
     chips.push({
       id: "range",
-      label: `${dateRange.from || "…"} → ${dateRange.to || "…"}`,
+      // Visible dates are DD/MM/YYYY (F4, pr294); the params stay ISO.
+      label: `${dateRange.from ? fmtDate(dateRange.from) : "…"} → ${dateRange.to ? fmtDate(dateRange.to) : "…"}`,
       clear: () => patch({ [dateRange.fromParam]: null, [dateRange.toParam]: null }),
     });
   }
@@ -209,7 +228,7 @@ export function RoutinesToolbarRow({
               sx={{ minWidth: { xs: 0, sm: ROUTINES_SELECT_WIDTH }, flexShrink: 0, maxWidth: 1 }}
               slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
             >
-              <MenuItem value="">{f.allLabel}</MenuItem>
+              {f.noAll ? null : <MenuItem value="">{f.allLabel}</MenuItem>}
               {f.options.map((option) => (
                 <MenuItem key={option.value} value={option.value}>
                   {option.label}
@@ -225,6 +244,18 @@ export function RoutinesToolbarRow({
               fromLabel={dateRange.fromLabel}
               toLabel={dateRange.toLabel}
               onChange={(next) => patch({ [dateRange.fromParam]: next.from || null, [dateRange.toParam]: next.to || null })}
+            />
+          ) : null}
+          {day ? (
+            <ThemedDatePicker
+              name={day.param}
+              label={day.label}
+              value={day.value}
+              max={day.max}
+              onChange={(next) => patch({ [day.param]: next || null })}
+              previousMonthLabel={day.previousMonthLabel}
+              nextMonthLabel={day.nextMonthLabel}
+              invalidDateText={day.invalidDateText}
             />
           ) : null}
         </FilterBar>

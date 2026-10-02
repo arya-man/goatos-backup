@@ -23,7 +23,8 @@ import { PageHeader, type PageCrumb } from "@/components/app/page-header";
 import { TemplateTabs } from "@/components/app/template-tabs";
 import { COURSE_WIDGET_ICONS } from "@/lib/minimal-icons";
 import type { PaletteColorKey } from "@/theme/core";
-import { getVaccinationActionCenter, getVaccinationVerificationQueue } from "@/lib/api/server";
+import { getVaccinationActionCenter, getVaccinationActionCenterCounts, getVaccinationVerificationQueue, listAnimalStages } from "@/lib/api/server";
+import { stageNameMap } from "@/lib/stage-display";
 import { actionFeedbackCopy, copy, optionalCopy, optionGroup, tableLabels, tablePageSizes, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type {
   ActionCenterObligation,
@@ -49,7 +50,7 @@ import { ActionCenterFiltersButton } from "./action-center-filters";
 import { actionCenterRequestPlan } from "./action-center-request-plan";
 import { ActionCenterLocalDrawer } from "./action-center-local-drawer";
 import { VerificationRowActions } from "./verification-row-actions";
-import { WorkBoard } from "./work-board";
+import { stageWords, WorkBoard } from "./work-board";
 import { ActionCenterQuickTile } from "./action-center-board-parts";
 import { fmtDate } from "@/lib/format";
 import { UrlSuspense } from "@/components/app/url-suspense";
@@ -114,10 +115,18 @@ export async function VaccinationActionCenterPage({
   // Both honor the top-bar park scope (park_id) so the SOP/verification queue can't show other parks.
   // IMPORTANT: Fetch only the active tab to avoid OFFSET pagination debt and dual-tab eager fetch.
   // The page shows either the board (view === "board") OR the queue (view === "verify"), never both.
-  const [actionCenter, queue] = await Promise.all([
+  // The KPI tiles and state chips count EVERY work state (A1, pr294): the board read is narrowed by
+  // the state filter, so its counts said "All 2" on the Overdue view. A narrowed view also reads the
+  // unnarrowed counts (same park / severity / as-of) from the counts endpoint.
+  const [actionCenter, queue, unnarrowedCounts, stages] = await Promise.all([
     getVaccinationActionCenter(requestPlan.actionCenter),
     view === "verify" ? getVaccinationVerificationQueue(requestPlan.verificationQueue) : Promise.resolve(null),
+    view !== "verify" && stateFilter !== "all"
+      ? getVaccinationActionCenterCounts({ parkId, asOf, severity: requestPlan.actionCenter.severity })
+      : Promise.resolve(null),
+    view !== "verify" ? listAnimalStages() : Promise.resolve(null),
   ]);
+  const stageNames = stageNameMap(stages?.ok ? stages.data.items : undefined);
 
   const items: ActionCenterObligation[] = actionCenter.ok ? listOrEmpty(actionCenter.data.items) : [];
   const boardRows = items;
@@ -172,8 +181,9 @@ export async function VaccinationActionCenterPage({
 
   // Filter chips use server totals; WorkBoard lane headers stay derived from visible rows.
   const stateCounts = new Map<WorkState, number>();
-  if (actionCenter.ok) for (const c of listOrEmpty(actionCenter.data.counts_by_work_state)) stateCounts.set(c.work_state, c.count);
-  const totalCount = actionCenter.ok ? actionCenter.data.total_count : 0;
+  const countsSource = unnarrowedCounts?.ok ? unnarrowedCounts.data : actionCenter.ok ? actionCenter.data : null;
+  if (countsSource) for (const c of listOrEmpty(countsSource.counts_by_work_state)) stateCounts.set(c.work_state, c.count);
+  const totalCount = countsSource ? countsSource.total_count : 0;
   const overdueCount = stateCounts.get("overdue") ?? 0;
   const dueCount = stateCounts.get("due") ?? 0;
   const hasBoardFilters = stateFilter !== "all" || severityFilter !== "all";
@@ -454,7 +464,7 @@ export async function VaccinationActionCenterPage({
               skeleton at once; the toolbar card above stays on screen. */}
           <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={BOARD_LANES_SKELETON}>
           <Stack spacing={3}>
-          {totalCount === 0 ? (
+          {boardTotalCount === 0 ? (
             <Alert
               severity="info"
               action={
@@ -477,6 +487,7 @@ export async function VaccinationActionCenterPage({
           <WorkBoard
             pageContract={pageContract}
             rows={boardRows}
+            stageNames={stageNames}
             drawerHrefForRow={(row) => `${hrefWith({ ac_row: undefined })}#ac_row=${encodeURIComponent(row.row_id)}`}
           />
           <ActionCenterLocalDrawer
@@ -496,6 +507,7 @@ export async function VaccinationActionCenterPage({
                 scopeHref(`/workflows/${encodeURIComponent(row.row_id)}`, scope, {}, { from: "action-center" }),
               ]),
             )}
+            stageWordsByRow={Object.fromEntries(boardRows.map((row) => [row.row_id, stageWords(row.animal_stage, stageNames)]))}
             passportHrefs={Object.fromEntries(
               boardRows.flatMap((row) => (row.goat_id ? [[row.row_id, `/goats/${encodeURIComponent(row.goat_id)}`]] : [])),
             )}

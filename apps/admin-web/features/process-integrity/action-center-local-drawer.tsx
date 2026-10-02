@@ -77,6 +77,7 @@ export function ActionCenterLocalDrawer({
   closeHref,
   workflowHrefs,
   passportHrefs,
+  stageWordsByRow = {},
 }: {
   rows: ActionCenterObligation[];
   pageContract: AdminUiPageContract;
@@ -85,6 +86,8 @@ export function ActionCenterLocalDrawer({
   closeHref: string;
   workflowHrefs: Record<string, string>;
   passportHrefs: Record<string, string>;
+  /** Each row's stage in the tenant's words (A3, pr294), composed on the server. */
+  stageWordsByRow?: Record<string, string>;
 }) {
   const initialRow = rows.find((row) => row.row_id === initialSelectedRowId);
   const [displayedRow, setDisplayedRow] = useState<ActionCenterObligation | undefined>(initialRow);
@@ -167,6 +170,7 @@ export function ActionCenterLocalDrawer({
       returnTo={drawerHrefs[displayedRow.row_id]}
       workflowHref={workflowHrefs[displayedRow.row_id]}
       passportHref={passportHrefs[displayedRow.row_id]}
+      stageText={stageWordsByRow[displayedRow.row_id] ?? stageLabel(displayedRow.animal_stage)}
       pageContract={pageContract}
     />
   ) : null;
@@ -211,9 +215,11 @@ function ActionCenterRowDrawer({
   returnTo,
   workflowHref,
   passportHref,
+  stageText,
   pageContract,
 }: {
   row: ActionCenterObligation;
+  stageText: string;
   open: boolean;
   closeDrawer: () => void;
   returnTo: string;
@@ -283,7 +289,7 @@ function ActionCenterRowDrawer({
         <DrawerMetaItem label={copy(pageContract, "drawer.protocol_label")}>{row.protocol_name}</DrawerMetaItem>
         <DrawerMetaItem label={copy(pageContract, "drawer.dose_label")}>{row.dose_code}</DrawerMetaItem>
         <DrawerMetaItem label={copy(pageContract, "drawer.park_shed_label")}>{row.park_name} · {row.operational_location_display || operationalLocationLabel({ shedName: row.shed_name, partitionLabel: row.partition_label })}</DrawerMetaItem>
-        <DrawerMetaItem label={copy(pageContract, "drawer.cohort_progress_label")}>{stageLabel(row.animal_stage)} · {row.completed_count}/{row.expected_count} {copy(pageContract, "label.done_suffix")}</DrawerMetaItem>
+        <DrawerMetaItem label={copy(pageContract, "drawer.cohort_progress_label")}>{stageText} · {row.completed_count}/{row.expected_count} {copy(pageContract, "label.done_suffix")}</DrawerMetaItem>
         <DrawerMetaItem label={copy(pageContract, "label.evidence")} span><EvidenceMedia evidence={row.evidence} pageContract={pageContract} /></DrawerMetaItem>
       </DrawerMetaGrid>
 

@@ -134,6 +134,15 @@ function mergeActiveRules(
       target.push(scheduleRule);
     }
   }
+  // A matrix row the active rules carry under a NEWER code for the same vaccine (C11, pr294: the
+  // matrix's legacy "ZZ" row named "Z1+Z3" beside the rules' "Z1_Z3") is the same vaccine, and
+  // listing both showed Z1+Z3 twice with two different schedules. The rules are the schedule in
+  // force, so the rule-less same-name row is dropped.
+  const ruled = new Set(groups.filter((g) => reset.has(g.code.trim().toLowerCase())).map((g) => g.name.trim().toLowerCase()));
+  for (let i = groups.length - 1; i >= 0; i -= 1) {
+    const group = groups[i];
+    if (!reset.has(group.code.trim().toLowerCase()) && ruled.has(group.name.trim().toLowerCase())) groups.splice(i, 1);
+  }
   for (const group of groups) {
     group.firstDoses.sort(compareRules);
     group.repeats.sort(compareRules);

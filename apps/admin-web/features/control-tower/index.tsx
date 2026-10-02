@@ -206,11 +206,12 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
       <Stack spacing={3}>
       {/* Process-integrity KPIs only — no census/count totals (Counts is a separate vertical). */}
       <KpiGrid min={210}>
-        {/* The process state is a word, not a count: it rides in the template widget title. */}
+        {/* The process state is a word in the title; the figure is the open gaps behind it (A6,
+            pr294: a tile with no number beside three that have one read as a failed load). */}
         <KpiWidget
           title={`${copy(pageContract, "kpi.process")}: ${processLabel}`}
-          total={null}
-          caption={summary ? pageContract.subtitle : copy(pageContract, "state.unavailable")}
+          total={summary ? summary.open_gap_count : null}
+          caption={summary ? copy(pageContract, "kpi.process.caption") : copy(pageContract, "state.unavailable")}
           color={kpiColor(CT_TONE[processTone])}
           icon={processTone === "ok" ? "completed" : "progress"}
         />

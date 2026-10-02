@@ -23,10 +23,14 @@ import { BlockSkeleton } from "@/components/app/skeletons";
  * Params that never change the grid's events: the event drawer + its target pager, the action
  * feedback banner, and `as_of` (prev / next / today move the FullCalendar grid itself, at once).
  */
-const GRID_IGNORE = ["event", "targets_cursor", "targets_page", "targets_cursor_stack", "action_status", "action_key", "as_of"] as const;
+const GRID_IGNORE = ["event", "targets_cursor", "targets_page", "targets_cursor_stack", "action_status", "action_key", "as_of", "view"] as const;
+
+/** `?view=` words <-> FullCalendar view types. */
+const VIEW_FROM_PARAM: Record<string, CalendarView | undefined> = { month: "dayGridMonth", week: "timeGridWeek", day: "timeGridDay", agenda: "listWeek" };
+const PARAM_FROM_VIEW: Record<CalendarView, string> = { dayGridMonth: "month", timeGridWeek: "week", timeGridDay: "day", listWeek: "agenda" };
 
 import { CalendarRoot, CalendarToolbar, type CalendarView } from "@/components/app/calendar";
-import { pushLocalOverlayUrl } from "@/components/local-overlay-link";
+import { pushLocalOverlayUrl, replaceLocalOverlayUrl } from "@/components/local-overlay-link";
 import { CalendarFilters, type CalendarFiltersModel } from "./calendar-filters";
 import { scopeHref, type Scope } from "@/lib/scope";
 import { fmtDate } from "@/lib/format";
@@ -86,10 +90,13 @@ export function CalendarFullView({
   const calendarRef = useRef<FullCalendar | null>(null);
   const smUp = useMediaQuery<Theme>((theme) => theme.breakpoints.up("sm"));
   const mdUp = useMediaQuery<Theme>((theme) => theme.breakpoints.up("md"));
+  // An explicit `?view=` (month / week / day / agenda) is honoured at every width (A9, pr294: the
+  // phone always fell back to the agenda list, so a shared month link opened a week list).
+  const requestedView = VIEW_FROM_PARAM[searchParams?.get("view") ?? ""];
 
   // Template default: dayGridMonth on desktop, listWeek on phone (agenda-style list matches the
   // template's mobile calendar and gives a phone-thumb-friendly, no-sideways-scroll surface).
-  const [view, setView] = useState<CalendarView>(smUp ? "dayGridMonth" : "listWeek");
+  const [view, setView] = useState<CalendarView>(requestedView ?? (smUp ? "dayGridMonth" : "listWeek"));
   const [title, setTitle] = useState<string>("");
   const [filtersOpen, setFiltersOpen] = useState(false);
 
@@ -98,31 +105,35 @@ export function CalendarFullView({
   useEffect(() => {
     const api = calendarRef.current?.getApi();
     if (!api) return;
-    const target: CalendarView = smUp ? "dayGridMonth" : "listWeek";
+    const target: CalendarView = requestedView ?? (smUp ? "dayGridMonth" : "listWeek");
     if (target !== api.view.type) {
       api.changeView(target);
       setView(target);
     }
     setTitle(viewTitle(api.view));
-  }, [smUp]);
-
-  const onChangeView = useCallback((next: CalendarView) => {
-    const api = calendarRef.current?.getApi();
-    if (!api) return;
-    api.changeView(next);
-    setView(next);
-    setTitle(viewTitle(api.view));
-  }, []);
+  }, [smUp, requestedView]);
 
   const calendarBase = useCallback(
     (extra: Record<string, string | undefined> = {}) =>
       scopeHref("/calendar", scope, {}, {
         owner_key: ownerKey && ownerKey !== "all" ? ownerKey : undefined,
         status,
+        view: requestedView ? PARAM_FROM_VIEW[requestedView] : undefined,
         ...extra,
       }),
-    [ownerKey, scope, status],
+    [ownerKey, scope, status, requestedView],
   );
+
+  // The view is presentation: client state, mirrored into `?view=` without a navigation so a
+  // reload / shared link opens the same view (admin-web interaction rule: no view toggle as a link).
+  const onChangeView = useCallback((next: CalendarView) => {
+    const api = calendarRef.current?.getApi();
+    if (!api) return;
+    api.changeView(next);
+    setView(next);
+    setTitle(viewTitle(api.view));
+    replaceLocalOverlayUrl(calendarBase({ view: PARAM_FROM_VIEW[next] }));
+  }, [calendarBase]);
 
   const onDateNavigation = useCallback(
     (action: "today" | "prev" | "next") => {

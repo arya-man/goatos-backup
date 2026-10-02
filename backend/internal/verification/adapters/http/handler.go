@@ -277,7 +277,7 @@ func toQueueItemResponse(row domain.QueueRow, correction *domain.MeasurementCorr
 		Vertical:                   row.Item.Vertical,
 		Module:                     row.Item.Module,
 		Category:                   row.Item.Category,
-		SubjectLabel:               row.Item.SubjectLabel,
+		SubjectLabel:               domain.DisplaySubjectLabelPtr(row.Item.SubjectLabel),
 		SubjectNote:                row.Item.SubjectNote,
 		ContextRows:                toContextRowResponses(row.Item.ContextRows),
 		Status:                     row.Item.Status,

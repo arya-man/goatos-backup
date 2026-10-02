@@ -103,7 +103,7 @@ export function LiveTrackerSheds({
       <CardHeader
         title={copy(pageContract, "section.sheds.title")}
         action={
-          <Box component="ul" aria-label={copy(pageContract, "legend.label")} sx={{ m: 0, p: 0, listStyle: "none", display: "flex", flexWrap: "wrap", columnGap: 2, rowGap: 0.5, justifyContent: "flex-end" }}>
+          <Box component="ul" aria-label={copy(pageContract, "legend.label")} sx={{ m: 0, p: 0, listStyle: "none", display: "flex", flexWrap: "wrap", columnGap: 2, rowGap: 0.5, justifyContent: { xs: "flex-start", md: "flex-end" } }}>
             {legend.map((option) => (
               <Box component="li" key={option.key} sx={{ display: "flex", alignItems: "center", gap: 0.75, typography: "caption", color: "text.secondary" }}>
                 <LiveDot color={paletteOf(option.tone || "mut")} />
@@ -112,7 +112,9 @@ export function LiveTrackerSheds({
             ))}
           </Box>
         }
-        slotProps={{ action: { sx: { alignSelf: "center", maxWidth: { md: "55%" } } } }}
+        // On a phone the legend takes its own full-width line and wraps (C11, pr294): sized to its
+        // content beside the title, the fifth state ("not started") ran off the card.
+        slotProps={{ action: { sx: { alignSelf: "center", m: 0, width: { xs: 1, md: "auto" }, maxWidth: { md: "55%" } } } }}
         sx={{ mb: 2, flexWrap: { xs: "wrap", md: "nowrap" }, rowGap: 1 }}
       />
 

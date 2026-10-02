@@ -229,7 +229,7 @@ function WorkCard({ pageContract, row, href }: { pageContract: AdminUiPageContra
             <Typography component="span" variant="caption" title={[context, row.park_name, row.clock_label].filter(Boolean).join(" · ")} sx={{ display: "block", mt: 0.5, color: "text.secondary", overflowWrap: "anywhere" }}>
               {context}
               {context && row.clock_label ? " · " : null}
-              {row.clock_label ? <Box component="span" sx={{ color: clockTone, fontVariantNumeric: "tabular-nums" }}>{row.clock_label}</Box> : null}
+              {row.clock_label ? <Box component="span" sx={{ color: clockTone }}>{row.clock_label}</Box> : null}
             </Typography>
           ) : null}
           <ItemInfo assignee={assignee} assigneeTitle={ownerLabel}>
@@ -337,7 +337,10 @@ export function WorkBoardBoard({
           mb: 3,
           gap: 2,
           display: "flex",
-          flexWrap: { md: "wrap", lg: "nowrap" },
+          // Wrap at every laptop width (F2, pr294): the four filters + search + the day stepper are
+          // ~1,160px of controls, wider than the 1440 content column, and a nowrap row pushed the
+          // stepper (and the Done column under it) off the canvas. The day stepper wraps instead.
+          flexWrap: { md: "wrap" },
           flexDirection: { xs: "column", md: "row" },
           alignItems: { xs: "stretch", md: "center" },
         }}
@@ -379,7 +382,9 @@ export function WorkBoardBoard({
               ),
             },
           }}
-          sx={{ minWidth: { md: 200 } }}
+          // A zero basis that grows (with its 200 floor), not width:100% (fullWidth), on the laptop row so the field
+          // shares the line instead of claiming it; on the phone column it is full width.
+          sx={{ minWidth: { md: 200 }, flex: { md: "1 1 0%" } }}
         />
         <Box sx={{ gap: 0.5, display: "flex", alignItems: "center", flexShrink: 0, justifyContent: { xs: "space-between", md: "flex-start" } }} aria-label={copy(pageContract, "filter.date")} role="group">
           <IconButton component={Link} href={previousDayHref} aria-label={copy(pageContract, "action.previous")}>

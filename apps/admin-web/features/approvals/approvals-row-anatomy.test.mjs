@@ -15,7 +15,7 @@ export function rowAnatomyFindings(table, page, copy) {
   if (/\bp:\s*\{\s*xs:\s*0\s*\}/.test(cellRule) || !/\bp:\s*\{\s*xs:\s*0,\s*sm:\s*2\s*\}/.test(cellRule)) out.push("cells lose the template 16px padding at sm+");
   if (!/<ListItemText[\s\S]{0,80}primary=\{fmtDate\(item\.raised_at\)\}/.test(table)) out.push("date cell is not the template two-line ListItemText");
   if (/cursor \|\| nextCursor \?/.test(page)) out.push("pager only renders when there is a second page");
-  if (!/<TablePaginationLinks[\s\S]*rowsPerPageHrefs=[\s\S]*left=\{<DenseToggleAuto/.test(page)) out.push("pager lacks rows-per-page or the Dense switch");
+  if (!/<TablePaginationLinks[\s\S]*rowsPerPageHrefs=[\s\S]*left=\{(?:<Box[^>]*>)?<DenseToggleAuto/.test(page)) out.push("pager lacks rows-per-page or the Dense switch");
   const sizes = /PAGE_SIZES = \[([^\]]*)\]/.exec(copy)?.[1].split(",").map(Number) ?? [];
   if (!sizes.length || sizes.some((n) => n > 20)) out.push("rows-per-page past the server cap of 20");
   return out;

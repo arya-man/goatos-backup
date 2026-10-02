@@ -1875,6 +1875,7 @@ func pageSpecificCopy(id string) map[string]string {
 		return map[string]string{
 			"crumb":                            "Central Command",
 			"kpi.process":                      "Process",
+			"kpi.process.caption":              "process gaps open",
 			"kpi.open_gaps":                    "Open gaps",
 			"kpi.critical":                     "Critical",
 			"kpi.evidence":                     "Evidence",
@@ -1943,6 +1944,7 @@ func pageSpecificCopy(id string) map[string]string {
 	case "action-center":
 		return map[string]string{
 			"crumb":                               "Command lens · vaccination",
+			"label.no_proof_yet":                  "No proof yet",
 			"section.verification.title":          "Awaiting verification",
 			"section.verification.aria":           "Awaiting verification",
 			"section.verification.note":           "Recorded doses awaiting review",
@@ -2113,6 +2115,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"gap.blocked":                    "blocked",
 			"gap.overdue":                    "overdue",
 			"gap.capacity_shortfall":         "capacity shortfall",
+			"gap.medical_defer":              "medical defer",
+			"gap.terminal_closed":            "terminal animal closed",
+			"label.no_proof_yet":             "No proof yet",
+			"label.of":                       "of",
+			"label.adherence_rows":           "adherence rows",
 			"vaccine.blue_tongue":            "Blue Tongue",
 			"vaccine.goat_pox":               "Goat Pox",
 			"vaccine.sheep_pox":              "Sheep Pox",
@@ -10039,8 +10046,10 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 					option("K2", "K2", "", ""),
 					option("K3", "K3", "", ""),
 					option("Kid", "Kid", "", ""),
+					// ONE Fattening rung (C8, pr294): an "F2" option labelled "Fattening" beside it gave the
+					// matrix two identical "Fattening / Kid — fattening" rows -- rows are keyed by LABEL, and
+					// the stage map files every F2 stage under "Fattening" already.
 					option("Fattening", "Fattening", "", ""),
-					option("F2", "Fattening", "", ""),
 					option("Adults", "Adults", "", ""),
 				},
 			},

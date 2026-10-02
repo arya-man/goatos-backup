@@ -2,7 +2,7 @@ import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
-import { getVaccinationCommandBoard } from "@/lib/api/server";
+import { getVaccinationCommandBoard, listAnimalStages } from "@/lib/api/server";
 import type { AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { copy } from "@/lib/admin-ui-contract";
 import { parseScope } from "@/lib/scope";
@@ -57,11 +57,18 @@ async function VaccinationCommandBoardContent({
   // copy. The backend now takes the drive's park separately (drive_park_id), so the sections narrow
   // to the selected operator day while driveOptions stays at the top bar's scope and keeps offering
   // the other parks' drives.
+  // The cohort matrix names its rows in the tenant's stage words (C8, pr294), not "K0".."K3". The
+  // vocabulary read runs beside the board read (started first, awaited after), not after it.
+  const stagesRead = listAnimalStages();
   const result = await getVaccinationCommandBoard({
     parkId,
     driveBatchId,
     driveParkId: driveBatchId ? driveParkId : undefined,
   });
+  const stages = await stagesRead;
+  const stageNames: Record<string, string> = Object.fromEntries(
+    (stages.ok ? stages.data.items : []).filter((item) => item.name).map((item) => [item.stage_code.trim().toLowerCase(), item.name ?? ""]),
+  );
   // telemetry: covered by parent /vaccination page-level Faro tracking
   if (!result.ok) return <CommandBoardUnavailable pageContract={pageContract} />;
 
@@ -71,7 +78,7 @@ async function VaccinationCommandBoardContent({
   const selectedDrive = resolveSelectedDrive(driveOptions, driveBatchId, driveParkId);
 
   if (!selectedDrive) {
-    return <CommandBoardView board={result.data} pageContract={pageContract} />;
+    return <CommandBoardView board={result.data} pageContract={pageContract} stageNames={stageNames} />;
   }
 
   // The catalogue can resolve a batch to a park the URL did not carry. When it does, the board just
@@ -100,6 +107,7 @@ async function VaccinationCommandBoardContent({
       // longer delete every other park's drive from the dropdown.
       board={{ ...driveResult.data, driveOptions }}
       pageContract={pageContract}
+      stageNames={stageNames}
       driveBatchId={selectedDrive.driveBatchId}
       // The RESOLVED park (the catalogue's answer for this batch), not the URL's — the selector
       // must echo the park whose numbers are on screen.

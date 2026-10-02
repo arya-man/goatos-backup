@@ -10,6 +10,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	"github.com/vgoats/goatos/backend/internal/verification/app"
+	"github.com/vgoats/goatos/backend/internal/verification/domain"
 	"github.com/vgoats/goatos/backend/internal/verification/ports"
 )
 
@@ -191,7 +192,7 @@ func (h *Handler) GetVideoLog(w nethttp.ResponseWriter, r *nethttp.Request) {
 			Category:      row.Category,
 			CategoryLabel: row.CategoryLabel,
 			Grain:         string(row.Grain),
-			SubjectLabel:  row.SubjectLabel,
+			SubjectLabel:  domain.DisplaySubjectLabel(row.SubjectLabel),
 			Status:        row.Status,
 			OperatorName:  row.OperatorName,
 			CapturedAt:    row.CapturedAt.UTC().Format(time.RFC3339),

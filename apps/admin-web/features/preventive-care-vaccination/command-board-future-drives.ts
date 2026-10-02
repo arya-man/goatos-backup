@@ -110,9 +110,22 @@ export function formatScheduledDriveDates(keys: string[]): string {
   return parts.map(asDate).join(", ");
 }
 
-export function scheduledDriveRows(options: CommandBoardDriveOption[]): ScheduledDriveRow[] {
+/**
+ * The FUTURE drives: planned operator days dated today or later. `today` (YYYY-MM-DD, IST) drops a
+ * planned day already in the past (C9, pr294: "Scheduled ahead — future drives" listed 14/08-31/08
+ * on a board read on 01/10) -- a planned day nobody ran is overdue work, not a drive ahead.
+ * Omit it to keep every planned day (the drive picker's catalogue).
+ */
+export function scheduledDriveRows(options: CommandBoardDriveOption[], today?: string): ScheduledDriveRow[] {
   const rows = new Map<string, ScheduledDriveRow>();
-  options.filter((option) => option.status === "planned").forEach((option) => {
+  options
+    .filter((option) => option.status === "planned")
+    .filter((option) => {
+      if (!today) return true;
+      const planned = dateKey(option.plannedDate) || dateKey(option.windowStart);
+      return !planned || planned >= today;
+    })
+    .forEach((option) => {
     const name = option.driveName || option.label;
     // Park belongs in the key: two parks routinely run the same vaccine over the same window, and a
     // park-less key summed both parks' animal counts into a single row that was then shown under

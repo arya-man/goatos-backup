@@ -8,6 +8,7 @@ import { fmtDate } from "@/lib/format";
 import { operationalLocationLabel } from "@/lib/operational-location.ts";
 import { actionDriveLabel, actionWorkTitle } from "./action-center-presenters";
 import { stageLabel } from "@/lib/stage-labels";
+import { stageVocabularyLabel, type StageNameMap } from "@/lib/stage-display";
 import { KanbanBoard, KanbanColumn } from "@/components/app/kanban";
 import { ItemContent, ItemInfo, ItemName, ItemStatus, type ItemStatusProps } from "@/components/app/kanban/item-styles";
 import { Label } from "@/components/minimal/label";
@@ -86,12 +87,32 @@ function optionTone(options: AdminUiOption[], key: string): Tone {
   return (option.tone || "mut") as Tone;
 }
 
+/**
+ * A stage code in the tenant's own words (A3, pr294: cards read "K2"): the stage vocabulary's name
+ * when it has one, else the code with the fattening token worded. Presentation only.
+ */
+export function stageWords(code: string | null | undefined, names?: StageNameMap): string {
+  if (!code) return "";
+  const named = names ? stageVocabularyLabel(code, names) : code;
+  return named === code ? stageLabel(code) : named;
+}
+
+// Five lanes share a laptop row (A1, pr294): at the template's 336px column only three fit, the
+// Skipped / Deviated lanes sat off the canvas and their cards stretched the page ~1,000px under
+// the two visible ones. A phone still swipes one lane at a time.
+const FIVE_LANE_BOARD_SX = {
+  "--kanban-column-width": {
+    xs: "86vw",
+    md: "clamp(calc(22.5 * var(--spacing)), calc((100% - 4 * calc(3 * var(--spacing))) / 5), calc(42 * var(--spacing)))",
+  },
+} as const;
+
 const CAPTION_SX = { display: "block", mt: 0.5, typography: "caption", color: "text.secondary", overflowWrap: "anywhere" } as const;
 
 // One template kanban card for a single Action Center obligation. Same facts as before (drive, pen,
 // park, due date, stage, severity, work / proof / capacity state, progress, blocker, owner); only the
 // anatomy changed: they read as caption lines under the name instead of five chips.
-function WorkCard({ pageContract, row, href, localOverlay }: { pageContract: AdminUiPageContract; row: ActionCenterObligation; href: string; localOverlay: boolean }) {
+function WorkCard({ pageContract, row, href, localOverlay, stageNames }: { pageContract: AdminUiPageContract; row: ActionCenterObligation; href: string; localOverlay: boolean; stageNames?: StageNameMap }) {
   const operatorMissing = row.owner_state === "missing" || !row.owner?.operator_name;
   const blocker = row.blocker_reason || null;
   const drive = actionDriveLabel(pageContract, row);
@@ -116,7 +137,7 @@ function WorkCard({ pageContract, row, href, localOverlay }: { pageContract: Adm
   const dueLine = `${copy(pageContract, "label.due_prefix")} ${shortDueLabel(row.due_at)}`;
   const facts = [
     [shedDisplay || copy(pageContract, "label.vaccination"), parkLabel].filter(Boolean).join(" · "),
-    [dueLine, stageLabel(row.animal_stage), severityLabel].filter(Boolean).join(" · "),
+    [dueLine, stageWords(row.animal_stage, stageNames), severityLabel].filter(Boolean).join(" · "),
     proofLabel,
     row.drive_capacity_state === "over_cap_required"
       ? `${(row.drive_animals_assigned ?? row.drive_animals_required ?? 0).toLocaleString("en-IN")} animals · ${(row.drive_available_operators ?? 0).toLocaleString("en-IN")} ops × ${(row.drive_operator_cap ?? 0).toLocaleString("en-IN")}`
@@ -216,12 +237,15 @@ export function WorkBoard({
   stateCounts,
   showAllColumns = true,
   drawerHrefForRow,
+  stageNames,
 }: {
   pageContract: AdminUiPageContract;
   rows: ActionCenterObligation[];
   stateCounts?: ReadonlyMap<WorkState, number>;
   showAllColumns?: boolean;
   drawerHrefForRow?: (row: ActionCenterObligation) => string;
+  /** The tenant stage vocabulary, so a card names the stage rather than its code. */
+  stageNames?: StageNameMap;
 }) {
   const contractColumns = boardColumns(pageContract);
   const byColumn = new Map<string, ActionCenterObligation[]>();
@@ -234,7 +258,7 @@ export function WorkBoard({
   const columns = showAllColumns ? contractColumns : contractColumns.filter((column) => (byColumn.get(column.key)?.length ?? 0) > 0);
 
   return (
-    <KanbanBoard data-ac-board role="group" aria-label={copy(pageContract, "section.work_board.aria")} tabIndex={0}>
+    <KanbanBoard data-ac-board role="group" aria-label={copy(pageContract, "section.work_board.aria")} tabIndex={0} sx={columns.length > 4 ? FIVE_LANE_BOARD_SX : undefined}>
       {columns.map((column) => {
         const col = byColumn.get(column.key) ?? [];
         const count = columnCount(column, stateCounts) ?? col.length;
@@ -247,6 +271,7 @@ export function WorkBoard({
                 row={row}
                 href={drawerHrefForRow ? drawerHrefForRow(row) : `/workflows/${encodeURIComponent(row.row_id)}`}
                 localOverlay={Boolean(drawerHrefForRow)}
+                stageNames={stageNames}
               />
             ))}
           </KanbanColumn>

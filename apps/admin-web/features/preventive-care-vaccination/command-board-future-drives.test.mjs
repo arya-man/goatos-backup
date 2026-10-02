@@ -302,3 +302,15 @@ test("a drive with no park still round-trips as its own selection value", () => 
   assert.deepEqual(parseDriveSelectionValue(driveSelectionValue("batch-2", "")), { driveBatchId: "batch-2", parkId: "" });
   assert.equal(resolveSelectedDrive([unparked], "batch-2", undefined), unparked);
 });
+
+test("future drives drop a planned day already in the past (pr294 C9)", () => {
+  const rows = scheduledDriveRows(
+    [
+      option({ driveBatchId: "past", plannedDate: "2026-08-14T00:00:00+05:30", windowStart: "2026-08-14T00:00:00+05:30", windowEnd: "2026-08-31T00:00:00+05:30" }),
+      option({ driveBatchId: "ahead", plannedDate: "2026-10-05T00:00:00+05:30", windowStart: "2026-10-05T00:00:00+05:30", windowEnd: "2026-10-12T00:00:00+05:30" }),
+    ],
+    "2026-10-01",
+  );
+  assert.deepEqual(rows.flatMap((row) => row.batchIds), ["ahead"]);
+  assert.equal(scheduledDriveRows([option({ driveBatchId: "past", plannedDate: "2026-08-14T00:00:00+05:30" })]).length, 1);
+});
