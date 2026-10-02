@@ -254,7 +254,7 @@ func (s *Service) List(ctx context.Context, tenantID, parkID, businessDate strin
 	for i, j := range jobs {
 		if errors.Is(results[i].err, errFeedSheetsMissing) {
 			rule, _ := domain.RuleByKey(j.key)
-			page.Skipped = append(page.Skipped, SkippedRule{Key: j.key, Label: rule.Label, Reason: "Not checked: both this date’s and the previous day’s issued feed sheets are required."})
+			page.Skipped = append(page.Skipped, SkippedRule{Key: j.key, Label: rule.Label, Reason: "Needs both this date’s and the previous day’s issued feed sheets, so it was not checked."})
 			continue
 		}
 		if results[i].err != nil {
