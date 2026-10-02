@@ -65,6 +65,7 @@ import {
 import { WINDOW_FROM_PARAM, WINDOW_TO_PARAM } from "./landing-window-constants";
 import { SEX_ALL, resolveSexFilter, sexControlValue } from "./sex-filter";
 import { weightsSexChoices } from "./sex-filter-contract";
+import { demographicsSectionsForTab } from "./demographics-sections";
 import { GENERAL_GRID, WEIGHTS_DEFAULT_LIMIT, WEIGHTS_TABS } from "./weights-analytics-layout";
 
 const PAGE_PATH = "/weighing/analytics";
@@ -277,20 +278,10 @@ export async function WeighingWeightsAnalyticsPage({
   const growthSections =
     tab === "general" ? "headline,shed_leaderboard,by_park,weekly_gain" : tab === "time" ? "weekly_gain" : "";
   const wantsGrowth = growthSections !== "";
-  const wantsDemographics =
-    tab === "breed" || tab === "shed" || tab === "birth" || tab === "weight" || tab === "time";
-  const demographicsSections =
-    tab === "breed"
-      ? "dimensions"
-      : tab === "birth"
-        ? "origin"
-        : tab === "shed"
-          ? "shed_type"
-          : tab === "weight"
-            ? "weight_bands"
-            : tab === "time"
-              ? "weekly_gain"
-              : "";
+  // Which demographics section each tab reads lives in ONE table (demographics-sections.ts):
+  // General reads `composition` for the pens table's Breed column.
+  const demographicsSections = demographicsSectionsForTab(tab);
+  const wantsDemographics = demographicsSections !== "";
 
   // The Load-wise tab reads the purchase ledger beside the ONE shed-weights request every tab
   // makes. On that tab the shed read carries park + the selected period only: a load is bought
