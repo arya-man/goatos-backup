@@ -7686,10 +7686,12 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.draft_only":     "With an open draft",
 			"filter.search_label":   "Search a disease",
 
-			"pager.next":      "Next",
-			"pager.restart":   "Back to start",
-			"pager.rows":      "Rows",
-			"pager.rows_note": "Server-paginated. This screen shows one page of the rulebook, never a running total.",
+			"pager.next":    "Next",
+			"pager.restart": "Back to start",
+			"pager.rows":    "Rows",
+			// The catalog pages by keyset and carries no total, so the readout names what it counts
+			// ("1–25 protocols") instead of a bare range beside a lone (i) (PR #294 O17).
+			"pager.noun_plural": "protocols",
 
 			"empty.catalog": "No treatment protocols are authored yet.",
 			"empty.steps":   "This course has no steps yet. Add the first one.",

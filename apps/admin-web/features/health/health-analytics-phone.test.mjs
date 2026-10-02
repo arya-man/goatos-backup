@@ -18,3 +18,9 @@ test("chart cards halve their gutter on a phone; no fixed 24px chart box remains
 test("an all-parks death list names the park beside each pen", () => {
   assert.match(source, /ageBands,\s*fmtDate,\s*!parkId,\s*\);/);
 });
+
+test("the health config pager names what it counts and drops the lone (i) (PR #294 O17)", () => {
+  const config = readFileSync(new URL("./health-config.tsx", import.meta.url), "utf8");
+  assert.match(config, /copy\(pageContract, "pager\.noun_plural"\)/);
+  assert.doesNotMatch(config, /pager\.rows_note/);
+});
