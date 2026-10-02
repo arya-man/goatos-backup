@@ -874,7 +874,7 @@ func (r *Repository) CreateDeal(ctx context.Context, tenantID string, write doma
 			payment_received, status
 		) VALUES (
 			$1, $2::date, $3, $4, nullif(btrim($5), ''), nullif(btrim($6), '')::uuid,
-			-- NULL product and breed on an ADVANCE-ONLY sale (migration 000464): its products are
+				-- NULL product and breed on an ADVANCE-ONLY sale (migration 000465): its products are
 			-- added later. Every other sale was refused blank by Validate.
 			nullif($7, ''), nullif($8, ''), $9, $10, $11,
 			$12, $13, $14, nullif(btrim($15), ''),
