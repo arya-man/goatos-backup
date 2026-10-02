@@ -13,7 +13,9 @@ import {
 // anything else to "action.error_form" -- and each key needs matching page-contract copy, because
 // actionFeedbackCopy throws on a missing key and takes the whole page down with it.
 import {
+  addSalesDealLines,
   createSalesDeal,
+  settleSalesDealAdvance,
   deleteSalesDealPayment,
   recordSalesDealPayment,
   setSalesDealStatus,
@@ -59,6 +61,39 @@ function readSaleForm(formData: FormData): SalesDealWrite {
     return Number.isFinite(parsed) ? parsed : null;
   };
 
+  // An ADVANCE-ONLY sale (2026-10-02) posts no products: the buyer paid before anything was
+  // chosen, and its lines are added to the same sale later. The flag is sent explicitly; the
+  // backend still refuses a body with no lines that does not carry it.
+  const advanceOnly = formData.get("advance_only") !== null;
+  const lines = advanceOnly ? [] : readSaleLines(formData);
+
+  return {
+    sale_date: requiredString(formData, "sale_date"),
+    farm: requiredString(formData, "farm") as SalesDealWrite["farm"],
+    lines,
+    buyer_name: requiredString(formData, "buyer_name"),
+    buyer_place: optionalString(formData, "buyer_place") ?? "",
+    // REQUIRED: every sale is made to a vendor on the register (maintainer decision 2026-08-27).
+    // requiredString throws on a blank, so a form that somehow submits without a selection fails
+    // here rather than posting a vendorless deal; the backend re-validates the same rule.
+    buyer_vendor_id: requiredString(formData, "buyer_vendor_id"),
+    advance_amount: parseOptionalNumber("advance_amount"),
+    // Only ever true because a person ticked it after being shown what the store holds.
+    stock_shortfall_acknowledged: formData.get("stock_shortfall_acknowledged") !== null,
+    status: (optionalString(formData, "status") ?? "") as SalesDealWrite["status"],
+    comments: optionalString(formData, "comments") ?? "",
+    ...(advanceOnly ? { advance_only: true } : {}),
+  };
+}
+
+/** The indexed `line_*_N` fields the shared lines editor posts, in order. */
+function readSaleLines(formData: FormData): NonNullable<SalesDealWrite["lines"]> {
+  const parseOptionalNumber = (key: string): number | null => {
+    const trimmed = (formData.get(key)?.toString() ?? "").trim();
+    if (trimmed === "") return null;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
   const lines: NonNullable<SalesDealWrite["lines"]> = [];
   // Bounded by the backend's own cap so a hostile form cannot make this loop unbounded.
   for (let i = 0; i < MAX_SALE_LINES; i += 1) {
@@ -80,22 +115,7 @@ function readSaleForm(formData: FormData): SalesDealWrite {
     });
   }
 
-  return {
-    sale_date: requiredString(formData, "sale_date"),
-    farm: requiredString(formData, "farm") as SalesDealWrite["farm"],
-    lines,
-    buyer_name: requiredString(formData, "buyer_name"),
-    buyer_place: optionalString(formData, "buyer_place") ?? "",
-    // REQUIRED: every sale is made to a vendor on the register (maintainer decision 2026-08-27).
-    // requiredString throws on a blank, so a form that somehow submits without a selection fails
-    // here rather than posting a vendorless deal; the backend re-validates the same rule.
-    buyer_vendor_id: requiredString(formData, "buyer_vendor_id"),
-    advance_amount: parseOptionalNumber("advance_amount"),
-    // Only ever true because a person ticked it after being shown what the store holds.
-    stock_shortfall_acknowledged: formData.get("stock_shortfall_acknowledged") !== null,
-    status: (optionalString(formData, "status") ?? "") as SalesDealWrite["status"],
-    comments: optionalString(formData, "comments") ?? "",
-  };
+  return lines;
 }
 
 export async function recordSaleAction(formData: FormData): Promise<{ code: string; message: string } | undefined> {
@@ -354,4 +374,47 @@ export async function setSalesDealStatusAction(formData: FormData): Promise<void
   }
   revalidatePath(SALES_PATH);
   actionRedirect(formData, "success", "action.deal_status_updated");
+}
+
+/**
+ * Adds what was sold to an ADVANCE-ONLY sale (maintainer decision 2026-10-02). Same line fields and
+ * rules as recording a sale; the sale's workflow opens on this write. A refusal returns in place so
+ * the lines the desk typed stay on the form beside the backend's reason.
+ */
+export async function addSalesDealLinesAction(formData: FormData): Promise<SalesPaymentActionError | undefined> {
+  const dealId = requiredString(formData, "deal_id");
+  const result = await addSalesDealLines(dealId, { lines: readSaleLines(formData) }, paymentIdempotencyKey(formData));
+  if (!result.ok) {
+    return paymentRefusal(result.error);
+  }
+  // interaction-guard:ignore: success revalidates then redirects; only the refusal path returns, and it never revalidates.
+  revalidatePath(SALES_PATH);
+  actionRedirect(formData, "success", "action.sale_lines_added");
+}
+
+/**
+ * Records what became of a FAILED sale's money: refunded in part or whole, the rest kept by the
+ * farm. A blank refund is the "farm keeps it" decision and sends no date.
+ */
+export async function settleSalesDealAdvanceAction(formData: FormData): Promise<SalesPaymentActionError | undefined> {
+  const dealId = requiredString(formData, "deal_id");
+  const rawRefund = (formData.get("refunded_rupees")?.toString() ?? "").trim();
+  const refunded = rawRefund === "" ? 0 : Number(rawRefund);
+  const refundedOn = (formData.get("refunded_on")?.toString() ?? "").trim();
+  const note = (formData.get("note")?.toString() ?? "").trim();
+  const result = await settleSalesDealAdvance(
+    dealId,
+    {
+      refunded_rupees: Number.isFinite(refunded) ? refunded : -1,
+      ...(refunded > 0 && refundedOn ? { refunded_on: refundedOn } : {}),
+      ...(note ? { note } : {}),
+    },
+    paymentIdempotencyKey(formData),
+  );
+  if (!result.ok) {
+    return paymentRefusal(result.error);
+  }
+  // interaction-guard:ignore: success revalidates then redirects; only the refusal path returns, and it never revalidates.
+  revalidatePath(SALES_PATH);
+  actionRedirect(formData, "success", "action.sale_advance_settled");
 }

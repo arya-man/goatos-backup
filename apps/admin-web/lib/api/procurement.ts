@@ -32,6 +32,8 @@ export type SellableProductPage = AppApiComponents["schemas"]["SellableProductPa
 export type SellableProduct = AppApiComponents["schemas"]["SellableProduct"];
 export type SellableProductWrite = AppApiComponents["schemas"]["SellableProductWrite"];
 export type SalesDealWrite = AppApiComponents["schemas"]["SalesDealWrite"];
+export type SalesDealLinesWrite = AppApiComponents["schemas"]["SalesDealLinesWrite"];
+export type SalesDealAdvanceSettlementWrite = AppApiComponents["schemas"]["SalesDealAdvanceSettlementWrite"];
 
 // Load-wise sales — every purchased load reconciled (/procurement/loadwise-sales).
 export type LoadwiseSales = AppApiComponents["schemas"]["LoadwiseSales"];

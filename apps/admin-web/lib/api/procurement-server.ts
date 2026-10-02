@@ -39,6 +39,8 @@ import type { LoadCostWrite, LoadwiseSales, LoadwiseWeights, BuyerAnalytics, Far
   SalesDeal,
   SalesDealPage,
   SalesDealPaymentWrite,
+  SalesDealLinesWrite,
+  SalesDealAdvanceSettlementWrite,
   SalesDealStatusWrite,
   SalesDealWrite,
   SalesFpoLead,
@@ -568,6 +570,44 @@ export async function editFeedPurchase(
     client.request<FeedPurchase>(`/procurement/feed-purchases/${encodeURIComponent(purchaseId)}` as keyof AppApiPaths & string, {
       method: "PUT",
       cache: "no-store",
+      body,
+    }),
+  );
+}
+
+// An advance-only sale's products, added once (2026-10-02). The sale's workflow opens on this write.
+export async function addSalesDealLines(
+  dealId: string,
+  body: SalesDealLinesWrite,
+  idempotencyKey: string,
+): Promise<ApiResult<SalesDeal>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<SalesDeal>(`/sales/deals/${encodeURIComponent(dealId)}/lines` as keyof AppApiPaths & string, {
+      method: "POST",
+      cache: "no-store",
+      headers: idempotentHeaders(idempotencyKey),
+      body,
+    }),
+  );
+}
+
+// A failed sale's money refunded in part or whole, the rest kept by the farm (2026-10-02).
+export async function settleSalesDealAdvance(
+  dealId: string,
+  body: SalesDealAdvanceSettlementWrite,
+  idempotencyKey: string,
+): Promise<ApiResult<SalesDeal>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<SalesDeal>(`/sales/deals/${encodeURIComponent(dealId)}/advance-settlement` as keyof AppApiPaths & string, {
+      method: "PUT",
+      cache: "no-store",
+      headers: idempotentHeaders(idempotencyKey),
       body,
     }),
   );

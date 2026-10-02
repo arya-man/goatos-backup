@@ -401,6 +401,7 @@ export async function SalesSoldPage({
   // first, which TestSalesReadPagesCarryNoWriteControl refuses.
   const canRecord = controlEnabled(pageContract, "record_sale", false);
   const none = copy(pageContract, "value.none");
+  const advanceOnlyLabel = copy(pageContract, "value.advance_only");
   const dealColumns = tableLabels(pageContract, "sales-deals");
   const listHref = hrefWithQuery(PAGE_PATH, sp, { deal_id: null });
 
@@ -482,11 +483,12 @@ export async function SalesSoldPage({
                       {dealCell(humanDate(deal.sale_date))}
                       {dealCell(deal.farm)}
                       {dealCell(<b>{deal.buyer_name}</b>)}
-                      {dealCell(deal.product_type)}
+                      {/* An advance taken before the sale was decided names no product yet (2026-10-02). */}
+                      {dealCell(deal.advance_only ? advanceOnlyLabel : deal.product_type)}
                       {dealCell(breedBeyondProduct(deal.product_type, deal.breed) ?? "")}
                       {dealCell(deal.animal_count == null ? none : num(deal.animal_count), "num")}
                       {dealCell(deal.total_weight_kg == null ? none : num(deal.total_weight_kg, 1), "num")}
-                      {dealCell(inr(deal.sales_value), "num")}
+                      {dealCell(deal.advance_only ? none : inr(deal.sales_value), "num")}
                       {dealCell(<Tag tone={dealStatusTone(deal.status)}>{deal.status}</Tag>)}
                     </tr>
                   );

@@ -19,8 +19,10 @@ import { breedBeyondProduct, dealStatusTone, inr, num, plannedSaleDateIfDifferen
 import { newSaleLine, type SaleLineDraft } from "./sale-lines";
 import { SaleLinesEditor } from "./sale-lines-editor";
 import {
+  addSalesDealLinesAction,
   deleteSalesDealPaymentAction,
   recordSaleAction,
+  settleSalesDealAdvanceAction,
   recordSalesDealPaymentAction,
   setSalesDealStatusAction,
   updateSalesDealPaymentAction,
@@ -176,6 +178,9 @@ export function SalesRecordDrawer({
   // whenever a line or the farm changes: an uncontrolled box stayed ticked after the quantity went
   // up, and the backend (which trusts the tick) recorded the bigger sale unasked.
   const [stockAck, setStockAck] = useState(false);
+  // An ADVANCE taken before the sale is decided (maintainer decision 2026-10-02): the form drops
+  // its product lines, the status is Advance Paid, and the advance is the one figure it needs.
+  const [advanceOnly, setAdvanceOnly] = useState(false);
   const changeLines = (next: SaleLineDraft[]) => {
     setLines(next);
     setStockAck(false);
@@ -188,6 +193,7 @@ export function SalesRecordDrawer({
     setRecordError(null);
     setLines([newSaleLine(1, products[0]?.name ?? "")]);
     setStockAck(false);
+    setAdvanceOnly(false);
     setSaleKey(mintPaymentKey());
     setVendorId("");
     setVendorQuery("");
@@ -377,14 +383,33 @@ export function SalesRecordDrawer({
                   ))}
                 </select>
               </div>
-              <SaleLinesEditor
-                lines={lines}
-                onChange={changeLines}
-                pageContract={pageContract}
-                products={products}
-                variants={variants}
-              />
-              {stockConfirmNeeded || recordError?.code === "feed_stock_confirmation_required" ? (
+              <div className="fld">
+                <label htmlFor="s-advance_only">
+                  <input
+                    id="s-advance_only"
+                    name="advance_only"
+                    type="checkbox"
+                    value="1"
+                    checked={advanceOnly}
+                    onChange={(event) => {
+                      setAdvanceOnly(event.target.checked);
+                      setStockAck(false);
+                    }}
+                  />{" "}
+                  {field("advance_only")}
+                </label>
+                <div className="note">{copy(pageContract, "hint.advance_only")}</div>
+              </div>
+              {advanceOnly ? null : (
+                <SaleLinesEditor
+                  lines={lines}
+                  onChange={changeLines}
+                  pageContract={pageContract}
+                  products={products}
+                  variants={variants}
+                />
+              )}
+              {!advanceOnly && (stockConfirmNeeded || recordError?.code === "feed_stock_confirmation_required") ? (
                 // The short-feed-sale confirmation (maintainer decision 2026-09-23). It appears
                 // only after the backend has asked for it, and it is NOT checked by default: a
                 // tick the form carries on its own is not a confirmation of anything.
@@ -501,8 +526,25 @@ export function SalesRecordDrawer({
               <div className="dgrp">{copy(pageContract, "section.payments.title")}</div>
               <div className="fld">
                 <label htmlFor="s-advance_amount">{field("advance_amount")}</label>
-                <input id="s-advance_amount" name="advance_amount" type="number" min={0} step="0.01" />
+                <input
+                  id="s-advance_amount"
+                  name="advance_amount"
+                  type="number"
+                  min={advanceOnly ? 0.01 : 0}
+                  step="0.01"
+                  required={advanceOnly}
+                />
               </div>
+              {advanceOnly ? (
+                // An advance-only sale is Advance Paid; nothing else is offered for it.
+                <div className="fld">
+                  <input type="hidden" name="status" value="Advance Paid" />
+                  <div className="k">{field("status")}</div>
+                  <Tag tone={dealStatusTone("Advance Paid")}>
+                    {dealStatusOptions.find((option) => option.key === "Advance Paid")?.label ?? "Advance Paid"}
+                  </Tag>
+                </div>
+              ) : (
               <div className="fld">
                 <label htmlFor="s-status">{field("status")}</label>
                 {/* Defaults to Deal Closed — a recorded sale is a finished one unless the desk says
@@ -517,6 +559,7 @@ export function SalesRecordDrawer({
                 </select>
                 <div className="muted small">{copy(pageContract, "hint.status")}</div>
               </div>
+              )}
               <div className="fld">
                 <label htmlFor="s-comments">{field("comments")}</label>
                 <textarea id="s-comments" name="comments" maxLength={2000} rows={2} />
@@ -558,7 +601,7 @@ export function SalesRecordDrawer({
               {cell(field("sale_date"), fmtDate(deal.sale_date))}
               {plannedSaleDate ? cell(field("planned_sale_date"), fmtDate(plannedSaleDate)) : null}
               {cell(field("farm"), deal.farm)}
-              {cell(field("product_type"), deal.product_type)}
+              {cell(field("product_type"), deal.advance_only ? copy(pageContract, "value.advance_only") : deal.product_type)}
               {/* A manure line's breed is only its own name again: the cell is left out rather than
                   repeating the product or claiming a breed was not recorded. */}
               {breedBeyondProduct(deal.product_type, deal.breed) ? cell(field("breed"), breedBeyondProduct(deal.product_type, deal.breed)) : null}
@@ -576,7 +619,7 @@ export function SalesRecordDrawer({
               {cell(field("male_count"), deal.male_count == null ? null : num(deal.male_count))}
               {cell(field("female_count"), deal.female_count == null ? null : num(deal.female_count))}
               {cell(field("total_weight_kg"), deal.total_weight_kg == null ? null : num(deal.total_weight_kg, 1))}
-              {cell(field("sales_value"), inr(deal.sales_value))}
+              {cell(field("sales_value"), deal.advance_only ? copy(pageContract, "value.advance_only") : inr(deal.sales_value))}
               {cell(field("advance_amount"), deal.advance_amount == null ? null : inr(deal.advance_amount))}
               <div>
                 <div className="k">{copy(pageContract, "column.status")}</div>
@@ -589,8 +632,27 @@ export function SalesRecordDrawer({
 
             {/* WHAT WAS SOLD: one row per product/breed line (migration 000296). The product,
                 breed, animals, weight and value cells above are the backend's ROLLUP of these. */}
-            <div className="dgrp">{copy(pageContract, "section.lines.title")}</div>
-            {deal.lines.length === 0 ? (
+            {/* An advance whose products can be added here gets the editor's own heading instead. */}
+            {deal.advance_only && canRecord && deal.status !== "Deal Failed" ? null : (
+              <div className="dgrp">{copy(pageContract, "section.lines.title")}</div>
+            )}
+            {deal.advance_only ? (
+              // Money taken before the sale was decided: what was sold is added here, once, and
+              // the sale's steps open then.
+              <>
+                <div className="note">{copy(pageContract, "detail.lines.advance_only")}</div>
+                {canRecord && deal.status !== "Deal Failed" ? (
+                  <AddSaleLinesForm
+                    key={deal.deal_id}
+                    deal={deal}
+                    dealHref={dealHref}
+                    pageContract={pageContract}
+                    products={products}
+                    variants={variants}
+                  />
+                ) : null}
+              </>
+            ) : deal.lines.length === 0 ? (
               <div className="note">{copy(pageContract, "detail.lines.empty")}</div>
             ) : (
               // Its own pan region: headers, breed and quantity wrap so the six columns fit a
@@ -682,6 +744,23 @@ export function SalesRecordDrawer({
                 dealHref={dealHref}
                 pageContract={pageContract}
               />
+            ) : null}
+
+            {/* A FAILED sale's money (2026-10-02): refunded in part or whole, the rest kept. */}
+            {deal.settlement ? (
+              <>
+                <div className="dgrp">{copy(pageContract, "section.settlement.title")}</div>
+                <div className="metagrid">
+                  {cell(copy(pageContract, "settlement.outcome"), deal.settlement.outcome_label)}
+                  {cell(copy(pageContract, "settlement.refunded"), inr(deal.settlement.refunded_rupees))}
+                  {deal.settlement.refunded_on ? cell(copy(pageContract, "settlement.refunded_on"), fmtDate(deal.settlement.refunded_on)) : null}
+                  {cell(copy(pageContract, "settlement.kept"), inr(deal.settlement.kept_rupees))}
+                  {deal.settlement.note ? cell(field("note"), deal.settlement.note) : null}
+                </div>
+              </>
+            ) : null}
+            {deal.can_settle && canRecordPayment ? (
+              <SettleAdvanceForm key={`${deal.deal_id}-settle`} deal={deal} dealHref={dealHref} pageContract={pageContract} />
             ) : null}
 
             {canEditStatus && editStatusOptions.length > 0 ? (
@@ -967,5 +1046,104 @@ function PaymentRow({
         </tr>
       ) : null}
     </>
+  );
+}
+
+/**
+ * Adds what was sold to an ADVANCE-ONLY sale (maintainer decision 2026-10-02) with the same lines
+ * editor recording a sale uses. Saving it opens the sale's steps.
+ */
+function AddSaleLinesForm({
+  deal,
+  dealHref,
+  pageContract,
+  products,
+  variants,
+}: {
+  deal: SalesDeal;
+  dealHref: string;
+  pageContract: AdminUiPageContract;
+  products: SalesOptions["products"];
+  variants: Record<string, string[]>;
+}) {
+  const [lines, setLines] = useState<SaleLineDraft[]>(() => [newSaleLine(1, products[0]?.name ?? "")]);
+  const { onSubmit, pending, error, key } = usePaymentFormAction(addSalesDealLinesAction, String(deal.lines.length));
+  return (
+    <form onSubmit={onSubmit} aria-busy={pending}>
+      <input type="hidden" name="return_to" value={dealHref} />
+      <input type="hidden" name="deal_id" value={deal.deal_id} />
+      <input type="hidden" name={PAYMENT_IDEMPOTENCY_FIELD} value={key} />
+      {error ? (
+        <div role="alert" className="note warn">
+          {paymentErrorText(pageContract, error, "action.sale_lines_add_failed")}
+        </div>
+      ) : null}
+      <SaleLinesEditor lines={lines} onChange={setLines} pageContract={pageContract} products={products} variants={variants} />
+      <button type="submit" className="btn p" disabled={pending} aria-disabled={pending}>
+        {copy(pageContract, "action.add_sale_lines.label")}
+      </button>
+    </form>
+  );
+}
+
+/**
+ * Settles a FAILED sale's money (maintainer decision 2026-10-02): how much went back to the buyer
+ * and when; the rest is kept by the farm. A blank refund keeps it all.
+ */
+function SettleAdvanceForm({
+  deal,
+  dealHref,
+  pageContract,
+}: {
+  deal: SalesDeal;
+  dealHref: string;
+  pageContract: AdminUiPageContract;
+}) {
+  const field = (key: string) => copy(pageContract, `field.${key}`);
+  const outcome = deal.settlement ? `${deal.settlement.refunded_rupees}|${deal.settlement.updated_at}` : "none";
+  const { onSubmit, pending, error, key } = usePaymentFormAction(settleSalesDealAdvanceAction, outcome);
+  return (
+    <form onSubmit={onSubmit} aria-busy={pending}>
+      <input type="hidden" name="return_to" value={dealHref} />
+      <input type="hidden" name="deal_id" value={deal.deal_id} />
+      <input type="hidden" name={PAYMENT_IDEMPOTENCY_FIELD} value={key} />
+      <div className="note" style={{ marginBottom: 12 }}>{copy(pageContract, "hint.settlement")}</div>
+      {error ? (
+        <div role="alert" className="note warn">
+          {paymentErrorText(pageContract, error, "action.sale_advance_settle_failed")}
+        </div>
+      ) : null}
+      <div className="fld">
+        <label htmlFor="sds-refunded">{field("refunded_rupees")}</label>
+        <input
+          id="sds-refunded"
+          name="refunded_rupees"
+          type="number"
+          min={0}
+          max={deal.payment_received ?? undefined}
+          step="0.01"
+          defaultValue={deal.settlement?.refunded_rupees ?? ""}
+        />
+      </div>
+      <div className="fld">
+        <label htmlFor="sds-refunded_on">{field("refunded_on")}</label>
+        <ThemedDatePicker
+          name="refunded_on"
+          label={copy(pageContract, "date.refunded_on.placeholder")}
+          max={todayIso()}
+          previousMonthLabel={copy(pageContract, "date.prev_month")}
+          nextMonthLabel={copy(pageContract, "date.next_month")}
+          invalidDateText={copy(pageContract, "date.invalid_refunded_on")}
+          defaultValue={deal.settlement?.refunded_on ?? undefined}
+        />
+      </div>
+      <div className="fld">
+        <label htmlFor="sds-note">{field("note")}</label>
+        <input id="sds-note" name="note" maxLength={300} defaultValue={deal.settlement?.note ?? ""} />
+      </div>
+      <button type="submit" className="btn p" disabled={pending} aria-disabled={pending}>
+        {copy(pageContract, "action.settle_advance.label")}
+      </button>
+    </form>
   );
 }
