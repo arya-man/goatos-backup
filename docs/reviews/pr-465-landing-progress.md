@@ -43,6 +43,16 @@ and update the CEO AI shed capacity reporting view.
   `GOATOS_CI_ONLY_STEP='admin-web unit tests' tools/ci/run-local-ci.sh admin-web` passed at
   `b8064d6060433ce5d51d9664473759e9d53c8936` with 1337 passing tests, 0 failures, and 3
   expected skips. The run was partial and wrote no landing receipt.
+- Fourth `make land-main` attempt at `30a6ecfe6f69ea7103048a39ed9c9c150a927958`
+  stopped before any push because `admin-web mock-fidelity` found stale procurement request-plan
+  ignores and a duplicate `listLocations()` Promise fanout. The receipt had already passed required
+  PostgreSQL query plans, command-board query plans, and the admin-web unit lane in that run.
+- Repaired the procurement request-plan gate by naming the bounded parallel location taxonomy calls
+  in `load-detail.tsx` and refreshing the bounded selected-detail debt marker in
+  `source-entry-board.tsx`.
+- Focused diagnostic rerun
+  `GOATOS_CI_ONLY_STEP='admin-web mock-fidelity' tools/ci/run-local-ci.sh admin-web` passed after
+  the procurement request-plan repair. The run was partial and wrote no landing receipt.
 
 ## Pending
 
@@ -66,8 +76,11 @@ and update the CEO AI shed capacity reporting view.
   receipt.
 - The focused admin-web unit rerun after timeout adjustment was diagnostic only and wrote no landing
   receipt.
+- The fourth full landing attempt failed before any push and wrote no landing receipt.
+- The focused admin-web mock-fidelity rerun after procurement repair was diagnostic only and wrote no
+  landing receipt.
 
 ## Current State
 
-- Candidate with this progress note: `b8064d6060433ce5d51d9664473759e9d53c8936`.
+- Last full landing candidate before procurement repair: `30a6ecfe6f69ea7103048a39ed9c9c150a927958`.
 - Deployment state: not deployed; this request is only for main landing.

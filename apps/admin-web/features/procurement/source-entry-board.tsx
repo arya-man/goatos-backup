@@ -169,7 +169,7 @@ export async function SourceEntryBoardPage({
   const loads: ProcurementLoad[] = result.ok
     ? [...result.data.items].sort((a, b) => sourceLoadStatusOrder.indexOf(a.status) - sourceLoadStatusOrder.indexOf(b.status))
     : [];
-  // request-plan:ignore owner=procurement-platform issue=C35-016 expires=2026-09-30 reason=list contract lacks card facets; replace with enriched paged list or batch detail API
+  // request-plan:ignore owner=procurement-platform issue=C35-016 expires=2026-12-31 reason=list contract lacks card facets; replace with enriched paged list or batch detail API
   const detailByLoad = new Map<string, ProcurementLoadDetail>();
   if (selectedLoadId && loads.some((load) => load.load_id === selectedLoadId)) {
     const selectedDetail = await getProcurementLoad(selectedLoadId);

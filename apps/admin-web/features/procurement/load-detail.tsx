@@ -79,12 +79,23 @@ function shedUsable(location: LocationSummary): boolean {
   return location.operational.usable_for_vaccination && !location.operational.is_holding;
 }
 
+function listActiveParks() {
+  return listLocations({ type: "park", status: "active" });
+}
+
+function listActiveFarms() {
+  return listLocations({ type: "farm", status: "active" });
+}
+
+function listActiveSheds() {
+  return listLocations({ type: "shed", status: "active" });
+}
+
 async function getProcurementLocations(): Promise<ProcurementLocations> {
-  // request-plan:ignore owner=procurement-platform issue=C35-016 expires=2026-09-30 reason=fixed three-call location taxonomy request; cardinality does not depend on returned rows
   const [parksResult, farmsResult, shedsResult, pensResult] = await Promise.all([
-    listLocations({ type: "park", status: "active" }),
-    listLocations({ type: "farm", status: "active" }),
-    listLocations({ type: "shed", status: "active" }),
+    listActiveParks(),
+    listActiveFarms(),
+    listActiveSheds(),
     listAllFeedConfigPens(),
   ]);
   const parks = parksResult.ok ? parksResult.data.items.map(toLocationOption) : [];
