@@ -45,6 +45,10 @@ func (s *VendorService) VendorForm(ctx context.Context, tenantID, side string) (
 	if s.form == nil {
 		return domain.VendorForm{}, ErrVendorFormUnavailable
 	}
+	side, err := resolveReadSide(ctx, side)
+	if err != nil {
+		return domain.VendorForm{}, err
+	}
 	catalog, err := s.ListVendorCatalog(ctx, tenantID, side)
 	if err != nil {
 		return domain.VendorForm{}, err
@@ -151,15 +155,37 @@ func (s *VendorService) ListVendors(ctx context.Context, tenantID string, q Vend
 		// which is a lie the operator cannot detect from the screen.
 		return ports.VendorPage{}, ErrVendorOffsetOutOfRange
 	}
-	if _, ok := domain.NormalizeVendorSide(q.Filter.Side); !ok {
-		return ports.VendorPage{}, ErrVendorSideUnknown
+	side, err := resolveReadSide(ctx, q.Filter.Side)
+	if err != nil {
+		return ports.VendorPage{}, err
 	}
+	q.Filter.Side = side
 	return s.repo.ListVendors(ctx, tenantID, q.Filter, q.Limit, q.Offset, q.IncludeFinance)
 }
 
 // GetVendor returns one vendor.
 func (s *VendorService) GetVendor(ctx context.Context, tenantID, vendorID string, includeFinance bool) (domain.Vendor, error) {
-	return s.repo.GetVendor(ctx, tenantID, vendorID, includeFinance)
+	v, err := s.repo.GetVendor(ctx, tenantID, vendorID, includeFinance)
+	if err != nil {
+		return domain.Vendor{}, err
+	}
+	if err := s.requireVendorRead(ctx, tenantID, v); err != nil {
+		return domain.Vendor{}, err
+	}
+	return v, nil
+}
+
+// requireExistingVendorWrite checks the half the vendor is on NOW: a buyers-only writer may not
+// edit a supplier, and may not see that it exists.
+func (s *VendorService) requireExistingVendorWrite(ctx context.Context, tenantID, vendorID string) error {
+	if _, narrowed := vendorSideAccessFrom(ctx); !narrowed {
+		return nil
+	}
+	current, err := s.GetVendor(ctx, tenantID, vendorID, false)
+	if err != nil {
+		return err
+	}
+	return s.requireVendorWrite(ctx, tenantID, current.RecordType)
 }
 
 // CreateVendor validates and inserts a vendor.
@@ -176,6 +202,9 @@ func (s *VendorService) CreateVendor(ctx context.Context, tenantID string, write
 	// Create is held to the stricter bar: contact person, phone and city too, matching the Slack
 	// intake questionnaire. Update is not -- see ValidateForCreate for why.
 	if err := normalized.ValidateForCreate(); err != nil {
+		return domain.Vendor{}, err
+	}
+	if err := s.requireVendorWrite(ctx, tenantID, normalized.RecordType); err != nil {
 		return domain.Vendor{}, err
 	}
 	if err := s.validateVoiceNote(ctx, tenantID, normalized.VoiceNoteProofRef); err != nil {
@@ -213,6 +242,14 @@ func (s *VendorService) UpdateVendor(ctx context.Context, tenantID, vendorID str
 	if err := normalized.Validate(); err != nil {
 		return domain.Vendor{}, err
 	}
+	// Both halves: the one the vendor is on now, and the one its new record type would put it
+	// on -- otherwise a buyers-only writer could re-type a buyer into a supplier, or the reverse.
+	if err := s.requireExistingVendorWrite(ctx, tenantID, vendorID); err != nil {
+		return domain.Vendor{}, err
+	}
+	if err := s.requireVendorWrite(ctx, tenantID, normalized.RecordType); err != nil {
+		return domain.Vendor{}, err
+	}
 	if err := s.validateVoiceNote(ctx, tenantID, normalized.VoiceNoteProofRef); err != nil {
 		return domain.Vendor{}, err
 	}
@@ -242,6 +279,9 @@ func (s *VendorService) UpdateVendorStatus(ctx context.Context, tenantID, vendor
 	if !ok {
 		return domain.Vendor{}, domain.ErrVendorValidation{Field: "status", Reason: "must be one of active, inactive, negotiating, banned"}
 	}
+	if err := s.requireExistingVendorWrite(ctx, tenantID, vendorID); err != nil {
+		return domain.Vendor{}, err
+	}
 	return s.repo.UpdateVendorStatus(ctx, tenantID, vendorID, normalized, rowVersion, actorID)
 }
 
@@ -251,9 +291,9 @@ func (s *VendorService) UpdateVendorStatus(ctx context.Context, tenantID, vendor
 // vendor may still carry one and the edit form must be able to render (and re-save) the value it
 // already has. The client marks inactive entries so they are shown but not offered for new rows.
 func (s *VendorService) ListVendorCatalog(ctx context.Context, tenantID string, side string) ([]domain.VendorCatalogEntry, error) {
-	normalizedSide, ok := domain.NormalizeVendorSide(side)
-	if !ok {
-		return nil, ErrVendorSideUnknown
+	normalizedSide, err := resolveReadSide(ctx, side)
+	if err != nil {
+		return nil, err
 	}
 	entries, err := s.repo.ListVendorCatalog(ctx, tenantID, false)
 	if err != nil {

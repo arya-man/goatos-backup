@@ -295,7 +295,7 @@ var protectedRoutes = []Route{
 	// an audio proof recorded on the phone by the procurement desk, which executes no task. The
 	// download row ORs in VendorRead for the same reason -- whoever may read the register may play
 	// the note on it -- without widening task.read to anyone.
-	{OperationID: "downloadProof", Method: "GET", Pattern: "/app/proofs/{proof_id}/download", AnyPermissions: []string{TaskRead, VendorRead}},
+	{OperationID: "downloadProof", Method: "GET", Pattern: "/app/proofs/{proof_id}/download", AnyPermissions: []string{TaskRead, VendorRead, VendorSalesRead}},
 	{OperationID: "recordAppAnalyticsEvent", Method: "POST", Pattern: "/app/analytics/events", Permissions: []string{AppBootstrap}},
 	{OperationID: "recordAppScanCapture", Method: "POST", Pattern: "/app/tasks/{task_id}/scan-captures", Permissions: []string{TaskExecute}},
 	{OperationID: "recordAppScanAttempt", Method: "POST", Pattern: "/app/tasks/{task_id}/scan-attempts", Permissions: []string{TaskExecute}},
@@ -317,6 +317,11 @@ var protectedRoutes = []Route{
 
 	// Procurement VENDOR REGISTER (/procurement/vendors), the counterparty contact book.
 	//
+	// TWO HALVES since 2026-10-02: VendorRead/VendorWrite open the suppliers (procurement side),
+	// VendorSalesRead/VendorSalesWrite the buyers (sales side). The routes admit EITHER; which
+	// half the caller may touch is enforced per request by the vendor handler from the vendor's
+	// record type (catalog register_side) -- the route cannot see the side.
+	//
 	// Gated on the dedicated VendorRead/VendorWrite rather than ProcurementRead/ProcurementWrite:
 	// those are held by seven roles including operator and park_head, and the register carries
 	// negotiated prices, phone numbers and banking instruments. See VendorRead's doc comment.
@@ -324,19 +329,19 @@ var protectedRoutes = []Route{
 	// The catalog route is the business-managed dropdown vocabulary behind the register's selects
 	// (record types, breeds, states, cities, statuses, feed kinds). It is a READ of the same screen
 	// and carries VendorRead.
-	{OperationID: "listProcurementVendors", Method: "GET", Pattern: "/procurement/vendors", Permissions: []string{VendorRead}},
-	{OperationID: "getProcurementVendor", Method: "GET", Pattern: "/procurement/vendors/{vendor_id}", Permissions: []string{VendorRead}},
-	{OperationID: "createProcurementVendor", Method: "POST", Pattern: "/procurement/vendors", Permissions: []string{VendorWrite}},
-	{OperationID: "updateProcurementVendor", Method: "PUT", Pattern: "/procurement/vendors/{vendor_id}", Permissions: []string{VendorWrite}},
-	{OperationID: "updateProcurementVendorStatus", Method: "POST", Pattern: "/procurement/vendors/{vendor_id}/status", Permissions: []string{VendorWrite}},
-	{OperationID: "listProcurementVendorCatalog", Method: "GET", Pattern: "/procurement/vendor-catalog", Permissions: []string{VendorRead}},
+	{OperationID: "listProcurementVendors", Method: "GET", Pattern: "/procurement/vendors", AnyPermissions: []string{VendorRead, VendorSalesRead}},
+	{OperationID: "getProcurementVendor", Method: "GET", Pattern: "/procurement/vendors/{vendor_id}", AnyPermissions: []string{VendorRead, VendorSalesRead}},
+	{OperationID: "createProcurementVendor", Method: "POST", Pattern: "/procurement/vendors", AnyPermissions: []string{VendorWrite, VendorSalesWrite}},
+	{OperationID: "updateProcurementVendor", Method: "PUT", Pattern: "/procurement/vendors/{vendor_id}", AnyPermissions: []string{VendorWrite, VendorSalesWrite}},
+	{OperationID: "updateProcurementVendorStatus", Method: "POST", Pattern: "/procurement/vendors/{vendor_id}/status", AnyPermissions: []string{VendorWrite, VendorSalesWrite}},
+	{OperationID: "listProcurementVendorCatalog", Method: "GET", Pattern: "/procurement/vendor-catalog", AnyPermissions: []string{VendorRead, VendorSalesRead}},
 	// The authored vendor form (sales.vendor SOP, 2026-09-19): what Add / Edit vendor asks.
-	{OperationID: "getProcurementVendorForm", Method: "GET", Pattern: "/procurement/vendor-form", Permissions: []string{VendorRead}},
+	{OperationID: "getProcurementVendorForm", Method: "GET", Pattern: "/procurement/vendor-form", AnyPermissions: []string{VendorRead, VendorSalesRead}},
 	// The ACTIVE register as a bounded picklist, for any screen that must name a counterparty --
 	// today Sales, which maps every deal to a vendor. It deliberately returns only id/name/type
 	// labels and truncation metadata, so SalesRead may use this picker without inheriting the full
 	// procurement vendor register gated above by VendorRead.
-	{OperationID: "listProcurementVendorOptions", Method: "GET", Pattern: "/procurement/vendor-options", AnyPermissions: []string{VendorRead, SalesRead}},
+	{OperationID: "listProcurementVendorOptions", Method: "GET", Pattern: "/procurement/vendor-options", AnyPermissions: []string{VendorRead, VendorSalesRead, SalesRead}},
 
 	// FEED PURCHASES (/procurement/feed-purchases on admin-web). Gated on the dedicated
 	// FeedPurchaseRead/FeedPurchaseWrite rather than ProcurementRead: the ledger carries supplier

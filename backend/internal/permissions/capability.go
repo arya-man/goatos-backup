@@ -374,9 +374,12 @@ var moduleCapabilities = []ModuleCapability{
 		// a park head reviews procurement at his park and has no vendor access at all, while
 		// a procurement manager runs the vendor desk and records no source entry. Bundling
 		// them forced one to gain the other's authority on cutover.
+		//
+		// This is the PROCUREMENT half of the one register -- the suppliers. The buyers are
+		// `vendors_sales` below (split 2026-10-02 so each half can be granted on its own).
 		Key:   "vendors",
-		Label: "Vendors",
-		Blurb: "The vendor list and what each one is paid.",
+		Label: "Vendors · suppliers",
+		Blurb: "Procurement side: the suppliers the farm buys from, and what each one is paid.",
 		// Mobile too (maintainer decision 2026-09-03): the Vendors phone module carries the
 		// register and feed purchases, view and add, for the procurement desk and the CXO.
 		Surfaces: []string{SurfaceWeb, SurfaceMobile},
@@ -385,6 +388,24 @@ var moduleCapabilities = []ModuleCapability{
 			LevelDo:   {VendorRead, VendorWrite},
 			// What a vendor costs is a finance read, held apart from editing the vendor record.
 			LevelOversee: {VendorRead, VendorWrite, VendorFinanceRead},
+		},
+	},
+	{
+		// The SALES half of the one vendor register (People / HRMS fixes, 2026-10-02): the agents,
+		// butchers, farmers, slaughter houses and companies the farm sells to. Its own module so
+		// someone can be given the buyers without the suppliers, or the reverse -- before this,
+		// Sales > Vendors rode the `vendors` module and giving the buyers handed over every
+		// supplier as well. On the web it is the Sales > Vendors screen; on the phone it is the
+		// Vendors tab inside the Sales module. Which half a vendor sits in is its record type's
+		// catalog register_side, checked by the vendor handler on every read and write.
+		Key:      "vendors_sales",
+		Label:    "Vendors · buyers",
+		Blurb:    "Sales side: the agents, butchers and others the farm sells to.",
+		Surfaces: []string{SurfaceWeb, SurfaceMobile},
+		Levels: map[string][]string{
+			LevelView:    {VendorSalesRead},
+			LevelDo:      {VendorSalesRead, VendorSalesWrite},
+			LevelOversee: {VendorSalesRead, VendorSalesWrite, VendorFinanceRead},
 		},
 	},
 	{

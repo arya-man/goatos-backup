@@ -46,7 +46,8 @@ var moduleLanes = map[string][]domain.Module{
 var notBoardWork = map[string]string{
 	"breeding":                 "Not built yet: it opens no work. When it does, it runs on the tasks engine and rows on the board through it.",
 	"leave_approvals":          "Leave requests are a person's time off, decided on their own queue; they are not farm work on a park-day.",
-	"vendors":                  "A register of suppliers and buyers; recording one owes no work.",
+	"vendors":                  "The suppliers half of the vendor register; recording one owes no work.",
+	"vendors_sales":            "The buyers half of the vendor register; recording one owes no work.",
 	"market_survey":            "A price record typed when the morning calls are made; nothing is owed per park-day.",
 	"people":                   "The staff directory and access settings.",
 	"config":                   "The standing rules and written procedures work follows, not work itself.",

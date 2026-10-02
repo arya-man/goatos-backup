@@ -207,6 +207,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		one(assign("feed_purchases", SurfaceWeb, LevelView, LevelDo)),
 		one(assign("load_costs", SurfaceWeb, LevelDo)),
 		bothSurfaces("vendors", LevelView, LevelDo, LevelOversee),
+		bothSurfaces("vendors_sales", LevelView, LevelDo, LevelOversee),
 		one(assign("animal_purchases", SurfaceMobile, LevelView, LevelDo)),
 		// Sales on this desk too (maintainer instruction 2026-09-04): the Procurement phone
 		// module's Sales tab records a sale and tags its animals; the web pages follow the same
@@ -233,6 +234,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		bothSurfaces("sales", LevelView, LevelDo, LevelConfigure),
 		one(assign("sale_allocation", SurfaceWeb, LevelDo)),
 		bothSurfaces("vendors", LevelView, LevelDo, LevelOversee),
+		bothSurfaces("vendors_sales", LevelView, LevelDo, LevelOversee),
 		// Animal purchases (2026-09-13): records loads and candidate animals on the phone.
 		one(assign("animal_purchases", SurfaceMobile, LevelView, LevelDo)),
 		one(assign("feed_purchases", SurfaceWeb, LevelView, LevelDo)),
@@ -319,6 +321,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		bothSurfaces("herd_register", LevelView, LevelDo, LevelOversee, LevelConfigure),
 		one(assign("procurement", SurfaceWeb, LevelView, LevelDo, LevelOversee)),
 		bothSurfaces("vendors", LevelView, LevelDo, LevelOversee),
+		bothSurfaces("vendors_sales", LevelView, LevelDo, LevelOversee),
 		// Sales is on BOTH surfaces from 2026-09-05: it became its own phone module (the ledger
 		// moved out of the Procurement module and took the selling half of the vendor register
 		// with it). Migration 000257 copies the same mobile row onto everyone already backfilled.

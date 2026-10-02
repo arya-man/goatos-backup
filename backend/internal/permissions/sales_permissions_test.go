@@ -103,8 +103,9 @@ func TestSalesRolesCanReadVendorOptionsWithoutVendorRegister(t *testing.T) {
 	if len(options.Permissions) != 0 {
 		t.Fatalf("vendor options hard permissions=%v, want none", options.Permissions)
 	}
-	if len(options.AnyPermissions) != 2 || options.AnyPermissions[0] != VendorRead || options.AnyPermissions[1] != SalesRead {
-		t.Fatalf("vendor options any permissions=%v, want [%s %s]", options.AnyPermissions, VendorRead, SalesRead)
+	// Either half of the register, or SalesRead (2026-10-02 split added the buyers half).
+	if len(options.AnyPermissions) != 3 || options.AnyPermissions[0] != VendorRead || options.AnyPermissions[1] != VendorSalesRead || options.AnyPermissions[2] != SalesRead {
+		t.Fatalf("vendor options any permissions=%v, want [%s %s %s]", options.AnyPermissions, VendorRead, VendorSalesRead, SalesRead)
 	}
 
 	salesManager := RoleKey(TierManager, VerticalSales)

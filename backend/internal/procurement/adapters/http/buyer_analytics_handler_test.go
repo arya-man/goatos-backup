@@ -79,7 +79,7 @@ func buyerRows(t *testing.T, body map[string]any) []map[string]any {
 // per-person set when that decided the request and from the grant roles otherwise -- never from
 // the query. phones_visible tells the client which case it is in, so an absent column is a
 // permission and not "no buyer has a number".
-func TestBuyerAnalyticsPhonesFollowVendorRead(t *testing.T) {
+func TestBuyerAnalyticsPhonesFollowTheBuyersHalfOfTheRegister(t *testing.T) {
 	const tenant = "00000000-0000-4000-8000-000000000001"
 	h := NewBuyerAnalyticsHandler(&stubBuyerAnalyticsService{out: buyerFixture()})
 
@@ -94,9 +94,13 @@ func TestBuyerAnalyticsPhonesFollowVendorRead(t *testing.T) {
 		{"role grant without VendorRead", func(c context.Context) context.Context {
 			return httpmiddleware.WithAuthGrants(c, []permissions.ActiveGrant{{Role: permissions.RoleVerifier, ScopeType: "tenant", ScopeID: tenant}})
 		}, false},
-		{"person ticks carrying VendorRead", func(c context.Context) context.Context {
-			return httpmiddleware.WithPersonPermissions(c, []string{permissions.SalesRead, permissions.VendorRead})
+		// A buyer's phone is the SALES half of the register (2026-10-02): VendorSalesRead.
+		{"person ticks carrying the buyers half", func(c context.Context) context.Context {
+			return httpmiddleware.WithPersonPermissions(c, []string{permissions.SalesRead, permissions.VendorSalesRead})
 		}, true},
+		{"person ticks carrying only the suppliers half", func(c context.Context) context.Context {
+			return httpmiddleware.WithPersonPermissions(c, []string{permissions.SalesRead, permissions.VendorRead})
+		}, false},
 		// The person path DECIDES when present: a manager role grant beside a ticked set that
 		// withholds the register must not leak the number through the role.
 		{"person ticks without VendorRead beat the role", func(c context.Context) context.Context {

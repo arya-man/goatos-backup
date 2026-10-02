@@ -84,6 +84,9 @@ func VendorHTTPError(err error) *Error {
 	case errors.Is(err, ports.ErrVendorFormVersionUnknown):
 		return Conflict("vendor_form_changed", "The vendor form was changed while you were filling it. Reopen it and save again.")
 
+	case errors.Is(err, ErrVendorSideForbidden):
+		return &Error{Code: "vendor_side_forbidden", Message: "You have not been given this side of the vendor list.", HTTPStatus: http.StatusForbidden}
+
 	case errors.Is(err, ErrVendorSideUnknown):
 		return BadRequest("vendor_side_unknown", "That vendor list is not one we keep. Open Vendors from Procurement or from Sales.")
 

@@ -199,7 +199,7 @@ func applyPersonPageControlLens(page domain.PageContract, personPerms []string, 
 	default:
 		return page
 	}
-	allowed := personPermsResolved && personPermissionsAuthorize(personPerms, permissions.VendorRead)
+	allowed := personPermsResolved && personPermissionsAuthorize(personPerms, permissions.VendorSalesRead)
 	reason := ""
 	if !allowed {
 		reason = controlCopy(page.Copy, "hint.phone_hidden", "Phone numbers are on the vendor register, which your current role cannot open.")

@@ -130,11 +130,10 @@ var modulePages = []ModulePage{
 	// (SalesWrite, and LoadCostWrite for a load's cost), so a read-only holder sees the page with
 	// its controls disabled rather than a missing leaf.
 	// Sales > Vendors: the selling half of the vendor register (maintainer decision 2026-09-05).
-	// It TICKS with the sales module -- it is a Sales leaf and the sales desk is who uses it -- but
-	// it is REACHED on VendorRead, the register's own permission, because it renders vendor rows.
-	// Module ownership and authority are separate questions here, exactly as AGENTS.md states for
-	// Feed SOP (grouped under Feed, opened on sop.read).
-	{Key: "sales-vendors", Module: "sales", Label: "Vendors", Href: "/sales/vendors", Permissions: []string{VendorRead}},
+	// Since 2026-10-02 it TICKS with `vendors_sales` (Vendors · buyers) and is REACHED on
+	// VendorSalesRead, so the buyers can be given without the suppliers. It still sits in the
+	// Sales group of the sidebar: the module is where a screen is ticked, not where it is shown.
+	{Key: "sales-vendors", Module: "vendors_sales", Label: "Vendors", Href: "/sales/vendors", Permissions: []string{VendorSalesRead}},
 	{Key: "sales-config", Module: "sales", Label: "Sales Config", Href: "/sales/config", Permissions: []string{SalesRead}},
 	{Key: "procurement-feed-purchases", Module: "feed_purchases", Label: "Feed Purchases", Href: "/procurement/feed-purchases", Permissions: []string{FeedPurchaseRead}},
 	// Animal purchases review (2026-09-13): CEO/CXO only, gated on the decide permission.
@@ -212,7 +211,7 @@ var moduleRoutePrefixes = map[string]string{
 	"/sales/farm-born":              "sales",
 	"/sales/market-analytics":       "sales",
 	"/sales/buyer-analytics":        "sales",
-	"/sales/vendors":                "sales",
+	"/sales/vendors":                "vendors_sales",
 	"/procurement/feed-purchases":   "feed_purchases",
 	"/procurement/animal-purchases": "animal_purchases",
 	"/procurement/sops":             "procurement",

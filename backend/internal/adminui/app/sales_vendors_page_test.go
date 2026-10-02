@@ -88,20 +88,21 @@ func TestSalesVendorsIsTheSameRegisterNarrowedToItsSellingHalf(t *testing.T) {
 // TestSalesVendorsIsGatedOnTheRegistersOwnPermission pins that putting the register under Sales did
 // NOT create a second door into it.
 //
-// The leaf sits in the Sales group and ticks with the sales module, but it is REACHED on VendorRead
-// -- the same permission Procurement > Vendors uses -- because it renders vendor rows, contact
-// numbers and a drawer that reaches payment instruments. Gating it on SalesRead would hand the
-// register to a sales reader who was deliberately never given it.
+// The leaf sits in the Sales group, but it is REACHED on the register's own permission -- never
+// SalesRead -- because it renders vendor rows, contact numbers and a drawer that reaches payment
+// instruments. Since 2026-10-02 each HALF has its own permission: Sales > Vendors (buyers) is
+// VendorSalesRead and Procurement > Vendors (suppliers) is VendorRead, so the buyers can be given
+// without the suppliers. The two must DIFFER, or giving one half gives both again.
 //
 // The nav gate and the page catalog are asserted to AGREE, because a leaf offered on one permission
 // while its route enforces another is the dead-leaf defect: it renders, and then 403s.
 func TestSalesVendorsIsGatedOnTheRegistersOwnPermission(t *testing.T) {
 	nav := permissionsForNav("sales-vendors")
-	if len(nav) != 1 || nav[0] != permissions.VendorRead {
-		t.Fatalf("sales-vendors nav gate = %v, want [%s]", nav, permissions.VendorRead)
+	if len(nav) != 1 || nav[0] != permissions.VendorSalesRead {
+		t.Fatalf("sales-vendors nav gate = %v, want [%s]", nav, permissions.VendorSalesRead)
 	}
 	if same := permissionsForNav("procurement-vendors"); len(same) != 1 || same[0] != permissions.VendorRead {
-		t.Fatalf("procurement-vendors nav gate = %v; the two halves of one register must share one authority", same)
+		t.Fatalf("procurement-vendors nav gate = %v, want [%s]", same, permissions.VendorRead)
 	}
 	// Not SalesRead, stated directly so a later "tidy-up" that groups it with the other sales
 	// leaves fails here rather than in production.
@@ -117,11 +118,12 @@ func TestSalesVendorsIsGatedOnTheRegistersOwnPermission(t *testing.T) {
 			continue
 		}
 		found = true
-		if page.Module != "sales" {
-			t.Errorf("sales-vendors ticks with module %q, want sales -- it is a Sales leaf", page.Module)
+		// Ticked on the buyers half of the register (2026-10-02), shown in the Sales group.
+		if page.Module != "vendors_sales" {
+			t.Errorf("sales-vendors ticks with module %q, want vendors_sales -- the buyers half", page.Module)
 		}
-		if len(page.Permissions) != 1 || page.Permissions[0] != permissions.VendorRead {
-			t.Errorf("sales-vendors catalog permissions = %v, want [%s]", page.Permissions, permissions.VendorRead)
+		if len(page.Permissions) != 1 || page.Permissions[0] != permissions.VendorSalesRead {
+			t.Errorf("sales-vendors catalog permissions = %v, want [%s]", page.Permissions, permissions.VendorSalesRead)
 		}
 	}
 	if !found {

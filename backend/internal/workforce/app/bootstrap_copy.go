@@ -453,8 +453,10 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		status:      moduleStatusAvailable,
 		priority:    11,
 		contributions: []moduleNavContribution{
-			{key: "sales", labelKey: "nav.sales", href: "/sales", shared_key: "", priority: 1, requiredPermission: permissions.SalesRead},                    //nav-composition:ignore: registry entry
-			{key: "sales_vendors", labelKey: "nav.vendors", href: "/sales/vendors", shared_key: "", priority: 2, requiredPermission: permissions.VendorRead}, //nav-composition:ignore: registry entry
+			{key: "sales", labelKey: "nav.sales", href: "/sales", shared_key: "", priority: 1, requiredPermission: permissions.SalesRead}, //nav-composition:ignore: registry entry
+			// The BUYERS half of the register: its own permission since 2026-10-02, so the tab can be
+			// given (Vendors · buyers) without the suppliers, and without the ledger tab above.
+			{key: "sales_vendors", labelKey: "nav.vendors", href: "/sales/vendors", shared_key: "", priority: 2, requiredPermission: permissions.VendorSalesRead}, //nav-composition:ignore: registry entry
 			// Market (maintainer decision 2026-09-14, MOVED here out of Procurement on 2026-09-20):
 			// one card per configured city each morning, the reporter records what goat and sheep
 			// fetch there. It shipped as a Procurement tab by mistake -- the survey asks what the
@@ -932,6 +934,17 @@ func candidateModuleKeysUnfiltered(grants []domain.GrantSummary, grantedModules 
 		keys := appendMissing(renderableModuleKeys(grantedModules), permissionOfferedModuleKeys(grants)...)
 		return appendMissing(keys, clockModuleKey)
 	}
+	if fromTicks {
+		// A person with stored rows: their TICKS are the phone menu, whatever their role
+		// (People / HRMS fixes, 2026-10-02). The leadership role used to cap it -- its curated
+		// set was intersected with the ticks -- so the role picked at Add Person silently
+		// decided the phone: Mohsin, added as Feed Director and ticked for the buyers and the
+		// market survey, saw only Clock. Nothing widens that the person was not ticked for
+		// (grantedModules IS the ticks here), each module's tabs still show only for the
+		// permission they need, and withoutPhoneWorkBoard still keeps My Work off a
+		// director's phone. Pinned by TestThePhoneMenuIsThePersonsTicksWhateverTheirRole.
+		return appendMissing(renderableModuleKeys(grantedModules), clockModuleKey)
+	}
 	return appendMissing(leadershipModuleKeys(grants), clockModuleKey)
 }
 
@@ -950,6 +963,12 @@ func renderableModuleKey(key string) string {
 	case "leave_approvals":
 		// The leave capability module renders as the Leave tab inside Approvals.
 		return "approvals"
+	case "vendors_sales", "market_survey":
+		// Both render as TABS inside the phone's Sales module (Vendors and Market). Ticking
+		// either is enough to bring the Sales module onto the phone; each tab -- and the Sales
+		// ledger tab -- still shows only for the permission it needs, so the three can be given
+		// one at a time (People / HRMS fixes, 2026-10-02).
+		return "sales"
 	}
 	return key
 }
@@ -1180,7 +1199,8 @@ func permissionOfferedModuleKeys(grants []domain.GrantSummary) []string {
 	}
 	// Market reporters need the Sales module even when they cannot read the sales ledger.
 	// Its contributions independently enforce their permissions.
-	if grantsHavePermission(grants, permissions.SalesRead) || grantsHavePermission(grants, permissions.MarketEntry) {
+	if grantsHavePermission(grants, permissions.SalesRead) || grantsHavePermission(grants, permissions.MarketEntry) ||
+		grantsHavePermission(grants, permissions.VendorSalesRead) {
 		keys = append(keys, "sales")
 	}
 	// Tag-only Sales (maintainer decision 2026-09-11) is offered on the ALLOCATION permission to

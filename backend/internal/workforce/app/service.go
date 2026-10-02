@@ -618,7 +618,9 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 	}
 	bootstrapModules := modulesForScope(scope, moduleKeysForBootstrap, localeTag, fromTicks, tickedModules)
 	navChrome := navChromeFor(grants, bootstrapModules)
-	visibleNav := visibleNavigationForTicks(scope, moduleKeysForBootstrap, localeTag, tickedModules)
+	// fromTicks, not a constant true: a person with no stored rows is on the role path, and the
+	// leadership offer must still answer for them (it ignored the flag until 2026-10-02).
+	visibleNav := visibleNavigationForScope(scope, moduleKeysForBootstrap, localeTag, fromTicks, tickedModules)
 	visibleNav, bootstrapModules = applyProfileEntryPlacement(navChrome, visibleNav, bootstrapModules)
 	s.applyModuleBadges(ctx, tenantID, actorID, bootstrapModules)
 	profile.PrimaryRoleLabel = roleHintLabel(profile.PrimaryRoleHint, localeTag)

@@ -96,20 +96,20 @@ type buyerAnalyticsPayload struct {
 
 // callerMaySeePhones resolves the vendor register permission from the SAME source the route table
 // authorized against: the per-person permission set when THAT decided the request, else the grant
-// roles -- never a query parameter. A buyer's phone number is register data (the /sales/vendors
-// leaf is gated on VendorRead for exactly this reason), so a sales reader who was never given the
+// roles -- never a query parameter. A buyer's phone number is the SALES half of the register (the
+// /sales/vendors leaf is gated on VendorSalesRead for exactly this reason), so a sales reader who was never given the
 // register gets the buyer rows without it.
 func callerMaySeePhones(r *http.Request) bool {
 	if perms, ok := httpmiddleware.PersonPermissionsFromContext(r.Context()); ok {
 		for _, p := range perms {
-			if p == permissions.VendorRead {
+			if p == permissions.VendorSalesRead {
 				return true
 			}
 		}
 		return false
 	}
 	for _, grant := range httpmiddleware.AuthGrantsFromContext(r.Context()) {
-		if permissions.RoleHasPermission(grant.Role, permissions.VendorRead) {
+		if permissions.RoleHasPermission(grant.Role, permissions.VendorSalesRead) {
 			return true
 		}
 	}

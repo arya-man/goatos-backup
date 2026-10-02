@@ -147,7 +147,7 @@ func TestBuyerPhoneColumnIsGatedOnVendorRead(t *testing.T) {
 	}
 }
 
-func TestBuyerPhoneColumnFollowsPersonVendorRead(t *testing.T) {
+func TestBuyerPhoneColumnFollowsThePersonsBuyersHalf(t *testing.T) {
 	const tenant = "00000000-0000-4000-8000-000000000001"
 	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
 		TenantID: tenant,
@@ -171,10 +171,17 @@ func TestBuyerPhoneColumnFollowsPersonVendorRead(t *testing.T) {
 		t.Fatalf("disabled reason = %q, want %q", control.DisabledReason, page.Copy["hint.phone_hidden"])
 	}
 
-	withVendor := applyPersonPageLens(resp, access, []string{permissions.SalesRead, permissions.VendorRead}, true)
+	// A buyer's phone is the SALES half of the register (2026-10-02): the suppliers-only
+	// permission no longer opens it, the buyers one does.
+	suppliersOnly := applyPersonPageLens(resp, access, []string{permissions.SalesRead, permissions.VendorRead}, true)
+	page = pageByRouteID(t, suppliersOnly.Pages, "sales-buyer-analytics")
+	if control := controlByID(t, page.Controls, "buyer_phone_column"); control.Enabled {
+		t.Fatalf("the suppliers half must not open buyer phones: %+v", control)
+	}
+	withVendor := applyPersonPageLens(resp, access, []string{permissions.SalesRead, permissions.VendorSalesRead}, true)
 	page = pageByRouteID(t, withVendor.Pages, "sales-buyer-analytics")
 	if control := controlByID(t, page.Controls, "buyer_phone_column"); !control.Enabled {
-		t.Fatalf("person with VendorRead must keep buyer phone column even without Sales Vendors tick: %+v", control)
+		t.Fatalf("person with the buyers half must keep buyer phone column even without Sales Vendors tick: %+v", control)
 	}
 }
 

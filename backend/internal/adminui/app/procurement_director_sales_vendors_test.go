@@ -19,14 +19,20 @@ func TestProcurementDirectorSalesVendorsFollowsTheHrmsTick(t *testing.T) {
 			{Role: permissions.RoleProcurementDirector, ScopeType: "tenant", ScopeID: tenant},
 		},
 	}
-	rows := func(salesPages ...string) permissions.PageAccess {
-		return permissions.PageAccessForAssignments([]permissions.ModuleAssignment{
+	// Since 2026-10-02 Sales > Vendors is ticked on the BUYERS half of the register
+	// (vendors_sales); migration 000465 wrote that row for everyone who had the leaf.
+	rows := func(buyers bool, salesPages ...string) permissions.PageAccess {
+		extra := []permissions.ModuleAssignment{}
+		if buyers {
+			extra = append(extra, permissions.ModuleAssignment{Surface: permissions.SurfaceWeb, Module: "vendors_sales", Capabilities: []string{"view", "do", "oversee"}, Pages: []string{"sales-vendors"}})
+		}
+		return permissions.PageAccessForAssignments(append(extra, []permissions.ModuleAssignment{
 			{Surface: permissions.SurfaceWeb, Module: "sales", Capabilities: []string{"view", "do"}, Pages: salesPages},
 			{Surface: permissions.SurfaceWeb, Module: "vendors", Capabilities: []string{"view", "do", "oversee"}, Pages: []string{"procurement-vendors"}},
 			{Surface: permissions.SurfaceWeb, Module: "feed_direction", Capabilities: []string{"view", "oversee", "configure"}, Pages: []string{"feed-analytics", "feed-sops"}},
 			{Surface: permissions.SurfaceWeb, Module: "feed_purchases", Capabilities: []string{"view", "do"}, Pages: []string{"procurement-feed-purchases"}},
 			{Surface: permissions.SurfaceWeb, Module: "procurement", Capabilities: []string{"view", "do", "oversee"}, Pages: []string{"procurement-source-entry"}},
-		})
+		}...))
 	}
 	fixed := []string{"/work-board", "/sales/config", "/feed/analytics", "/procurement/vendors", "/procurement/feed-purchases"}
 
@@ -36,8 +42,8 @@ func TestProcurementDirectorSalesVendorsFollowsTheHrmsTick(t *testing.T) {
 		want   []string
 	}{
 		// The Work Board leads the primary nav for every director (sprint instruction 2026-09-10).
-		{"ticked", rows("sales-board", "sales-vendors", "sales-config"), []string{"/work-board", "/sales/vendors", "/sales/config", "/feed/analytics", "/procurement/vendors", "/procurement/feed-purchases"}},
-		{"not ticked", rows("sales-board", "sales-config"), fixed},
+		{"ticked", rows(true, "sales-board", "sales-config"), []string{"/work-board", "/sales/vendors", "/sales/config", "/feed/analytics", "/procurement/vendors", "/procurement/feed-purchases"}},
+		{"not ticked", rows(false, "sales-board", "sales-config"), fixed},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			svc := NewService().WithPersonPageAccess(stubPageAccess{access: tc.access, assigned: true})

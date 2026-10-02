@@ -274,13 +274,13 @@ func canActorDownloadProof(ctx context.Context, tenantID, actorID string, proof 
 	if len(grants) == 0 {
 		return true
 	}
-	for _, capability := range []string{permissions.TaskRead, permissions.VendorRead, permissions.VerificationReview, permissions.VerificationVerdict} {
+	for _, capability := range []string{permissions.TaskRead, permissions.VendorRead, permissions.VendorSalesRead, permissions.VerificationReview, permissions.VerificationVerdict} {
 		if httpmiddleware.HasTenantWideCapability(grants, tenantID, capability) {
 			return true
 		}
 	}
 	if proof.ScopeType == "park" {
-		decision := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(ctx, tenantID, proof.ScopeID, permissions.TaskRead, permissions.VendorRead)
+		decision := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(ctx, tenantID, proof.ScopeID, permissions.TaskRead, permissions.VendorRead, permissions.VendorSalesRead)
 		return decision.Allowed
 	}
 	return false

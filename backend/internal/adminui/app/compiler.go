@@ -1376,7 +1376,8 @@ func compileLoadsWeightSeries(controls []domain.Control, input BootstrapInput, c
 // unreachable; it exists for the per-person path, where the endpoint (callerMaySeePhones) reads
 // the ticked permission set and this control is the contract's matching half.
 func compileBuyerAnalyticsControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
-	allowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.VendorRead})
+	// A buyer's phone number is the SALES half of the register (VendorSalesRead, 2026-10-02).
+	allowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.VendorSalesRead})
 	reason := ""
 	if !allowed {
 		reason = controlCopy(copy, "hint.phone_hidden", "Phone numbers are on the vendor register, which your current role cannot open.")
@@ -2640,7 +2641,10 @@ func permissionsForNav(id string) []string {
 		// VendorRead sees the Sales group WITHOUT this leaf, and the data route behind it
 		// (GET /procurement/vendors) refuses them too. The leaf and the endpoint agree, which is
 		// what stops a dead leaf that renders and then 403s.
-		return []string{permissions.VendorRead}
+		//
+		// Since 2026-10-02 the buyers half has its own permission, so the leaf is opened on
+		// VendorSalesRead and a person given only the buyers never reaches the suppliers.
+		return []string{permissions.VendorSalesRead}
 	case "sales-sold", "sales-farm-value", "sales-loads", "sales-config":
 		// The dedicated sales permission, NOT ProcurementRead: sales carries revenue, buyer names
 		// and realized prices -- the selling side, not the intake screens operators work.

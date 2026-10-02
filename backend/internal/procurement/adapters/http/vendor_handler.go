@@ -65,7 +65,7 @@ func RegisterVendors(mux *http.ServeMux, h *VendorHandler) {
 // GetVendorForm serves GET /procurement/vendor-form: the published `sales.vendor` form the Add /
 // Edit vendor screens render, catalog choices filled (VENDOR FORM IS AUTHORED, 2026-09-19).
 func (h *VendorHandler) GetVendorForm(w http.ResponseWriter, r *http.Request) {
-	form, err := h.service.VendorForm(r.Context(), tenantID(r), r.URL.Query().Get("side"))
+	form, err := h.service.VendorForm(sideCtx(r), tenantID(r), r.URL.Query().Get("side"))
 	if err != nil {
 		if errors.Is(err, app.ErrVendorSideUnknown) {
 			h.writeErr(w, r, app.VendorHTTPError(err))
@@ -82,18 +82,44 @@ func (h *VendorHandler) GetVendorForm(w http.ResponseWriter, r *http.Request) {
 // kilobytes; the cap stops a malformed or hostile client streaming an unbounded body into memory.
 const maxVendorRequestBytes = 64 * 1024
 
-// callerMaySeeFinance resolves VendorFinanceRead from the REQUEST's active grants.
-//
-// This is read from the caller's grants and never from a query parameter or request body: a client
-// must not be able to ask for payment instruments it does not hold the permission for. It is the
-// only input that decides whether bank/account/IFSC/UPI/PAN reach the response.
-func callerMaySeeFinance(r *http.Request) bool {
+// callerHolds answers "does the caller hold this permission" from the SAME source the route table
+// authorized against: the per-person permission set when THAT decided the request, else the grant
+// roles. Never a query parameter or body field.
+func callerHolds(r *http.Request, permission string) bool {
+	if perms, ok := httpmiddleware.PersonPermissionsFromContext(r.Context()); ok {
+		for _, p := range perms {
+			if p == permission {
+				return true
+			}
+		}
+		return false
+	}
 	for _, grant := range httpmiddleware.AuthGrantsFromContext(r.Context()) {
-		if permissions.RoleHasPermission(grant.Role, permissions.VendorFinanceRead) {
+		if permissions.RoleHasPermission(grant.Role, permission) {
 			return true
 		}
 	}
 	return false
+}
+
+// callerMaySeeFinance resolves VendorFinanceRead for the caller. It is the only input that
+// decides whether bank/account/IFSC/UPI/PAN reach the response. (It read the role grants alone
+// until 2026-10-02, so someone given Vendors at Oversee on /people without the matching job never
+// saw them.)
+func callerMaySeeFinance(r *http.Request) bool {
+	return callerHolds(r, permissions.VendorFinanceRead)
+}
+
+// sideCtx attaches which halves of the register the caller holds (People / HRMS fixes,
+// 2026-10-02). The route admits either half; the service refuses the other one on every read
+// and write.
+func sideCtx(r *http.Request) context.Context {
+	return app.WithVendorSideAccess(r.Context(), app.VendorSideAccess{
+		ReadSales:   callerHolds(r, permissions.VendorSalesRead),
+		ReadSupply:  callerHolds(r, permissions.VendorRead),
+		WriteSales:  callerHolds(r, permissions.VendorSalesWrite),
+		WriteSupply: callerHolds(r, permissions.VendorWrite),
+	})
 }
 
 // ListVendors serves GET /procurement/vendors.
@@ -119,7 +145,7 @@ func (h *VendorHandler) ListVendors(w http.ResponseWriter, r *http.Request) {
 		offset = parsed
 	}
 
-	page, err := h.service.ListVendors(r.Context(), tenantID(r), app.VendorListQuery{
+	page, err := h.service.ListVendors(sideCtx(r), tenantID(r), app.VendorListQuery{
 		Filter: domain.VendorFilter{
 			Search:     q.Get("search"),
 			RecordType: q.Get("record_type"),
@@ -163,7 +189,7 @@ func (h *VendorHandler) GetVendor(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, r, app.BadRequest("invalid_vendor_id", "That vendor link is not valid."))
 		return
 	}
-	vendor, err := h.service.GetVendor(r.Context(), tenantID(r), vendorID, callerMaySeeFinance(r))
+	vendor, err := h.service.GetVendor(sideCtx(r), tenantID(r), vendorID, callerMaySeeFinance(r))
 	if err != nil {
 		h.writeErr(w, r, app.VendorHTTPError(err))
 		return
@@ -178,7 +204,7 @@ func (h *VendorHandler) CreateVendor(w http.ResponseWriter, r *http.Request) {
 	if !h.decode(w, r, &body) {
 		return
 	}
-	created, err := h.service.CreateVendor(r.Context(), tenantID(r), body.toDomain(), httpmiddleware.ActorIDFromContext(r.Context()), callerMaySeeFinance(r))
+	created, err := h.service.CreateVendor(sideCtx(r), tenantID(r), body.toDomain(), httpmiddleware.ActorIDFromContext(r.Context()), callerMaySeeFinance(r))
 	if err != nil {
 		h.writeErr(w, r, app.VendorHTTPError(err))
 		return
@@ -198,7 +224,7 @@ func (h *VendorHandler) UpdateVendor(w http.ResponseWriter, r *http.Request) {
 	if !h.decode(w, r, &body) {
 		return
 	}
-	updated, err := h.service.UpdateVendor(r.Context(), tenantID(r), vendorID, body.toDomain(), body.RowVersion, httpmiddleware.ActorIDFromContext(r.Context()), strings.TrimSpace(r.Header.Get("Idempotency-Key")), callerMaySeeFinance(r))
+	updated, err := h.service.UpdateVendor(sideCtx(r), tenantID(r), vendorID, body.toDomain(), body.RowVersion, httpmiddleware.ActorIDFromContext(r.Context()), strings.TrimSpace(r.Header.Get("Idempotency-Key")), callerMaySeeFinance(r))
 	if err != nil {
 		h.writeErr(w, r, app.VendorHTTPError(err))
 		return
@@ -221,7 +247,7 @@ func (h *VendorHandler) UpdateVendorStatus(w http.ResponseWriter, r *http.Reques
 		h.writeErr(w, r, app.BadRequest("invalid_body", "That status change could not be read."))
 		return
 	}
-	updated, err := h.service.UpdateVendorStatus(r.Context(), tenantID(r), vendorID, body.Status, body.RowVersion,
+	updated, err := h.service.UpdateVendorStatus(sideCtx(r), tenantID(r), vendorID, body.Status, body.RowVersion,
 		httpmiddleware.ActorIDFromContext(r.Context()))
 	if err != nil {
 		h.writeErr(w, r, app.VendorHTTPError(err))
@@ -232,7 +258,7 @@ func (h *VendorHandler) UpdateVendorStatus(w http.ResponseWriter, r *http.Reques
 
 // ListVendorCatalog serves GET /procurement/vendor-catalog.
 func (h *VendorHandler) ListVendorCatalog(w http.ResponseWriter, r *http.Request) {
-	entries, err := h.service.ListVendorCatalog(r.Context(), tenantID(r), r.URL.Query().Get("side"))
+	entries, err := h.service.ListVendorCatalog(sideCtx(r), tenantID(r), r.URL.Query().Get("side"))
 	if err != nil {
 		h.writeErr(w, r, app.VendorHTTPError(err))
 		return
@@ -335,7 +361,7 @@ func (h *VendorHandler) writeErr(w http.ResponseWriter, r *http.Request, appErr 
 func (h *VendorHandler) catalogLabels(r *http.Request) catalogLabels {
 	// The WHOLE vocabulary, deliberately unnarrowed by side: this resolves the labels ON a vendor
 	// row, and a row must render its own capacity unit correctly whichever register it is listed in.
-	entries, err := h.service.ListVendorCatalog(r.Context(), tenantID(r), "")
+	entries, err := h.service.ListVendorCatalog(sideCtx(r), tenantID(r), "")
 	if err != nil {
 		h.log.Warn("vendor catalog labels unavailable", "err", err)
 		return nil

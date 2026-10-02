@@ -116,8 +116,9 @@ func TestSalesModuleAndItsVendorsTabAnswerToDifferentPermissions(t *testing.T) {
 		t.Fatalf("sales landing href = %q, want /sales", def.landingHref)
 	}
 	want := map[string]string{
-		"sales":         permissions.SalesRead,
-		"sales_vendors": permissions.VendorRead,
+		"sales": permissions.SalesRead,
+		// The BUYERS half of the register (2026-10-02), not the suppliers' VendorRead.
+		"sales_vendors": permissions.VendorSalesRead,
 		// Market MOVED here out of Procurement on 2026-09-20 and is the third answer to a
 		// different permission again: a sales reader who does not make the morning calls gets
 		// the module and its two register tabs, and never an entry form the server would refuse.

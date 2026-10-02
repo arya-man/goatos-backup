@@ -372,6 +372,19 @@ const (
 	// today; kept separate so a future read-only procurement analyst is expressible without a
 	// schema change.
 	VendorWrite = "procurement.vendor.write"
+	// VendorSalesRead / VendorSalesWrite gate the SALES half of the one vendor register: the
+	// agents, butchers, farmers, slaughter houses and companies the farm sells to (Sales >
+	// Vendors, the phone's Sales > Vendors tab). VendorRead / VendorWrite above now gate the
+	// PROCUREMENT half only -- the suppliers.
+	//
+	// Split on 2026-10-02 (People / HRMS fixes) because one permission opened both halves: a
+	// person given only the buyers needed the Vendors module, which also showed every supplier
+	// and served them through the API (`?side=procurement`, or no side at all). The side of a
+	// vendor is its record type's catalog `register_side`; the vendor handler checks it on every
+	// read and write. Every role and person that held VendorRead/VendorWrite was given these too
+	// (the role maps below, migration 000465), so nobody lost a buyer they could see.
+	VendorSalesRead  = "procurement.vendor.sales.read"
+	VendorSalesWrite = "procurement.vendor.sales.write"
 	// VendorFinanceRead gates the PAYMENT INSTRUMENTS on a vendor row -- bank name, account number,
 	// IFSC, UPI id and PAN. Without it the register still renders in full; those five fields come
 	// back null with FinanceRedacted set, so the screen says "hidden" rather than showing a
@@ -1315,6 +1328,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		// register and feed purchases, view and add -- is this desk's daily work.
 		AdminWebBootstrap: {}, AppBootstrap: {},
 		VendorRead: {}, VendorWrite: {}, VendorFinanceRead: {},
+		VendorSalesRead: {}, VendorSalesWrite: {},
 		ProcurementRead: {},
 		// The feed purchase ledger and its entry form: buying feed is this desk's job, and the
 		// vendors it is bought from are already in this role's register.
@@ -1344,6 +1358,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		// Market survey (2026-09-14): reads the analytics and authors the cities/questions.
 		MarketRead: {}, MarketConfigWrite: {}, SalesValuationWrite: {},
 		VendorRead: {}, VendorWrite: {}, VendorFinanceRead: {},
+		VendorSalesRead: {}, VendorSalesWrite: {},
 		FeedPurchaseRead: {}, FeedPurchaseWrite: {}, LoadCostWrite: {},
 		AnimalPurchaseRead: {}, AnimalPurchaseWrite: {},
 		FeedAnalyticsStockRead: {},
@@ -1542,6 +1557,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		// instruments. Founder/builder visibility invariant: the platform-owner cohort holds the
 		// grants for every built visible module.
 		VendorRead: {}, VendorWrite: {}, VendorFinanceRead: {},
+		VendorSalesRead: {}, VendorSalesWrite: {},
 		// The sales module (/sales): ledger, overview and record-sale. Same
 		// founder/builder visibility invariant.
 		SalesRead: {}, SalesWrite: {}, SalesAllocateAnimals: {},
