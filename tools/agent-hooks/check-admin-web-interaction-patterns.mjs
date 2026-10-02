@@ -17,8 +17,9 @@
 //   fake-checkbox               `role="checkbox"`, `role="menuitemcheckbox"` or `aria-checked=` on
 //                               anything that is not an `<input>`: a coloured square or a `.on`
 //                               button standing in for a tick. A choice the user ticks is a real
-//                               `<input type="checkbox">` inside a `<label>`; style the box, do
-//                               not fake the control (`components/people-dropdown.tsx`).
+//                               `<input type="checkbox">` inside a `<label>` (or the MUI `Checkbox`,
+//                               which renders one); style the box, do not fake the control
+//                               (`components/people-dropdown.tsx`).
 //
 //   revalidate-in-returning-action
 //                               in a `"use server"` module, a function that BOTH returns an object
@@ -208,7 +209,7 @@ function scanFile(rel) {
 // stops holding its invariant the guard's own advice is wrong, so this fails loudly.
 const REQUIRED_WIRING = [
   ["apps/admin-web/components/themed-date-picker.tsx", ["export function ThemedDatePicker"]],
-  ["apps/admin-web/components/people-dropdown.tsx", ['type="checkbox"', "<label"]],
+  ["apps/admin-web/components/people-dropdown.tsx", ['import Checkbox from "@mui/material/Checkbox"', "checked={"]],
   ["apps/admin-web/features/leadership-tasks/task-view-switch.tsx", ["preventDefault", "LocalOverlayUrl("]],
   ["apps/admin-web/features/leadership-tasks/task-row-store.ts", ["export function publishTaskRow"]],
 ];

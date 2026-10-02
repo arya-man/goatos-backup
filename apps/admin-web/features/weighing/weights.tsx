@@ -1061,7 +1061,7 @@ export async function WeighingWeightsPage({
                 options: {
                   xaxis: {
                     categories: gainThresholdRows.map((row) => [row.breed, `${row.animals.toLocaleString("en-IN")} ${gainKidsLabel}`]),
-                    labels: { rotate: 0, hideOverlappingLabels: false },
+                    labels: { rotate: 0, trim: true, hideOverlappingLabels: false },
                   },
                   responsive: [
                     {

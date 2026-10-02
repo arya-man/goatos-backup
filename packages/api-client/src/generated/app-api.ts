@@ -11116,10 +11116,6 @@ export interface components {
             /** @description Null keeps Load wise on the overall average sold price; a figure prices every unsold animal at it. */
             unsold_stock_price_rupees: number | null;
             row_version: number;
-            /**
-             * Format: date-time
-             * @description When the row was last saved, RFC3339 (UTC). Absent when never saved.
-             */
             updated_at?: string;
             updated_by_name?: string;
             /** @description The bands a write is refused outside of. */
@@ -11149,8 +11145,6 @@ export interface components {
             fixed_weight_kg: number | null;
             price_per_kg: number;
             display_order: number;
-            /** @description True when label is the tenant's stage name shown in place of a blank or raw-code stored label. Display only; ignored on write. */
-            label_is_default?: boolean;
         };
         /** @description The whole sales page contract, all blocks whole-filter aggregates. */
         SalesOverview: {

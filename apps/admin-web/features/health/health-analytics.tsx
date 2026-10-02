@@ -548,7 +548,7 @@ export async function HealthAnalyticsPage({
             ) : (
               // Monthly counts are discrete: columns, not an area. A two-point area drew one straight
               // line with a wash under it and read as a trend that was never measured.
-              <TrendChart data={deathRowsByMonth} xKey="month" kind="bar" stacked integerY series={deathChartSeries} height={300} />
+              <TrendChart data={deathRowsByMonth} xKey="month" kind="bar" stacked integerY series={deathChartSeries} height={300} emptyLabel={emptyChart} />
             )}            </Box>
           </Card>
 
@@ -585,6 +585,7 @@ export async function HealthAnalyticsPage({
                 integerY
                 series={[{ key: "new_cases", label: ha(pageContract, "kpi.new.label"), color: "var(--palette-primary-main)" }]}
                 height={300}
+                emptyLabel={emptyChart}
               />
             )}            </Box>
           </Card>
@@ -651,6 +652,7 @@ export async function HealthAnalyticsPage({
                 integerY
                 series={[{ key: "new_cases", label: ha(pageContract, "kpi.new.label"), color: "var(--palette-primary-main)" }]}
                 height={300}
+                emptyLabel={emptyChart}
               />
             )}            </Box>
           </Card>

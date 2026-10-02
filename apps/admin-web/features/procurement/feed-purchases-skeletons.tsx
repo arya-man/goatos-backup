@@ -13,7 +13,7 @@ export function FeedPurchasesStripSkeleton() {
   return (
     <Box sx={{ display: "contents" }}>
       <Box sx={{ mb: { xs: 3, md: 5 }, minWidth: 0 }}>
-        <StatStripSkeleton count={FEED_STRIP_CELLS.length} />
+        <StatStripSkeleton count={FEED_STRIP_CELLS.length} stackBelowSm />
       </Box>
     </Box>
   );
