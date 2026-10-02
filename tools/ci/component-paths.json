@@ -2,13 +2,11 @@
   "version": 1,
   "forceFull": {
     "prefixes": [
-      "tools/agent-hooks/"
     ],
     "exceptFiles": [
       "tools/agent-hooks/postgres-bind-contract-baseline.json"
     ],
     "files": [
-      "Makefile",
       "package.json",
       "package-lock.json",
       "go.work",
@@ -30,6 +28,7 @@
       "tools/ci/ci-scope.mjs",
       "tools/ci/component-paths.json",
       "tools/ci/crg-worktree-hook.sh",
+      "tools/ci/guardrail-manifest.json",
       "tools/ci/land-main.sh",
       "tools/ci/land-main.test.sh",
       "tools/ci/land-route.sh",
@@ -139,13 +138,15 @@
         "infra/",
         "load-tests/",
         "tools/perf/",
-        "tools/scale-guard/"
-      ],
-      "files": [
-        "tools/agent-hooks/postgres-bind-contract-baseline.json",
-        "tools/dev/commandboard-query-plan-guard.sh"
-      ]
-    },
+      "tools/scale-guard/"
+    ],
+    "files": [
+      "Makefile",
+      "tools/agent-hooks/postgres-bind-contract-baseline.json",
+      "tools/agent-hooks/check-loadwise-stock-valuation.mjs",
+      "tools/dev/commandboard-query-plan-guard.sh"
+    ]
+  },
     "adminWeb": {
       "prefixes": [
         "apps/admin-web/",

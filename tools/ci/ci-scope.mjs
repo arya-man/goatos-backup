@@ -227,7 +227,8 @@ function selfTest() {
   assert.deepEqual(qp(["backend/internal/verification/samplingsql/sql.go"]), ["commandboard"],
     "a package in the command-board test's import closure schedules it");
   assert.deepEqual(qp(["backend/go.sum"]), ["commandboard"]);
-  assert.deepEqual(qp(["Makefile"]), ["sqlc", "commandboard"], "forced full suite runs both");
+  assert.deepEqual(qp(["Makefile"]), [],
+    "a Makefile-only guard target edit must not pay for PostgreSQL plan gates");
   assert.deepEqual(classifyPaths([]).queryPlanSteps, ["sqlc", "commandboard"]);
   assert.deepEqual(qp(["docs/progress/local-ci.md"]), []);
   // The command board's statements live in vaccinationexecution, NOT vaccination, and that one
@@ -262,6 +263,10 @@ function selfTest() {
     common: true, backend: true, adminWeb: false, android: false, full: false,
     selectedJobs: ["common", "backend"],
   });
+  assert.deepEqual(pick(["Makefile", "tools/agent-hooks/check-loadwise-stock-valuation.mjs"]), {
+    common: true, backend: true, adminWeb: false, android: false, full: false,
+    selectedJobs: ["common", "backend"],
+  });
   assert.equal(pick(["tools/agent-hooks/check-postgres-bind-contract.mjs"]).full, true);
   assert.deepEqual(pick(["cloudbuild.stg.yaml"]), {
     common: true, backend: false, adminWeb: false, android: false, full: false,
@@ -293,6 +298,18 @@ function selfTest() {
   // still runs whenever its own DTOs/code change.
   // A fan-out no longer implies the DB plan gates: neither gate reads contracts/ or a UI file.
   assert.deepEqual(pick(["contracts/openapi/app-api.yaml"]), {
+    common: true, backend: true, adminWeb: true, android: false, full: false,
+    selectedJobs: ["common", "backend", "admin-web"],
+  });
+  assert.deepEqual(pick([
+    "Makefile",
+    "apps/admin-web/features/procurement/loadwise-section.tsx",
+    "backend/internal/procurement/adapters/postgres/loadwise_repository.go",
+    "contracts/openapi/app-api.yaml",
+    "packages/api-client/src/generated/app-api.ts",
+    "tools/agent-hooks/check-loadwise-stock-valuation.mjs",
+    "tools/ci/run-local-ci.sh",
+  ]), {
     common: true, backend: true, adminWeb: true, android: false, full: false,
     selectedJobs: ["common", "backend", "admin-web"],
   });
