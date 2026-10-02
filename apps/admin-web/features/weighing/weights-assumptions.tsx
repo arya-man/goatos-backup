@@ -260,12 +260,24 @@ export function WeightsAssumptionsControl({
                   fullWidth
                   onChange={(event) => setDraft((d) => ({ ...d, prices: { ...d.prices, [species]: event.target.value } }))}
                   helperText={
-                    price ? `${copy(pageContract, "drawer.assumptions.set_by")} ${price.set_by} · ${fmtDate(price.effective_from)}` : undefined
+                    // A setter is printed only when a PERSON set the value; the seeded first values
+                    // carry no setter (backend DisplaySetter), and print their date alone.
+                    price
+                      ? price.set_by
+                        ? `${copy(pageContract, "drawer.assumptions.set_by")} ${price.set_by} · ${fmtDate(price.effective_from)}`
+                        : fmtDate(price.effective_from)
+                      : undefined
                   }
                   slotProps={{ htmlInput: { inputMode: "decimal", step: "1" } }}
                 />
                 {current.stages.length > 0 ? (
-                  <Accordion variant="outlined" disableGutters>
+                  <Accordion
+                    variant="outlined"
+                    disableGutters
+                    // A closed outlined accordion draws its own border; MUI's ::before divider on top of
+                    // it read as a broken frame, and square corners did not match the fields above.
+                    sx={{ borderRadius: 1, overflow: "hidden", "&::before": { display: "none" } }}
+                  >
                     <AccordionSummary expandIcon={<Iconify icon="eva:arrow-ios-downward-fill" width={18} />}>
                       <Typography variant="body2" sx={{ color: "primary.main", fontWeight: "fontWeightSemiBold" }}>
                         {copy(pageContract, "drawer.assumptions.prices.by_stage")}
@@ -351,9 +363,11 @@ export function WeightsAssumptionsControl({
                     helperText={
                       <>
                         {copy(pageContract, `assumption.${key}.hint`)}
-                        <Box component="span" sx={{ display: "block" }}>
-                          {copy(pageContract, "drawer.assumptions.set_by")} {value.set_by}
-                        </Box>
+                        {value.set_by ? (
+                          <Box component="span" sx={{ display: "block" }}>
+                            {copy(pageContract, "drawer.assumptions.set_by")} {value.set_by}
+                          </Box>
+                        ) : null}
                       </>
                     }
                     slotProps={{

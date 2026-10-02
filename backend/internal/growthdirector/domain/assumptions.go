@@ -409,3 +409,20 @@ func (g GrowthSettings) CacheKey() string {
 	}
 	return "bands=" + strings.Join(parts, ",") + ";target=" + trimFloat(g.SlowGrowthTargetG) + ";badscan=" + trimFloat(g.BadScanLossGPerDay) + ";period=" + fmt.Sprintf("%d", g.DefaultPeriodDays)
 }
+
+// DisplaySetter turns a stored set_by into what a screen may print beside an assumption. A
+// person's name passes through. The actors the migrations seeded the first values under
+// ("maintainer", "migration:...", "system", "seed...") are not people: printing them put an
+// internal word on a farm screen ("set by maintainer"), so they resolve to "" and the screen
+// prints no setter at all -- the effective date still says when the value took effect.
+func DisplaySetter(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	lower := strings.ToLower(trimmed)
+	switch {
+	case lower == "", lower == "maintainer", lower == "system":
+		return ""
+	case strings.HasPrefix(lower, "migration:"), strings.HasPrefix(lower, "seed"):
+		return ""
+	}
+	return trimmed
+}

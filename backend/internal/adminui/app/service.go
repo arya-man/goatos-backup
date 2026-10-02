@@ -1445,9 +1445,9 @@ func weighingWeightsCopy() map[string]string {
 		"action.assumptions":                            "Assumptions",
 		"disabled.assumptions":                          "Your access can read the Weighing figures but not change them.",
 		"drawer.assumptions.title":                      "Assumptions",
-		"drawer.assumptions.caption":                    "Figures the Weighing pages are valued and judged against. A change applies the next time a page loads, whatever period the page is showing.",
+		"drawer.assumptions.caption":                    "The figures the Weighing pages value and judge against.",
 		"drawer.assumptions.prices.title":               "Live-weight sale price",
-		"drawer.assumptions.prices.hint":                "₹ per kg live weight, used to value weight gained (FCR tab) and stock on hand (Load-wise tab).",
+		"drawer.assumptions.prices.hint":                "₹ per kg live weight; values weight gained and stock on hand.",
 		"drawer.assumptions.prices.default":             "All stages",
 		"drawer.assumptions.prices.by_stage":            "By stage and sex",
 		"drawer.assumptions.prices.by_stage.hint":       "Only stages with weighed animals in them are listed. Leave a box blank to use the all-stages price above. Each animal is valued at its own stage and sex.",
@@ -5897,8 +5897,8 @@ func pageSpecificCopy(id string) map[string]string {
 			// the weight_kg_compare option group; the value is typed, never enumerated.
 			"filter.apply":             "Apply",
 			"filter.pens_bar_aria":     "Filter pens",
-			"filter.weight.label":      "Average weight (kg)",
-			"filter.weight.value_aria": "Average weight in kilograms",
+			"filter.weight.label":      "Average weight",
+			"filter.weight.value_aria": "kg",
 			"filter.weight.note":       "Only pens whose average weight matches",
 
 			// The Time-wise tab's own two controls (maintainer request 2026-09-21). They are
@@ -9496,9 +9496,9 @@ func pageSpecificCopy(id string) map[string]string {
 			m["action.assumptions"] = "Assumptions"
 			m["disabled.assumptions"] = "Your access can read the Weighing figures but not change them."
 			m["drawer.assumptions.title"] = "Assumptions"
-			m["drawer.assumptions.caption"] = "Figures the Weighing pages are valued and judged against. A change applies the next time a page loads, whatever period the page is showing."
+			m["drawer.assumptions.caption"] = "The figures the Weighing pages value and judge against."
 			m["drawer.assumptions.prices.title"] = "Live-weight sale price"
-			m["drawer.assumptions.prices.hint"] = "₹ per kg live weight, used to value weight gained (FCR tab) and stock on hand (Load-wise tab)."
+			m["drawer.assumptions.prices.hint"] = "₹ per kg live weight; values weight gained and stock on hand."
 			m["drawer.assumptions.prices.default"] = "All stages"
 			m["drawer.assumptions.prices.by_stage"] = "By stage and sex"
 			m["drawer.assumptions.prices.by_stage.hint"] = "Only stages with weighed animals in them are listed. Leave a box blank to use the all-stages price above. Each animal is valued at its own stage and sex."
