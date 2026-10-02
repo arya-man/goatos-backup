@@ -176,7 +176,10 @@ function FarmValueSections({
         const animalsLine = `${num(overview.farm_valuation.total_animals)} ${copy(pageContract, countKey(overview.farm_valuation.total_animals, "value.live_animal", "value.live_animals"))}`;
         return (
           <>
-            <Grid size={SALES_GRID.valueChart}>
+            {/* The chart card hugs its plot and, beside the much taller breakdown rows, stays in view
+                while they scroll past (sticky from md up). Stretched to the rows' height it painted
+                ~500px of empty card under the bars (PR #294 S5). */}
+            <Grid size={SALES_GRID.valueChart} sx={{ alignSelf: "flex-start", position: { md: "sticky" }, top: { md: 96 } }}>
               {/* Share of the farm's value per category as labelled horizontal bars (template
                   AnalyticsConversionRates). The polar "rose" it replaces drew no labels and turned
                   seven of nine categories into slivers; a bar keeps every category named and
@@ -199,7 +202,6 @@ function FarmValueSections({
                     },
                   ],
                 }}
-                sx={{ height: 1 }}
               />
             </Grid>
             <Grid size={SALES_GRID.valueRows}>

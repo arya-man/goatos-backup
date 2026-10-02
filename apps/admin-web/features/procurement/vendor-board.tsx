@@ -81,6 +81,9 @@ function hrefWithQuery(pathname: string, sp: RouteSearchParams, patch: Record<st
   return qs ? `${pathname}?${qs}` : pathname;
 }
 
+/** The row's pencil cell: shown from `sm` up; on a phone the vendor name is the way into its drawer. */
+const VENDOR_ACTION_CELL_SX = { display: { xs: "none", sm: "table-cell" } } as const;
+
 const FILTER_KEYS = VENDOR_FILTER_KEYS;
 
 /** Where each facet's offered values live in the vendor catalog (mirrors the filter bar's selects). */
@@ -193,7 +196,10 @@ export async function VendorBoardPage({
     { id: "phone_number", label: copy(pageContract, "column.phone_number"), sortable: false },
     { id: "location_display", label: copy(pageContract, "column.location_display"), sortable: false },
     { id: "status", label: copy(pageContract, "column.status"), sortable: false },
-    { id: "", width: 64, sortable: false },
+    // Phone: the pencil column is hidden (the name already opens the same drawer). Pinned at the
+    // right edge beside the pinned name column it left ~60px of a 390 screen for every other column,
+    // so Type read "Mar" / "Trar" under it (PR #294 S3).
+    { id: "", width: 64, sortable: false, sx: VENDOR_ACTION_CELL_SX },
   ];
   const chips: ToolbarChip[] = [
     ...(search ? [{ id: "search", group: copy(pageContract, "filter.search", "Search"), label: search, href: hrefWithQuery(pathname, sp, { search: null, offset: null }) }] : []),
@@ -287,7 +293,7 @@ export async function VendorBoardPage({
                     <TableRow key={vendor.vendor_id} hover>
                       {/* The name column holds a floor so a phone (where the table pans in its own
                           box) does not squeeze a business name onto three or four lines. */}
-                      <TableCell sx={{ minWidth: 240 }}>
+                      <TableCell sx={{ minWidth: { xs: 200, sm: 240 } }}>
                         <Box sx={{ gap: 2, display: "flex", alignItems: "center" }}>
                           <Avatar alt={vendor.business_name}>{vendor.business_name.slice(0, 1).toUpperCase()}</Avatar>
                           <Stack sx={{ typography: "body2", flex: "1 1 auto", alignItems: "flex-start", minWidth: 0 }}>
@@ -313,7 +319,7 @@ export async function VendorBoardPage({
                           {vendor.status_label}
                         </Label>
                       </TableCell>
-                      <TableCell align="right">
+                      <TableCell align="right" sx={VENDOR_ACTION_CELL_SX}>
                         <IconButton component={LocalOverlayLink} href={drawerHref} scroll={false} aria-label={`${copy(pageContract, "action.edit", "Edit")} ${vendor.business_name}`}>
                           <Iconify icon="solar:pen-bold" />
                         </IconButton>

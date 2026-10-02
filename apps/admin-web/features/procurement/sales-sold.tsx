@@ -198,8 +198,9 @@ function SoldSections({
                 animals away (null renders an empty figure). */}
             <KpiWidget
               title={copy(pageContract, "kpi.realized_price")}
-              total={summary.realized_price_per_kg > 0 ? summary.realized_price_per_kg : null}
-              caption={summary.realized_price_per_kg > 0 ? `₹ ${perKgSuffix}` : none}
+              total={summary.realized_price_per_kg > 0 ? Math.round(summary.realized_price_per_kg) : null}
+              unit={summary.realized_price_per_kg > 0 ? "₹" : undefined}
+              caption={summary.realized_price_per_kg > 0 ? perKgSuffix : none}
               color="secondary"
               sx={{ height: 1 }}
             />
@@ -288,7 +289,9 @@ function SoldSections({
       {/* The market benchmark table was removed from this board (maintainer request
           2026-09-03); the quotes are still entered and kept on /sales/config. */}
 
-      {/* Buyers -- template Best salesman table (md 8, beside Latest products as in the template), the share of revenue as its rank chip. */}
+      {/* Buyers -- template Best salesman table (md 8, beside Latest products as in the template), the share of revenue as its rank chip.
+          The place rides under the buyer's name (the lead cell's second line), not as its own column
+          too: the same word twice made the table wider than a phone for nothing (PR #294 S1). */}
       <Grid size={SALES_GRID.main}>
         <RankedTableCard
           component="section"
@@ -303,7 +306,6 @@ function SoldSections({
           regionId="sales-sold-buyers"
           headCells={[
             { id: "buyer", label: copy(pageContract, "column.buyer_name") },
-            { id: "place", label: copy(pageContract, "column.buyer_place") },
             { id: "buys", label: copy(pageContract, "column.product_types") },
             { id: "deals", label: copy(pageContract, "column.deals"), align: "right" },
             { id: "animals", label: copy(pageContract, "column.animals"), align: "right" },
@@ -315,7 +317,6 @@ function SoldSections({
             name: buyer.buyer_name,
             secondary: buyer.buyer_place || undefined,
             cells: [
-              { value: buyer.buyer_place || none },
               { value: buyer.product_types.join(" · ") },
               { value: num(buyer.deals), align: "right" },
               { value: num(buyer.animals), align: "right" },

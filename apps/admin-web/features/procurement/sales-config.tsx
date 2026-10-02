@@ -57,6 +57,10 @@ import { PageRoot } from "@/components/app/page-root";
 const PAGE_PATH = "/sales/config";
 /** A whole-cell drawer link: fills the template cell padding so the full cell is the 44px tap target. */
 const CELL_LINK_SX = { display: "flex", alignItems: "center", minHeight: 44, m: -2, p: 2, color: "inherit", textDecoration: "none" } as const;
+// The link fills its cell as a flex row, so the cell's own `align="right"` moved nothing: counts,
+// kg and rupees sat at the left of their right-aligned headings (PR #294 S8). A figure cell's link
+// packs its content to the end, in tabular digits, as on /sales/sold.
+const CELL_LINK_RIGHT_SX = { ...CELL_LINK_SX, justifyContent: "flex-end", textAlign: "right", fontVariantNumeric: "tabular-nums" } as const;
 
 function hrefWithQuery(sp: RouteSearchParams, patch: Record<string, string | null>): string {
   const query = new URLSearchParams();
@@ -309,7 +313,7 @@ export async function SalesConfigPage({
                   const drawerHref = hrefWithQuery(sp, { deal_id: deal.deal_id });
                   const dealCell = (value: ReactNode, align?: "right") => (
                     <TableCell align={align}>
-                      <Box component={LocalOverlayLink} href={drawerHref} scroll={false} sx={CELL_LINK_SX}>
+                      <Box component={LocalOverlayLink} href={drawerHref} scroll={false} sx={align === "right" ? CELL_LINK_RIGHT_SX : CELL_LINK_SX}>
                         {value}
                       </Box>
                     </TableCell>
@@ -318,9 +322,10 @@ export async function SalesConfigPage({
                     <TableRow key={deal.deal_id} hover>
                       {dealCell(humanDate(deal.sale_date))}
                       {dealCell(deal.farm)}
-                      {dealCell(<IdentityCell primary={deal.buyer_name} secondary={deal.product_type || undefined} />)}
+                      {/* The product type has its own column, so it is not repeated under the buyer. */}
+                      {dealCell(<IdentityCell primary={deal.buyer_name} />)}
                       {dealCell(deal.product_type)}
-                      {dealCell(breedBeyondProduct(deal.product_type, deal.breed) ?? "")}
+                      {dealCell(breedBeyondProduct(deal.product_type, deal.breed) ?? none)}
                       {dealCell(deal.animal_count == null ? none : num(deal.animal_count), "right")}
                       {dealCell(deal.total_weight_kg == null ? none : num(deal.total_weight_kg, 1), "right")}
                       {dealCell(inr(deal.sales_value), "right")}
@@ -389,7 +394,7 @@ export async function SalesConfigPage({
                   const costHref = hrefWithQuery(sp, { cost_load: load.load_id });
                   const costCell = (value: ReactNode, align?: "right") => (
                     <TableCell align={align}>
-                      <Box component={LocalOverlayLink} href={costHref} scroll={false} sx={CELL_LINK_SX}>
+                      <Box component={LocalOverlayLink} href={costHref} scroll={false} sx={align === "right" ? CELL_LINK_RIGHT_SX : CELL_LINK_SX}>
                         {value}
                       </Box>
                     </TableCell>

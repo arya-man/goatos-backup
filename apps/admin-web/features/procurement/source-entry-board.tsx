@@ -37,13 +37,16 @@ import { LinkSelect } from "@/components/app/link-select";
 import { SOURCE_LOAD_COLUMNS, SOURCE_LOAD_TAB_STATES, SOURCE_LOAD_TABLE_COLUMNS } from "./source-entry-layout";
 import { PageRoot } from "@/components/app/page-root";
 
-// Phone cards: load + status on the first line, holding farm under it, then the animal count
-// (labelled -- the header row is hidden) beside the warmup reading. nth = the TABLE column order
-// (SOURCE_LOAD_TABLE_COLUMNS): load, holding, animals, warmup, health / selection, status.
+// Phone cards: load + status on the first line, holding farm beside the health / selection
+// reading under it, then the animal count (labelled -- the header row is hidden) beside the warmup
+// reading. Every column the laptop table shows has a place: the health / selection reading used to
+// be dropped on a phone (PR #294 S6). nth = the TABLE column order (SOURCE_LOAD_TABLE_COLUMNS):
+// load, holding, animals, warmup, health / selection, status.
 const LOAD_CARDS_SX = phoneLoadCardsSx("source-loads-table", [
   { nth: 1, column: "1", row: 1 },
   { nth: 6, column: "2", row: 1, alignEnd: true },
-  { nth: 2, column: "1 / -1", row: 2, secondary: true },
+  { nth: 2, column: "1", row: 2, secondary: true },
+  { nth: 5, column: "2", row: 2, alignEnd: true },
   { nth: 3, column: "1", row: 3, secondary: true, labelled: true },
   { nth: 4, column: "2", row: 3, alignEnd: true },
 ]);
