@@ -44,6 +44,7 @@ var _ ports.SalesExecutiveAnalyticsRepository = (*Repository)(nil)
 // offers (at most twice 90 days). The audit branches ride audit_log_tenant_action_idx
 // (tenant_id, action, recorded_at); the register and the market entries are small authored
 // tables read once per request in one statement, the same reasoning as the buyer read.
+// scale-guard:plan-proof-exempt: bounded executive report capped to the UI date window and filtered by tenant, action and recorded_at on audit_log_tenant_action_idx.
 const salesActivitiesSQL = `
 WITH person AS (
     SELECT wm.user_id,

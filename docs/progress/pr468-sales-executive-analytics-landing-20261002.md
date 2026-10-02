@@ -24,6 +24,9 @@
   PR #468's vendor edit audit trail.
 - Renumbered the page-tick migration to `000469` after main's `000467_sales_designations.sql` and
   `000468_vendor_register_buyers_module.sql`.
+- Added a narrow `scale-guard-plan-proof` exemption for `salesActivitiesSQL`: the query is capped to
+  the UI date window and filters `audit_log` by tenant, action, and recorded time on the existing
+  `audit_log_tenant_action_idx`.
 
 ## Proof So Far
 
@@ -54,11 +57,13 @@
   normalized the dependency tree, and `package-lock.json` was restored.
 - Third `make land-main` attempt failed before push on `scale-guard`; the repository SQL shape was
   repaired and the focused scale guard is now green.
+- Fourth `make land-main` attempt failed before push on `scale-guard-plan-proof`; the analytics
+  activity read now carries the narrow bounded-report exemption above.
 - No STG or mobile deployment has been requested or performed.
 
 ## Current SHA / Deployment State
 
 - Candidate SHA before the landing note: `90895353943177bfa98e6120a0f43c098e7cfeb8`.
-- Current candidate after second rebase and migration renumber: pending commit.
+- Current candidate after second rebase, migration renumber, and plan-proof note: pending commit.
 - Base SHA: `fe22610c30e9b33027e192f2256e22132a989079`.
 - Deployment state: not deployed.
