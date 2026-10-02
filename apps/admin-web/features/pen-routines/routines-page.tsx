@@ -77,7 +77,6 @@ const PARAM_ROUTINE_STATUS = "rstatus";
 const PARAM_ROLE = "role";
 const PARAM_STATE = "state";
 const PARAM_ASSIGNEE = "assignee";
-const PARAM_TO = "to";
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 const STATUS_COLOR: Record<PenRoutineRow["status"], LabelColor> = { active: "success", paused: "warning", retired: "default" };
@@ -542,7 +541,6 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
             <CardHeader
               sx={ROUTINES_CARD_HEADER_SX}
               title={tasksTable.title}
-              subheader={data.todayPark?.name}
               action={data.todayPark ? <Label variant="soft" color="info">{taskRows.length}</Label> : null}
             />
             {data.tasks && !data.tasks.ok ? (
@@ -559,6 +557,21 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
               searchPlaceholder={copy(pageContract, "filter.search_placeholder", c("filter.routine"))}
               searchLabel={copy(pageContract, "filter.search_label", c("filter.routine"))}
               filters={[
+                  // The Today table reads ONE park's tasks; the park it read is a visible choice
+                  // here (no "All parks" entry) rather than an unexplained subtitle under an
+                  // All-parks scope (A11, pr294).
+                  ...(parks.length > 1 && data.todayPark
+                    ? [
+                        {
+                          param: PARAM_PARK,
+                          label: c("filter.park"),
+                          value: data.todayPark.park_id,
+                          allLabel: c("filter.park"),
+                          noAll: true,
+                          options: parks.map((park) => ({ value: park.park_id, label: park.name })),
+                        },
+                      ]
+                    : []),
                 {
                   param: PARAM_ROUTINE,
                   label: c("filter.routine"),
@@ -581,16 +594,17 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
                   options: assigneeOptions,
                 },
               ]}
-              dateRange={{
+              // ONE day (F4, pr294): the Today read takes a single business day; the old range's
+              // second, identically labelled "Day" field wrote a `to` nothing read.
+              day={{
+                param: PARAM_DAY,
                 label: c("filter.business_date"),
-                fromParam: PARAM_DAY,
-                toParam: PARAM_TO,
-                from: data.businessDate,
-                to: one(sp, PARAM_TO) ?? "",
-                fromLabel: c("filter.business_date"),
-                toLabel: c("filter.business_date"),
+                value: data.businessDate,
+                previousMonthLabel: c("date.prev_month"),
+                nextMonthLabel: c("date.next_month"),
+                invalidDateText: c("date.invalid"),
               }}
-              clearable={[PARAM_Q, PARAM_ROUTINE, PARAM_STATE, PARAM_ASSIGNEE, PARAM_TO]}
+              clearable={[PARAM_Q, PARAM_ROUTINE, PARAM_STATE, PARAM_ASSIGNEE, PARAM_DAY]}
               cursorParams={[PARAM_CURSOR, PARAM_PAGE, PARAM_STACK]}
               shown={taskRows.length}
               total={allTaskRows.length}
