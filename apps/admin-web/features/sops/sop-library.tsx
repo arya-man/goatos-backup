@@ -451,8 +451,13 @@ function SopItem({ view, facets, pageContract, justPublished, onView, onEdit }: 
   const facts: JobItemFact[] = [];
   if (facets.domain) facts.push({ key: "domain", label: view.domainLabel, icon: <Iconify width={16} icon="solar:tag-horizontal-bold-duotone" sx={{ flexShrink: 0 }} /> });
   if (facets.trigger && view.trigger) facts.push({ key: "trigger", label: view.trigger, icon: <Iconify width={16} icon="solar:clock-circle-bold" sx={{ flexShrink: 0 }} /> });
+  // A SOP that ALSO carries operator steps (birth, death, shifting) counts two different things: the
+  // capture form's questions (form_dsl.fields) and the follow-up steps. Both used to say "steps"
+  // ("12 steps" beside "16 operator steps" on Birth Recording), so the form count is named for what
+  // it is there.
+  const formNoun = view.followUpStepCount > 0 ? ["label.form_question", "label.form_questions"] : ["label.step", "label.steps"];
   if (facets.counts && view.stepCount !== null)
-    facts.push({ key: "steps", label: `${view.stepCount} ${view.stepCount === 1 ? copy(pageContract, "label.step", copy(pageContract, "label.steps")) : copy(pageContract, "label.steps")}`, icon: <Iconify width={16} icon="solar:list-bold" sx={{ flexShrink: 0 }} /> });
+    facts.push({ key: "steps", label: `${view.stepCount} ${view.stepCount === 1 ? copy(pageContract, formNoun[0], copy(pageContract, formNoun[1])) : copy(pageContract, formNoun[1])}`, icon: <Iconify width={16} icon="solar:list-bold" sx={{ flexShrink: 0 }} /> });
   if (facets.counts && view.inspectionQuestionCount > 0)
     facts.push({ key: "questions", label: `${view.inspectionQuestionCount} ${copy(pageContract, "label.inspection_questions")}`, icon: <Iconify width={16} icon="solar:bill-list-bold" sx={{ flexShrink: 0 }} /> });
   if (facets.counts && view.followUpStepCount > 0)

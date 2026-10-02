@@ -9087,6 +9087,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"status.draft":                            "draft",
 			"status.retired":                          "retired",
 			"label.steps":                             "steps",
+			"label.form_questions":                    "form questions",
+			"label.form_question":                     "form question",
 			"label.step":                              "step",
 			"label.no_proof_gates":                    "no proof gates",
 			"label.no_published_version":              "no published version",
@@ -11026,8 +11028,8 @@ func sopOptionGroups() []domain.OptionGroup {
 		{
 			ID: "subject_scopes",
 			Options: []domain.Option{
-				option("batch", "subject: batch", "", ""),
-				option("goat", "subject: per-goat", "", ""),
+				option("batch", "One proof for the whole pen", "", ""),
+				option("goat", "One proof per animal", "", ""),
 			},
 		},
 		{
