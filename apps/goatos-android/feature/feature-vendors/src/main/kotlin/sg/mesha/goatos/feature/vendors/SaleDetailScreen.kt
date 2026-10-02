@@ -333,6 +333,7 @@ private fun StepsCard(state: SaleDetailUiState, onEvent: (SaleDetailEvent) -> Un
                 }
                 Text(text = STEPS_OPEN, color = MeshaColors.BrandD, style = MeshaType.pillStrong)
             }
+            state.stepsWaitingLine.isNotBlank() -> Text(text = state.stepsWaitingLine, color = MeshaColors.Muted, style = MeshaType.caption)
             state.stepsUnavailable -> Text(text = STEPS_OFFLINE, color = MeshaColors.Muted, style = MeshaType.caption)
             else -> Text(text = STEPS_PENDING, color = MeshaColors.Muted, style = MeshaType.caption)
         }

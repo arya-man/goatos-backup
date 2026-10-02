@@ -271,14 +271,30 @@ internal fun animalsLine(count: Double?): String = when {
     else -> "${indianNumber(count, 0)} animals"
 }
 
+/** "₹50,000 advance" -- what an advance-only sale holds; blank when nothing was received. */
+internal fun SalesDealDto.advanceReceivedLine(): String =
+    paymentReceived?.takeIf { it >= 1.0 }?.let { "${rupees(it)} advance" }.orEmpty()
+
+/**
+ * Where the money stands, in one phrase. A sale that fell through owes nothing and says what became
+ * of its money (the backend's words); an advance-only sale has no value to be paid against yet.
+ * Sheet-imported deals carry paise dust (₹0.18 on a fully paid sale); under a rupee reads as paid.
+ */
+internal fun SalesDealDto.moneyState(): String = when {
+    status == "Deal Failed" -> settlement?.outcomeLabel.orEmpty()
+    advanceOnly -> ""
+    paymentBalance >= 1.0 -> "Balance ${rupees(paymentBalance)}"
+    else -> "Fully paid"
+}
+
 internal fun SalesDealDto.toCardUi(options: SalesOptionsDto? = null): SaleCardUi = SaleCardUi(
     listKey = dealId,
     dealId = dealId,
     buyer = buyerName,
     productLine = dotJoin(soldSummary(), farm),
-    valueLine = dotJoin(animalsLine(animalCount), kilograms(totalWeightKg), rupees(salesValue)),
-    // Sheet-imported deals carry paise dust (₹0.18 on a fully paid sale); under a rupee reads as paid.
-    metaLine = dotJoin("${saleDateWord(status, options).card} ${farmDate(saleDate)}", if (paymentBalance >= 1.0) "Balance ${rupees(paymentBalance)}" else "Fully paid"),
+    // An advance taken before anything was chosen is worth nothing yet: its money is the advance.
+    valueLine = if (advanceOnly) advanceReceivedLine() else dotJoin(animalsLine(animalCount), kilograms(totalWeightKg), rupees(salesValue)),
+    metaLine = dotJoin("${saleDateWord(status, options).card} ${farmDate(saleDate)}", moneyState()),
     statusLabel = status,
     statusTone = saleStatusTone(status, options),
 )
@@ -401,7 +417,8 @@ internal fun SalesDealDto.sections(): List<VendorsDetailSectionUi> {
         "Sale value" to if (advanceOnly) ADVANCE_NOT_DECIDED else rupees(salesValue),
         "Advance" to advanceAmount?.let(::rupees),
         "Received so far" to paymentReceived?.let(::rupees),
-        "Balance" to rupees(paymentBalance),
+        // An advance has no value to be paid against yet, and a failed sale owes nothing.
+        "Balance" to rupees(paymentBalance).takeIf { !advanceOnly && status != "Deal Failed" },
     )
     val notes = rows("Comments" to comments, "Feedback" to feedback)
     // A failed sale's money (2026-10-02): the outcome sentence is the backend's, verbatim.
@@ -516,7 +533,12 @@ class SaleDetailViewModel @Inject constructor(
                 // The BACKEND's balance, formatted. Sheet-imported deals carry paise dust, so
                 // under a rupee reads as paid -- the same rule the ledger card uses.
                 pendingPayments = pending,
-                balanceLine = if (deal.paymentBalance >= 1.0) "${rupees(deal.paymentBalance)} still due" else "Fully paid",
+                balanceLine = when {
+                    deal.advanceOnly && deal.status != "Deal Failed" -> deal.advanceReceivedLine()
+                    deal.status == "Deal Failed" -> deal.settlement?.outcomeLabel.orEmpty()
+                    deal.paymentBalance >= 1.0 -> "${rupees(deal.paymentBalance)} still due"
+                    else -> "Fully paid"
+                },
                 // The backend decides what THIS deal may move to; an empty list hides the editor.
                 statuses = options?.statuses.orEmpty()
                     .filter { option -> deal.statusOptions?.contains(option.key) ?: true }
@@ -529,6 +551,11 @@ class SaleDetailViewModel @Inject constructor(
                 finalStatusPending = l.finalStatusPending,
                 canTagAnimals = live,
                 canAddLines = deal.advanceOnly && deal.status != "Deal Failed",
+                stepsWaitingLine = when {
+                    deal.status == "Deal Failed" -> STEPS_FAILED
+                    deal.advanceOnly -> STEPS_ADVANCE_ONLY
+                    else -> ""
+                },
                 canSettle = deal.canSettle,
                 settlementValues = deal.settlement?.let { st ->
                     mapOf(
@@ -538,6 +565,7 @@ class SaleDetailViewModel @Inject constructor(
                     )
                 }.orEmpty(),
                 tagDisabledReason = when {
+                    deal.status == "Deal Failed" -> TAG_FAILED
                     deal.advanceOnly -> TAG_ADVANCE_ONLY
                     !hasAnimals -> TAG_NON_ANIMAL
                     deal.status == "Deal Failed" -> TAG_FAILED
@@ -909,6 +937,8 @@ class SaleDetailViewModel @Inject constructor(
         const val SALE_WORKFLOW_TEMPLATE_KEY = "sales_deal"
         const val TAG_NON_ANIMAL = "This sale has no animals to tag."
         const val TAG_ADVANCE_ONLY = "Add what was sold to this sale first."
+        const val STEPS_ADVANCE_ONLY = "Steps start once what was sold is added."
+        const val STEPS_FAILED = "This sale fell through, so no steps are left to do."
         const val ZERO_OR_MORE = "Zero or more"
         const val MESSAGE_SETTLEMENT_SAVED = "Saved what happened to the money."
         const val TAG_FAILED = "A failed deal has no animals to tag."
@@ -1331,7 +1361,16 @@ class SaleCreateViewModel @Inject constructor(
     private fun Local.refusedBy(outcome: QueuedWriteOutcome.Rejected): Local {
         val reason = outcome.reason?.trim().orEmpty().ifBlank { MESSAGE_NOT_SAVED }
         val base = copy(writeStatus = VendorsWriteStatus.FAILED, writeMessage = reason)
-        return when (val target = salesRefusedTarget(salesRefusedField(outcome.field, outcome.code))) {
+        val named = salesRefusedField(outcome.field, outcome.code)
+        // Adding what was sold: a refusal about the lines as a whole ("worth less than the advance
+        // already paid") lands on the last line's value box, beside Save -- the banner sits at the
+        // top of the form, out of sight below a long line card (phone E2E 2026-10-02).
+        val target = salesRefusedTarget(named) ?: if (addLinesMode && named == "lines" && base.lines.isNotEmpty()) {
+            SalesRefusedTarget.Line(base.lines.lastIndex, SaleLineField.SALES_VALUE)
+        } else {
+            null
+        }
+        return when (target) {
             null -> base
             is SalesRefusedTarget.Deal -> base.copy(
                 step = SALE_FIELD_STEP[target.field] ?: base.step,

@@ -101,6 +101,11 @@ data class SaleDetailUiState(
     val stepsProgressLine: String = "",
     /** "Next: Record the animals being loaded" -- the card's next step title; blank when done. */
     val stepsNextLine: String = "",
+    /**
+     * Why there are no steps when that is not "not synced yet": an advance whose products are not
+     * added (its steps start then), or a sale that fell through. Blank otherwise.
+     */
+    val stepsWaitingLine: String = "",
     /** Whether the workflow read failed (offline); the card then says the steps are on the server. */
     val stepsUnavailable: Boolean = false,
     // --- editing the sale ---
