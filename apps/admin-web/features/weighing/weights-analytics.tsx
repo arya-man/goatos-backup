@@ -860,7 +860,7 @@ function GeneralTab({
         <WeeklyGrowthCard
           ariaLabel={copy(pageContract, "section.time.aria")}
           title={copy(pageContract, "section.time.title")}
-          subheader={copy(pageContract, "note.time.gaps")}
+          subheader={copy(pageContract, "section.time.caption")}
           emptyLabel={copy(pageContract, "empty.time.body")}
           seriesName={copy(pageContract, "series.gain")}
           points={weeklyGain.map((point) => ({ label: point.label, gain: point.gain, animalsLabel: animalCount(pageContract, point.animals) }))}
@@ -1481,12 +1481,12 @@ function TimeTab({
         />
       </Grid>
       {/* Titled through the bucket pair, so a heading can never describe columns the chart is not
-          showing. Columns, not a line: a week nobody weighed has no bar (the gaps note says so). */}
+          showing. Columns, not a line: a week nobody weighed has no bar. */}
       <Grid size={12}>
         <WeeklyGrowthCard
           ariaLabel={bucketCopy("section.time.aria")}
           title={bucketCopy("section.time.title")}
-          subheader={`${bucketCopy("section.time.caption")} ${bucketCopy("note.time.gaps")}`}
+          subheader={bucketCopy("section.time.caption")}
           emptyLabel={bucketCopy("empty.time.body")}
           seriesName={copy(pageContract, "series.gain")}
           points={weeklyPoints.map((point) => ({ label: point.label, gain: point.gain, animalsLabel: animalCount(pageContract, point.animals) }))}

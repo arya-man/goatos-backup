@@ -81,7 +81,6 @@ test("every heading on the tab has a week wording and a 30-day wording, both bac
     "section.time.breed.title",
     "section.time.pen.title",
     "section.time.load.title",
-    "note.time.gaps",
   ]) {
     assert.ok(pageSource.includes(`bucketCopy("${key}")`), `${key} must be read through the bucket-aware pair`);
   }
