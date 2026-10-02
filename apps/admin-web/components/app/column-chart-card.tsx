@@ -1,5 +1,6 @@
 "use client";
 
+import { cardSubheader } from "@/components/app/caption";
 import { CATEGORY_AXIS_LABELS, fullCategoryTitle } from "@/components/chart-axis-label";
 import type { CardProps } from "@mui/material/Card";
 import type { ChartOptions } from "@/components/minimal/chart";
@@ -47,7 +48,7 @@ export function ColumnChartCard({ title, subheader, empty, valueNoun, chart, sx,
   if ((chart.categories?.length ?? 0) === 0) {
     return (
       <Card sx={sx} {...other}>
-        <CardHeader title={title} subheader={subheader} />
+        <CardHeader title={title} subheader={cardSubheader(subheader)} />
         <Box sx={{ p: 3 }}>{empty}</Box>
       </Card>
     );
@@ -73,7 +74,7 @@ export function ColumnChartCard({ title, subheader, empty, valueNoun, chart, sx,
   return (
     <AnalyticsWebsiteVisits
       title={title}
-      subheader={subheader}
+      subheader={cardSubheader(subheader)}
       chart={{
         colors: chart.colors,
         categories: chart.categories,

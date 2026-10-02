@@ -8,6 +8,15 @@ import { InfoHint } from "@/components/app/info-hint";
 export const CAPTION_MAX = 72;
 
 /**
+ * A CardHeader `subheader`: a short string stays the header's own muted line; a long sentence becomes
+ * the Caption info glyph (CardHeader already wraps the subheader in its own text element, so the short
+ * case must stay a plain string, never a nested paragraph). Non-strings pass through.
+ */
+export function cardSubheader(subheader: ReactNode): ReactNode {
+  return typeof subheader === "string" && subheader.trim().length > CAPTION_MAX ? <Caption>{subheader}</Caption> : subheader;
+}
+
+/**
  * A card/section caption: a short string renders as one muted line; a sentence longer than
  * `CAPTION_MAX` renders as an info glyph with the sentence as its tooltip (no paragraph on the
  * page, nothing hidden by CSS). Non-string children render as given.

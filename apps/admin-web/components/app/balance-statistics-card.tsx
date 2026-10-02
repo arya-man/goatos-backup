@@ -5,6 +5,7 @@ import Card from '@mui/material/Card';
 import CardHeader from '@mui/material/CardHeader';
 
 import { chartRamp, useChartTheme } from '@/components/app/chart-colors';
+import { cardSubheader } from '@/components/app/caption';
 import { CATEGORY_AXIS_LABELS, fullCategoryTitle } from '@/components/chart-axis-label';
 import { BankingBalanceStatistics, formatSeriesValue } from '@/components/app/sections/overview/banking/banking-balance-statistics';
 
@@ -66,11 +67,11 @@ export function BalanceStatisticsCard({ empty, ...props }: Props) {
   if ((props.chart.series[0]?.categories.length ?? 0) === 0) {
     return (
       <Card sx={props.sx}>
-        <CardHeader title={props.title} subheader={props.subheader} sx={{ mb: 3 }} />
+        <CardHeader title={props.title} subheader={cardSubheader(props.subheader)} sx={{ mb: 3 }} />
         <Box sx={{ p: 3 }}>{empty}</Box>
         {props.children}
       </Card>
     );
   }
-  return <BankingBalanceStatistics {...props} chart={{ ...props.chart, colors, options: withSharedTooltip(props.chart) }} />;
+  return <BankingBalanceStatistics {...props} subheader={cardSubheader(props.subheader)} chart={{ ...props.chart, colors, options: withSharedTooltip(props.chart) }} />;
 }
