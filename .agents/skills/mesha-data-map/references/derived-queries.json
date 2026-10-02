@@ -148,7 +148,7 @@
         {
           "path": "backend/migrations/postgres",
           "match": "goat_shed_partitions|shed_partitions|alias_location_id|(ALTER|UPDATE|INSERT INTO|DELETE FROM)\\s+(TABLE\\s+)?(IF EXISTS\\s+)?(public\\.)?locations\\b",
-          "sha256": "57862927a48559eac120f053b6ec6142e52f39f05f9cf797441953c4d10baffc"
+          "sha256": "06907932f1e947c7d5a2d8bb6a624cb65b25fcda18138796b16ab8a3ab0d21c4"
         }
       ]
     }

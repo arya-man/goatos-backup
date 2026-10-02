@@ -22,7 +22,7 @@ const (
 type Row struct {
 	ID         string         `json:"id"`
 	Register   string         `json:"register"`
-	Display    string         `json:"display"`
+	Display    string         `json:"display"` // operational-location:ignore: owner=manohar issue=partition-capacity-2026-10-02 scope=generic-title-of-every-configuration-register-row-partition-rows-compose-it-via-oploc-in-decoratePartition expiry=2027-04-02
 	Status     string         `json:"status"`
 	RowVersion int            `json:"row_version"`
 	IsBuiltin  bool           `json:"is_builtin"`
