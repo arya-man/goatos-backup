@@ -104,19 +104,14 @@ type loadwiseLoadPayload struct {
 	// value stock at a stage x sex price with its latest-weight read.
 	RemainingMix []domain.LoadHeadMix `json:"remaining_mix"`
 
-	SoldValue      float64  `json:"sold_value"`
-	SoldPriced     int      `json:"sold_priced"`
-	AvgSoldPrice   *float64 `json:"avg_sold_price,omitempty"`
-	PriceBasis     string   `json:"price_basis"`
-	RemainingValue *float64 `json:"remaining_value,omitempty"`
-	ProfitLoss     *float64 `json:"profit_loss,omitempty"`
-	// ProfitLoss split: what happened (sales less cost) and what is assumed (stock on farm at a
-	// per-animal price), plus the backend-composed sentence stating the assumption.
+	SoldValue  float64  `json:"sold_value"`
+	SoldPriced int      `json:"sold_priced"`
+	ProfitLoss *float64 `json:"profit_loss,omitempty"`
+	// ProfitLoss split: what happened (sales less cost) and what is assumed (stock on farm at its
+	// latest weight x the Sales Config ₹/kg), plus the backend-composed sentence stating it.
 	RealisedProfitLoss *float64 `json:"realised_profit_loss,omitempty"`
 	AssumedValue       *float64 `json:"assumed_value,omitempty"`
 	AssumedValueBasis  string   `json:"assumed_value_basis"`
-	// "weight" or "per_animal" ("" when nothing is assumed): which rule priced assumed_value.
-	AssumedValueMethod string `json:"assumed_value_method,omitempty"`
 
 	// The pre-GoatOS history already folded into the counts above, exposed so the screen can say
 	// "already sold / already died before tracking started" with the dates it spans.
@@ -173,11 +168,10 @@ type loadwiseSummaryPayload struct {
 	TaggedNotClosed int `json:"tagged_not_closed"`
 	Unaccounted     int `json:"unaccounted"`
 
-	PurchaseValue  float64 `json:"purchase_value"`
-	CostedLoads    int     `json:"costed_loads"`
-	SoldValue      float64 `json:"sold_value"`
-	RemainingValue float64 `json:"remaining_value"`
-	ProfitLoss     float64 `json:"profit_loss"`
+	PurchaseValue float64 `json:"purchase_value"`
+	CostedLoads   int     `json:"costed_loads"`
+	SoldValue     float64 `json:"sold_value"`
+	ProfitLoss    float64 `json:"profit_loss"`
 
 	RealisedProfitLoss float64 `json:"realised_profit_loss"`
 	AssumedValue       float64 `json:"assumed_value"`
@@ -185,12 +179,9 @@ type loadwiseSummaryPayload struct {
 }
 
 type loadwisePayload struct {
-	Loads               []loadwiseLoadPayload `json:"loads"`
-	TotalLoads          int                   `json:"total_loads"`
-	OverallAvgSoldPrice *float64              `json:"overall_avg_sold_price,omitempty"`
-	// UnsoldPriceBasis: "assumed" (the Sales Config figure) or "overall" (average sold price).
-	UnsoldPriceBasis string                 `json:"unsold_price_basis"`
-	Summary          loadwiseSummaryPayload `json:"summary"`
+	Loads      []loadwiseLoadPayload  `json:"loads"`
+	TotalLoads int                    `json:"total_loads"`
+	Summary    loadwiseSummaryPayload `json:"summary"`
 }
 
 // LoadwiseSales serves GET /procurement/loadwise-sales. park_id optionally narrows the rows to
@@ -241,17 +232,13 @@ func (h *LoadwiseHandler) LoadwiseSales(w http.ResponseWriter, r *http.Request) 
 			RemainingGoats: l.RemainingGoats,
 			RemainingMix:   l.RemainingMix,
 
-			SoldValue:      l.SoldValue,
-			SoldPriced:     l.SoldPriced,
-			AvgSoldPrice:   l.AvgSoldPrice,
-			PriceBasis:     l.PriceBasis,
-			RemainingValue: l.RemainingValue,
-			ProfitLoss:     l.ProfitLoss,
+			SoldValue:  l.SoldValue,
+			SoldPriced: l.SoldPriced,
+			ProfitLoss: l.ProfitLoss,
 
 			RealisedProfitLoss: l.RealisedProfitLoss,
 			AssumedValue:       l.AssumedValue,
 			AssumedValueBasis:  l.AssumedValueBasis,
-			AssumedValueMethod: l.AssumedValueMethod,
 
 			PriorSold: toPriorPayload(l.PriorSold),
 			PriorDead: toPriorPayload(l.PriorDead),
@@ -263,9 +250,7 @@ func (h *LoadwiseHandler) LoadwiseSales(w http.ResponseWriter, r *http.Request) 
 		Loads: loads,
 		// TotalLoads and the summary are whole-read aggregates over the served scope, per the
 		// operational read-model contract; no client re-derives its own totals.
-		TotalLoads:          out.TotalLoads,
-		OverallAvgSoldPrice: out.OverallAvgSoldPrice,
-		UnsoldPriceBasis:    out.UnsoldPriceBasis,
+		TotalLoads: out.TotalLoads,
 		Summary: loadwiseSummaryPayload{
 			Purchased:       out.Summary.Purchased,
 			Sold:            out.Summary.Sold,
@@ -275,11 +260,10 @@ func (h *LoadwiseHandler) LoadwiseSales(w http.ResponseWriter, r *http.Request) 
 			TaggedNotClosed: out.Summary.TaggedNotClosed,
 			Unaccounted:     out.Summary.Unaccounted,
 
-			PurchaseValue:  out.Summary.PurchaseValue,
-			CostedLoads:    out.Summary.CostedLoads,
-			SoldValue:      out.Summary.SoldValue,
-			RemainingValue: out.Summary.RemainingValue,
-			ProfitLoss:     out.Summary.ProfitLoss,
+			PurchaseValue: out.Summary.PurchaseValue,
+			CostedLoads:   out.Summary.CostedLoads,
+			SoldValue:     out.Summary.SoldValue,
+			ProfitLoss:    out.Summary.ProfitLoss,
 
 			RealisedProfitLoss: out.Summary.RealisedProfitLoss,
 			AssumedValue:       out.Summary.AssumedValue,

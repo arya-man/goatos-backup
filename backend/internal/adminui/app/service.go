@@ -4417,19 +4417,8 @@ func pageSpecificCopy(id string) map[string]string {
 			// The profit of a load that has sold nothing IS its stock valuation, so the number that
 			// produced it is shown beside it rather than hidden in a tooltip.
 			"value.profit_incl_stock":             "incl. stock",
-			"loadwise.stock_price_note":           "Animals not yet sold are valued at",
-			"loadwise.stock_price_each":           "each",
-			"loadwise.stock_price_unknown":        "Animals not yet sold cannot be valued: nothing has sold yet to price them against.",
 			"value.profit_unavailable":            "No cost recorded, so profit cannot be worked out.",
 			"value.cost_missing":                  "Cost not recorded",
-			"value.price_basis.load":              "at this load's own average sold price",
-			"value.price_basis.overall":           "at the overall average sold price",
-			"value.price_basis.assumed":           "at the unsold animal price set on Sales Config",
-			"value.price_basis.growth_sale_price": "at the stage and sex sale price",
-			// The third basis, and the one a fresh tenant hits FIRST: with no sale anywhere there is
-			// no price to value stock at. It must be published like the other two -- the renderer
-			// resolves this key from price_basis, so an unpublished value takes the page down.
-			"value.price_basis.none": "no sale yet to price them against",
 			"value.sold_unpriced":    "sold without a tagged sale",
 			"loadwise.row_hint":      "click a load to record its cost",
 			"loadwise.prior.title":   "Before these records",
@@ -4516,7 +4505,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.valuation.label":  "Save valuation",
 			"disabled.valuation":      "Your current role can see how the herd is valued but not change the figures.",
 			"section.valuation.title": "Farm valuation",
-			"section.valuation.sub":   "How the live herd is valued on Farm value and what unsold animals are carried at on Load wise. Every figure here was decided, not measured; a change applies the moment it is saved. The sale-ready weight line lives with the Weighing assumptions.",
+			"section.valuation.sub":   "How the live herd is valued on Farm value, and the price per kg Load wise carries every unsold animal at (its latest weight × the price for its stage and gender; the weight used here does not apply there). Every figure here was decided, not measured; a change applies the moment it is saved. The sale-ready weight line lives with the Weighing assumptions.",
 			"section.valuation.aria":  "Farm valuation assumptions",
 			"valuation.bucket":        "Animals",
 			// THE STAGES ARE THE FARM'S (maintainer instruction 2026-09-24). The screen asks which
@@ -4535,8 +4524,6 @@ func pageSpecificCopy(id string) map[string]string {
 			"valuation.fixed_weight.measured": "measured weight",
 			"valuation.fixed_weight.hint":     "Leave blank to price a stage at its animals' latest measured weight.",
 			"valuation.price_per_kg":          "Price (₹ per kg)",
-			"valuation.unsold_price":          "Unsold animal price (₹ each)",
-			"valuation.unsold_price.hint":     "Load wise carries every unsold animal at this price. Leave blank to use the average price the farm has actually sold at.",
 			"valuation.updated":               "Last saved",
 			"valuation.saved":                 "Valuation saved. Farm value and Load wise use these figures from now on.",
 			"valuation.error":                 "That could not be saved.",

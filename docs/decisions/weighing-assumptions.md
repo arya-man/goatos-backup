@@ -109,8 +109,8 @@ Resolution is one rule in two places that must agree: backend
 weighing read). The two test files pin the same cases. A pen or load holding an animal whose species
 has no price at all is **not valued** rather than valued on its priced part only. `remaining_mix` on
 the load-wise reads carries the `(species, stage, sex)` counts; it sums to `remaining`. The
-Procurement load-wise sales API keeps its existing `remaining_value = remaining × avg_sold_price`
-contract because it does not carry a current live weight for the remaining animals.
+Procurement load-wise sales API does NOT read these prices: since 2026-10-02 it values unsold stock at
+each animal's latest weight × the Sales Config Farm valuation ₹/kg (docs/decisions/sales-loadwise.md).
 
 Every override save is fenced on the figure the drawer loaded, exactly like a default, and writes
 one `growth.sale_price.set` audit row naming species, stage and sex.

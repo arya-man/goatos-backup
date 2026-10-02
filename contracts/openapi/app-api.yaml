@@ -11365,10 +11365,10 @@ paths:
         Money: `purchase_value` is the recorded landed cost (absent = cost not recorded, never
         zero); `sold_value` is deal value attributed evenly across each deal's tagged animals and
         summed by load (`sold_priced` says how many sold animals actually carry a share);
-        `remaining_value` prices the animals still on farm at `avg_sold_price`, whose
-        `price_basis` is `load` (its own priced sales), `overall` (the tenant-wide average),
-        `assumed` (the Sales Config unsold-stock price) or `none` (no estimate). The `summary`
-        aggregates exactly the served rows.
+        `assumed_value` values the animals still on farm at their latest weight (the load's
+        current average weight when not weighed) x the ₹/kg of their stage-and-sex bucket on
+        Sales Config's Farm valuation; no sold price is ever spread over the animals a load still
+        holds. The `summary` aggregates exactly the served rows.
       parameters:
         - name: park_id
           in: query
@@ -21833,7 +21833,7 @@ components:
       required:
         [load_id, vendor_name, status, declared_count, purchased, sold, mortality, other_exits,
          remaining, tagged_not_closed, remaining_sheep, remaining_goats, remaining_mix, unaccounted, sold_value, sold_priced,
-         price_basis, row_version]
+         row_version]
       # profit_loss is nullable-by-absence (no recorded cost), so it is deliberately not required.
       properties:
         load_id: { type: string, format: uuid }
@@ -21991,24 +21991,14 @@ components:
         sold_priced:
           type: integer
           description: How many of `sold` carry an attributed deal share; the rest sold without a tagged sale.
-        avg_sold_price: { type: number, nullable: true }
-        price_basis: { type: string, enum: [load, overall, assumed, none] }
-        remaining_value:
-          type: number
-          nullable: true
-          description: >-
-            remaining x avg_sold_price. Absent when there is no price basis. `assumed` means the
-            Sales Config unsold-stock price replaced the sold-price fallback. Current live-weight
-            valuation is composed by the Weighing comparison tab from `remaining_mix` plus its
-            latest-weight read; this endpoint must not value remaining stock from sale exit weight.
         profit_loss:
           type: number
           nullable: true
           description: >-
-            sold_value + remaining_value - purchase_value: what the load is worth against what it
+            sold_value + assumed_value - purchase_value: what the load is worth against what it
             cost. ABSENT when no cost is recorded, because "profit" would otherwise be the whole
-            sale value. Part of it is UNREALISED whenever `remaining` > 0 — `price_basis` names
-            the average that valued that stock.
+            sale value. Part of it is UNREALISED whenever `remaining` > 0 — `assumed_value_basis`
+            says how that stock was valued.
         realised_profit_loss:
           type: number
           nullable: true
@@ -22020,25 +22010,19 @@ components:
           type: number
           nullable: true
           description: >-
-            The ASSUMED value of the animals still on farm, a price nobody has paid yet: by weight
-            when assumed_value_method is `weight`, else remaining x avg_sold_price. Absent when the
-            load holds nothing or no price exists to carry them at.
+            The ASSUMED value of the animals still on farm, a price nobody has paid yet (maintainer
+            decision 2026-10-02): each live animal's latest weight -- or the load's current average
+            weight when it has none -- x the ₹/kg of its stage-and-sex bucket on Sales Config's
+            Farm valuation. An animal whose stage has no Sales Config price is left out and named in
+            assumed_value_basis. Absent when the load holds nothing, none of its animals is weighed,
+            or none can be priced.
         assumed_value_basis:
           type: string
           description: >-
             Backend-composed sentence saying HOW assumed_value was assumed, rendered verbatim
-            ("58 animals · 1,241 kg (latest weights) × ₹/kg by stage and sex = ₹6,95,000", or
-            "58 animals × ₹9,500 each (...) = ₹5,51,000 — priced per animal: 3 of 58 animals have
-            no weight yet"). Empty when nothing is assumed.
-        assumed_value_method:
-          type: string
-          enum: [weight, per_animal]
-          description: >-
-            Which rule priced assumed_value (maintainer decision 2026-09-25): `weight` when EVERY
-            live animal of the load has a latest weight and a price per kg for its species, stage
-            and sex (growth_sale_price_assumptions, set on the Weighing Assumptions drawer) --
-            sum(weight x price); `per_animal` otherwise. Absent when nothing is assumed. Read-time
-            only; nothing stored is rewritten.
+            ("76 animals × latest weight × ₹/kg by stage and sex on Sales Config = ₹7,52,400 (4 not
+            weighed yet, carried at the load's average 22 kg)", or "Not valued: none of the 5
+            animals on farm is weighed yet"). Empty when the load holds nothing.
         prior_sold:
           nullable: true
           allOf: [{ $ref: "#/components/schemas/LoadwisePriorOutcome" }]
@@ -22065,7 +22049,7 @@ components:
       description: Aggregates over exactly the served rows -- no client re-derives its own totals.
       required:
         [purchased, sold, mortality, other_exits, remaining, tagged_not_closed, unaccounted, purchase_value,
-         costed_loads, sold_value, remaining_value, profit_loss, realised_profit_loss, assumed_value,
+         costed_loads, sold_value, profit_loss, realised_profit_loss, assumed_value,
          assumed_value_basis]
       properties:
         purchased: { type: integer }
@@ -22080,7 +22064,6 @@ components:
           description: Sum of RECORDED costs only; `costed_loads` says how many rows carry one.
         costed_loads: { type: integer }
         sold_value: { type: number }
-        remaining_value: { type: number, description: Sum of the per-load estimates that have a price basis. }
         profit_loss:
           type: number
           description: >-
@@ -22097,7 +22080,7 @@ components:
             realised_profit_loss + assumed_value = profit_loss.
         assumed_value_basis:
           type: string
-          description: Backend-composed sentence stating the per-animal price rule; empty when nothing is assumed.
+          description: Backend-composed sentence stating the valuation rule (latest weight x Sales Config ₹/kg); empty when nothing is assumed.
     LoadwiseWeights:
       type: object
       additionalProperties: false
@@ -22150,15 +22133,6 @@ components:
         total_loads:
           type: integer
           description: Whole-tenant load count; the rows are the newest window of it.
-        overall_avg_sold_price:
-          type: number
-          nullable: true
-          description: The tenant-wide average sold price used as the remaining-stock fallback basis.
-        unsold_price_basis:
-          description: >-
-            What every load's remaining stock was valued at: `assumed` (the price set on Sales
-            Config's Farm valuation) or `overall` (the overall average sold price).
-          type: string
         summary:
           $ref: "#/components/schemas/LoadwiseSummary"
     BuyerAnalyticsRow:

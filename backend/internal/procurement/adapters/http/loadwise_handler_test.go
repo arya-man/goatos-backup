@@ -35,7 +35,7 @@ func TestLoadwiseWeightsCarriesNoMoneyField(t *testing.T) {
 			LoadID: "load-1", LoadRef: "131", VendorName: "Krishnamorrthy", Status: "closed", Farm: "CBE",
 			Purchased: 63, Remaining: 63, RemainingSheep: 63,
 			AnimalCost: &cost, TransportCost: &cost, OtherCost: &cost, PurchaseValue: &value,
-			LandedPricePerKg: &price, SalePricePerKg: &price, RemainingValue: &value, ProfitLoss: &value,
+			LandedPricePerKg: &price, SalePricePerKg: &price, AssumedValue: &value, ProfitLoss: &value,
 			AvgPurchaseWeightKg: &price,
 		}},
 	}}

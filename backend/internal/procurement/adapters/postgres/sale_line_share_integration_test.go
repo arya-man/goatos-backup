@@ -247,9 +247,5 @@ SELECT goat_id FROM procurement_load_goats WHERE tenant_id = $1 AND load_id = AN
 				t.Fatalf("the page window moved a load's value: %v vs %v", l.SoldValue, one.Loads[0].SoldValue)
 			}
 		}
-		if (full.OverallAvgSoldPrice == nil) != (one.OverallAvgSoldPrice == nil) ||
-			(full.OverallAvgSoldPrice != nil && math.Abs(*full.OverallAvgSoldPrice-*one.OverallAvgSoldPrice) > 0.01) {
-			t.Fatalf("the page window moved the overall average: %v vs %v", full.OverallAvgSoldPrice, one.OverallAvgSoldPrice)
-		}
 	})
 }

@@ -12,13 +12,12 @@ import (
 	"github.com/vgoats/goatos/backend/internal/procurement/domain"
 )
 
-// ASSUMED VALUE BY WEIGHT WHEN WE HAVE IT (maintainer decision 2026-09-25). A load whose EVERY
-// live animal has a weight -- its own latest scan, or the latest whole-pen weigh of the pen it
-// stands in -- is valued at sum(weight x the web-configured price per kg for that animal's
-// species, stage and sex) from growth_sale_price_assumptions. One animal without a weight, or an
-// animal whose stage and sex (and species) has no price, and the load keeps the per-animal
-// basis, saying why. Read-time only: nothing stored is rewritten.
-func TestLoadwiseAssumedValueIsPricedByWeightOnlyWhenEveryAnimalIsWeighedAndPriced(t *testing.T) {
+// ASSUMED VALUE = LATEST WEIGHT x SALES CONFIG ₹/KG (maintainer decision 2026-10-02). Each live
+// animal of a load is valued at its latest weight -- its own latest scan, or the latest whole-pen
+// weigh of the pen it stands in -- x the ₹/kg of its stage-and-sex bucket on Sales Config's Farm
+// valuation. An animal with no weight yet carries the load's current average weight; an animal
+// whose stage no valuation stage names is left out and named. Read-time only.
+func TestLoadwiseAssumedValueIsLatestWeightTimesTheSalesConfigPrice(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -83,13 +82,13 @@ RETURNING load_id::text`, testTenant, fx.loadA).Scan(&loadX); err != nil {
 		t.Fatal(err)
 	}
 	// Three live K3 goats: two scanned in LW Weigh Shed, one standing alone in LW Whole Pen.
-	goat := func(i int, species, sex, shed, tag string) string {
+	goat := func(stage, sex, shed, tag string) string {
 		var id string
 		if err := pool.QueryRow(ctx, `
 INSERT INTO goats (tenant_id, species, sex, management_stage, lifecycle_status, custodian_party_id, park_id, shed_id)
-SELECT tenant_id, $3, $4, 'K3', 'alive', source_party_id, $5::uuid, $6::uuid
+SELECT tenant_id, 'goat', $3, $4, 'alive', source_party_id, $5::uuid, $6::uuid
 FROM procurement_loads WHERE tenant_id = $1 AND load_id = $2::uuid
-RETURNING goat_id::text`, testTenant, loadX, species, sex, cbe, shed).Scan(&id); err != nil {
+RETURNING goat_id::text`, testTenant, loadX, sex, stage, cbe, shed).Scan(&id); err != nil {
 			t.Fatal(err)
 		}
 		exec(`
@@ -102,18 +101,26 @@ VALUES ($1::uuid, $2::uuid, 'animal_identifier_1', $3, upper(btrim($3)), 'tenant
 		}
 		return id
 	}
-	goat(1, "goat", "male", shedP, "lw-tag-1")
-	goat(2, "goat", "female", shedP, "lw-tag-2")
-	goat(3, "goat", "male", penQ, "")
+	firstGoat := goat("K3", "male", shedP, "lw-tag-1")
+	goat("K3", "female", shedP, "lw-tag-2")
+	goat("K3", "male", penQ, "")
 	scan := func(tag string, kg float64, at, status string) {
 		exec(`
 INSERT INTO weighing_observations (tenant_id, campaign_id, campaign_shed_id, scanned_identifier, weight_kg, proof_artifact_id, recorded_by, idempotency_key, accepted_at, submitted_at, verification_status)
 VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6::uuid, $7::uuid, $8, $9::timestamptz, $9::timestamptz, $10)`,
 			testTenant, campaign, scanBucket, tag, kg, proof, operator, fmt.Sprintf("lw:%s:%s", tag, at), at, status)
 	}
-	// Prices set on the web: goat default 425 (seeded), K3 male override 500 (from 2026-09-10).
+	// Sales Config's Farm valuation: K3 male 500 ₹/kg, K3 female 400 ₹/kg. A Weighing Assumptions
+	// price must play no part, so one is set and must be ignored.
+	exec(`
+INSERT INTO sales_valuation_assumptions (tenant_id, buckets, stages)
+VALUES ($1::uuid,
+  '[{"bucket":"K3_female","label":"K3 · Female","fixed_weight_kg":15,"price_per_kg":400,"display_order":1},
+    {"bucket":"K3_male","label":"K3 · Male","fixed_weight_kg":15,"price_per_kg":500,"display_order":2}]'::jsonb,
+  '[{"stage":"K3","label":"K3","display_order":1,"matches":["K3"]}]'::jsonb)
+ON CONFLICT (tenant_id) DO UPDATE SET buckets = EXCLUDED.buckets, stages = EXCLUDED.stages`, testTenant)
 	exec(`INSERT INTO growth_sale_price_assumptions (tenant_id, species, management_stage, sex, price_per_kg_inr, effective_from, set_by)
-VALUES ($1::uuid, 'goat', 'K3', 'male', 500, '2026-09-10', 'test')`, testTenant)
+VALUES ($1::uuid, 'goat', 'K3', 'male', 9999, '2026-09-10', 'test')`, testTenant)
 
 	read := func() domain.LoadwiseLoad {
 		t.Helper()
@@ -130,49 +137,122 @@ VALUES ($1::uuid, 'goat', 'K3', 'male', 500, '2026-09-10', 'test')`, testTenant)
 		return domain.LoadwiseLoad{}
 	}
 
-	// 1. Animal 3 has no weight yet: per-animal basis, and the sentence says why.
+	// 1. Animal 3 has no weight yet: it carries the load's average (20 + 18) / 2 = 19 kg.
+	// 20 x 500 + 18 x 400 + 19 x 500 = 26700. The fixed_weight_kg on the bucket is not used.
 	scan("lw-tag-1", 20, "2026-09-15T05:00:00Z", "verified")
 	scan("lw-tag-2", 18, "2026-09-15T05:00:00Z", "pending")
 	one := read()
-	if one.AssumedValueMethod != domain.AssumedValueMethodPerAnimal {
-		t.Fatalf("an unweighed animal must keep the per-animal basis: method=%q basis=%q", one.AssumedValueMethod, one.AssumedValueBasis)
+	if one.AssumedValue == nil || math.Abs(*one.AssumedValue-26700) > 0.01 {
+		t.Fatalf("an unweighed animal must carry the load average: value=%v basis=%q", one.AssumedValue, one.AssumedValueBasis)
 	}
-	if !strings.Contains(one.AssumedValueBasis, "1 of 3 animals has no weight yet") {
-		t.Fatalf("the basis must say why weight was not used: %q", one.AssumedValueBasis)
+	if want := "3 animals × latest weight × ₹/kg by stage and sex on Sales Config = ₹26,700 (1 not weighed yet, carried at the load's average 19 kg)"; one.AssumedValueBasis != want {
+		t.Fatalf("basis = %q, want %q", one.AssumedValueBasis, want)
 	}
 
-	// 2. The whole pen is weighed (1 animal, 22 kg) and a newer scan of tag 1 (a rework, which is
-	// NOT trusted and must not replace the verified 20 kg). Every animal weighed + priced -> weight.
+	// 2. The whole pen is weighed (1 animal, 22 kg) and a newer scan of tag 1 is a rework, which
+	// is NOT trusted and must not replace the verified 20 kg: 20 x 500 + 18 x 400 + 22 x 500.
 	exec(`
 INSERT INTO weighing_shed_observations (tenant_id, campaign_id, campaign_shed_id, weight_kg, average_weight_kg, animal_count, proof_artifact_id, recorded_by, idempotency_key, accepted_at, verification_status)
 VALUES ($1::uuid, $2::uuid, $3::uuid, 22, 22, 1, $4::uuid, $5::uuid, 'lw-pen-q', '2026-09-16T05:00:00Z', 'verified')`,
 		testTenant, campaign, penBucket, proof, operator)
 	scan("lw-tag-1", 99, "2026-09-17T05:00:00Z", "rework")
 	all := read()
-	// 20 kg x 500 (K3 male override) + 18 kg x 425 (goat default) + 22 kg x 500 = 28650.
-	if all.AssumedValueMethod != domain.AssumedValueMethodWeight || all.AssumedValue == nil || math.Abs(*all.AssumedValue-28650) > 0.01 {
-		t.Fatalf("every animal weighed and priced must value by weight: method=%q value=%v basis=%q",
-			all.AssumedValueMethod, all.AssumedValue, all.AssumedValueBasis)
+	if all.AssumedValue == nil || math.Abs(*all.AssumedValue-28200) > 0.01 {
+		t.Fatalf("every animal weighed: value=%v basis=%q", all.AssumedValue, all.AssumedValueBasis)
 	}
-	if want := "3 animals · 60 kg (latest weights) × ₹/kg by stage and sex = ₹28,650"; all.AssumedValueBasis != want {
+	if want := "3 animals × latest weight × ₹/kg by stage and sex on Sales Config = ₹28,200"; all.AssumedValueBasis != want {
 		t.Fatalf("basis = %q, want %q", all.AssumedValueBasis, want)
 	}
-	if all.ProfitLoss == nil || math.Abs(*all.ProfitLoss-(28650-30000)) > 0.01 {
+	if all.ProfitLoss == nil || math.Abs(*all.ProfitLoss-(28200-30000)) > 0.01 {
 		t.Fatalf("profit must carry the weight-based stock: %v", all.ProfitLoss)
 	}
 
-	// 3. A species with NO price at all: the sheep default is gone, so a weighed sheep cannot be
-	// priced by weight and the load falls back, naming the combination.
-	exec(`DELETE FROM growth_sale_price_assumptions WHERE tenant_id = $1::uuid AND species = 'sheep'`, testTenant)
-	sheep := goat(4, "sheep", "female", shedP, "lw-tag-4")
-	_ = sheep
+	// 3. A stage Sales Config does not name (Warmup): that animal is left out and named, never
+	// priced at a guess; the rest keep their value.
+	goat("Warmup", "female", shedP, "lw-tag-4")
 	exec(`UPDATE procurement_loads SET expected_count = 4 WHERE load_id = $1::uuid`, loadX)
 	scan("lw-tag-4", 25, "2026-09-15T06:00:00Z", "verified")
 	unpriced := read()
-	if unpriced.AssumedValueMethod != domain.AssumedValueMethodPerAnimal {
-		t.Fatalf("an animal with no price per kg must keep the per-animal basis: %q", unpriced.AssumedValueBasis)
+	if unpriced.AssumedValue == nil || math.Abs(*unpriced.AssumedValue-28200) > 0.01 {
+		t.Fatalf("an unpriced animal adds nothing: value=%v", unpriced.AssumedValue)
 	}
-	if !strings.Contains(unpriced.AssumedValueBasis, "no price per kg set for Sheep K3 female") {
-		t.Fatalf("the basis must name the unpriced combination: %q", unpriced.AssumedValueBasis)
+	if !strings.HasSuffix(unpriced.AssumedValueBasis, "(1 not valued: no Sales Config price for Warmup)") {
+		t.Fatalf("the basis must name the unpriced stage: %q", unpriced.AssumedValueBasis)
 	}
+
+	valueOf := func(l domain.LoadwiseLoad) float64 {
+		if l.AssumedValue == nil {
+			return -1
+		}
+		return *l.AssumedValue
+	}
+
+	// 4. One animal, two RFIDs, and both its milk cohort and its stage naming the SAME valuation
+	// stage: still ONE animal at ONE weight. Its secondary tag's newer 21 kg scan becomes its
+	// latest weight (20 -> 21 kg, +500), and nothing is counted twice.
+	t.Run("OneToManyTwoTagsAndMultipleDimensionsStayOneAnimal", func(t *testing.T) {
+		exec(`
+INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, is_primary_for_goat, status, valid_from, normalizer_version)
+VALUES ($1::uuid, $2::uuid, 'animal_identifier_2', 'lw-tag-1b', 'LW-TAG-1B', 'tenant', false, 'active', now(), 'test')`, testTenant, firstGoat)
+		exec(`UPDATE goats SET milk_cohort = 'K3' WHERE goat_id = $1::uuid`, firstGoat)
+		scan("lw-tag-1b", 21, "2026-09-18T05:00:00Z", "verified")
+		got := read()
+		if math.Abs(valueOf(got)-28700) > 0.01 || !strings.HasPrefix(got.AssumedValueBasis, "3 animals ×") {
+			t.Fatalf("two tags / two matching dimensions must stay one animal: value=%v basis=%q", got.AssumedValue, got.AssumedValueBasis)
+		}
+	})
+
+	// 5. Only LIVE animals are stock: a dead animal's weight is not valued; a sick one still is.
+	t.Run("StatusMatrixOnlyLiveAnimalsAreValued", func(t *testing.T) {
+		dead := goat("K3", "male", shedP, "lw-tag-dead")
+		exec(`UPDATE goats SET lifecycle_status = 'dead', exit_reason = 'died', exited_at = now() WHERE goat_id = $1::uuid`, dead)
+		sick := goat("K3", "female", shedP, "lw-tag-sick")
+		exec(`UPDATE goats SET lifecycle_status = 'sick' WHERE goat_id = $1::uuid`, sick)
+		exec(`UPDATE procurement_loads SET expected_count = 6 WHERE load_id = $1::uuid`, loadX)
+		scan("lw-tag-dead", 30, "2026-09-15T07:00:00Z", "verified")
+		scan("lw-tag-sick", 10, "2026-09-15T07:00:00Z", "verified")
+		got := read()
+		// 28700 + the sick K3 female's 10 kg x 400; the dead animal's 30 kg adds nothing.
+		if math.Abs(valueOf(got)-32700) > 0.01 || !strings.HasPrefix(got.AssumedValueBasis, "4 animals ×") {
+			t.Fatalf("status matrix: value=%v basis=%q", got.AssumedValue, got.AssumedValueBasis)
+		}
+	})
+
+	// 6. A smaller page never changes a load's value: every load served in a window of one reads
+	// the same assumed value it reads in the full window.
+	t.Run("PaginationWindowOfOneValuesEachLoadAsTheFullWindowDoes", func(t *testing.T) {
+		full, err := repo.LoadwiseSales(ctx, testTenant, "", 60)
+		if err != nil {
+			t.Fatal(err)
+		}
+		one, err := repo.LoadwiseSales(ctx, testTenant, "", 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(one.Loads) != 1 {
+			t.Fatalf("window of one served %d loads", len(one.Loads))
+		}
+		for _, l := range full.Loads {
+			if l.LoadID == one.Loads[0].LoadID && valueOf(l) != valueOf(one.Loads[0]) {
+				t.Fatalf("the page window moved a load's stock value: %v vs %v", valueOf(l), valueOf(one.Loads[0]))
+			}
+		}
+	})
+
+	// 7. Narrowing to the load's own park keeps its stock value exactly.
+	t.Run("ParkScopeKeepsTheLoadsStockValue", func(t *testing.T) {
+		scoped, err := repo.LoadwiseSales(ctx, testTenant, cbe, 60)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, l := range scoped.Loads {
+			if l.LoadID == loadX {
+				if math.Abs(valueOf(l)-32700) > 0.01 {
+					t.Fatalf("park scope moved the stock value: %v", valueOf(l))
+				}
+				return
+			}
+		}
+		t.Fatalf("load %s missing from its own park's view", loadX)
+	})
 }

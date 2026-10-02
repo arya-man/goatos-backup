@@ -468,24 +468,8 @@ INSERT INTO public.procurement_load_cost_lines (tenant_id, load_id, kind, amount
 SELECT $1, $2, k, a, 'app', nullif($5, '')::uuid
 FROM unnest($3::text[], $4::numeric[]) AS t(k, a)`
 
-// loadwiseOverallAvgSQL prices the remaining-stock fallback: the average per-animal share across
-// EVERY priced tagged animal on a CLOSED deal, each priced from its own sale line by the shared
-// saleLineShareCTEs (only a closed deal is a sale, the same rule deal_share and Summary use) (farm-born sales included — a realized animal
-// price is a price whatever the animal's origin). The per-deal tagged count pre-aggregates the
-// many side exactly as in loadwiseSalesSQL, and the partial live-uniqueness index keeps one share
-// per animal.
-//
-// projection-review: membership=animal_share rows with a share (closed deals, priced from their own line); group_key=none, one tenant-wide average; join_cardinality=one row per live tagged animal via the tagged partial unique index; pagination=none, whole-tenant average independent of the load window; scope=tenant_id
-//
-// scale-guard:ignore: god-cte -- the shared saleLineShareCTEs pricing (one set-based pass over the tenant's tagged allocations and animal lines, both indexed on tenant) plus one aggregate; bounded at the 5k-50k envelope like loadwiseSalesSQL
-const loadwiseOverallAvgSQL = `
-WITH ` + saleLineShareCTEs + `
-SELECT COALESCE(avg(share), 0)::float8, count(*)::int
-FROM animal_share
-WHERE share IS NOT NULL`
-
 // LoadwiseSales returns the newest maxLoads loads reconciled: counts, attributed sold value,
-// recorded costs, the filtered load count and the overall average sold price. parkID optionally
+// recorded costs, the filtered load count and the assumed value of the stock still on farm. parkID optionally
 // narrows to loads whose agree-or-go-bare farm label names that park; empty means no filter.
 func (r *Repository) LoadwiseSales(ctx context.Context, tenantID, parkID string, maxLoads int) (domain.LoadwiseSales, error) {
 	if maxLoads <= 0 {
@@ -604,32 +588,14 @@ func (r *Repository) loadwiseSales(ctx context.Context, tenantID, parkID string,
 	if err := r.attachCostLines(ctx, tenantID, loads); err != nil {
 		return domain.LoadwiseSales{}, err
 	}
-	// The weight fact behind "assumed value by weight when we have it" (2026-09-25), one read.
-	if err := r.attachStockWeight(ctx, tenantID, asOf, loads); err != nil {
+	// The value of the stock still on farm: latest weight x Sales Config ₹/kg (2026-10-02), one read.
+	if err := r.attachStockWeight(ctx, tenantID, loads); err != nil {
 		return domain.LoadwiseSales{}, err
 	}
 
 	// totalLoads rides each served row as a window count over the filtered pre-LIMIT set, so no
 	// second statement runs; zero served rows honestly means zero loads match the filter.
-
-	var (
-		overallAvg  float64
-		pricedCount int
-	)
-	boundAvg := sqlbind.MustBind(loadwiseOverallAvgSQL, tenantID)
-	if err := r.pool.QueryRow(ctx, boundAvg.SQL(), boundAvg.Args()...).Scan(&overallAvg, &pricedCount); err != nil {
-		return domain.LoadwiseSales{}, fmt.Errorf("procurement: loadwise overall avg: %w", err)
-	}
-	var overall *float64
-	if pricedCount > 0 && overallAvg > 0 {
-		overall = &overallAvg
-	}
-	// The farm's own unsold-stock price (Sales Config, migration 000367), when set: one PK read.
-	var assumed *float64
-	if err := r.pool.QueryRow(ctx, `SELECT unsold_stock_price_rupees::float8 FROM public.sales_valuation_assumptions WHERE tenant_id = $1::uuid`, tenantID).Scan(&assumed); err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return domain.LoadwiseSales{}, fmt.Errorf("procurement: loadwise unsold price assumption: %w", err)
-	}
-	return domain.FinalizeLoadwise(loads, totalLoads, overall, asOf, assumed), nil
+	return domain.FinalizeLoadwise(loads, totalLoads, asOf), nil
 }
 
 // bizDate renders an optional business DATE as its calendar day, never shifted through a timezone.
