@@ -190,7 +190,10 @@ Module tables (public.*; park name: locations via park_id; PEN = pens.sql latera
   goat_identifiers.normalized_value -> goats.shed_id/park_id -> locations.name; own baseline = herd_signal_activity_windows 300s tier, 24h.
   The user sees the live table; answer from the returned summary in 2-4 sentences.
 TWO-SOURCE TRAPS (pick the source below; details + SQL in SKILL.md "Two-source traps"):
-- deaths: public.goats rule above; mortality_base agrees with goats on STG (6 deaths; its "death/dead/mortality" filter is only in the rollback half of migration 000358). Cause is mostly unrecorded.
+- deaths: public.goats rule above; mortality_base agrees with goats on STG (6 deaths; its "death/dead/mortality" filter is only in the rollback half of migration 000358).
+  CAUSE OF DEATH = public.health_death_causes (goat_id, cause_key e.g. ACIDOSIS / fever, cause_kind, health_case_id, recorded_by,
+  recorded_at): ALWAYS LEFT JOIN it ON goat_id in the same deaths query (string_agg(cause_key) per animal) and give each death's
+  cause; only animals with no row there are "cause not recorded" (1-24/09: goat 23/09 acidosis, sheep 17/09 fever, sheep 05/09 none).
 - sold: animals sold = goats register (lifecycle 'sold', exited_at IST) = tagged allocations; closed-deal Goat+Sheep line animals are the commercial
   count incl. pre-app deals (688 closed-deal line animals all-time vs 160 in register; header sales_deals.animal_count 706 wrongly adds 18 on manure deals). Answer the register, add the deal count in one line when they differ.
 - revenue = sales_deals status 'Deal Closed' sum(sales_value) by sale_date; pipeline = any other open status (none on 24/09: say so).

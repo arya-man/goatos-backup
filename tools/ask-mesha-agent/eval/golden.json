@@ -1389,6 +1389,45 @@
       ],
       "max_seconds": 120,
       "expect": []
+    },
+    {
+      "id": "deaths-1-24-sep-causes",
+      "tags": [
+        "health",
+        "core"
+      ],
+      "question": "How many animals died between 1 and 24 September 2026, and what were the causes?",
+      "truth": {
+        "sql": "SELECT count(*) deaths, count(*) FILTER (WHERE c.goat_id IS NULL) no_cause, bool_or(c.cause_key ILIKE 'acidosis') acidosis, bool_or(c.cause_key ILIKE 'fever') fever FROM goats g LEFT JOIN (SELECT DISTINCT goat_id, cause_key FROM health_death_causes) c ON c.goat_id = g.goat_id WHERE (g.exit_reason='died' OR (g.exit_reason IS NULL AND g.lifecycle_status='dead')) AND g.merged_into_goat_id IS NULL AND (g.exited_at AT TIME ZONE 'Asia/Kolkata')::date BETWEEN '2026-09-01' AND '2026-09-24'"
+      },
+      "expect": [
+        {
+          "label": "deaths",
+          "col": "deaths",
+          "zero_words": true
+        },
+        {
+          "label": "no cause",
+          "col": "no_cause",
+          "zero_words": true
+        }
+      ],
+      "mention_if": [
+        {
+          "col": "acidosis",
+          "regex": "acidosis"
+        },
+        {
+          "col": "fever",
+          "regex": "fever"
+        }
+      ],
+      "must_not_mention": [
+        "cause[^.]{0,30}not recorded for (any|all|every)",
+        "none of the (deaths|animals)[^.]{0,30}cause",
+        "no causes? (is|are|was|were) recorded"
+      ],
+      "max_seconds": 90
     }
   ]
 }
