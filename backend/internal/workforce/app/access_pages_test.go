@@ -158,11 +158,14 @@ func TestTheEditorShowsExplicitTicksForAModuleStoredWithNone(t *testing.T) {
 		t.Fatalf("%s is missing from the editor rows", key)
 		return domain.AccessModuleRow{}
 	}
-	row := find(moduleRows([]permissions.ModuleAssignment{
+	// The payload lists every Feed screen with what it needs; WHICH are offered is the screen
+	// rule over the ticks on screen (openableFromScreen, the same rule the modal runs).
+	rows := moduleRows([]permissions.ModuleAssignment{
 		{Module: "feed_direction", Surface: permissions.SurfaceWeb, Capabilities: []string{permissions.LevelView}},
-	}), "feed_direction")
-	if len(row.Pages) != 1 || row.Pages[0].PageKey != "feed-analytics" {
-		t.Fatalf("Feed at view offers %v; want Feed Analytics alone", row.Pages)
+	})
+	row := find(rows, "feed_direction")
+	if offered := openableFromScreen(rows, map[string][]string{"feed_direction": row.GrantedWeb}, "feed_direction"); len(offered) != 1 || offered[0] != "feed-analytics" {
+		t.Fatalf("Feed at view offers %v; want Feed Analytics alone", offered)
 	}
 	if len(row.GrantedPagesWeb) != 1 {
 		t.Fatalf("a module stored with no page list rendered %v ticked; want the one it can open", row.GrantedPagesWeb)
@@ -170,12 +173,16 @@ func TestTheEditorShowsExplicitTicksForAModuleStoredWithNone(t *testing.T) {
 
 	// Add Protocols & SOPs and Feed Config authority, and all three appear -- the proof that
 	// a screen's authority can come from another module.
-	row = find(moduleRows([]permissions.ModuleAssignment{
+	rows = moduleRows([]permissions.ModuleAssignment{
 		{Module: "feed_direction", Surface: permissions.SurfaceWeb, Capabilities: []string{permissions.LevelConfigure}},
 		{Module: "config", Surface: permissions.SurfaceWeb, Capabilities: []string{permissions.LevelView}},
-	}), "feed_direction")
-	if len(row.Pages) != 3 {
-		t.Fatalf("Feed at configure with Protocols & SOPs offers %v; want all three screens", row.Pages)
+	})
+	ticks := map[string][]string{
+		"feed_direction": find(rows, "feed_direction").GrantedWeb,
+		"config":         find(rows, "config").GrantedWeb,
+	}
+	if offered := openableFromScreen(rows, ticks, "feed_direction"); len(offered) != 3 {
+		t.Fatalf("Feed at configure with Protocols & SOPs offers %v; want all three screens", offered)
 	}
 }
 

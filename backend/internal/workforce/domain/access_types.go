@@ -49,6 +49,12 @@ type AccessModuleRow struct {
 	// tomorrow reach them rather than nobody -- the backend expands it before
 	// sending, so the editor always renders explicit ticks.
 	GrantedPagesWeb []string `json:"granted_pages_web"`
+	// WebLevelPermissions is what each WEB level of this module grants, keyed by level. With
+	// AccessPageOption.RequiredPermissions it lets the editor decide, from the ticks on
+	// screen, which screens are openable: a screen is openable when every permission it
+	// needs is granted by some web tick (on any module). The same rule the save and the
+	// sidebar apply. Empty for a module that is not on the web.
+	WebLevelPermissions map[string][]string `json:"web_level_permissions"`
 }
 
 // AccessPageOption is one tickable admin-web screen inside a module. The label is
@@ -56,6 +62,9 @@ type AccessModuleRow struct {
 type AccessPageOption struct {
 	PageKey string `json:"page_key"`
 	Label   string `json:"label"`
+	// RequiredPermissions are what the screen itself needs, ANDed (permissions.ModulePage).
+	// Matched against WebLevelPermissions, never shown.
+	RequiredPermissions []string `json:"required_permissions"`
 }
 
 // AccessParkOption is a selectable park.

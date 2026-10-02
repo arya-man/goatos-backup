@@ -256,7 +256,11 @@ func validatedAssignments(rows []domain.AccessModuleWrite) ([]permissions.Module
 	// come from a DIFFERENT module than the one it is grouped under -- Feed SOP sits under
 	// Feed and needs sop.read from Protocols & SOPs -- so page validation is done against
 	// the whole picture rather than one row at a time.
-	whole := make([]permissions.ModuleAssignment, 0, len(rows)*2)
+	//
+	// WEB rows only: a phone tick never opens a web screen, and the sidebar resolver
+	// (permissions.PageAccessForAssignments) reads the same web-only set -- so a screen this
+	// save accepts is a screen the sidebar shows (People / HRMS fixes, 2026-10-02).
+	whole := make([]permissions.ModuleAssignment, 0, len(rows))
 	for _, row := range rows {
 		module := strings.TrimSpace(row.ModuleKey)
 		if _, ok := permissions.LookupModuleCapability(module); !ok {
@@ -264,10 +268,9 @@ func validatedAssignments(rows []domain.AccessModuleWrite) ([]permissions.Module
 		}
 		whole = append(whole,
 			permissions.ModuleAssignment{Module: module, Surface: permissions.SurfaceWeb, Capabilities: row.Web},
-			permissions.ModuleAssignment{Module: module, Surface: permissions.SurfaceMobile, Capabilities: row.Mobile},
 		)
 	}
-	elsewhere := permissions.PermissionsForAssignments(whole)
+	elsewhere := permissions.WebPermissionsForAssignments(whole)
 
 	out := make([]permissions.ModuleAssignment, 0, len(rows)*2)
 	seen := map[string]struct{}{}
@@ -439,37 +442,42 @@ func moduleRows(assignments []permissions.ModuleAssignment) []domain.AccessModul
 	// an empty stored list expands to every page here, which is why the screen never
 	// opens with a held module showing no pages.
 	pageAccess := permissions.PageAccessForAssignments(assignments)
-	wholeSet := permissions.PermissionsForAssignments(assignments)
 	for _, a := range assignments {
 		granted[a.Module+"|"+a.Surface] = a.Capabilities
 	}
 	catalog := permissions.ModuleCapabilities()
 	out := make([]domain.AccessModuleRow, 0, len(catalog))
 	for _, def := range catalog {
-		// The screens THIS person's capabilities open, not every screen the module has: a
-		// tick the save would refuse must never be offered.
-		// The screens THIS person can open, not every screen the module has: a tick the save
-		// would refuse must never be offered. Their OTHER modules count -- every SOP screen
-		// needs sop.read, which lives in Protocols & SOPs.
-		pages := permissions.OpenablePagesForModuleWithHeld(def.Key, granted[def.Key+"|"+permissions.SurfaceWeb], wholeSet)
+		// EVERY screen the module has, each with the permissions it needs, plus what each web
+		// level grants. The editor works out which screens are openable from the ticks ON
+		// SCREEN, not from what was saved: a module switched on for the first time used to
+		// offer no screens (they were computed from the stored rows, which had none), so its
+		// save was refused with "needs at least one screen ticked" (People / HRMS fixes,
+		// 2026-10-02). validatedPages applies the same rule to the payload on save.
+		pages := permissions.PagesForModule(def.Key)
 		options := make([]domain.AccessPageOption, 0, len(pages))
 		heldPages := make([]string, 0, len(pages))
 		for _, page := range pages {
-			options = append(options, domain.AccessPageOption{PageKey: page.Key, Label: page.Label})
+			options = append(options, domain.AccessPageOption{
+				PageKey:             page.Key,
+				Label:               page.Label,
+				RequiredPermissions: orEmpty(append([]string{}, page.Permissions...)),
+			})
 			if _, ok := pageAccess.Pages[page.Key]; ok {
 				heldPages = append(heldPages, page.Key)
 			}
 		}
 		out = append(out, domain.AccessModuleRow{
-			ModuleKey:       def.Key,
-			Label:           def.Label,
-			Blurb:           def.Blurb,
-			OfferedWeb:      offeredLevels(def, permissions.SurfaceWeb),
-			OfferedMobile:   offeredLevels(def, permissions.SurfaceMobile),
-			GrantedWeb:      orEmpty(granted[def.Key+"|"+permissions.SurfaceWeb]),
-			GrantedMobile:   orEmpty(granted[def.Key+"|"+permissions.SurfaceMobile]),
-			Pages:           options,
-			GrantedPagesWeb: heldPages,
+			ModuleKey:           def.Key,
+			Label:               def.Label,
+			Blurb:               def.Blurb,
+			OfferedWeb:          offeredLevels(def, permissions.SurfaceWeb),
+			OfferedMobile:       offeredLevels(def, permissions.SurfaceMobile),
+			GrantedWeb:          orEmpty(granted[def.Key+"|"+permissions.SurfaceWeb]),
+			GrantedMobile:       orEmpty(granted[def.Key+"|"+permissions.SurfaceMobile]),
+			Pages:               options,
+			GrantedPagesWeb:     heldPages,
+			WebLevelPermissions: permissions.WebLevelPermissions(def.Key),
 		})
 	}
 	return out

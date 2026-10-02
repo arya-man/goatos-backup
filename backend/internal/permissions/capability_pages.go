@@ -366,13 +366,18 @@ func PageAccessForAssignments(assignments []ModuleAssignment) PageAccess {
 		Pages:   make(map[string]struct{}, len(modulePages)),
 		Modules: make(map[string]struct{}, len(moduleCapabilities)),
 	}
-	// A screen is openable from the person's WHOLE permission set, not from the module it is
-	// grouped under. The two are genuinely different: Feed SOP is grouped under Feed and
+	// A screen is openable from the person's whole WEB permission set, not from the module it
+	// is grouped under. The two are genuinely different: Feed SOP is grouped under Feed and
 	// needs sop.read, which lives in the Protocols & SOPs module. Checking only the owning
 	// module hid Feed SOP from the CEO, who plainly holds sop.read -- the module is where a
 	// screen is TICKED, not where its authority comes from.
+	//
+	// WEB ticks only (People / HRMS fixes, 2026-10-02): a phone tick never opens a web screen.
+	// The editor used to count phone ticks while the sidebar resolver only ever loaded web rows,
+	// so a page could be offered, ticked and saved and then never appear (Sales > Vendors with
+	// Vendors ticked on the phone only). Both now read WebPermissionsForAssignments.
 	granted := make(map[string]struct{}, 48)
-	for _, p := range PermissionsForAssignments(assignments) {
+	for _, p := range WebPermissionsForAssignments(assignments) {
 		granted[p] = struct{}{}
 	}
 	for _, a := range assignments {
@@ -415,6 +420,40 @@ func PageAccessForAssignments(assignments []ModuleAssignment) PageAccess {
 		}
 	}
 	return access
+}
+
+// WebPermissionsForAssignments is the permission set the person's WEB rows produce -- the set
+// that decides which admin-web screens they can open. Phone rows are ignored: what someone may
+// do on the phone never puts a screen in their web sidebar. (Route authorization still reads the
+// whole set, PermissionsForAssignments: a route cannot tell which surface called it.)
+func WebPermissionsForAssignments(assignments []ModuleAssignment) []string {
+	web := make([]ModuleAssignment, 0, len(assignments))
+	for _, a := range assignments {
+		if a.Surface == SurfaceWeb {
+			web = append(web, a)
+		}
+	}
+	return PermissionsForAssignments(web)
+}
+
+// WebLevelPermissions is what each WEB level of a module grants, keyed by level. The access
+// editor reads it to work out, from the ticks currently on screen, which screens are openable
+// -- so a module switched on for the first time shows its screens before anything is saved.
+func WebLevelPermissions(moduleKey string) map[string][]string {
+	out := map[string][]string{}
+	mod, ok := moduleCapabilityIndex[moduleKey]
+	if !ok || !ModuleSupportsSurface(moduleKey, SurfaceWeb) {
+		return out
+	}
+	for level, perms := range mod.Levels {
+		if !LevelOffered(moduleKey, level) || level == LevelNone {
+			continue
+		}
+		list := append([]string{}, perms...)
+		sort.Strings(list)
+		out[level] = list
+	}
+	return out
 }
 
 // permissionsForModuleLevels is the permission set a person's capabilities on ONE module

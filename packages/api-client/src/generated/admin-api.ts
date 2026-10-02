@@ -2790,15 +2790,21 @@ export interface components {
             offered_mobile: string[];
             granted_web: string[];
             granted_mobile: string[];
-            /** @description The module's individually tickable admin-web screens, in sidebar order. EMPTY means the module has no admin-web page of its own -- it is phone-only, or reached from inside another screen. */
+            /** @description EVERY individually tickable admin-web screen of the module, in sidebar order, each with the permissions it needs; the editor offers the ones the ticks on screen can open. EMPTY means the module has no admin-web page of its own -- it is phone-only, or reached from inside another screen. */
             pages: components["schemas"]["AccessPageOption"][];
             /** @description The screens this person keeps. Web only -- the phone composes its own navigation and page ticks never reach it. Always explicit; the backend expands a stored empty list (which means every page) before sending. */
             granted_pages_web: string[];
+            /** @description What each WEB level of this module grants, keyed by level. With each page's required_permissions it lets the editor decide, from the ticks on screen, which screens are openable -- a screen is openable when every permission it needs is granted by some web tick. Phone ticks never open a web screen. Matched, never shown. */
+            web_level_permissions: {
+                [key: string]: string[];
+            };
         };
         /** @description One tickable admin-web screen inside a module. The label is the SIDEBAR label, so the tick reads as the thing the person will actually see. */
         AccessPageOption: {
             page_key: string;
             label: string;
+            /** @description What the screen itself needs, ANDed. Matched against web_level_permissions, never shown. */
+            required_permissions: string[];
         };
         AccessParkOption: {
             /** Format: uuid */

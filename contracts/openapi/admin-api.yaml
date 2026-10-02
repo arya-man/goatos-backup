@@ -6600,7 +6600,7 @@ components:
     AccessModuleRow:
       type: object
       additionalProperties: false
-      required: [module_key, label, blurb, offered_web, offered_mobile, granted_web, granted_mobile, pages, granted_pages_web]
+      required: [module_key, label, blurb, offered_web, offered_mobile, granted_web, granted_mobile, pages, granted_pages_web, web_level_permissions]
       properties:
         module_key:
           type: string
@@ -6627,7 +6627,7 @@ components:
           items:
             type: string
         pages:
-          description: The module's individually tickable admin-web screens, in sidebar order. EMPTY means the module has no admin-web page of its own -- it is phone-only, or reached from inside another screen.
+          description: EVERY individually tickable admin-web screen of the module, in sidebar order, each with the permissions it needs; the editor offers the ones the ticks on screen can open. EMPTY means the module has no admin-web page of its own -- it is phone-only, or reached from inside another screen.
           type: array
           items:
             $ref: "#/components/schemas/AccessPageOption"
@@ -6636,16 +6636,32 @@ components:
           type: array
           items:
             type: string
+        web_level_permissions:
+          description: >-
+            What each WEB level of this module grants, keyed by level. With each page's
+            required_permissions it lets the editor decide, from the ticks on screen, which screens
+            are openable -- a screen is openable when every permission it needs is granted by some
+            web tick. Phone ticks never open a web screen. Matched, never shown.
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
     AccessPageOption:
       description: One tickable admin-web screen inside a module. The label is the SIDEBAR label, so the tick reads as the thing the person will actually see.
       type: object
       additionalProperties: false
-      required: [page_key, label]
+      required: [page_key, label, required_permissions]
       properties:
         page_key:
           type: string
         label:
           type: string
+        required_permissions:
+          description: What the screen itself needs, ANDed. Matched against web_level_permissions, never shown.
+          type: array
+          items:
+            type: string
     AccessParkOption:
       type: object
       additionalProperties: false

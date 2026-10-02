@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import { control, controlEnabled, copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { AccessModuleWrite, PersonAccess } from "@/lib/api/server";
 import { designationDefaultsAction, savePersonAccessAction } from "./access-actions";
+import { openablePageKeys, pagesToSave, webPermissionsFromTicks } from "./access-pages";
 
 /**
  * The per-person access editor.
@@ -106,18 +107,21 @@ export function PersonAccessModal({
   const setCapability = useCallback((moduleKey: string, surface: "web" | "mobile", level: string) => {
     setDraft((current) => {
       const row = current.modules[moduleKey] ?? { web: [], mobile: [], pages: [] };
-      const next = { ...row, [surface]: toggle(row[surface], level) };
-      // Granting a module for the first time opens it on every screen it has. That is
-      // what the backend does with an empty stored list, and the alternative -- a
-      // module ticked with no screens -- is refused on save rather than silently
-      // widened, so the editor must never leave it in that state.
-      if (surface === "web" && next.web.length > 0 && next.pages.length === 0) {
-        const catalog = access.modules.find((m) => m.module_key === moduleKey);
-        next.pages = (catalog?.pages ?? []).map((page) => page.page_key);
-      }
-      return { ...current, modules: { ...current.modules, [moduleKey]: next } };
+      const modules = { ...current.modules, [moduleKey]: { ...row, [surface]: toggle(row[surface], level) } };
+      if (surface === "mobile") return { ...current, modules };
+      // A web level changes which screens are openable -- on this module and on any module
+      // whose screens need what it grants (every SOP screen needs Protocols & SOPs). Re-work
+      // the screens from the ticks on screen: a module switched on opens on every screen it
+      // has, and a screen the levels no longer open is no longer ticked. The chips on screen
+      // are then exactly what Save sends.
+      const pages = pagesToSave(access.modules, modules);
+      const next: Draft["modules"] = {};
+      for (const [key, value] of Object.entries(modules)) next[key] = { ...value, pages: pages[key] ?? [] };
+      return { ...current, modules: next };
     });
   }, [access.modules]);
+
+  const webHeld = useMemo(() => webPermissionsFromTicks(access.modules, draft.modules), [access.modules, draft.modules]);
 
   const applyDesignation = useCallback(
     (code: string) => {
@@ -144,6 +148,9 @@ export function PersonAccessModal({
               pages: [...(row.pages ?? [])],
             };
           }
+          // A default's empty page list means every screen; show them as ticks.
+          const pages = pagesToSave(access.modules, modules);
+          for (const key of Object.keys(modules)) modules[key] = { ...modules[key], pages: pages[key] ?? [] };
           return { ...current, modules };
         });
       });
@@ -164,11 +171,15 @@ export function PersonAccessModal({
 
   const submit = useCallback(() => {
     setError("");
+    // Only screens on screen are sent: a tick the current levels cannot open is not shown,
+    // so it is not saved. An empty choice is sent as it is and refused by the backend with
+    // its own reason, never silently refilled.
+    const pages = pagesToSave(access.modules, draft.modules, { fillEmpty: false });
     const modules: AccessModuleWrite[] = access.modules.map((row) => ({
       module_key: row.module_key,
       web: draft.modules[row.module_key]?.web ?? [],
       mobile: draft.modules[row.module_key]?.mobile ?? [],
-      pages: draft.modules[row.module_key]?.pages ?? [],
+      pages: pages[row.module_key] ?? [],
     }));
     startTransition(async () => {
       const result = await savePersonAccessAction({
@@ -391,8 +402,8 @@ export function PersonAccessModal({
                         // Page ticks belong to the WEB cell alone and only once the
                         // module is granted: which screens someone keeps is a question
                         // that only exists after they have the module at all.
-                        const showPages =
-                          surface === "web" && row.pages.length > 0 && held.web.length > 0;
+                        const openable = surface === "web" ? openablePageKeys(row, webHeld) : [];
+                        const showPages = surface === "web" && openable.length > 0 && held.web.length > 0;
                         return (
                           <td key={surface}>
                             <div className="pa-caps">
@@ -416,7 +427,7 @@ export function PersonAccessModal({
                             </div>
                             {showPages ? (
                               <div className="pa-pages" role="group" aria-label={t("access.pages.label")}>
-                                {row.pages.map((page) => {
+                                {row.pages.filter((page) => openable.includes(page.page_key)).map((page) => {
                                   const on = held.pages.includes(page.page_key);
                                   return (
                                     <button
