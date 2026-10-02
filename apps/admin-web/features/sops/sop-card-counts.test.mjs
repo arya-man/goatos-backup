@@ -98,3 +98,18 @@ test("the supplier form keeps the register's rules by default", () => {
   assert.deepEqual(vendorFormProblems(rowsOf(...VENDOR_REQUIRED_KEYS)), []);
   assert.ok(vendorFormProblems(rowsOf("business_name")).some((m) => m.includes("record_type")));
 });
+
+// ONE NAME PER COUNT ACROSS MODULES (PR #294 round 2): form fields are form questions on every
+// library (Milk read "14 steps" beside Herd Operations' "form questions"); only the aflatoxin
+// procedure's authored steps are "steps".
+test("only a procedure's authored steps count as steps; form fields never do", () => {
+  const view = (code, form_dsl) =>
+    toSopView({ sop_id: "s", code, name: "x", description: "", status: "published" },
+              { sop_version_id: "v", version: 1, status: "published", form_dsl, proof_policy: {}, row_version: 1 });
+  const milk = view("milk.preparation", { fields: Array.from({ length: 14 }, (_, i) => ({ id: `f${i}` })) });
+  assert.equal(milk.stepCount, 14);
+  assert.equal(milk.stepCountIsProcedure, false);
+  const toxin = view("procurement.toxin_test", { fields: [], toxin: { steps: Array.from({ length: 7 }, (_, i) => ({ step_no: i + 1 })) } });
+  assert.equal(toxin.stepCount, 7);
+  assert.equal(toxin.stepCountIsProcedure, true);
+});
