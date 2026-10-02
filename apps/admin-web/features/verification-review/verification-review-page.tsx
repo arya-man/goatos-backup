@@ -467,7 +467,7 @@ export async function VerificationReviewPage({
                   icon={STATUS_ICON[option.status] ?? "solar:file-bold-duotone"}
                   color={`${STATUS_COLOR[option.status] ?? "info"}.main`}
                   // No "0%" repeated in every cell when nothing is counted (TR1-#35).
-                  caption={statusTotal ? fPercent(((statusCounts[option.status] ?? 0) / statusTotal) * 100) : undefined}
+                  caption={statusTotal ? sharePercent(statusCounts[option.status] ?? 0, statusTotal) : undefined}
                 />
               ))}
             </DividedStack>
@@ -492,11 +492,13 @@ export async function VerificationReviewPage({
               ariaLabel={copy(pageContract, "board.title")}
               value={status}
               sx={{ px: { md: 2.5 } }}
+              // `||`, not `??` (C12, pr294): the all-statuses option arrives with an EMPTY status, which
+              // `??` kept as "" -- so no tab matched ?status=all and none read as selected.
               items={statuses.map((option) => ({
-                value: option.status ?? "all",
+                value: option.status || "all",
                 label: option.label,
-                count: option.status ? (statusCounts[option.status] ?? 0) : statusTotal,
-                href: hrefWith(sp, { status: option.status ?? "all", vi_row: null, vi_cursor: null, vi_trail: null, va_status: null, va_code: null, va_fields: null, va_entries: null }),
+                count: (option.status ? (statusCounts[option.status] ?? 0) : statusTotal).toLocaleString("en-IN"),
+                href: hrefWith(sp, { status: option.status || "all", vi_row: null, vi_cursor: null, vi_trail: null, va_status: null, va_code: null, va_fields: null, va_entries: null }),
               }))}
             />
           ) : null}
@@ -794,7 +796,9 @@ function QueueRow({
           </Box>,
         )}
       </TableCell>
-      <TableCell>{cell(subjectCell(item))}</TableCell>
+      {/* Width floors (C12, pr294): the auto layout gave Subject and Reason their min-content width,
+          so "Mandela 2 - Part 1" broke before its number and a rejection reason ran one word per line. */}
+      <TableCell sx={{ minWidth: 220 }}>{cell(subjectCell(item))}</TableCell>
       <TableCell sx={muted}>{cell(fmtDateTime(item.captured_at))}</TableCell>
       <TableCell sx={muted}>{cell(inQueueCell(item))}</TableCell>
       <TableCell sx={muted}>{cell(item.verified_at ? fmtDateTime(item.verified_at) : "—")}</TableCell>
@@ -806,7 +810,7 @@ function QueueRow({
           </Label>,
         )}
       </TableCell>
-      <TableCell sx={{ color: "text.secondary", typography: "body2" }}>{cell(item.verdict_reason || "—")}</TableCell>
+      <TableCell sx={{ minWidth: 200, color: "text.secondary", typography: "body2" }}>{cell(item.verdict_reason || "—")}</TableCell>
       <TableCell sx={muted}>{cell(watchCell(item))}</TableCell>
     </TableRow>
   );
@@ -863,7 +867,7 @@ function subjectCell(item: VerificationQueueItem): React.ReactNode {
   // Template ListItemText anatomy: body2 primary, the typed chips + context as the muted secondary line.
   return (
     <Box sx={{ minWidth: 0 }}>
-      <Box component="span" title={item.subject_label || headline} sx={{ display: "block", typography: "body2", overflowWrap: "anywhere" }}>
+      <Box component="span" title={item.subject_label || headline} sx={{ display: "block", typography: "body2", overflowWrap: "break-word" }}>
         {headline}
       </Box>
       {chips.length || meta.length ? (
@@ -987,6 +991,12 @@ function businessDaysBefore(day: string, days: number): string {
   if (Number.isNaN(parsed.getTime())) return day;
   parsed.setUTCDate(parsed.getUTCDate() - days);
   return parsed.toISOString().slice(0, 10);
+}
+
+/** A status's share of the total: "<1%" for a non-zero sliver, never "0%" beside a count of 1 (C12). */
+function sharePercent(count: number, total: number): string {
+  const pct = (count / total) * 100;
+  return count > 0 && pct < 1 ? "<1%" : fPercent(pct);
 }
 
 function verificationStatus(value: string | undefined): VerificationItemStatus | "all" {
