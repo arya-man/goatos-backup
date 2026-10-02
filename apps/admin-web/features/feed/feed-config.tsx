@@ -977,7 +977,14 @@ export async function FeedConfigPage({
               />
             </>
           }
-          sx={{ mb: 2 }}
+          // Phone: the long enrol button drops below the title instead of squeezing the title and
+          // caption into a one-word column (PR #294 sweep, /feed/config at 390).
+          sx={{
+            mb: 2,
+            flexWrap: { xs: "wrap", sm: "nowrap" },
+            "& .MuiCardHeader-content": { minWidth: { xs: "100%", sm: 0 } },
+            "& .MuiCardHeader-action": { m: 0, mt: { xs: 1.5, sm: 0 }, alignSelf: { xs: "flex-start", sm: "center" } },
+          }}
         />
 
         {/* The section's own filter bar, on its own params. It pages independently of the ration
