@@ -28,7 +28,10 @@ test("Sales dates render DD/MM/YYYY, never the ISO wire value", () => {
   assert.match(read("./sales-config.tsx"), /dealCell\(humanDate\(deal\.sale_date\)\)/);
   assert.doesNotMatch(read("./sales-config.tsx"), /dealCell\(deal\.sale_date\)/);
   assert.match(read("./sales-record-drawer.tsx"), /cell\(field\("sale_date"\), fmtDate\(deal\.sale_date\)\)/);
-  assert.match(read("./valuation-section.tsx"), /fmtDateTime\(v\.updated_at\)/);
+  // The valuation stamp arrives ALREADY DD/MM/YYYY HH:MM (IST) from the backend's to_char, so it is
+  // rendered verbatim; re-parsing it with new Date() read the day as the month (2 Oct -> 10/02).
+  assert.match(read("./valuation-section.tsx"), /\{copy\(pageContract, "valuation\.updated"\)\} \{v\.updated_at\}/);
+  assert.doesNotMatch(read("./valuation-section.tsx"), /fmtDateTime\(v\.updated_at\)/);
 });
 
 test("a load that has sold nothing shows no sold value, never ₹0", () => {

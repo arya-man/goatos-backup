@@ -14,7 +14,7 @@ import (
 )
 
 // FARM VALUATION ASSUMPTIONS (maintainer instruction 2026-09-19): one row per tenant, read per
-// request by the overview's valuation and Load wise's unsold-stock price, written from Sales
+// request by the overview's valuation and Load wise's stock value, written from Sales
 // Config under a row_version fence with one audit row per write.
 
 const valuationReadSQL = `
