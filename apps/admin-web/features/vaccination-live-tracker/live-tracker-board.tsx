@@ -148,6 +148,7 @@ export async function LiveTrackerBoard({
           separate info banner. The wording turns on hasNarrowing, which INCLUDES the top-bar park. */}
       <Box sx={{ mb: LT_BLOCK_MB }}>
         <AppWelcome
+          sx={DRIVE_DAY_HERO_SX}
           title={`${copy(pageContract, "page.heading_prefix")} — ${data.business_date ? fmtDriveDay(data.business_date) : copy(pageContract, "label.placeholder")}`}
           description={
             <>
@@ -378,3 +379,17 @@ function buildFilters(
 
 /** The passport drawer opens client-locally; it never changes the board's data. */
 const DRAWER_PARAMS = ["goat_passport"] as const;
+
+/**
+ * The Drive Day hero follows the page's scheme (L1, pr294): the template welcome card is a charcoal
+ * gradient in BOTH schemes, so on the light page it sat as a dark slab and its soft "0 parks
+ * running" chip (dark text for a light surface) read dark-on-dark. Light paints it as a light card;
+ * dark keeps the template. A plain object (CSS-variable values) because this is a server component.
+ */
+const DRIVE_DAY_HERO_SX = {
+  '[data-theme="light"] &': {
+    backgroundImage: "linear-gradient(to right, var(--palette-background-neutral) 0%, var(--palette-background-paper) 75%)",
+    color: "var(--palette-text-primary)",
+    borderColor: "var(--palette-divider)",
+  },
+} as const;
