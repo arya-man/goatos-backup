@@ -217,7 +217,9 @@ export async function MilkPreparationPage({
                   key={state.key}
                   title={copy(pageContract, `label.${state.key}`)}
                   total={state.count}
-                  value={state.count.toLocaleString("en-IN")}
+                  // The strip counts PARK-DAYS, not the pens in the list below; "2 parks" says so
+                  // where a bare "2" above three pen rows read as a miscount (PR #294 O7).
+                  value={copy(pageContract, state.count === 1 ? "label.park_count_one" : "label.park_count_other").replace("{count}", state.count.toLocaleString("en-IN"))}
                   caption={`${farmShare(state.count)}%`}
                   percent={farmShare(state.count)}
                   icon={state.icon}
