@@ -85,13 +85,21 @@ const ListRoot = styled('ul')(({ theme }) => ({
   gap: theme.spacing(2),
 }));
 
+// An item never paints outside its own cell. The label used to be `flexShrink: 0` in an
+// unconstrained inline-flex, so in a two-column legend a long name ("Fattening animals · Female
+// (₹20,76,766)") ran over the next item and off the card (PR #294 B2). Items are capped at their
+// cell / the row, and a long label WRAPS (whole text kept, nothing truncated from either end).
 const ItemWrapper = styled('li')(() => ({
   display: 'inline-flex',
   flexDirection: 'column',
+  minWidth: 0,
+  maxWidth: '100%',
 }));
 
 const ItemRoot = styled('div')(({ theme }) => ({
   gap: 6,
+  minWidth: 0,
+  maxWidth: '100%',
   alignItems: 'center',
   display: 'inline-flex',
   justifyContent: 'flex-start',
@@ -125,7 +133,7 @@ const ItemDot = styled('span')({
   backgroundColor: 'currentColor',
 });
 
-const ItemLabel = styled('span')({ flexShrink: 0 });
+const ItemLabel = styled('span')({ minWidth: 0, overflowWrap: 'anywhere' });
 
 const ItemValue = styled('span')(({ theme }) => ({
   ...theme.typography.h6,
