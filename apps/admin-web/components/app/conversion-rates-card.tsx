@@ -94,17 +94,11 @@ export function ConversionRatesCard({ title, subheader, action, empty, chart, sx
   const phone = useMediaQuery((theme: Theme) => theme.breakpoints.down("sm"), { noSsr: true });
   const theme = useTheme();
   const options: ChartOptions = {
-    // Value labels sit AFTER the bar end in the page's text colour (PR #294 K3). The template centres a
-    // white label 6px inside the bar end, so half of it ran past the bar onto the card: "66.(" / "20.:"
-    // on the light theme, and nothing at all on a hairline bar. Apex keeps a label that would leave the
-    // plot inside it, and the right padding gives the longest bar's label its room.
-    dataLabels: {
-      enabled: true,
-      textAnchor: "start",
-      offsetX: 6,
-      style: { fontSize: "12px", fontWeight: 600, colors: [theme.vars.palette.text.primary] },
-    },
-    grid: { padding: { right: 40 } },
+    // No value label on every bar (PR #294 K3; design:guard chart-data-labels): the template drew a
+    // white 10px label centred 6px inside the bar end, so half of it ran onto the card ("66.(" /
+    // "20.:" in the light theme) and a hairline bar's label vanished. The figure lives in the
+    // tooltip, as on every other chart, and the value axis reads the length.
+    dataLabels: { enabled: false },
     plotOptions: {
       bar: {
         horizontal: true,

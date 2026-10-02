@@ -25,14 +25,13 @@ test("chart-bar-shared-tooltip: horizontal conversion bars pin + wrap the toolti
   assert.doesNotMatch(conv, /apexcharts-tooltip/, "no CSS on the tooltip");
 });
 
-// PR #294 K3/K4: bar value labels sit after the bar end in the text colour (never a white label
-// straddling the end), and a negative bar wears the error tone.
+// PR #294 K3/K4: no white value label straddling the bar end (labels off, figure in the tooltip),
+// and a negative bar wears the error tone.
 import { test as kTest } from "node:test";
-kTest("conversion-rates bars: outside value labels, red negatives", async () => {
+kTest("conversion-rates bars: no straddling value labels, red negatives", async () => {
   const { readFileSync: read } = await import("node:fs");
   const src = read(new URL("./conversion-rates-card.tsx", import.meta.url), "utf8");
   const { match } = (await import("node:assert/strict")).default;
-  match(src, /textAnchor: "start",\s*offsetX: 6,/);
-  match(src, /colors: \[theme\.vars\.palette\.text\.primary\]/);
+  match(src, /dataLabels: \{ enabled: false \}/);
   match(src, /ranges: \[\{ from: -Number\.MAX_SAFE_INTEGER, to: -Number\.EPSILON, color: theme\.vars\.palette\.error\.main \}\]/);
 });
