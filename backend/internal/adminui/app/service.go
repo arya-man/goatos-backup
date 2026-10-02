@@ -6757,7 +6757,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// The pen line and its drill-down. Every string the pens table renders is here.
 			"table.pens.aria":          "Head count by pen",
 			"table.pens.noun":          "pen",
-			"table.pens.total_row":     "Total · every matching pen, not just this page",
+			"table.pens.total_row":     "Total, all matching pens",
 			"action.expand.hint":       "Click a pen to see its exact stage × breed × gender split",
 			"action.expand_all":        "Open all",
 			"action.collapse_all":      "Close all",
@@ -6806,7 +6806,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// up to 463, so "Total (rows)" read as a number that did not match the table above it. The
 			// value is right and must stay whole-filter (recomputing it from the page is the banned
 			// capped read-time rollup); it was the LABEL that never said the page is not the whole set.
-			"table.breakdown.total_row": "Total · every matching row, not just this page",
+			"table.breakdown.total_row": "Total, all matching rows",
 			"table.breakdown.noun":      "row",
 			// The inline retag editor on the Stage cell. Every visible string it renders is here:
 			// the frontend composes none of it, including the default reason that lands in the

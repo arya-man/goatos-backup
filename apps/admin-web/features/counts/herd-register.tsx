@@ -429,10 +429,16 @@ export async function HerdRegisterPage({
                             <LocalOverlayLink href={href} scroll={false}>
                               <Box component="span" sx={{ typography: "subtitle2" }}>{g.display_id}</Box>
                             </LocalOverlayLink>
+                            {/* One tag per line, each kept whole: both on one line made this the widest
+                                cell and pushed the last column (Breeding) past the card at 1440 (D9). */}
                             <Box component="span" sx={{ color: "text.disabled", whiteSpace: "nowrap" }}>
                               {`${cols[1] ?? ""} ${dash(g.animal_identifier_1)}`.trim()}
-                              {g.animal_identifier_2 ? ` · ${`${cols[2] ?? ""} ${g.animal_identifier_2}`.trim()}` : ""}
                             </Box>
+                            {g.animal_identifier_2 ? (
+                              <Box component="span" sx={{ color: "text.disabled", whiteSpace: "nowrap" }}>
+                                {`${cols[2] ?? ""} ${g.animal_identifier_2}`.trim()}
+                              </Box>
+                            ) : null}
                           </Stack>
                         </Box>
                       </TableCell>
