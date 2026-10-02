@@ -435,8 +435,11 @@ export async function ProtocolAdherencePage({
 
           {/* Severity and work-state filter ONE ledger. Keyed on both, the body cross-fades. */}
           <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<TableSkeleton bare header={false} columns={ledgerLabels.length || 7} rows={requestedPageSize} />}>
+            {/* `&&` (0,2,0): AppBaseline's phone floor `.content table { min-width: 540px }` (0,1,1)
+                outranks a single-class sx min-width, so the ledger was squeezed to 540 on a phone
+                and "medically deferred" broke one syllable per line (pr294 L-F3). */}
             <Scrollbar>
-              <Table sx={{ minWidth: LEDGER_MIN_WIDTH }} aria-label={copy(pageContract, "section.ledger.aria")}>
+              <Table sx={{ "&&": { minWidth: LEDGER_MIN_WIDTH } }} aria-label={copy(pageContract, "section.ledger.aria")}>
                 <TableHeadCustom headCells={head} />
                 <TableBody>
                   {paged.total === 0 ? (

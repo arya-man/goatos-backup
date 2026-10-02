@@ -50,7 +50,8 @@ test("adherence-ledger-readable: ledger fits 1440, scrolls below it, and wraps i
   assert.ok(widths, "LEDGER_WIDTHS declared");
   const sum = widths[1].split(",").reduce((acc, n) => acc + Number(n.trim()), 0);
   assert.ok(sum <= 1060, `ledger min width ${sum} must fit the 1440 content column (1060)`);
-  assert.match(adherence, /<Scrollbar>\s*<Table sx=\{\{ minWidth: LEDGER_MIN_WIDTH \}\}/);
+  // `&&` so the ledger's own width beats AppBaseline's 540px phone table floor (pr294 L-F3).
+  assert.match(adherence, /<Scrollbar>\s*<Table sx=\{\{ "&&": \{ minWidth: LEDGER_MIN_WIDTH \} \}\}/);
   assert.doesNotMatch(adherence, /tableLayout/, "no fixed layout squeezing columns");
   assert.doesNotMatch(adherence, /ClipText/, "no ellipsis cells in the ledger");
   assert.match(adherence, /\{row\.next_action\} →/);
