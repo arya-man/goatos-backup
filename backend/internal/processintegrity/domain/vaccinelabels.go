@@ -9,6 +9,11 @@ import (
 
 var doseWaveSuffix = regexp.MustCompile(`_w([0-9]+)$`)
 
+// doseAgeSuffix is the kid-course AGE suffix (`et_tt_kid_4w`, `et_tt_kid_7w`): the age in weeks
+// the dose is given at. Without it the two ET+TT kid doses both read "ET+TT kid course", and the
+// Workflows / Action Center lists showed two identical rows for one pen (pr294 L-A7).
+var doseAgeSuffix = regexp.MustCompile(`_([0-9]+)w$`)
+
 // ControlTowerDoseLabel builds the Control Tower / process-integrity display
 // label for a vaccination obligation from its raw dose code. It composes the
 // canonical antigen label (vaccination/domain.DoseDisplayLabel — the single
@@ -37,6 +42,8 @@ func ControlTowerDoseLabel(protocolName, doseCode string) string {
 	}
 	if m := doseWaveSuffix.FindStringSubmatch(lc); m != nil {
 		label += " dose " + m[1]
+	} else if m := doseAgeSuffix.FindStringSubmatch(lc); m != nil {
+		label += " at " + m[1] + " weeks"
 	}
 	return strings.TrimSpace(label)
 }
