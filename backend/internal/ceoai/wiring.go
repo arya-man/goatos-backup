@@ -22,8 +22,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	ceohttp "github.com/vgoats/goatos/backend/internal/ceoai/adapters/http"
 	"github.com/vgoats/goatos/backend/internal/ceoai/adapters/gemini"
+	ceohttp "github.com/vgoats/goatos/backend/internal/ceoai/adapters/http"
 	"github.com/vgoats/goatos/backend/internal/ceoai/cubeclient"
 	"github.com/vgoats/goatos/backend/internal/ceoai/domain"
 	"github.com/vgoats/goatos/backend/internal/ceoai/persistence"
