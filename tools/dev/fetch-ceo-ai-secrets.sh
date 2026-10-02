@@ -40,10 +40,8 @@ for arg in "$@"; do
 done
 
 # Non-secret config defaults (documented, NOT stored as secrets).
-: "${MESHA_AI_PROVIDER:=vertex}"
-: "${MESHA_VERTEX_PROJECT:=goatos-stg}"
-: "${MESHA_VERTEX_LOCATION:=asia-south1}"
-: "${MESHA_VERTEX_MODEL:=gemini-3.8-flash}"
+: "${MESHA_AI_PROVIDER:=gemini}"
+: "${MESHA_GEMINI_MODEL:=gemini-3.8-flash}"
 : "${MESHA_CUBE_URL:=http://127.0.0.1:4000}"
 : "${MESHA_MCP_TOOLBOX_URL:=http://127.0.0.1:5001}"
 
@@ -52,9 +50,10 @@ CEO_DB_SECRET="mesha-ceo-readonly-db-url"
 CUBE_DB_SECRET="mesha-cube-readonly-db-url"
 CUBE_API_SECRET="mesha-cube-api-secret"
 TOOLSET_SECRET="mesha-mcp-toolset"
+GEMINI_KEY_SECRET="goatos-stg-ask-mesha-gemini-api-key"   # Gemini Developer API key (prepaid AI Studio); never Vertex
 
 if [[ "$PRINT_NAMES" == "1" ]]; then
-  printf '%s\n' "$CEO_DB_SECRET" "$CUBE_DB_SECRET" "$CUBE_API_SECRET" "$TOOLSET_SECRET"
+  printf '%s\n' "$CEO_DB_SECRET" "$CUBE_DB_SECRET" "$CUBE_API_SECRET" "$TOOLSET_SECRET" "$GEMINI_KEY_SECRET"
   exit 0
 fi
 
@@ -75,6 +74,7 @@ CEO_DB_URL="$(access "$CEO_DB_SECRET")"
 CUBE_DB_URL="$(access "$CUBE_DB_SECRET")"
 CUBE_API="$(access "$CUBE_API_SECRET")"
 TOOLSET="$(access "$TOOLSET_SECRET")"
+GEMINI_KEY="${MESHA_GEMINI_API_KEY:-$(access "$GEMINI_KEY_SECRET")}"
 [[ -z "$TOOLSET" ]] && TOOLSET="mesha_ceo_toolset"
 
 is_placeholder() { [[ "$1" == PLACEHOLDER-* ]]; }
@@ -104,11 +104,10 @@ cat > "$ENV_FILE" <<EOF
 # Credential VALUES come from Google Secret Manager (${PROJECT}); config is plain.
 # Regenerate: tools/dev/fetch-ceo-ai-secrets.sh
 
-# --- provider / Vertex (config, not secret) ---
+# --- provider: Gemini Developer API (key from Secret Manager; prepaid AI Studio) ---
 MESHA_AI_PROVIDER=${MESHA_AI_PROVIDER}
-MESHA_VERTEX_PROJECT=${MESHA_VERTEX_PROJECT}
-MESHA_VERTEX_LOCATION=${MESHA_VERTEX_LOCATION}
-MESHA_VERTEX_MODEL=${MESHA_VERTEX_MODEL}
+MESHA_GEMINI_MODEL=${MESHA_GEMINI_MODEL}
+MESHA_GEMINI_API_KEY=${GEMINI_KEY}
 
 # --- Cube Core governed metric layer ---
 MESHA_CUBE_URL=${MESHA_CUBE_URL}

@@ -556,9 +556,10 @@ run_common() {
   # Cheap (file hashes, no DB): runs for every non-docs change, so backend/**,
   # migrations, .agents/skills/mesha-data-map/** and tools/ask-mesha-agent/** all hit it.
   step "mesha-data-map-guard" make mesha-data-map-guard
-  # Ask Mesha agent unit tests (plain node, no npm install, ~3s): tools/ask-mesha-agent/** maps to
-  # the common job only (component-paths.json commonOnly), so this is its CI coverage.
-  step "ask-mesha-agent-tests" bash -c 'cd tools/ask-mesha-agent && node --test test/*.test.mjs events.test.mjs'
+  # Ask Mesha agent unit tests: tools/ask-mesha-agent/** maps to the common job only (component-paths.json
+  # commonOnly), so this is its CI coverage. The Gemini/MCP tests import @google/genai and
+  # @modelcontextprotocol/sdk, so the locked deps are installed first (npm ci, no install scripts).
+  step "ask-mesha-agent-tests" bash -c 'cd tools/ask-mesha-agent && npm ci --no-audit --no-fund --ignore-scripts --silent && node --test test/*.test.mjs events.test.mjs'
   step "leadership-verifier-surface-separation-guard" make leadership-verifier-surface-separation-guard
   step "role-scoped-ui-contract-guard" make role-scoped-ui-contract-guard
   step "assistant-route-closure-guard" make assistant-route-closure-guard

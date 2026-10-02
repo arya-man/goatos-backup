@@ -42,10 +42,10 @@ timestamptz bigint integer numeric double boolean jsonb`.
 
 ## Where cards are consumed
 
-1. **Planner prompt** — `adapters/vertex/prompt.go` renders `reporting.RenderCardBlock()`
+1. **Planner prompt** — `adapters/gemini/prompt.go` renders `reporting.RenderCardBlock()`
    (one compact line per view, ~95 estimated tokens each, name-sorted) in place of the old
    single-view hint. The rendered system+user prompt is pinned by
-   `adapters/vertex/testdata/prompt.golden` (`go test ./internal/ceoai/adapters/vertex -run TestPlanPromptGolden -update` to regenerate deliberately).
+   `adapters/gemini/testdata/prompt.golden` (`go test ./internal/ceoai/adapters/gemini -run TestPlanPromptGolden -update` to regenerate deliberately).
 2. **Window guard** — `sqlguard.ValidateWindow(sql, card, window)`: when the orchestrator
    resolved a period from the question (`app.ResolveWindow`) and the card has a
    `DateColumn`, the model's draft must contain `<date_col> >= '<from>'` and
@@ -76,9 +76,9 @@ timestamptz bigint integer numeric double boolean jsonb`.
 5. Run:
 
 ```bash
-cd backend && go test ./internal/ceoai/reporting ./internal/ceoai/adapters/vertex
+cd backend && go test ./internal/ceoai/reporting ./internal/ceoai/adapters/gemini
 # then regenerate the prompt golden if the new card changed it:
-go test ./internal/ceoai/adapters/vertex -run TestPlanPromptGolden -update
+go test ./internal/ceoai/adapters/gemini -run TestPlanPromptGolden -update
 # Postgres-gated column diff (explicit opt-in; uses the pgtest harness):
 GOATOS_RUN_POSTGRES_TESTS=1 GOATOS_PGTEST_ADMIN_DSN=… go test ./internal/ceoai/reporting -run TestSchemaCardsMatchInformationSchema
 make ceo-ai-schema-card-guard

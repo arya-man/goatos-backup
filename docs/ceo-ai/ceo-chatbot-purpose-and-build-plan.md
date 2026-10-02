@@ -90,7 +90,12 @@ The browser never talks directly to Gemini, Cube, MCP Toolbox, or Postgres. The
 Mesha assistant API owns auth, tenant scope, tool choice, execution, validation,
 formatting, and audit.
 
-## Vertex AI Role
+## Gemini Role (Gemini Developer API, prepaid; Vertex AI is no longer used)
+
+Since 2026-10-02 Gemini is called through the Gemini Developer API with an AI Studio key (prepaid credits),
+secret `goatos-stg-ask-mesha-gemini-api-key`. The Vertex wording below is historical.
+
+### Historical: Vertex AI Role
 
 Vertex AI is the Google Cloud runtime used to call Gemini.
 
@@ -439,8 +444,8 @@ No overclaim: nothing here is deployed to staging/production yet.
 Adapters are now wired into the running server (`internal/bootstrap/api.go` →
 `ceoai.Build`, bridges in `internal/ceoai/wiring.go`):
 
-- Agentic loop with the Vertex Gemini planner (`MESHA_AI_PROVIDER=vertex`,
-  `goatos-stg`/`asia-south1`/`gemini-3.8-flash`, ADC) + deterministic keyword
+- Agentic loop with the Gemini planner (`MESHA_AI_PROVIDER=gemini`,
+  `gemini-3.8-flash`, Gemini Developer API key `MESHA_GEMINI_API_KEY`) + deterministic keyword
   fallback; runtime grounding review (`MESHA_AI_REVIEW=1`) that downgrades an
   ungrounded answer instead of emitting an unverified number.
 - Cube-first routing to the governed metric layer. Live E2E through the running

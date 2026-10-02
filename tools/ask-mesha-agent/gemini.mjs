@@ -1,5 +1,7 @@
-// Gemini (Vertex AI) agent for Ask Mesha. Auth is ADC only: the Cloud Run runtime service
-// account (roles/aiplatform.user) or `gcloud auth application-default login` locally. No API keys.
+// Gemini agent for Ask Mesha on the Gemini Developer API (generativelanguage.googleapis.com) with an
+// AI Studio API key, so usage bills the prepaid AI Studio credits. Vertex AI is never used (postpay):
+// there is no Vertex, ADC or service-account path, and a missing key fails at startup.
+// Key: env GEMINI_API_KEY (Cloud Run mounts secret goatos-stg-ask-mesha-gemini-api-key; locally your shell).
 //
 // runAgent() is a provider-neutral agent loop: stream a model turn, run every function call it
 // asks for (in parallel), feed results back, repeat until a turn has no calls or maxSteps is hit.
@@ -10,21 +12,18 @@
 //   {type:"tool_call", id, name, args}    the model called a tool (before it runs)
 //   {type:"tool_result", id, name, args, text, isError}
 //   {type:"turn_end", final}              final=true: the turn had no tool calls
-import { execFileSync } from "node:child_process";
 import { GoogleGenAI } from "@google/genai";
-import { OAuth2Client } from "google-auth-library";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
-// Newest Gemini on goatos-stg Vertex (location global), verified by a live generateContent 200
-// on 2026-10-01: Pro = gemini-3.1-pro-preview (newest Pro served), Flash = gemini-3.8-flash.
+// Newest Gemini models (verified 2026-10-01): Pro = gemini-3.1-pro-preview, Flash = gemini-3.8-flash.
 export const DEFAULT_MODEL = "gemini-3.1-pro-preview";
 export const DEFAULT_FAST_MODEL = "gemini-3.8-flash";
+export const GEMINI_API_HOST = "generativelanguage.googleapis.com";
 
 export function geminiConfig(env = process.env) {
   return {
-    project: env.ASK_MESHA_GEMINI_PROJECT || env.GOOGLE_CLOUD_PROJECT || "goatos-stg",
-    location: env.ASK_MESHA_GEMINI_LOCATION || "global",
+    apiKey: String(env.GEMINI_API_KEY || "").trim(),
     model: env.ASK_MESHA_MODEL || DEFAULT_MODEL,
     deepModel: env.ASK_MESHA_DEEP_MODEL || env.ASK_MESHA_MODEL || DEFAULT_MODEL,
     fastModel: env.ASK_MESHA_FAST_MODEL || DEFAULT_FAST_MODEL,
@@ -33,34 +32,14 @@ export function geminiConfig(env = process.env) {
   };
 }
 
-// ADC by default (Cloud Run runtime SA). Local dev whose ADC needs a browser re-auth can set
-// ASK_MESHA_GEMINI_AUTH=gcloud: requests then carry `gcloud auth print-access-token` (the
-// signed-in user), refreshed every 5 min (gcloud hands back its cached token, which may be near expiry). Never used on Cloud Run (K_SERVICE set).
-export function createClient({ project, location }, env = process.env) {
-  if (env.ASK_MESHA_GEMINI_AUTH === "gcloud" && !env.K_SERVICE) return gcloudUserClient({ project, location });
-  return new GoogleGenAI({ vertexai: true, project, location });
-}
-function gcloudUserClient({ project, location }) {
-  let cached = { client: null, at: 0 };
-  const fresh = () => {
-    if (cached.client && Date.now() - cached.at < 5 * 60_000) return cached.client;
-    const token = execFileSync("gcloud", ["auth", "print-access-token"], { encoding: "utf8", timeout: 15_000 }).trim();
-    const authClient = new OAuth2Client();
-    authClient.setCredentials({ access_token: token, expiry_date: Date.now() + 10 * 60_000 });
-    cached = { client: new GoogleGenAI({ vertexai: true, project, location, googleAuthOptions: { authClient } }), at: Date.now() };
-    return cached.client;
-  };
-  return {
-    // A 401 (gcloud handed back a token that just expired): drop the cached client, fetch a new token.
-    invalidate() { cached = { client: null, at: 0 }; },
-    models: {
-      generateContentStream: (a) => fresh().models.generateContentStream(a),
-      generateContent: (a) => fresh().models.generateContent(a),
-    },
-  };
+// Gemini Developer API client. vertexai is pinned false, so the SDK can never switch to Vertex
+// from GOOGLE_GENAI_USE_VERTEXAI / project env; no key = hard error (no fallback of any kind).
+export function createClient({ apiKey }) {
+  if (!apiKey) throw new Error("GEMINI_API_KEY is not set: Ask Mesha calls the Gemini Developer API with an AI Studio key (secret goatos-stg-ask-mesha-gemini-api-key); it never falls back to Vertex");
+  return new GoogleGenAI({ vertexai: false, apiKey });
 }
 
-// USD per 1M tokens (Vertex list prices; override with ASK_MESHA_PRICE_<IN|OUT>_PER_M when they change).
+// USD per 1M tokens (Gemini API paid-tier list prices; override with ASK_MESHA_PRICE_<IN|OUT>_PER_M when they change).
 // Thinking tokens bill as output; cached prompt tokens at 10% of input.
 const PRICES = [
   { re: /pro/i, in: 2.0, out: 12.0, inLong: 4.0, outLong: 18.0 },

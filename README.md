@@ -405,10 +405,9 @@ already healthy).
 
 | Variable | Purpose | Secret vs config | Source |
 | --- | --- | --- | --- |
-| `MESHA_AI_PROVIDER` | AI provider (`vertex`) | config | env / example |
-| `MESHA_VERTEX_PROJECT` | Vertex project (`goatos-stg`) | config | env / example |
-| `MESHA_VERTEX_LOCATION` | Vertex region (`asia-south1`) | config | env / example |
-| `MESHA_VERTEX_MODEL` | Gemini model (`gemini-3.8-flash`) | config | env / example |
+| `MESHA_AI_PROVIDER` | AI provider (`gemini`; Gemini Developer API, never Vertex) | config | env / example |
+| `MESHA_GEMINI_MODEL` | Gemini model (`gemini-3.8-flash`) | config | env / example |
+| `MESHA_GEMINI_API_KEY` | AI Studio key (prepaid), secret `goatos-stg-ask-mesha-gemini-api-key` | secret | Secret Manager |
 | `MESHA_AI_MAX_STEPS` | bounded agent step loop | config | env / example |
 | `MESHA_AI_REVIEW` | enable self-review pass | config | env / example |
 | `MESHA_CUBE_URL` | Cube endpoint (local `127.0.0.1:4000`) | config | env / example |

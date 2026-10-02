@@ -1,4 +1,4 @@
-# Ask Mesha coding agent (Gemini on Vertex AI) for Cloud Run: goatos-ask-mesha-stg.
+# Ask Mesha coding agent (Gemini Developer API, AI Studio key) for Cloud Run: goatos-ask-mesha-stg.
 # Build context = repo root at the deployed SHA:
 #   docker build -f tools/ask-mesha-agent/Dockerfile .
 # Ignore rules: tools/ask-mesha-agent/Dockerfile.dockerignore (BuildKit per-Dockerfile

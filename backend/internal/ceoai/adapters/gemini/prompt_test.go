@@ -1,4 +1,4 @@
-package vertex
+package gemini
 
 import (
 	"context"
@@ -12,8 +12,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"golang.org/x/oauth2"
 
 	"github.com/vgoats/goatos/backend/internal/ceoai/domain"
 	"github.com/vgoats/goatos/backend/internal/ceoai/ports"
@@ -84,7 +82,7 @@ func goldenCatalog() []ports.ToolSpec {
 // user prompt with the schema card block) so a card, rule or wording change is
 // a visible diff. Regenerate deliberately with:
 //
-//	go test ./internal/ceoai/adapters/vertex -run TestPlanPromptGolden -update
+//	go test ./internal/ceoai/adapters/gemini -run TestPlanPromptGolden -update
 func TestPlanPromptGolden(t *testing.T) {
 	got := "=== SYSTEM ===\n" + systemPlannerInstruction + "\n=== USER ===\n" + buildPlanPrompt(goldenQuestion(), nil, goldenCatalog()) + "\n"
 	path := filepath.Join("testdata", "prompt.golden")
@@ -158,8 +156,7 @@ func TestGenerateParsesUsageMetadataAndMaxOutputTokens(t *testing.T) {
 	}))
 	defer srv.Close()
 	p := &Planner{
-		cfg:      Config{Project: "p", Location: "l", Model: "m"},
-		tokens:   oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "t"}),
+		cfg:      Config{APIKey: "test-key", Model: "m"},
 		http:     srv.Client(),
 		endpoint: func(Config) string { return srv.URL },
 	}
@@ -206,5 +203,27 @@ func TestParseRepair(t *testing.T) {
 		if !strings.Contains(rp, want) {
 			t.Fatalf("repair prompt missing %q:\n%s", want, rp)
 		}
+	}
+}
+
+func TestGenerateUsesDeveloperAPIKeyHeaderNeverVertex(t *testing.T) {
+	var gotKey, gotAuth, gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotKey, gotAuth, gotPath = r.Header.Get("x-goog-api-key"), r.Header.Get("Authorization"), r.URL.String()
+		_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":"{\"sql\":\"SELECT 1\"}"}]}}]}`))
+	}))
+	defer srv.Close()
+	p := &Planner{cfg: Config{APIKey: "k-123", Model: "gemini-3.8-flash"}, http: srv.Client(), endpoint: func(Config) string { return srv.URL }}
+	if _, _, err := p.RepairSQL(context.Background(), goldenQuestion(), "SELECT x", "r", "card", ""); err != nil {
+		t.Fatal(err)
+	}
+	if gotKey != "k-123" || gotAuth != "" || strings.Contains(gotPath, "k-123") {
+		t.Fatalf("key must travel only in x-goog-api-key: key=%q auth=%q path=%q", gotKey, gotAuth, gotPath)
+	}
+	if got := defaultEndpoint(Config{Model: "gemini-3.8-flash"}); got != "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent" {
+		t.Fatalf("endpoint = %s", got)
+	}
+	if _, err := New(context.Background(), Config{Model: "m"}); err == nil {
+		t.Fatal("missing api key must fail (no credential or Vertex fallback)")
 	}
 }

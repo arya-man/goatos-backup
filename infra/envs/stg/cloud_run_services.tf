@@ -220,24 +220,26 @@ resource "google_cloud_run_v2_service" "api" {
         value = "3s"
       }
 
+      # Gemini Developer API (AI Studio key, prepaid credits). Never Vertex (postpay).
       env {
         name  = "MESHA_AI_PROVIDER"
-        value = "vertex"
+        value = "gemini"
       }
 
       env {
-        name  = "MESHA_VERTEX_PROJECT"
-        value = var.project_id
-      }
-
-      env {
-        name  = "MESHA_VERTEX_LOCATION"
-        value = "global"
-      }
-
-      env {
-        name  = "MESHA_VERTEX_MODEL"
+        name  = "MESHA_GEMINI_MODEL"
         value = "gemini-3.8-flash"
+      }
+
+      env {
+        name = "MESHA_GEMINI_API_KEY"
+        value_source {
+          secret_key_ref {
+            # Created and filled by the maintainer in the prepaid AI Studio project; not managed here.
+            secret  = local.gemini_api_key_secret_id
+            version = "latest"
+          }
+        }
       }
 
       env {
@@ -1104,4 +1106,15 @@ resource "google_cloud_run_v2_service" "herd_signals_mqtt_bridge" {
       }
     }
   }
+}
+
+# The Gemini API key secret is created out of band (maintainer, prepaid AI Studio key); Terraform only grants access.
+locals {
+  gemini_api_key_secret_id = "goatos-stg-ask-mesha-gemini-api-key"
+}
+
+resource "google_secret_manager_secret_iam_member" "api_gemini_api_key_accessor" {
+  secret_id = "projects/${var.project_id}/secrets/${local.gemini_api_key_secret_id}"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.runtime["api"].email}"
 }

@@ -17,7 +17,7 @@ import (
 )
 
 // repairProvider is a fakeProvider that also implements the optional
-// usagePlanner + sqlRepairer capabilities (as adapters/vertex does).
+// usagePlanner + sqlRepairer capabilities (as adapters/gemini does).
 type repairProvider struct {
 	fakeProvider
 	usage       TokenUsage

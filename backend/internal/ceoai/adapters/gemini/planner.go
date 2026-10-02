@@ -1,6 +1,7 @@
-// Package vertex is the Gemini-on-Vertex planner/reviewer adapter. It
-// implements ports.AIProvider (Plan) and ports.Reviewer (Critique) by calling
-// the Vertex generateContent REST endpoint with ADC credentials.
+// Package gemini is the Gemini planner/reviewer adapter. It implements
+// ports.AIProvider (Plan) and ports.Reviewer (Critique) by calling the Gemini
+// Developer API (generativelanguage.googleapis.com) generateContent endpoint
+// with an AI Studio API key (prepaid credits). It never calls Vertex AI.
 //
 // Hard rules honored here:
 //   - Gemini NEVER holds DB creds, executes SQL, or decides permissions. It
@@ -9,9 +10,9 @@
 //     Cube metric for any official KPI; the app layer additionally ENFORCES it.
 //   - The model output is parsed as data; the app validates every routed tool.
 //
-// The adapter is transport-only: config comes from env (MESHA_VERTEX_*), auth
-// from Application Default Credentials (no secrets in code).
-package vertex
+// The adapter is transport-only: config comes from env (MESHA_GEMINI_*); the
+// key is mounted from Secret Manager, never in code.
+package gemini
 
 import (
 	"bytes"
@@ -20,68 +21,47 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
-
-	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/google"
 
 	"github.com/vgoats/goatos/backend/internal/ceoai/app"
 	"github.com/vgoats/goatos/backend/internal/ceoai/domain"
 	"github.com/vgoats/goatos/backend/internal/ceoai/ports"
 )
 
-// Config is the Vertex connection config (from env; see MESHA_VERTEX_*).
+// Config is the Gemini Developer API config (from env; see MESHA_GEMINI_*).
 type Config struct {
-	Project  string
-	Location string
-	Model    string
+	APIKey string
+	Model  string
 }
 
-// Planner calls Gemini via Vertex to plan leadership questions.
+// Planner calls Gemini via the Developer API to plan leadership questions.
 type Planner struct {
-	cfg    Config
-	tokens oauth2.TokenSource
-	http   *http.Client
+	cfg  Config
+	http *http.Client
 	// endpoint is overridable in tests to avoid network.
 	endpoint func(cfg Config) string
 }
 
-// tokenSourceFn allows tests to inject credentials; production uses ADC.
-var tokenSourceFn = func(ctx context.Context) (oauth2.TokenSource, error) {
-	creds, err := google.FindDefaultCredentials(ctx, "https://www.googleapis.com/auth/cloud-platform")
-	if err != nil {
-		return nil, err
-	}
-	return creds.TokenSource, nil
-}
-
-// New builds a Vertex planner using Application Default Credentials.
-func New(ctx context.Context, cfg Config) (*Planner, error) {
-	if cfg.Project == "" || cfg.Location == "" || cfg.Model == "" {
-		return nil, fmt.Errorf("vertex: project, location, and model are required")
-	}
-	ts, err := tokenSourceFn(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("vertex: application default credentials: %w", err)
+// New builds a Gemini planner. The API key is required: there is no
+// credential fallback (and never a Vertex fallback).
+func New(_ context.Context, cfg Config) (*Planner, error) {
+	if strings.TrimSpace(cfg.APIKey) == "" || cfg.Model == "" {
+		return nil, fmt.Errorf("gemini: api key and model are required")
 	}
 	return &Planner{
 		cfg:      cfg,
-		tokens:   ts,
 		http:     &http.Client{Timeout: 20 * time.Second},
 		endpoint: defaultEndpoint,
 	}, nil
 }
 
+// APIHost is the Gemini Developer API host (AI Studio key, prepaid billing).
+const APIHost = "generativelanguage.googleapis.com"
+
 func defaultEndpoint(cfg Config) string {
-	host := fmt.Sprintf("%s-aiplatform.googleapis.com", cfg.Location)
-	if strings.EqualFold(cfg.Location, "global") {
-		host = "aiplatform.googleapis.com"
-	}
-	return fmt.Sprintf(
-		"https://%s/v1/projects/%s/locations/%s/publishers/google/models/%s:generateContent",
-		host, cfg.Project, cfg.Location, cfg.Model,
-	)
+	return fmt.Sprintf("https://%s/v1beta/models/%s:generateContent", APIHost, url.PathEscape(cfg.Model))
 }
 
 // PlannedByModel is true: this is the real model planner.
@@ -94,14 +74,14 @@ func (p *Planner) Plan(ctx context.Context, q domain.Question, mem []domain.Reso
 	return plan, err
 }
 
-// Usage is the token accounting Vertex reports for one generateContent call
+// Usage is the token accounting Gemini reports for one generateContent call
 // (usageMetadata.promptTokenCount / candidatesTokenCount). Zero values mean
 // the response carried no usageMetadata; callers fall back to a len/4
 // estimate in that case (plan v3 D1.1).
 type Usage = app.TokenUsage
 
 // PlanWithUsage is Plan plus the real token usage of the planner call. The
-// orchestrator type-asserts for this so the budget records what Vertex billed
+// orchestrator type-asserts for this so the budget records what Gemini billed
 // instead of a character estimate.
 func (p *Planner) PlanWithUsage(ctx context.Context, q domain.Question, mem []domain.ResolvedEntities, catalog []ports.ToolSpec) (domain.Plan, Usage, error) {
 	prompt := buildPlanPrompt(q, mem, catalog)
@@ -162,7 +142,7 @@ func (p *Planner) Critique(ctx context.Context, answer string, facts []domain.Fa
 	return out.Grounded, out.Reason, nil
 }
 
-// --- Vertex REST plumbing ---
+// --- Gemini REST plumbing ---
 
 type genContentRequest struct {
 	SystemInstruction *content        `json:"systemInstruction,omitempty"`
@@ -192,7 +172,7 @@ type genContentResponse struct {
 	Candidates []struct {
 		Content content `json:"content"`
 	} `json:"candidates"`
-	// UsageMetadata is Vertex's billed token accounting for the call.
+	// UsageMetadata is Gemini's billed token accounting for the call.
 	UsageMetadata *usageMetadata `json:"usageMetadata,omitempty"`
 }
 
@@ -227,11 +207,8 @@ func (p *Planner) generate(ctx context.Context, system, user string) (string, Us
 	if err != nil {
 		return "", Usage{}, err
 	}
-	tok, err := p.tokens.Token()
-	if err != nil {
-		return "", Usage{}, fmt.Errorf("vertex: token: %w", err)
-	}
-	httpReq.Header.Set("Authorization", "Bearer "+tok.AccessToken)
+	// Key in a header (never the URL), so it does not show up in logged request URLs.
+	httpReq.Header.Set("x-goog-api-key", p.cfg.APIKey)
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	resp, err := p.http.Do(httpReq)
@@ -241,7 +218,7 @@ func (p *Planner) generate(ctx context.Context, system, user string) (string, Us
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode != http.StatusOK {
-		return "", Usage{}, fmt.Errorf("vertex: status %d: %s", resp.StatusCode, string(body))
+		return "", Usage{}, fmt.Errorf("gemini: status %d: %s", resp.StatusCode, string(body))
 	}
 	var gr genContentResponse
 	if err := json.Unmarshal(body, &gr); err != nil {
@@ -249,7 +226,7 @@ func (p *Planner) generate(ctx context.Context, system, user string) (string, Us
 	}
 	usage := parseUsage(gr.UsageMetadata)
 	if len(gr.Candidates) == 0 || len(gr.Candidates[0].Content.Parts) == 0 {
-		return "", usage, fmt.Errorf("vertex: empty candidate")
+		return "", usage, fmt.Errorf("gemini: empty candidate")
 	}
 	return gr.Candidates[0].Content.Parts[0].Text, usage, nil
 }

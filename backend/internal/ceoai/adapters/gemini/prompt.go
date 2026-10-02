@@ -1,4 +1,4 @@
-package vertex
+package gemini
 
 import (
 	"encoding/json"
@@ -161,10 +161,10 @@ func parseRepair(raw string) (string, error) {
 		SQL string `json:"sql"`
 	}
 	if err := json.Unmarshal([]byte(extractJSON(raw)), &out); err != nil {
-		return "", fmt.Errorf("vertex: parse repair: %w", err)
+		return "", fmt.Errorf("gemini: parse repair: %w", err)
 	}
 	if strings.TrimSpace(out.SQL) == "" {
-		return "", fmt.Errorf("vertex: repair returned no sql")
+		return "", fmt.Errorf("gemini: repair returned no sql")
 	}
 	return out.SQL, nil
 }
@@ -172,7 +172,7 @@ func parseRepair(raw string) (string, error) {
 func parsePlan(raw string) (domain.Plan, error) {
 	var pj planJSON
 	if err := json.Unmarshal([]byte(extractJSON(raw)), &pj); err != nil {
-		return domain.Plan{}, fmt.Errorf("vertex: parse plan: %w", err)
+		return domain.Plan{}, fmt.Errorf("gemini: parse plan: %w", err)
 	}
 	if strings.TrimSpace(pj.Refusal) != "" {
 		return domain.Plan{Refusal: pj.Refusal}, nil

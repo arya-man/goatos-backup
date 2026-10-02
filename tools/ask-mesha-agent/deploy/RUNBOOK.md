@@ -64,18 +64,25 @@ CREATE SCHEMA IF NOT EXISTS ask_mesha AUTHORIZATION ask_mesha;
 REVOKE CONNECT ON DATABASE goatos FROM ask_mesha;
 ```
 
-## 3b. Model access: Gemini on Vertex AI (no key, no secret)
+## 3b. Model access: Gemini Developer API with an AI Studio key (prepaid)
 
-The agent calls Gemini on Vertex AI with its runtime service account (ADC from the metadata
-server). There is no model API key and no model secret. One-time setup:
+The agent calls Gemini on the Gemini Developer API (`generativelanguage.googleapis.com`) with an AI Studio API
+key, so usage bills the maintainer's PREPAID AI Studio credits. Vertex AI is never used for Gemini (postpay billing);
+`test/no-vertex-gemini.test.mjs` fails CI on any Vertex Gemini call.
+
+One-time setup (maintainer): create the key in the prepaid AI Studio project, then store it (value from stdin, never echoed):
 
 ```bash
-gcloud services enable aiplatform.googleapis.com --project=$PROJECT
-gcloud projects add-iam-policy-binding $PROJECT \
-  --member="serviceAccount:goatos-ask-mesha-stg@$PROJECT.iam.gserviceaccount.com" --role=roles/aiplatform.user
+gcloud secrets create goatos-stg-ask-mesha-gemini-api-key --project=$PROJECT --replication-policy=automatic --data-file=-
+gcloud secrets add-iam-policy-binding goatos-stg-ask-mesha-gemini-api-key --project=$PROJECT \
+  --member="serviceAccount:goatos-ask-mesha-stg@$PROJECT.iam.gserviceaccount.com" --role=roles/secretmanager.secretAccessor
+gcloud secrets add-iam-policy-binding goatos-stg-ask-mesha-gemini-api-key --project=$PROJECT \
+  --member="serviceAccount:$DEPLOYER" --role=roles/secretmanager.viewer
 ```
 
-`deploy-stg.sh` refuses to deploy if the runtime SA lacks `roles/aiplatform.user` (it never grants it).
+`deploy-stg.sh` mounts it as `GEMINI_API_KEY` and refuses to deploy when the secret has no enabled version or the runtime
+SA cannot read it (it never grants). Without the key the service refuses to start (no fallback of any kind). The same secret
+feeds the backend ceo-ai planner (`MESHA_GEMINI_API_KEY` on goatos-api-stg, Terraform `api_gemini_api_key_accessor`).
 
 Models (env, all optional; defaults live in `gemini.mjs`):
 
@@ -83,28 +90,26 @@ Models (env, all optional; defaults live in `gemini.mjs`):
 |---|---|---|
 | `ASK_MESHA_MODEL` | `gemini-3.1-pro-preview` (newest Pro) | every answer |
 | `ASK_MESHA_DEEP_MODEL` | = `ASK_MESHA_MODEL` | investigations (`deep:`, screenshots); thinking level high |
-| `ASK_MESHA_FAST_MODEL` / `ASK_MESHA_CHECK_MODEL` | `gemini-3.8-flash` (newest Flash) | the answer checker |
-| `ASK_MESHA_GEMINI_PROJECT` / `ASK_MESHA_GEMINI_LOCATION` | `goatos-stg` / `global` | Vertex endpoint |
+| `ASK_MESHA_FAST_MODEL` / `ASK_MESHA_CHECK_MODEL` | `gemini-3.8-flash` (newest Flash) | answer checker, 429 fallback |
 
-Newest models are served on the **`global`** endpoint. Verify a model id before changing it
-(expect HTTP 200 and `"modelVersion"` equal to the id):
+Verify a model id before changing it (expect HTTP 200; the key goes in a header, never the URL):
 
 ```bash
 M=gemini-3.1-pro-preview
-curl -s -X POST -H "Authorization: Bearer $(gcloud auth print-access-token)" -H "Content-Type: application/json" \
-  "https://aiplatform.googleapis.com/v1/projects/$PROJECT/locations/global/publishers/google/models/${M}:generateContent" \
+curl -s -X POST -H "x-goog-api-key: $GEMINI_API_KEY" -H "Content-Type: application/json" \
+  "https://generativelanguage.googleapis.com/v1beta/models/${M}:generateContent" \
   -d '{"contents":[{"role":"user","parts":[{"text":"Reply OK"}]}]}'
+curl -s -H "x-goog-api-key: $GEMINI_API_KEY" "https://generativelanguage.googleapis.com/v1beta/models?pageSize=200" | grep '"name"'
 ```
 
-(zsh: write `${M}` with braces; `$M:g...` is a zsh modifier and mangles the URL into a Google HTML 404.)
-List what the project can see: `curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)"
--H "x-goog-user-project: $PROJECT" "https://aiplatform.googleapis.com/v1beta1/publishers/google/models?pageSize=300"`.
+(zsh: write `${M}` with braces.) Switch model without a build: `gcloud run services update goatos-ask-mesha-stg
+--project=$PROJECT --region=asia-south1 --update-env-vars=ASK_MESHA_MODEL=<id>`; for builds set `_ASK_MESHA_MODEL`.
+`/healthz` returns `{"ok":true,"provider":"gemini","model":"<id>"}`. Spend and credit balance: AI Studio billing page.
 
-Switch model without a build: `gcloud run services update goatos-ask-mesha-stg --project=$PROJECT
---region=asia-south1 --update-env-vars=ASK_MESHA_MODEL=<id>`; for builds set `_ASK_MESHA_MODEL`.
-`/healthz` returns `{"ok":true,"provider":"gemini","model":"<id>"}`.
+## 3c. Spend cap
 
-## 3c. Spend cap ($100/month)
+Gemini spend is prepaid: the AI Studio credit balance is the hard backstop (calls fail with 429 when it runs out). The GCP budget below only covered Vertex and is kept for history.
+ ($100/month)
 
 The agent enforces the cap itself: once this month's summed answer cost reaches
 `ASK_MESHA_MONTHLY_BUDGET_USD` (default 100) new questions get a "budget reached" reply
@@ -114,7 +119,7 @@ without calling the model; `ASK_MESHA_PER_ANSWER_BUDGET_USD` (default 1) and, fo
 ```bash
 BILLING=$(gcloud billing projects describe $PROJECT --format='value(billingAccountName)' | sed 's#billingAccounts/##')
 gcloud billing budgets create --billing-account=$BILLING \
-  --display-name="Ask Mesha Gemini (Vertex) ~\$100" --budget-amount=8800INR \
+  --display-name="Ask Mesha (legacy Vertex) ~\$100" --budget-amount=8800INR \
   --filter-projects=projects/$PROJECT --filter-services=services/C7E2-9256-1C43 \
   --threshold-rule=percent=0.5 --threshold-rule=percent=0.8 --threshold-rule=percent=1.0
 ```
@@ -212,8 +217,8 @@ printf 'postgresql://ask_mesha:%s@/ask_mesha?host=/cloudsql/%s:%s:%s' \
   gcloud secrets create goatos-stg-ask-mesha-db-url --project=$PROJECT \
   --replication-policy=automatic --data-file=-
 unset ASK_PW
-# The only secrets the service mounts (the model needs none: Vertex via the runtime SA).
-SECRETS="goatos-stg-ask-mesha-db-url mesha-ceo-readonly-db-url"
+# Secrets the service mounts (the Gemini key secret is created by the maintainer, §3b).
+SECRETS="goatos-stg-ask-mesha-db-url mesha-ceo-readonly-db-url goatos-stg-ask-mesha-gemini-api-key"
 for s in $SECRETS; do
   gcloud secrets add-iam-policy-binding $s --project=$PROJECT \
     --member=serviceAccount:$SA --role=roles/secretmanager.secretAccessor

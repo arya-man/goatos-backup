@@ -17,10 +17,9 @@ GOATOS_AUTH_HS256_SECRET=goatos-local-dev-secret-32-bytes-min
 GOATOS_AUTH_ISSUER=goatos-local
 GOATOS_AUTH_AUDIENCE=goatos-api
 GOATOS_HTTP_ADDR=127.0.0.1:8080
-MESHA_AI_PROVIDER=vertex
-MESHA_VERTEX_PROJECT=goatos-stg
-MESHA_VERTEX_LOCATION=asia-south1
-MESHA_VERTEX_MODEL=gemini-3.8-flash
+MESHA_AI_PROVIDER=gemini
+MESHA_GEMINI_MODEL=gemini-3.8-flash
+# MESHA_GEMINI_API_KEY comes from .env.ceo-ai.local (tools/dev/fetch-ceo-ai-secrets.sh) or your shell; never Vertex.
 MESHA_AI_REVIEW=1
 MESHA_CUBE_URL=http://127.0.0.1:4000
 MESHA_MCP_TOOLBOX_ADDRESS=127.0.0.1:5001

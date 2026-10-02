@@ -20,7 +20,7 @@ substitutions:
   # tools/ask-mesha-agent/deploy/RUNBOOK.md exists; the Slack bot never sets these,
   # so existing backend/web/mobile deploys are unchanged. Set "true" per build.
   _ASK_MESHA_DEPLOY: "false"
-  # The agent runs Gemini on Vertex AI with its runtime SA (no model key). Empty = default model.
+  # The agent runs Gemini via the Gemini Developer API (key secret goatos-stg-ask-mesha-gemini-api-key; never Vertex). Empty = default model.
   _ASK_MESHA_MODEL: ""
   # Additionally point goatos-admin-web-stg at the agent (CEO_AI_AGENT_URL/AUDIENCE).
   _ASK_MESHA_WIRE_ADMIN_WEB: "false"

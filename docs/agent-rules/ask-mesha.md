@@ -6,9 +6,9 @@ Read this before touching the admin-web **Ask Mesha** panel, `apps/admin-web/app
 ## What it is
 
 - The 4 CEOs use the existing Ask Mesha panel in admin-web. With the flag set, it is answered by
-  a **Gemini agent on Vertex AI** (`tools/ask-mesha-agent/gemini.mjs`, newest Gemini Pro) that reads the
-  goatos code (read-only) and queries goatos-stg **read-only**, instead of the legacy Go/Vertex `ceo-ai`
-  backend. No Anthropic/Claude credentials exist in the runtime path.
+  a **Gemini agent on the Gemini Developer API** (`tools/ask-mesha-agent/gemini.mjs`, newest Gemini Pro, AI
+  Studio key, prepaid) that reads the goatos code (read-only) and queries goatos-stg **read-only**, instead of the
+  legacy Go `ceo-ai` backend. Gemini is never called through Vertex AI (postpay), here or in backend ceo-ai. No Anthropic/Claude credentials exist in the runtime path.
 - **One instruction pack, model-neutral:** `tools/ask-mesha-agent/instructions.mjs` builds the system
   instruction from `CLAUDE.md` (+ `@AGENTS.md`), the CEO answer rules, `data-map-core.md` and the live
   table index. Edit the rules there, not in `server.mjs`. Its CEO-rule text is byte-identical to the
@@ -60,7 +60,7 @@ Read this before touching the admin-web **Ask Mesha** panel, `apps/admin-web/app
 3. **Chat privacy:** `mesha_ceo_readonly` has NO access to assistant chat tables (`ceo_ai_conversations`, `ceo_ai_messages`, `ceo_ai_assistant_audit`, `ceo_ai_response_cache`, `ceo_ai_rate_limit`, and never the `ask_mesha` schema); each CEO sees only their own chats (service-enforced ownership).
 4. **Platform (the real guarantee):** DB role `mesha_ceo_readonly` has SELECT on **every table** in public/analytics/audit/ceo_ai/forensic_repair (+ default privileges for new tables) and **no write privilege anywhere** (granted 2026-09-24 via audit.begin_change; revoke `dblink` + `public` CREATE —
    RUNBOOK §3d); container runs non-root with the repo baked **read-only** at `/repo`; no git/GitHub/cloud
-   credentials; there is no model subprocess or shell, and the model credential is the runtime SA (ADC), never a key.
+   credentials; there is no model subprocess or shell, and the model credential is the Gemini API key secret, mounted as GEMINI_API_KEY.
 - Proof to re-run after changes: ask "edit AGENTS.md" and "git push --force" — both must be refused and
   the checkout unchanged; a data question must still answer with 1 query. Sandbox/secret refusals are unit-tested
   in `test/gemini.test.mjs` ("code tools: sandbox ...").
@@ -178,7 +178,7 @@ so a brand-new migration trips it too). Then:
   cost) to the metrics store; `GET /metrics` returns p50/p90. `node tools/ask-mesha-agent/bench.mjs`
   drives the real `/ask` path (local only: the token's `/ask` login bypass is off on Cloud Run; there it only unlocks `/metrics*`).
 - Why it's fast: the instruction pack (`CLAUDE.md`/`AGENTS.md`, rules, data map, table index) is one
-  byte-stable system instruction and all chats share one checkout, so Vertex implicit context caching
+  byte-stable system instruction and all chats share one checkout, so Gemini implicit context caching
   serves the prefix (`cache_read_tokens` on each metric). Per-chat worktrees break the cache; keep
   `ASK_MESHA_WORKTREE_PER_CHAT` off. Quick lookups: `ASK_MESHA_MODEL` with thinking level `low`.
   Investigations (attachment, `deep:` prefix, or verify/check/why/bug/wrong/explain…) use
@@ -309,22 +309,24 @@ rules say which truth numbers must appear in the answer (exact or `tol` / `tol_p
 - Input limits: question <= 20,000 characters (413 `question_too_long`); at most 5 attachments, ~10 MB together
   (request body cap 15 MB incl. base64, 413 `too_large`).
 - Failed or stopped answers are charged what they actually used: spend is updated after every model call; only a run that never reached its first model call result is charged its cap (`cost_estimated`). A model call cut off mid-stream is not counted (its tokens are unknown).
-- Cost = Gemini `usageMetadata` per model call × Vertex list price (`priceFor()` in `gemini.mjs`; thinking tokens
+- Cost = Gemini `usageMetadata` per model call × Gemini API paid-tier list price (`priceFor()` in `gemini.mjs`; thinking tokens
   bill as output, cached input at 10%, long-context rate over 200k prompt tokens; override with
   `ASK_MESHA_PRICE_IN_PER_M` / `ASK_MESHA_PRICE_OUT_PER_M`), stored with the metric; monthly spend = sum since the
   1st (UTC). It is an estimate; the GCP bill is authoritative.
-- GCP budgets only alert; RUNBOOK §3c adds a $100 Vertex budget alert as a backstop.
+- The prepaid AI Studio credit balance is the hard backstop (calls fail with 429 when it is used up).
 
-## Model access (Gemini on Vertex AI)
+## Model access (Gemini Developer API, prepaid)
 
-- The service calls Gemini on Vertex AI (`@google/genai`, `vertexai: true`) with the Cloud Run runtime service
-  account (`roles/aiplatform.user`, ADC from the metadata server). No API key, no model secret.
-  `deploy-stg.sh` refuses to deploy when the SA lacks the role.
-- Models (verified with a live `generateContent` 200 on goatos-stg, location `global`, 2026-10-01):
-  `ASK_MESHA_MODEL` default **`gemini-3.1-pro-preview`** (newest Pro), `ASK_MESHA_FAST_MODEL` /
-  `ASK_MESHA_CHECK_MODEL` default **`gemini-3.8-flash`** (newest Flash, used by the answer checker),
-  `ASK_MESHA_DEEP_MODEL` defaults to `ASK_MESHA_MODEL`. Endpoint: `ASK_MESHA_GEMINI_PROJECT` (goatos-stg),
-  `ASK_MESHA_GEMINI_LOCATION` (`global`). Do not pin a model Google has announced for retirement.
+- The service calls Gemini through the Gemini Developer API (`@google/genai`, `vertexai: false`, `apiKey`) at
+  `generativelanguage.googleapis.com` with an AI Studio key, so usage bills prepaid AI Studio credits. NEVER Vertex AI
+  (postpay): no Vertex/ADC/service-account path exists, a missing `GEMINI_API_KEY` stops the server at startup, and
+  `test/no-vertex-gemini.test.mjs` fails CI on any Vertex Gemini call anywhere in the repo (backend ceo-ai included).
+- Key: secret `goatos-stg-ask-mesha-gemini-api-key` (created by the maintainer), mounted as `GEMINI_API_KEY` by
+  `deploy-stg.sh` (which checks it has an enabled version and the runtime SA can read it). The backend ceo-ai planner
+  reads the same secret as `MESHA_GEMINI_API_KEY` (`backend/internal/ceoai/adapters/gemini`).
+- Models: `ASK_MESHA_MODEL` default **`gemini-3.1-pro-preview`** (newest Pro), `ASK_MESHA_FAST_MODEL` /
+  `ASK_MESHA_CHECK_MODEL` default **`gemini-3.8-flash`** (newest Flash, answer checker and 429 fallback),
+  `ASK_MESHA_DEEP_MODEL` defaults to `ASK_MESHA_MODEL`. Do not pin a model Google has announced for retirement.
 - Agent loop (`runAgent`): stream a turn, run all its function calls in parallel, return results (errors as
   data so the model fixes its call), repeat; max `ASK_MESHA_MAX_STEPS` (40) turns, then one tool-less turn
   to answer (`error_max_turns`); one nudge if a turn comes back empty; 429/5xx retried per turn with jittered exponential backoff (~63 s over 6 waits, or Retry-After), earlier turns kept, text of a failed turn withdrawn (`reset`); still failing -> the rest of the answer runs on `ASK_MESHA_FAST_MODEL`. Time guard: after `ASK_MESHA_ANSWER_SECONDS` (quick) / `ASK_MESHA_DEEP_ANSWER_SECONDS` (default 180; screenshots, code and investigation questions) the next turn must answer without tools. A tool error that is a dropped DB connection / proxy blip is retried once before the model sees it. A first answer line that restates a rule ("Do not invent numbers.") is stripped and the panel gets a `replace`. Gemini 3 Pro on `global` has no per-project token quota on goatos-stg (dynamic shared quota; 429 = shared capacity), and `gemini-3.1-pro-preview` is served only on `global` (404 in us-central1, us-east5, europe-west4, asia-south1, `us`), so there is no location fallback for Pro.
@@ -335,8 +337,7 @@ rules say which truth numbers must appear in the answer (exact or `tol` / `tol_p
 - Screenshots: image/PDF attachments go to the model as inline parts in the user turn and stay readable with
   `read_file`; text/CSV attachments are read with `read_file`.
 - `provider` (`gemini`) and `model` are on every metric row, event and saved answer; `/healthz` shows them.
-- Local laptop: ADC (`gcloud auth application-default login`), or `ASK_MESHA_GEMINI_AUTH=gcloud` to use the
-  signed-in `gcloud` user token when ADC needs a browser re-auth (ignored on Cloud Run).
+- Local laptop: export `GEMINI_API_KEY` (same key, from Secret Manager or AI Studio). Evals and judges use the same env key; never Vertex.
 
 ## Storage and sessions
 
@@ -356,7 +357,7 @@ rules say which truth numbers must appear in the answer (exact or `tol` / `tol_p
   repo snapshot is copied read-only into the image. Nobody checks out code on the server; no git
   credentials exist there. Steps are gated: `_ASK_MESHA_DEPLOY` and `_ASK_MESHA_WIRE_ADMIN_WEB`
   (default `"false"`). `deploy/deploy-stg.sh` verifies infra exists and never creates it.
-- One-time setup (service account, bucket, secrets, app DB user, invoker grant, Vertex, budget alert,
+- One-time setup (service account, bucket, secrets incl. the Gemini API key, app DB user, invoker grant,
   dblink revoke): `tools/ask-mesha-agent/deploy/RUNBOOK.md`. Rollout: deploy flag first, then admin-web
   wiring. Rollback: unset `CEO_AI_AGENT_URL`/`CEO_AI_AGENT_AUDIENCE` on admin-web.
 - admin-web → agent auth: Google ID token in `X-Serverless-Authorization` (Cloud Run IAM); the user's
@@ -390,7 +391,7 @@ rules say which truth numbers must appear in the answer (exact or `tol` / `tol_p
 
 - `cloud-sql-proxy --port 55432 goatos-stg:asia-south1:goatos-stg-core-db`; `.pgenv` from secret
   `mesha-ceo-readonly-db-url`. If the proxy logs `invalid_rapt`, run `gcloud auth application-default login`.
-- Agent: `node tools/ask-mesha-agent/server.mjs` (port 8787; `ASK_MESHA_GEMINI_AUTH=gcloud` if ADC is stale;
+- Agent: `node tools/ask-mesha-agent/server.mjs` (port 8787; `GEMINI_API_KEY` exported from your shell;
   `GOATOS_REPO` = a clean `origin/main` worktree under `~/mesha`). admin-web against live STG API with the flag:
   `tools/ask-mesha-agent/start-admin-web.sh prod` (port 3300; `prod` avoids 20–35 s dev compiles).
 - Visual check every UI change at 390×844 and 1440×900 (normal + maximized) before handing back.
@@ -400,11 +401,11 @@ rules say which truth numbers must appear in the answer (exact or `tol` / `tol_p
 Use when Ravi says "move Ask Mesha to <model>" or Google announces a retirement. Project `goatos-stg`,
 service `goatos-ask-mesha-stg`, region `asia-south1`.
 
-1. **Find the id and prove it serves** (expect HTTP 200 and `modelVersion` = the id; in zsh write `${M}`):
+1. **Find the id and prove it serves** (expect HTTP 200; in zsh write `${M}`):
    ```bash
-   T=$(gcloud auth print-access-token); M=gemini-3.1-pro-preview
-   curl -s -H "Authorization: Bearer $T" -H "x-goog-user-project: goatos-stg" "https://aiplatform.googleapis.com/v1beta1/publishers/google/models?pageSize=300" | grep -o '"name": "publishers/google/models/gemini[^"]*"'
-   curl -s -w "\n%{http_code}\n" -H "Authorization: Bearer $T" -H "Content-Type: application/json" "https://aiplatform.googleapis.com/v1/projects/goatos-stg/locations/global/publishers/google/models/${M}:generateContent" -d '{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}'
+   M=gemini-3.1-pro-preview
+   curl -s -H "x-goog-api-key: $GEMINI_API_KEY" "https://generativelanguage.googleapis.com/v1beta/models?pageSize=200" | grep '"name"'
+   curl -s -w "\n%{http_code}\n" -H "x-goog-api-key: $GEMINI_API_KEY" -H "Content-Type: application/json" "https://generativelanguage.googleapis.com/v1beta/models/${M}:generateContent" -d '{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}'
    ```
 2. **Run the golden eval locally on the new id** (`ASK_MESHA_MODEL=<id>` on the local server, then
    `node tools/ask-mesha-agent/eval/run.mjs --url http://127.0.0.1:<port>`); it must not score below the current model.

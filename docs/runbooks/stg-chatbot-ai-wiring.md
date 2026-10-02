@@ -4,14 +4,14 @@ STG deploy does not count as AI-chatbot-ready unless this checklist is verified.
 
 ## Runtime Shape
 
-Browser/admin-web must never call Vertex, Cube, MCP Toolbox, or Postgres directly.
+Browser/admin-web must never call Gemini, Cube, MCP Toolbox, or Postgres directly.
 
 Required path:
 
 admin-web
 -> STG backend `/ceo-ai/*`
 -> backend leadership/RBAC gate
--> Vertex/Gemini planner if enabled, otherwise deterministic fallback planner
+-> Gemini planner if enabled, otherwise deterministic fallback planner
 -> Cube / Mesha read API / MCP Toolbox / read-only SQL
 -> sourced answer
 
@@ -20,9 +20,10 @@ admin-web
 Backend service `goatos-api-stg` must have:
 
 - `MESHA_AI_PROVIDER`
-- `MESHA_VERTEX_PROJECT=goatos-stg`
-- `MESHA_VERTEX_LOCATION=asia-south1`
-- `MESHA_VERTEX_MODEL=gemini-3.8-flash` or the current approved Gemini model
+- `MESHA_AI_PROVIDER=gemini`
+- `MESHA_GEMINI_MODEL=gemini-3.8-flash` or the current approved Gemini model
+- `MESHA_GEMINI_API_KEY` from secret `goatos-stg-ask-mesha-gemini-api-key` (Gemini Developer API key from the
+  prepaid AI Studio project; created by the maintainer). Vertex AI is never used for Gemini (it bills postpay).
 - `MESHA_CUBE_URL` if Cube is deployed
 - `MESHA_MCP_TOOLBOX_URL` if MCP Toolbox is deployed
 - `MESHA_MCP_TOOLSET=mesha_ceo_toolset`
@@ -34,8 +35,8 @@ Backend service `goatos-api-stg` must have:
 
 In project `goatos-stg`:
 
-- Vertex AI API enabled
-- backend runtime service account can call Vertex AI
+- secret `goatos-stg-ask-mesha-gemini-api-key` exists with an enabled version
+- backend runtime service account has `roles/secretmanager.secretAccessor` on it (Terraform `api_gemini_api_key_accessor`)
 - Secret Manager entries exist:
   - `mesha-cube-api-secret`
   - `mesha-ceo-readonly-db-url`
@@ -67,7 +68,7 @@ After STG deploy, verify:
    - `POST /ceo-ai/ask` is denied
 
 3. Logs must show which route was used:
-   - Vertex/Gemini planner
+   - Gemini planner
    - fallback keyword planner
    - Cube
    - Mesha read API
@@ -77,18 +78,18 @@ After STG deploy, verify:
 4. If Vertex/Cube/Toolbox is missing:
    - report exact missing config/service/permission
    - do not claim chatbot fully wired
-   - fallback planner may work, but that is not full Vertex/Cube readiness
+   - fallback planner may work, but that is not full Gemini/Cube readiness
 
 ## Not Ready Conditions
 
 Chatbot is NOT fully wired if any of these are true:
 
-- Vertex AI API disabled
-- backend service account lacks Vertex permission
-- `MESHA_VERTEX_*` env is missing or points outside `goatos-stg`
+- Gemini API key secret missing, disabled, or out of prepaid credit (HTTP 429/403 from generativelanguage.googleapis.com)
+- backend service account lacks secret access
+- `MESHA_AI_PROVIDER` is not `gemini` (the old `vertex` value now logs an error and runs the fallback planner)
 - admin-web points to old backend
 - Cube URL points local/dev/prod
 - Cube service missing when Cube metrics are expected
 - MCP Toolbox missing when MCP tools are expected
 - readonly DB secrets still contain placeholders while staging Cube/Toolbox is expected
-- `/ceo-ai/ask` works only through fallback but Vertex was expected
+- `/ceo-ai/ask` works only through fallback but Gemini was expected

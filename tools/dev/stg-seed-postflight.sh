@@ -221,10 +221,9 @@ check_ceo_ai() {
   echo "==> postflight: CEO AI / chatbot wiring"
   local api="$tmpdir/api.json"
   [[ -f "$api" ]] || service_json "$API_SERVICE" "$api"
-  require_service_env "$api" "$API_SERVICE" MESHA_AI_PROVIDER
-  require_service_env "$api" "$API_SERVICE" MESHA_VERTEX_PROJECT "$PROJECT"
-  require_service_env "$api" "$API_SERVICE" MESHA_VERTEX_LOCATION
-  require_service_env "$api" "$API_SERVICE" MESHA_VERTEX_MODEL
+  require_service_env "$api" "$API_SERVICE" MESHA_AI_PROVIDER gemini
+  require_service_env "$api" "$API_SERVICE" MESHA_GEMINI_MODEL
+  require_secret_enabled goatos-stg-ask-mesha-gemini-api-key
   require_service_env "$api" "$API_SERVICE" MESHA_MCP_TOOLSET mesha_ceo_toolset
   require_secret_enabled mesha-cube-api-secret
   require_secret_enabled mesha-ceo-readonly-db-url

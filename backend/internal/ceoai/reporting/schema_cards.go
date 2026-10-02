@@ -5,7 +5,7 @@
 // A schema card is the single, repo-owned statement of what one ceo_ai.* view
 // is FOR, at what GRAIN its rows sit, which column carries its business day
 // (if any), which columns are group-by-able, and every column with its type.
-// It is what the planner prompt renders (adapters/vertex/prompt.go), what the
+// It is what the planner prompt renders (adapters/gemini/prompt.go), what the
 // window guard consults (sqlguard.ValidateWindow), and what the repair loop
 // hands back to the model with a rejection. Plan v3 D1.1.
 //

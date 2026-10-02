@@ -1282,7 +1282,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// degrades independently: an unconfigured Cube/Toolbox/Vertex is nil and the
 	// orchestrator falls to the tiers that are wired instead of failing boot.
 	ceoTraceStore := ceoobs.NewPostgresTraceStore(pool, cfg.Postgres.QueryTimeout)
-	ceoVertex := ceoai.NewVertexProvider(ctx, log)
+	ceoVertex := ceoai.NewGeminiProvider(ctx, log)
 
 	// Build read tool executors. feed_direction_today does not yet have a
 	// direct DB reader in this tier, so the orchestrator's runtime fallback

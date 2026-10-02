@@ -23,7 +23,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	ceohttp "github.com/vgoats/goatos/backend/internal/ceoai/adapters/http"
-	"github.com/vgoats/goatos/backend/internal/ceoai/adapters/vertex"
+	"github.com/vgoats/goatos/backend/internal/ceoai/adapters/gemini"
 	"github.com/vgoats/goatos/backend/internal/ceoai/cubeclient"
 	"github.com/vgoats/goatos/backend/internal/ceoai/domain"
 	"github.com/vgoats/goatos/backend/internal/ceoai/persistence"
@@ -34,26 +34,30 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Vertex AIProvider + Reviewer
+// Gemini AIProvider + Reviewer
 // ---------------------------------------------------------------------------
 
-// NewVertexProvider builds the Gemini planner from env (MESHA_VERTEX_*). It
-// returns nil when the provider is not configured or ADC is unavailable so the
-// caller degrades to the deterministic keyword planner (mode=fallback) instead
-// of failing boot. The returned *vertex.Planner satisfies BOTH ports.AIProvider
-// and ports.Reviewer.
-func NewVertexProvider(ctx context.Context, log *slog.Logger) *vertex.Planner {
-	if !strings.EqualFold(os.Getenv("MESHA_AI_PROVIDER"), "vertex") {
+// NewGeminiProvider builds the Gemini planner from env: MESHA_AI_PROVIDER=gemini,
+// MESHA_GEMINI_API_KEY (Secret Manager goatos-stg-ask-mesha-gemini-api-key; Gemini
+// Developer API, prepaid AI Studio credits) and MESHA_GEMINI_MODEL. It returns nil
+// when the provider is not configured or the key is missing, so the caller degrades
+// to the deterministic keyword planner (mode=fallback) instead of failing boot.
+// There is no Vertex path. The returned *gemini.Planner satisfies BOTH
+// ports.AIProvider and ports.Reviewer.
+func NewGeminiProvider(ctx context.Context, log *slog.Logger) *gemini.Planner {
+	if !strings.EqualFold(os.Getenv("MESHA_AI_PROVIDER"), "gemini") {
+		if log != nil && strings.EqualFold(os.Getenv("MESHA_AI_PROVIDER"), "vertex") {
+			log.Error("ceoai: MESHA_AI_PROVIDER=vertex is no longer supported (Vertex bills postpay); set gemini + MESHA_GEMINI_API_KEY")
+		}
 		return nil
 	}
-	p, err := vertex.New(ctx, vertex.Config{
-		Project:  os.Getenv("MESHA_VERTEX_PROJECT"),
-		Location: os.Getenv("MESHA_VERTEX_LOCATION"),
-		Model:    envOr("MESHA_VERTEX_MODEL", "gemini-3.8-flash"),
+	p, err := gemini.New(ctx, gemini.Config{
+		APIKey: os.Getenv("MESHA_GEMINI_API_KEY"),
+		Model:  envOr("MESHA_GEMINI_MODEL", "gemini-3.8-flash"),
 	})
 	if err != nil {
 		if log != nil {
-			log.Warn("ceoai: vertex provider unavailable, using keyword fallback", "err", err.Error())
+			log.Error("ceoai: gemini provider unavailable, using keyword fallback", "err", err.Error())
 		}
 		return nil
 	}

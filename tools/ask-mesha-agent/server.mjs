@@ -30,15 +30,15 @@ const PORT = Number(process.env.PORT || 8787);
 const HOST = process.env.HOST || "127.0.0.1";
 const STATE = process.env.ASK_MESHA_STATE_DIR || path.join(process.env.HOME, ".ask-mesha-agent");
 const REPO = process.env.GOATOS_REPO || path.join(process.env.HOME, "mesha/goatos");
-// Gemini on Vertex (gemini.mjs): newest Pro by default; ASK_MESHA_MODEL / ASK_MESHA_DEEP_MODEL /
-// ASK_MESHA_FAST_MODEL / ASK_MESHA_GEMINI_PROJECT / ASK_MESHA_GEMINI_LOCATION override.
+// Gemini Developer API (gemini.mjs) with GEMINI_API_KEY (prepaid AI Studio; never Vertex): newest Pro by
+// default; ASK_MESHA_MODEL / ASK_MESHA_DEEP_MODEL / ASK_MESHA_FAST_MODEL override.
 const GEMINI = geminiConfig(process.env);
 const MODEL = GEMINI.model;
 const DEEP_MODEL = GEMINI.deepModel;
 const EFFORT = process.env.ASK_MESHA_EFFORT || "low"; // Gemini thinkingLevel for quick lookups; deep = high
 const ANSWER_SECONDS = Number(process.env.ASK_MESHA_ANSWER_SECONDS) || 50;
 const ANSWER_DEEP_SECONDS = Number(process.env.ASK_MESHA_DEEP_ANSWER_SECONDS) || 180;
-const ai = createClient(GEMINI); // ADC; ASK_MESHA_GEMINI_AUTH=gcloud uses the local gcloud user token (dev only)
+const ai = createClient(GEMINI); // throws at startup without GEMINI_API_KEY
 // Answer checker (checker.mjs): a second, tool-less call that checks the draft's wording against the
 // query results before the final answer lands. ASK_MESHA_CHECKER=0 turns it off.
 const CHECKER_ON = process.env.ASK_MESHA_CHECKER !== "0";
@@ -843,7 +843,7 @@ async function route(req, res) {
       if (p === "/metrics/recent") return json(res, 200, await events.recent(url.searchParams.get("email") || "", 50));
       // accuracy: eval/run.mjs regression runs over time (eval_run events).
       const accuracy = await events.evalHistory(20).catch(() => null);
-      return json(res, 200, { ...(await store.metricsSummary()), model: { provider: "gemini", project: GEMINI.project, location: GEMINI.location, model: MODEL, deep_model: DEEP_MODEL, check_model: CHECK_MODEL }, accuracy });
+      return json(res, 200, { ...(await store.metricsSummary()), model: { provider: "gemini", api: "generativelanguage.googleapis.com", model: MODEL, deep_model: DEEP_MODEL, check_model: CHECK_MODEL }, accuracy });
     }
     const user = await authenticate(req);
     if (!user) {

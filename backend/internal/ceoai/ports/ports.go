@@ -12,7 +12,7 @@ import (
 
 // Planner turns a scoped Question into a Plan (decompose + Cube-first route +
 // param extraction). It NEVER executes SQL, holds DB creds, or decides
-// permissions. Implementations: adapters/vertex (Gemini) and
+// permissions. Implementations: adapters/gemini (Gemini) and
 // adapters/keywordplanner (deterministic fallback).
 type Planner interface {
 	Plan(ctx context.Context, q domain.Question, mem []domain.ResolvedEntities, catalog []ToolSpec) (domain.Plan, error)

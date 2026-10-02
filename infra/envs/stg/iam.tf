@@ -29,12 +29,6 @@ resource "google_project_iam_member" "kernel_worker_fcm_sender" {
   member  = "serviceAccount:${google_service_account.runtime["kernel_worker"].email}"
 }
 
-resource "google_project_iam_member" "api_vertex_user" {
-  project = var.project_id
-  role    = "roles/aiplatform.user"
-  member  = "serviceAccount:${google_service_account.runtime["api"].email}"
-}
-
 resource "google_project_iam_member" "api_firebase_auth_admin" {
   project = var.project_id
   role    = "roles/firebaseauth.admin"

@@ -12,7 +12,7 @@ fallback keeps a question answerable even when a given tier's executor is unwire
 The following tool executors are registered in `backend/internal/ceoai/adapters/readtools/toolexecutors.go`
 and (optionally) wired with a real data reader in `backend/internal/bootstrap/api.go`. Every
 executor's `Spec().Name` MUST exactly match the tool name the planner (both
-`adapters/vertex` and `adapters/keywordplanner`) routes that intent to — `registry.go`'s
+`adapters/gemini` and `adapters/keywordplanner`) routes that intent to — `registry.go`'s
 `RouteAPI` case looks executors up strictly by name (`r.executors[sub.ToolName]`), so a mismatch
 here dead-ends the whole question on "no read-service executor" (this is what happened to feed
 before the planner's tool name was corrected to `feed_direction_today`).

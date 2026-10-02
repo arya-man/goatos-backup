@@ -47,13 +47,13 @@ func (u TokenUsage) add(o TokenUsage) TokenUsage {
 func (u TokenUsage) reported() bool { return u.PromptTokens > 0 || u.OutputTokens > 0 }
 
 // usagePlanner is the optional capability a provider implements to report
-// real token usage with its plan (adapters/vertex does).
+// real token usage with its plan (adapters/gemini does).
 type usagePlanner interface {
 	PlanWithUsage(ctx context.Context, q domain.Question, mem []domain.ResolvedEntities, catalog []ports.ToolSpec) (domain.Plan, TokenUsage, error)
 }
 
 // sqlRepairer is the optional capability a provider implements to repair one
-// rejected SQL draft (adapters/vertex does). The deterministic fallback
+// rejected SQL draft (adapters/gemini does). The deterministic fallback
 // planner does not, so a keyword-planned request never enters the loop.
 type sqlRepairer interface {
 	RepairSQL(ctx context.Context, q domain.Question, failedSQL, reason, cardText, windowText string) (string, TokenUsage, error)

@@ -10,11 +10,10 @@ SERVICE="${ASK_MESHA_SERVICE:-goatos-ask-mesha-stg}"
 RUNTIME_SA="${ASK_MESHA_RUNTIME_SA:-goatos-ask-mesha-stg@${PROJECT_ID}.iam.gserviceaccount.com}"
 CLOUDSQL_INSTANCE="${ASK_MESHA_CLOUDSQL_INSTANCE:-goatos-stg:asia-south1:goatos-stg-core-db}"
 UPLOADS_BUCKET="${ASK_MESHA_UPLOADS_BUCKET:-goatos-stg-ask-mesha}"
-# Model: Gemini on Vertex AI, called with the runtime SA (ADC from the metadata server).
-# No model API key or secret exists; the SA needs roles/aiplatform.user on the project.
-# Newest Gemini models are served on the Vertex global endpoint (verified 2026-10-01).
-GEMINI_PROJECT="${ASK_MESHA_GEMINI_PROJECT:-$PROJECT_ID}"
-GEMINI_LOCATION="${ASK_MESHA_GEMINI_LOCATION:-global}"
+# Model: Gemini Developer API (generativelanguage.googleapis.com) with an AI Studio key, so usage
+# bills prepaid AI Studio credits. Never Vertex AI (postpay). The key lives only in Secret Manager
+# (created by the maintainer) and is mounted as GEMINI_API_KEY.
+SECRET_GEMINI_KEY="${ASK_MESHA_SECRET_GEMINI_KEY:-goatos-stg-ask-mesha-gemini-api-key}"
 # Optional model overrides; empty = the defaults in gemini.mjs (newest Pro / newest Flash).
 GEMINI_MODEL_ENV=""
 [[ -n "${ASK_MESHA_MODEL:-}" ]] && GEMINI_MODEL_ENV+=",ASK_MESHA_MODEL=${ASK_MESHA_MODEL}"
@@ -34,15 +33,17 @@ die() { echo "ask-mesha deploy: $*" >&2; exit 1; }
 echo "ask-mesha deploy: preflight (project=${PROJECT_ID}, service=${SERVICE})"
 gcloud iam service-accounts describe "$RUNTIME_SA" --project="$PROJECT_ID" --format='value(email)' >/dev/null 2>&1 \
   || die "runtime service account $RUNTIME_SA missing; see tools/ask-mesha-agent/deploy/RUNBOOK.md"
-# The runtime SA must be able to call Vertex AI (Gemini). Checked, never granted here.
-gcloud projects get-iam-policy "$GEMINI_PROJECT" --flatten='bindings[].members' \
-  --filter="bindings.role=roles/aiplatform.user AND bindings.members=serviceAccount:${RUNTIME_SA}" \
-  --format='value(bindings.role)' 2>/dev/null | grep -q aiplatform.user \
-  || die "runtime SA $RUNTIME_SA lacks roles/aiplatform.user on $GEMINI_PROJECT; see RUNBOOK.md §3b"
-for secret in "$SECRET_APP_DB" "$SECRET_RO_DB"; do
+for secret in "$SECRET_GEMINI_KEY" "$SECRET_APP_DB" "$SECRET_RO_DB"; do
   gcloud secrets describe "$secret" --project="$PROJECT_ID" --format='value(name)' >/dev/null 2>&1 \
     || die "secret $secret missing; see RUNBOOK.md"
 done
+# The Gemini key must have an enabled version and the runtime SA must be able to read it (checked, never granted here).
+[[ -n "$(gcloud secrets versions list "$SECRET_GEMINI_KEY" --project="$PROJECT_ID" --filter='state=ENABLED' --limit=1 --format='value(name)' 2>/dev/null)" ]] \
+  || die "secret $SECRET_GEMINI_KEY has no enabled version (the maintainer adds the AI Studio key); see RUNBOOK.md §3b"
+gcloud secrets get-iam-policy "$SECRET_GEMINI_KEY" --project="$PROJECT_ID" --flatten='bindings[].members' \
+  --filter="bindings.role=roles/secretmanager.secretAccessor AND bindings.members=serviceAccount:${RUNTIME_SA}" \
+  --format='value(bindings.role)' 2>/dev/null | grep -q secretAccessor \
+  || die "runtime SA $RUNTIME_SA lacks roles/secretmanager.secretAccessor on $SECRET_GEMINI_KEY; see RUNBOOK.md §3b"
 gcloud storage buckets describe "gs://${UPLOADS_BUCKET}" --format='value(name)' >/dev/null 2>&1 \
   || die "bucket gs://${UPLOADS_BUCKET} missing; see RUNBOOK.md"
 
@@ -63,8 +64,8 @@ gcloud run deploy "$SERVICE" \
   --no-cpu-throttling \
   --execution-environment=gen2 \
   --add-cloudsql-instances="$CLOUDSQL_INSTANCE" \
-  --set-env-vars="ASK_MESHA_UPLOADS_BUCKET=${UPLOADS_BUCKET},ASK_MESHA_READONLY=1,ASK_MESHA_DB_MIGRATE=1,ASK_MESHA_MONTHLY_BUDGET_USD=${ASK_MESHA_MONTHLY_BUDGET_USD:-100},ASK_MESHA_PER_ANSWER_BUDGET_USD=${ASK_MESHA_PER_ANSWER_BUDGET_USD:-1},ASK_MESHA_DEEP_ANSWER_BUDGET_USD=${ASK_MESHA_DEEP_ANSWER_BUDGET_USD:-5},ASK_MESHA_DB_POOL=${ASK_MESHA_DB_POOL:-5},GOATOS_BASE_SHA=${COMMIT_TAG},ASK_MESHA_GEMINI_PROJECT=${GEMINI_PROJECT},ASK_MESHA_GEMINI_LOCATION=${GEMINI_LOCATION}${GEMINI_MODEL_ENV}" \
-  --set-secrets="ASK_MESHA_DATABASE_URL=${SECRET_APP_DB}:latest,ASK_MESHA_READONLY_DB_URL=${SECRET_RO_DB}:latest" \
+  --set-env-vars="ASK_MESHA_UPLOADS_BUCKET=${UPLOADS_BUCKET},ASK_MESHA_READONLY=1,ASK_MESHA_DB_MIGRATE=1,ASK_MESHA_MONTHLY_BUDGET_USD=${ASK_MESHA_MONTHLY_BUDGET_USD:-100},ASK_MESHA_PER_ANSWER_BUDGET_USD=${ASK_MESHA_PER_ANSWER_BUDGET_USD:-1},ASK_MESHA_DEEP_ANSWER_BUDGET_USD=${ASK_MESHA_DEEP_ANSWER_BUDGET_USD:-5},ASK_MESHA_DB_POOL=${ASK_MESHA_DB_POOL:-5},GOATOS_BASE_SHA=${COMMIT_TAG}${GEMINI_MODEL_ENV}" \
+  --set-secrets="GEMINI_API_KEY=${SECRET_GEMINI_KEY}:latest,ASK_MESHA_DATABASE_URL=${SECRET_APP_DB}:latest,ASK_MESHA_READONLY_DB_URL=${SECRET_RO_DB}:latest" \
   --update-labels="commit_sha=${COMMIT_TAG},deployed_by=cloud-build" \
   --quiet
 

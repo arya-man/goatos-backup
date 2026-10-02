@@ -18,13 +18,15 @@ mkdir -p ~/.ask-mesha-agent   # state: chats.json, metrics.jsonl, uploads/, .pge
 tools/ask-mesha-agent/start-admin-web.sh prod   # admin-web on :3300 → live stg API, flag set
 ```
 
-The model is **Gemini on Vertex AI** (project `goatos-stg`, location `global`), authenticated with ADC:
-the Cloud Run runtime SA (`roles/aiplatform.user`) or, locally, `gcloud auth application-default login`
-(or `ASK_MESHA_GEMINI_AUTH=gcloud` to use the signed-in gcloud user when ADC needs a browser re-auth).
-No model API key exists. Knobs: `ASK_MESHA_MODEL` (default `gemini-3.1-pro-preview`, newest Pro),
+The model is **Gemini on the Gemini Developer API** (`generativelanguage.googleapis.com`) with an AI Studio
+API key, so usage bills prepaid AI Studio credits. Vertex AI is never used (postpay; a CI guard,
+`test/no-vertex-gemini.test.mjs`, fails on any Vertex Gemini call). Key: env `GEMINI_API_KEY` (Cloud Run mounts
+secret `goatos-stg-ask-mesha-gemini-api-key`; locally export it from your shell or
+`gcloud secrets versions access latest --secret=goatos-stg-ask-mesha-gemini-api-key`). No key = the server refuses to
+start. Knobs: `ASK_MESHA_MODEL` (default `gemini-3.1-pro-preview`, newest Pro),
 `ASK_MESHA_DEEP_MODEL` (questions starting `deep:` / screenshots; default = model), `ASK_MESHA_FAST_MODEL`
 (answer checker; default `gemini-3.8-flash`), `ASK_MESHA_EFFORT` (thinking level for lookups, default `low`),
-`ASK_MESHA_GEMINI_PROJECT`, `ASK_MESHA_GEMINI_LOCATION`, `ASK_MESHA_MAX_STEPS`, `ASK_MESHA_STATE_DIR`, `GOATOS_REPO`.
+`ASK_MESHA_MAX_STEPS`, `ASK_MESHA_STATE_DIR`, `GOATOS_REPO`.
 
 Layout: `instructions.mjs` (the one instruction pack: CLAUDE.md/AGENTS.md, CEO rules, data map, table index),
 `gemini.mjs` (agent loop, MCP bridge, cost), `code-tools.mjs` (read-only read_file/grep/glob/list_dir/get_skill),
@@ -39,14 +41,14 @@ total ms, tool + DB-query counts, tokens, cost). `GET http://127.0.0.1:8787/metr
 (set the same token on the server; never set it in a deployed environment).
 
 Speed notes: the instruction pack is one byte-stable system instruction and all chats share one
-checkout, so Vertex implicit caching serves the prefix (`cache_read_tokens` per metric).
+checkout, so Gemini implicit context caching serves the prefix (`cache_read_tokens` per metric).
 
 ## Security model (read before deploying)
 
 The agent has no shell: only read-only code tools (sandboxed to the repo and this chat's uploads) and the
 read-only SQL tools. The DB role is read-only.
 A shared/server deployment must run this service as a dedicated OS user or container with no
-cloud credentials beyond its Vertex AI role, no SSH keys, and no deploy rights.
+cloud credentials beyond reading its own secrets, no SSH keys, and no deploy rights.
 
 
 ## Keeping the data map current

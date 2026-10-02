@@ -44,14 +44,28 @@ test("instructions: pack = CLAUDE.md(+@imports) + rules + data map + table index
 });
 
 // ---- model ids -------------------------------------------------------------------------
-test("config: newest Gemini 3.x defaults, all env-overridable, nothing older", () => {
+test("config: newest Gemini 3.x defaults, API key from env, all env-overridable", () => {
   const c = geminiConfig({});
   assert.equal(c.model, DEFAULT_MODEL);
   assert.equal(c.fastModel, DEFAULT_FAST_MODEL);
-  assert.equal(c.location, "global");
+  assert.equal(c.apiKey, "");
   for (const id of [DEFAULT_MODEL, DEFAULT_FAST_MODEL]) assert.match(id, /^gemini-3\./);
-  const o = geminiConfig({ ASK_MESHA_MODEL: "m1", ASK_MESHA_FAST_MODEL: "f1", ASK_MESHA_GEMINI_LOCATION: "us-central1", ASK_MESHA_GEMINI_PROJECT: "p" });
-  assert.deepEqual([o.model, o.deepModel, o.fastModel, o.checkModel, o.location, o.project], ["m1", "m1", "f1", "f1", "us-central1", "p"]);
+  const o = geminiConfig({ ASK_MESHA_MODEL: "m1", ASK_MESHA_FAST_MODEL: "f1", GEMINI_API_KEY: " k1 " });
+  assert.deepEqual([o.model, o.deepModel, o.fastModel, o.checkModel, o.apiKey], ["m1", "m1", "f1", "f1", "k1"]);
+});
+
+test("client: Gemini Developer API with the key; no key fails loudly, never Vertex", async () => {
+  const { createClient } = await import("../gemini.mjs");
+  assert.throws(() => createClient({ apiKey: "" }), /GEMINI_API_KEY is not set[\s\S]*never falls back to Vertex/);
+  const prev = process.env.GOOGLE_GENAI_USE_VERTEXAI;
+  process.env.GOOGLE_GENAI_USE_VERTEXAI = "true"; // must not flip the client to Vertex
+  try {
+    const ai = createClient({ apiKey: "test-key" });
+    assert.equal(ai.vertexai, false);
+    assert.equal(ai.apiClient?.clientOptions?.vertexai ?? false, false);
+  } finally {
+    if (prev === undefined) delete process.env.GOOGLE_GENAI_USE_VERTEXAI; else process.env.GOOGLE_GENAI_USE_VERTEXAI = prev;
+  }
 });
 
 test("cost: thinking tokens bill as output, cached input at 10%", () => {
