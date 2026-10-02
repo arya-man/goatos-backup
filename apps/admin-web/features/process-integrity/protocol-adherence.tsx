@@ -327,7 +327,11 @@ export async function ProtocolAdherencePage({
         },
         { key: "gaps", title: copy(pageContract, "label.open_process_gaps"), total: summary.open_gap_count, caption: copy(pageContract, "label.across_rules"), color: summary.open_gap_count > 0 ? "warning" : "info" },
         { key: "deferred", title: copy(pageContract, "label.deferred_explained"), total: summary.deferred_count, caption: `${copy(pageContract, "label.obligations")} · ${copy(pageContract, "label.deferred_scope")}`, color: "info" },
-        { key: "on-track", title: copy(pageContract, "label.on_track"), total: summary.process_intact_count, caption: `${copy(pageContract, "label.of")} ${(summary.open_gap_count + summary.process_intact_count).toLocaleString("en-IN")} ${copy(pageContract, "label.adherence_rows")}`, color: "success" },
+        // process_intact counts every row with no open gap, and a medically deferred row has none
+        // (it is explained, not missed). Titled "On-track (no action)" it read as a contradiction
+        // beside a "Watch / medically deferred" ledger row (pr294 L-A4), so the tile says what it
+        // counts and that deferred rows are inside it.
+        { key: "on-track", title: copy(pageContract, "label.on_track"), total: summary.process_intact_count, caption: `${copy(pageContract, "label.of")} ${(summary.open_gap_count + summary.process_intact_count).toLocaleString("en-IN")} ${copy(pageContract, "label.adherence_rows")} · ${copy(pageContract, "label.on_track_includes")}`, color: "success" },
       ]
     : [];
   const head = ledgerLabels.map((label, index) => ({ id: `c${index}`, label, width: LEDGER_WIDTHS[index] }));
