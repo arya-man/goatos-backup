@@ -1,8 +1,6 @@
 package domain
 
 import (
-	"math"
-	"strings"
 	"testing"
 )
 
@@ -11,52 +9,43 @@ import (
 // states its own purchase date relative to it.
 const testAsOf = "2026-09-01"
 
-func TestFinalizeLoadwiseDerivesValueAndBasisPerLoad(t *testing.T) {
-	overall := lw(9000)
+func TestFinalizeLoadwiseDerivesValuePerLoad(t *testing.T) {
 	loads := []LoadwiseLoad{
 		{
-			// Fully recorded load: its own priced sales form the basis.
 			LoadID: "a", Purchased: 100, Sold: 97, Mortality: 3, Remaining: 0,
 			AnimalCost: lw(500000), TransportCost: lw(20000), OtherCost: lw(5000),
 			SoldValue: 970000, SoldPriced: 97,
 		},
 		{
-			// No sales yet: remaining stock priced off the overall average; cost not recorded.
+			// No sales yet, cost not recorded: the stock still carries its weight x ₹/kg value.
 			LoadID: "b", Purchased: 50, Sold: 0, Mortality: 1, Remaining: 49,
-			SoldValue: 0, SoldPriced: 0,
+			StockWeight: &LoadStockWeight{LiveAnimals: 49, WeighedAnimals: 49, TotalKg: 980, AvgKg: lw(20), Value: 441000},
 		},
 		{
-			// Sold animals exist but none carry a tagged deal share: sold count stays honest
-			// (unpriced), and the basis falls back to overall.
 			LoadID: "c", Purchased: 10, Sold: 4, Mortality: 0, Remaining: 5, Unaccounted: 1,
-			SoldValue: 0, SoldPriced: 0,
 		},
 	}
 
-	out := FinalizeLoadwise(loads, 3, overall, testAsOf)
+	out := FinalizeLoadwise(loads, 3, testAsOf)
 
 	a := out.Loads[0]
 	if a.PurchaseValue == nil || *a.PurchaseValue != 525000 {
 		t.Fatalf("load a purchase value = %v, want 525000 (animal+transport+other)", a.PurchaseValue)
 	}
-	if a.PriceBasis != LoadwisePriceBasisLoad || a.AvgSoldPrice == nil || *a.AvgSoldPrice != 10000 {
-		t.Fatalf("load a basis = %s avg = %v, want its own 10000", a.PriceBasis, a.AvgSoldPrice)
+	if a.AssumedValue != nil || a.AssumedValueBasis != "" {
+		t.Fatalf("a sold-out load assumes nothing: %v %q", a.AssumedValue, a.AssumedValueBasis)
 	}
-	if a.RemainingValue == nil || *a.RemainingValue != 0 {
-		t.Fatalf("load a remaining value = %v, want 0 with a basis (nothing left, priced)", a.RemainingValue)
-	}
-
 	b := out.Loads[1]
 	if b.PurchaseValue != nil {
 		t.Fatalf("load b purchase value = %v, want nil: cost not recorded is never zero", b.PurchaseValue)
 	}
-	if b.PriceBasis != LoadwisePriceBasisOverall || b.RemainingValue == nil || *b.RemainingValue != 49*9000 {
-		t.Fatalf("load b basis = %s remaining = %v, want overall 441000", b.PriceBasis, b.RemainingValue)
+	if b.AssumedValue == nil || *b.AssumedValue != 441000 {
+		t.Fatalf("load b assumed = %v, want its weight x ₹/kg value 441000", b.AssumedValue)
 	}
-
+	// No weight fact at all: nothing to carry the stock at, and the sentence says why.
 	c := out.Loads[2]
-	if c.PriceBasis != LoadwisePriceBasisOverall {
-		t.Fatalf("load c basis = %s, want overall: zero-value sold shares never price stock", c.PriceBasis)
+	if c.AssumedValue != nil || c.AssumedValueBasis != "Not valued: none of the 5 animals on farm is weighed yet" {
+		t.Fatalf("load c: %v %q", c.AssumedValue, c.AssumedValueBasis)
 	}
 
 	s := out.Summary
@@ -69,22 +58,9 @@ func TestFinalizeLoadwiseDerivesValueAndBasisPerLoad(t *testing.T) {
 	if s.SoldValue != 970000 {
 		t.Fatalf("summary sold value = %v, want 970000", s.SoldValue)
 	}
-	if want := 0.0 + 49*9000 + 5*9000; math.Abs(s.RemainingValue-want) > 0.001 {
-		t.Fatalf("summary remaining value = %v, want %v", s.RemainingValue, want)
-	}
-}
-
-func TestFinalizeLoadwiseWithNoPriceBasisAnywhere(t *testing.T) {
-	out := FinalizeLoadwise([]LoadwiseLoad{
-		{LoadID: "a", Purchased: 5, Remaining: 5},
-	}, 1, nil, testAsOf)
-	row := out.Loads[0]
-	if row.PriceBasis != LoadwisePriceBasisNone || row.AvgSoldPrice != nil || row.RemainingValue != nil {
-		t.Fatalf("no sales anywhere must yield basis=none and NO estimate, got basis=%s avg=%v remaining=%v",
-			row.PriceBasis, row.AvgSoldPrice, row.RemainingValue)
-	}
-	if out.Summary.RemainingValue != 0 {
-		t.Fatalf("summary remaining value = %v, want 0 when no load has a basis", out.Summary.RemainingValue)
+	// The uncosted load's stock stays out of the summary split, which ranges over costed loads.
+	if s.AssumedValue != 0 || s.AssumedValueBasis != "" {
+		t.Fatalf("summary assumed = %v %q, want none: the only valued stock sits on an uncosted load", s.AssumedValue, s.AssumedValueBasis)
 	}
 }
 
@@ -97,7 +73,7 @@ func TestFinalizeLoadwiseFoldsPriorOutcomesIntoTheReconciliation(t *testing.T) {
 			PriorSold: LoadwisePriorOutcome{Count: 30, Value: lw(300000), FirstOn: "2026-04-30", LastOn: "2026-08-17"},
 			PriorDead: LoadwisePriorOutcome{Count: 10, FirstOn: "2025-11-24", LastOn: "2025-11-24"},
 		},
-	}, 1, nil, testAsOf)
+	}, 1, testAsOf)
 	row := out.Loads[0]
 	if row.Purchased != 100 || row.Sold != 30 || row.Mortality != 10 || row.Remaining != 60 || row.Unaccounted != 0 {
 		t.Fatalf("folded counts = %+v, want the whole load reconciled (100 = 30 + 10 + 60)", row)
@@ -105,11 +81,10 @@ func TestFinalizeLoadwiseFoldsPriorOutcomesIntoTheReconciliation(t *testing.T) {
 	if row.SoldValue != 300000 || row.SoldPriced != 30 {
 		t.Fatalf("folded money = %v over %d, want the prior revenue attributed", row.SoldValue, row.SoldPriced)
 	}
-	if row.PriceBasis != LoadwisePriceBasisLoad || row.AvgSoldPrice == nil || *row.AvgSoldPrice != 10000 {
-		t.Fatalf("basis = %s avg %v, want the prior sales to price remaining stock", row.PriceBasis, row.AvgSoldPrice)
-	}
-	if row.RemainingValue == nil || *row.RemainingValue != 600000 {
-		t.Fatalf("remaining value = %v, want 60 x 10000", row.RemainingValue)
+	// The prior sales' average (10000 each) must NOT price the 60 still on farm: one load's sold
+	// price is never spread over the animals it still holds (maintainer decision 2026-10-02).
+	if row.AssumedValue != nil {
+		t.Fatalf("assumed = %v, want none: no weight fact, and sold prices never value stock", *row.AssumedValue)
 	}
 	if s := out.Summary; s.Purchased != 100 || s.Sold != 30 || s.Mortality != 10 || s.SoldValue != 300000 {
 		t.Fatalf("summary = %+v, want folded totals", s)
@@ -134,7 +109,7 @@ func TestFinalizeLoadwiseUsesTheDeclaredCountAsTheDenominator(t *testing.T) {
 			// MORE attributed than declared: negative unaccounted, still shown, never clamped.
 			LoadID: "over", DeclaredCount: 10, Purchased: 12, Remaining: 12,
 		},
-	}, 3, nil, testAsOf)
+	}, 3, testAsOf)
 
 	if row := out.Loads[0]; row.Purchased != 76 || row.Sold != 69 || row.Mortality != 6 || row.Unaccounted != 1 {
 		t.Fatalf("declared load = %+v, want 76 purchased and 1 unaccounted", row)
@@ -148,7 +123,6 @@ func TestFinalizeLoadwiseUsesTheDeclaredCountAsTheDenominator(t *testing.T) {
 }
 
 func TestFinalizeLoadwiseProfitCountsStockAndRefusesToGuessACost(t *testing.T) {
-	overall := lw(10000)
 	out := FinalizeLoadwise([]LoadwiseLoad{
 		{
 			// Sold out and costed: profit is purely realised.
@@ -159,7 +133,8 @@ func TestFinalizeLoadwiseProfitCountsStockAndRefusesToGuessACost(t *testing.T) {
 			// Nothing sold yet: the profit is the STOCK on farm against the cost. Without the
 			// stock this healthy load would report a total loss of its purchase price.
 			LoadID: "onfarm", DeclaredCount: 10, Purchased: 10, Remaining: 10,
-			AnimalCost: lw(80000),
+			AnimalCost:  lw(80000),
+			StockWeight: &LoadStockWeight{LiveAnimals: 10, WeighedAnimals: 10, TotalKg: 200, AvgKg: lw(20), Value: 100000},
 		},
 		{
 			// A real loss: cost exceeds sales plus stock. Reported signed, never clamped.
@@ -171,7 +146,7 @@ func TestFinalizeLoadwiseProfitCountsStockAndRefusesToGuessACost(t *testing.T) {
 			// report the entire sale as profit.
 			LoadID: "uncosted", DeclaredCount: 10, Purchased: 10, SoldValue: 120000, SoldPriced: 10,
 		},
-	}, 4, overall, testAsOf)
+	}, 4, testAsOf)
 
 	if p := out.Loads[0].ProfitLoss; p == nil || *p != 40000 {
 		t.Fatalf("sold-out profit = %v, want 120000 - 80000", p)
@@ -336,7 +311,7 @@ func TestLoadwiseOneToManyCostLinesDoNotMultiplyTheLoad(t *testing.T) {
 			LoadID: "load-131", DeclaredCount: 63, Purchased: 63, Remaining: 63,
 			AnimalCost: &animal, TransportCost: &transport, OtherCost: &other,
 			PurchaseWeightKg: &weight, CostLines: lines,
-		}}, 1, nil, testAsOf)
+		}}, 1, testAsOf)
 	}
 
 	bare := base(nil)
@@ -374,7 +349,7 @@ func TestLoadwisePaginationKeepsWholeTenantTotalDistinct(t *testing.T) {
 		{LoadID: "a", DeclaredCount: 10, Purchased: 10, Remaining: 10, AnimalCost: &animal},
 		{LoadID: "b", DeclaredCount: 20, Purchased: 20, Remaining: 20},
 	}
-	out := FinalizeLoadwise(page, 57, nil, testAsOf)
+	out := FinalizeLoadwise(page, 57, testAsOf)
 
 	if out.TotalLoads != 57 {
 		t.Fatalf("TotalLoads = %d, want the whole-tenant 57 — never the page size", out.TotalLoads)
@@ -397,7 +372,7 @@ func TestLoadwiseParkScopeStaysWithItsOwnLoad(t *testing.T) {
 		{LoadID: "cbe", Farm: "CBE", DeclaredCount: 7, Purchased: 7, Remaining: 7},
 		// A load whose animals span parks reports NO farm rather than a majority pick.
 		{LoadID: "mixed", Farm: "", DeclaredCount: 3, Purchased: 3, Remaining: 3},
-	}, 3, nil, testAsOf)
+	}, 3, testAsOf)
 
 	for _, want := range []struct{ id, farm string }{{"cpt", "CPT"}, {"cbe", "CBE"}, {"mixed", ""}} {
 		var got string
@@ -420,7 +395,7 @@ func TestLoadwiseStatusBucketsStayDisjoint(t *testing.T) {
 	out := FinalizeLoadwise([]LoadwiseLoad{{
 		LoadID: "l", DeclaredCount: 70, Purchased: 70,
 		Sold: 40, Mortality: 4, OtherExits: 2, Remaining: 20,
-	}}, 1, nil, testAsOf)
+	}}, 1, testAsOf)
 
 	row := out.Loads[0]
 	if row.Unaccounted != 70-40-4-2-20 {
@@ -449,7 +424,7 @@ func TestSaleWeightAverageUsesOnlyTheWeighedAnimals(t *testing.T) {
 		SoldWeightKg:     &weight,
 		// Fewer than Sold on purpose — that is the whole point.
 		SoldWeighedAnimals: &weighed,
-	}}, 1, nil, testAsOf)
+	}}, 1, testAsOf)
 
 	row := out.Loads[0]
 	if row.AvgSaleWeightKg == nil {
@@ -475,7 +450,7 @@ func TestSalePricePerKgDividesOneSetOfSales(t *testing.T) {
 	out := FinalizeLoadwise([]LoadwiseLoad{{
 		LoadID: "l", DeclaredCount: 70, Purchased: 70, Sold: 66, SoldValue: 1118399,
 		SoldWeightKg: &weight, SoldWeighedAnimals: &weighed, SoldWeighedValue: &value,
-	}}, 1, nil, testAsOf)
+	}}, 1, testAsOf)
 
 	row := out.Loads[0]
 	if row.SalePricePerKg == nil {
@@ -497,7 +472,7 @@ func TestUnsoldLoadHasNoSaleFiguresAtAll(t *testing.T) {
 	out := FinalizeLoadwise([]LoadwiseLoad{{
 		LoadID: "load-131", DeclaredCount: 63, Purchased: 63, Remaining: 63,
 		PurchaseWeightKg: &purchaseWeight, AnimalCost: &animal,
-	}}, 1, nil, testAsOf)
+	}}, 1, testAsOf)
 
 	row := out.Loads[0]
 	if row.AvgSaleWeightKg != nil {
@@ -522,7 +497,7 @@ func TestUnsoldLoadReportsTheDaysItsAnimalsHaveBeenOnFarm(t *testing.T) {
 		// what makes this fixture prove WHICH one the new figure follows.
 		LoadID: "load-131", DeclaredCount: 63, Purchased: 63, Remaining: 63,
 		PurchaseDate: "2026-06-01", ArrivedOn: "2026-06-04",
-	}}, 1, nil, testAsOf)
+	}}, 1, testAsOf)
 
 	row := out.Loads[0]
 	if row.FatteningDays != nil {
@@ -561,7 +536,7 @@ func TestPartSoldLoadReportsBothClocksAndSoldOutOnlyTheFinishedSpan(t *testing.T
 			LoadID: "load-126", DeclaredCount: 50, Purchased: 50, Sold: 20, Remaining: 30,
 			PurchaseDate: "2026-06-01", ArrivedOn: "2026-06-04",
 		},
-	}, 3, nil, testAsOf)
+	}, 3, testAsOf)
 
 	byID := map[string]LoadwiseLoad{}
 	for _, row := range out.Loads {
@@ -595,7 +570,7 @@ func TestPreSystemSalesLeaveTheRunningClockOnForTheRemainder(t *testing.T) {
 		LoadID: "load-legacy", DeclaredCount: 40, Purchased: 8, Sold: 0, Remaining: 8,
 		PurchaseDate: "2026-04-01", ArrivedOn: "2026-04-04",
 		PriorSold: LoadwisePriorOutcome{Count: 32, Value: &value, FirstOn: "2026-05-01", LastOn: "2026-06-01"},
-	}}, 1, nil, testAsOf)
+	}}, 1, testAsOf)
 
 	if got := out.Loads[0].DaysOnFarmSoFar; got == nil {
 		t.Fatal("a load with 8 animals still on farm reported no days on farm")
@@ -607,7 +582,7 @@ func TestPreSystemSalesLeaveTheRunningClockOnForTheRemainder(t *testing.T) {
 func TestRunningClockIsAbsentWithoutAnArrivalDate(t *testing.T) {
 	out := FinalizeLoadwise([]LoadwiseLoad{{
 		LoadID: "load-x", Purchased: 10, Remaining: 10, PurchaseDate: "2026-06-01",
-	}}, 1, nil, testAsOf)
+	}}, 1, testAsOf)
 
 	if got := out.Loads[0].DaysOnFarmSoFar; got != nil {
 		t.Fatalf("a load with no arrival date reported %d days on farm", *got)
@@ -638,85 +613,29 @@ func TestOverdueLoadsJudgeAgainstTheThresholdTheyAreGiven(t *testing.T) {
 // An ASSUMED unsold-stock price (Sales Config, 2026-09-19) replaces both the load's own average
 // and the overall average for every load's remaining stock; absent, the load-then-overall rule
 // stands untouched.
-func TestFinalizeLoadwiseAssumedUnsoldPriceReplacesEveryBasis(t *testing.T) {
-	sold := 12000.0
-	overall := 9000.0
-	assumed := 15000.0
-	row := func() LoadwiseLoad {
-		return LoadwiseLoad{Purchased: 10, Sold: 2, Remaining: 8, SoldValue: sold * 2, SoldPriced: 2}
-	}
-	plain := FinalizeLoadwise([]LoadwiseLoad{row()}, 1, &overall, testAsOf)
-	if plain.Loads[0].PriceBasis != LoadwisePriceBasisLoad || *plain.Loads[0].AvgSoldPrice != sold || plain.UnsoldPriceBasis != LoadwisePriceBasisOverall {
-		t.Fatalf("without an assumption the load's own average stands: %+v basis %s", plain.Loads[0].PriceBasis, plain.UnsoldPriceBasis)
-	}
-	with := FinalizeLoadwise([]LoadwiseLoad{row()}, 1, &overall, testAsOf, &assumed)
-	if with.Loads[0].PriceBasis != LoadwisePriceBasisAssumed || *with.Loads[0].AvgSoldPrice != assumed || with.UnsoldPriceBasis != LoadwisePriceBasisAssumed {
-		t.Fatalf("with an assumption every load is priced at it: %+v", with.Loads[0])
-	}
-	if *with.Loads[0].RemainingValue != 8*assumed || *with.OverallAvgSoldPrice != assumed {
-		t.Fatalf("remaining value = %v, overall = %v", *with.Loads[0].RemainingValue, *with.OverallAvgSoldPrice)
-	}
-	var nilAssumed *float64
-	if FinalizeLoadwise([]LoadwiseLoad{row()}, 1, &overall, testAsOf, nilAssumed).UnsoldPriceBasis != LoadwisePriceBasisOverall {
-		t.Fatal("a nil assumption keeps the overall basis")
-	}
-}
-
-func TestFinalizeLoadwiseCarriesRemainingMixWithoutChangingSalesValueBasis(t *testing.T) {
-	overall := 10000.0
-	weighed := 3
-	out := FinalizeLoadwise([]LoadwiseLoad{{
-		LoadID:             "load-a",
-		Purchased:          3,
-		Remaining:          3,
-		SoldWeightKg:       lw(90),
-		SoldWeighedAnimals: &weighed,
-		AnimalCost:         lw(1000),
-		RemainingMix: []LoadHeadMix{
-			{Species: "goat", ManagementStage: "K3", Sex: "male", Animals: 2},
-			{Species: "goat", ManagementStage: "F2", Sex: "female", Animals: 1},
-		},
-	}}, 1, &overall, testAsOf)
-
-	row := out.Loads[0]
-	// The load-wise sales endpoint has sale exit weight, not today's live weight for the animals
-	// still on farm. RemainingMix is carried for the Weighing comparison tab, where latest live
-	// weight is available, but this sales endpoint keeps its old per-head overall basis.
-	want := 3 * overall
-	if row.PriceBasis != LoadwisePriceBasisOverall {
-		t.Fatalf("basis = %s, want overall", row.PriceBasis)
-	}
-	if row.RemainingValue == nil || *row.RemainingValue != want {
-		t.Fatalf("remaining value = %v, want %v", row.RemainingValue, want)
-	}
-	if row.ProfitLoss == nil || *row.ProfitLoss != want-1000 {
-		t.Fatalf("profit = %v, want %v", row.ProfitLoss, want-1000)
-	}
-	if out.Summary.RemainingValue != want || out.Summary.ProfitLoss != want-1000 {
-		t.Fatalf("summary = %+v, want remaining/profit from overall value", out.Summary)
-	}
-}
-
 // Profit on a load that still holds animals is partly ASSUMED: the animals still on farm are
-// carried at a price someone set, not one anybody paid. The row says how much of the profit is
-// realised (sales less landed cost) and how much is that assumption, and states the basis in a
-// sentence the screen renders verbatim (maintainer request 2026-09-25).
+// carried at their weight x a price someone set, not one anybody paid. The row says how much of
+// the profit is realised (sales less landed cost) and how much is that assumption, and states the
+// basis in a sentence the screen renders verbatim.
 func TestProfitSplitsRealisedFromTheAssumedValueOfStockOnFarm(t *testing.T) {
 	loads := []LoadwiseLoad{
-		// Half-sold, costed.
-		{LoadID: "half", Purchased: 10, Sold: 4, Remaining: 6, AnimalCost: lw(60000), SoldValue: 40000, SoldPriced: 4},
+		// Half-sold, costed: its 4 sales at 10000 each must NOT price the 6 left.
+		{LoadID: "half", Purchased: 10, Sold: 4, Remaining: 6, AnimalCost: lw(60000), SoldValue: 40000, SoldPriced: 4,
+			StockWeight: &LoadStockWeight{LiveAnimals: 6, WeighedAnimals: 6, TotalKg: 120, AvgKg: lw(20), Value: 54000}},
 		// Fully unsold, costed.
-		{LoadID: "unsold", Purchased: 58, Remaining: 58, AnimalCost: lw(400000)},
+		{LoadID: "unsold", Purchased: 58, Remaining: 58, AnimalCost: lw(400000),
+			StockWeight: &LoadStockWeight{LiveAnimals: 58, WeighedAnimals: 58, TotalKg: 1170, AvgKg: lw(20.17), Value: 526500}},
 		// Sold out: nothing is assumed.
 		{LoadID: "soldout", Purchased: 5, Sold: 5, AnimalCost: lw(40000), SoldValue: 50000, SoldPriced: 5},
 		// Cost not recorded: no profit, so no split -- but the stock is still an assumption.
-		{LoadID: "nocost", Purchased: 3, Remaining: 3},
+		{LoadID: "nocost", Purchased: 3, Remaining: 3,
+			StockWeight: &LoadStockWeight{LiveAnimals: 3, WeighedAnimals: 3, TotalKg: 60, AvgKg: lw(20), Value: 27000}},
 	}
-	out := FinalizeLoadwise(loads, 4, lw(9000), testAsOf, lw(9500))
+	out := FinalizeLoadwise(loads, 4, testAsOf)
 
 	half := out.Loads[0]
-	if half.AssumedValue == nil || *half.AssumedValue != 57000 {
-		t.Fatalf("half-sold assumed value = %v, want 6 x 9500 = 57000", half.AssumedValue)
+	if half.AssumedValue == nil || *half.AssumedValue != 54000 {
+		t.Fatalf("half-sold assumed value = %v, want the weight value 54000, never 6 x its 10000 sold price", half.AssumedValue)
 	}
 	if half.RealisedProfitLoss == nil || *half.RealisedProfitLoss != -20000 {
 		t.Fatalf("half-sold realised = %v, want 40000 - 60000", half.RealisedProfitLoss)
@@ -724,11 +643,11 @@ func TestProfitSplitsRealisedFromTheAssumedValueOfStockOnFarm(t *testing.T) {
 	if half.ProfitLoss == nil || *half.ProfitLoss != *half.RealisedProfitLoss+*half.AssumedValue {
 		t.Fatalf("profit must be realised + assumed: %v", half.ProfitLoss)
 	}
-	if want := "6 animals × ₹9,500 each (the unsold animal price set on Sales Config) = ₹57,000 — priced per animal: 6 of 6 animals have no weight yet"; half.AssumedValueBasis != want {
+	if want := "6 animals × latest weight × ₹/kg by stage and sex on Sales Config = ₹54,000"; half.AssumedValueBasis != want {
 		t.Fatalf("basis = %q, want %q", half.AssumedValueBasis, want)
 	}
 	unsold := out.Loads[1]
-	if unsold.AssumedValue == nil || *unsold.AssumedValue != 551000 || unsold.AssumedValueBasis != "58 animals × ₹9,500 each (the unsold animal price set on Sales Config) = ₹5,51,000 — priced per animal: 58 of 58 animals have no weight yet" {
+	if unsold.AssumedValue == nil || *unsold.AssumedValue != 526500 || unsold.AssumedValueBasis != "58 animals × latest weight × ₹/kg by stage and sex on Sales Config = ₹5,26,500" {
 		t.Fatalf("unsold load: %v %q", unsold.AssumedValue, unsold.AssumedValueBasis)
 	}
 	soldout := out.Loads[2]
@@ -745,7 +664,7 @@ func TestProfitSplitsRealisedFromTheAssumedValueOfStockOnFarm(t *testing.T) {
 
 	// The summary splits the profit over the SAME key set as profit_loss (costed loads only).
 	s := out.Summary
-	if s.AssumedValue != 57000+551000 {
+	if s.AssumedValue != 54000+526500 {
 		t.Fatalf("summary assumed = %v, want costed loads' stock only", s.AssumedValue)
 	}
 	if s.RealisedProfitLoss != -20000-400000+10000 {
@@ -754,64 +673,40 @@ func TestProfitSplitsRealisedFromTheAssumedValueOfStockOnFarm(t *testing.T) {
 	if s.ProfitLoss != s.RealisedProfitLoss+s.AssumedValue {
 		t.Fatalf("summary profit %v != realised %v + assumed %v", s.ProfitLoss, s.RealisedProfitLoss, s.AssumedValue)
 	}
-	if want := "Animals still on farm × ₹9,500 each (the unsold animal price set on Sales Config)"; s.AssumedValueBasis != want {
-		t.Fatalf("summary basis = %q, want %q", s.AssumedValueBasis, want)
+	if s.AssumedValueBasis != summaryAssumedBasis {
+		t.Fatalf("summary basis = %q", s.AssumedValueBasis)
 	}
 }
 
-// Without a Sales Config price each load's stock is carried at its own average sold price, else
-// the overall average, and the sentence names which -- with the figure to two places when the
-// average is not a whole rupee, so the product in the sentence is the product in the number.
-func TestAssumedValueBasisNamesTheAverageThatPricedIt(t *testing.T) {
+// An animal not weighed yet is carried at the load's CURRENT AVERAGE weight, and an animal whose
+// stage has no Sales Config price is left out and named -- each stated in the row's sentence
+// (maintainer decision 2026-10-02). A load with no weighed animal at all has no average to carry
+// its stock at and is not valued.
+func TestAssumedValueFillsUnweighedAtTheLoadAverageAndNamesUnpricedStages(t *testing.T) {
 	loads := []LoadwiseLoad{
-		{LoadID: "own", Purchased: 5, Sold: 3, Remaining: 2, AnimalCost: lw(10000), SoldValue: 28000, SoldPriced: 3},
-		{LoadID: "fallback", Purchased: 2, Remaining: 2, AnimalCost: lw(10000)},
+		{LoadID: "filled", Purchased: 76, Remaining: 76, AnimalCost: lw(700000),
+			StockWeight: &LoadStockWeight{LiveAnimals: 76, WeighedAnimals: 72, TotalKg: 1584, AvgKg: lw(22), Value: 752400, FilledAnimals: 4}},
+		{LoadID: "unpriced", Purchased: 10, Remaining: 10, AnimalCost: lw(100000),
+			StockWeight: &LoadStockWeight{LiveAnimals: 10, WeighedAnimals: 10, TotalKg: 200, AvgKg: lw(20), Value: 63000,
+				UnpricedAnimals: 3, UnpricedStages: []string{"Warmup", "Flushing"}}},
+		{LoadID: "allunpriced", Purchased: 2, Remaining: 2, AnimalCost: lw(1000),
+			StockWeight: &LoadStockWeight{LiveAnimals: 2, WeighedAnimals: 2, TotalKg: 40, AvgKg: lw(20), UnpricedAnimals: 2, UnpricedStages: []string{"Warmup"}}},
+		{LoadID: "noneweighed", Purchased: 4, Remaining: 4, AnimalCost: lw(1000),
+			StockWeight: &LoadStockWeight{LiveAnimals: 4}},
 	}
-	out := FinalizeLoadwise(loads, 2, lw(9000), testAsOf)
-	if want := "2 animals × ₹9,333.33 each (this load's own average sold price) = ₹18,667 — priced per animal: 2 of 2 animals have no weight yet"; out.Loads[0].AssumedValueBasis != want {
-		t.Fatalf("own basis = %q, want %q", out.Loads[0].AssumedValueBasis, want)
+	out := FinalizeLoadwise(loads, 4, testAsOf)
+	if r := out.Loads[0]; r.AssumedValue == nil || *r.AssumedValue != 752400 ||
+		r.AssumedValueBasis != "76 animals × latest weight × ₹/kg by stage and sex on Sales Config = ₹7,52,400 (4 not weighed yet, carried at the load's average 22 kg)" {
+		t.Fatalf("filled: %v %q", r.AssumedValue, r.AssumedValueBasis)
 	}
-	if want := "2 animals × ₹9,000 each (the overall average sold price) = ₹18,000 — priced per animal: 2 of 2 animals have no weight yet"; out.Loads[1].AssumedValueBasis != want {
-		t.Fatalf("fallback basis = %q, want %q", out.Loads[1].AssumedValueBasis, want)
+	if r := out.Loads[1]; r.AssumedValue == nil || *r.AssumedValue != 63000 ||
+		r.AssumedValueBasis != "7 animals × latest weight × ₹/kg by stage and sex on Sales Config = ₹63,000 (3 not valued: no Sales Config price for Flushing, Warmup)" {
+		t.Fatalf("unpriced: %v %q", r.AssumedValue, r.AssumedValueBasis)
 	}
-	if want := "Animals still on farm × each load's own average sold price, or ₹9,000 each (the overall average sold price) for a load that has sold none"; out.Summary.AssumedValueBasis != want {
-		t.Fatalf("summary basis = %q", out.Summary.AssumedValueBasis)
+	if r := out.Loads[2]; r.AssumedValue != nil || r.AssumedValueBasis != "Not valued: no Sales Config price for Warmup" {
+		t.Fatalf("all unpriced: %v %q", r.AssumedValue, r.AssumedValueBasis)
 	}
-	none := FinalizeLoadwise([]LoadwiseLoad{{LoadID: "x", Purchased: 2, Remaining: 2, AnimalCost: lw(1)}}, 1, nil, testAsOf)
-	if none.Loads[0].AssumedValue != nil || none.Loads[0].AssumedValueBasis != "" || none.Summary.AssumedValueBasis != "" {
-		t.Fatalf("with no price anywhere nothing is assumed: %+v", none.Loads[0])
-	}
-}
-
-// Every live animal weighed and priced per kg: the stock is its weight at the configured price,
-// replacing the per-animal price in the profit; a load one animal short keeps the per-animal price
-// and the summary names both rules (maintainer decision 2026-09-25).
-func TestAssumedValueUsesWeightOnlyWhenEveryLiveAnimalIsWeighedAndPriced(t *testing.T) {
-	loads := []LoadwiseLoad{
-		{LoadID: "w", Purchased: 3, Remaining: 3, AnimalCost: lw(30000),
-			StockWeight: &LoadStockWeight{LiveAnimals: 3, WeighedAnimals: 3, TotalKg: 60, Value: 28650}},
-		{LoadID: "short", Purchased: 3, Remaining: 3, AnimalCost: lw(30000),
-			StockWeight: &LoadStockWeight{LiveAnimals: 3, WeighedAnimals: 2, TotalKg: 40, Value: 18000}},
-		{LoadID: "unpriced", Purchased: 1, Remaining: 1, AnimalCost: lw(1000),
-			StockWeight: &LoadStockWeight{LiveAnimals: 1, WeighedAnimals: 1, TotalKg: 25, UnpricedGroups: []string{"sheep|K3|female"}}},
-	}
-	out := FinalizeLoadwise(loads, 3, lw(9000), testAsOf)
-	w := out.Loads[0]
-	if w.AssumedValueMethod != AssumedValueMethodWeight || *w.AssumedValue != 28650 || *w.ProfitLoss != 28650-30000 {
-		t.Fatalf("weight method: %+v", w)
-	}
-	if want := "3 animals · 60 kg (latest weights) × ₹/kg by stage and sex = ₹28,650"; w.AssumedValueBasis != want {
-		t.Fatalf("basis %q", w.AssumedValueBasis)
-	}
-	short := out.Loads[1]
-	if short.AssumedValueMethod != AssumedValueMethodPerAnimal || *short.AssumedValue != 27000 ||
-		!strings.HasSuffix(short.AssumedValueBasis, "priced per animal: 1 of 3 animals has no weight yet") {
-		t.Fatalf("short load: %v %q", short.AssumedValue, short.AssumedValueBasis)
-	}
-	if u := out.Loads[2]; !strings.HasSuffix(u.AssumedValueBasis, "priced per animal: no price per kg set for Sheep K3 female") {
-		t.Fatalf("unpriced: %q", u.AssumedValueBasis)
-	}
-	if !strings.HasPrefix(out.Summary.AssumedValueBasis, "Animals still on farm at their latest weight × ₹/kg by stage and sex where every animal") {
-		t.Fatalf("summary basis %q", out.Summary.AssumedValueBasis)
+	if r := out.Loads[3]; r.AssumedValue != nil || r.AssumedValueBasis != "Not valued: none of the 4 animals on farm is weighed yet" {
+		t.Fatalf("none weighed: %v %q", r.AssumedValue, r.AssumedValueBasis)
 	}
 }

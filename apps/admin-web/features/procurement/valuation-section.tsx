@@ -298,13 +298,6 @@ export function ValuationSection({
             </div>
           ) : null}
 
-          <div className="grid g2 market-config-columns">
-            <label className="market-config-column">
-              <span className="market-config-h4">{copy(pageContract, "valuation.unsold_price")}</span>
-              <input name="unsold_stock_price_rupees" type="number" step="1" min={v.limits.unsold_stock_price_min} max={v.limits.unsold_stock_price_max} defaultValue={v.unsold_stock_price_rupees ?? ""} disabled={!canEdit} />
-              <span className="muted small market-config-hint">{copy(pageContract, "valuation.unsold_price.hint")}</span>
-            </label>
-          </div>
           <div className="market-config-line" style={{ marginTop: 10, alignItems: "center", gap: 12 }}>
             {canEdit ? (
               <>

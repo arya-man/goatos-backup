@@ -396,12 +396,8 @@ func TestSalesLoadsPageContract(t *testing.T) {
 		"column.other_exits", "column.remaining", "column.unaccounted",
 		"column.purchase_value", "column.sold_value", "column.profit_loss",
 		"column.remaining_value", "value.profit_unrealised", "value.profit_unavailable",
-		"value.profit_incl_stock", "loadwise.stock_price_note", "loadwise.stock_price_each",
-		"loadwise.stock_price_unknown",
-		"value.cost_missing", "value.price_basis.load", "value.price_basis.overall",
-		// Every backend price_basis must be published: the renderer resolves this key from the
-		// served value, so an unpublished value throws and takes the whole page down.
-		"value.price_basis.assumed", "value.price_basis.none",
+		"value.profit_incl_stock",
+		"value.cost_missing",
 		"value.sold_unpriced",
 		"loadwise.prior.title", "loadwise.prior.sold", "loadwise.prior.died",
 		"drawer.load_cost.title", "field.animal_cost", "field.transport_cost", "field.other_cost",

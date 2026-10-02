@@ -27,7 +27,7 @@ farm's valuation moved on deploy, re-read per request:
 | figure | key |
 |---|---|
 | per bucket: label, weight used (blank = measured), ₹ per kg | `buckets` (jsonb; the seven bucket KEYS are the classification the SQL files animals into and are fixed) |
-| price every unsold animal is carried at on Load wise | `unsold_stock_price_rupees` (blank = the overall average sold price, the old rule) |
+| ~~price every unsold animal is carried at on Load wise~~ | `unsold_stock_price_rupees` — RETIRED 2026-10-02: Load wise now values each unsold animal at its latest weight × its bucket's ₹/kg; the input is removed and a save clears the column |
 
 - **Edited on Sales Config**, a "Farm valuation" section beside the market survey: one form, one
   save, landing in place. `GET/PUT /sales/valuation-assumptions`; the PUT is a whole-set replace
@@ -38,9 +38,9 @@ farm's valuation moved on deploy, re-read per request:
   shows the section with the save disabled and the backend's reason for everyone else. Reading
   rides `sales.read`.
 - **Consumers**: the overview's valuation CTE reads the row (falling back to the seeded defaults
-  for a tenant with no row); Load wise reads `unsold_stock_price_rupees` and, when set, prices
-  every load's remaining stock at it (basis `assumed`, replacing both the load's own and the
-  overall average); the sale-ready line itself is NOT here: it is the growth assumption `sale_ready_threshold_kg`, edited
+  for a tenant with no row); Load wise reads the bucket `price_per_kg` (and the authored stages) and
+  values each unsold animal at its latest weight × that price (docs/decisions/sales-loadwise.md,
+  2026-10-02); the sale-ready line itself is NOT here: it is the growth assumption `sale_ready_threshold_kg`, edited
   from the Weighing SOP page's Assumptions drawer (docs/decisions/weighing-assumptions.md), and the Farm
   value page hands that figure to the weighing shed-weights read as before;
   as the `sale_threshold_kg` **parameter** — weighing stays isolated, the figure arrives on the

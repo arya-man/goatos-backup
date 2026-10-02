@@ -2,7 +2,7 @@ package postgres
 
 // saleLineShareCTEs prices every live tagged animal from ITS OWN SALE LINE (maintainer decision
 // 2026-09-25, "option B"). It is a list of CTEs, spliced into the WITH clause of BOTH Load wise
-// (loadwiseSalesSQL, loadwiseOverallAvgSQL) and Farm born (farmBornPopulationSQL), so the two
+// (loadwiseSalesSQL) and Farm born (farmBornPopulationSQL), so the two
 // pages can never price the same animal differently. $1 is the tenant.
 //
 // It ends in animal_share(goat_id, sales_deal_id, park_id, shed_id, partition_label, sale_date,

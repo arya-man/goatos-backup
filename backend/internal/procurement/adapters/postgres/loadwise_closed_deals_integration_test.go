@@ -58,7 +58,7 @@ VALUES ($1, $2::uuid, $3::uuid, 'tagged', $4)`, testTenant, goat, dealID, fmt.Sp
 		}
 	}
 
-	read := func() (domain.LoadwiseLoad, *float64) {
+	read := func() domain.LoadwiseLoad {
 		t.Helper()
 		out, err := repo.LoadwiseSales(ctx, testTenant, "", 60)
 		if err != nil {
@@ -66,32 +66,24 @@ VALUES ($1, $2::uuid, $3::uuid, 'tagged', $4)`, testTenant, goat, dealID, fmt.Sp
 		}
 		for _, l := range out.Loads {
 			if l.LoadID == loadX {
-				return l, out.OverallAvgSoldPrice
+				return l
 			}
 		}
 		t.Fatalf("load %s missing", loadX)
-		return domain.LoadwiseLoad{}, nil
+		return domain.LoadwiseLoad{}
 	}
 
-	open, openAvg := read()
+	open := read()
 	if open.Sold != 0 || open.SoldValue != 0 {
 		t.Fatalf("an Advance Paid deal counted as sold on Load wise: sold=%d value=%v", open.Sold, open.SoldValue)
-	}
-	// The fixture's closed deals price the overall average at 10000 per animal; the open deal's
-	// 30000-per-animal share must not move it.
-	if openAvg == nil || math.Abs(*openAvg-10000) > 0.01 {
-		t.Fatalf("an open deal moved the overall average sold price: %v", openAvg)
 	}
 
 	if _, err := pool.Exec(ctx, `UPDATE sales_deals SET status = 'Deal Closed' WHERE id = $1::uuid`, dealID); err != nil {
 		t.Fatal(err)
 	}
-	closed, closedAvg := read()
+	closed := read()
 	if closed.Sold != 3 || math.Abs(closed.SoldValue-90000) > 0.01 {
 		t.Fatalf("closing the deal must bring its animals in: sold=%d value=%v", closed.Sold, closed.SoldValue)
-	}
-	if closedAvg == nil || *closedAvg <= 10000 {
-		t.Fatalf("closing the deal must count it in the overall average: %v", closedAvg)
 	}
 }
 

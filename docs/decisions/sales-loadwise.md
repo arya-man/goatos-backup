@@ -50,10 +50,19 @@ value, remaining estimated value) with the counts readable beside them.
    animal with no tagged deal contributes nothing and is counted as unpriced (`sold_priced` <
    `sold` shows an asterisk + hint). Imported sheet-history deals have no allocations, so their
    revenue stays unattributed rather than guessed onto loads.
-4. **Remaining stock value = remaining × average sold price**, basis in order: the load's OWN
-   priced sales; else the tenant-wide average across every tagged, positive-value sale (farm-born
-   included — a realized price is a price); else NO estimate (`price_basis` = load / overall /
-   none). A zero-value share never forms a basis.
+4. **Stock still on farm = latest weight × Sales Config ₹/kg** (maintainer decision 2026-10-02,
+   SUPERSEDING the original "remaining × average sold price" rule, its 2026-09-19 Sales Config
+   per-animal price and the 2026-09-25 "by weight only when every animal is weighed" rule). Each
+   live animal is valued at its latest weight (its own latest scan, or the latest whole-pen weigh
+   of the pen it stands in) × the ₹/kg of its stage-and-gender bucket on Sales Config's Farm
+   valuation, resolved exactly as Farm value resolves it. An animal not weighed yet carries the
+   load's CURRENT AVERAGE weight; an animal whose stage no valuation stage names is left out and
+   named; a load with no weighed animal is not valued. The bucket's "weight used" is a Farm value
+   figure and does not apply here. **No sold price is ever spread over the animals a load still
+   holds**: the retired rule priced load 129's 76 unsold animals at the ₹16,720 one animal fetched.
+   The row carries `assumed_value` and a backend sentence `assumed_value_basis`; `avg_sold_price`,
+   `price_basis`, `remaining_value`, `assumed_value_method`, `overall_avg_sold_price` and
+   `unsold_price_basis` are removed from the wire.
 5. **Only the loads STG already tracks.** The eight loads on the Weights "Daily gain by load"
    card (`weighing_shed_load_tags`: 100, 101, 113, 126, 128, 129, 130, 131) are seeded by
    `tools/dev/seed-stg-loadwise-legacy-loads.sql` from the load sheet plus the legacy BigQuery
@@ -76,7 +85,7 @@ pointing the other way (opaque, no FK).
 ## Contract
 
 - `GET /procurement/loadwise-sales` (permission `sales.read`): newest 60 loads + whole-tenant
-  `total_loads` + `overall_avg_sold_price` + a summary over exactly the served rows. Backend owns
+  `total_loads` + a summary over exactly the served rows. Backend owns
   every number; clients render verbatim (grain proof in the repository's `projection-review`
   marker; pinned by `TestLoadwiseSalesPostgresRead`).
 - `PUT /procurement/loads/{load_id}/cost` (permission `procurement.load_cost.write`): full-state

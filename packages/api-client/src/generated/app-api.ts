@@ -4368,7 +4368,7 @@ export interface paths {
          * Every purchased animal load reconciled, for the Sales page.
          * @description One row per procurement load, newest purchase date first (the newest 60 loads; `total_loads` says how many exist). Counts reconcile by construction: `purchased` = `sold` + `mortality` + `other_exits` + `remaining` + `unaccounted`, and a non-zero `unaccounted` means the herd register and the load disagree.
          *
-         *     Money: `purchase_value` is the recorded landed cost (absent = cost not recorded, never zero); `sold_value` is deal value attributed evenly across each deal's tagged animals and summed by load (`sold_priced` says how many sold animals actually carry a share); `remaining_value` prices the animals still on farm at `avg_sold_price`, whose `price_basis` is `load` (its own priced sales), `overall` (the tenant-wide average), `assumed` (the Sales Config unsold-stock price) or `none` (no estimate). The `summary` aggregates exactly the served rows.
+         *     Money: `purchase_value` is the recorded landed cost (absent = cost not recorded, never zero); `sold_value` is deal value attributed evenly across each deal's tagged animals and summed by load (`sold_priced` says how many sold animals actually carry a share); `assumed_value` values the animals still on farm at their latest weight (the load's current average weight when not weighed) x the ₹/kg of their stage-and-sex bucket on Sales Config's Farm valuation; no sold price is ever spread over the animals a load still holds. The `summary` aggregates exactly the served rows.
          */
         get: operations["listLoadwiseSales"];
         put?: never;
@@ -9039,24 +9039,14 @@ export interface components {
             sold_value: number;
             /** @description How many of `sold` carry an attributed deal share; the rest sold without a tagged sale. */
             sold_priced: number;
-            avg_sold_price?: number | null;
-            /** @enum {string} */
-            price_basis: "load" | "overall" | "assumed" | "none";
-            /** @description remaining x avg_sold_price. Absent when there is no price basis. `assumed` means the Sales Config unsold-stock price replaced the sold-price fallback. Current live-weight valuation is composed by the Weighing comparison tab from `remaining_mix` plus its latest-weight read; this endpoint must not value remaining stock from sale exit weight. */
-            remaining_value?: number | null;
-            /** @description sold_value + remaining_value - purchase_value: what the load is worth against what it cost. ABSENT when no cost is recorded, because "profit" would otherwise be the whole sale value. Part of it is UNREALISED whenever `remaining` > 0 — `price_basis` names the average that valued that stock. */
+            /** @description sold_value + assumed_value - purchase_value: what the load is worth against what it cost. ABSENT when no cost is recorded, because "profit" would otherwise be the whole sale value. Part of it is UNREALISED whenever `remaining` > 0 — `assumed_value_basis` says how that stock was valued. */
             profit_loss?: number | null;
             /** @description sold_value - purchase_value: the part of profit_loss that actually happened. Absent when no cost is recorded. profit_loss = realised_profit_loss + assumed_value whenever both exist. */
             realised_profit_loss?: number | null;
-            /** @description The ASSUMED value of the animals still on farm, a price nobody has paid yet: by weight when assumed_value_method is `weight`, else remaining x avg_sold_price. Absent when the load holds nothing or no price exists to carry them at. */
+            /** @description The ASSUMED value of the animals still on farm, a price nobody has paid yet (maintainer decision 2026-10-02): each live animal's latest weight -- or the load's current average weight when it has none -- x the ₹/kg of its stage-and-sex bucket on Sales Config's Farm valuation. An animal whose stage has no Sales Config price is left out and named in assumed_value_basis. Absent when the load holds nothing, none of its animals is weighed, or none can be priced. */
             assumed_value?: number | null;
-            /** @description Backend-composed sentence saying HOW assumed_value was assumed, rendered verbatim ("58 animals · 1,241 kg (latest weights) × ₹/kg by stage and sex = ₹6,95,000", or "58 animals × ₹9,500 each (...) = ₹5,51,000 — priced per animal: 3 of 58 animals have no weight yet"). Empty when nothing is assumed. */
+            /** @description Backend-composed sentence saying HOW assumed_value was assumed, rendered verbatim ("76 animals × latest weight × ₹/kg by stage and sex on Sales Config = ₹7,52,400 (4 not weighed yet, carried at the load's average 22 kg)", or "Not valued: none of the 5 animals on farm is weighed yet"). Empty when the load holds nothing. */
             assumed_value_basis?: string;
-            /**
-             * @description Which rule priced assumed_value (maintainer decision 2026-09-25): `weight` when EVERY live animal of the load has a latest weight and a price per kg for its species, stage and sex (growth_sale_price_assumptions, set on the Weighing Assumptions drawer) -- sum(weight x price); `per_animal` otherwise. Absent when nothing is assumed. Read-time only; nothing stored is rewritten.
-             * @enum {string}
-             */
-            assumed_value_method?: "weight" | "per_animal";
             /** @description Animals of this load ALREADY SOLD before its remaining animals were tracked here — seeded history, already folded into `sold` / `purchased` / `sold_value`; shown with the dates it spans. */
             prior_sold?: components["schemas"]["LoadwisePriorOutcome"] | null;
             /** @description Animals already dead before tracking started; folded into `mortality` / `purchased`. */
@@ -9087,15 +9077,13 @@ export interface components {
             purchase_value: number;
             costed_loads: number;
             sold_value: number;
-            /** @description Sum of the per-load estimates that have a price basis. */
-            remaining_value: number;
             /** @description Sums only the loads that HAVE a profit figure (a recorded cost) — the same key set as costed_loads, so priced and unpriced loads are never mixed into one total. */
             profit_loss: number;
             /** @description Of profit_loss, the realised part (sales less cost), over the SAME costed loads. */
             realised_profit_loss: number;
             /** @description Of profit_loss, the assumed value of animals still on farm, over the SAME costed loads. realised_profit_loss + assumed_value = profit_loss. */
             assumed_value: number;
-            /** @description Backend-composed sentence stating the per-animal price rule; empty when nothing is assumed. */
+            /** @description Backend-composed sentence stating the valuation rule (latest weight x Sales Config ₹/kg); empty when nothing is assumed. */
             assumed_value_basis: string;
         };
         LoadwiseWeights: {
@@ -9131,10 +9119,6 @@ export interface components {
             loads: components["schemas"]["LoadwiseLoad"][];
             /** @description Whole-tenant load count; the rows are the newest window of it. */
             total_loads: number;
-            /** @description The tenant-wide average sold price used as the remaining-stock fallback basis. */
-            overall_avg_sold_price?: number | null;
-            /** @description What every load's remaining stock was valued at: `assumed` (the price set on Sales Config's Farm valuation) or `overall` (the overall average sold price). */
-            unsold_price_basis?: string;
             summary: components["schemas"]["LoadwiseSummary"];
         };
         BuyerAnalyticsRow: {

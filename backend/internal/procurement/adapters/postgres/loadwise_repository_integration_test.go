@@ -372,11 +372,10 @@ RETURNING load_id::text`, testTenant, fx.loadA).Scan(&soldOut); err != nil {
 		if math.Abs(loadB.SoldValue-40000) > 0.01 || loadB.SoldPriced != 4 {
 			t.Fatalf("load B sold value = %v priced %d, want 40000 over 4", loadB.SoldValue, loadB.SoldPriced)
 		}
-		if loadA.PriceBasis != domain.LoadwisePriceBasisLoad || loadA.AvgSoldPrice == nil || math.Abs(*loadA.AvgSoldPrice-10000) > 0.01 {
-			t.Fatalf("load A price basis = %s avg %v, want its own 10000", loadA.PriceBasis, loadA.AvgSoldPrice)
-		}
-		if loadA.RemainingValue == nil || math.Abs(*loadA.RemainingValue-10000) > 0.01 {
-			t.Fatalf("load A remaining value = %v, want 1 x 10000", loadA.RemainingValue)
+		// Load A's one sale (10000) must NOT price the animal it still holds (maintainer decision
+		// 2026-10-02): with no weight on record, the stock is not valued at all.
+		if loadA.AssumedValue != nil {
+			t.Fatalf("load A assumed value = %v, want none: a sold price never values the stock", *loadA.AssumedValue)
 		}
 		if loadA.SoldWeightKg == nil || math.Abs(*loadA.SoldWeightKg-20) > 0.01 {
 			t.Fatalf("load A tagged sale kg = %v, want 20 from its allocation", loadA.SoldWeightKg)
@@ -392,11 +391,6 @@ RETURNING load_id::text`, testTenant, fx.loadA).Scan(&soldOut); err != nil {
 		}
 		if loadA.PurchaseValue != nil {
 			t.Fatalf("load A purchase value = %v, want ABSENT while no cost is recorded", loadA.PurchaseValue)
-		}
-		// Overall average: three tagged shares of 10000 (the farm-born sale included; the
-		// released allocation excluded from both the share and the average).
-		if out.OverallAvgSoldPrice == nil || math.Abs(*out.OverallAvgSoldPrice-10000) > 0.01 {
-			t.Fatalf("overall avg = %v, want 10000", out.OverallAvgSoldPrice)
 		}
 	})
 
