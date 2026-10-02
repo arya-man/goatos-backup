@@ -13,5 +13,5 @@ test("guard: template-pager-footer - /health/config and /approvals use the templ
   assert.match(health, /<TablePaginationLinks[\s\S]{0,400}count=\{-1\}/);
   assert.doesNotMatch(health, /<LinkButton href=\{restartHref\}/);
   const approvals = read("features/approvals/approvals-page.tsx");
-  assert.match(approvals, /cursor \? `\$\{COPY\.kpi\.rowsInView\}: \$\{items\.length\}` : `1–\$\{items\.length\}`/);
+  assert.match(approvals, /cursor \? `\$\{COPY\.kpi\.rowsInView\}: \$\{items\.length\}` : `1–\$\{items\.length\} \$\{COPY\.pager\.of\} \$\{items\.length\}/);
 });

@@ -348,5 +348,5 @@ test("breed axis labels never rotate: breed over its head count, two lines (R3CN
   // the last breed. The axis takes [breed, count] pairs with rotation off; the series categories keep
   // the one-line form for the tooltip and the empty check.
   assert.match(source, /categories: gainThresholdRows\.map\(\(row\) => \[row\.breed, `\$\{row\.animals\.toLocaleString\("en-IN"\)\} \$\{gainKidsLabel\}`\]\)/);
-  assert.match(source, /labels: \{ rotate: 0, hideOverlappingLabels: false \}/);
+  assert.match(source, /labels: \{ rotate: 0, trim: true, hideOverlappingLabels: false \}/);
 });

@@ -86,7 +86,7 @@ test("/counts/milk-preparation twin reads milk-preparation-layout.ts, as the pag
   assert.match(twin, /from "\.\/milk-preparation-layout"/);
   const page = read("counts/milk-preparation.tsx");
   assert.match(page, /\{MILK_KPIS\.map\(\(kpi\) =>/, "the page renders its KPI cards from MILK_KPIS");
-  assert.match(page, /caption=\{kpi\.unit \?/, "the unit caption follows MILK_KPIS[].unit");
+  assert.match(page, /caption=\{copy\(pageContract, `kpi\.\$\{kpi\.key\}\.sub`\)\}/, "every tile carries its contract sub-line (units ride in the title)");
   assert.match(page, /MILK_FARM_STATE_KEYS\.map\(/, "the farm-state strip renders MILK_FARM_STATE_KEYS");
   assert.match(page, /size=\{MILK_KPI_SIZE\}/);
   assert.match(page, /fallback=\{<MilkPreparationPanelSkeleton \/>\}/);
