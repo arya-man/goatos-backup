@@ -8,6 +8,7 @@ import { varAlpha } from 'minimal-shared/utils';
 import { useTheme } from '@mui/material/styles';
 
 import { CHART_CATEGORICAL } from '@/theme/chart-palette';
+import { categoryAxisOptions } from '@/components/chart-axis-label';
 
 // ----------------------------------------------------------------------
 
@@ -16,10 +17,16 @@ export function useChart(updatedOptions?: ChartOptions): ChartOptions {
 
   const baseOptions = useMemo(() => baseChartOptions(theme), [theme]);
 
-  return useMemo(
-    () => (updatedOptions ? merge(baseOptions, updatedOptions) : baseOptions),
-    [baseOptions, updatedOptions]
-  );
+  return useMemo(() => {
+    if (!updatedOptions) return baseOptions;
+    // A category x axis keeps the HEAD of each label and truncates its end, with the full text in
+    // the tooltip (components/chart-axis-label.ts): a rotated long label was cut at its START and
+    // lost the load number (PR #294 B3/E1/E2). Layered UNDER the caller's options; a fresh object,
+    // so the memoised base is never mutated.
+    const axis = categoryAxisOptions(updatedOptions as Parameters<typeof categoryAxisOptions>[0]);
+    const base = axis ? merge(merge({}, baseOptions), axis as ChartOptions) : merge({}, baseOptions);
+    return merge(base, updatedOptions);
+  }, [baseOptions, updatedOptions]);
 }
 
 // ----------------------------------------------------------------------
