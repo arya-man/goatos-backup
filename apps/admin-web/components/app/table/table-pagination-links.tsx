@@ -155,7 +155,9 @@ export function TablePaginationLinks({
           // wrapped row instead of the theme's fixed 64px (which made the arrows a nested scroller).
           {
             overflow: { xs: 'visible', sm: 'auto' },
-            '& .MuiTablePagination-toolbar': { flexWrap: { xs: 'wrap', sm: 'nowrap' }, justifyContent: 'flex-end', rowGap: 0.5, height: { xs: 'auto', sm: 'calc(8 * var(--spacing))' }, minHeight: 'calc(8 * var(--spacing))' },
+            // Inner padding both sides: MUI's toolbar keeps only 2px on the right, so on a phone the
+            // range text and the last arrow sat flush on the card edge (PR #294 pager-flush).
+            '& .MuiTablePagination-toolbar': { px: 2, flexWrap: { xs: 'wrap', sm: 'nowrap' }, justifyContent: 'flex-end', rowGap: 0.5, height: { xs: 'auto', sm: 'calc(8 * var(--spacing))' }, minHeight: 'calc(8 * var(--spacing))' },
           },
           // No rows-per-page choice on this pager: the template shows none rather than a one-item select.
           ...(rowsPerPageHrefs?.length ? [] : [{ '& .MuiTablePagination-selectLabel, & .MuiTablePagination-input': { display: 'none' } }]),

@@ -6,11 +6,16 @@ import { createPortal } from "react-dom";
 import Box from "@mui/material/Box";
 import { varAlpha } from "minimal-shared/utils";
 
-// Every horizontal scroller that opts in: the TemplateTabs strip (`kit-tabs`, a JS hook with no
-// stylesheet) and any element marked `data-scroll-x`. The legacy per-route wrappers (.tablewrap,
-// .twrap, .tblwrap, .feed-scroll, .kit-scroll-x, .subtabs) rendered nowhere after the template
-// move and are gone (J1B P2-4; guard `stale-hook-selectors`, scripts/stale-hook-selectors.test.mjs).
-export const SCROLL_EDGE_SELECTOR = ".kit-tabs, [data-scroll-x]";
+// Every horizontal scroller: the TemplateTabs strip (`kit-tabs`, a JS hook with no stylesheet),
+// any element marked `data-scroll-x`, and the three scrollers the template itself renders -- the
+// MUI TableContainer, the scrollable MUI Tabs strip, and the template Scrollbar (simplebar: its
+// scrolling node is the `role="region"` inside `[data-simplebar]`), which wraps most wide tables
+// and the KPI/analytic strips. On a 390 phone those panned in their own box with NO cue: tables
+// cut mid-word at the card edge, "Accepte|" / "Overdu|" / "Feed bou|" strips (PR #294 C6/F10/F14).
+// Only an element that actually overflows sideways gets a fade. The legacy per-route wrappers
+// (.tablewrap, .twrap, .tblwrap, .feed-scroll, .kit-scroll-x, .subtabs) rendered nowhere after the
+// template move and are gone (J1B P2-4; guard `stale-hook-selectors`).
+export const SCROLL_EDGE_SELECTOR = '.kit-tabs, [data-scroll-x], .MuiTableContainer-root, .MuiTabs-scroller, [data-simplebar] [role="region"]';
 const SELECTOR = SCROLL_EDGE_SELECTOR;
 const FADE = 64;
 // The template Card radius (theme shape x 2), so a fade stops at the card's rounded corner.
@@ -74,8 +79,10 @@ export function ScrollEdges() {
         const height = Math.max(0, bottom - top);
         // A tab strip sits on the page background; a table sits on its card. The fade is the
         // colour of what is underneath and stops at the card's rounded corners.
-        const isTabs = el.classList.contains("kit-tabs") || el.classList.contains("subtabs");
-        const card = isTabs ? null : el.closest<HTMLElement>(".card, .MuiCard-root, .kit-tablecard");
+        const isTabs = el.classList.contains("kit-tabs") || el.classList.contains("MuiTabs-scroller");
+        // A tab strip INSIDE a card (status tabs over a table) sits on the card, not the page.
+        const host = el.closest<HTMLElement>(".card, .MuiCard-root, .kit-tablecard");
+        const card = isTabs ? null : host;
         const c = card?.getBoundingClientRect();
         const topCorner = c ? Math.abs(c.top - box.top) < 2 && top === box.top : false;
         const bottomCorner = c ? Math.abs(c.bottom - box.bottom) < 2 && bottom === box.bottom : false;
@@ -83,7 +90,7 @@ export function ScrollEdges() {
           side === "right"
             ? `0 ${topCorner ? CARD_RADIUS : "0"} ${bottomCorner ? CARD_RADIUS : "0"} 0`
             : `${topCorner ? CARD_RADIUS : "0"} 0 0 ${bottomCorner ? CARD_RADIUS : "0"}`;
-        const tone = isTabs ? "bg" : "paper";
+        const tone = host ? "paper" : "bg";
         const id = `${n++}`;
         if (el.scrollLeft + el.clientWidth < el.scrollWidth - 1) next.push({ key: `${id}:r`, left: box.right - FADE, top, height, side: "right", tone, radius: radius("right") });
         if (el.scrollLeft > 1) next.push({ key: `${id}:l`, left: box.left, top, height, side: "left", tone, radius: radius("left") });
