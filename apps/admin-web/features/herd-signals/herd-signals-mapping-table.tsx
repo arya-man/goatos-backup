@@ -817,12 +817,13 @@ export function HerdSignalsMappingTable({
                         tag. A tag with no gateway id was not attributed to one, so it gets "—",
                         never a guessed source. */}
                     <TableCell data-l="Source">{item.gateway_id ? "Gateway" : <Box component="span" sx={HS_FAINT}>{NOT_ON_CONTRACT}</Box>}</TableCell>
-                    {/* TODO: Resolve mapped_by user ID to a human-readable operator name using the workforce
-                        lookup pattern from the rest of the product (see docs for existing patterns).
-                        For now, show the full ID; truncation to 8 chars can collide on UUIDs. */}
+                    {/* The backend names a system binding "System setup" (herdsignals DisplayMappedBy) and
+                        passes a person through. TODO: resolve a person's user id to their roster name.
+                        The value wraps anywhere: an unbroken id used to paint over the Bound-at cell on
+                        a phone. */}
                     <TableCell data-l="Bound by" sx={item.mapped_by ? undefined : HS_FAINT}>
                       {item.mapped_by ? (
-                        <Box component="span" sx={{ ...HS_MONO, typography: "caption" }} title={`Operator ID: ${item.mapped_by}`}>
+                        <Box component="span" sx={{ typography: "caption", overflowWrap: "anywhere", wordBreak: "break-word" }} title={item.mapped_by}>
                           {item.mapped_by}
                         </Box>
                       ) : (

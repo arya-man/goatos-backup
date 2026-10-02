@@ -56,7 +56,7 @@ export const KPI_DEFS: KpiDef[] = [
     tone: "success",
     icon: IC.activity,
     value: (s) => s.moving_now,
-    detail: () => "fresh packet with movement in last packet/30 sec",
+    detail: () => "tag reported movement in the last 30 seconds",
   },
   {
     key: "active_1m",
@@ -94,7 +94,8 @@ export const KPI_DEFS: KpiDef[] = [
     tone: "warning",
     icon: IC.wifi,
     value: (s) => s.weak_signal,
-    detail: () => "RSSI ≤ -75 dBm",
+    // Farm words for the RSSI <= -75 dBm threshold the backend applies.
+    detail: () => "tag is far from the gateway or blocked",
   },
   {
     key: "missing_signal",
@@ -115,6 +116,7 @@ export const KPI_DEFS: KpiDef[] = [
     // Deliberately no "est. ~N left" / life estimate here — that was removed because no vendor
     // discharge curve exists (docs/modules/herd-signals.md), and it must stay removed even though
     // an older mock revision showed one. voltage threshold only, exactly what the current mock has.
-    detail: () => "voltage below 2800 mV",
+    // Farm words for the below-2800 mV threshold the backend applies.
+    detail: () => "tag battery needs replacing soon",
   },
 ];

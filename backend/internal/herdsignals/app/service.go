@@ -712,7 +712,7 @@ func (s *Service) enrichTagsBatch(ctx context.Context, tenantID string, tags []d
 				displayID := gd.DisplayID
 				item.DisplayID = &displayID
 				item.AnimalIdentifier1 = gd.AnimalIdentifier1
-				item.MappedBy = gd.MappedBy1
+				item.MappedBy = domain.DisplayMappedBy(gd.MappedBy1)
 				item.MappedAt = gd.MappedAt1
 				item.AnimalIdentifier2 = gd.AnimalIdentifier2
 				item.Breed = gd.Breed
