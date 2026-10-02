@@ -7,7 +7,7 @@ import MuiLink from "@mui/material/Link";
 
 import Link from "@/components/no-prefetch-link";
 export { completeMonthPercent, lastStepPercent, sevenDayPercent } from "@/lib/kpi-trend";
-import { compactFigure } from "@/lib/kpi-figure";
+import { compactFigure, liftFigureUnit } from "@/lib/kpi-figure";
 import { AppWidgetSummary } from "@/components/minimal/sections/overview/app/app-widget-summary";
 import { CourseWidgetSummary } from "@/components/minimal/sections/overview/course/course-widget-summary";
 import { EcommerceWidgetSummary } from "@/components/minimal/sections/overview/e-commerce/ecommerce-widget-summary";
@@ -97,6 +97,21 @@ const SUBLINE_IN_FLOW = {
   },
 };
 
+// The figure's unit and the missing-figure dash (lib/kpi-figure liftFigureUnit) are painted ON the
+// template's figure box, as its own ::before / ::after, so the verbatim template keeps printing a
+// number: "80" + "%" reads "80%", a null figure reads "—" instead of an empty slot (PR #294 C2/D1).
+// The figure box is the template's h3 Box: the first child of the content column on
+// CourseWidgetSummary, the second (after the title) on App/EcommerceWidgetSummary.
+function figureSx(kind: "ecommerce" | "app" | "course", unit: { prefix: string; suffix: string; missing: boolean }) {
+  const box = kind === "course" ? "& > .MuiBox-root:first-of-type > .MuiBox-root:first-of-type" : "& > .MuiBox-root:first-of-type > .MuiBox-root:nth-of-type(2)";
+  if (unit.missing) return { [`${box}::before`]: { content: '"—"' } };
+  const word = /^ /.test(unit.suffix);
+  return {
+    ...(unit.prefix ? { [`${box}::before`]: { content: cssString(unit.prefix) } } : null),
+    ...(unit.suffix ? { [`${box}::after`]: { content: cssString(unit.suffix), whiteSpace: "pre", ...(word ? { fontSize: "0.55em", fontWeight: 600 } : null) } } : null),
+  };
+}
+
 /** The caption as a CSS string literal for `content:` (quotes, backslashes and line breaks escaped). */
 export function cssString(text: string): string {
   return `"${text.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\r?\n/g, " ")}"`;
@@ -109,20 +124,23 @@ export function KpiWidget({ title, total: rawTotal, caption: rawCaption, color =
   const monthLead = t && t.period === "month" ? monthChange(t.percent) : "";
   const compact = compactFigure(rawTotal, rawCaption);
   const total = compact.total;
-  const caption = monthLead ? [monthLead, compact.caption].filter(Boolean).join(" · ") : compact.caption;
+  // The unit (or the missing-figure dash) leading the caption moves onto the figure.
+  const unit = liftFigureUnit(total, compact.caption);
+  const caption = monthLead ? [monthLead, unit.caption].filter(Boolean).join(" · ") : unit.caption;
   const figure = total ?? Number.NaN;
-  const cardSx = [{ height: 1 }, EMPTY_FIGURE, ...(caption ? [SUBLINE_IN_FLOW] : []), ...(Array.isArray(sx) ? sx : [sx])] as SxProps<Theme>;
+  const sxFor = (k: "ecommerce" | "app" | "course") =>
+    [{ height: 1 }, EMPTY_FIGURE, figureSx(k, unit), ...(caption ? [SUBLINE_IN_FLOW] : []), ...(Array.isArray(sx) ? sx : [sx])] as SxProps<Theme>;
   const reserve = caption ? { "data-kpi-caption": caption, style: { "--kpi-caption": cssString(caption) } as CSSProperties } : {};
   let card;
   let kind: "ecommerce" | "app" | "course" = "course";
   if (t && t.period === "week" && (t.series?.length ?? 0) > 1) {
     kind = "ecommerce";
-    card = <EcommerceWidgetSummary title={title} total={figure} percent={t.percent} chart={{ series: t.series ?? [], categories: t.categories ?? [] }} sx={cardSx} {...reserve} />;
+    card = <EcommerceWidgetSummary title={title} total={figure} percent={t.percent} chart={{ series: t.series ?? [], categories: t.categories ?? [] }} sx={sxFor(kind)} {...reserve} />;
   } else if (t && t.period === "7d" && (t.series?.length ?? 0) > 1) {
     kind = "app";
-    card = <AppWidgetSummary title={title} total={figure} percent={t.percent} chart={{ series: t.series ?? [], categories: t.categories ?? [] }} sx={cardSx} {...reserve} />;
+    card = <AppWidgetSummary title={title} total={figure} percent={t.percent} chart={{ series: t.series ?? [], categories: t.categories ?? [] }} sx={sxFor(kind)} {...reserve} />;
   } else {
-    card = <CourseWidgetSummary title={title} total={figure} color={color} icon={ICONS[icon ?? defaultIcon(color)]} sx={cardSx} {...reserve} />;
+    card = <CourseWidgetSummary title={title} total={figure} color={color} icon={ICONS[icon ?? defaultIcon(color)]} sx={sxFor(kind)} {...reserve} />;
   }
   const body = (
     <Box data-testid={testId} data-kpi-widget="" data-kpi-kind={kind} sx={{ position: "relative", height: 1 }}>

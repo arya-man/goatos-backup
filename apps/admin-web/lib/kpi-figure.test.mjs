@@ -19,3 +19,17 @@ test("kpi-long-figure: the adapter compacts every figure it hands a template wid
   const adapter = readFileSync(new URL("../components/app/kpi-widget.tsx", import.meta.url), "utf8");
   assert.match(adapter, /compactFigure\(rawTotal, rawCaption\)/);
 });
+
+test("kpi-unit-with-figure: the unit lead joins the figure, a missing figure reads —", async () => {
+  const { liftFigureUnit } = await import("./kpi-figure.ts");
+  assert.deepEqual(liftFigureUnit(80, "% · Packing + distribution approved by the verifier"), { prefix: "", suffix: "%", caption: "Packing + distribution approved by the verifier", missing: false });
+  assert.deepEqual(liftFigureUnit(23.77, "₹ lakh · 23,76,908 · Rolling 92 days"), { prefix: "₹", suffix: " lakh", caption: "23,76,908 · Rolling 92 days", missing: false });
+  assert.deepEqual(liftFigureUnit(75341, "₹ · Last 7 days"), { prefix: "₹", suffix: "", caption: "Last 7 days", missing: false });
+  assert.deepEqual(liftFigureUnit(null, "— · kg on the issued sheet"), { prefix: "", suffix: "", caption: "kg on the issued sheet", missing: true });
+  assert.deepEqual(liftFigureUnit(null, "— · ₹ per animal per day"), { prefix: "", suffix: "", caption: "₹ per animal per day", missing: true });
+  assert.deepEqual(liftFigureUnit(null, "Not enough closed cases yet"), { prefix: "", suffix: "", caption: "Not enough closed cases yet", missing: true });
+  // Prose that merely starts like a unit is never lifted; a lone unit with no detail is kept.
+  assert.deepEqual(liftFigureUnit(12, "kg on the issued sheet"), { prefix: "", suffix: "", caption: "kg on the issued sheet", missing: false });
+  assert.deepEqual(liftFigureUnit(12, "of 30 deaths · last month"), { prefix: "", suffix: "", caption: "of 30 deaths · last month", missing: false });
+  assert.deepEqual(liftFigureUnit(5, "kg · whole herd"), { prefix: "", suffix: " kg", caption: "whole herd", missing: false });
+});
