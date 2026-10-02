@@ -16,7 +16,7 @@ import (
 // RECORDED CROSS-MODULE REPORTING READ, the buyer-analytics shape. Procurement owns
 // procurement_vendors and joins OUT, read-only, to three facts that already record who did what:
 // the register's own created_by/updated_by stamps, the audit_log rows the sales ledger writes
-// inside every deal / payment / lead write transaction (and, from 000464, the vendor edit audit
+// inside every deal / payment / lead write transaction (and, from this change, the vendor edit audit
 // this package writes), and market_price_entries.recorded_by. Reporting grain only: nothing here
 // gates a sale, edits a vendor, or feeds a write.
 
