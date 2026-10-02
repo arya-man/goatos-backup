@@ -1861,6 +1861,7 @@ func pageSpecificCopy(id string) map[string]string {
 		return map[string]string{
 			"crumb":                            "Central Command",
 			"kpi.process":                      "Process",
+			"kpi.process.caption":              "process gaps open",
 			"kpi.open_gaps":                    "Open gaps",
 			"kpi.critical":                     "Critical",
 			"kpi.evidence":                     "Evidence",

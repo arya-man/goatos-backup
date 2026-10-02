@@ -400,6 +400,11 @@ func alertDetail(row domain.Row) string {
 	if row.BlockerReason != nil && *row.BlockerReason != "" {
 		return base + ": " + *row.BlockerReason
 	}
+	// Two obligations of one course in one pen (dose 1 and dose 2) otherwise read as the same
+	// sentence twice (A6, pr294); the latest safe day is what tells them -- and their urgency -- apart.
+	if row.DriveLatestSafeDate != nil && !row.DriveLatestSafeDate.IsZero() {
+		return base + ": " + humanGap(row.GapType, row.WorkState) + " · latest safe " + latestSafeOrDue(row)
+	}
 	return base + ": " + humanGap(row.GapType, row.WorkState)
 }
 
