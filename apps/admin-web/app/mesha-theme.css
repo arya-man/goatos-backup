@@ -3099,10 +3099,14 @@ div.prt-outcome.error{padding:9px 11px;border-radius:10px;background:rgba(229,72
 /* On a phone the seven columns cannot fit, so the table keeps its natural width and pans inside its
    own scroller -- the page itself never moves sideways. What must not happen is the SQUEEZE:
    without these floors the stage column collapsed to the width of two letters and read 'Ad'. */
+/* Every stage carries four price groups (goat/sheep x female/male, 2026-10-02): eleven columns no
+   longer fit a laptop either, so the floors apply at EVERY width and the table pans inside its own
+   scroller there too. Without them the stage name read 'Fat' and 'Ad' at 1440. */
+.valuation-form .tbl td:first-child input{min-width:120px}
+.valuation-form .tbl td:nth-child(n+3) input{min-width:88px}
+.valuation-form .tbl td:nth-child(2){min-width:200px}
 @media(max-width:640px){
   .valuation-form .tbl th,.valuation-form .tbl td{white-space:nowrap}
-  .valuation-form .tbl td:first-child input{min-width:104px}
-  .valuation-form .tbl td:nth-child(n+3) input{min-width:88px}
   .valuation-form .valuation-covers{flex-wrap:nowrap}
 }
   .valuation-form label.market-config-column{display:flex;flex-direction:column;gap:6px}

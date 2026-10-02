@@ -4506,7 +4506,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.valuation.label":  "Save valuation",
 			"disabled.valuation":      "Your current role can see how the herd is valued but not change the figures.",
 			"section.valuation.title": "Farm valuation",
-			"section.valuation.sub":   "How the live herd is valued on Farm value, and the price per kg Load wise carries every unsold animal at (its latest weight × the price for its stage and gender; the weight used here does not apply there). Every figure here was decided, not measured; a change applies the moment it is saved. The sale-ready weight line lives with the Weighing assumptions.",
+			"section.valuation.sub":   "How the live herd is valued on Farm value, and the price per kg Load wise carries every unsold animal at (its latest weight × the price for its stage, species and gender; the weight used here does not apply there). Every figure here was decided, not measured; a change applies the moment it is saved. The sale-ready weight line lives with the Weighing assumptions.",
 			"section.valuation.aria":  "Farm valuation assumptions",
 			"valuation.bucket":        "Animals",
 			// THE STAGES ARE THE FARM'S (maintainer instruction 2026-09-24). The screen asks which
