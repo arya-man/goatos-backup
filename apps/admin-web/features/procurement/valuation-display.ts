@@ -32,3 +32,16 @@ export function fmtValuationSavedAt(raw: string): string {
   const m = /^(\d{2})-(\d{2})-(\d{4}) (\d{2}:\d{2})$/.exec(raw.trim());
   return m ? `${m[1]}/${m[2]}/${m[3]} ${m[4]}` : raw;
 }
+
+/**
+ * A Farm value bucket label is composed by the backend as "<stage label> · <gender>"
+ * (sales/domain.BucketLabel). Seeded stages carry the raw register code as their label ("K1 ·
+ * Female"), so the stage half is passed through the tenant's stage vocabulary (`stageName`, e.g.
+ * lib/stage-display stageVocabularyLabel) and the gender half kept: "Milk training · Female".
+ * A label with no separator is a plain stage name and is mapped whole.
+ */
+export function valuationBucketDisplay(label: string, stageName: (code: string) => string): string {
+  const at = label.lastIndexOf(" · ");
+  if (at < 0) return stageName(label);
+  return `${stageName(label.slice(0, at))} · ${label.slice(at + 3)}`;
+}

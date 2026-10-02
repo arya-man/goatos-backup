@@ -5,12 +5,13 @@ import { redirect } from "next/navigation";
 import Grid from "@mui/material/Grid";
 import { KpiWidget } from "@/components/app/kpi-widget";
 import { EmptyState } from "@/components/app/empty-state";
-import { CategoriesCard } from "@/components/app/categories-card";
+import { ConversionRatesCard } from "@/components/app/conversion-rates-card";
 import { EcommerceSalesOverview } from "@/components/app/sections/overview/e-commerce/ecommerce-sales-overview";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError, getGrowthAssumptions, getShedWeights, listAnimalStages } from "@/lib/api/server";
 import { stageNameMap, stageVocabularyLabel, type StageNameMap } from "@/lib/stage-display";
+import { valuationBucketDisplay } from "./valuation-display";
 import { assumptionValue, DEFAULT_SALE_READY_THRESHOLD_KG } from "@/features/weighing";
 import { istDayPlus, todayIso } from "@/lib/format";
 import { getSalesOverview } from "@/lib/api/procurement-server";
@@ -62,13 +63,13 @@ function sentenceCase(text: string): string {
   return text.length === 0 ? text : text[0].toUpperCase() + text.slice(1);
 }
 
-function farmValuationNotValuedLabel(overview: SalesOverview, pageContract: AdminUiPageContract): string {
+function farmValuationNotValuedLabel(overview: SalesOverview, pageContract: AdminUiPageContract, stageNames: StageNameMap): string {
   const notValued = overview.farm_valuation.not_valued ?? [];
   const total = overview.farm_valuation.excluded_animals;
   if (total <= 0) return "";
   if (notValued.length === 1) {
     const item = notValued[0];
-    return `${num(item.count)} ${item.label} ${copy(pageContract, "value.not_valued")}`;
+    return `${num(item.count)} ${stageVocabularyLabel(item.label, stageNames)} ${copy(pageContract, "value.not_valued")}`;
   }
   if (notValued.length > 1) {
     return `${num(total)} ${copy(pageContract, "value.not_valued")}`;
@@ -98,7 +99,7 @@ function FarmValueSections({
 }) {
   const none = copy(pageContract, "value.none");
   const kgSuffix = copy(pageContract, "value.kg_suffix");
-  const notValuedLabel = farmValuationNotValuedLabel(overview, pageContract);
+  const notValuedLabel = farmValuationNotValuedLabel(overview, pageContract, stageNames);
   return (
     <Over35Scope
       // Re-mounted when the page's own park or margin changes underneath it.
@@ -130,11 +131,11 @@ function FarmValueSections({
         <Grid container spacing={3} component="section" aria-label={copy(pageContract, "section.farm_value.aria")}>
           <Grid size={SALES_GRID.valueKpi}>
             <KpiWidget color="primary" title={copy(pageContract, "kpi.farm_value")}
- caption={`₹`} total={overview.farm_valuation.total_value_rupees} icon="certificates" />
+ caption={`₹`} total={Math.round(overview.farm_valuation.total_value_rupees)} icon="certificates" />
           </Grid>
           <Grid size={SALES_GRID.valueKpi}>
             <KpiWidget color="info" title={copy(pageContract, "kpi.total_meat")}
- caption={`${kgSuffix}`} total={overview.farm_valuation.total_meat_kg} />
+ caption={`${kgSuffix}`} total={Math.round(overview.farm_valuation.total_meat_kg)} />
           </Grid>
           <Grid size={SALES_GRID.valueKpi}>
             {/* Over 35 kg belongs with the valuation, not the ledger (maintainer decision
@@ -164,7 +165,8 @@ function FarmValueSections({
         const total = overview.farm_valuation.total_value_rupees;
         const buckets = overview.farm_valuation.buckets.map((bucket) => ({
           ...bucket,
-          display: stageVocabularyLabel(bucket.label, stageNames),
+          // "K1 · Female" -> "<register name> · Female": the stage half through the tenant vocabulary.
+          display: valuationBucketDisplay(bucket.label, (code) => stageVocabularyLabel(code, stageNames)),
           meta: SEX_SPLIT_BUCKETS.has(bucket.bucket)
             ? `${num(bucket.male_count)} ${copy(pageContract, "value.sex.male")} · ${num(bucket.female_count)} ${copy(pageContract, "value.sex.female")} · ${num(bucket.meat_kg, 1)} ${kgSuffix}`
             : `${num(bucket.meat_kg, 1)} ${kgSuffix} · ${num(bucket.animal_count)} ${copy(pageContract, countKey(bucket.animal_count, "value.live_animal", "value.live_animals"))}`,
@@ -175,26 +177,29 @@ function FarmValueSections({
         return (
           <>
             <Grid size={SALES_GRID.valueChart}>
-              <CategoriesCard
+              {/* Share of the farm's value per category as labelled horizontal bars (template
+                  AnalyticsConversionRates). The polar "rose" it replaces drew no labels and turned
+                  seven of nine categories into slivers; a bar keeps every category named and
+                  readable whatever its share; the tooltip carries the rupee figure. */}
+              <ConversionRatesCard
                 component="section"
                 aria-label={copy(pageContract, "section.farm_value.aria")}
                 title={copy(pageContract, "section.farm_value.title")}
+                subheader={`${num(overview.farm_valuation.valued_animals)} ${copy(pageContract, "value.valued_animals")} · ${inr(Math.round(total))}`}
+                empty={<EmptyState title={none} />}
                 chart={{
-                  series: valued.map((bucket) => ({ label: bucket.display, value: bucket.value_rupees, display: inr(bucket.value_rupees) })),
-                  // The rings carry no raw rupee ticks (400000... drew over the slices, TR2-P1-3): the
-                  // legend names every figure. polarArea ticks are the y axis itself.
-                  options: { yaxis: { show: false, labels: { show: false } } },
+                  categories: valued.map((bucket) => bucket.display),
+                  unit: "%",
+                  digits: 1,
+                  series: [
+                    {
+                      name: copy(pageContract, "kpi.farm_value"),
+                      data: valued.map((bucket) => (total > 0 ? (bucket.value_rupees / total) * 100 : 0)),
+                      notes: valued.map((bucket) => inr(Math.round(bucket.value_rupees))),
+                    },
+                  ],
                 }}
-                // Slice + legend colour = the By-category bar colour for the same bucket.
-                colorKeys={BUCKET_BAR}
-                footer={[
-                  { label: copy(pageContract, "value.valued_animals"), value: num(overview.farm_valuation.valued_animals) },
-                  { label: copy(pageContract, "kpi.farm_value"), value: inr(total) },
-                ]}
-                // Our category names are long ("Fattening animals · Female"); the template legend's
-                // two 1fr columns let one run into the next. minmax(0, 1fr) lets a name wrap in its
-                // column. Styled from here: components/minimal stays verbatim.
-                sx={{ height: 1, "& .minimal__chart__legends__root": { gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }, "& .minimal__chart__legends__root > *": { minWidth: 0 } }}
+                sx={{ height: 1 }}
               />
             </Grid>
             <Grid size={SALES_GRID.valueRows}>
@@ -206,7 +211,7 @@ function FarmValueSections({
                 data={valued.map((bucket, i) => ({
                   label: bucket.display,
                   value: total > 0 ? (bucket.value_rupees / total) * 100 : 0,
-                  display: inr(bucket.value_rupees),
+                  display: inr(Math.round(bucket.value_rupees)),
                   caption: bucket.meta,
                   color: BUCKET_BAR[i % BUCKET_BAR.length],
                 }))}
@@ -217,7 +222,7 @@ function FarmValueSections({
                   <Typography variant="body2" color="text.secondary" component="p" sx={{ m: 0, pt: 2, borderTop: "1px dashed", borderColor: "divider" }}>
                     <Box component="b" sx={{ color: "text.primary" }}>{sentenceCase(copy(pageContract, "value.not_valued"))}</Box>
                     {" · "}
-                    {unvalued.map((bucket) => bucket.display).join(" · ")}
+                    {unvalued.map((bucket) => bucket.display).join(", ")}
                   </Typography>
                 ) : null}
               </EcommerceSalesOverview>
