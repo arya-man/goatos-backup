@@ -104,7 +104,7 @@ func TestEditorOffersExactlyTheScreensTheSidebarShows(t *testing.T) {
 		mobile map[string][]string
 		module string
 	}{
-		// Mohsin: Sales on the web, the vendor register only on the phone.
+		// The STG sales-hire case: Sales on the web, the vendor register only on the phone.
 		{"sales web, vendors phone only", map[string][]string{"sales": {permissions.LevelView}}, map[string][]string{"vendors": {permissions.LevelView}}, "sales"},
 		// Feed configured on the phone, only viewed on the web: Feed Config is not a web screen.
 		{"feed configure on phone, view on web", map[string][]string{"feed_direction": {permissions.LevelView}}, map[string][]string{"feed_direction": {permissions.LevelConfigure}}, "feed_direction"},

@@ -352,6 +352,12 @@ does it. Pinned by `TestHerdOperationsIsOfferedPerPersonNotPerDirectorJob`
 (mutation-tested three ways: branch removed, keyed on the job, keyed on the
 permission — each turns it red).
 
+SUPERSEDED 2026-10-02 (People / HRMS fixes): for a person WITH stored rows the phone menu is
+their ticks whatever their role — a leadership role no longer caps it, so ticking a module on
+People / HRMS gives it (`TestThePhoneMenuIsThePersonsTicksWhateverTheirRole`). The curated
+`leadershipModuleKeys` still answers for a principal with no stored rows. Canonical prose:
+`docs/decisions/people-hrms-access-fixes.md`.
+
 Same change closed a copy-firewall defect on that queue: the phone used to render
 `Raised by <uuid>` and `to shed <uuid>` because it composed the row's copy itself
 from the echoed payload and had no name source. The backend now owns both lines
@@ -398,6 +404,14 @@ one, so without it the module would be narrowed away on every existing phone. Ca
 `TestSalesVendorsIsGatedOnTheRegistersOwnPermission`,
 `TestSalesIsItsOwnPhoneModuleCarryingItsOwnVendorsTab` and
 `TestSalesModuleAndItsVendorsTabAnswerToDifferentPermissions` (each mutation-tested when written).
+
+UPDATED 2026-10-02 (People / HRMS fixes): the two halves are now GRANTED separately. The buyers
+ride their own module `vendors_sales` and permissions `procurement.vendor.sales.read` / `.write`;
+`procurement.vendor.read` / `.write` mean the suppliers. Sales > Vendors ticks with `vendors_sales`
+and the phone's Sales > Vendors tab is gated on the buyers permission. The vendor handler enforces
+the side on every read and write (a named side not held is 403 `vendor_side_forbidden`; no side is
+the caller's own half unless they hold both; a vendor on the other half is not found). Canonical
+prose: `docs/decisions/people-hrms-access-fixes.md`.
 
 CEO/CXO visibility for Sales > Vendors is not an HRMS clean-up task. The leaf ticks with `sales`
 but opens on `procurement.vendor.read`, so every future change to Sales/Vendors/page access must

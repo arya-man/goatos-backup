@@ -938,7 +938,7 @@ func candidateModuleKeysUnfiltered(grants []domain.GrantSummary, grantedModules 
 		// A person with stored rows: their TICKS are the phone menu, whatever their role
 		// (People / HRMS fixes, 2026-10-02). The leadership role used to cap it -- its curated
 		// set was intersected with the ticks -- so the role picked at Add Person silently
-		// decided the phone: Mohsin, added as Feed Director and ticked for the buyers and the
+		// decided the phone: a sales hire added as Feed Director and ticked for the buyers and the
 		// market survey, saw only Clock. Nothing widens that the person was not ticked for
 		// (grantedModules IS the ticks here), each module's tabs still show only for the
 		// permission they need, and withoutPhoneWorkBoard still keeps My Work off a

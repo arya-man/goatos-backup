@@ -1,5 +1,7 @@
 # Page-grain access retires the admin-web role lenses
 
+> **Updated 2026-10-02:** a phone tick never opens a web screen -- the editor, the save and the sidebar all read the WEB permission set (`WebPermissionsForAssignments`); the editor offers screens from the ticks on screen, so a module switched on saves in one go. See `people-hrms-access-fixes.md`.
+
 Maintainer decision, 2026-08-27. Supersedes the MECHANISM of the 2026-08-21
 procurement-director workspace decision; its OUTCOME is preserved byte for byte.
 

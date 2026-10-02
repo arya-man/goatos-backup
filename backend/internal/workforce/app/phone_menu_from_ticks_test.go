@@ -37,7 +37,7 @@ func phoneFromTicks(grants []domain.GrantSummary, rows []permissions.ModuleAssig
 // TestThePhoneMenuIsThePersonsTicksWhateverTheirRole is bug 6 of the People / HRMS fixes
 // (2026-10-02): a person added with a "leadership" role (Feed / Growth / PC / Health / Breeding
 // Director, Park Head) got only that role's own modules on the phone, narrowed by their ticks --
-// so Mohsin, added as Feed Director and ticked for the buyers and the market survey, saw only
+// so a sales hire added as Feed Director and ticked for the buyers and the market survey, saw only
 // Clock. The ticks are the answer for every principal now.
 func TestThePhoneMenuIsThePersonsTicksWhateverTheirRole(t *testing.T) {
 	mohsin := []permissions.ModuleAssignment{

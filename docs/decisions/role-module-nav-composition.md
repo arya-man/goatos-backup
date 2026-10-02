@@ -1,5 +1,7 @@
 # Role × Module nav composition (no hardcoded per-module nav)
 
+> **Updated 2026-10-02:** for a person with stored rows the phone menu is their ticks whatever their role; the leadership tier set below applies only to a principal with no stored rows. See `people-hrms-access-fixes.md`.
+
 Status: hard rule for Claude, Codex, and every developer. Machine-blocked by
 `make nav-composition-guard`. Companion to `context/architecture/org-role-model.md`
 (the tier × vertical × park model) and the frontend golden rule in AGENTS.md

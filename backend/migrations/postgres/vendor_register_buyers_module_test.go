@@ -46,7 +46,7 @@ func TestBuyersModuleBackfillKeepsEveryoneOnTheScreensTheyHad(t *testing.T) {
 	row(10, "web", "sales", []string{"view", "do"}, []string{})
 	row(10, "mobile", "vendors", []string{"view", "do"}, []string{})
 	row(10, "mobile", "sales", []string{"view"}, []string{})
-	// 20: Mohsin-like -- Vendors on the web, Sales narrowed to Sales > Vendors only.
+	// 20: the sales-hire shape -- Vendors on the web, Sales narrowed to Sales > Vendors only.
 	person(20)
 	row(20, "web", "vendors", []string{"view"}, []string{"procurement-vendors"})
 	row(20, "web", "sales", []string{"view"}, []string{"sales-vendors"})

@@ -43,6 +43,7 @@ them away: `docs/architecture/operational-read-model-contract.md`
 - Time/dates/business day -> `docs/agent-rules/time-semantics.md`: India business calendar, vaccination grain is the day, pinned clocks.
 - New APIs/workers/logging/telemetry -> `docs/agent-rules/observability.md`: observability, identifiers, loggers, telemetry and hot-path guardrails.
 - Local stack/ports/local DB/E2E stacks -> `docs/agent-rules/local-stack.md`: canonical ports, one app DB, shared trio on exact origin/main, isolated E2E stacks. (Its UI-proof/phone/retry HARD RULES are in core below.)
+- "Test it" / "check it" / "verify" from the maintainer -> `docs/agent-rules/testing.md` FIRST: brand-new user, one action, lists from data, every surface agrees, every role branch, forbidden calls against the API, inner widths at 1440 + 390, migrations both ways, red before green; report every section in the handoff.
 - E2E tests/seeds/migrations/projection closeout -> `docs/agent-rules/e2e-seeds-projections.md`.
 - RBAC/scopes/logins/leadership assistant -> `docs/agent-rules/rbac-seeds-access.md`.
 - CI/push gate/landing/releases -> `docs/agent-rules/ci-landing-release.md`: CI outage never blocks closure, exact-SHA push gate, main landing, `make release-tag`.

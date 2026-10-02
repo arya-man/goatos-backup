@@ -1,5 +1,7 @@
 # The vendor register has two sides, and Sales is its own phone module
 
+> **Updated 2026-10-02:** the two halves are now granted separately (module `vendors_sales`, permissions `procurement.vendor.sales.read` / `.write`), enforced per request by the vendor handler. See `people-hrms-access-fixes.md`.
+
 **Maintainer decision, 2026-09-05.** Two changes, decided together.
 
 > "Under sales module also have one more tab as vendors, and change these vendor categories to
