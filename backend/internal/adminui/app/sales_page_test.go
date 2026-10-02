@@ -254,6 +254,26 @@ func TestSalesRecordSaleControlIsCapabilityGated(t *testing.T) {
 			if deletePayment.Action != "DELETE /sales/deals/{deal_id}/payments/{payment_id}" {
 				t.Fatalf("delete_sales_deal_payment.action = %q want the receipt delete write", deletePayment.Action)
 			}
+			lines := controlByID(t, pageControls, "add_sales_deal_lines")
+			if lines.Enabled != tc.enabled {
+				t.Fatalf("%s add_sales_deal_lines.enabled = %v want %v", tc.name, lines.Enabled, tc.enabled)
+			}
+			if !tc.enabled && lines.DisabledReason == "" {
+				t.Fatalf("%s: disabled add_sales_deal_lines must carry a backend disabled reason", tc.name)
+			}
+			if lines.Action != "POST /sales/deals/{deal_id}/lines" {
+				t.Fatalf("add_sales_deal_lines.action = %q want the add-lines write", lines.Action)
+			}
+			settlement := controlByID(t, pageControls, "settle_sales_deal_advance")
+			if settlement.Enabled != tc.enabled {
+				t.Fatalf("%s settle_sales_deal_advance.enabled = %v want %v", tc.name, settlement.Enabled, tc.enabled)
+			}
+			if !tc.enabled && settlement.DisabledReason == "" {
+				t.Fatalf("%s: disabled settle_sales_deal_advance must carry a backend disabled reason", tc.name)
+			}
+			if settlement.Action != "PUT /sales/deals/{deal_id}/advance-settlement" {
+				t.Fatalf("settle_sales_deal_advance.action = %q want the advance settlement write", settlement.Action)
+			}
 			status := controlByID(t, pageControls, "update_sales_deal_status")
 			if status.Enabled != tc.enabled {
 				t.Fatalf("%s update_sales_deal_status.enabled = %v want %v", tc.name, status.Enabled, tc.enabled)
@@ -557,6 +577,8 @@ func TestSalesReadPagesCarryNoWriteControl(t *testing.T) {
 		"record_sales_deal_payment",
 		"update_sales_deal_payment",
 		"delete_sales_deal_payment",
+		"add_sales_deal_lines",
+		"settle_sales_deal_advance",
 		"update_sales_deal_status",
 		"record_load_cost",
 		"market_config_write",

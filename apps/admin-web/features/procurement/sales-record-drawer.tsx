@@ -128,6 +128,8 @@ export function SalesRecordDrawer({
   const canRecordPayment = controlEnabled(pageContract, "record_sales_deal_payment", false);
   const canUpdatePayment = controlEnabled(pageContract, "update_sales_deal_payment", false);
   const canDeletePayment = controlEnabled(pageContract, "delete_sales_deal_payment", false);
+  const canAddDealLines = controlEnabled(pageContract, "add_sales_deal_lines", false);
+  const canSettleAdvance = controlEnabled(pageContract, "settle_sales_deal_advance", false);
   const canEditStatus = controlEnabled(pageContract, "update_sales_deal_status", false);
   const dealStatusOptions = optionGroup(pageContract, "sales_deal_statuses");
   // What THIS deal may be set to is the backend's call (status_options): nothing for a failed
@@ -633,7 +635,7 @@ export function SalesRecordDrawer({
             {/* WHAT WAS SOLD: one row per product/breed line (migration 000296). The product,
                 breed, animals, weight and value cells above are the backend's ROLLUP of these. */}
             {/* An advance whose products can be added here gets the editor's own heading instead. */}
-            {deal.advance_only && canRecord && deal.status !== "Deal Failed" ? null : (
+            {deal.advance_only && canAddDealLines && deal.status !== "Deal Failed" ? null : (
               <div className="dgrp">{copy(pageContract, "section.lines.title")}</div>
             )}
             {deal.advance_only ? (
@@ -641,7 +643,7 @@ export function SalesRecordDrawer({
               // the sale's steps open then.
               <>
                 <div className="note">{copy(pageContract, "detail.lines.advance_only")}</div>
-                {canRecord && deal.status !== "Deal Failed" ? (
+                {canAddDealLines && deal.status !== "Deal Failed" ? (
                   <AddSaleLinesForm
                     key={deal.deal_id}
                     deal={deal}
@@ -702,7 +704,9 @@ export function SalesRecordDrawer({
                 deal.payment_received == null ? null : inr(deal.payment_received),
               )}
               {/* BACKEND-derived; this cell renders the figure and never subtracts anything itself. */}
-              {cell(copy(pageContract, "payments.balance"), inr(deal.payment_balance))}
+              {deal.advance_only || deal.status === "Deal Failed"
+                ? null
+                : cell(copy(pageContract, "payments.balance"), inr(deal.payment_balance))}
             </div>
 
             {deal.payments.length === 0 ? (
@@ -759,7 +763,7 @@ export function SalesRecordDrawer({
                 </div>
               </>
             ) : null}
-            {deal.can_settle && canRecordPayment ? (
+            {deal.can_settle && canSettleAdvance ? (
               <SettleAdvanceForm key={`${deal.deal_id}-settle`} deal={deal} dealHref={dealHref} pageContract={pageContract} />
             ) : null}
 

@@ -1463,6 +1463,22 @@ func compileSalesConfigControls(controls []domain.Control, input BootstrapInput,
 		DisabledReason: reason,
 		Action:         "DELETE /sales/deals/{deal_id}/payments/{payment_id}",
 	})
+	controls = upsertControl(controls, domain.Control{
+		ID:             "add_sales_deal_lines",
+		Label:          controlCopy(copy, "action.add_sale_lines.label", "Save what was sold"),
+		Kind:           "row_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "POST /sales/deals/{deal_id}/lines",
+	})
+	controls = upsertControl(controls, domain.Control{
+		ID:             "settle_sales_deal_advance",
+		Label:          controlCopy(copy, "action.settle_advance.label", "Settle advance"),
+		Kind:           "row_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "PUT /sales/deals/{deal_id}/advance-settlement",
+	})
 	// The lifecycle edit that closes an expected sale on the day it happens. Same authority as
 	// recording the deal.
 	controls = upsertControl(controls, domain.Control{
