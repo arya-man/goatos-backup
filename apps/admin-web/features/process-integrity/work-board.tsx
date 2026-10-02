@@ -103,7 +103,7 @@ export function stageWords(code: string | null | undefined, names?: StageNameMap
 const FIVE_LANE_BOARD_SX = {
   "--kanban-column-width": {
     xs: "86vw",
-    md: "clamp(calc(22.5 * var(--spacing)), calc((100% - 4 * calc(3 * var(--spacing))) / 5), var(--kanban-col-w))",
+    md: "clamp(calc(22.5 * var(--spacing)), calc((100% - 4 * calc(3 * var(--spacing))) / 5), calc(42 * var(--spacing)))",
   },
 } as const;
 

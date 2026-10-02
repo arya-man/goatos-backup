@@ -797,7 +797,7 @@ function QueueRow({
         )}
       </TableCell>
       {/* Width floors (C12, pr294): the auto layout gave Subject and Reason their min-content width,
-          so "Mandela 2 - Part 1" broke before its number and a rejection reason ran one word per line. */}
+          so a partition name broke before its number and a rejection reason ran one word per line. */}
       <TableCell sx={{ minWidth: 220 }}>{cell(subjectCell(item))}</TableCell>
       <TableCell sx={muted}>{cell(fmtDateTime(item.captured_at))}</TableCell>
       <TableCell sx={muted}>{cell(inQueueCell(item))}</TableCell>
@@ -996,7 +996,7 @@ function businessDaysBefore(day: string, days: number): string {
 /** A status's share of the total: "<1%" for a non-zero sliver, never "0%" beside a count of 1 (C12). */
 function sharePercent(count: number, total: number): string {
   const pct = (count / total) * 100;
-  return count > 0 && pct < 1 ? "<1%" : fPercent(pct);
+  return count > 0 && pct < 1 ? `<${fPercent(1)}` : fPercent(pct);
 }
 
 function verificationStatus(value: string | undefined): VerificationItemStatus | "all" {

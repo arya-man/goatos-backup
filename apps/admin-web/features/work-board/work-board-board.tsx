@@ -382,9 +382,9 @@ export function WorkBoardBoard({
               ),
             },
           }}
-          // A growing 200px basis, not width:100% (fullWidth), on the laptop row so the field
+          // A zero basis that grows (with its 200 floor), not width:100% (fullWidth), on the laptop row so the field
           // shares the line instead of claiming it; on the phone column it is full width.
-          sx={{ minWidth: { md: 200 }, flex: { md: "1 1 200px" } }}
+          sx={{ minWidth: { md: 200 }, flex: { md: "1 1 0%" } }}
         />
         <Box sx={{ gap: 0.5, display: "flex", alignItems: "center", flexShrink: 0, justifyContent: { xs: "space-between", md: "flex-start" } }} aria-label={copy(pageContract, "filter.date")} role="group">
           <IconButton component={Link} href={previousDayHref} aria-label={copy(pageContract, "action.previous")}>
