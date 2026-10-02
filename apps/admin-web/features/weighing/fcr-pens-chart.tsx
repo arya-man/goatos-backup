@@ -82,7 +82,7 @@ export function FCRPensChart({
           dataLabels: {
             enabled: true,
             offsetX: -6,
-            style: { fontSize: "10px", colors: [theme.vars.palette.common.white, theme.vars.palette.text.primary] },
+            style: { fontSize: String(theme.typography.caption.fontSize), colors: [theme.vars.palette.common.white, theme.vars.palette.text.primary] },
             formatter: (_value: number, opts?: { dataPointIndex: number }) =>
               opts == null ? "" : formatBarValue(values[opts.dataPointIndex], "", 2),
           },
