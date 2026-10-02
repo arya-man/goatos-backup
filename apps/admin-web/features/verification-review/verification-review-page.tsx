@@ -208,6 +208,7 @@ export async function VerificationReviewPage({
   // drawer can show the warning under the right box with her numbers still in it.
   const feedback = { status: one(sp, "va_status"), code: one(sp, "va_code"), fields: one(sp, "va_fields"), entries: one(sp, "va_entries") };
   const columns = tableLabels(pageContract, "verification-actions");
+  const columnKeys = table(pageContract, "verification-actions").columns.filter((column) => column.visible).map((column) => column.key);
   const tableContract = table(pageContract, "verification-actions");
   // Gates the CROSS-MODULE oversight chrome (module chips, capture-date range picker):
   // permissions.VerificationOversee, backend/internal/permissions/permissions.go. These filters
@@ -494,12 +495,19 @@ export async function VerificationReviewPage({
               sx={{ px: { md: 2.5 } }}
               // `||`, not `??` (C12, pr294): the all-statuses option arrives with an EMPTY status, which
               // `??` kept as "" -- so no tab matched ?status=all and none read as selected.
-              items={statuses.map((option) => ({
-                value: option.status || "all",
-                label: option.label,
-                count: (option.status ? (statusCounts[option.status] ?? 0) : statusTotal).toLocaleString("en-IN"),
-                href: hrefWith(sp, { status: option.status || "all", vi_row: null, vi_cursor: null, vi_trail: null, va_status: null, va_code: null, va_fields: null, va_entries: null }),
-              }))}
+              items={[
+                // The queue offers no All chip (maintainer 2026-08-06), but a leadership link lands on
+                // `?status=all`: that view gets its own selected tab instead of none (pr294 L-C12).
+                ...(status === "all" && !allStatusOption
+                  ? [{ value: "all", label: copy(pageContract, "tab.all_statuses"), count: statusTotal.toLocaleString("en-IN"), href: hrefWith(sp, { status: "all", vi_row: null, vi_cursor: null, vi_trail: null, va_status: null, va_code: null, va_fields: null, va_entries: null }) }]
+                  : []),
+                ...statuses.map((option) => ({
+                  value: option.status || "all",
+                  label: option.label,
+                  count: (option.status ? (statusCounts[option.status] ?? 0) : statusTotal).toLocaleString("en-IN"),
+                  href: hrefWith(sp, { status: option.status || "all", vi_row: null, vi_cursor: null, vi_trail: null, va_status: null, va_code: null, va_fields: null, va_entries: null }),
+                })),
+              ]}
             />
           ) : null}
 
@@ -640,7 +648,9 @@ export async function VerificationReviewPage({
 
             <UrlSuspense searchParams={sp} watch={QUEUE_WATCH} fallback={<TableSkeleton bare header={false} columns={columns.length || QUEUE_COLUMNS} rows={QUEUE_LIMIT} />}>
             <Scrollbar>
-              <Table className="vr-queue-table" aria-label={tableContract.title} sx={{ minWidth: 960 }}>
+              {/* 12px cell gutters from md (pr294 L-C12): with the stacked date / time cells this keeps all
+                nine columns, Reason included, inside the 1,060px card at 1440 (was 1,230-1,255px). */}
+              <Table className="vr-queue-table" aria-label={tableContract.title} sx={{ minWidth: 960, "& .MuiTableCell-root": { px: { md: 1.5 } } }}>
                 <VrQueueHead
                   orderBy="captured_at"
                   order={sort === "captured_at_desc" ? "desc" : "asc"}
@@ -649,6 +659,8 @@ export async function VerificationReviewPage({
                     id: index === 2 ? "captured_at" : `col-${index}`,
                     label,
                     sortable: index === 2,
+                    // A two-word header over a short duration column may take two lines (L-C12).
+                    sx: columnKeys[index] === "review_took" ? { whiteSpace: "normal" } : undefined,
                     sortLabel: index === 2 ? `Sort by ${label} ${nextSort === "captured_at_desc" ? "newest first" : "oldest first"}` : undefined,
                   }))}
                 />
@@ -798,10 +810,10 @@ function QueueRow({
       </TableCell>
       {/* Width floors (C12, pr294): the auto layout gave Subject and Reason their min-content width,
           so a partition name broke before its number and a rejection reason ran one word per line. */}
-      <TableCell sx={{ minWidth: 220 }}>{cell(subjectCell(item))}</TableCell>
-      <TableCell sx={muted}>{cell(fmtDateTime(item.captured_at))}</TableCell>
+      <TableCell sx={{ minWidth: 200 }}>{cell(subjectCell(item))}</TableCell>
+      <TableCell sx={muted}>{cell(stackedDateTime(item.captured_at))}</TableCell>
       <TableCell sx={muted}>{cell(inQueueCell(item))}</TableCell>
-      <TableCell sx={muted}>{cell(item.verified_at ? fmtDateTime(item.verified_at) : "—")}</TableCell>
+      <TableCell sx={muted}>{cell(item.verified_at ? stackedDateTime(item.verified_at) : "—")}</TableCell>
       <TableCell sx={muted}>{cell(reviewTookCell(item))}</TableCell>
       <TableCell>
         {cell(
@@ -810,7 +822,7 @@ function QueueRow({
           </Label>,
         )}
       </TableCell>
-      <TableCell sx={{ minWidth: 200, color: "text.secondary", typography: "body2" }}>{cell(item.verdict_reason || "—")}</TableCell>
+      <TableCell sx={{ minWidth: 170, color: "text.secondary", typography: "body2" }}>{cell(item.verdict_reason || "—")}</TableCell>
       <TableCell sx={muted}>{cell(watchCell(item))}</TableCell>
     </TableRow>
   );
@@ -906,6 +918,20 @@ function inQueueCell(item: VerificationQueueItem): React.ReactNode {
 
 // reviewTookCell renders the elapsed time between capture and verdict for a decided item; absent
 // for a still-pending item, which has not been reviewed yet.
+// The date over its time (pr294 L-C12): two one-line DD/MM/YYYY HH:MM columns were ~145px each and,
+// with Reason, pushed the queue to 1,230-1,255px in the 1,060px card at 1440 -- Reason cut at the edge.
+function stackedDateTime(iso: string): React.ReactNode {
+  const text = fmtDateTime(iso);
+  const at = text.lastIndexOf(" ");
+  if (at < 0) return text;
+  return (
+    <>
+      <Box component="span" sx={{ display: "block" }}>{text.slice(0, at)}</Box>
+      <Box component="span" sx={{ display: "block" }}>{text.slice(at + 1)}</Box>
+    </>
+  );
+}
+
 function reviewTookCell(item: VerificationQueueItem): React.ReactNode {
   if (!item.verified_at) return "—";
   const capturedMs = Date.parse(item.captured_at);

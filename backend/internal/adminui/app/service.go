@@ -2989,7 +2989,11 @@ func pageSpecificCopy(id string) map[string]string {
 			// Verifier video-review board copy. These are backend-owned like every other visible
 			// string here: the frontend previously carried them as local fallbacks, which is the
 			// hardcoded-visible-literal defect the contract rule exists to prevent.
-			"board.title":      "Verification Board",
+			"board.title": "Verification Board",
+			// The tab a `?status=all` link lands on (pr294 L-C12). The queue offers no All chip
+			// (maintainer 2026-08-06), but leadership links open /verify?status=all; without a tab
+			// for it the page showed no selected tab at all.
+			"tab.all_statuses": "All",
 			"filter.shed":      "Pen (optional)",
 			"filter.all_sheds": "All pens",
 			// The module filter row (maintainer request 2026-08-11). The module NAMES are not here:
