@@ -736,7 +736,7 @@ func TestLoadPositionFollowsTheFarmsSevenCases(t *testing.T) {
 		{"4 half sold", 35, 560000, 35, weighed(35, 35*35*450), lw(551250), 486250},
 		{"5 all sold", 70, 1120000, 0, nil, nil, 495000},
 		{"6 no current weight reads zero, not minus the cost", 0, 0, 70, &LoadStockWeight{LiveAnimals: 70}, nil, 0},
-		{"6b one sold, the rest unweighed, still zero", 1, 10000, 69, &LoadStockWeight{LiveAnimals: 69}, nil, 0},
+		{"6b one sold with no sale weight, the rest unweighed: zero", 1, 10000, 69, &LoadStockWeight{LiveAnimals: 69, UnweighedPriceSum: 69 * 450}, nil, 0},
 		{"7 sheep and goats each at their own rate", 0, 0, 70, weighed(70, 30*35*450+40*35*430), lw(1074500), 449500},
 	}
 	for _, c := range cases {
@@ -753,6 +753,19 @@ func TestLoadPositionFollowsTheFarmsSevenCases(t *testing.T) {
 			t.Fatalf("%s: summary position = %v, want %v", c.name, out.Summary.ProfitLoss, c.wantProfit)
 		}
 	}
+	// PART-SOLD, REST UNWEIGHED (PR #470 review, maintainer decision 2026-10-02): the animals left
+	// are carried at the SOLD animals' average sale weight x their own ₹/kg. One sold for ₹10,000 at
+	// 35 kg; 69 left, none weighed, ₹450/kg -> stock 69 x 35 x 450 = ₹10,86,750, position +₹4,71,750
+	// -- the same answer as case 2, where the 69 were weighed at 35 kg.
+	soldKg, soldN := 35.0, 1
+	ps := FinalizeLoadwise([]LoadwiseLoad{{LoadID: "p", DeclaredCount: 70, Purchased: 70, Sold: 1, SoldPriced: 1, SoldValue: 10000,
+		SoldWeightKg: &soldKg, SoldWeighedAnimals: &soldN, Remaining: 69, AnimalCost: &cost,
+		StockWeight: &LoadStockWeight{LiveAnimals: 69, UnweighedPriceSum: 69 * 450}}}, 1, testAsOf)
+	if l := ps.Loads[0]; l.AssumedValue == nil || *l.AssumedValue != 1086750 || l.ProfitLoss == nil || *l.ProfitLoss != 471750 ||
+		l.AssumedValueBasis != "69 animals × average sale weight 35 kg × ₹/kg by stage and sex on Sales Config = ₹10,86,750" {
+		t.Fatalf("part-sold, rest unweighed: stock %v position %v basis %q", l.AssumedValue, l.ProfitLoss, l.AssumedValueBasis)
+	}
+
 	// An unrecorded cost still wins: no position at all, never a ₹0 that reads like break-even.
 	out := FinalizeLoadwise([]LoadwiseLoad{{LoadID: "y", Purchased: 70, Remaining: 70, StockWeight: &LoadStockWeight{LiveAnimals: 70}}}, 1, testAsOf)
 	if out.Loads[0].ProfitLoss != nil {
