@@ -1280,6 +1280,50 @@ export async function getShedWeights(params: {
 }
 
 /**
+ * The Sales > Farm value "Over 35 kg" count ALONE (People / HRMS fixes, 2026-10-02). Open to a Farm
+ * value reader on SalesRead, so the card no longer needs Weighing access; carries no pen or weight.
+ */
+export async function getSaleReadyCount(params: {
+  park_id?: string;
+  from?: string;
+  to?: string;
+  sale_threshold_tolerance_g?: string;
+  sale_threshold_kg?: number;
+  sale_lower_kg?: number;
+}): Promise<ApiResult<{ at_or_above_35kg: number }>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return cachedShortRead(
+    apiReadCacheKey("/weighing/sale-ready-count", config.data, params),
+    () =>
+      request(() =>
+        client.request<{ at_or_above_35kg: number }>("/weighing/sale-ready-count", {
+          cache: "no-store",
+          query: compactQuery(params),
+        }),
+      ),
+  );
+}
+
+/** The two sale-ready figures alone, on SalesRead or WeighingMonitor (2026-10-02). */
+export async function getSaleReadyLine(): Promise<
+  ApiResult<{ sale_ready_threshold_kg?: number; sale_ready_lower_kg?: number }>
+> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return coalescedRead(apiReadCacheKey("/growth-director/sale-ready-line", config.data, {}), () =>
+    request(() =>
+      client.request<{ sale_ready_threshold_kg?: number; sale_ready_lower_kg?: number }>(
+        "/growth-director/sale-ready-line",
+        { cache: "no-store" },
+      ),
+    ),
+  );
+}
+
+/**
  * The NARROW landing-window read: whole-shed weighing days plus the last day anything was weighed.
  *
  * Use this, never getShedWeights, to resolve which window a Weights screen should open on. That

@@ -92,7 +92,7 @@ test("a failed assumptions read is a page failure, never a silent fallback to th
     assert.match(src, /if \(!assumptions\.ok\) \{/, `${name} must fail the page on a non-auth assumptions error`);
     assert.doesNotMatch(src, /assumptions\.ok \? assumptions\.data\.values : null/, `${name} must not fall back to null rows`);
   }
-  assert.match(farmValueSource, /over35Enabled && !assumptionsFailed \? getShedWeights/, "Farm value must not count at the default line after a failed read");
+  assert.match(farmValueSource, /over35Enabled && !assumptionsFailed \? getSaleReadyCount/, "Farm value must not count at the default line after a failed read");
   assert.match(farmValueSource, /enabled: over35Enabled && !assumptionsFailed/, "Farm value must disable the tuning control when the assumptions read failed");
 });
 

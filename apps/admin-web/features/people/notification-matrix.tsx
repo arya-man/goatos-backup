@@ -104,9 +104,9 @@ export function NotificationMatrix({
 
   return (
     <section className="notification-matrix" aria-label={t("notifications.column.alert")}>
-      <p className="sub" style={{ marginTop: 8 }}>
-        <BellRing size={14} aria-hidden="true" style={{ verticalAlign: "-2px", marginRight: 6 }} />
-        {t("notifications.intro")}
+      <p className="sub nmatrix-intro">
+        <BellRing size={14} aria-hidden="true" />
+        <span>{t("notifications.intro")}</span>
       </p>
       <p className="sub" style={{ marginTop: 2 }}>
         {t("notifications.always_told")}
@@ -117,23 +117,26 @@ export function NotificationMatrix({
         </div>
       ) : null}
 
-      <div className="tblwrap" style={{ marginTop: 12, overflowX: "auto" }}>
-        <table className="people-table notification-matrix-table" style={{ tableLayout: "fixed", width: "100%", minWidth: 960 }}>
+      {/* The matrix is as wide as its job titles need: every title column keeps a readable
+          width and the table pans inside its own box (tabIndex so a keyboard can scroll it),
+          with the alert column pinned left. It used to be squeezed into 960px, so twenty-odd
+          titles got ~33px each and their words painted over one another. */}
+      <div className="tblwrap nmatrix-wrap" tabIndex={0} role="region" aria-label={t("notifications.column.alert")}>
+        <table
+          className="nmatrix"
+          style={{ width: `calc(var(--nmatrix-alert-w) + ${matrix.designations.length} * var(--nmatrix-col-w))` }}
+        >
           <colgroup>
-            <col style={{ width: 270 }} />
+            <col className="nmatrix-alert-col" />
             {matrix.designations.map((d) => (
-              <col key={d.code} />
+              <col key={d.code} className="nmatrix-title-col" />
             ))}
           </colgroup>
           <thead>
             <tr>
-              <th>{t("notifications.column.alert")}</th>
+              <th className="nmatrix-alert" scope="col">{t("notifications.column.alert")}</th>
               {matrix.designations.map((d) => (
-                <th
-                  key={d.code}
-                  title={d.grade ? d.grade : undefined}
-                  style={{ textAlign: "center", whiteSpace: "normal", textTransform: "none", fontSize: 10.5, lineHeight: 1.25, padding: "8px 2px", verticalAlign: "bottom", overflowWrap: "normal" }}
-                >
+                <th key={d.code} scope="col" className="nmatrix-title" title={d.grade ? d.grade : undefined}>
                   {d.label}
                 </th>
               ))}
@@ -188,8 +191,8 @@ function GroupRows({
   return (
     <>
       <tr className="group-row">
-        <th colSpan={columns} scope="colgroup" style={{ textAlign: "left", background: "var(--panel-2)" }}>
-          {label}
+        <th colSpan={columns} scope="colgroup" className="nmatrix-group">
+          <span>{label}</span>
         </th>
       </tr>
       {alerts.map((alert) => {
@@ -199,7 +202,7 @@ function GroupRows({
         const nobody = row.draft.length === 0;
         return (
           <tr key={alert.key} data-alert-key={alert.key}>
-            <td>
+            <td className="nmatrix-alert">
               <div style={{ fontWeight: 600 }}>{row.alert.label}</div>
               <div className="sub" style={{ marginTop: 2, whiteSpace: "normal" }}>
                 {row.alert.blurb}
@@ -244,7 +247,7 @@ function GroupRows({
             {designations.map((d) => {
               const ticked = row.draft.includes(d.code);
               return (
-                <td key={d.code} style={{ textAlign: "center", padding: "6px 4px" }}>
+                <td key={d.code} className="nmatrix-cell">
                   <label className="nmatrix-hit">
                     <input
                       type="checkbox"

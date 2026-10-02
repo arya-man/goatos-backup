@@ -1668,6 +1668,10 @@ async function assertCoreInteractions(page, routeName, viewportLabel) {
     await assertFeedConfigPenDropdownContracts(page, routeName);
   }
 
+  if (routeName === "people") {
+    await assertPersonAccessEditorFits(page, routeName, viewportLabel);
+  }
+
   if (routeName === "alerts-populated") {
     // The Configure drawer: open from the top-right button (an <a> only for alerts.configure
     // holders -- the CEO runs this smoke), prove both sections rendered, close via its X.
@@ -1955,6 +1959,36 @@ async function closeManifestOverlays(page) {
     if ((await close.count()) > 0 && (await close.isVisible().catch(() => false))) {
       await close.click({ timeout: 3_000 }).catch(() => {});
     }
+  }
+}
+
+// People / HRMS -> Access (2026-10-02). The editor is a modal over the people list, so the route
+// screenshot never shows it; this opens the first person's editor and fails when anything inside
+// it is wider than its own box. At phone width the module grid used to be a 540px table inside a
+// 328px body (the global `.main table{min-width:540px}` floor won), which put every tick off-screen
+// while the PAGE still measured 0px of overflow -- the exact case a body-only check cannot see.
+async function assertPersonAccessEditorFits(page, routeName, viewportLabel) {
+  const opener = page.getByRole("button", { name: /^Access — / }).first();
+  if ((await opener.count()) === 0) return;
+  const editor = page.locator('.vr-modal.on[role=dialog][aria-label^="Access for"]');
+  for (let attempt = 0; attempt < 4 && (await editor.count()) === 0; attempt++) {
+    await opener.click({ timeout: 5_000 }).catch(() => {});
+    await editor.waitFor({ timeout: 10_000 }).catch(() => {});
+  }
+  if ((await editor.count()) === 0) throw new Error(`${routeName} ${viewportLabel}: the Access editor did not open`);
+  await editor.locator(".pa-grid tbody tr").first().waitFor({ timeout: 15_000 });
+  const widths = await editor.evaluate((root) => {
+    const out = [];
+    for (const sel of [".vr-modal-bd", ".pa-gridwrap", ".pa-grid"]) {
+      const el = root.querySelector(sel);
+      if (el) out.push({ sel, client: el.clientWidth, scroll: el.scrollWidth });
+    }
+    return out;
+  });
+  const wide = widths.filter((w) => w.scroll > w.client + 1 && w.sel !== ".pa-gridwrap");
+  await page.keyboard.press("Escape").catch(() => {});
+  if (wide.length) {
+    throw new Error(`${routeName} ${viewportLabel}: Access editor content is wider than its box (${wide.map((w) => `${w.sel} ${w.scroll}>${w.client}`).join(", ")}) -- ticks are off-screen`);
   }
 }
 

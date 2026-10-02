@@ -447,14 +447,14 @@ export function SalesRecordDrawer({
                 ) : vendorsTruncated ? (
                   <>
                     <div className="note warn">{copy(pageContract, "hint.vendor_truncated")}</div>
-                    <Link href="/procurement/vendors" className="btn sm">
+                    <Link href="/sales/vendors" className="btn sm">
                       {copy(pageContract, "action.open_vendors")}
                     </Link>
                   </>
                 ) : vendorsEmpty ? (
                   <>
                     <div className="note">{copy(pageContract, "hint.vendor_empty")}</div>
-                    <Link href="/procurement/vendors" className="btn sm">
+                    <Link href="/sales/vendors" className="btn sm">
                       {copy(pageContract, "action.open_vendors")}
                     </Link>
                   </>
@@ -503,7 +503,7 @@ export function SalesRecordDrawer({
                         buyer might simply not be on the register yet. */}
                     <div className="note sales-vendor-hint">
                       {copy(pageContract, "hint.vendor")}{" "}
-                      <Link href="/procurement/vendors">{copy(pageContract, "action.open_vendors")}</Link>
+                      <Link href="/sales/vendors">{copy(pageContract, "action.open_vendors")}</Link>
                     </div>
                   </>
                 )}

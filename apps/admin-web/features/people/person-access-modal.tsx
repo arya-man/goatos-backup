@@ -392,7 +392,7 @@ export function PersonAccessModal({
                         const offered = surface === "web" ? row.offered_web : row.offered_mobile;
                         if (offered.length === 0) {
                           return (
-                            <td key={surface}>
+                            <td key={surface} data-surface={t(surface === "web" ? "access.column.web" : "access.column.mobile")}>
                               <span className="pa-na">
                                 {t(surface === "web" ? "access.unavailable.web" : "access.unavailable.mobile")}
                               </span>
@@ -405,7 +405,7 @@ export function PersonAccessModal({
                         const openable = surface === "web" ? openablePageKeys(row, webHeld) : [];
                         const showPages = surface === "web" && openable.length > 0 && held.web.length > 0;
                         return (
-                          <td key={surface}>
+                          <td key={surface} data-surface={t(surface === "web" ? "access.column.web" : "access.column.mobile")}>
                             <div className="pa-caps">
                               {offered.map((level) => {
                                 const copy = capabilityLabel(level);

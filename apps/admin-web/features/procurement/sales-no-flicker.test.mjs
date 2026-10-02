@@ -47,8 +47,8 @@ test("Summary and Farm value stop reading what their filter does not change", ()
   assert.doesNotMatch(sold, /getSalesOptions\(/, "the read-only Summary has no record form to feed");
   const value = read("./sales-farm-value.tsx");
   // The valuation starts BEFORE the assumptions round trip, and there is one weighing read.
-  assert.ok(value.indexOf("const overviewPromise = getSalesOverview") < value.indexOf("await getGrowthAssumptions()"));
-  assert.equal((value.match(/getShedWeights\(/g) ?? []).length, 1);
+  assert.ok(value.indexOf("const overviewPromise = getSalesOverview") < value.indexOf("await getSaleReadyLine()"));
+  assert.equal((value.match(/getSaleReadyCount\(/g) ?? []).length, 1);
 });
 
 test("a pressed chip or pager says it is busy in place", () => {

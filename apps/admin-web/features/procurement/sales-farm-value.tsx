@@ -3,8 +3,8 @@ import { redirect } from "next/navigation";
 import { Tag } from "@/components/ui-primitives";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
-import { firstAuthRequiredError, getGrowthAssumptions, getShedWeights } from "@/lib/api/server";
-import { assumptionValue, DEFAULT_SALE_READY_THRESHOLD_KG } from "@/features/weighing";
+import { firstAuthRequiredError, getSaleReadyCount, getSaleReadyLine } from "@/lib/api/server";
+import { DEFAULT_SALE_READY_THRESHOLD_KG } from "@/features/weighing";
 import { istDayPlus, todayIso } from "@/lib/format";
 import { getSalesOverview } from "@/lib/api/procurement-server";
 import type { SalesOverview } from "@/lib/api/procurement";
@@ -199,12 +199,14 @@ export async function SalesFarmValuePage({
   // The valuation does not depend on the sale line, so it is ASKED FOR FIRST and runs beside the
   // assumptions -> weighing chain rather than after it (flicker fix, 2026-09-25).
   const overviewPromise = getSalesOverview({ farm });
-  const assumptions = over35Enabled ? await getGrowthAssumptions() : null;
+  // The line and the count come from two narrow reads open to every Farm value reader
+  // (People / HRMS fixes, 2026-10-02) -- the card no longer needs Weighing access.
+  const assumptions = over35Enabled ? await getSaleReadyLine() : null;
   if (assumptions && firstAuthRequiredError(assumptions)) redirect(INTERNAL_LOGIN_PATH);
   const assumptionsFailed = assumptions != null && !assumptions.ok;
   const saleThresholdKg =
-    (assumptions?.ok ? assumptionValue(assumptions.data.values, "sale_ready_threshold_kg") : null) ?? DEFAULT_SALE_READY_THRESHOLD_KG;
-  const saleLowerKg = (assumptions?.ok ? assumptionValue(assumptions.data.values, "sale_ready_lower_kg") : null) ?? undefined;
+    (assumptions?.ok ? assumptions.data.sale_ready_threshold_kg : null) ?? DEFAULT_SALE_READY_THRESHOLD_KG;
+  const saleLowerKg = (assumptions?.ok ? assumptions.data.sale_ready_lower_kg : null) ?? undefined;
   const over35ThresholdKg = Math.max(0, saleThresholdKg - over35ToleranceG / 1000);
   const over35Params = {
     from: over35From,
@@ -217,10 +219,10 @@ export async function SalesFarmValuePage({
   // the weighing read takes, so there is no all-parks read to throw away.
   const [overviewResult, weightsResult] = await Promise.all([
     overviewPromise,
-    over35Enabled && !assumptionsFailed ? getShedWeights({ ...over35Params, ...(parkId ? { park_id: parkId } : {}) }) : Promise.resolve(null),
+    over35Enabled && !assumptionsFailed ? getSaleReadyCount({ ...over35Params, ...(parkId ? { park_id: parkId } : {}) }) : Promise.resolve(null),
   ]);
   if (firstAuthRequiredError(overviewResult)) redirect(INTERNAL_LOGIN_PATH);
-  const over35Count: number | null = weightsResult?.ok ? weightsResult.data.summary.at_or_above_35kg : null;
+  const over35Count: number | null = weightsResult?.ok ? weightsResult.data.at_or_above_35kg : null;
   const over35: Over35Card = {
     enabled: over35Enabled && !assumptionsFailed,
     disabledReason: assumptionsFailed
