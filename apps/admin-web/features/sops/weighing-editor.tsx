@@ -321,7 +321,9 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
           <>
             <NumBadge>{i + 1}</NumBadge>
             <InlineSelect
-              label={copy(pc, "wsop.capture.proof.title")}
+              // The capture's KIND, the same "Capture type" every other slot card's select carries; it
+              // borrowed the title field's label and read "What the operator capt…" (PR #294 W5).
+              label={copy(pc, "wsop.proof.kind.label")}
               value={p.kind}
               minWidth={168}
               options={proofKinds.map((k) => ({ value: k.key, label: k.label }))}

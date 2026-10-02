@@ -240,6 +240,13 @@ export function FlowCanvas<T, I>({
     // canvas pan sideways instead.
     const floor = el.clientWidth < 600 ? 0.7 : 0.35;
     setZoom(Math.max(floor, Math.round(scale * 100) / 100));
+    // When the floor leaves the flow wider than the canvas, open it on the SPINE: every flow is
+    // laid out about its centre column (start, the decision, finish), and left at scrollLeft 0 a
+    // phone showed the empty left branch and cut the start node in half (PR #294 W5).
+    requestAnimationFrame(() => {
+      const box = canvasRef.current;
+      if (box) box.scrollLeft = Math.max(0, (box.scrollWidth - box.clientWidth) / 2);
+    });
   };
   useEffect(() => {
     fit();

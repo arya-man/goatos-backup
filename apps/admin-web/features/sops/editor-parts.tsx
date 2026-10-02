@@ -145,8 +145,21 @@ export function EditorCard({
 
 /** Head row of a question / step / slot: badge, type select, meta, then the row actions at the end. */
 export function QuestionHead({ children }: { children: ReactNode }) {
+  // On a phone the head's select takes its own full-width second line, under the badge and the
+  // row actions. Left inline it wrapped wherever it ran out of room: the up / down / remove trio
+  // dropped under it and its label read "Capture t…" / "Question 1 · Answer t…" (PR #294 W5).
   return (
-    <Stack direction="row" spacing={1} useFlexGap sx={{ alignItems: "center", flexWrap: "wrap", minWidth: 0 }}>
+    <Stack
+      direction="row"
+      spacing={1}
+      useFlexGap
+      sx={(theme) => ({
+        alignItems: "center",
+        flexWrap: "wrap",
+        minWidth: 0,
+        [theme.breakpoints.down("sm")]: { "& > .MuiTextField-root": { order: 1, flexBasis: "100%", width: "100%", maxWidth: "100%" } },
+      })}
+    >
       {children}
     </Stack>
   );

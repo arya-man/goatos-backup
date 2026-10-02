@@ -1731,8 +1731,11 @@ func weighingWeightsCopy() map[string]string {
 		// tiles left — and without this tile the three movement figures added up to a number the
 		// card never showed, which reads as an error. The maintainer checked the arithmetic and
 		// asked why (2026-09-01). Now moved up + held + slipped back equals this exactly.
-		"growth_director.road.pairs.sub":      "of them weighed twice, so able to move a band",
-		"growth_director.road.moved_up":       "moved up a band since their last weigh",
+		// Tile captions are one line on a six-tile row (~160px at 1440): the "so able to move a band"
+		// clause and "since their last weigh" were cut mid-word (PR #294 W4). road.note.pairs, under
+		// the band card, carries the why.
+		"growth_director.road.pairs.sub":      "of them weighed twice",
+		"growth_director.road.moved_up":       "moved up a band",
 		"growth_director.road.held":           "held their band",
 		"growth_director.road.moved_down":     "slipped back",
 		"growth_director.road.sale_marker":    "sale",
@@ -12629,7 +12632,7 @@ func weighingSOPEditorCopy() map[string]string {
 		"wsop.capture.individual.locked_short":  "fixed",
 		"wsop.capture.lump_sum.video_min":       "Whole pen — videos at least",
 		"wsop.capture.lump_sum.video_max":       "Whole pen — videos at most",
-		"wsop.capture.locked_rules":             "Not authored here, by decision: the RFID scan and the weight entry, scanning is free-flow (a tag is stored as scanned and never checked against a pen or roster), an animal cannot be scanned twice in the same pen before submit, the verifier reviews every capture and may correct a weight on Approve, and a pen closes only once nothing is pending review.",
+		"wsop.capture.locked_rules":             "Not authored here, by decision: the RFID scan and the weight entry, scanning is free-flow (a tag is stored as scanned and never checked against a pen or roster), an animal cannot be scanned twice in the same pen before submit, the verifier reviews every capture and types her own weight reading on Approve without seeing the operator's (that reading is the final weight), and a pen closes only once nothing is pending review.",
 		"wsop.summary.lump_sum_videos":          "whole pen: {min}–{max} videos",
 		// THE WEIGH CAPTURES ARE AUTHORED (maintainer decision 2026-09-16): two SEPARATE
 		// sections, each with its own captures and questions, shown as two titled blocks.
