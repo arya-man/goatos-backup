@@ -12,8 +12,10 @@ const read = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
 
 test("series line and column charts bound their day axis on a phone", () => {
   const src = read("./series-charts.tsx");
-  assert.match(src, /PHONE_DAY_AXIS_LABELS = \{\s*tickAmount: 4,\s*labels: \{[^}]*hideOverlappingLabels: true,/);
-  assert.match(src, /formatter: \(value: string \| number\) => String\(value \?\? ""\)\.replace\(/, "phone day ticks drop the year");
+  assert.match(src, /PHONE_DAY_AXIS_LABELS = \{\s*tickAmount: 3,\s*labels: \{[^}]*hideOverlappingLabels: true,/);
+  // K11 (date lock): a phone day tick is the full DD/MM/YYYY; the axis thins, it never drops the year.
+  const block = src.slice(src.indexOf("PHONE_DAY_AXIS_LABELS = {"), src.indexOf("};", src.indexOf("PHONE_DAY_AXIS_LABELS = {")));
+  assert.doesNotMatch(block, /formatter/, "phone day ticks keep the year");
   assert.match(src, /theme\.breakpoints\.down\("sm"\), \{ noSsr: true \}/);
   assert.equal((src.match(/\.\.\.\(phone \? PHONE_DAY_AXIS_LABELS : \{\}\)/g) || []).length, 2, "both the lines and the stacked columns chart");
 });

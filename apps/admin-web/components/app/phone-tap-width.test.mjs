@@ -12,3 +12,12 @@ test("chips and toggles get a 44px phone width", () => {
     assert.ok(block.includes(`'${sel}'`), `${sel} is in the width+height floor`);
   }
 });
+
+// PR #294 K10: a native <select> under the phone border-box rule kept the template's 1.4375em height,
+// leaving 12px of content box for a 24px line ("Coimbatore" cut in half on the routines drawer).
+import { test as k10 } from "node:test";
+k10("a native select sizes to its line on a phone", async () => {
+  const { readFileSync: rf } = await import("node:fs");
+  const { match } = (await import("node:assert/strict")).default;
+  match(rf(new URL("./phone-tap-styles.tsx", import.meta.url), "utf8"), /'\.MuiInputBase-root select\.MuiInputBase-input\.MuiInputBase-input': \{ height: 'auto' \}/);
+});

@@ -30,6 +30,11 @@ export function PhoneTapStyles() {
             minHeight: TAP,
             boxSizing: 'border-box',
           },
+          // A NATIVE select clips its text to its content box (an <input> lets it spill into the
+          // padding). Under border-box the template's 1.4375em height left 44 - 32px padding = 12px
+          // for a 24px line, so "Coimbatore" showed its top half only (PR #294 K10, /routines create
+          // drawer). The select sizes to its line plus padding instead, never below the tap floor.
+          '.MuiInputBase-root select.MuiInputBase-input.MuiInputBase-input': { height: 'auto' },
           '.MuiTablePagination-select.MuiTablePagination-select': { display: 'inline-flex', alignItems: 'center' },
           [[
             '.MuiIconButton-root.MuiIconButton-root',

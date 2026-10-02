@@ -456,7 +456,7 @@ export function KpiRowSkeleton({
 export function StatStripSkeleton({ count, meta = false, card = true, wrapBelowMd = false, minHeight = true, stackBelowSm = false }: { count: number; meta?: boolean; card?: boolean; /** The page strip stacks its cells below sm (two 200px cells do not fit a 390 phone, e.g. /procurement/feed-purchases): the twin stacks too. */ stackBelowSm?: boolean; /** The page's strip Scrollbar keeps its min height (false: the strip is its cells' height). */ minHeight?: boolean; /** The cells' title and meta lines wrap to two lines each on a phone (200px cells, long copy); "title" when only the title wraps. */ wrapBelowMd?: boolean | "title" }) {
   const cols = count <= 4 ? Math.max(count, 1) : count % 3 === 0 && count % 4 !== 0 ? 3 : 4;
   const cell = (i: number) => (
-    <Box key={i} sx={{ width: 1, minWidth: 200, gap: 2.5, px: 2, display: "flex", alignItems: "center", justifyContent: "center" }}>
+    <Box key={i} data-stat-cell="" sx={{ width: 1, minWidth: 200, gap: 2.5, px: 2, display: "flex", alignItems: "center", justifyContent: "center" }}>
       <Skeleton variant="circular" width={56} height={56} sx={{ flexShrink: 0 }} />
       <Box sx={{ minWidth: 0, flex: "0 1 96px" }}>
         <SkeletonLine variant="subtitle1" width="100%" />

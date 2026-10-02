@@ -7,12 +7,24 @@
 // themselves on their root instead (role="img" + aria-label from the page contract). The chart
 // wrapper and useChart stay the template's bytes. Guard: r2-visual-audit chart-hover a11y-text +
 // components/chart-template-anatomy.test.mjs.
-type ApexGlobal = { chart?: Record<string, unknown> } & Record<string, unknown>;
+//
+// PR #294 K5: Apex draws value-axis (y) ticks at 11px and category (x) ticks at 12px; at 11px the
+// rendered glyph box reads ~10px and every chart failed the 11px axis floor (P-chart-axis-tiny,
+// mobile-axis-text-too-small). Both axes tick at 12px, globally, so no wrapper restates it.
+type ApexGlobal = { chart?: Record<string, unknown>; yaxis?: Record<string, unknown> } & Record<string, unknown>;
+
+/** Chart axis tick type size (px), both axes, every viewport. */
+export const CHART_AXIS_FONT_PX = 12;
 
 if (typeof window !== "undefined") {
   const w = window as unknown as { Apex?: ApexGlobal };
   const prev = w.Apex ?? {};
-  w.Apex = { ...prev, chart: { ...(prev.chart ?? {}), accessibility: { enabled: false } } };
+  const prevY = (prev.yaxis ?? {}) as { labels?: { style?: Record<string, unknown> } };
+  w.Apex = {
+    ...prev,
+    chart: { ...(prev.chart ?? {}), accessibility: { enabled: false } },
+    yaxis: { ...prevY, labels: { ...(prevY.labels ?? {}), style: { ...(prevY.labels?.style ?? {}), fontSize: `${CHART_AXIS_FONT_PX}px` } } },
+  };
 }
 
 export {};

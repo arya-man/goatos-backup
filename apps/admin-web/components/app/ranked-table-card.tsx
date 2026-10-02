@@ -62,7 +62,8 @@ export function RankedTableCard({
     <Card sx={sx} {...other}>
       <CardHeader title={title} subheader={subheader} action={action} sx={{ mb: 3 }} />
 
-      <Box id={regionId} tabIndex={0} role="region" aria-label={tableLabel} sx={{ overflowX: 'auto', maxWidth: '100%' }}>
+      {/* data-scroll-x: ScrollEdges fades the edge a phone can still pan to (PR #294 K13, /sales/sold Buyers). */}
+      <Box id={regionId} tabIndex={0} role="region" aria-label={tableLabel} data-scroll-x="" sx={{ overflowX: 'auto', maxWidth: '100%' }}>
         <Table sx={{ minWidth: 640 }} aria-label={tableLabel}>
           <TableHeadCustom headCells={headCells} />
 

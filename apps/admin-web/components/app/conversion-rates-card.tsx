@@ -21,6 +21,7 @@ import type { SxProps, Theme } from "@mui/material/styles";
 
 import Box from "@mui/material/Box";
 import useMediaQuery from "@mui/material/useMediaQuery";
+import { useTheme } from "@mui/material/styles";
 import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
 
@@ -91,7 +92,24 @@ export function ConversionRatesCard({ title, subheader, action, empty, chart, sx
   // clamping, so a long pen label ran off a 390 viewport. On phones the tooltip is Apex's fixed one,
   // pinned to the plot's top-left corner (set at construction: noSsr, so the first render knows).
   const phone = useMediaQuery((theme: Theme) => theme.breakpoints.down("sm"), { noSsr: true });
+  const theme = useTheme();
   const options: ChartOptions = {
+    // No value label on every bar (PR #294 K3; design:guard chart-data-labels): the template drew a
+    // white 10px label centred 6px inside the bar end, so half of it ran onto the card ("66.(" /
+    // "20.:" in the light theme) and a hairline bar's label vanished. The figure lives in the
+    // tooltip, as on every other chart, and the value axis reads the length.
+    dataLabels: { enabled: false },
+    plotOptions: {
+      bar: {
+        horizontal: true,
+        borderRadius: 2,
+        barHeight: "48%",
+        dataLabels: { position: "top" },
+        // A loss is a loss: a negative bar (a pen whose average went DOWN) wears the error tone, never
+        // the series green it shared with every gain (PR #294 K4).
+        colors: { ranges: [{ from: -Number.MAX_SAFE_INTEGER, to: -Number.EPSILON, color: theme.vars.palette.error.main }] },
+      },
+    },
     tooltip: {
       shared: true,
       intersect: false,

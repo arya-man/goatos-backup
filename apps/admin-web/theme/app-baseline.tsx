@@ -36,6 +36,10 @@ import { phoneStickyEdges } from '@/components/app/table/sticky-first-column';
  *    `data-route-pending`) and the theme hand-off (`theme-switching`), plus reduced motion.
  */
 const CONTENT = `.${layoutClasses.content}`;
+/** A stat-strip cell: the template InvoiceAnalytic (Box > ring Box > CircularProgress) or its skeleton twin. */
+const STAT_CELL = 'div:has(> div > .MuiCircularProgress-root), [data-stat-cell]';
+/** A row holding stat-strip cells (`:has()` cannot nest, so the cell test is spelled out once more). */
+const STAT_ROW = '.MuiStack-root.MuiStack-root:has(> div > div > .MuiCircularProgress-root, > [data-stat-cell])';
 
 
 export function AppBaseline() {
@@ -81,7 +85,10 @@ export function AppBaseline() {
           [`.${layoutClasses.nav.root} .MuiButtonBase-root`]: { minHeight: 'var(--tap-min)' },
         },
         '@media (max-width: 860px)': {
-          [`${CONTENT} table`]: { minWidth: 540 },
+          // :where() keeps this floor at element specificity (0,0,1): a table that sets its own min
+          // width (sx class, 0,1,0) must win, or a 1000px ledger is squeezed to 540 and wraps one
+          // syllable per line (PR #294 L-F3 /protocol-adherence; L-N2/N3 FullCalendar on a phone).
+          [`:where(${CONTENT}) table`]: { minWidth: 540 },
         },
         // Chart legends (template ChartLegends, verbatim): an item never paints outside its own cell.
         // The template label is flexShrink 0 in an unconstrained inline-flex, so in a two-column legend
@@ -97,6 +104,30 @@ export function AppBaseline() {
         [`:root[data-theme="light"] .${layoutClasses.header} .MuiIconButton-root svg [opacity]`]: { opacity: 0.64 },
         [`:root[data-theme="light"] #topbar-ai-slot :is(img, svg)`]: { filter: `drop-shadow(0 0 0.5px ${theme.vars.palette.grey[700]}) drop-shadow(0 0 0.5px ${theme.vars.palette.grey[700]})` },
         ...phoneStickyEdges(`${CONTENT} table`, theme),
+        // Phone stat strips (PR #294 L-C6): a row of template InvoiceAnalytic cells (200px each, a
+        // 56px CircularProgress ring + text) inside a sideways Scrollbar cut its second and third
+        // labels at 390 ("Accep", "Overd", "Pens in d"). Below sm the row becomes a two-column grid:
+        // every cell is on screen, nothing pans, the dashed dividers give way to the grid gap. The
+        // template cell is matched by its anatomy (it is template-derived and carries no attribute of
+        // ours); the loading twin's cells carry `data-stat-cell` and take the same shape. (A
+        // spelled-out query, not theme.breakpoints.down('sm'): that key is phoneStickyEdges' above.)
+        '@media (max-width: 599.95px)': {
+          [STAT_ROW]: {
+            display: 'grid',
+            gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+            rowGap: theme.spacing(2),
+            columnGap: 0,
+          },
+          [`${STAT_ROW} > .MuiDivider-root`]: { display: 'none' },
+          [`${STAT_ROW} > :is(${STAT_CELL})`]: {
+            minWidth: 0,
+            gap: theme.spacing(1.5),
+            paddingLeft: theme.spacing(2),
+            paddingRight: theme.spacing(1),
+            justifyContent: 'flex-start',
+          },
+          [`${STAT_ROW} > :is(${STAT_CELL}) > div:last-child`]: { minWidth: 0, overflowWrap: 'anywhere' },
+        },
         '[data-dense] .MuiTableCell-body.MuiTableCell-body': { paddingTop: 6, paddingBottom: 6 },
         'html.route-busy, html.route-busy body': { cursor: 'progress' },
         'a[data-route-pending="true"]': { position: 'relative', isolation: 'isolate', cursor: 'progress' },
