@@ -262,14 +262,15 @@ function FarmBornSections({
           <KpiWidget
             color="success"
             title={copy(pageContract, "kpi.revenue")}
-            total={s.revenue}
-            caption={[`₹`, unpriced > 0 ? `${num(s.sold_priced)} / ${num(s.sold)}` : undefined].filter(Boolean).join(" · ")}
+            total={Math.round(s.revenue)}
+            // The bare "71 / 73" said nothing: the unpriced remainder is named in the contract's words.
+            caption={[`₹`, unpriced > 0 ? copy(pageContract, "kpi.revenue.unpriced").replace("{count}", num(unpriced)) : undefined].filter(Boolean).join(" · ")}
             sx={{ height: 1 }}
           />
         </Grid>
         <Grid size={SALES_GRID.bornKpi}>
           <KpiWidget color="secondary" title={copy(pageContract, "kpi.avg_price")}
- caption={`${(s.sold_priced > 0 ? s.avg_price : null) == null ? "—" : `₹`}`} total={s.sold_priced > 0 ? s.avg_price : null} sx={{ height: 1 }} />
+ caption={s.sold_priced > 0 ? `₹ · ${copy(pageContract, "kpi.avg_price.detail")}` : "—"} total={s.sold_priced > 0 ? Math.round(s.avg_price) : null} sx={{ height: 1 }} />
         </Grid>
       </Grid>
 

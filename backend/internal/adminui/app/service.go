@@ -5231,11 +5231,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"kpi.realized_price":      "Realized price per kg",
 			"kpi.realized_price.hint": "Closed live-animal revenue over live weight sold.",
 			"kpi.manure":              "Manure sold",
-			"kpi.manure.detail":       "kg and revenue from manure deals",
+			"kpi.manure.detail":       "earned",
 			// Feed sold off the store (000422): its own tile beside manure, so the revenue tile's
 			// total can be read back into animals, manure and feed rather than hiding feed in it.
 			"kpi.feed":        "Feed sold",
-			"kpi.feed.detail": "kg and revenue from feed sold off the store",
+			"kpi.feed.detail": "earned",
 			"kpi.period":      "Covering",
 			"kpi.deals":       "Closed deals",
 			"kpi.live_weight": "Live weight sold",
