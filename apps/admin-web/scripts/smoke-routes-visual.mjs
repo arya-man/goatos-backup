@@ -256,6 +256,10 @@ async function resetScrollPosition(page) {
       window.scrollTo(0, 0);
       document.scrollingElement?.scrollTo?.(0, 0);
       for (const el of document.querySelectorAll("*")) {
+        // The sidebar scrolls its ACTIVE leaf into view (mesha-shell); that scroll position is app
+        // state, not leftover page scroll. Zeroing it hid the current leaf below the fold on a
+        // 900px laptop and read as "no leaf highlighted" (PR #294 round 2, P1/K2).
+        if (el instanceof HTMLElement && el.closest("[data-keep-scroll]")) continue;
         if (el instanceof HTMLElement && (el.scrollTop > 0 || el.scrollLeft > 0)) {
           el.scrollTop = 0;
           el.scrollLeft = 0;
