@@ -25,18 +25,19 @@ var _ ports.SalesExecutiveAnalyticsRepository = (*Repository)(nil)
 // salesActivitiesSQL returns one row per ACTIVITY (domain.SalesActivityFact), every kind in one
 // set-based statement.
 //
-// projection-review: membership per branch -- vendor_added: procurement_vendors at ROW grain
-// (one vendor) with a known adder; vendor_edited: (actor, vendor, IST business day) after the
-// audit edit rows and the register's last-edit stamp are UNIONed and GROUPED on exactly that key,
-// so the newest save that also carries an audit row is counted once, never twice; market_call:
-// (recorded_by, city_id, business_date) GROUPED, so the several prices typed for one city that
-// day are one call; lead_call / sale_recorded / payment_recorded / deal_status: audit_log at ROW
-// grain (one audited write). group_key=the branch key above on producer and consumer alike.
-// join_cardinality: person is pre-aggregated to ONE row per user_id (an active row wins, else an
-// agree-or-go-bare name across inactive rows), vendor / lead / deal joins are 1:1 on their PKs,
-// and deal animals are pre-aggregated to one row per deal_id before they join -- no branch can
-// fan out. pagination=none, whole-window read; the page's totals are computed in the domain over
-// this whole set. scope=tenant_id on every branch.
+// projection-review: membership=one row per ACTIVITY per branch -- vendor_added is one
+// procurement_vendors row with a known adder, vendor_edited is one (actor, vendor, IST business
+// day) after the audit edit rows and the register's last-edit stamp are UNIONed and GROUPED on
+// exactly that key so a save carrying both is counted once, market_call is one (recorded_by,
+// city_id, business_date) GROUPED so the several prices typed for one city that day are one
+// call, and lead_call / sale_recorded / payment_recorded / deal_status are one audited write;
+// group_key=the branch key above on producer and consumer alike (the domain groups per actor_id
+// and per business_date only); join_cardinality=person is pre-aggregated to ONE row per user_id
+// (an active row wins, else an agree-or-go-bare name across inactive rows), vendor / lead / deal
+// joins are 1:1 on their primary keys, and deal animals are pre-aggregated to one row per deal_id
+// before they join, so no branch can fan out; pagination=none here, a whole-window read whose
+// totals the domain computes before it pages the activity feed; scope=tenant_id on every branch
+// and the IST business-date window, no park filter (the sales desk works across both parks).
 //
 // scale-guard:ignore: whole-window read over authored desk activity -- a few hundred vendors, a
 // few dozen market entries a day and the audited sales writes -- bounded by the period the page
@@ -202,10 +203,12 @@ func (r *Repository) SalesActivities(ctx context.Context, tenantID string, since
 
 // latestVendorsSQL reads the newest register rows with their adder's name.
 //
-// projection-review: membership=procurement_vendors at ROW grain, tenant-scoped; the person join
-// is pre-aggregated to one row per user_id exactly as in salesActivitiesSQL, so it is 1:1;
-// pagination=LIMIT/OFFSET over created_at DESC, vendor_id DESC -- a total order, so page 2
-// continues page 1.
+// projection-review: membership=procurement_vendors at ROW grain, one row per vendor;
+// group_key=user_id for the person name only, the vendor rows are not grouped;
+// join_cardinality=the person join is pre-aggregated to one row per user_id exactly as in
+// salesActivitiesSQL, so it is 1:1 and cannot multiply a vendor; pagination=LIMIT/OFFSET over
+// created_at DESC, vendor_id DESC -- a total order, so page 2 continues page 1 and the total is
+// VendorRegisterTotals' count, never this page's length; scope=tenant_id.
 //
 // scale-guard:ignore: bounded LIMIT/OFFSET over the authored vendor register (a few hundred rows,
 // grows with vendors met, never with herd size); the service refuses an offset past
