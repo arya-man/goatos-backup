@@ -4,6 +4,7 @@ import GlobalStyles from '@mui/material/GlobalStyles';
 
 import { layoutClasses } from '@/layouts/core/classes';
 
+import { CHART_CATEGORICAL } from './chart-palette';
 import { MESHA_TOKENS_DARK, MESHA_TOKENS_LIGHT } from './mesha-tokens';
 import { phoneStickyEdges } from '@/components/app/table/sticky-first-column';
 
@@ -36,12 +37,17 @@ import { phoneStickyEdges } from '@/components/app/table/sticky-first-column';
  */
 const CONTENT = `.${layoutClasses.content}`;
 
+/** The categorical chart slots as scheme-following variables (`--chart-series-blue`), which a
+ * chart paints from before it has hydrated and knows the colour scheme (components/app/chart-colors). */
+const chartSeriesVars = (mode: 'light' | 'dark') =>
+  Object.fromEntries(CHART_CATEGORICAL.map((slot) => [slot.cssVar, slot[mode]]));
+
 export function AppBaseline() {
   return (
     <GlobalStyles
       styles={(theme) => ({
-        ':root': { ...MESHA_TOKENS_DARK, colorScheme: 'dark' },
-        ':root.light': { ...MESHA_TOKENS_LIGHT, colorScheme: 'light' },
+        ':root': { ...MESHA_TOKENS_DARK, ...chartSeriesVars('dark'), colorScheme: 'dark' },
+        ':root.light': { ...MESHA_TOKENS_LIGHT, ...chartSeriesVars('light'), colorScheme: 'light' },
         '*, *::before, *::after': { boxSizing: 'border-box' },
         'strong, b': { fontWeight: 'bolder' },
         'html, body': { maxWidth: '100%', overflowX: 'hidden' },

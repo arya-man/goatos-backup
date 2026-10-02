@@ -83,14 +83,20 @@ test("one drawing per chart: no per-width copies of the same figure", () => {
   assert.equal((client.match(/<Chart\s+type=/g) ?? []).length, 3);
 });
 
-test("the series palette is twelve distinct theme palette channels", () => {
+test("the series palette is twelve distinct HUES, not shades of the theme's six", () => {
   const block = source.slice(source.indexOf("export const SERIES_VARS"), source.indexOf("] as const;"));
   const entries = block.match(/"[^"]+"/g) ?? [];
   assert.equal(entries.length, 12);
   assert.equal(new Set(entries).size, 12);
-  // Channels only (resolved to theme.palette by components/app/chart-colors): no hex, no var(),
-  // no blend, and no error red for an ordinary category.
-  for (const e of entries) assert.match(e, /^"(primary|secondary|info|success|warning|grey)(\.(lighter|light|main|dark|darker|[3-7]00))?"$/);
+  // Every slot is a categorical key of theme/chart-palette.ts (resolved per scheme by
+  // components/app/chart-colors): no hex, no var(), no blend, no shade of a palette channel (three
+  // greens side by side was PR #294 D2/E4), and no error red for an ordinary category.
+  const palette = readFileSync(new URL("../theme/chart-palette.ts", import.meta.url), "utf8");
+  for (const e of entries) {
+    assert.match(e, /^"series-[a-z]+"$/);
+    assert.ok(palette.includes(`key: ${e}`), `${e} is a slot of theme/chart-palette.ts`);
+    assert.doesNotMatch(e, /red|error/);
+  }
 });
 test("chart tooltips name the day DD/MM/YYYY, never the wire's ISO date", () => {
   // The tooltip title is the same fmtDay category the axis shows, escaped, with any extra rows

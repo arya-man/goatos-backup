@@ -7,6 +7,8 @@ import { varAlpha } from 'minimal-shared/utils';
 
 import { useTheme } from '@mui/material/styles';
 
+import { CHART_CATEGORICAL } from '@/theme/chart-palette';
+
 // ----------------------------------------------------------------------
 
 export function useChart(updatedOptions?: ChartOptions): ChartOptions {
@@ -62,17 +64,9 @@ const baseChartOptions = (theme: Theme): ChartOptions => {
      * Colors
      * https://apexcharts.com/docs/options/colors/
      *************************************** */
-    colors: [
-      theme.palette.primary.main,
-      theme.palette.warning.main,
-      theme.palette.info.main,
-      theme.palette.error.main,
-      theme.palette.success.main,
-      theme.palette.warning.dark,
-      theme.palette.success.darker,
-      theme.palette.info.dark,
-      theme.palette.info.darker,
-    ],
+    // One hue per series (theme/chart-palette.ts), for the scheme in force: the template's list
+    // repeated the theme's six hues in shades, so a many-series chart put lookalikes side by side.
+    colors: CHART_CATEGORICAL.map((slot) => slot[theme.palette.mode === 'light' ? 'light' : 'dark']),
 
     /** **************************************
      * States

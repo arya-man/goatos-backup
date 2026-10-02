@@ -4,7 +4,7 @@ import Box from '@mui/material/Box';
 import Card from '@mui/material/Card';
 import CardHeader from '@mui/material/CardHeader';
 
-import { chartColor, useChartTheme } from '@/components/app/chart-colors';
+import { chartRamp, useChartTheme } from '@/components/app/chart-colors';
 import { BankingBalanceStatistics, formatSeriesValue } from '@/components/app/sections/overview/banking/banking-balance-statistics';
 
 
@@ -39,10 +39,11 @@ type Props = React.ComponentProps<typeof BankingBalanceStatistics> & { empty?: R
 /** The template balance-statistics card, or (no categories in the first series) the same Card +
  * CardHeader with the page's empty state, so the template file never grows an empty branch. */
 export function BalanceStatisticsCard({ empty, ...props }: Props) {
-  // The template's default trio, through the chart theme so the legend follows the scheme from the
-  // first paint (N4).
+  // The categorical ramp, through the chart theme so the legend follows the scheme from the first
+  // paint (N4). It was the template's trio, which Apex cycles: an eleven-breed chart painted three
+  // colours over and over (PR #294 E4).
   const theme = useChartTheme();
-  const colors = props.chart.colors ?? (["primary.dark", "warning", "info"] as const).map((key) => chartColor(theme, key));
+  const colors = props.chart.colors ?? chartRamp(theme, 'bar');
   if ((props.chart.series[0]?.categories.length ?? 0) === 0) {
     return (
       <Card sx={props.sx}>
