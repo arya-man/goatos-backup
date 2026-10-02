@@ -22,7 +22,7 @@ import (
 //   - the person's name resolves through workforce_members.user_id;
 //   - rows before the window and another tenant's rows are excluded;
 //   - the vendor edit audit written by UpdateVendor / UpdateVendorStatus is counted.
-func TestSalesActivitiesResolveOneFactPerActivityAtTheDocumentedGrain(t *testing.T) {
+func TestSalesActivitiesOneToManyRowsResolveOneFactPerActivity(t *testing.T) {
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
 	repo := NewRepository(pool, 5*time.Second)
@@ -170,12 +170,112 @@ VALUES ($1, $2::date, 'CBE', 'Mahendran', 'Pollachi', 'Goat', 'Local', 12, 12000
 	if latest[1].BusinessName != "Imported From Sheet" || latest[1].AddedByKnown {
 		t.Fatalf("an imported vendor must read as imported: %+v", latest[1])
 	}
-	page2, err := repo.LatestVendors(ctx, testTenant, 2, 2)
-	if err != nil || len(page2) != 2 || page2[0].VendorID != latest[2].VendorID {
-		t.Fatalf("page 2 of 2 = %+v (%v), want to continue at %s", page2, err, latest[2].BusinessName)
-	}
 	total, imported, err := repo.VendorRegisterTotals(ctx, testTenant)
 	if err != nil || total != 4 || imported != 2 {
 		t.Fatalf("totals = %d/%d (%v), want 4/2", total, imported, err)
+	}
+}
+
+// TestLatestVendorsPageBoundaryContinuesWithoutGapsOrRepeats walks the register two rows a page,
+// including vendors created at the SAME instant (the vendor_id tie-break is what keeps the order
+// total), and asserts the pages concatenate to the one-shot newest-first list with no row lost or
+// repeated across a boundary, and that a page past the end is empty rather than an error.
+func TestLatestVendorsPageBoundaryContinuesWithoutGapsOrRepeats(t *testing.T) {
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	repo := NewRepository(pool, 5*time.Second)
+
+	at := time.Date(2026, 9, 20, 10, 0, 0, 0, time.UTC)
+	for i, name := range []string{"A", "B", "C", "D", "E"} {
+		created := at
+		if i >= 3 {
+			created = at.Add(time.Hour) // D and E share one instant
+		}
+		if _, err := pool.Exec(ctx, `
+INSERT INTO procurement_vendors (tenant_id, record_type, business_name, status, state, created_at, updated_at)
+VALUES ($1, 'Agent', $2, 'active', 'Tamil Nadu', $3, $3)`, testTenant, "Page Vendor "+name, created); err != nil {
+			t.Fatal(err)
+		}
+	}
+	all, err := repo.LatestVendors(ctx, testTenant, 10, 0)
+	if err != nil || len(all) != 5 {
+		t.Fatalf("one-shot list = %d (%v), want 5", len(all), err)
+	}
+	var walked []string
+	for offset := 0; offset < 6; offset += 2 {
+		page, err := repo.LatestVendors(ctx, testTenant, 2, offset)
+		if err != nil {
+			t.Fatalf("page at %d: %v", offset, err)
+		}
+		for _, v := range page {
+			walked = append(walked, v.VendorID)
+		}
+	}
+	if len(walked) != len(all) {
+		t.Fatalf("pages returned %d rows, want %d", len(walked), len(all))
+	}
+	for i := range all {
+		if walked[i] != all[i].VendorID {
+			t.Fatalf("row %d differs across a page boundary: %s vs %s", i, walked[i], all[i].VendorID)
+		}
+	}
+	past, err := repo.LatestVendors(ctx, testTenant, 2, 40)
+	if err != nil || len(past) != 0 {
+		t.Fatalf("past the end = %d (%v), want empty", len(past), err)
+	}
+}
+
+// TestSalesActivitiesPersonNameStatusMatrix pins the name a person's activity is credited to over
+// every workforce_members status shape: an ACTIVE row wins over an inactive one with a different
+// name (a re-hired person); inactive rows that AGREE give that name; inactive rows that DISAGREE
+// give no name rather than picking one (agree-or-go-bare); and an actor with no row at all is
+// still counted, unnamed. A fan-out here would credit one activity twice.
+func TestSalesActivitiesPersonNameStatusMatrix(t *testing.T) {
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	repo := NewRepository(pool, 5*time.Second)
+
+	const (
+		rehired   = "11111111-1111-4111-8111-111111111111"
+		leftAgree = "22222222-2222-4222-8222-222222222222"
+		leftSplit = "33333333-3333-4333-8333-333333333333"
+		noRow     = "44444444-4444-4444-8444-444444444444"
+	)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_members (tenant_id, display_code, display_name, status, user_id) VALUES
+ ($1, 'SM-1', 'Old Name', 'inactive', $2), ($1, 'SM-2', 'Current Name', 'active', $2),
+ ($1, 'SM-3', 'Left Person', 'inactive', $3), ($1, 'SM-4', 'Left Person', 'inactive', $3),
+ ($1, 'SM-5', 'First Spelling', 'inactive', $4), ($1, 'SM-6', 'Second Spelling', 'inactive', $4)`,
+		testTenant, rehired, leftAgree, leftSplit); err != nil {
+		t.Fatalf("seed people: %v", err)
+	}
+	today := biztime.BusinessDayStart(time.Now())
+	for i, actor := range []string{rehired, leftAgree, leftSplit, noRow} {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO procurement_vendors (tenant_id, record_type, business_name, status, state, created_by, updated_by, created_at, updated_at)
+VALUES ($1, 'Agent', $2, 'active', 'Tamil Nadu', $3, $3, $4, $4)`,
+			testTenant, "Status Vendor "+string(rune('A'+i)), actor, today.Add(time.Duration(i+1)*time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	facts, err := repo.SalesActivities(ctx, testTenant, today.AddDate(0, 0, -1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{rehired: "Current Name", leftAgree: "Left Person", leftSplit: "", noRow: ""}
+	seen := map[string]int{}
+	for _, f := range facts {
+		if f.Kind != domain.ActivityVendorAdded {
+			continue
+		}
+		seen[f.ActorID]++
+		if name, ok := want[f.ActorID]; ok && f.ActorName != name {
+			t.Fatalf("actor %s credited as %q, want %q", f.ActorID, f.ActorName, name)
+		}
+	}
+	for actor := range want {
+		if seen[actor] != 1 {
+			t.Fatalf("actor %s has %d vendor_added facts, want exactly 1 (no fan-out, no drop)", actor, seen[actor])
+		}
 	}
 }
