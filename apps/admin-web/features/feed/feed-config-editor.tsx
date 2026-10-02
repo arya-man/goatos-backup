@@ -505,10 +505,12 @@ export function ExperimentCellAdder({
   const fieldId = `exp-add-${shedId}-${partitionLabel}`;
   return (
     <FeedConfigFormShell
+      // A NAMED icon button (tooltip + aria-label "Add feed item"), never a bare "+" (D4) and never
+      // the full-width text button: in the pen's action column that button was clipped to "Add f…"
+      // at 1440 and, on a phone, widened the sticky action column over Arm / Animals / Feed /
+      // Quantity / Status (PR #294 O2).
       icon="add"
-      // A named button, not a bare "+": beside the pen's power switch an unlabelled plus read as
-      // nothing in particular (D4).
-      trigger="button"
+      trigger="icon"
       pageContract={pageContract}
       action={action}
       editLabel={copy(pageContract, "action.add_experiment_item")}
@@ -1003,7 +1005,9 @@ export function SessionFeedsCell({
   return (
     // Template anatomy: the declared feeds are soft Chips whose delete opens the withdraw dialog, and
     // "Add feed" is a template Button, never bare names with trash icons and a lone "+".
-    <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 1, minWidth: 260 }}>
+    // On a phone the chips get a wider cell so they flow two to a line: at 260px each long feed name
+    // took a line of its own and a two-session table grew ~350px rows of blank columns (PR #294 O2).
+    <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 1, minWidth: { xs: 380, sm: 260 } }}>
       {items.length === 0 ? (
         // An empty recipe is a REAL and blocking state, not missing data: this session's sheds get
         // no sheet at all. It reads as an error Label rather than a muted empty note for that reason.
@@ -1037,7 +1041,7 @@ export function SessionFeedsCell({
 
       {addable.length > 0 ? (
         <FeedConfigFormShell
-      icon="add"
+          icon="add"
           trigger="button"
           pageContract={pageContract}
           action={action}

@@ -136,10 +136,12 @@ test("stock-only feed analytics hides full controls and item graphs", () => {
 });
 
 test("the KPI tiles name the settled day rather than the last day drawn", () => {
-  // The tiles say "Directed yesterday" / "Animals fed yesterday". Taking the array's last
+  // The tiles describe the settled day (yesterday) and name it. Taking the array's last
   // element now points them at today — a day the farm is still feeding, whose second park's
   // sheet may not even be issued yet.
-  assert.match(directedViewBlock, /latestDay: data\.days\.find\(\(d\) => d\.feed_day === settledDay\)/);
+  // ...or, with no sheet yesterday, the latest complete day on or before it, named in the caption (O6).
+  assert.match(directedViewBlock, /latestDay: latestSheetDay\(data\.days, settledDay, \(d\) => num\(d\.directed_kg\)\)/);
+  assert.match(source, /fa\(pageContract, "kpi\.day\.on"\)\.replace\("\{date\}", fmtDate\(latest\.feed_day\)\)/);
   assert.doesNotMatch(directedViewBlock, /data\.days\[data\.days\.length - 1\]/);
   assert.match(source, /buildDirectedView\(data, fa\(pageContract, "series\.other"\), istDayPlus\(todayIso\(\), -1\)\)/);
 });
@@ -155,6 +157,11 @@ test("the cost-per-animal tile divides yesterday's spend by yesterday's animals,
   assert.match(source, /let costPerAnimal: number \| null = null;/);
   assert.match(source, /key: "cost_per_animal", unit: "₹", total: costPerAnimal/);
   assert.match(source, /fa\(pageContract, `kpi.\$\{kpi.key\}.label`\)/);
+});
+
+test("the expenditure subtitle names the chart's first plotted day, never a typed date (PR #294 O14)", () => {
+  assert.match(source, /firstPlottedSpendDay\(stock\.expenditure, mode === "per_animal" \? data\.days : null\)/);
+  assert.match(source, /"chart\.spend\.hint"\)\.replace\(\s*"\{date\}"/);
 });
 
 test("the expenditure chart's per-animal reading divides each day by that day's own animals", () => {

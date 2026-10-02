@@ -5,6 +5,8 @@ import Typography from "@mui/material/Typography";
 import { DataTable, columnsFromContract } from "@/components/data-table";
 import { Label } from "@/components/minimal/label";
 import type { AdminUiTableContract } from "@/lib/admin-ui-contract";
+import type { LoadPen } from "@/lib/load-pens";
+import { mortalityLoadLabel } from "./mortality-load-label";
 
 /**
  * The Mortality page's recent-deaths table. Every column comes from the page's own table
@@ -28,6 +30,8 @@ export type RecentDeathRow = {
   park: string;
   pen: string;
   loadRef: string;
+  /** The load's pens from the load series (absent when unknown or ambiguous): names where to walk. */
+  loadPens?: readonly LoadPen[];
   causeLabel: string;
   causeBasis: "recorded" | "inferred" | "none";
   basisLabel: string;
@@ -43,8 +47,19 @@ const MUTED_CAPTION = { color: "text.secondary", typography: "caption" } as cons
 const DEATHS_TABLE_SX = {
   minWidth: 0,
   "& table": { width: 1, minWidth: "max-content" },
-  "& th, & td": { whiteSpace: "nowrap", verticalAlign: "top" },
+  // Tighter gutters than the template's 16px so the ten columns fit a 1440 card instead of
+  // panning with Load and Cause off screen (PR #294 O3); first and last keep the card's edge.
+  "& th, & td": { whiteSpace: "nowrap", verticalAlign: "top", px: 1.25 },
+  "& th:first-of-type, & td:first-of-type": { pl: 2 },
+  "& th:last-of-type, & td:last-of-type": { pr: 2 },
 } as const;
+
+/**
+ * Multi-word names (a breed, a stage, a load's pens) may wrap at their SPACES — never inside a
+ * word, which is what shredded "Fatte/ning/male" in round 1 (D5): a table cell never shrinks below
+ * its longest word, and nothing here allows a break inside one.
+ */
+const WRAP_WORDS = { whiteSpace: "normal", wordBreak: "keep-all", overflowWrap: "normal" } as const;
 
 export function RecentDeathsTable({
   contract,
@@ -75,9 +90,9 @@ export function RecentDeathsTable({
       ),
       sortValue: (row) => row.tag || row.displayId,
     },
-    breed: { cell: (row) => row.breed || muted, sortValue: (row) => row.breed },
+    breed: { cell: (row) => (row.breed ? <Box component="span" sx={WRAP_WORDS}>{row.breed}</Box> : muted), sortValue: (row) => row.breed },
     sex: { cell: (row) => row.sex || muted, sortValue: (row) => row.sex },
-    stage: { cell: (row) => row.stage || muted, sortValue: (row) => row.stage },
+    stage: { cell: (row) => (row.stage ? <Box component="span" sx={WRAP_WORDS}>{row.stage}</Box> : muted), sortValue: (row) => row.stage },
     age_at_death: {
       cell: (row) =>
         row.ageDays == null ? (
@@ -93,7 +108,22 @@ export function RecentDeathsTable({
     },
     farm: { cell: (row) => row.park || muted, sortValue: (row) => row.park },
     shed: { cell: (row) => row.pen || muted, sortValue: (row) => row.pen },
-    load: { cell: (row) => row.loadRef || muted, sortValue: (row) => row.loadRef },
+    load: {
+      // The load number on its line and its pens under it ("Load 128" / "CBE Castro 3 +2"), the
+      // composition the load series uses; the whole bracket is the title.
+      cell: (row) => {
+        if (!row.loadRef) return muted;
+        const label = mortalityLoadLabel(row.loadRef, row.loadPens);
+        const pens = label.text.slice(row.loadRef.length).trim().replace(/^\(|\)$/g, "");
+        return (
+          <Box title={label.full}>
+            <div>{row.loadRef}</div>
+            {pens ? <Box sx={MUTED_CAPTION}>{pens}</Box> : null}
+          </Box>
+        );
+      },
+      sortValue: (row) => row.loadRef,
+    },
     cause: {
       cell: (row) => (
         <div>

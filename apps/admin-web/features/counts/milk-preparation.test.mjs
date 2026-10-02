@@ -28,3 +28,13 @@ test("milk preparation is composed on the template invoice-list anatomy", () => 
   assert.match(source, /<TableHeadCustom/);
   assert.doesNotMatch(source, /className="tag |<Tag |className="feed-table"/);
 });
+
+test("the verification strip names its park-day unit, and no hint shows a raw stage code (PR #294 O7)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const page = readFileSync(new URL("./milk-preparation.tsx", import.meta.url), "utf8");
+  assert.match(page, /state\.count === 1 \? "label\.park_count_one" : "label\.park_count_other"/);
+  const svc = readFileSync(new URL("../../../../backend/internal/adminui/app/service.go", import.meta.url), "utf8");
+  const block = svc.slice(svc.indexOf('case "milk-preparation":'), svc.indexOf("case ", svc.indexOf('case "milk-preparation":') + 30));
+  assert.match(block, /"label\.park_count_other":\s+"\{count\} parks"/);
+  assert.doesNotMatch(block, /\bK[0-3]\b/, "stage codes render as words, never K0..K3");
+});

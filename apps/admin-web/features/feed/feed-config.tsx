@@ -1094,7 +1094,8 @@ export async function FeedConfigPage({
                           </Label>
                         </TableCell>
                         <TableCell>
-                          <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
+                          {/* Two icon buttons side by side, never wrapped: the column stays two icons wide (O2). */}
+                          <Box sx={{ display: "flex", gap: 0.5, flexWrap: "nowrap", alignItems: "center" }}>
                             {/* The switch offers the OPPOSITE of the current state, so the button
                                 always names the change it makes rather than the state it is in. */}
                             <ExperimentShedSwitch

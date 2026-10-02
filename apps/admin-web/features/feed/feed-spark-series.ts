@@ -32,3 +32,18 @@ export function completeDaySeries(values: (number | null)[]): number[] | undefin
   const kept = values.slice(0, end);
   return kept.length > 1 && kept.every((v) => v !== null) ? (kept as number[]) : undefined;
 }
+
+/**
+ * The day the "latest day" KPI tiles describe: the last COMPLETE sheet on or before the settled
+ * day (yesterday). When yesterday has no sheet (the data stops days earlier) the tiles used to read
+ * a bare "—" beside a 14-day trend that plainly had numbers (PR #294 O6); they now show the latest
+ * day that has one, and the caption names that day. A trailing half-issued day is skipped the same
+ * way the sparkline skips it, so the figure and the line end on one day.
+ */
+export function latestSheetDay<T extends { feed_day: string }>(days: readonly T[], settledDay: string, kg: (day: T) => number): T | undefined {
+  const settled = days.filter((d) => d.feed_day <= settledDay).sort((a, b) => (a.feed_day < b.feed_day ? -1 : a.feed_day > b.feed_day ? 1 : 0));
+  const complete = completeDaySeries(settled.map(kg))?.length ?? 0;
+  if (complete > 0) return settled[complete - 1];
+  for (let i = settled.length - 1; i >= 0; i -= 1) if (kg(settled[i]) > 0) return settled[i];
+  return undefined;
+}

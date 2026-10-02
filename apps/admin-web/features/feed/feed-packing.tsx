@@ -151,7 +151,8 @@ export async function FeedPackingPage({
       value: scope.parkId,
       allowAll: false,
       disabledReason: scope.parkLockedByTopBar ? copy(pageContract, "filter.scope_readonly") : undefined,
-      options: locations.parks.map((park) => ({ value: park.id, label: park.name })),
+      // The park CODE ("CPT"), as Feed Direction and every row on these pages name it (O8).
+      options: locations.parks.map((park) => ({ value: park.id, label: park.code || park.name })),
     },
   ];
 

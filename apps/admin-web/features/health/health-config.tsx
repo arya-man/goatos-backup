@@ -31,7 +31,6 @@ import { HealthTypesSection } from "./health-types";
 import { RulebookTabStrip } from "./health-config-tab-strip";
 import { StaleVersionNotice } from "./health-stale-version-recovery";
 import { AddDiseaseForm, BackToListButton, DraftEditor, ProtocolActionButton } from "./health-config-editor";
-import { InfoHint } from "@/components/app/info-hint";
 import { PageHeader } from "@/components/app/page-header";
 import Alert from "@mui/material/Alert";
 import AlertTitle from "@mui/material/AlertTitle";
@@ -493,17 +492,17 @@ export async function HealthConfigPage({
 
         {/* Template TablePaginationCustom footer (J2 P2-8: was a bespoke "0 rows ⓘ" line): range
             readout + arrows; the catalog pages by keyset, so no total (count -1) and "previous"
-            restarts from the first page. The row note rides in the leading slot. */}
+            restarts from the first page. */}
         <TablePaginationLinks
           page={cursor ? 1 : 0}
           rowsPerPage={CATALOG_PAGE_SIZE}
           count={-1}
-          rangeLabel={rows.length === 0 ? "0" : cursor ? `${rows.length} ${copy(pageContract, "pager.rows").toLowerCase()}` : `1–${rows.length}`}
+          // Keyset paging has no total: the readout counts what this page shows and names it.
+          rangeLabel={`${rows.length === 0 ? "0" : cursor ? rows.length : `1–${rows.length}`} ${copy(pageContract, "pager.noun_plural")}`}
           prevHref={cursor ? restartHref : null}
           nextHref={nextHref}
           prevLabel={copy(pageContract, "pager.restart")}
           nextLabel={copy(pageContract, "pager.next")}
-          left={<InfoHint text={copy(pageContract, "pager.rows_note")} />}
         />
       </Card>
       </Stack>

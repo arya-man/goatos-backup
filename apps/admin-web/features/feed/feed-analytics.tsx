@@ -77,7 +77,7 @@ import {
   type StackedDay,
 } from "./feed-analytics-charts";
 import { FeedFaroView } from "./feed-faro-view";
-import { completeDaySeries } from "./feed-spark-series";
+import { completeDaySeries, latestSheetDay } from "./feed-spark-series";
 import { FeedAnalyticsExport } from "@/components/analytics-export";
 import { stageLabel } from "@/lib/stage-labels";
 import { stageNameMap, stageVocabularyLabel, type StageNameMap } from "@/lib/stage-display";
@@ -235,6 +235,22 @@ type DirectedView = {
   settledDay: string;
 };
 
+/**
+ * The first day the expenditure chart actually draws: the first priced day, or for the per-animal
+ * reading the first priced day whose sheet has animals (a day without animals is a gap).
+ */
+function firstPlottedSpendDay(
+  expenditure: readonly { feed_day: string; rupees: string }[],
+  days: readonly { feed_day: string; head_days: number }[] | null,
+): string | undefined {
+  return expenditure.find((d) => {
+    if (!(num(d.rupees) > 0)) return false;
+    if (!days) return true;
+    const day = days.find((x) => x.feed_day === d.feed_day);
+    return !!day && day.head_days > 0;
+  })?.feed_day;
+}
+
 function buildDirectedView(
   data: FeedAnalyticsDirectedResponse,
   otherLabel: string,
@@ -326,7 +342,9 @@ function buildDirectedView(
     // would have pointed "Directed yesterday" at a day the farm is still feeding, and at a
     // sheet whose second park may not be issued yet. Named explicitly rather than taken
     // positionally, so the number under the label is the day the label says.
-    latestDay: data.days.find((d) => d.feed_day === settledDay),
+    // When yesterday has no sheet the tiles fall back to the latest complete day that has one and
+    // the caption names it (PR #294 O6) -- never a bare "—" beside a trend full of numbers.
+    latestDay: latestSheetDay(data.days, settledDay, (d) => num(d.directed_kg)),
     settledDay,
   };
 }
@@ -1108,12 +1126,15 @@ function DirectedTabs({
             // contract sub-line already names it ("kg on the issued sheet").
             const sub = fa(pageContract, `kpi.${kpi.key}.sub`);
             const lead = kpi.total == null ? "—" : kpi.unit && !sub.includes(kpi.unit) ? kpi.unit : "";
+            // The day-figures name the sheet day they describe ("on 25/09/2026"); adherence is a
+            // window share and names none.
+            const onDay = latest && kpi.key !== "adherence" && kpi.total != null ? fa(pageContract, "kpi.day.on").replace("{date}", fmtDate(latest.feed_day)) : "";
             return (
               <Grid key={kpi.key} size={FEED_ANALYTICS_KPI_SIZES[index]}>
                 <KpiWidget
                   title={fa(pageContract, `kpi.${kpi.key}.label`)}
                   total={kpi.total}
-                  caption={lead ? `${lead} · ${sub}` : sub}
+                  caption={[lead, sub, onDay].filter(Boolean).join(" · ")}
                   trend={kpi.trend}
                   sx={{ height: 1 }}
                 />
@@ -1184,7 +1205,12 @@ function DirectedTabs({
             title={fa(pageContract, "chart.spend.title")}
             subheader={SPEND_MODES.map((mode) => (
               <LocalViewPane key={mode} param="spend" value={mode} current={spendMode}>
-                {fa(pageContract, mode === "per_animal" ? "chart.spend.per_animal.hint" : "chart.spend.hint")}
+                {/* "from {date}" names the chart's FIRST PLOTTED day, never a date typed into the
+                    copy: a fixed "from 11/08/2026" sat over charts starting 03/09 or 20/08 (O14). */}
+                {fa(pageContract, mode === "per_animal" ? "chart.spend.per_animal.hint" : "chart.spend.hint").replace(
+                  "{date}",
+                  fmtDate(firstPlottedSpendDay(stock.expenditure, mode === "per_animal" ? data.days : null) ?? stock.expenditure[0].feed_day),
+                )}
               </LocalViewPane>
             ))}
             action={
