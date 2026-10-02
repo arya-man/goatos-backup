@@ -2622,8 +2622,6 @@ func pageSpecificCopy(id string) map[string]string {
 		return map[string]string{
 			// Routines desk chrome (kit filter bar, toolbar, footer, themed date picker) — 2026-09-19.
 			"date.prev_month":                 "Previous month",
-			"date.next_month":                 "Next month",
-			"date.invalid":                    "Pick a day on or before {date}",
 			"action.apply_search":             "Apply search",
 			"action.clear_all":                "Clear all",
 			"action.columns":                  "Columns",
