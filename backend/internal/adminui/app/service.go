@@ -3751,8 +3751,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.full_schedule.loading_operator_note": "Loading planned operator assignments.",
 			"section.full_schedule.empty_title":           "No schedule rows for this month",
 			"section.full_schedule.empty_body":            "Rows appear once due work is clubbed into vaccination drives for the selected month.",
-			"section.full_schedule.no_assignments_title":  "No operator drive rows",
-			"section.full_schedule.no_assignments_body":   "No vaccination drive has been given to an operator in this month yet.",
+			// This table reads persisted OPERATOR assignments; "Scheduled Ahead" reads the planned drives.
+			// A month whose drives are planned but not yet given to an operator must not read as a
+			// month with no drives (pr294 L-N6).
+			"section.full_schedule.no_assignments_title": "No drives given to an operator yet",
+			"section.full_schedule.no_assignments_body":  "Planned drives are listed under Scheduled Ahead until an operator is assigned to them. No operator assignment yet in",
 			// Human labels for the operator-drive-schedule CAPACITY pill. The read
 			// model emits the internal machine state (within_cap / over_cap /
 			// over_cap_required / capacity_breach); never render that token raw.
