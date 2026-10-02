@@ -31,6 +31,8 @@ type Props = {
 export function InvoiceAnalytic({ title, total, icon, color, percent, caption, value }: Props) {
   return (
     <Box
+      // Phone stat strips lay these cells out two to a row (theme/app-baseline.tsx, PR #294 L-C6).
+      data-stat-cell=""
       sx={{
         width: 1,
         gap: 2.5,

@@ -97,6 +97,29 @@ export function AppBaseline() {
         [`:root[data-theme="light"] .${layoutClasses.header} .MuiIconButton-root svg [opacity]`]: { opacity: 0.64 },
         [`:root[data-theme="light"] #topbar-ai-slot :is(img, svg)`]: { filter: `drop-shadow(0 0 0.5px ${theme.vars.palette.grey[700]}) drop-shadow(0 0 0.5px ${theme.vars.palette.grey[700]})` },
         ...phoneStickyEdges(`${CONTENT} table`, theme),
+        // Phone stat strips (PR #294 L-C6): a row of template InvoiceAnalytic cells (`data-stat-cell`,
+        // 200px each) inside a sideways Scrollbar cut its second and third labels at 390 ("Accep",
+        // "Overd", "Pens in d"). Below sm the row becomes a two-column grid: every cell is on screen,
+        // nothing pans, the dashed dividers give way to the grid gap. The loading twin's cells carry the
+        // same attribute, so the skeleton takes the same shape. (A spelled-out query, not
+        // theme.breakpoints.down('sm'): that key is phoneStickyEdges' above and would replace it.)
+        '@media (max-width: 599.95px)': {
+          '.MuiStack-root.MuiStack-root:has(> [data-stat-cell])': {
+            display: 'grid',
+            gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+            rowGap: theme.spacing(2),
+            columnGap: 0,
+          },
+          '.MuiStack-root.MuiStack-root:has(> [data-stat-cell]) > .MuiDivider-root': { display: 'none' },
+          '[data-stat-cell][data-stat-cell]': {
+            minWidth: 0,
+            gap: theme.spacing(1.5),
+            paddingLeft: theme.spacing(2),
+            paddingRight: theme.spacing(1),
+            justifyContent: 'flex-start',
+          },
+          '[data-stat-cell] > div:last-child': { minWidth: 0, overflowWrap: 'anywhere' },
+        },
         '[data-dense] .MuiTableCell-body.MuiTableCell-body': { paddingTop: 6, paddingBottom: 6 },
         'html.route-busy, html.route-busy body': { cursor: 'progress' },
         'a[data-route-pending="true"]': { position: 'relative', isolation: 'isolate', cursor: 'progress' },
