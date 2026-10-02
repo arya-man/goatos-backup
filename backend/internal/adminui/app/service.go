@@ -470,8 +470,9 @@ func chromeCopy() map[string]string {
 		// says what happened and invites the retry the button beside it offers. These two were
 		// the only push states left with no contract key, so the frontend map was their source
 		// rather than a deploy-skew net.
-		"push.timed_out": "That took too long and did not finish. Nothing is switched on yet — click again to retry.",
-		"push.retry":     "Try again",
+		"push.timed_out":           "That took too long and did not finish. Nothing is switched on yet — click again to retry.",
+		"push.retry":               "Try again",
+		"push.awaiting_permission": "Chrome is asking for permission. Click Allow in the box under the address bar — or, if there is no box, click the bell icon at the left of the address bar.",
 		// The two states nothing the reader can do will fix. They used to render the raw
 		// engineering sentence behind them verbatim in the top bar on EVERY admin route
 		// ("...is not a usable VAPID key..."), which is implementation vocabulary a CXO should

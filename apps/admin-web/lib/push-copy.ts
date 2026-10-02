@@ -36,6 +36,8 @@ const PUSH_COPY_FALLBACKS: Record<string, string> = {
   "push.timed_out":
     "That took too long and did not finish. Nothing is switched on yet — click again to retry.",
   "push.retry": "Try again",
+  "push.awaiting_permission":
+    "Chrome is asking for permission. Click Allow in the box under the address bar — or, if there is no box, click the bell icon at the left of the address bar.",
   // Nothing the reader can do fixes either of these, so each says that plainly and names who
   // can. They replace the raw engineering `state.reason` the control used to print verbatim.
   "push.unconfigured":

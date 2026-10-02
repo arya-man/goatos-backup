@@ -222,8 +222,60 @@ async function mintAndRegister(vapidKey: WebPushVapidKey, browserInstallId: stri
  * Chrome requires a user gesture for the prompt to be shown at all in its quieter UI, and treats
  * a load-time request as abusive. It is also simply the right thing: a person who has not asked
  * for notifications should not be interrupted by a browser-level modal.
+ *
+ * TWO PHASES, AND ONLY THE SECOND IS TIMED. `requestPermission()` resolves only when the person
+ * answers Chrome. When Chrome uses its QUIET permission UI (a crossed-out bell in the address bar
+ * instead of a pop-up -- applied automatically to sites it judges low-acceptance), there is no
+ * visible dialog at all and the promise stays pending until the person finds that bell. Racing it
+ * against a deadline turned "waiting for you to click Allow" into "That took too long", reset the
+ * button, and never minted a token -- so the browser was never registered and no push could ever
+ * arrive. `onAwaitingPermission` lets the caller say where to click instead, and the caller times
+ * only `completeWebPushEnable`, the part that is ours.
  */
-export async function enableWebPush(): Promise<WebPushState> {
+export async function enableWebPush(
+  hooks: { onAwaitingPermission?: () => void; stepTimeoutMs?: number } = {},
+): Promise<WebPushState> {
+  const bounded = <T,>(work: Promise<T>, onTimeout: () => T) =>
+    hooks.stepTimeoutMs ? withTimeout(work, hooks.stepTimeoutMs, onTimeout) : work;
+  const timedOut = (): WebPushState => ({ status: "timed_out" });
+  const ready = await bounded<WebPushState | WebPushVapidKey>(prepareWebPushEnable(), timedOut);
+  if (isWebPushState(ready)) return ready;
+
+  // Already denied: requestPermission() resolves 'denied' immediately without showing anything,
+  // so calling it would look to the person like the button did nothing at all.
+  if (Notification.permission === "denied") return { status: "blocked" };
+
+  // NOT bounded: this waits on the person, not on us.
+  let permission: NotificationPermission = Notification.permission;
+  if (permission !== "granted") {
+    hooks.onAwaitingPermission?.();
+    permission = await Notification.requestPermission();
+  }
+  if (permission === "denied") return { status: "blocked" };
+  if (permission !== "granted") {
+    // Closed without choosing. Still 'default', so it is retryable and must NOT be reported as a
+    // refusal -- telling someone they blocked notifications when they merely dismissed a dialog
+    // sends them into browser settings for nothing.
+    return { status: "dismissed" };
+  }
+
+  return bounded(
+    mintAndRegister(ready, getBrowserInstallId()).catch(
+      (error): WebPushState => ({
+        status: "error",
+        reason: error instanceof Error ? error.message : "Could not turn on notifications.",
+      }),
+    ),
+    timedOut,
+  );
+}
+
+function isWebPushState(value: WebPushState | WebPushVapidKey): value is WebPushState {
+  return "status" in value;
+}
+
+/** Everything before the permission ask: support checks, then the VAPID key to mint with. */
+async function prepareWebPushEnable(): Promise<WebPushState | WebPushVapidKey> {
   const support = detectWebPushSupport();
   if (!support.supported) return { status: "unsupported", reason: support.reason };
 
@@ -237,28 +289,7 @@ export async function enableWebPush(): Promise<WebPushState> {
   // still gets a working Enable button rather than "not configured for this environment".
   const vapid = await getWebPushVapidKey();
   if (!vapid.ok) return { status: "unconfigured", reason: vapid.error };
-
-  // Already denied: requestPermission() resolves 'denied' immediately without showing anything,
-  // so calling it would look to the person like the button did nothing at all.
-  if (Notification.permission === "denied") return { status: "blocked" };
-
-  let permission: NotificationPermission = Notification.permission;
-  if (permission !== "granted") {
-    permission = await Notification.requestPermission();
-  }
-  if (permission === "denied") return { status: "blocked" };
-  if (permission !== "granted") {
-    // Closed without choosing. Still 'default', so it is retryable and must NOT be reported as a
-    // refusal -- telling someone they blocked notifications when they merely dismissed a dialog
-    // sends them into browser settings for nothing.
-    return { status: "dismissed" };
-  }
-
-  try {
-    return await mintAndRegister(vapid.data, getBrowserInstallId());
-  } catch (error) {
-    return { status: "error", reason: error instanceof Error ? error.message : "Could not turn on notifications." };
-  }
+  return vapid.data;
 }
 
 /**

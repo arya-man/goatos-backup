@@ -51,7 +51,7 @@ import { raceControl } from "@/lib/control-race";
  */
 
 
-type Busy = "idle" | "enabling" | "disabling" | "refreshing";
+type Busy = "idle" | "awaiting_permission" | "enabling" | "disabling" | "refreshing";
 const CONTROL_ACTION_TIMEOUT_MS = 30_000;
 const PENDING_STYLE = {
   opacity: 1,
@@ -59,7 +59,6 @@ const PENDING_STYLE = {
   color: "var(--brand)",
 } satisfies CSSProperties;
 
-const enableTimedOutState = (): WebPushState => ({ status: "timed_out" });
 export function PushPermissionPrompt({
   className,
   contractCopy,
@@ -122,7 +121,13 @@ export function PushPermissionPrompt({
   const onEnable = useCallback(() => {
     setBusy("enabling");
     setMessage("");
-    void raceControl<WebPushState>(enableWebPush(), enableTimedOutState, CONTROL_ACTION_TIMEOUT_MS)
+    // Each of OUR steps is bounded inside enableWebPush; waiting for the person to answer Chrome's
+    // permission ask is not. With Chrome's quiet UI there is no pop-up, only a bell in the address
+    // bar, and a whole-click timer reset the button before they found it -- no token, no push.
+    void enableWebPush({
+      onAwaitingPermission: () => setBusy("awaiting_permission"),
+      stepTimeoutMs: CONTROL_ACTION_TIMEOUT_MS,
+    })
       .then((next) => {
         setState(next);
         if (next.status === "dismissed") {
@@ -192,17 +197,17 @@ export function PushPermissionPrompt({
           disabled={pending}
           onClick={onEnable}
           title={copy("push.enable_hint")}
-          aria-busy={busy === "enabling"}
-          style={busy === "enabling" ? PENDING_STYLE : undefined}
+          aria-busy={busy === "enabling" || busy === "awaiting_permission"}
+          style={busy === "enabling" || busy === "awaiting_permission" ? PENDING_STYLE : undefined}
         >
-          {busy === "enabling" ? (
+          {busy === "enabling" || busy === "awaiting_permission" ? (
             <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
           ) : (
             <Bell className="h-4 w-4" aria-hidden="true" />
           )}
           <span>
             {copy(
-              busy === "enabling"
+              busy === "enabling" || busy === "awaiting_permission"
                 ? "push.enabling"
                 : state.status === "timed_out"
                   ? "push.retry"
@@ -240,6 +245,9 @@ export function PushPermissionPrompt({
         </div>
       ) : null}
 
+      {busy === "awaiting_permission" ? (
+        <p className="mt-1 text-sm">{copy("push.awaiting_permission")}</p>
+      ) : null}
       {state.status === "timed_out" ? <p className="mt-1 text-sm">{copy("push.timed_out")}</p> : null}
       {state.status === "error" ? <p className="mt-1 text-sm">{state.reason}</p> : null}
       {message ? <p className="mt-1 text-sm">{message}</p> : null}
