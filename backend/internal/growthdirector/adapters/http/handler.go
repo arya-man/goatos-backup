@@ -22,6 +22,7 @@ type Service interface {
 	GetFCR(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.FCRReport, error)
 	GetSalePrices(ctx context.Context, actor domain.Actor) (domain.SalePrices, error)
 	GetAssumptions(ctx context.Context, actor domain.Actor, includeStages bool) (domain.Assumptions, error)
+	GetSaleReadyLine(ctx context.Context, actor domain.Actor) (domain.SaleReadyLine, error)
 	PutAssumptions(ctx context.Context, actor domain.Actor, update domain.AssumptionsUpdate) (domain.Assumptions, error)
 }
 
@@ -52,6 +53,8 @@ func Register(mux *http.ServeMux, h *Handler) {
 	// The Assumptions drawer (maintainer decision 2026-09-19): read on WeighingMonitor, write on
 	// weighing.assumptions.write -- both decided in permissions/routes.go.
 	mux.HandleFunc("GET /growth-director/assumptions", h.GetAssumptions)
+	// The sale-ready line alone, for the Sales > Farm value card (2026-10-02).
+	mux.HandleFunc("GET /growth-director/sale-ready-line", h.GetSaleReadyLine)
 	mux.HandleFunc("PUT /growth-director/assumptions", h.PutAssumptions)
 }
 
@@ -80,6 +83,12 @@ func (h *Handler) GetSalePrices(w http.ResponseWriter, r *http.Request) {
 // GetAssumptions serves the figures the Weighing area is valued at.
 func (h *Handler) GetAssumptions(w http.ResponseWriter, r *http.Request) {
 	result, err := h.service.GetAssumptions(r.Context(), actor(r), r.URL.Query().Get("include_stages") == "1")
+	h.respond(w, r, result, err)
+}
+
+// GetSaleReadyLine serves GET /growth-director/sale-ready-line.
+func (h *Handler) GetSaleReadyLine(w http.ResponseWriter, r *http.Request) {
+	result, err := h.service.GetSaleReadyLine(r.Context(), actor(r))
 	h.respond(w, r, result, err)
 }
 
@@ -173,10 +182,13 @@ func actor(r *http.Request) domain.Actor {
 	for _, grant := range grants {
 		roles = append(roles, grant.Role)
 	}
+	perms, resolved := httpmiddleware.PersonPermissionsFromContext(r.Context())
 	return domain.Actor{
-		TenantID: httpmiddleware.TenantIDFromContext(r.Context()),
-		UserID:   httpmiddleware.ActorIDFromContext(r.Context()),
-		Roles:    roles,
+		TenantID:            httpmiddleware.TenantIDFromContext(r.Context()),
+		UserID:              httpmiddleware.ActorIDFromContext(r.Context()),
+		Roles:               roles,
+		Permissions:         perms,
+		PermissionsResolved: resolved,
 	}
 }
 

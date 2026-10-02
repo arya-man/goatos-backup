@@ -409,3 +409,10 @@ func (g GrowthSettings) CacheKey() string {
 	}
 	return "bands=" + strings.Join(parts, ",") + ";target=" + trimFloat(g.SlowGrowthTargetG) + ";badscan=" + trimFloat(g.BadScanLossGPerDay) + ";period=" + fmt.Sprintf("%d", g.DefaultPeriodDays)
 }
+
+// SaleReadyLine is the two sale-ready figures alone (2026-10-02), for the Sales > Farm value
+// "Over 35 kg" card. Absent means the tenant has not set it; the caller applies its default.
+type SaleReadyLine struct {
+	ThresholdKg *float64 `json:"sale_ready_threshold_kg,omitempty"`
+	LowerKg     *float64 `json:"sale_ready_lower_kg,omitempty"`
+}

@@ -2395,6 +2395,54 @@ paths:
         "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
         "500": {$ref: "#/components/responses/ServerError"}
+  /weighing/sale-ready-count:
+    get:
+      tags: [Weighing]
+      operationId: adminGetWeighingSaleReadyCount
+      summary: The Sales > Farm value "Over 35 kg" count alone.
+      description: >
+        Requires WeighingMonitor OR SalesRead (People / HRMS fixes, 2026-10-02): a Farm value reader
+        sees the number whether or not they hold Weighing. Returns ONLY the count of animals at or
+        above the sale-ready line -- no pen, tag or weight. Same window rules and park scope as the
+        Weights KPI; the sale lines are the caller's (weighing reads no assumptions table).
+      parameters:
+        - {in: query, name: park_id, required: false, schema: {type: string, format: uuid}}
+        - {in: query, name: from, required: false, schema: {type: string, format: date}}
+        - {in: query, name: to, required: false, schema: {type: string, format: date}}
+        - {in: query, name: sale_threshold_tolerance_g, required: false, schema: {type: string}}
+        - {in: query, name: sale_threshold_kg, required: false, schema: {type: number}}
+        - {in: query, name: sale_lower_kg, required: false, schema: {type: number}}
+      responses:
+        "200":
+          description: The count.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [at_or_above_35kg]
+                properties:
+                  at_or_above_35kg: {type: integer}
+  /growth-director/sale-ready-line:
+    get:
+      tags: [Weighing]
+      operationId: adminGetGrowthSaleReadyLine
+      summary: The two sale-ready figures alone, for the Farm value "Over 35 kg" card.
+      description: >
+        Requires WeighingMonitor OR SalesRead (People / HRMS fixes, 2026-10-02). Returns only
+        sale_ready_threshold_kg and sale_ready_lower_kg; absent means not set, and the caller applies
+        its default. No price and no other assumption leaves through this read.
+      responses:
+        "200":
+          description: The line.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  sale_ready_threshold_kg: {type: number}
+                  sale_ready_lower_kg: {type: number}
   /growth-director/assumptions:
     get:
       tags: [Weighing]

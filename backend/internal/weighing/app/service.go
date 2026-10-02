@@ -777,6 +777,21 @@ func (s *Service) checkParkScopeForAnyCapability(ctx context.Context, tenantID, 
 // whether the actor is tenant-wide for one of them (in which case the set is meaningless and
 // no filtering applies).
 func authorizedParkSet(ctx context.Context, tenantID string, capabilities ...string) (parks map[string]struct{}, tenantWide bool) {
+	// The person's own scope decides first, exactly as httpmiddleware's
+	// ResolveAuthorizedParkScopeForCapabilities does: when per-person rows authorized the request,
+	// the route already checked the capability against the person's permissions, and their park
+	// scope (People / HRMS ticks) is the answer. Reading only role grants here refused anyone whose
+	// capability came from a tick rather than a role (People / HRMS fixes, 2026-10-02).
+	if scope, ok := httpmiddleware.PersonParkScopeFromContext(ctx); ok {
+		if scope.TenantWide {
+			return nil, true
+		}
+		parks = make(map[string]struct{}, len(scope.ParkIDs))
+		for _, id := range scope.ParkIDs {
+			parks[id] = struct{}{}
+		}
+		return parks, false
+	}
 	grants := httpmiddleware.AuthGrantsFromContext(ctx)
 	// No grants at all = internal/service context (CLI, integration test), unrestricted.
 	if len(grants) == 0 {
@@ -1996,11 +2011,18 @@ func validateOriginFilter(origin string) error {
 // inlining the same forty lines is how one of them silently drifts into a weaker
 // check.
 func (s *Service) resolveMonitorParkScope(ctx context.Context, actor domain.Actor, parkID string) ([]string, error) {
+	return s.resolveParkScopeFor(ctx, actor, parkID, permissions.WeighingMonitor)
+}
+
+// resolveParkScopeFor is resolveMonitorParkScope for a named capability. Only the sale-ready
+// count asks with anything but WeighingMonitor: a Farm value reader (SalesRead) is scoped by the
+// parks their SALES access covers.
+func (s *Service) resolveParkScopeFor(ctx context.Context, actor domain.Actor, parkID, capability string) ([]string, error) {
 	var parkIDs []string
 	if parkID != "" {
 		grants := httpmiddleware.AuthGrantsFromContext(ctx)
-		if !hasTenantWideCapability(grants, actor.TenantID, permissions.WeighingMonitor) {
-			authorizedParkIDs := httpmiddleware.AuthorizedParkIDsForCapability(grants, permissions.WeighingMonitor)
+		if !hasTenantWideCapability(grants, actor.TenantID, capability) {
+			authorizedParkIDs := httpmiddleware.AuthorizedParkIDsForCapability(grants, capability)
 			found := false
 			for _, id := range authorizedParkIDs {
 				if id == parkID {
@@ -2015,7 +2037,7 @@ func (s *Service) resolveMonitorParkScope(ctx context.Context, actor domain.Acto
 		return []string{parkID}, nil
 	}
 
-	authorizedParks, tenantWide := authorizedParkSet(ctx, actor.TenantID, permissions.WeighingMonitor)
+	authorizedParks, tenantWide := authorizedParkSet(ctx, actor.TenantID, capability)
 	if tenantWide {
 		// Tenant-wide monitor: every park in the tenant, exactly like GetWeightHistory
 		// resolves its own "all parks" case.
@@ -2120,6 +2142,64 @@ func (s *Service) GetShedWeights(ctx context.Context, actor domain.Actor, parkID
 		}
 	}
 	return s.shedWeightsFor(ctx, actor, parkID, periodStart, periodEndExclusive, sex, origin, strings.TrimSpace(weighingCategory), toleranceKg, saleLowerKg, saleUpperKg)
+}
+
+// GetSaleReadyCount is the Sales > Farm value "Over 35 kg" card's number ALONE: how many animals
+// sit at or above the sale-ready line, from the same read and the same rules as the Weights
+// screen's KPI. People / HRMS fixes (2026-10-02): the card used to read the whole shed-weights
+// report, so it needed Weighing access, and a person given Farm value without Weighing saw it
+// disabled. Its holders now reach the number on SalesRead -- and only the number: no pen, tag
+// or weight leaves through this read. Scope follows whichever of the two permissions the caller
+// holds (WeighingMonitor first).
+func (s *Service) GetSaleReadyCount(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, saleThresholdToleranceGrams string, saleLowerKg, saleUpperKg float64) (domain.SaleReadyCount, error) {
+	capability := permissions.WeighingMonitor
+	if !actor.Holds(permissions.WeighingMonitor) {
+		if !actor.Holds(permissions.SalesRead) {
+			return domain.SaleReadyCount{}, ports.ErrForbidden
+		}
+		capability = permissions.SalesRead
+	}
+	if !domain.ValidSaleThresholdUpperKg(saleUpperKg) || !domain.ValidSaleThresholdLowerKg(saleLowerKg) {
+		return domain.SaleReadyCount{}, ports.ErrInvalidArgument
+	}
+	toleranceKg, err := parseSaleThresholdToleranceKg(saleThresholdToleranceGrams)
+	if err != nil {
+		return domain.SaleReadyCount{}, err
+	}
+	parkID = strings.TrimSpace(parkID)
+	if parkID != "" && !uuidutil.IsUUIDString(parkID) {
+		return domain.SaleReadyCount{}, ports.ErrInvalidArgument
+	}
+	from, to := strings.TrimSpace(fromBusinessDate), strings.TrimSpace(toBusinessDate)
+	if (from != "" && !isBusinessDate(from)) || (to != "" && !isBusinessDate(to)) {
+		return domain.SaleReadyCount{}, ports.ErrInvalidArgument
+	}
+	periodStart, periodEndExclusive, err := s.resolveWeighingWindow(from, to)
+	if err != nil {
+		return domain.SaleReadyCount{}, err
+	}
+	periodStart = clampSaleReadyPeriodStart(periodStart)
+	if !periodEndExclusive.After(periodStart) {
+		return domain.SaleReadyCount{}, ports.ErrInvalidArgument
+	}
+	scopeParkIDs, err := s.resolveParkScopeFor(ctx, actor, "", capability)
+	if err != nil {
+		return domain.SaleReadyCount{}, err
+	}
+	if parkID != "" {
+		found := false
+		for _, id := range scopeParkIDs {
+			found = found || id == parkID
+		}
+		if !found {
+			return domain.SaleReadyCount{}, ports.ErrNotFound
+		}
+	}
+	out, err := s.repo.GetShedWeights(ctx, actor.TenantID, scopeParkIDs, parkID, periodStart, periodEndExclusive, "", "", "", toleranceKg, saleLowerKg, saleUpperKg)
+	if err != nil {
+		return domain.SaleReadyCount{}, err
+	}
+	return domain.SaleReadyCount{AtOrAbove35Kg: out.Summary.AtOrAbove35Kg}, nil
 }
 
 // clampSaleReadyPeriodStart holds the sale-ready count off the days before the farm's weighing

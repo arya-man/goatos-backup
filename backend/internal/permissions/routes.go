@@ -699,6 +699,9 @@ var protectedRoutes = []Route{
 	{OperationID: "getWeighingLeadershipGrowthADG", Method: "GET", Pattern: "/app/weighing/leadership/growth", Permissions: []string{WeighingMonitor}},
 	{OperationID: "getWeighingShedWeights", Method: "GET", Pattern: "/app/weighing/shed-weights", Permissions: []string{WeighingMonitor}},
 	{OperationID: "adminGetWeighingShedWeights", Method: "GET", Pattern: "/weighing/shed-weights", Permissions: []string{WeighingMonitor}},
+	// The Sales > Farm value "Over 35 kg" count ALONE (People / HRMS fixes, 2026-10-02): a Farm
+	// value reader sees the number whether or not they hold Weighing; no weighing row leaves here.
+	{OperationID: "adminGetWeighingSaleReadyCount", Method: "GET", Pattern: "/weighing/sale-ready-count", AnyPermissions: []string{WeighingMonitor, SalesRead}},
 	{OperationID: "adminGetWeighingDates", Method: "GET", Pattern: "/weighing/weighing-dates", Permissions: []string{WeighingMonitor}},
 	{OperationID: "adminGetWeighingWeightDemographics", Method: "GET", Pattern: "/weighing/weight-demographics", Permissions: []string{WeighingMonitor}},
 	{OperationID: "adminGetWeighingLeadershipGrowth", Method: "GET", Pattern: "/weighing/leadership/growth", Permissions: []string{WeighingMonitor}},
@@ -761,6 +764,8 @@ var protectedRoutes = []Route{
 	// The Assumptions drawer (maintainer decision 2026-09-19): every Weights reader may SEE the
 	// figures the page is valued at; only a Configure-level holder may CHANGE them.
 	{OperationID: "adminGetGrowthAssumptions", Method: "GET", Pattern: "/growth-director/assumptions", Permissions: []string{WeighingMonitor}},
+	// The sale-ready line ALONE, for the Sales > Farm value "Over 35 kg" card (2026-10-02).
+	{OperationID: "adminGetGrowthSaleReadyLine", Method: "GET", Pattern: "/growth-director/sale-ready-line", AnyPermissions: []string{WeighingMonitor, SalesRead}},
 	{OperationID: "adminPutGrowthAssumptions", Method: "PUT", Pattern: "/growth-director/assumptions", Permissions: []string{WeighingAssumptionsWrite}},
 	// App-tier vaccination execution: gated on AppBootstrap = any authenticated
 	// app user (operators + leadership all hold it), NOT the admin-tier

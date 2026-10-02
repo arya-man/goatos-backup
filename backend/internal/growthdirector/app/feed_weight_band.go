@@ -28,7 +28,7 @@ import (
 // both head-count variants (on farm / including exited animals) and the exited
 // count split sold / died / other, so the screen's Animals toggle needs no read.
 func (s *Service) GetFeedWeightBand(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.FeedWeightBand, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !actor.Holds(permissions.WeighingMonitor) {
 		return domain.FeedWeightBand{}, ports.ErrForbidden
 	}
 	parkID = strings.TrimSpace(parkID)

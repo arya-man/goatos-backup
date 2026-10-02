@@ -899,6 +899,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/weighing/sale-ready-count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The Sales > Farm value "Over 35 kg" count alone.
+         * @description Requires WeighingMonitor OR SalesRead (People / HRMS fixes, 2026-10-02): a Farm value reader sees the number whether or not they hold Weighing. Returns ONLY the count of animals at or above the sale-ready line -- no pen, tag or weight. Same window rules and park scope as the Weights KPI; the sale lines are the caller's (weighing reads no assumptions table).
+         */
+        get: operations["adminGetWeighingSaleReadyCount"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/growth-director/sale-ready-line": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The two sale-ready figures alone, for the Farm value "Over 35 kg" card.
+         * @description Requires WeighingMonitor OR SalesRead (People / HRMS fixes, 2026-10-02). Returns only sale_ready_threshold_kg and sale_ready_lower_kg; absent means not set, and the caller applies its default. No price and no other assumption leaves through this read.
+         */
+        get: operations["adminGetGrowthSaleReadyLine"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/growth-director/assumptions": {
         parameters: {
             query?: never;
@@ -23312,6 +23352,58 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];
+        };
+    };
+    adminGetWeighingSaleReadyCount: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                from?: string;
+                to?: string;
+                sale_threshold_tolerance_g?: string;
+                sale_threshold_kg?: number;
+                sale_lower_kg?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The count. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        at_or_above_35kg: number;
+                    };
+                };
+            };
+        };
+    };
+    adminGetGrowthSaleReadyLine: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The line. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        sale_ready_threshold_kg?: number;
+                        sale_ready_lower_kg?: number;
+                    };
+                };
+            };
         };
     };
     adminGetGrowthAssumptions: {

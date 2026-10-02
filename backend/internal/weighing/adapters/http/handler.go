@@ -49,6 +49,7 @@ type Service interface {
 	GetWeightHistory(ctx context.Context, actor domain.Actor, parkID, campaignShedID string) (domain.WeightHistory, error)
 	GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, sections, bucket, penLocationID, penPartitionLabel string) (domain.GrowthADG, error)
 	GetShedWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, saleThresholdToleranceGrams string, saleLowerKg, saleUpperKg float64) (domain.ShedWeights, error)
+	GetSaleReadyCount(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, saleThresholdToleranceGrams string, saleLowerKg, saleUpperKg float64) (domain.SaleReadyCount, error)
 	GetWeighingDates(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.WeighingDates, error)
 	GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, sections string, bandEdgesKg []float64, bucket, penLocationID, penPartitionLabel string) (domain.WeightDemographics, error)
 	ExportCampaignCSV(ctx context.Context, actor domain.Actor, campaignID string, writer io.Writer) error
@@ -134,6 +135,8 @@ func Register(mux *http.ServeMux, h *Handler) {
 	// reads (mirroring /counts/milk-preparation and its /app twin): admin-web calls the
 	// bare path, the phone calls /app.
 	mux.HandleFunc("GET /weighing/shed-weights", h.GetShedWeights)
+	// The Farm value "Over 35 kg" card's count alone, on SalesRead or WeighingMonitor (2026-10-02).
+	mux.HandleFunc("GET /weighing/sale-ready-count", h.GetSaleReadyCount)
 	// The narrow landing-window read. Admin-web only: the phone has no Weights screen, so it is not
 	// mirrored under /app.
 	mux.HandleFunc("GET /weighing/weighing-dates", h.GetWeighingDates)
@@ -262,6 +265,26 @@ func (h *Handler) GetShedWeights(w http.ResponseWriter, r *http.Request) {
 		saleUpperKg,
 	)
 	h.maybeWriteTiming(w, r, "shed_weights", start)
+	h.respond(w, r, result, err)
+}
+
+// GetSaleReadyCount serves GET /weighing/sale-ready-count: the Over 35 kg count alone, for the
+// Sales > Farm value card. Same parameters as the shed-weights sale-ready window; the sale lines
+// are the caller's (weighing reads no assumptions table).
+func (h *Handler) GetSaleReadyCount(w http.ResponseWriter, r *http.Request) {
+	saleLowerKg, ok := parseSaleThresholdKg(r.URL.Query().Get("sale_lower_kg"))
+	if !ok {
+		h.respond(w, r, domain.SaleReadyCount{}, ports.ErrInvalidArgument)
+		return
+	}
+	saleUpperKg, ok := parseSaleThresholdKg(r.URL.Query().Get("sale_threshold_kg"))
+	if !ok {
+		h.respond(w, r, domain.SaleReadyCount{}, ports.ErrInvalidArgument)
+		return
+	}
+	q := r.URL.Query()
+	result, err := h.service.GetSaleReadyCount(r.Context(), actor(r), q.Get("park_id"), q.Get("from"), q.Get("to"),
+		q.Get("sale_threshold_tolerance_g"), saleLowerKg, saleUpperKg)
 	h.respond(w, r, result, err)
 }
 

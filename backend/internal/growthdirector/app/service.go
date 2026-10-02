@@ -32,7 +32,7 @@ func NewService(repo ports.Repository) *Service {
 // reads (GetShedWeights / GetWeightDemographics): WeighingMonitor gate, then
 // the caller's own authorized-park scope, never wider.
 func (s *Service) GetGrowthDirectorWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, sections string) (domain.GrowthDirectorWeights, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !actor.Holds(permissions.WeighingMonitor) {
 		return domain.GrowthDirectorWeights{}, ports.ErrForbidden
 	}
 	parkID = strings.TrimSpace(parkID)
@@ -138,7 +138,7 @@ func (s *Service) resolveMonitorParkScope(ctx context.Context, actor domain.Acto
 // GetFCR serves the Weighing FCR tab. Same gate, scope and window rules as
 // GetGrowthDirectorWeights: this is a reporting read under the Weights screen.
 func (s *Service) GetFCR(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.FCRReport, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !actor.Holds(permissions.WeighingMonitor) {
 		return domain.FCRReport{}, ports.ErrForbidden
 	}
 	parkID = strings.TrimSpace(parkID)
@@ -183,7 +183,7 @@ func (s *Service) GetFCR(ctx context.Context, actor domain.Actor, parkID, fromBu
 // GetSalePrices serves the assumed live-weight sale prices the Weighing tabs value gain and stock
 // at. Gated like every other Weights-screen read; the prices are the ones effective today.
 func (s *Service) GetSalePrices(ctx context.Context, actor domain.Actor) (domain.SalePrices, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !actor.Holds(permissions.WeighingMonitor) {
 		return domain.SalePrices{}, ports.ErrForbidden
 	}
 	return s.repo.GetSalePrices(ctx, actor.TenantID, biztime.BusinessDayStart(time.Now().In(biztime.DefaultLocation())))
@@ -194,10 +194,36 @@ func (s *Service) GetSalePrices(ctx context.Context, actor domain.Actor) (domain
 // may change them. includeStages is only for the editor drawer's stage grid; page-load consumers do
 // not pay for all-time weighing-stage discovery.
 func (s *Service) GetAssumptions(ctx context.Context, actor domain.Actor, includeStages bool) (domain.Assumptions, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !actor.Holds(permissions.WeighingMonitor) {
 		return domain.Assumptions{}, ports.ErrForbidden
 	}
 	return s.repo.GetAssumptions(ctx, actor.TenantID, biztime.BusinessDayStart(time.Now().In(biztime.DefaultLocation())), includeStages)
+}
+
+// GetSaleReadyLine serves the two sale-ready figures ALONE -- the line the Sales > Farm value
+// "Over 35 kg" card counts against. People / HRMS fixes (2026-10-02): the card read the whole
+// assumptions set (WeighingMonitor), so a Farm value reader without Weighing saw it disabled. It
+// is reached on SalesRead too, and carries no price and no other figure.
+func (s *Service) GetSaleReadyLine(ctx context.Context, actor domain.Actor) (domain.SaleReadyLine, error) {
+	if !actor.HoldsAny(permissions.WeighingMonitor, permissions.SalesRead) {
+		return domain.SaleReadyLine{}, ports.ErrForbidden
+	}
+	all, err := s.repo.GetAssumptions(ctx, actor.TenantID, biztime.BusinessDayStart(time.Now().In(biztime.DefaultLocation())), false)
+	if err != nil {
+		return domain.SaleReadyLine{}, err
+	}
+	out := domain.SaleReadyLine{}
+	for _, v := range all.Values {
+		switch v.Key {
+		case "sale_ready_threshold_kg":
+			value := v.Value
+			out.ThresholdKg = &value
+		case "sale_ready_lower_kg":
+			value := v.Value
+			out.LowerKg = &value
+		}
+	}
+	return out, nil
 }
 
 // PutAssumptions lands an edit from the drawer. WHO may call this is decided at the route

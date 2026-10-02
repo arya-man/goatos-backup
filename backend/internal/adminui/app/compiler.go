@@ -1235,23 +1235,21 @@ func compileHealthConfigControls(controls []domain.Control, input BootstrapInput
 // Sales has no time filter, so the window is fixed and named on the card.
 //
 // It is a READ control with no Action, so TestSalesReadPagesCarryNoWriteControl is untouched and
-// /sales stays read-only. It is gated all the same, because the figure comes from
-// /weighing/shed-weights, which needs WeighingMonitor -- a permission the sales desk does not
-// hold. Role-scoped UI is capability-gated (2026-08-12): the page renders the card only when
-// this control is enabled and shows the backend's reason otherwise, and the endpoint enforces
-// the same permission, so a principal who defeats the disabled state still gets 403.
+// /sales stays read-only.
+//
+// ENABLED FOR EVERY FARM VALUE READER (People / HRMS fixes, 2026-10-02, maintainer: "he should see
+// that value whether he has weighing page access or not"). The figure used to come from
+// /weighing/shed-weights, which needs WeighingMonitor, so the card was gated on a ROLE carrying it
+// and a person given Farm value on /people saw it disabled. It now reads
+// /growth-director/sale-ready-line and /weighing/sale-ready-count, both open to SalesRead -- the
+// permission this page is reached on -- and returning the line and the count alone, no pen or
+// weight. So the control has nothing left to gate; it stays declared because the renderer reads it.
 func compileSalesWeightCards(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
-	allowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.WeighingMonitor})
-	reason := ""
-	if !allowed {
-		reason = controlCopy(copy, "disabled.weights", "Your current role can view sales but not weighing.")
-	}
 	return upsertControl(controls, domain.Control{
-		ID:             "weights_over_35_card",
-		Label:          controlCopy(copy, "kpi.over35", "Over {kg} kg"),
-		Kind:           "summary_card",
-		Enabled:        allowed,
-		DisabledReason: reason,
+		ID:      "weights_over_35_card",
+		Label:   controlCopy(copy, "kpi.over35", "Over {kg} kg"),
+		Kind:    "summary_card",
+		Enabled: true,
 	})
 }
 

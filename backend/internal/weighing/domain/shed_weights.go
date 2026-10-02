@@ -332,3 +332,9 @@ const ShedWeightsDefaultPeriodDays = 15
 // size — the screen renders every shed in scope and pages client-side, and this
 // stops a tenant-wide read from returning an unbounded estate.
 const MaxShedWeightsRows = 300
+
+// SaleReadyCount is the Sales > Farm value "Over 35 kg" card's number alone (2026-10-02): the
+// same at_or_above_35kg the Weights KPI carries, served without the rest of the report.
+type SaleReadyCount struct {
+	AtOrAbove35Kg int `json:"at_or_above_35kg"`
+}

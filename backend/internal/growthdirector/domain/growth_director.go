@@ -10,11 +10,47 @@
 // weighing behaviour.
 package domain
 
+import "github.com/vgoats/goatos/backend/internal/permissions"
+
 // Actor is the authenticated caller, resolved from auth grants by the HTTP layer.
 type Actor struct {
 	TenantID string
 	UserID   string
 	Roles    []string
+	// Permissions is the person's resolved set when their per-person access rows decided the
+	// request (PermissionsResolved). It wins over Roles: someone ticked for Weighing on People /
+	// HRMS holds weighing.monitor without a role that carries it, and a role check refused them
+	// even though the route had let them in (People / HRMS fixes, 2026-10-02).
+	Permissions         []string
+	PermissionsResolved bool
+}
+
+// Holds reports whether the actor holds every listed permission, from the person's resolved set
+// when there is one, else from the role map.
+func (a Actor) Holds(required ...string) bool {
+	if a.PermissionsResolved {
+		for _, want := range required {
+			found := false
+			for _, have := range a.Permissions {
+				found = found || have == want
+			}
+			if !found {
+				return false
+			}
+		}
+		return true
+	}
+	return permissions.RolesAuthorize(a.Roles, required, false)
+}
+
+// HoldsAny reports whether the actor holds at least one of the listed permissions.
+func (a Actor) HoldsAny(anyOf ...string) bool {
+	for _, p := range anyOf {
+		if a.Holds(p) {
+			return true
+		}
+	}
+	return false
 }
 
 // DefaultPeriodDays is the reporting window when the caller names no dates:
