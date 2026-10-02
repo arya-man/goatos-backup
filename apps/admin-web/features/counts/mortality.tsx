@@ -43,7 +43,8 @@ import {
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { fmtDate, humanizeEnum, istDayPlus, todayIso } from "@/lib/format";
 import { backendScope, parseScope } from "@/lib/scope";
-import { stageDisplayLabel, stageNameMap, type StageNameMap } from "@/lib/stage-display";
+import { withLoadPens } from "@/lib/load-pens";
+import { stageVocabularyLabel, stageNameMap, type StageNameMap } from "@/lib/stage-display";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { VaccinationTablePager } from "@/features/preventive-care-vaccination";
 import { HerdAnalyticsDateFilter } from "./herd-analytics-date-filter";
@@ -110,7 +111,7 @@ function readWindow(sp: RouteSearchParams): { from?: string; to?: string } {
 }
 
 function withStageNames(buckets: MortalityBucket[], names: StageNameMap): MortalityBucket[] {
-  return buckets.map((bucket) => ({ ...bucket, label: stageDisplayLabel(bucket.label, names) }));
+  return buckets.map((bucket) => ({ ...bucket, label: stageVocabularyLabel(bucket.label, names) }));
 }
 
 /** A breakdown block: template Card + CardHeader (title, optional subheader) around its table. */
@@ -204,7 +205,9 @@ function RateTable({
           const width = rate == null || maxRate <= 0 ? 0 : Math.max(rate > 0 ? 2 : 0, (rate / maxRate) * 100);
           return (
             <TableRow hover key={bucket.key || "__unassigned"}>
-              <TableCell component="th" scope="row" sx={{ typography: "subtitle2", whiteSpace: "nowrap" }}>{bucketLabel(bucket.label) || unassignedLabel}</TableCell>
+              {/* A LOAD row names its pens in a bracket (load-charts-name-their-pens); every other
+                  series carries no pens and renders its label unchanged. */}
+              <TableCell component="th" scope="row" sx={{ typography: "subtitle2", whiteSpace: "nowrap" }}>{bucketLabel(bucket.label) ? withLoadPens(bucketLabel(bucket.label), bucket.pens) : unassignedLabel}</TableCell>
               <TableCell align="right" sx={{ typography: bucket.deaths > 0 ? "subtitle2" : "body2" }}>{nf(bucket.deaths)}</TableCell>
               <TableCell align="right" sx={{ color: "text.secondary" }}>{nf(bucket.animals)}</TableCell>
               <TableCell align="right">{rate == null ? <Box component="span" sx={{ color: "text.secondary" }} title={noRateLabel}>—</Box> : pct(rate)}</TableCell>
@@ -368,7 +371,11 @@ function ShareTable({
               <TableCell component="th" scope="row" sx={{ typography: "subtitle2", whiteSpace: "nowrap" }}>{bucketLabel(bucket.label) || unassignedLabel || bucket.key}</TableCell>
               {basisLabels ? (
                 <TableCell>
-                  <Label variant="soft" color={basis === "recorded" ? "success" : basis === "inferred" ? "info" : "default"}>{basisLabels[basis]}</Label>
+                  {/* The no-cause row is LABELLED by its basis already; a chip repeating the row's
+                      own words beside it says nothing twice (D5). */}
+                  {basisLabels[basis] === bucketLabel(bucket.label) ? null : (
+                    <Label variant="soft" color={basis === "recorded" ? "success" : basis === "inferred" ? "info" : "default"}>{basisLabels[basis]}</Label>
+                  )}
                 </TableCell>
               ) : null}
               <TableCell align="right" sx={bucket.deaths > 0 ? { typography: "subtitle2" } : { color: "text.secondary" }}>{nf(bucket.deaths)}</TableCell>
@@ -495,8 +502,11 @@ export async function MortalityPage({
     rate == null ? noRate : `${pct(rate)} · ${nf(animals)} ${animalsWord}`;
   const showParks = data.park.length > 1;
   const showSpecies = data.species.length > 1;
+  // Seven rate cards always, plus species and park when they discriminate: two to a row, so an odd
+  // count leaves the last one alone at half width unless it fills its row.
+  const rateCardsOdd = (7 + (showSpecies ? 1 : 0) + (showParks ? 1 : 0)) % 2 === 1;
   const stageBuckets = withStageNames(data.stage, stageNames);
-  const seasonByStage = data.season_by_stage.map((cell) => ({ ...cell, col_label: stageDisplayLabel(cell.col_label, stageNames) }));
+  const seasonByStage = data.season_by_stage.map((cell) => ({ ...cell, col_label: stageVocabularyLabel(cell.col_label, stageNames) }));
   // Template CourseWidgetSummary takes a number: units go in the title, detail in the caption.
   // Template widgets print a number: the unit / remainder leads the visible sub-line. Deaths, kids
   // and adults carry the change between the last two COMPLETE months (the change leads the Course card sub-line, J2 P1-8); the
@@ -505,7 +515,8 @@ export async function MortalityPage({
     const percent = completeMonthPercent(series, data.window_to);
     return percent == null ? null : { percent, period: "month" as const };
   };
-  const pctSub = (rate: number | null | undefined, rest: string) => (rate == null ? noRate : `% · ${rest}`);
+  // The unit rides in the tile's title ("Mortality rate (%)"), never as a stray "%" leading the sub-line.
+  const pctSub = (rate: number | null | undefined, rest: string) => (rate == null ? noRate : rest);
   const kpis: { key: string; tone: PaletteColorKey; label: string; value: number | null; hint: string; trend?: KpiTrend | null }[] = [
     { key: "deaths", tone: "error", label: mc(pageContract, "kpi.deaths.label"), value: totals.deaths, hint: "", trend: monthTrend(data.months.map((m) => m.deaths)) },
     {
@@ -603,16 +614,16 @@ export async function MortalityPage({
           <ChartCard title={mc(pageContract, "chart.kid_adult.title")}>
             <RateTable buckets={data.kid_adult} unassignedLabel={mc(pageContract, "label.unassigned_stage")} ariaLabel={mc(pageContract, "chart.kid_adult.title")} {...rateLabels} />
           </ChartCard>
-          <ChartCard title={mc(pageContract, "chart.sex.title")}>
+          <ChartCard wide={!showSpecies && !showParks && rateCardsOdd} title={mc(pageContract, "chart.sex.title")}>
             <RateTable buckets={data.sex} unassignedLabel={mc(pageContract, "label.unassigned_sex")} ariaLabel={mc(pageContract, "chart.sex.title")} {...rateLabels} />
           </ChartCard>
           {showSpecies ? (
-            <ChartCard title={mc(pageContract, "chart.species.title")}>
+            <ChartCard wide={!showParks && rateCardsOdd} title={mc(pageContract, "chart.species.title")}>
               <RateTable buckets={data.species} unassignedLabel={mc(pageContract, "label.unassigned_species")} ariaLabel={mc(pageContract, "chart.species.title")} {...rateLabels} />
             </ChartCard>
           ) : null}
           {showParks ? (
-            <ChartCard title={mc(pageContract, "chart.park.title")}>
+            <ChartCard wide={rateCardsOdd} title={mc(pageContract, "chart.park.title")}>
               <RateTable buckets={data.park} unassignedLabel={mc(pageContract, "label.unassigned_park")} ariaLabel={mc(pageContract, "chart.park.title")} {...rateLabels} />
             </ChartCard>
           ) : null}
@@ -661,7 +672,8 @@ export async function MortalityPage({
               ariaLabel={mc(pageContract, "chart.arrival.title")}
             />
           </ChartCard>
-          <ChartCard title={mc(pageContract, "chart.vaccine.title")}>
+          {/* Five count cards: the fifth fills its row rather than sitting half-width alone. */}
+          <ChartCard wide title={mc(pageContract, "chart.vaccine.title")}>
             <ShareTable
               buckets={data.days_since_vaccination}
               totalDeaths={totals.deaths}
@@ -710,8 +722,8 @@ export async function MortalityPage({
               tag: d.tag,
               displayId: d.display_id,
               breed: d.breed,
-              sex: d.sex,
-              stage: stageDisplayLabel(d.stage, stageNames),
+              sex: bucketLabel(d.sex),
+              stage: stageVocabularyLabel(d.stage, stageNames),
               ageDays: d.age_days ?? null,
               ageBandLabel: d.age_band_label,
               park: d.park,

@@ -43256,6 +43256,31 @@ components:
         basis:
           type: string
           enum: [recorded, inferred, none]
+        pens:
+          description: >-
+            LOAD series only. The pens the load's animals sit in (or last sat in), biggest placement
+            first, park code and composed pen name, so a load row names where to walk. Absent when
+            none is known; a client never invents one.
+          type: array
+          items:
+            $ref: '#/components/schemas/MortalityLoadPen'
+    MortalityLoadPen:
+      type: object
+      additionalProperties: false
+      required:
+        - park
+        - pen
+        - animals
+      properties:
+        park:
+          type: string
+          description: Park short code (CBE, CPT); empty when unresolved.
+        pen:
+          type: string
+          description: Composed operational location display ("Castro 1", "Godel 2 - Part 1").
+        animals:
+          type: integer
+          format: int64
     MortalityMonth:
       type: object
       additionalProperties: false

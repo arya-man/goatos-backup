@@ -6501,7 +6501,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.kpi.aria":     "Mortality headline figures",
 			"kpi.deaths.label":     "Deaths",
 			"kpi.deaths.sub":       "Animals recorded dead in the window",
-			"kpi.rate.label":       "Mortality rate",
+			"kpi.rate.label":       "Mortality rate (%)",
 			"kpi.rate.sub":         "Deaths in the window against every animal on the farm during it",
 			"kpi.kids.label":       "Kid deaths",
 			"kpi.kids.sub":         "Kids (K-stage or kid age band) recorded dead, with their rate",

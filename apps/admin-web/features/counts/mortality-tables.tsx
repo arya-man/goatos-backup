@@ -37,13 +37,13 @@ export type RecentDeathRow = {
 const MUTED = { color: "text.secondary" } as const;
 const MUTED_CAPTION = { color: "text.secondary", typography: "caption" } as const;
 
-/** Wide deaths ledger: scrolls inside the card's Scrollbar; cells hold one line except the date and
- * stage, which wrap at word breaks. */
+/** Wide deaths ledger: every cell holds one line and the table takes its content's width, panning
+ * inside the card's own scroll box. Ten columns squeezed into a 760px floor broke a date into
+ * "17/09/ / 2026", a stage into "Fatte/ning/male" and cut the cause chip (D5). */
 const DEATHS_TABLE_SX = {
   minWidth: 0,
-  "& table": { width: 1, minWidth: { xs: 680, sm: 760 } },
+  "& table": { width: 1, minWidth: "max-content" },
   "& th, & td": { whiteSpace: "nowrap", verticalAlign: "top" },
-  "& td:nth-of-type(1), & td:nth-of-type(5)": { whiteSpace: "normal", overflowWrap: "anywhere" },
 } as const;
 
 export function RecentDeathsTable({

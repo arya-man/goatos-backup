@@ -211,7 +211,7 @@ UNION ALL
 SELECT 'breed', breed, breed, '', count(*) FILTER (WHERE died)::bigint, count(*)::bigint
   FROM pop GROUP BY breed
 UNION ALL
-SELECT 'sex', sex, sex, '', count(*) FILTER (WHERE died)::bigint, count(*)::bigint
+SELECT 'sex', sex, initcap(sex), '', count(*) FILTER (WHERE died)::bigint, count(*)::bigint
   FROM pop GROUP BY sex
 UNION ALL
 SELECT 'species', species, species, '', count(*) FILTER (WHERE died)::bigint, count(*)::bigint
@@ -265,6 +265,28 @@ SELECT 'load', l.load_key,
   LEFT JOIN procurement_loads pl
          ON pl.tenant_id = $1::uuid
         AND pl.load_id = CASE WHEN l.load_key ~ '^[0-9a-f-]{36}$' THEN l.load_key::uuid END
+UNION ALL
+-- The pens each load's animals sit in (or last sat in before they left), so a load row can name
+-- them in a bracket ("Load 128 (CPT Castro 1)") -- every load chart names its pens
+-- (docs/decisions/load-charts-name-their-pens.md). Only for loads the load branch above returns
+-- (a load that lost an animal), keyed load_key ':' park_id so Go can park-qualify the pen.
+-- projection-review: membership=the same pop rows the load branch ranges over, one per animal,
+-- narrowed to purchased loads with a death in the window; group_key=(load_key, park_id, shed_id,
+-- normalized partition), the pen key the pen branch uses, so two same-named sheds in different
+-- parks never merge; join_cardinality=pop is one row per animal and goat_shed_partitions is PK
+-- (tenant_id, goat_id), locations is a primary-key label lookup AFTER aggregation; pagination=none;
+-- scope=the tenant and optional park predicate pop already applies.
+SELECT 'load_pen', lp.load_key || ':' || COALESCE(lp.park_id::text, ''),
+       COALESCE(NULLIF(shed.name, ''), shed.location_code, ''), lp.partition_label,
+       0::bigint, lp.animals
+  FROM (SELECT load_key, park_id, shed_id, min(partition_label) AS partition_label, count(*)::bigint AS animals
+          FROM pop
+         WHERE shed_id IS NOT NULL
+           AND load_key IN (SELECT load_key FROM pop
+                             WHERE load_key NOT IN ('farm_born', 'no_load')
+                             GROUP BY load_key HAVING count(*) FILTER (WHERE died) > 0)
+         GROUP BY load_key, park_id, shed_id, lower(regexp_replace(partition_label, '[^A-Za-z0-9]+', '', 'g'))) lp
+  LEFT JOIN locations shed ON shed.tenant_id = $1::uuid AND shed.location_id = lp.shed_id
 UNION ALL
 -- Vendors: the load series rolled up to WHO the animals were bought from. A vendor sends
 -- many loads, so a weakness that reads as one unlucky batch under Load reads as a pattern
@@ -602,6 +624,7 @@ func (r *Repository) GetMortality(ctx context.Context, req domain.MortalityQuery
 	if err != nil {
 		return domain.Mortality{}, fmt.Errorf("mortality: population query: %w", err)
 	}
+	loadPens := map[string][]loadPen{}
 	for popRows.Next() {
 		var dim, key, label, extra string
 		var deaths, animals int64
@@ -643,6 +666,12 @@ func (r *Repository) GetMortality(ctx context.Context, req domain.MortalityQuery
 		case "vendor":
 			bucket.Label = vendorBucketLabel(key, label)
 			out.Vendor = append(out.Vendor, bucket)
+		case "load_pen":
+			loadKey, parkID, _ := strings.Cut(key, ":")
+			loadPens[loadKey] = append(loadPens[loadKey], loadPen{
+				parkID: parkID,
+				pen:    domain.MortalityLoadPen{Pen: oploc.OperationalLocation{ShedName: label, PartitionLabel: extra}.Display(), Animals: animals},
+			})
 		}
 	}
 	popRows.Close()
@@ -658,6 +687,23 @@ func (r *Repository) GetMortality(ctx context.Context, req domain.MortalityQuery
 	for i := range out.Pen {
 		parkID, _, _ := strings.Cut(out.Pen[i].Key, ":")
 		out.Pen[i].Label = parkQualifiedPen(parkCodes[parkID], out.Pen[i].Label)
+	}
+	// A load row carries its pens, park-qualified from the same park series; the bracket itself
+	// is composed by the client's one load-pens helper, never here.
+	for i := range out.Load {
+		pens := loadPens[out.Load[i].Key]
+		if len(pens) == 0 {
+			continue
+		}
+		out.Load[i].Pens = make([]domain.MortalityLoadPen, 0, len(pens))
+		for _, p := range pens {
+			pen := p.pen
+			pen.Park = parkCodes[p.parkID]
+			out.Load[i].Pens = append(out.Load[i].Pens, pen)
+		}
+		sort.SliceStable(out.Load[i].Pens, func(a, b int) bool {
+			return out.Load[i].Pens[a].Animals > out.Load[i].Pens[b].Animals
+		})
 	}
 
 	// ---- 2. deaths: every COUNT series, months and cross tabs --------------------------
@@ -805,6 +851,12 @@ func (r *Repository) GetMortality(ctx context.Context, req domain.MortalityQuery
 // "Farm born" too (7eceb8285), which put two "Farm born" rows on the load table, the second one
 // holding no animal born here.
 const procuredNoLoadLabel = "Procured, no load"
+
+// loadPen is one load_pen row parked until the park series resolves its park code.
+type loadPen struct {
+	parkID string
+	pen    domain.MortalityLoadPen
+}
 
 // loadBucketLabel names a load bucket. The two synthetic keys carry domain copy; a real
 // load carries its own reference, or its id's short form when the load has neither a
