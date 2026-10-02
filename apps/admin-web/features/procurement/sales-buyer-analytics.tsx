@@ -50,7 +50,10 @@ import { PageRoot } from "@/components/app/page-root";
 const pct = (w: string) => ({ width: w });
 const BUYER_TABLE_SX: SxProps<Theme> = {
   ...(cardTableScrollSx as object),
-  "& table.sales-buyer-analytics-table": { minWidth: { xs: "65rem", sm: "62rem" }, tableLayout: "fixed" },
+  // `width: 100%` is what makes `table-layout: fixed` (and the column shares below) take effect: a
+  // fixed table with an AUTO width falls back to content sizing, which is how the nowrap cells still
+  // pushed "Still owed" past the card edge after the floor was lowered (PR #294 S2).
+  "& table.sales-buyer-analytics-table": { width: "100%", minWidth: { xs: "65rem", sm: "62rem" }, tableLayout: "fixed" },
   "& table.sales-buyer-analytics-table :is(th, td)": {
     px: { xs: 1.25, sm: 1.375 },
     fontSize: "var(--fs-caption)",

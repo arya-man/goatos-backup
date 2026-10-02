@@ -31,7 +31,10 @@ import Typography from "@mui/material/Typography";
 import { CELL_LINK, cellLinksSx } from "./procurement-sx";
 import { SALES_GRID } from "./sales-layout";
 
-const LOADWISE_NUM_COLUMNS = new Set([2, 5, 8]);
+// Every figure column (Purchased .. Profit) is right-aligned in its cells, so its heading is too:
+// only 2, 5 and 8 used to be, which left "Sold", "Mortality", "Sold value" and the rest heading the
+// wrong edge of their own numbers.
+const LOADWISE_NUM_COLUMNS = new Set([2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
 
 /**
  * Tooltip line for a count that includes pre-system history: the copy's label, the count, and the
@@ -499,9 +502,13 @@ export function LoadwiseSection({
               // lines, and the cell gutter is the template's dense one. The rest still pans inside
               // the card on narrower screens.
               "& th": { whiteSpace: "normal", verticalAlign: "bottom", minWidth: 64 },
-              "& th, & td": { px: 1.25 },
+              "& th, & td": { px: 1 },
               "& th:first-of-type, & td:first-of-type": { pl: 2 },
-              "& td:first-of-type, & td:first-of-type .cell-link": { whiteSpace: "normal", minWidth: 150 },
+              "& td:first-of-type, & td:first-of-type .cell-link": { whiteSpace: "normal", minWidth: 136 },
+              // The profit's "Assumed ₹…" sub-line breaks after its word, so the last column is as
+              // wide as its widest figure, not figure + label on one line (PR #294 S2: Profit sat past
+              // the 1440 card edge).
+              "& td .loadwise-assumed": { whiteSpace: "normal" },
               "& td.MuiTableCell-alignRight": { fontVariantNumeric: "tabular-nums" },
             }}
           >
@@ -627,6 +634,7 @@ export function LoadwiseSection({
                               <Typography
                                 variant="caption"
                                 component="span"
+                                className="loadwise-assumed"
                                 sx={{ display: "block", color: "text.secondary" }}
                                 title={load.assumed_value_basis || undefined}
                               >
