@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { fmtClock, fmtGrams, fmtSplit } from "./feed-config-format.ts";
+import { fmtClock, fmtExperimentArm, fmtGrams, fmtSplit } from "./feed-config-format.ts";
 
 test("authored grams read without trailing zeros, with Indian grouping", () => {
   assert.equal(fmtGrams("1200.000"), "1,200");
@@ -38,4 +38,15 @@ test("feed-config tables scroll in the template Scrollbar (TR1-#20)", async () =
   assert.ok((page.match(/<Scrollbar\b/g) ?? []).length >= 4, "four table scrollers");
   assert.doesNotMatch(page, /<Box\b[^>]*overflowX: "auto"/, "no bare overflow Box around a table");
   assert.doesNotMatch(page, /feed-scroll/, "no legacy .feed-scroll wrapper");
+});
+
+test("an experiment arm reads in farm words: DD/MM/YYYY, pen, sex and age spelt out (D4)", () => {
+  assert.equal(fmtExperimentArm("Sheep M NEW"), "Sheep Male New");
+  assert.equal(fmtExperimentArm("B+S Goat F OLD"), "B+S Goat Female Old");
+  assert.equal(fmtExperimentArm("Shed-average plan 2026-09-07"), "Pen-average plan 07/09/2026");
+  assert.equal(
+    fmtExperimentArm("Mixed (9 Goat F, 1 Sheep F, 5 Goat M) NEW - warmup 20:80"),
+    "Mixed (9 Goat Female, 1 Sheep Female, 5 Goat Male) New - warmup 20:80",
+  );
+  assert.equal(fmtExperimentArm(""), "");
 });
