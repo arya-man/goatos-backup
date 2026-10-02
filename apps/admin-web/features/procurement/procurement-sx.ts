@@ -51,11 +51,12 @@ export const cardTableScrollSx: SxProps<Theme> = {
  * showing only the key fields; the rest of a load is one tap away in its drawer / detail. The
  * first cell's link covers the whole card, so the card is the tap target. Laptop keeps the table.
  *
- * `slots` places the visible cells: nth-child index -> grid position (+ optional secondary text).
+ * `slots` places the visible cells: nth-child index -> grid position (+ optional secondary text;
+ * `labelled` prints the cell link's `data-label` before its value).
  */
 export function phoneLoadCardsSx(
   tableClass: string,
-  slots: { nth: number; column: string; row: number; secondary?: boolean; alignEnd?: boolean }[],
+  slots: { nth: number; column: string; row: number; secondary?: boolean; alignEnd?: boolean; labelled?: boolean }[],
 ): SxProps<Theme> {
   const t = `& table.${tableClass}`;
   const placed: Record<string, object> = {};
@@ -68,6 +69,11 @@ export function phoneLoadCardsSx(
       ...(slot.secondary ? { color: "text.secondary", typography: "body2" } : {}),
       ...(slot.alignEnd ? { justifySelf: "end", textAlign: "right" } : {}),
     };
+    if (slot.labelled) {
+      // The header row is hidden on a phone, so a bare reading ("58") would carry no name: the
+      // cell's own `data-label` (its column heading) leads it.
+      placed[`${t} td:nth-of-type(${slot.nth}) .${CELL_LINK}::before`] = { content: 'attr(data-label) " "', color: "text.secondary" };
+    }
     if (slot.alignEnd) {
       placed[`${t} td:nth-of-type(${slot.nth}) .${CELL_LINK}`] = { display: "flex !important", alignItems: "center", justifyContent: "flex-end", gap: 1 };
     }

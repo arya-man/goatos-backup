@@ -3,6 +3,16 @@
 export const SOURCE_LOAD_STATUS_KEYS = ["source_warmup", "health_pending", "pre_dispatch_pending", "dispatch_ready", "in_transit", "arrival_review", "accepted_intake", "rejected", "deferred", "blocked", "canceled"] as const;
 /** The contract's `source-loads` table columns (backend adminui service), in order. */
 export const SOURCE_LOAD_COLUMNS = ["load", "holding_farm_supplier", "purpose", "animals", "warmup", "tagging", "vaccination_hf", "health_selection", "status"] as const;
+/**
+ * Columns the LIST read cannot answer: purpose, tagging and HF vaccination come from a load's own
+ * detail read, which the board makes only for the load whose drawer is open (request-plan C35-016).
+ * In the table they were blank on every row; they stay in the drawer, where the detail is read.
+ */
+export const SOURCE_LOAD_DETAIL_ONLY_COLUMNS = ["purpose", "tagging", "vaccination_hf"] as const;
+/** The board table's columns: the contract's, less the detail-only ones, in contract order. */
+export const SOURCE_LOAD_TABLE_COLUMNS = SOURCE_LOAD_COLUMNS.filter(
+  (key) => !(SOURCE_LOAD_DETAIL_ONLY_COLUMNS as readonly string[]).includes(key),
+);
 /** Rows the placeholder shows (one read renders every row). */
 export const SOURCE_LOAD_SKELETON_ROWS = 10;
 /** Placeholder width of the toolbar's Filters button (its label's width; skeleton only). */

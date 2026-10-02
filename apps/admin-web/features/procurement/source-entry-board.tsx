@@ -34,10 +34,19 @@ import { orderToolbarFilterSx, orderToolbarSearchSx } from "@/components/app/ord
 import { LinkFiltersResult, type LinkFilterChip } from "@/components/app/link-filters-result";
 import { CELL_LINK, cellLinksSx, phoneLoadCardsSx } from "./procurement-sx";
 import { LinkSelect } from "@/components/app/link-select";
-import { SOURCE_LOAD_TAB_STATES } from "./source-entry-layout";
+import { SOURCE_LOAD_COLUMNS, SOURCE_LOAD_TAB_STATES, SOURCE_LOAD_TABLE_COLUMNS } from "./source-entry-layout";
 import { PageRoot } from "@/components/app/page-root";
 
-const LOAD_CARDS_SX = phoneLoadCardsSx("source-loads-table", [{ nth: 1, column: "1", row: 1 }, { nth: 9, column: "2", row: 1, alignEnd: true }, { nth: 2, column: "1 / -1", row: 2, secondary: true }]);
+// Phone cards: load + status on the first line, holding farm under it, then the animal count
+// (labelled -- the header row is hidden) beside the warmup reading. nth = the TABLE column order
+// (SOURCE_LOAD_TABLE_COLUMNS): load, holding, animals, warmup, health / selection, status.
+const LOAD_CARDS_SX = phoneLoadCardsSx("source-loads-table", [
+  { nth: 1, column: "1", row: 1 },
+  { nth: 6, column: "2", row: 1, alignEnd: true },
+  { nth: 2, column: "1 / -1", row: 2, secondary: true },
+  { nth: 3, column: "1", row: 3, secondary: true, labelled: true },
+  { nth: 4, column: "2", row: 3, alignEnd: true },
+]);
 
 function daysSince(date: string | null | undefined): number | null {
   if (!date) return null;
@@ -213,6 +222,13 @@ export async function SourceEntryBoardPage({
   const nextHref = hrefWithCursor(pathname, sp, nextCursor);
   const prevHref = hrefPreviousCursor(pathname, sp);
   const loadLabels = tableLabels(pageContract, "source-loads");
+  // The table shows the columns the list read answers (source-entry-layout.ts); the drawer keeps
+  // every contract label, indexed in contract order.
+  const tableLabelsShown = loadLabels.filter((_, index) => {
+    const key = SOURCE_LOAD_COLUMNS[index];
+    return key === undefined || (SOURCE_LOAD_TABLE_COLUMNS as readonly string[]).includes(key);
+  });
+  const animalsLabel = loadLabels[SOURCE_LOAD_COLUMNS.indexOf("animals")] ?? "";
   const closeDrawerHref = hrefWithQuery(pathname, sp, { source_load: null });
   const drawerItems: SourceEntryDrawerItem[] = loads.map((load) => {
     const detail = detailByLoad.get(load.load_id);
@@ -336,15 +352,15 @@ export async function SourceEntryBoardPage({
 
         {/* The loads (guard: url-keyed-panel): a stage tab / page click swaps them to their skeleton at
             once; tabs, toolbar and chips stay on screen. The load drawer param never suspends it. */}
-        <UrlSuspense searchParams={sp} watch={LOADS_WATCH} fallback={<SourceLoadRowsSkeleton columns={Math.max(loadLabels.length, 1)} />}>
+        <UrlSuspense searchParams={sp} watch={LOADS_WATCH} fallback={<SourceLoadRowsSkeleton columns={Math.max(tableLabelsShown.length, 1)} />}>
         <Box sx={LOAD_CARDS_SX} role="group" aria-label={copy(pageContract, "section.loads.aria")}>
           <Scrollbar>
             <Table className="source-loads-table" sx={SOURCE_LOADS_TABLE_SX}>
-              <TableHeadCustom headCells={loadLabels.map((label, index) => ({ id: `c${index}`, label, sortable: false }))} />
+              <TableHeadCustom headCells={tableLabelsShown.map((label, index) => ({ id: `c${index}`, label, sortable: false }))} />
               <TableBody>
                 {loads.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={loadLabels.length} sx={{ py: 5, textAlign: "center", color: "text.secondary", typography: "body2" }}>
+                    <TableCell colSpan={tableLabelsShown.length} sx={{ py: 5, textAlign: "center", color: "text.secondary", typography: "body2" }}>
                       {result.ok
                         ? statusFilter === "all"
                           ? copy(pageContract, "empty.loads_detail")
@@ -357,11 +373,7 @@ export async function SourceEntryBoardPage({
                     const drawerHref = hrefWithQuery(pathname, sp, { source_load: load.load_id });
                     const healthSelection = healthSelectionLabel(load.status, pageContract);
                     const detail = detailByLoad.get(load.load_id);
-                    const hfVaccination = hfVaccinationLabel(detail, pageContract);
-                    const purpose = purposeLabel(detail, pageContract);
                     const warmup = warmupCell(load, detail, pageContract);
-                    // An unknown value (no detail read yet) is a blank cell, not a grey "—" pill.
-                    const tagging = taggingLabel(detail, load.expected_count, pageContract);
                     return (
                       <TableRow key={load.load_id} hover>
                         <TableCell>
@@ -381,13 +393,8 @@ export async function SourceEntryBoardPage({
                             {sourceLocationLabel(load, pageContract)}
                           </LocalOverlayLink>
                         </TableCell>
-                        <TableCell>
-                          <LocalOverlayLink href={drawerHref} className={CELL_LINK} scroll={false}>
-                            {purpose === placeholder ? null : <Tag tone={purpose === optionLabel(pageContract, "proc_purpose", "fattening") ? "mut" : "ok"}>{purpose}</Tag>}
-                          </LocalOverlayLink>
-                        </TableCell>
                         <TableCell align="center">
-                          <LocalOverlayLink href={drawerHref} className={CELL_LINK} scroll={false}>
+                          <LocalOverlayLink href={drawerHref} className={CELL_LINK} scroll={false} data-label={animalsLabel}>
                             {load.expected_count}
                           </LocalOverlayLink>
                         </TableCell>
@@ -399,16 +406,6 @@ export async function SourceEntryBoardPage({
                               title={warmup.note}
                               slotProps={{ secondary: { sx: { mt: 0.5, typography: "caption" } } }}
                             />
-                          </LocalOverlayLink>
-                        </TableCell>
-                        <TableCell>
-                          <LocalOverlayLink href={drawerHref} className={CELL_LINK} scroll={false}>
-                            {tagging === placeholder ? null : <Tag tone="mut">{tagging}</Tag>}
-                          </LocalOverlayLink>
-                        </TableCell>
-                        <TableCell>
-                          <LocalOverlayLink href={drawerHref} className={CELL_LINK} scroll={false}>
-                            {hfVaccination.label === placeholder ? null : <Tag tone={hfVaccination.tone}>{hfVaccination.label}</Tag>}
                           </LocalOverlayLink>
                         </TableCell>
                         <TableCell>
@@ -463,8 +460,12 @@ function sourceLoadPageSizes(pageContract: AdminUiPageContract): number[] {
   return options.length > 0 ? [...options].sort((a, b) => a - b) : [50];
 }
 
-/** The status select: the template toolbar's leading field (full width on a phone). */
-const SOURCE_STATUS_SELECT_SX = { ...orderToolbarFilterSx, display: "flex", "& > .MuiTextField-root": { flex: 1, minWidth: 0 } } as const;
+/**
+ * The status select: the template toolbar's leading field (full width on a phone). The stage names
+ * ("Pre-dispatch pending", "Arrival review") do not fit the template's 160px field, which ellipsised
+ * the chosen value ("Health p…"); from md it takes 240px (it still shrinks before the search).
+ */
+const SOURCE_STATUS_SELECT_SX = { ...orderToolbarFilterSx, flex: { md: "0 1 240px" }, display: "flex", "& > .MuiTextField-root": { flex: 1, minWidth: 0 } } as const;
 
 /**
  * The loads table (TR3-P1-2): headings stay on ONE line (the template TableHeadCustom nowrap; no
