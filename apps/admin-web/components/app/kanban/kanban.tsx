@@ -36,8 +36,13 @@ export function KanbanBoard({ sx, children, ...other }: BoxProps) {
           pb: 2,
           gap: 'var(--kanban-column-gap)',
           display: 'flex',
-          alignItems: 'flex-start',
-          overflowX: 'auto',
+          // Phone: the lanes STACK, full width. Side by side they showed one lane with the rest
+          // off-screen and no hint, and the board's height was set by whichever hidden lane was
+          // tallest -- thousands of px of blank page under the visible one (PR #294 A2/E6). Each
+          // lane keeps its own pager, so a stacked lane stays one page long.
+          flexDirection: { xs: 'column', sm: 'row' },
+          alignItems: { xs: 'stretch', sm: 'flex-start' },
+          overflowX: { xs: 'visible', sm: 'auto' },
           maxWidth: 1,
         },
         ...(Array.isArray(sx) ? sx : [sx]),
@@ -55,6 +60,8 @@ const ColumnRoot = styled('section')(({ theme }) => ({
   flexDirection: 'column',
   gap: 'var(--kanban-item-gap)',
   width: 'min(var(--kanban-column-width), calc(100vw - calc(3 * var(--spacing)) * 2))',
+  // Phone: a stacked lane fills the board (KanbanBoard).
+  [theme.breakpoints.down('sm')]: { width: '100%' },
   borderRadius: 'var(--kanban-column-radius)',
   backgroundColor: theme.vars.palette.background.neutral,
 }));

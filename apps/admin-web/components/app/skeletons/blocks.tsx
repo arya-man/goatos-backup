@@ -1004,7 +1004,8 @@ export function KanbanSkeleton({
         borderRadius: 2,
         bgcolor: "background.neutral",
         minWidth: 0,
-        ...(layout === "kanban" ? { width: laneWidth ? capLane(laneWidth) : "min(calc(42 * var(--spacing)), calc(100vw - calc(6 * var(--spacing))))" } : {}),
+        // Phone: the loaded board stacks its lanes full width (KanbanBoard), so the skeleton does too.
+        ...(layout === "kanban" ? { width: phoneFullLane(laneWidth ? capLane(laneWidth) : "min(calc(42 * var(--spacing)), calc(100vw - calc(6 * var(--spacing))))") } : {}),
         ...(minHeight ? { minHeight } : {}),
       }}
     >
@@ -1032,13 +1033,18 @@ export function KanbanSkeleton({
       data-skel="board"
       sx={
         layout === "kanban"
-          ? { pb: 2, columnGap: 3, display: "flex", alignItems: "flex-start", overflow: "hidden", maxWidth: 1 }
+          ? { pb: 2, columnGap: 3, rowGap: 3, display: "flex", flexDirection: { xs: "column", sm: "row" }, alignItems: { xs: "stretch", sm: "flex-start" }, overflow: "hidden", maxWidth: 1 }
           : { display: "grid", gap: 1.5, alignItems: "start", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))", lg: `repeat(${lanes.length}, minmax(0, 1fr))` } }
       }
     >
       {lanes.map((cards, i) => lane(cards, i))}
     </Box>
   );
+}
+
+/** A lane width with the phone override: stacked lanes fill the board below sm. */
+function phoneFullLane(width: string | Record<string, string>): Record<string, string> {
+  return typeof width === "string" ? { xs: "100%", sm: width } : { ...width, xs: "100%" };
 }
 
 /** The template ColumnRoot width rule: the board's column width, never wider than the phone less its gutters. */

@@ -21,12 +21,14 @@ export const kanbanColumnState = {
   columnOver: '--column-over',
 } as const;
 
-export const ColumnWrapper = styled('section')({
+export const ColumnWrapper = styled('section')(({ theme }) => ({
   flexShrink: 0,
   display: 'flex',
   flexDirection: 'column',
   width: 'min(var(--kanban-column-width), calc(100vw - calc(3 * var(--spacing)) * 2))',
-});
+  // Phone: the lanes stack (KanbanBoard), each filling the board.
+  [theme.breakpoints.down('sm')]: { width: '100%' },
+}));
 
 export const ColumnRoot = styled('div')(({ theme }) => {
   const backgroundOverStyles: Record<'idle' | 'taskOver' | 'columnOver', CSSObject> = {
