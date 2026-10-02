@@ -465,33 +465,33 @@ func (s *Service) GetInsights(ctx context.Context, actor domain.Actor) (domain.I
 		},
 		{
 			Key: "low_movement_watch", Label: "Low Movement Watch", Value: fmt.Sprintf("%d", d.LowMovementWatchCount), Unit: "tags",
-			SignalType: "inferred", Formula: "60 min motion delta below pen baseline",
+			SignalType: "inferred", Formula: "moved less over the last hour than its pen usually does",
 			Caveat: "Duration-based pattern over history, not a single reading. Not a health or behavior diagnosis.",
 		},
 		{
 			Key: "high_movement_spike", Label: "High Movement Spike", Value: fmt.Sprintf("%d", d.HighMovementSpikeCount), Unit: "tags",
-			SignalType: "inferred", Formula: "15m delta far above the animal/pen baseline",
+			SignalType: "inferred", Formula: "moved far more in 15 min than the animal usually does",
 			Caveat: "Baseline is per-animal; a naturally active animal's spike threshold is higher than a naturally quiet animal's.",
 		},
 		{
 			Key: "shed_signal_coverage", Label: "Pen Signal Coverage", Value: fmt.Sprintf("%d/%d", d.ShedsWithCoverage, d.ShedsTotal), Unit: "pens",
-			SignalType: "correlated", Formula: "live mapped tags / smart-tag mapped animals per pen",
+			SignalType: "correlated", Formula: "pens where every animal with a smart tag is being heard",
 			Caveat: "A pen with no gateway deployed yet is excluded from the denominator, not counted as zero coverage.",
 		},
 		{
 			Key: "weak_signal_tags", Label: "Weak Signal Tags", Value: fmt.Sprintf("%d", d.WeakSignalTagsCount), Unit: "tags",
-			SignalType: "derived", Formula: "RSSI at or below the provisional threshold",
-			Caveat: "RSSI reflects gateway placement and obstruction as much as tag health.",
+			SignalType: "derived", Formula: "signal too weak for a steady reading",
+			Caveat: "A weak signal says as much about where the gateway sits and what is in the way as about the tag.",
 		},
 		{
 			Key: "battery_attention", Label: "Battery Attention", Value: fmt.Sprintf("%d", d.BatteryAttentionCount), Unit: "tags",
-			SignalType: "direct", Formula: "battery below configured mV threshold",
-			Caveat: "Threshold is a provisional placeholder pending vendor discharge-curve confirmation.",
+			SignalType: "direct", Formula: "tag battery below the replace-soon level",
+			Caveat: "The replace-soon level is provisional until the tag maker confirms how fast the battery drains.",
 		},
 		{
 			Key: "post_vaccination_movement_watch", Label: "Post-Vaccination Movement Watch", Value: fmt.Sprintf("%d", d.PostVaccinationWatchCount), Unit: "animals",
-			SignalType: "correlated", Formula: "0-24h activity delta after vaccination vs prior baseline",
-			Caveat: "Correlation only -- reduced movement after vaccination is not a diagnosis, and is expected for many animals.",
+			SignalType: "correlated", Formula: "movement in the day after vaccination against the days before",
+			Caveat: "Correlation only. Moving less after vaccination is not a diagnosis, and is expected for many animals.",
 		},
 		{
 			Key: "health_case_activity_trend", Label: "Health Case Activity Trend", Value: fmt.Sprintf("%d", d.HealthCaseActivityCount), Unit: "animals",
@@ -510,7 +510,7 @@ func (s *Service) GetInsights(ctx context.Context, actor domain.Actor) (domain.I
 		},
 		{
 			Key: "unmapped_smart_tags", Label: "Unmapped Smart Tags", Value: fmt.Sprintf("%d", d.UnmappedSmartTagsCount), Unit: "tags",
-			SignalType: "derived", Formula: "BLE tags seen with no active smart-tag-capable identifier",
+			SignalType: "derived", Formula: "tags the gateways hear that are not linked to an animal",
 			Caveat: "A tag the gateways hear that is not yet assigned to an animal in the herd register, or whose assigned tag is not marked as a smart tag.",
 		},
 	}

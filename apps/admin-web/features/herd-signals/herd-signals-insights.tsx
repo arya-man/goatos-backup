@@ -43,8 +43,9 @@ export function HerdSignalsInsights({ cards }: { cards: HerdInsightCard[] }) {
     <Stack spacing={3}>
       {/* Honesty disclaimer + reading guide (9384d08f4 / 1f0b71be9): what the tag can and cannot detect. */}
       <Alert severity="info">
-        <b>What the tag actually reports:</b> tag ID, BLE MAC, RSSI, battery mV, tag temperature, a
-        cumulative motion counter, sensor-OK bits, gateway ID and timestamps. It does not detect eating,
+        <b>What the tag actually reports:</b> its own ID, how strongly the gateway hears it, its battery
+        level, the tag's temperature, a running count of its movements, whether its sensor is working,
+        which gateway heard it and when. It does not detect eating,
         rumination, posture, walking, fever, body temperature or disease. Everything below is labelled
         Direct, Derived, Correlated or Inferred.
       </Alert>
