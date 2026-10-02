@@ -139,7 +139,8 @@ export async function MilkPreparationPage({
     param: "mp_park",
     label: copy(pageContract, "filter.park_label"),
     value: topBarScope.parkId || localParkID,
-    options: locations.parks.map((park) => ({ value: park.id, label: park.name })),
+    // The park CODE, as every row and chip on this page names the park ("CPT", not "Channapatna").
+    options: locations.parks.map((park) => ({ value: park.id, label: park.code || park.name })),
     disabledReason: topBarScope.parkId ? copy(pageContract, "filter.scope_readonly") : undefined,
   }];
 
