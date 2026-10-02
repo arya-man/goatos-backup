@@ -42,10 +42,11 @@ test("a closed panel's page render has no path to the feed read", () => {
 
 test("a panel opened by its button loads the day itself, once, and only when it has no server render", () => {
   assert.match(panel, /loadFeedVerificationLogAction\(feedDay, parkId\)/);
-  assert.match(panel, /const needsLoad = drawerOpen && !serverRendered;/);
+  assert.match(panel, /serverRendered \? \(\s*children\s*\) : drawerOpen \? \(\s*<FeedVerificationClientBody\b/);
+  assert.match(panel, /function FeedVerificationClientBody\(/);
   // The effect must not depend on its own loading state: re-running on "loading" cancels the
   // request it just made, and the drawer sat on its skeleton forever (E2E 2026-10-01).
-  assert.match(panel, /\}, \[needsLoad, feedDay, parkId\]\);/);
+  assert.match(panel, /\}, \[feedDay, parkId\]\);/);
   assert.doesNotMatch(panel, /\[[^\]]*\bloaded\b[^\]]*\]\);/, "no effect may list `loaded` as a dependency");
   // Opening stays client-local: the button is a hash LocalOverlayLink, never a route navigation.
   assert.match(panel, /<LocalOverlayLink href=\{`#\$\{selectionKey\}=\$\{panelId\}`\}/);

@@ -12,6 +12,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  *
  * Same endpoint and the same capability gate as the server render (permissions.VerificationFeedPackingLog);
  * a caller without it gets the backend's refusal, never data.
+ *
+ * server-action-read-only: GET-backed panel read; no mutation replay key required.
  */
 export async function loadFeedVerificationLogAction(
   feedDay?: string,

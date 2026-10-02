@@ -103,7 +103,7 @@ export function FeedVerificationView({
         </div>
 
         {/* Shown whenever there is a park to choose OR a park is already chosen: a park picked on
-            one day may hold nothing on the next, and the reader must still have "All parks" to get
+            one day may hold nothing on the next, and the reader must still have the reset link to get
             back, never a dead end. */}
         {parks.length > 1 || parkFilter ? (
           <div className="fv-parks" role="group" aria-label={t("filter.park")}>

@@ -64,33 +64,6 @@ export function FeedVerificationPanel({
     closeHref,
   });
   const serverRendered = children != null;
-  const [loaded, setLoaded] = useState<
-    { state: "loading" } | { state: "ready"; log: Parameters<typeof FeedVerificationView>[0]["log"] } | { state: "failed" } | null
-  >(null);
-  // A closed drawer forgets the day it loaded, so the next open reads it again: the verifier keeps
-  // deciding videos with the drawer shut, and a reopened drawer must not show the old totals.
-  useEffect(() => {
-    if (!drawerOpen) setLoaded(null);
-  }, [drawerOpen]);
-  // Load on open, only when the page did not already render the day. The request is cancelled
-  // only by the drawer CLOSING (or the inputs changing) -- never by its own "loading" state, which
-  // would discard the answer it is waiting for.
-  const needsLoad = drawerOpen && !serverRendered;
-  useEffect(() => {
-    if (!needsLoad) return;
-    let live = true;
-    setLoaded({ state: "loading" });
-    loadFeedVerificationLogAction(feedDay, parkId)
-      .then((result) => {
-        if (live) setLoaded(result.ok ? { state: "ready", log: result.log } : { state: "failed" });
-      })
-      .catch(() => {
-        if (live) setLoaded({ state: "failed" });
-      });
-    return () => {
-      live = false;
-    };
-  }, [needsLoad, feedDay, parkId]);
   const title = copy(pageContract, "feed_verification.title");
   const closeLabel = copy(pageContract, "feed_verification.close");
 
@@ -132,16 +105,10 @@ export function FeedVerificationPanel({
             <div className="dc">
               {serverRendered ? (
                 children
-              ) : loaded?.state === "ready" ? (
-                <FeedVerificationView {...view} log={loaded.log} />
-              ) : loaded?.state === "failed" ? (
-                <div className="small muted">{copy(pageContract, "feed_verification.unavailable")}</div>
+              ) : drawerOpen ? (
+                <FeedVerificationClientBody pageContract={pageContract} view={view} feedDay={feedDay} parkId={parkId} />
               ) : (
-                <div className="vr-feedverify" aria-busy="true">
-                  <div className="skel" style={{ width: 220, height: 32 }} />
-                  <div className="skel" style={{ width: "100%", height: 56, marginTop: 12 }} />
-                  <div className="skel" style={{ width: "100%", height: 180, marginTop: 12 }} />
-                </div>
+                <FeedVerificationSkeleton />
               )}
             </div>
           </aside>
@@ -153,3 +120,49 @@ export function FeedVerificationPanel({
 
 // One synthetic item, module-level so its identity is stable across renders (see VideoLogPanel).
 const PANEL_ITEMS = [{ id: "open" }] as const;
+
+function FeedVerificationClientBody({
+  pageContract,
+  view,
+  feedDay,
+  parkId,
+}: {
+  pageContract: AdminUiPageContract;
+  view: FeedVerificationViewProps;
+  feedDay?: string;
+  parkId?: string;
+}) {
+  const [loaded, setLoaded] = useState<
+    { state: "loading" } | { state: "ready"; log: Parameters<typeof FeedVerificationView>[0]["log"] } | { state: "failed" }
+  >({ state: "loading" });
+
+  // This component only mounts while the drawer is open. Closing the drawer unmounts it and forgets
+  // the loaded day, so a later open reads fresh totals without fetching on the page render path.
+  useEffect(() => {
+    let live = true;
+    loadFeedVerificationLogAction(feedDay, parkId)
+      .then((result) => {
+        if (live) setLoaded(result.ok ? { state: "ready", log: result.log } : { state: "failed" });
+      })
+      .catch(() => {
+        if (live) setLoaded({ state: "failed" });
+      });
+    return () => {
+      live = false;
+    };
+  }, [feedDay, parkId]);
+
+  if (loaded.state === "ready") return <FeedVerificationView {...view} log={loaded.log} />;
+  if (loaded.state === "failed") return <div className="small muted">{copy(pageContract, "feed_verification.unavailable")}</div>;
+  return <FeedVerificationSkeleton />;
+}
+
+function FeedVerificationSkeleton() {
+  return (
+    <div className="vr-feedverify" aria-busy="true">
+      <div className="skel" style={{ width: 220, height: 32 }} />
+      <div className="skel" style={{ width: "100%", height: 56, marginTop: 12 }} />
+      <div className="skel" style={{ width: "100%", height: 180, marginTop: 12 }} />
+    </div>
+  );
+}
