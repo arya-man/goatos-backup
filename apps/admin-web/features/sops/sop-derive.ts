@@ -244,17 +244,17 @@ export function deriveGates(formDsl: unknown, proofPolicy: unknown): string[] {
   if (policy && asBool(policy["required"])) {
     // Canonical proof_policy keys only: types[], minimum_count, subject_scope.
     const types = proofPolicyTypes(policy);
-    gates.push(types.length > 0 ? `${types.join("/")} proof` : "Proof required");
+    gates.push(types.length > 0 ? `${types.map((type, i) => (i === 0 ? type.charAt(0).toUpperCase() + type.slice(1) : type)).join(" / ")} proof` : "Proof required");
     if (asBool(policy["verify_before_apply"])) gates.push("Verify before apply");
     const min = proofPolicyMinimumCount(policy);
     if (min && min > 1) gates.push(`min ${min}`);
     const scope = proofPolicySubjectScope(policy);
-    if (scope === "goat") gates.push("Per-goat");
+    if (scope === "goat") gates.push("Per animal");
     else if (scope === "batch") gates.push("Batch");
   }
   const dsl = asObject(formDsl);
-  if (dsl && asBool(dsl["repeat_for_each_goat"]) && !gates.includes("Per-goat")) {
-    gates.push("Repeat per goat");
+  if (dsl && asBool(dsl["repeat_for_each_goat"]) && !gates.includes("Per animal")) {
+    gates.push("Repeat per animal");
   }
   if (Array.isArray(dsl?.["rules"]) && (dsl?.["rules"] as unknown[]).length > 0) {
     gates.push("Conditional rules");
@@ -494,17 +494,17 @@ type StepTypeDef = {
 // supports boolean, goat_scan, shed_picker, vaccine_batch_picker, medicine_picker, session_picker, etc.
 // (service.go supportedFieldType), so no lossy select/option_source workaround is needed.
 export const STEP_TYPES: StepTypeDef[] = [
-  { value: "text", label: "text", backend: "text" },
-  { value: "number", label: "number", backend: "number" },
-  { value: "yesno", label: "yes/no", backend: "boolean" },
-  { value: "select", label: "select", backend: "select" },
-  { value: "multiselect", label: "multiselect", backend: "multiselect" },
+  { value: "text", label: "Text", backend: "text" },
+  { value: "number", label: "Number", backend: "number" },
+  { value: "yesno", label: "Yes / No", backend: "boolean" },
+  { value: "select", label: "Choose one", backend: "select" },
+  { value: "multiselect", label: "Choose several", backend: "multiselect" },
   { value: "goat_scan", label: "Animal ID scan", backend: "goat_scan" },
-  { value: "shed_picker", label: "pen picker", backend: "shed_picker" },
-  { value: "vaccine_batch_picker", label: "vaccine batch picker", backend: "vaccine_batch_picker", optionSource: "vaccine_batches" },
-  { value: "medicine_picker", label: "medicine picker", backend: "medicine_picker", optionSource: "medicines" },
-  { value: "photo_proof", label: "photo proof", backend: "photo_proof", proof: true },
-  { value: "video_proof", label: "video proof", backend: "video_proof", proof: true },
+  { value: "shed_picker", label: "Pen picker", backend: "shed_picker" },
+  { value: "vaccine_batch_picker", label: "Vaccine batch picker", backend: "vaccine_batch_picker", optionSource: "vaccine_batches" },
+  { value: "medicine_picker", label: "Medicine picker", backend: "medicine_picker", optionSource: "medicines" },
+  { value: "photo_proof", label: "Photo proof", backend: "photo_proof", proof: true },
+  { value: "video_proof", label: "Video proof", backend: "video_proof", proof: true },
 ];
 
 const STEP_TYPE_BY_VALUE: Record<StepTypeValue, StepTypeDef> = Object.fromEntries(

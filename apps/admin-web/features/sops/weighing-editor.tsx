@@ -14,6 +14,7 @@ import Stack from "@mui/material/Stack";
 // are maintainer locks and are shown, not edited.
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import MenuItem from "@mui/material/MenuItem";
 import MuiTextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -269,7 +270,10 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
           <>
             <NumBadge>{i + 1}</NumBadge>
             <InlineSelect
-              label={copy(pc, "wsop.removal.proofs")}
+              // The capture's KIND ("Video" / "Photo" / "Photo or video"), on every slot card. It
+              // borrowed the removal section's heading, so the per-animal cards read "Captures each
+              // pen owes".
+              label={copy(pc, "wsop.proof.kind.label")}
               value={p.kind}
               minWidth={168}
               options={proofKinds.map((k) => ({ value: k.key, label: k.label }))}
@@ -439,7 +443,16 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
             <ConfigBox>
               <MuiTextField label={copy(pc, "wsop.removal.instruction")} fullWidth multiline minRows={3} value={rows.removalInstruction} onChange={(e) => setRows((r) => ({ ...r, removalInstruction: e.target.value }))} />
               <FieldGrid>
-                <MuiTextField label={copy(pc, "wsop.removal.cutoff")} helperText={copy(pc, "wsop.removal.cutoff.hint")} size="small" type="time" slotProps={{ inputLabel: { shrink: true } }} value={rows.removalCutoffTime} onChange={(e) => setRows((r) => ({ ...r, removalCutoffTime: e.target.value }))} />
+                <CutoffTimeField
+                  // Remounts when the draft is replaced from outside (another version loaded).
+                  key={rows.removalCutoffTime}
+                  label={copy(pc, "wsop.removal.cutoff")}
+                  hourLabel={copy(pc, "wsop.removal.cutoff.hour")}
+                  minuteLabel={copy(pc, "wsop.removal.cutoff.minute")}
+                  hint={copy(pc, "wsop.removal.cutoff.hint")}
+                  value={rows.removalCutoffTime}
+                  onChange={(next) => setRows((r) => ({ ...r, removalCutoffTime: next }))}
+                />
               </FieldGrid>
             </ConfigBox>
             <ConfigBox title={<GroupTitle title={copy(pc, "wsop.removal.proofs")} hint={copy(pc, "wsop.removal.proofs.subtitle")} />}>
@@ -660,5 +673,69 @@ export function QuestionCard({
         </ConfigBox>
       ) : null}
     </QuestionShell>
+  );
+}
+
+const CUTOFF_HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
+const CUTOFF_MINUTES = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, "0"));
+
+/**
+ * The removal evening as two listboxes (hour, minute) instead of the native time input, which the
+ * console bans: the same `HH:MM` value the model validates, or "" for the farm-wide evening. A
+ * half-picked time stays local until both halves are chosen, so the draft never holds "20:".
+ */
+function CutoffTimeField({
+  label,
+  hourLabel,
+  minuteLabel,
+  hint,
+  value,
+  onChange,
+}: {
+  label: string;
+  hourLabel: string;
+  minuteLabel: string;
+  hint: string;
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  const [h0 = "", m0 = ""] = value.split(":");
+  const [hour, setHour] = useState(CUTOFF_HOURS.includes(h0) ? h0 : "");
+  const [minute, setMinute] = useState(m0);
+  const minutes = minute && !CUTOFF_MINUTES.includes(minute) ? [...CUTOFF_MINUTES, minute].sort() : CUTOFF_MINUTES;
+  const commit = (nextHour: string, nextMinute: string) => {
+    setHour(nextHour);
+    setMinute(nextMinute);
+    if (nextHour === "" && nextMinute === "") onChange("");
+    else if (nextHour !== "" && nextMinute !== "") onChange(`${nextHour}:${nextMinute}`);
+  };
+  const selectProps = { inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } };
+  return (
+    <Box role="group" aria-label={label}>
+      <Typography variant="subtitle2" component="p" sx={{ mb: 1 }}>
+        {label}
+      </Typography>
+      <Stack direction="row" spacing={1.25}>
+        <MuiTextField select size="small" label={hourLabel} value={hour} onChange={(e) => (e.target.value === "" ? commit("", "") : commit(e.target.value, minute || "00"))} sx={{ minWidth: 96 }} slotProps={selectProps}>
+          <MenuItem value="">--</MenuItem>
+          {CUTOFF_HOURS.map((h) => (
+            <MenuItem key={h} value={h}>
+              {h}
+            </MenuItem>
+          ))}
+        </MuiTextField>
+        <MuiTextField select size="small" label={minuteLabel} value={minute} onChange={(e) => commit(hour, e.target.value)} sx={{ minWidth: 96 }} slotProps={selectProps}>
+          <MenuItem value="">--</MenuItem>
+          {minutes.map((m) => (
+            <MenuItem key={m} value={m}>
+              {m}
+            </MenuItem>
+          ))}
+        </MuiTextField>
+      </Stack>
+      <Typography variant="caption" component="p" sx={{ mt: 0.75, color: "text.secondary" }}>
+        {hint}
+      </Typography>
+    </Box>
   );
 }
