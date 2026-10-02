@@ -30,7 +30,7 @@ func TestAdvanceOnlySaleIsAcceptedAsAdvancePaid(t *testing.T) {
 }
 
 // The flag is what makes a body with no lines an advance. Without it the same body is still the
-// "add at least one product line" refusal it always was, so an older phone that forgot its lines
+// "needs at least one product line" refusal it always was, so an older phone that forgot its lines
 // never records an advance by accident.
 func TestNoLinesWithoutTheFlagIsStillRefused(t *testing.T) {
 	w := advanceOnlyWrite()

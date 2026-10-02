@@ -324,6 +324,15 @@ func salesFieldLabel(field string) string {
 		return "Amount"
 	case "note":
 		return "Note"
+	// An advance's lines and a failed sale's refund (2026-10-02).
+	case "lines":
+		return "What was sold"
+	case "refunded_rupees":
+		return "Refund"
+	case "refunded_on":
+		return "Refund date"
+	case "status":
+		return "Status"
 	default:
 		return field
 	}

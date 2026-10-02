@@ -80,7 +80,7 @@ FOR UPDATE`, tenantID, dealID).Scan(&saleDate, &farm, &buyerName, &status, &adva
 	if received != nil && *received > rollup.SalesValue+0.005 {
 		return domain.Deal{}, domain.ErrDealValidation{
 			Field:  "lines",
-			Reason: fmt.Sprintf("the buyer has already paid ₹%.2f, more than these products are worth", *received),
+			Reason: fmt.Sprintf("is worth less than the ₹%.2f the buyer has already paid", *received),
 		}
 	}
 

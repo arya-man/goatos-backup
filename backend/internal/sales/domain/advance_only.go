@@ -17,7 +17,7 @@ import (
 // rules hold it together:
 //
 //  1. It is asked for EXPLICITLY (DealWrite.AdvanceOnly). An older client that sends a body with
-//     no lines still gets "add at least one product line"; nothing becomes an advance by omission.
+//     no lines still gets "needs at least one product line"; nothing becomes an advance by omission.
 //  2. It never closes and is worth nothing until its lines arrive, so it never reaches revenue,
 //     buyer analytics or the load-wise report, which all read Deal Closed only.
 //  3. Its workflow opens only when the lines are added: the record write emits nothing, the
@@ -66,10 +66,10 @@ func NextStatusesForDeal(d Deal) []string {
 // same as any sale; everything about WHAT must be absent, and the advance must be real money.
 func (w DealWrite) validateAdvanceOnly() error {
 	if len(w.Lines) > 0 || w.ProductType != "" || w.Breed != "" {
-		return ErrDealValidation{Field: "lines", Reason: "an advance-only sale names no products yet; add them to the sale later"}
+		return ErrDealValidation{Field: "lines", Reason: "is added to an advance later, not when the advance is recorded"}
 	}
 	if w.SalesValue != 0 {
-		return ErrDealValidation{Field: "sales_value", Reason: "an advance-only sale has no value until its products are added"}
+		return ErrDealValidation{Field: "sales_value", Reason: "is set when what was sold is added to the advance"}
 	}
 	for field, v := range map[string]*float64{
 		"animal_count":    w.AnimalCount,
@@ -78,17 +78,17 @@ func (w DealWrite) validateAdvanceOnly() error {
 		"total_weight_kg": w.TotalWeightKg,
 	} {
 		if v != nil {
-			return ErrDealValidation{Field: field, Reason: "an advance-only sale has no animals or weight until its products are added"}
+			return ErrDealValidation{Field: field, Reason: "is set when what was sold is added to the advance"}
 		}
 	}
 	if err := w.validateBuyerAndComments(); err != nil {
 		return err
 	}
 	if w.Status != StatusAdvancePaid {
-		return ErrDealValidation{Field: "status", Reason: "an advance-only sale is Advance Paid"}
+		return ErrDealValidation{Field: "status", Reason: "of an advance is Advance Paid"}
 	}
 	if w.AdvanceAmount == nil || *w.AdvanceAmount <= 0 {
-		return ErrDealValidation{Field: "advance_amount", Reason: "enter the advance the buyer paid"}
+		return ErrDealValidation{Field: "advance_amount", Reason: "is needed: enter what the buyer paid"}
 	}
 	return nil
 }
@@ -141,10 +141,10 @@ func (w DealLinesWrite) Normalize(cat ProductCatalog) (DealLinesWrite, DealRollu
 // total is known.
 func (w DealLinesWrite) Validate(cat ProductCatalog, rollup DealRollup) error {
 	if len(w.Lines) == 0 {
-		return ErrDealValidation{Field: "lines", Reason: "add at least one product line"}
+		return ErrDealValidation{Field: "lines", Reason: "needs at least one product line"}
 	}
 	if len(w.Lines) > MaxDealLines {
-		return ErrDealValidation{Field: "lines", Reason: "too many lines for one sale"}
+		return ErrDealValidation{Field: "lines", Reason: "has too many lines for one sale"}
 	}
 	for i, l := range w.Lines {
 		if err := l.validate(i+1, cat); err != nil {
@@ -245,12 +245,12 @@ func (w AdvanceSettlementWrite) Validate(today time.Time) error {
 	}
 	if w.RefundedRupees == 0 {
 		if w.RefundedOn != "" {
-			return ErrDealValidation{Field: "refunded_on", Reason: "nothing is refunded, so there is no refund date"}
+			return ErrDealValidation{Field: "refunded_on", Reason: "is only for money handed back"}
 		}
 	} else {
 		on, err := time.Parse("2006-01-02", w.RefundedOn)
 		if err != nil {
-			return ErrDealValidation{Field: "refunded_on", Reason: "enter the day the money went back, like 2026-08-17"}
+			return ErrDealValidation{Field: "refunded_on", Reason: "is needed: pick the day the money went back"}
 		}
 		if on.After(time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)) {
 			return ErrDealValidation{Field: "refunded_on", Reason: "cannot be in the future"}

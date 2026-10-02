@@ -428,7 +428,7 @@ How it works:
    date and the advance: no lines, `sales_value` 0, status `Advance Paid`, `product_type` and
    `breed` stored NULL (migration `000464`) and served as `""` with `advance_only: true`. The
    advance is the sale's first receipt, exactly as on any sale (`000447`/`000448`). A body with
-   no lines and no flag is still refused "add at least one product line", so an older phone
+   no lines and no flag is still refused "needs at least one product line", so an older phone
    never records an advance by omission.
 2. **No work, no revenue.** The record emits no `sales.deal.recorded`, so no workflow opens. The
    sale cannot be closed (`409 sale_advance_only_cannot_close`; `status_options` never offers

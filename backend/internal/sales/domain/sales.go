@@ -439,7 +439,7 @@ func (w DealWrite) Validate(cat ProductCatalog, farms []string) error {
 		return w.validateAdvanceOnly()
 	}
 	if len(w.Lines) == 0 {
-		return ErrDealValidation{Field: "lines", Reason: "add at least one product line"}
+		return ErrDealValidation{Field: "lines", Reason: "needs at least one product line"}
 	}
 	if len(w.Lines) > MaxDealLines {
 		return ErrDealValidation{Field: "lines", Reason: fmt.Sprintf("at most %d lines per sale", MaxDealLines)}

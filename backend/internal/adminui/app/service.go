@@ -5376,6 +5376,30 @@ func pageSpecificCopy(id string) map[string]string {
 			// The ledger row's product/breed cells for a deal whose lines disagree.
 			"value.mixed":        "Mixed",
 			"detail.lines.empty": "This sale has no product lines.",
+			// AN ADVANCE BEFORE ANYTHING IS CHOSEN (maintainer decision 2026-10-02): money taken for a
+			// sale whose animals, feed or manure are not decided yet. Recorded with no products, its
+			// products added later -- which is when its steps start.
+			"field.advance_only":           "Advance only — what is being sold is not decided yet",
+			"hint.advance_only":            "Tick this when the buyer pays before anyone has chosen the animals, feed or manure. The sale is saved as Advance Paid with no products. Add what was sold to it later; its steps start then.",
+			"value.advance_only":           "Not decided yet",
+			"detail.lines.advance_only":    "The buyer has paid an advance, but what is being sold has not been decided. Add it here when it is; the sale's steps start then.",
+			"action.add_sale_lines.label":  "Save what was sold",
+			"action.sale_lines_added":      "What was sold is saved. The sale's steps have started.",
+			"action.sale_lines_add_failed": "Could not save what was sold. Check the lines and try again.",
+			// A failed sale's money: refunded in part or whole, the rest kept by the farm.
+			"section.settlement.title":          "Money from this failed sale",
+			"hint.settlement":                   "This sale fell through. Enter how much was handed back to the buyer and on which day; whatever is not refunded is kept by the farm. Leave the refund blank if the farm keeps it all.",
+			"settlement.outcome":                "What happened to it",
+			"settlement.refunded":               "Refunded to the buyer",
+			"settlement.refunded_on":            "Refunded on",
+			"settlement.kept":                   "Kept by the farm",
+			"field.refunded_rupees":             "Refunded to the buyer (₹)",
+			"field.refunded_on":                 "Refunded on",
+			"date.refunded_on.placeholder":      "Pick the day the money went back",
+			"date.invalid_refunded_on":          "Pick the day the money went back. It cannot be later than {date}.",
+			"action.settle_advance.label":       "Save",
+			"action.sale_advance_settled":       "Saved what happened to the money.",
+			"action.sale_advance_settle_failed": "Could not save that. Check the amount and try again.",
 			// The vendor select's own copy. Farm language, and it must name WHERE to go: a
 			// required select the person cannot fill is a dead end without it.
 			"select.vendor.placeholder": "Choose the vendor",
