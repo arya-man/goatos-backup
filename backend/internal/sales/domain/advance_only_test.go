@@ -169,3 +169,11 @@ func TestFailedSaleOwesNothing(t *testing.T) {
 		t.Fatalf("live sale balance = %v, want 30000", got)
 	}
 }
+
+func TestRupeesReadsTheWayTheFarmWritesMoney(t *testing.T) {
+	for in, want := range map[float64]string{15000: "₹15,000", 551000: "₹5,51,000", 1234.5: "₹1,234.50", 999: "₹999", 12345678: "₹1,23,45,678"} {
+		if got := Rupees(in); got != want {
+			t.Fatalf("Rupees(%v) = %q, want %q", in, got, want)
+		}
+	}
+}

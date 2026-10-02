@@ -2,6 +2,8 @@ package domain
 
 import (
 	"errors"
+	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -260,4 +262,31 @@ func (w AdvanceSettlementWrite) Validate(today time.Time) error {
 		return ErrDealValidation{Field: "note", Reason: "too long"}
 	}
 	return nil
+}
+
+// Rupees renders money for a refusal the sales desk reads: Indian grouping, whole rupees unless
+// there are paise -- 15000 -> "₹15,000", 1234.5 -> "₹1,234.50".
+func Rupees(v float64) string {
+	paise := int64(math.Round(v * 100))
+	sign := ""
+	if paise < 0 {
+		sign, paise = "-", -paise
+	}
+	whole := strconv.FormatInt(paise/100, 10)
+	if len(whole) > 3 {
+		head, tail := whole[:len(whole)-3], whole[len(whole)-3:]
+		groups := []string{}
+		for len(head) > 2 {
+			groups = append([]string{head[len(head)-2:]}, groups...)
+			head = head[:len(head)-2]
+		}
+		if head != "" {
+			groups = append([]string{head}, groups...)
+		}
+		whole = strings.Join(groups, ",") + "," + tail
+	}
+	if paise%100 == 0 {
+		return sign + "₹" + whole
+	}
+	return sign + "₹" + whole + "." + strconv.FormatInt(paise%100+100, 10)[1:]
 }

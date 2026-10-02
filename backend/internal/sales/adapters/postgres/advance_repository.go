@@ -80,7 +80,7 @@ FOR UPDATE`, tenantID, dealID).Scan(&saleDate, &farm, &buyerName, &status, &adva
 	if received != nil && *received > rollup.SalesValue+0.005 {
 		return domain.Deal{}, domain.ErrDealValidation{
 			Field:  "lines",
-			Reason: fmt.Sprintf("is worth less than the ₹%.2f the buyer has already paid", *received),
+			Reason: "is worth less than the " + domain.Rupees(*received) + " the buyer has already paid",
 		}
 	}
 
@@ -192,7 +192,7 @@ FOR UPDATE`, tenantID, dealID).Scan(&status, &received)
 	if write.RefundedRupees > *received+0.005 {
 		return domain.Deal{}, domain.ErrDealValidation{
 			Field:  "refunded_rupees",
-			Reason: fmt.Sprintf("cannot be more than the ₹%.2f the buyer paid", *received),
+			Reason: "cannot be more than the " + domain.Rupees(*received) + " the buyer paid",
 		}
 	}
 
