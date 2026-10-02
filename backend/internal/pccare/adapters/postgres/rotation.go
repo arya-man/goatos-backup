@@ -44,25 +44,27 @@ WITH cfg AS (
 ),
 latest AS (
   SELECT DISTINCT ON (t.category, t.park_id)
-         t.task_id, t.round_id, t.category, t.park_id, cfg.gap_days
+         t.task_id, t.round_id, t.category, t.park_id, cfg.gap_days, COALESCE(t.sop_version, 0) AS sop_version
   FROM pc_care_tasks t
   JOIN cfg ON cfg.category = t.category
   WHERE t.tenant_id = $1::uuid
     -- Publishing rotation must not wake historical no-repeat / interval tasks. The first pen is a
-    -- planner action under a rotating published card. Later SOP publishes may tune the card while
-    -- leaving rotation on, so an older task is still a valid rotation source when its PINNED SOP
-    -- version already had repeat_mode=rotation.
+    -- planner action under a rotating published card. Prefer tasks already planned under the
+    -- currently published rotating version. If none exist for that (category, park), let the app
+    -- layer inspect the older source task's pinned SOP through the pccaresop seam.
     AND (
       COALESCE(t.sop_version, 0) = cfg.sop_version
-      OR EXISTS (
+      OR NOT EXISTS (
         SELECT 1
-        FROM public.sop_versions sv
-        JOIN public.sop_definitions sd ON sd.tenant_id = sv.tenant_id AND sd.sop_id = sv.sop_id
-        WHERE sv.tenant_id = t.tenant_id
-          AND sd.code = 'pc_care.tasks'
-          AND sv.version = COALESCE(t.sop_version, 0)
-          AND sv.status IN ('published', 'retired')
-          AND sv.form_dsl #>> ARRAY['pc_care','categories',t.category,'repeat_mode'] = 'rotation'
+        FROM pc_care_tasks cur
+        WHERE cur.tenant_id = t.tenant_id
+          AND cur.category = t.category
+          AND cur.park_id = t.park_id
+          AND COALESCE(cur.sop_version, 0) = cfg.sop_version
+          AND cur.work_state NOT IN ('canceled', 'closed')
+          AND cur.shed_id IS NOT NULL
+          AND cur.gates_round_id IS NULL
+          AND cur.gates_task_id IS NULL
       )
     )
     -- A CLOSED pen is how a planner stops a rotation, so it is never "the latest": the submitted
@@ -78,7 +80,7 @@ latest AS (
 round_pens AS (
   -- The latest task's whole round (a hand-planned round may hold several pens), each with its
   -- pen order key. A round-less task is a round of one.
-  SELECT l.category, l.park_id, l.gap_days, t.task_id, t.shed_id,
+  SELECT l.category, l.park_id, l.gap_days, l.sop_version, t.task_id, t.shed_id,
          t.partition_key,
          t.submitted_at, t.planned_business_date, t.created_by,
          ` + rotationTaskPenSortSQL + ` AS pen_sort
@@ -91,7 +93,7 @@ round_pens AS (
   JOIN locations ts ON ts.tenant_id = t.tenant_id AND ts.location_id = t.shed_id
 ),
 rounds AS (
-  SELECT r.category, r.park_id, max(r.gap_days) AS gap_days,
+  SELECT r.category, r.park_id, max(r.gap_days) AS gap_days, max(r.sop_version) AS source_sop_version,
          bool_and(r.submitted_at IS NOT NULL) AS all_submitted,
          max(greatest((r.submitted_at AT TIME ZONE 'Asia/Kolkata')::date, r.planned_business_date)) AS last_day,
          (array_agg(r.task_id ORDER BY r.pen_sort DESC, r.shed_id::text DESC, r.partition_key DESC))[1] AS source_task_id,
@@ -122,7 +124,7 @@ due AS (
   ) nxt
   WHERE r.all_submitted
 )
-SELECT d.source_task_id::text, d.category, d.park_id::text, COALESCE(park.name, ''), COALESCE(d.created_by, ''),
+SELECT d.source_task_id::text, d.source_sop_version, d.category, d.park_id::text, COALESCE(park.name, ''), COALESCE(d.created_by, ''),
        COALESCE((SELECT array_agg(a.operator_user_id::text ORDER BY a.operator_user_id)
                  FROM pc_care_task_assignees a
                  WHERE a.tenant_id = $1::uuid AND a.task_id = d.source_task_id), ARRAY[]::text[]),
@@ -160,7 +162,7 @@ func (r *Repository) ListRotationCandidates(ctx context.Context, tenantID string
 	out := []ports.RotationCandidate{}
 	for rows.Next() {
 		var c ports.RotationCandidate
-		if err := rows.Scan(&c.SourceTaskID, &c.Category, &c.ParkID, &c.ParkName, &c.CreatedBy,
+		if err := rows.Scan(&c.SourceTaskID, &c.SourceSOPVersion, &c.Category, &c.ParkID, &c.ParkName, &c.CreatedBy,
 			&c.AssigneeUserIDs, &c.NextDate, &c.ShedID, &c.ShedName, &c.PartitionLabel, &c.Wrapped); err != nil {
 			return nil, fmt.Errorf("pccare: scan rotation candidate: %w", err)
 		}

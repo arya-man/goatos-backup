@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -15,7 +14,7 @@ func rotationService(repo *Repository, gap int, now time.Time) *pccareapp.Servic
 	return rotationServiceVersion(repo, gap, rotationSOPVersion, now)
 }
 
-func rotationServiceVersion(repo *Repository, gap, version int, now time.Time) *pccareapp.Service {
+func rotationRules(gap, version int) domain.Rules {
 	seed := domain.SeededRules()
 	cats := map[string]*domain.CategoryRules{}
 	for k, v := range seed.Categories {
@@ -26,6 +25,11 @@ func rotationServiceVersion(repo *Repository, gap, version int, now time.Time) *
 	cats[domain.CategoryFumigation].RotationGapDays = gap
 	seed.Categories = cats
 	seed.Version = version
+	return seed
+}
+
+func rotationServiceVersion(repo *Repository, gap, version int, now time.Time) *pccareapp.Service {
+	seed := rotationRules(gap, version)
 	return pccareapp.NewService(repo).
 		WithRoundStore(repo).
 		WithSOPRules(ports.StaticRules{Rules: seed}, repo).
@@ -34,32 +38,32 @@ func rotationServiceVersion(repo *Repository, gap, version int, now time.Time) *
 
 const rotationSOPVersion = 9
 
-func publishRotationFixtureVersion(t *testing.T, ctx context.Context, repo *Repository, version int) {
-	t.Helper()
-	seed := domain.SeededRules()
-	cats := map[string]*domain.CategoryRules{}
-	for k, v := range seed.Categories {
-		copied := *v
-		cats[k] = &copied
+type rotationRulesSource map[int]domain.Rules
+
+func (s rotationRulesSource) PublishedRules(context.Context, string) (domain.Rules, error) {
+	var best domain.Rules
+	found := false
+	for _, rules := range s {
+		if !found || rules.Version > best.Version {
+			best = rules
+			found = true
+		}
 	}
-	cats[domain.CategoryFumigation].RepeatMode = domain.RepeatModeRotation
-	seed.Categories = cats
-	raw, err := json.Marshal(map[string]any{"pc_care": seed.PCCareSOP})
-	if err != nil {
-		t.Fatalf("marshal rotation sop: %v", err)
+	if !found {
+		return domain.SeededRules(), nil
 	}
-	tag, err := repo.pool.Exec(ctx, `
-INSERT INTO public.sop_versions (tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy, compatibility, validation_report, published_at)
-SELECT d.tenant_id, d.sop_id, $3::int, 'Rotation fixture', 'retired', $4::jsonb, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, now()
-FROM public.sop_definitions d
-WHERE d.tenant_id = $1::uuid AND d.code = $2
-ON CONFLICT DO NOTHING`, pcTenant, domain.SOPCodePCCare, version, string(raw))
-	if err != nil {
-		t.Fatalf("insert rotation sop v%d: %v", version, err)
+	return best, nil
+}
+
+func (s rotationRulesSource) RulesVersion(_ context.Context, _ string, version int) (domain.Rules, error) {
+	if version == 0 {
+		return domain.SeededRules(), nil
 	}
-	if tag.RowsAffected() != 1 {
-		t.Fatalf("insert rotation sop v%d affected %d rows, want 1", version, tag.RowsAffected())
+	rules, ok := s[version]
+	if !ok {
+		return domain.Rules{}, ports.ErrSOPVersionUnknown
 	}
+	return rules, nil
 }
 
 // PC CARE ROTATION (maintainer instruction 2026-10-02) against the real schema. CPT holds Castro
@@ -235,7 +239,6 @@ func TestRotationContinuesAfterLaterRotatingSOPPublish(t *testing.T) {
 	repo, pool := setupPCCareDB(t, ctx)
 	seedCoverageGodel(t, ctx, repo)
 	coverageResidents(t, ctx, repo, pcPark, pcShedA+"|", covShedGodel+"|Part 1")
-	publishRotationFixtureVersion(t, ctx, repo, rotationSOPVersion)
 
 	start, err := repo.CreateRound(ctx, ports.CreateRoundParams{
 		TenantID: pcTenant, Category: domain.CategoryFumigation, ParkID: pcPark,
@@ -251,7 +254,14 @@ func TestRotationContinuesAfterLaterRotatingSOPPublish(t *testing.T) {
 		t.Fatalf("submit start: %v", err)
 	}
 
-	res, err := rotationServiceVersion(repo, 0, rotationSOPVersion+1, istNoon(2026, 10, 1)).RunRotation(ctx, pcTenant, repo, nil, 100)
+	svc := pccareapp.NewService(repo).
+		WithRoundStore(repo).
+		WithSOPRules(rotationRulesSource{
+			rotationSOPVersion:     rotationRules(0, rotationSOPVersion),
+			rotationSOPVersion + 1: rotationRules(0, rotationSOPVersion+1),
+		}, repo).
+		WithNow(func() time.Time { return istNoon(2026, 10, 1) })
+	res, err := svc.RunRotation(ctx, pcTenant, repo, nil, 100)
 	if err != nil || res.PensCreated != 1 {
 		t.Fatalf("later publish tick: %+v %v, want rotation to continue from the v%d source", res, err, rotationSOPVersion)
 	}

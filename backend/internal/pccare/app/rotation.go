@@ -61,6 +61,13 @@ func (s *Service) RunRotation(ctx context.Context, tenantID string, store ports.
 		return result, err
 	}
 	for _, c := range candidates {
+		ok, err := s.rotationSourceStillApplies(ctx, tenantID, rules, c)
+		if err != nil {
+			return result, err
+		}
+		if !ok {
+			continue
+		}
 		// scale-guard:ignore: bounded by the per-tick candidate LIMIT and at most one row per (category, park); one small availability read and one single-pen round create each, never per animal.
 		created, skipped, conflict, err := s.rotateOne(ctx, tenantID, rules, store, alerter, c)
 		if err != nil {
@@ -73,6 +80,21 @@ func (s *Service) RunRotation(ctx context.Context, tenantID string, store ports.
 		}
 	}
 	return result, nil
+}
+
+func (s *Service) rotationSourceStillApplies(ctx context.Context, tenantID string, published domain.Rules, c ports.RotationCandidate) (bool, error) {
+	if c.SourceSOPVersion == published.Version {
+		return true, nil
+	}
+	sourceRules, err := s.rulesForVersion(ctx, tenantID, c.SourceSOPVersion)
+	if errors.Is(err, ports.ErrSOPVersionUnknown) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	_, ok := sourceRules.RotationGapDays(c.Category)
+	return ok, nil
 }
 
 func (s *Service) rotateOne(ctx context.Context, tenantID string, rules domain.Rules, store ports.RotationStore, alerter RepeatAlerter, c ports.RotationCandidate) (created, skipped int, conflict bool, err error) {

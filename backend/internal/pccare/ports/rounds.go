@@ -364,10 +364,12 @@ type RotationCandidate struct {
 	// SourceTaskID is the task of the LAST pen (in pen order) of the latest round: the one the
 	// next pen is planned from, and the one "repeated at most once" is stamped against.
 	SourceTaskID string
-	Category     string
-	ParkID       string
-	ParkName     string
-	CreatedBy    string
+	// SourceSOPVersion is the pc_care.tasks version pinned to SourceTaskID.
+	SourceSOPVersion int
+	Category         string
+	ParkID           string
+	ParkName         string
+	CreatedBy        string
 	// AssigneeUserIDs are the source task's operators.
 	AssigneeUserIDs []string
 	// NextDate is the next pen's business date: the day after the later of the last submit and
