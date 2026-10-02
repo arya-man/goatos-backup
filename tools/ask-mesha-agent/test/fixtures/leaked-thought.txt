@@ -20,13 +20,13 @@ Let me structure the answer:
 1. Verify the premise: "The data shows that Castro 1's ADG actually increased in September compared to August, and October has no weighings yet."
 2. Show August figures.
 3. Show September figures.
-4. Conclude.The data shows that the ADG for Castro 1 (Coimbatore) actually **increased** in September compared to August. Because today is October 2nd, there are no weighings recorded yet for this calendar month (October). 
+4. Conclude.The data shows that the ADG for Castro 1 (Coimbatore) actually **increased** in September compared to August. Because today is October 2nd, there are no weighings recorded yet for this calendar month (October).
 
 If we look at the last two completed months for the Castro 1 whole-pen weighings:
 
-* **August:** Weighed 30.8 kg on 03/08/2026 and 34.8 kg on 31/08/2026. 
+* **August:** Weighed 30.8 kg on 03/08/2026 and 34.8 kg on 31/08/2026.
   * Gain: 4.0 kg over 28 days = **142 g/day**.
-* **September:** Weighed 34.9 kg on 01/09/2026 and 40.0 kg on 28/09/2026. 
+* **September:** Weighed 34.9 kg on 01/09/2026 and 40.0 kg on 28/09/2026.
   * Gain: 5.1 kg over 27 days = **188 g/day**.
 
 **Worth checking:** If you are looking at a dashboard filtered to "This Month" (which is now October), Castro 1 will not show any recent ADG because a pen needs at least two weighings in the exact time window to calculate a gain, and October just started.
