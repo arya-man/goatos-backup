@@ -3,7 +3,7 @@
 ## Scope
 
 - Land PR #468 (`feat/sales-executive-analytics`) to `main`.
-- Feature scope: Sales executive analytics page, backend read endpoint, OpenAPI/generated client, admin-web route, permission/page contract wiring, and migration `000467_sales_executive_analytics_page_tick.sql`.
+- Feature scope: Sales executive analytics page, backend read endpoint, OpenAPI/generated client, admin-web route, permission/page contract wiring, and migration `000469_sales_executive_analytics_page_tick.sql`.
 - Deployment scope: not deployed to STG or mobile from this task.
 
 ## Done
@@ -18,6 +18,12 @@
 - Repaired the sales executive analytics repository SQL so `scale-guard` sees zero new offenders:
   person-name resolution now avoids `COUNT(DISTINCT)`, latest-vendor pagination cuts the vendor
   page before resolving workforce names, and vendor totals SQL is hoisted to a named const.
+- Rebased again onto `origin/main` `fe22610c30e9b33027e192f2256e22132a989079` after PR #469 landed.
+- Resolved rebase conflicts by preserving `/sales/vendors` under `vendors_sales`, keeping the new
+  `/sales/executive-analytics` page mapping, and combining PR #469's safe vendor SQL binding with
+  PR #468's vendor edit audit trail.
+- Renumbered the page-tick migration to `000469` after main's `000467_sales_designations.sql` and
+  `000468_vendor_register_buyers_module.sql`.
 
 ## Proof So Far
 
@@ -53,6 +59,6 @@
 ## Current SHA / Deployment State
 
 - Candidate SHA before the landing note: `90895353943177bfa98e6120a0f43c098e7cfeb8`.
-- Current candidate after landing note and SQL repair: pending commit.
-- Base SHA: `a7ebddc899de956a46907c02ff4de0a2630b1eb0`.
+- Current candidate after second rebase and migration renumber: pending commit.
+- Base SHA: `fe22610c30e9b33027e192f2256e22132a989079`.
 - Deployment state: not deployed.
