@@ -188,7 +188,11 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
   }
   // "Clear all" still reads each park's summary (no lanes: page_lane=__none__), because the Module
   // menu lists only the modules that have work and cannot know that from nothing.
-  const pageResults = await runBounded(pagePlans, 1, (plan) => getWorkBoardPage({ ...filterScope, park: plan.parkKey }, { limit, lanes: plan.openLanes, cursors: plan.cursors })); // request-plan:ignore owner=work-board issue=bounded-park-page-fanout expires=2027-03-31 reason=all-parks reads are serialized across parks; each backend page read serializes/short-circuits lane reads instead of SSR fanning out 10+ API calls
+  // A column's page is `limit` cards in TOTAL, not per park (pr294 L-A10): "All parks" read each
+  // park at the full limit and stacked them, so To-do held 30 cards (~6,000px) beside short lanes.
+  // Each park reads its share; per-park keyset cursors and the shared page number are unchanged.
+  const perParkLimit = Math.max(1, Math.ceil(limit / activeParks.length));
+  const pageResults = await runBounded(pagePlans, 1, (plan) => getWorkBoardPage({ ...filterScope, park: plan.parkKey }, { limit: perParkLimit, lanes: plan.openLanes, cursors: plan.cursors })); // request-plan:ignore owner=work-board issue=bounded-park-page-fanout expires=2027-03-31 reason=all-parks reads are serialized across parks; each backend page read serializes/short-circuits lane reads instead of SSR fanning out 10+ API calls
   const summaryResults = noneSelected ? [] : pageResults.map((result) => (result.ok ? { ok: true as const, data: result.data.summary } : result));
   const vocabularyResults = pageResults.flatMap((result) => (result.ok && (noneSelected || result.data.vocabulary_summary) ? [{ ok: true as const, data: result.data.vocabulary_summary ?? result.data.summary }] : []));
   const laneParkReads: LaneParkRead[] = [];

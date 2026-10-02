@@ -524,7 +524,7 @@ func pages() []domain.PageContract {
 		// named here only so its page sizes are backend-owned.
 		page("work-board", "/work-board", "/work-board", "Work Board", "Every module's work for one park and one day. Column is automatic: nothing started, started, submitted, approved.", "command-lens",
 			[]domain.TableContract{
-				withoutRowClick(tableP("work-board", "Board", "/work-board/rows", []string{"title", "module", "park", "pen", "owner", "clock", "work_state", "counts"}, "row_key", []int{25, 50, 100})),
+				withoutRowClick(tableP("work-board", "Board", "/work-board/rows", []string{"title", "module", "park", "pen", "owner", "clock", "work_state", "counts"}, "row_key", []int{10, 25, 50})),
 				tableP("work-board-subtasks", "Subtasks", "/work-board/rows", []string{"name", "steps", "owner", "status"}, "row_key", []int{10, 25}),
 			}),
 		// Alerts (maintainer decision 2026-09-16). One table: the day's alerts for the parks in

@@ -73,3 +73,14 @@ test("guard: select-value-sentence-case - the module select value starts upper c
   const src = readFileSync(new URL("./work-board-board.tsx", import.meta.url), "utf8");
   assert.match(src, /return rest\.charAt\(0\)\.toUpperCase\(\) \+ rest\.slice\(1\);/);
 });
+
+// pr294 L-A10: under "All parks" every park read the full column page and the lanes stacked, so
+// To-do held 30 cards (~6,000px) beside short columns. A column page is `limit` cards in total.
+test("work board column page is split across parks, and opens at 10 cards", async () => {
+  const { readFileSync } = await import("node:fs");
+  const page = readFileSync(new URL("./work-board-page.tsx", import.meta.url), "utf8");
+  assert.match(page, /const perParkLimit = Math\.max\(1, Math\.ceil\(limit \/ activeParks\.length\)\)/);
+  assert.match(page, /getWorkBoardPage\([^)]*\{ limit: perParkLimit,/);
+  const service = readFileSync(new URL("../../../../backend/internal/adminui/app/service.go", import.meta.url), "utf8");
+  assert.match(service, /tableP\("work-board", "Board", [^\n]*"row_key", \[\]int\{10, 25, 50\}\)/);
+});
