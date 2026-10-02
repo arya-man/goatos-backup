@@ -321,9 +321,9 @@ variable "grafana_alloy_image" {
 }
 
 variable "grafana_alloy_min_instance_count" {
-  description = "Minimum Cloud Run instance count for Grafana Alloy. Keep at >= 1 in stg since it is the public-facing browser RUM ingest endpoint and cold starts would drop admin-web page-load telemetry."
+  description = "Minimum Cloud Run instance count for Grafana Alloy. 0 in stg: Alloy only ingests browser RUM beacons, which are ordinary HTTP requests, so it starts on the first beacon (Cloud Run queues requests during the cold start) instead of idling 24/7."
   type        = number
-  default     = 1
+  default     = 0
 
   validation {
     condition     = var.grafana_alloy_min_instance_count >= 0
