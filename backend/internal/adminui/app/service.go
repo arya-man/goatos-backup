@@ -9126,7 +9126,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.builder.field.name":                "SOP name",
 			"modal.builder.placeholder.name":          "Vaccination session",
 			"modal.builder.domain_locked":             "set by this page",
-			"modal.builder.policy_label":              "vaccination drive/session policy",
+			"modal.builder.policy_label":              "Vaccination drive / session policy",
 			"modal.builder.field.trigger":             "Trigger — what starts it?",
 			"modal.builder.field.steps":               "Steps & questions — add/remove, pick a type, set conditional rules",
 			"modal.builder.step_type_aria_prefix":     "Step",
@@ -9143,8 +9143,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.builder.logic_title":               "Conditional logic:",
 			"modal.builder.logic_body":                "a step can show only if a previous step was answered, and an answer can require this step, require proof, or block submission — emitted as declarative visible_if / required_if / proof_required_if / block_submission_if rules. Cross-domain actions are routed through Action Center ownership and verification.",
 			"modal.builder.field.proof_policy":        "Proof policy",
-			"modal.builder.label.proof_required":      "proof required",
-			"modal.builder.label.verify_before_apply": "verify before apply",
+			"modal.builder.label.proof_required":      "Proof required",
+			"modal.builder.label.verify_before_apply": "A verifier approves the proof before it applies",
 			"modal.builder.field.proof_type":          "Proof type",
 			"modal.builder.field.min_count":           "Minimum proof count",
 			"modal.builder.field.subject_scope":       "Subject scope",
@@ -9219,7 +9219,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"builder.scan.single_hint":          "Operator scans / selects one goat.",
 			"builder.scan.multi_hint":           "Operator scans every goat in the pen — one batched session.",
 			"builder.preview.scan_add":          "Scan goat",
-			"builder.gates.subject_hint":        "Batch = one proof for the whole pen session. Per-goat = a proof per animal.",
+			"builder.gates.subject_hint":        "One proof for the whole pen covers the session; one proof per animal asks for a capture of each animal.",
 			"builder.boolean.note":              "Yes / No answer.",
 			"builder.logic.title":               "Conditional logic",
 			"builder.logic.add":                 "Only show this question when…",
@@ -9239,7 +9239,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"builder.preview.conditional_badge": "conditional",
 			"builder.summary.fields":            "questions",
 			"builder.summary.rules":             "conditional rules",
-			"builder.summary.proof":             "proof gate",
+			"builder.summary.proof":             "required",
 			// Follow-up (operator steps) editor -- SOP-driven herd operations, 2026-09-13.
 			"followup.title":               "Operator steps",
 			"followup.subtitle":            "What the operator does after the event, in order. Each step names its type, the proof it needs, and when it is due. Publishing applies to workflows opened from then on; open workflows keep the steps they started with.",
@@ -9371,7 +9371,7 @@ func pageSpecificCopy(id string) map[string]string {
 			m["modal.builder.domain_aria"] = "Domain — locked to Counts / Herd Operations"
 			m["modal.builder.domain_title"] = "Domain is locked to Counts / Herd Operations on this page"
 			m["modal.builder.domain_label"] = "Counts / Herd Operations"
-			m["modal.builder.policy_label"] = "herd operations policy"
+			m["modal.builder.policy_label"] = "Herd operations policy"
 			m["modal.builder.default_name"] = "Herd operation"
 			m["modal.builder.placeholder.name"] = "Herd operation"
 			m["modal.builder.eyebrow"] = "SOP · COUNTS / HERD OPERATIONS"
@@ -9392,7 +9392,7 @@ func pageSpecificCopy(id string) map[string]string {
 			m["modal.builder.domain_label"] = "Sales"
 			m["modal.builder.default_name"] = "Sale"
 			m["modal.builder.placeholder.name"] = "Sale"
-			m["modal.builder.policy_label"] = "sales policy"
+			m["modal.builder.policy_label"] = "Sales policy"
 			m["modal.builder.eyebrow"] = "SOP · SALES"
 			m["empty.title"] = "No sales SOP yet"
 			m["empty.body"] = "Publish the Sale SOP to drive the steps the phone runs after a sale is recorded."
@@ -9410,7 +9410,7 @@ func pageSpecificCopy(id string) map[string]string {
 			m["modal.builder.domain_label"] = "General"
 			m["modal.builder.default_name"] = "Work instruction"
 			m["modal.builder.placeholder.name"] = "Work instruction"
-			m["modal.builder.policy_label"] = "general work instruction"
+			m["modal.builder.policy_label"] = "General work instruction"
 			m["modal.builder.eyebrow"] = "SOP · GENERAL"
 			m["followup.subtitle"] = "What the operator does once they start this work instruction, in order. Each step names its type, the proof it needs, and when it is due. Publishing applies to runs started from then on; a run already started keeps the steps it started with."
 			m["followup.notice.capture_kept"] = "Started by hand from the phone; every run is its own record."
@@ -9427,7 +9427,7 @@ func pageSpecificCopy(id string) map[string]string {
 			m["modal.builder.domain_label"] = "Preventive Care"
 			m["modal.builder.default_name"] = "Preventive Care task"
 			m["modal.builder.placeholder.name"] = "Preventive Care task"
-			m["modal.builder.policy_label"] = "preventive care policy"
+			m["modal.builder.policy_label"] = "Preventive care policy"
 			m["modal.builder.eyebrow"] = "SOP · PREVENTIVE CARE"
 			m["empty.title"] = "No preventive care SOPs yet"
 			m["empty.body"] = "Publish the document that says what the operator captures on a deworming, ticks removal or trimming task."
@@ -9441,7 +9441,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// "Vaccination session" under a "vaccination drive/session policy".
 			m["modal.builder.default_name"] = "Feed session"
 			m["modal.builder.placeholder.name"] = "Feed session"
-			m["modal.builder.policy_label"] = "feed chain policy"
+			m["modal.builder.policy_label"] = "Feed chain policy"
 			m["modal.builder.eyebrow"] = "SOP · FEED"
 			m["empty.title"] = "No feed SOPs yet"
 			m["empty.body"] = "Publish a distribution, packing or transport SOP for the feed chain."
@@ -9456,7 +9456,7 @@ func pageSpecificCopy(id string) map[string]string {
 			m["modal.builder.domain_label"] = "Procurement"
 			m["modal.builder.default_name"] = "Animal purchase inspection"
 			m["modal.builder.placeholder.name"] = "Animal purchase inspection"
-			m["modal.builder.policy_label"] = "procurement policy"
+			m["modal.builder.policy_label"] = "Procurement policy"
 			m["modal.builder.eyebrow"] = "SOP · PROCUREMENT"
 			m["empty.title"] = "No procurement SOPs yet"
 			for k, v := range inspectionEditorCopy() {
@@ -9481,7 +9481,7 @@ func pageSpecificCopy(id string) map[string]string {
 			m["modal.builder.domain_label"] = "Milk"
 			m["modal.builder.default_name"] = "Milk round"
 			m["modal.builder.placeholder.name"] = "Milk round"
-			m["modal.builder.policy_label"] = "kid-milk policy"
+			m["modal.builder.policy_label"] = "Kid milk policy"
 			m["modal.builder.eyebrow"] = "SOP · MILK"
 			m["empty.title"] = "No milk SOPs yet"
 			m["empty.body"] = "Publish a preparation or feeding SOP for the kid-milk round."
@@ -9500,7 +9500,7 @@ func pageSpecificCopy(id string) map[string]string {
 			m["modal.builder.domain_label"] = "Weighing"
 			m["modal.builder.default_name"] = "Weighing session"
 			m["modal.builder.placeholder.name"] = "Weighing session"
-			m["modal.builder.policy_label"] = "weighing session policy"
+			m["modal.builder.policy_label"] = "Weighing session policy"
 			m["modal.builder.eyebrow"] = "SOP · WEIGHING"
 			m["empty.title"] = "No weighing SOPs yet"
 			m["empty.body"] = "Publish the scan-and-submit weighing session SOP."
@@ -11050,8 +11050,9 @@ func sopOptionGroups() []domain.OptionGroup {
 			// session) — the real vaccination drive is grouped by shed, never random goats.
 			ID: "sop_scan_modes",
 			Options: []domain.Option{
-				option("single", "Single goat", "", ""),
-				option("multi", "Multiple goats (whole pen / batch)", "", ""),
+				// Short enough to sit whole in a 390 select ("Multiple goats (whole pen /…" was cut).
+				option("single", "One animal", "", ""),
+				option("multi", "Every animal in the pen", "", ""),
 			},
 		},
 	}

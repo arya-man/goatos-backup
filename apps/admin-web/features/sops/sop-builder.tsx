@@ -428,7 +428,12 @@ export function SopBuilder({
             <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: "wrap" }}>
               <Label>{fieldCount} {copy(pc, "builder.summary.fields")}</Label>
               <Label>{ruleCount} {copy(pc, "builder.summary.rules")}</Label>
-              {proofRequired && domain !== "general" ? <Label color="secondary">{proofType} {copy(pc, "builder.summary.proof")}</Label> : null}
+              {/* The proof type by its option LABEL ("Video proof required"): the raw key read "video proof gate". */}
+              {proofRequired && domain !== "general" ? (
+                <Label color="secondary">
+                  {proofTypeOptions.find((o) => o.key === proofType)?.label ?? proofType} {copy(pc, "builder.summary.proof")}
+                </Label>
+              ) : null}
             </Stack>
 
             {saved?.report ? (
