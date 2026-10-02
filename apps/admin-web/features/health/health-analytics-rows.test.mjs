@@ -150,3 +150,12 @@ test("the disease board carries the backend's own case-fatality figure", () => {
   assert.equal(row.key, "FEVER");
   assert.equal(row.label, "Fever");
 });
+
+test("an all-parks death list names the park beside the pen; a one-park list does not (PR #294 O9)", () => {
+  const [all] = toDeathRows([deathRow()], DEATH_LABELS, AGE_BANDS, fmtDate, true);
+  assert.equal(all.pen, "CPT · Mandela 1 - Part 3");
+  const [one] = toDeathRows([deathRow()], DEATH_LABELS, AGE_BANDS, fmtDate);
+  assert.equal(one.pen, "Mandela 1 - Part 3");
+  const [noPen] = toDeathRows([deathRow({ operational_location_display: "" })], DEATH_LABELS, AGE_BANDS, fmtDate, true);
+  assert.equal(noPen.pen, "", "no pen stays empty, never a dangling park");
+});

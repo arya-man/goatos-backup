@@ -192,6 +192,12 @@ function readWindow(sp: RouteSearchParams): { from?: string; to?: string } {
 /** The params the KPI deck reads (window + park scope). */
 const WINDOW_WATCH = ["from", "to", "park", "scope_mode"] as const;
 /** The params the tab panel reads. */
+/**
+ * A chart card's body: the template's 24px on a laptop, half that on a phone, where the doubled
+ * gutter left a 390 card's chart ~280px wide in a full-width card (PR #294 O9).
+ */
+const CHART_BOX_SX = { p: { xs: 1.5, sm: 3 } } as const;
+
 const PANEL_WATCH = [...WINDOW_WATCH, "tab"] as const;
 
 function hrefWith(searchParams: RouteSearchParams, updates: Record<string, string | null>): string {
@@ -344,6 +350,7 @@ export async function HealthAnalyticsPage({
     },
     ageBands,
     fmtDate,
+    !parkId,
   );
   const medicineRows: MedicineRow[] = toMedicineRows(data.medicines);
   const engineRuleRows: EngineRuleRow[] = toEngineRuleRows(data.engine.rules);
@@ -520,6 +527,8 @@ export async function HealthAnalyticsPage({
       </UrlSuspense>
 
       <TemplateTabs
+        // Six tabs overflow a phone; the template arrows say so and let the active one be reached (O16).
+        scrollButtons="auto"
         ariaLabel={ha(pageContract, "tab.group.aria")}
         value={tab}
         items={TABS.map((name) => ({
@@ -543,7 +552,7 @@ export async function HealthAnalyticsPage({
         <>
           <Card aria-label={ha(pageContract, "chart.deaths.title")}>
             <CardHeader title={ha(pageContract, "chart.deaths.title")} />
-            <Box sx={{ p: 3 }}>            {deathsAllZero ? (
+            <Box sx={CHART_BOX_SX}>            {deathsAllZero ? (
               <Typography variant="body2" sx={{ color: "text.secondary" }}>{emptyChart}</Typography>
             ) : (
               // Monthly counts are discrete: columns, not an area. A two-point area drew one straight
@@ -554,7 +563,7 @@ export async function HealthAnalyticsPage({
 
           <Card aria-label={ha(pageContract, "chart.diseases.title")}>
             <CardHeader title={ha(pageContract, "chart.diseases.title")} />
-            <Box sx={{ p: 3 }}>            <SvgBars
+            <Box sx={CHART_BOX_SX}>            <SvgBars
               data={diseaseBars}
               maxBars={diseaseBars.length}
               valueNoun={casesNoun}
@@ -575,7 +584,7 @@ export async function HealthAnalyticsPage({
               cross-surface disagreement this repo bans, one card apart. */}
           <Card aria-label={ha(pageContract, "problems.chart.month.title")}>
             <CardHeader title={ha(pageContract, "problems.chart.month.title")} />
-            <Box sx={{ p: 3 }}>            {newCasesAllZero ? (
+            <Box sx={CHART_BOX_SX}>            {newCasesAllZero ? (
               <EmptyState title={emptyChart} />
             ) : (
               <TrendChart
@@ -592,7 +601,7 @@ export async function HealthAnalyticsPage({
 
           <Card aria-label={ha(pageContract, "problems.chart.breed.title")}>
             <CardHeader title={ha(pageContract, "problems.chart.breed.title")} />
-            <Box sx={{ p: 3 }}>            <SvgBars
+            <Box sx={CHART_BOX_SX}>            <SvgBars
               data={breedBars}
               maxBars={breedBars.length}
               valueNoun={casesNoun}
@@ -604,7 +613,7 @@ export async function HealthAnalyticsPage({
 
           <Card aria-label={ha(pageContract, "problems.chart.pen_type.title")}>
             <CardHeader title={ha(pageContract, "problems.chart.pen_type.title")} />
-            <Box sx={{ p: 3 }}>            <SvgBars
+            <Box sx={CHART_BOX_SX}>            <SvgBars
               data={penTypeBars}
               maxBars={penTypeBars.length}
               valueNoun={casesNoun}
@@ -616,7 +625,7 @@ export async function HealthAnalyticsPage({
 
           <Card aria-label={ha(pageContract, "problems.chart.age.title")}>
             <CardHeader title={ha(pageContract, "problems.chart.age.title")} />
-            <Box sx={{ p: 3 }}>            <SvgBars
+            <Box sx={CHART_BOX_SX}>            <SvgBars
               data={ageBars}
               maxBars={ageBars.length}
               valueNoun={casesNoun}
@@ -632,7 +641,7 @@ export async function HealthAnalyticsPage({
         <>
           <Card>
             <CardHeader title={ha(pageContract, "section.diseases.title")} />
-            <Box sx={{ p: 3 }}>            <DiseaseBoardTable
+            <Box sx={CHART_BOX_SX}>            <DiseaseBoardTable
               contract={table(pageContract, "health-disease-board")}
               rows={diseaseRows}
               ariaLabel={ha(pageContract, "section.diseases.title")}
@@ -642,7 +651,7 @@ export async function HealthAnalyticsPage({
 
           <Card aria-label={ha(pageContract, "chart.trend.title")}>
             <CardHeader title={ha(pageContract, "chart.trend.title")} />
-            <Box sx={{ p: 3 }}>            {newCasesAllZero ? (
+            <Box sx={CHART_BOX_SX}>            {newCasesAllZero ? (
               <Typography variant="body2" sx={{ color: "text.secondary" }}>{emptyChart}</Typography>
             ) : (
               <TrendChart
@@ -686,7 +695,7 @@ export async function HealthAnalyticsPage({
 
           <Card aria-label={ha(pageContract, "chart.fatality.title")}>
             <CardHeader title={ha(pageContract, "chart.fatality.title")} />
-            <Box sx={{ p: 3 }}>            <SvgBars
+            <Box sx={CHART_BOX_SX}>            <SvgBars
               data={fatalityBars}
               maxBars={fatalityBars.length}
               valueNoun="%"
@@ -697,7 +706,7 @@ export async function HealthAnalyticsPage({
 
           <Card>
             <CardHeader title={ha(pageContract, "section.deaths.title")} />
-            <Box sx={{ p: 3 }}>            <DeathsTable
+            <Box sx={CHART_BOX_SX}>            <DeathsTable
               contract={table(pageContract, "health-deaths")}
               rows={deathRows}
               ariaLabel={ha(pageContract, "section.deaths.title")}
@@ -732,7 +741,7 @@ export async function HealthAnalyticsPage({
 
           <Card aria-label={ha(pageContract, "chart.adherence.title")}>
             <CardHeader title={ha(pageContract, "chart.adherence.title")} />
-            <Box sx={{ p: 3 }}>            <SvgBars
+            <Box sx={CHART_BOX_SX}>            <SvgBars
               data={adherenceBars}
               maxBars={adherenceBars.length}
               // The four buckets PARTITION sessions_due, so a share is a real share here.
@@ -745,7 +754,7 @@ export async function HealthAnalyticsPage({
 
           <Card>
             <CardHeader title={ha(pageContract, "section.medicines.title")} />
-            <Box sx={{ p: 3 }}>            <MedicinesTable
+            <Box sx={CHART_BOX_SX}>            <MedicinesTable
               contract={table(pageContract, "health-medicines")}
               rows={medicineRows}
               ariaLabel={ha(pageContract, "section.medicines.title")}
@@ -795,7 +804,7 @@ export async function HealthAnalyticsPage({
 
           <Card>
             <CardHeader title={ha(pageContract, "section.engine_rules.title")} />
-            <Box sx={{ p: 3 }}>            <EngineRulesTable
+            <Box sx={CHART_BOX_SX}>            <EngineRulesTable
               contract={table(pageContract, "health-engine-rules")}
               rows={engineRuleRows}
               ariaLabel={ha(pageContract, "section.engine_rules.title")}

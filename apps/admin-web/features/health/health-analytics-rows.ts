@@ -70,6 +70,12 @@ export function toDeathRows(
    * pure mapper with no app-alias dependency — which is what keeps it directly testable.
    */
   formatDate: (iso: string) => string,
+  /**
+   * TRUE when the page spans every park. "Castro 1" is a pen in BOTH parks, so an all-parks list
+   * names the park beside it ("CBE · Castro 1", the Mortality page's form; PR #294 O9 / C5). A
+   * one-park view leaves it off — the park is already the page's scope.
+   */
+  withPark = false,
 ): DeathRow[] {
   return rows.map((row) => {
     const attributed = row.attribution === "attributed";
@@ -79,7 +85,7 @@ export function toDeathRows(
       // rather than rendering an empty cell that reads as a loading failure.
       animalLabel: row.tag || labels.noTag,
       displayId: row.display_id,
-      pen: row.operational_location_display,
+      pen: withPark && row.park_label && row.operational_location_display ? `${row.park_label} · ${row.operational_location_display}` : row.operational_location_display,
       // DD-MM-YYYY through the shared helper. The wire value stays ISO; shipping it
       // straight into the cell would put the API's own format in front of the farm.
       date: formatDate(row.business_date),
