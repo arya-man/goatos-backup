@@ -10,7 +10,9 @@ test("rate-table rows show words, never raw codes; heads are capitalised; labels
   assert.match(source, /function bucketLabel\([\s\S]{0,200}humanizeEnum\(label\)/);
   assert.doesNotMatch(source, /\{bucket\.label \|\| unassignedLabel/);
   assert.match(source, /animalsLabel\.charAt\(0\)\.toUpperCase\(\) \+ animalsLabel\.slice\(1\)/);
-  assert.equal((source.match(/whiteSpace: "nowrap" \}\}>\{bucketLabel\(bucket\.label\)/g) ?? []).length, 2);
+  // One line, ending in an ellipsis with the full text as the title (PR #294 O3), never wrapped.
+  assert.match(source, /const LABEL_CELL_SX = \{ typography: "subtitle2", whiteSpace: "nowrap"/);
+  assert.equal((source.match(/sx=\{LABEL_CELL_SX\} title=/g) ?? []).length, 3);
 });
 
 test("months chart keeps the template colour pair: no palette KEY handed to chart.colors (audit chart-black)", () => {

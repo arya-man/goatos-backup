@@ -43,7 +43,8 @@ import {
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { fmtDate, humanizeEnum, istDayPlus, todayIso } from "@/lib/format";
 import { backendScope, parseScope } from "@/lib/scope";
-import { withLoadPens } from "@/lib/load-pens";
+import type { LoadPen } from "@/lib/load-pens";
+import { loadPensIndex, mortalityLoadLabel } from "./mortality-load-label";
 import { stageVocabularyLabel, stageNameMap, type StageNameMap } from "@/lib/stage-display";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { VaccinationTablePager } from "@/features/preventive-care-vaccination";
@@ -136,6 +137,26 @@ function bucketLabel(label: string | null | undefined): string {
 /** Template list table head: `background.neutral` band, secondary text (TableHeadCustom look). */
 const HEAD_SX = { "& th": { color: "text.secondary", bgcolor: "background.neutral", fontWeight: 600, whiteSpace: "nowrap" } } as const;
 
+/**
+ * The rate / share / cross tables are a label plus three short figures; they fit a phone outright.
+ * The baseline's 540px phone floor (theme/app-baseline) stretched them past the card so every
+ * figure sat behind the horizontal scroll, away from its label (PR #294 O3/O15). "&&" lifts this
+ * table's own min width over that floor, which the baseline lets a table do.
+ */
+const COMPACT_TABLE_SX = { "&&": { minWidth: 0 } } as const;
+/**
+ * A row label holds ONE line and ends in an ellipsis rather than pushing its figures away; the
+ * full text is the cell's title. Narrower on a phone, where the figures need the room.
+ */
+const LABEL_CELL_SX = { typography: "subtitle2", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: { xs: 120, sm: 240 } } as const;
+/** Figures keep their full width; on a phone the gutters tighten so three fit beside the label. */
+const FIGURE_CELL_SX = { whiteSpace: "nowrap", px: { xs: 1, sm: 2 } } as const;
+
+/** A row's label and its full title: a LOAD row names its pens compactly (see mortality-load-label). */
+function rowLabel(text: string, pens: readonly LoadPen[] | null | undefined): { text: string; full: string } {
+  return pens && pens.length > 0 ? mortalityLoadLabel(text, pens) : { text, full: text };
+}
+
 function EmptyBlock({ label }: { label: string }) {
   return <EmptyContent title={label} sx={{ py: 4 }} />;
 }
@@ -182,7 +203,7 @@ function RateTable({
   const maxRate = Math.max(0, ...buckets.map((b) => b.rate_pct ?? 0));
   return (
     <Scrollbar tabIndex={0} role="group" aria-label={ariaLabel}>
-    <Table aria-label={ariaLabel}>
+    <Table aria-label={ariaLabel} sx={COMPACT_TABLE_SX}>
       <TableHead sx={HEAD_SX}>
         <TableRow>
           <TableCell component="th" scope="col" />
@@ -203,14 +224,15 @@ function RateTable({
         {buckets.map((bucket) => {
           const rate = bucket.rate_pct ?? null;
           const width = rate == null || maxRate <= 0 ? 0 : Math.max(rate > 0 ? 2 : 0, (rate / maxRate) * 100);
+          // A LOAD row names its pens (load-charts-name-their-pens) compactly, "Load 128 (CBE
+          // Castro 3 +2)", with the whole bracket in the title; every other series carries no pens.
+          const label = bucketLabel(bucket.label) ? rowLabel(bucketLabel(bucket.label), bucket.pens) : { text: unassignedLabel, full: unassignedLabel };
           return (
             <TableRow hover key={bucket.key || "__unassigned"}>
-              {/* A LOAD row names its pens in a bracket (load-charts-name-their-pens); every other
-                  series carries no pens and renders its label unchanged. */}
-              <TableCell component="th" scope="row" sx={{ typography: "subtitle2", whiteSpace: "nowrap" }}>{bucketLabel(bucket.label) ? withLoadPens(bucketLabel(bucket.label), bucket.pens) : unassignedLabel}</TableCell>
-              <TableCell align="right" sx={{ typography: bucket.deaths > 0 ? "subtitle2" : "body2" }}>{nf(bucket.deaths)}</TableCell>
-              <TableCell align="right" sx={{ color: "text.secondary" }}>{nf(bucket.animals)}</TableCell>
-              <TableCell align="right">{rate == null ? <Box component="span" sx={{ color: "text.secondary" }} title={noRateLabel}>—</Box> : pct(rate)}</TableCell>
+              <TableCell component="th" scope="row" sx={LABEL_CELL_SX} title={label.full}>{label.text}</TableCell>
+              <TableCell align="right" sx={{ ...FIGURE_CELL_SX, typography: bucket.deaths > 0 ? "subtitle2" : "body2" }}>{nf(bucket.deaths)}</TableCell>
+              <TableCell align="right" sx={{ ...FIGURE_CELL_SX, color: "text.secondary" }}>{nf(bucket.animals)}</TableCell>
+              <TableCell align="right" sx={FIGURE_CELL_SX}>{rate == null ? <Box component="span" sx={{ color: "text.secondary" }} title={noRateLabel}>—</Box> : pct(rate)}</TableCell>
               <TableCell sx={{ display: { xs: "none", sm: "table-cell" } }}>
                 <RateBar value={width} />
               </TableCell>
@@ -233,11 +255,14 @@ function CrossTable({
   totalLabel,
   emptyLabel,
   ariaLabel,
+  rowPens,
 }: {
   cells: MortalityCrossCell[];
   totalLabel: string;
   emptyLabel: string;
   ariaLabel: string;
+  /** Load × cause: a row's pens by its load key, so it reads as the load series does. */
+  rowPens?: (key: string) => readonly LoadPen[] | undefined;
 }) {
   if (cells.length === 0) return <EmptyBlock label={emptyLabel} />;
   const rows: { key: string; label: string }[] = [];
@@ -267,7 +292,7 @@ function CrossTable({
   const grand = [...rowTotals.values()].reduce((a, b) => a + b, 0);
   return (
     <Scrollbar tabIndex={0} role="region" aria-label={ariaLabel}>
-      <Table aria-label={ariaLabel}>
+      <Table aria-label={ariaLabel} sx={COMPACT_TABLE_SX}>
         <TableHead sx={HEAD_SX}>
           <TableRow>
             <TableCell component="th" scope="col" />
@@ -282,9 +307,11 @@ function CrossTable({
           </TableRow>
         </TableHead>
         <TableBody>
-          {rows.map((row) => (
+          {rows.map((row) => {
+            const label = rowLabel(row.label, rowPens?.(row.key));
+            return (
             <TableRow hover key={row.key || "__none"}>
-              <TableCell component="th" scope="row" sx={{ typography: "subtitle2", whiteSpace: "nowrap" }}>{row.label}</TableCell>
+              <TableCell component="th" scope="row" sx={LABEL_CELL_SX} title={label.full}>{label.text}</TableCell>
               {cols.map((col) => {
                 const value = grid.get(`${row.key}\t${col.key}`) ?? 0;
                 // Heat: the cell's share of the largest cell, as an alpha on the brand colour.
@@ -299,9 +326,10 @@ function CrossTable({
                   </TableCell>
                 );
               })}
-              <TableCell align="right" sx={{ typography: "subtitle2" }}>{nf(rowTotals.get(row.key) ?? 0)}</TableCell>
+              <TableCell align="right" sx={{ ...FIGURE_CELL_SX, typography: "subtitle2" }}>{nf(rowTotals.get(row.key) ?? 0)}</TableCell>
             </TableRow>
-          ))}
+            );
+          })}
         </TableBody>
         <TableFooter sx={{ "& td, & th": { typography: "subtitle2", color: "text.primary", bgcolor: "background.neutral", borderBottom: 0 } }}>
           <TableRow>
@@ -347,7 +375,7 @@ function ShareTable({
   const max = Math.max(1, ...buckets.map((b) => b.deaths));
   return (
     <Scrollbar tabIndex={0} role="group" aria-label={ariaLabel}>
-    <Table aria-label={ariaLabel}>
+    <Table aria-label={ariaLabel} sx={COMPACT_TABLE_SX}>
       <TableHead sx={HEAD_SX}>
         <TableRow>
           <TableCell component="th" scope="col" />
@@ -368,7 +396,7 @@ function ShareTable({
           const muted = basisLabels ? basis === "none" : false;
           return (
             <TableRow hover key={`${bucket.basis ?? ""}:${bucket.key}`}>
-              <TableCell component="th" scope="row" sx={{ typography: "subtitle2", whiteSpace: "nowrap" }}>{bucketLabel(bucket.label) || unassignedLabel || bucket.key}</TableCell>
+              <TableCell component="th" scope="row" sx={LABEL_CELL_SX} title={bucketLabel(bucket.label) || unassignedLabel || bucket.key}>{bucketLabel(bucket.label) || unassignedLabel || bucket.key}</TableCell>
               {basisLabels ? (
                 <TableCell>
                   {/* The no-cause row is LABELLED by its basis already; a chip repeating the row's
@@ -378,8 +406,8 @@ function ShareTable({
                   )}
                 </TableCell>
               ) : null}
-              <TableCell align="right" sx={bucket.deaths > 0 ? { typography: "subtitle2" } : { color: "text.secondary" }}>{nf(bucket.deaths)}</TableCell>
-              <TableCell align="right" sx={{ color: "text.secondary" }}>{bucket.deaths === 0 ? "—" : share < 1 ? "<1%" : pct(Math.round(share * 10) / 10)}</TableCell>
+              <TableCell align="right" sx={{ ...FIGURE_CELL_SX, ...(bucket.deaths > 0 ? { typography: "subtitle2" } : { color: "text.secondary" }) }}>{nf(bucket.deaths)}</TableCell>
+              <TableCell align="right" sx={{ ...FIGURE_CELL_SX, color: "text.secondary" }}>{bucket.deaths === 0 ? "—" : share < 1 ? "<1%" : pct(Math.round(share * 10) / 10)}</TableCell>
               <TableCell sx={{ display: { xs: "none", sm: "table-cell" } }}>
                 <RateBar value={(bucket.deaths / max) * 100} muted={muted} />
               </TableCell>
@@ -457,6 +485,8 @@ export async function MortalityPage({
   }
 
   const totals = data.totals;
+  // One load's pens, found the same way from the load series for every surface that names a load.
+  const loadPens = loadPensIndex(data.load);
 
   // Every pager link carries the rest of the URL forward -- the window and the park scope live
   // there too, and a page link that dropped them would silently re-scope the screen it is paging.
@@ -691,7 +721,7 @@ export async function MortalityPage({
             <CrossTable cells={seasonByStage} totalLabel={mc(pageContract, "cross.total")} emptyLabel={emptyChart} ariaLabel={mc(pageContract, "cross.season_stage.title")} />
           </ChartCard>
           <ChartCard wide title={mc(pageContract, "cross.load_cause.title")}>
-            <CrossTable cells={data.load_by_cause} totalLabel={mc(pageContract, "cross.total")} emptyLabel={emptyChart} ariaLabel={mc(pageContract, "cross.load_cause.title")} />
+            <CrossTable cells={data.load_by_cause} rowPens={loadPens.byKey} totalLabel={mc(pageContract, "cross.total")} emptyLabel={emptyChart} ariaLabel={mc(pageContract, "cross.load_cause.title")} />
           </ChartCard>
           <ChartCard wide title={mc(pageContract, "cross.vendor_cause.title")} hint={mc(pageContract, "cross.vendor_cause.hint")}>
             <CrossTable cells={data.vendor_by_cause} totalLabel={mc(pageContract, "cross.total")} emptyLabel={emptyChart} ariaLabel={mc(pageContract, "cross.vendor_cause.title")} />
@@ -729,6 +759,7 @@ export async function MortalityPage({
               park: d.park,
               pen: d.pen,
               loadRef: d.load_ref,
+              loadPens: d.load_ref ? loadPens.byLabel(d.load_ref) : undefined,
               causeLabel: d.cause_label,
               causeBasis: d.cause_basis,
               basisLabel: basisLabels[d.cause_basis],
