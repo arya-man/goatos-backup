@@ -299,7 +299,7 @@ func (h *VendorHandler) ListVendorCatalog(w http.ResponseWriter, r *http.Request
 // dropdown that stops at page one silently hides buyers), and it carries five columns instead of
 // the full row, so it stays outside the VendorFinanceRead surface entirely.
 func (h *VendorHandler) ListVendorOptions(w http.ResponseWriter, r *http.Request) {
-	options, err := h.service.ListVendorOptions(r.Context(), tenantID(r))
+	options, err := h.service.ListVendorOptions(sideCtx(r), tenantID(r))
 	if err != nil {
 		h.writeErr(w, r, app.VendorHTTPError(err))
 		return

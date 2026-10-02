@@ -72,8 +72,9 @@ type VendorRepository interface {
 
 	// ListVendorOptions returns the ACTIVE register as a bounded picklist for a "who is this for"
 	// dropdown -- id, name and location only, never the payment instruments VendorFinanceRead
-	// guards. One query capped at domain.MaxVendorOptions, so this is never a paged full walk.
-	ListVendorOptions(ctx context.Context, tenantID string) (domain.VendorOptions, error)
+	// guards. side narrows the picker to one register half; empty means the whole register. One query
+	// capped at domain.MaxVendorOptions, so this is never a paged full walk.
+	ListVendorOptions(ctx context.Context, tenantID, side string) (domain.VendorOptions, error)
 }
 
 // ErrInvalidVoiceNote reports a voice-note proof ref that is unknown, wrong-tenant, unfinished, not

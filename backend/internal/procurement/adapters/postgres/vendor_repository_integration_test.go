@@ -376,20 +376,22 @@ func TestVendorOptionsPicklistIsActiveOnlyAndNameOrdered(t *testing.T) {
 	// Lower-case "zebu" is seeded FIRST and must still sort LAST: the ordering is lower(name), so a
 	// plain byte order would put every capitalised name after it and scramble the picker.
 	seed := []struct {
-		name   string
-		status string
-		city   string
+		name       string
+		status     string
+		city       string
+		recordType string
 	}{
-		{"zebu Agro", domain.VendorStatusActive, "Hosur"},
-		{"Anantapur Sheep Traders", domain.VendorStatusActive, "Anantapur"},
-		{"Madur Livestock", domain.VendorStatusActive, ""},
-		{"Retired Traders", domain.VendorStatusInactive, "Salem"},
-		{"Never Again Agro", domain.VendorStatusBanned, "Erode"},
-		{"Still Talking Agro", domain.VendorStatusNegotiating, "Mysore"},
+		{"zebu Agro", domain.VendorStatusActive, "Hosur", "Sheep Agent"},
+		{"Anantapur Sheep Traders", domain.VendorStatusActive, "Anantapur", "Sheep Agent"},
+		{"Madur Livestock", domain.VendorStatusActive, "", "Sheep Agent"},
+		{"Ballari Meat House", domain.VendorStatusActive, "Ballari", "Butcher"},
+		{"Retired Traders", domain.VendorStatusInactive, "Salem", "Sheep Agent"},
+		{"Never Again Agro", domain.VendorStatusBanned, "Erode", "Sheep Agent"},
+		{"Still Talking Agro", domain.VendorStatusNegotiating, "Mysore", "Sheep Agent"},
 	}
 	for _, v := range seed {
 		if _, err := repo.CreateVendor(ctx, testTenant, domain.VendorWrite{
-			RecordType: "Sheep Agent", BusinessName: v.name, Status: v.status,
+			RecordType: v.recordType, BusinessName: v.name, Status: v.status,
 			State: "TN", City: v.city,
 			// Payment instruments on every row, so the assertion below that the picklist carries
 			// none of them is testing a real exclusion rather than an empty column.
@@ -399,7 +401,7 @@ func TestVendorOptionsPicklistIsActiveOnlyAndNameOrdered(t *testing.T) {
 		}
 	}
 
-	options, err := repo.ListVendorOptions(ctx, testTenant)
+	options, err := repo.ListVendorOptions(ctx, testTenant, "")
 	if err != nil {
 		t.Fatalf("list vendor options: %v", err)
 	}
@@ -408,7 +410,7 @@ func TestVendorOptionsPicklistIsActiveOnlyAndNameOrdered(t *testing.T) {
 	for _, v := range options.Vendors {
 		got = append(got, v.BusinessName)
 	}
-	want := []string{"Anantapur Sheep Traders", "Madur Livestock", "zebu Agro"}
+	want := []string{"Anantapur Sheep Traders", "Ballari Meat House", "Madur Livestock", "zebu Agro"}
 	if len(got) != len(want) {
 		t.Fatalf("picklist = %v, want exactly the ACTIVE vendors %v", got, want)
 	}
@@ -432,6 +434,22 @@ func TestVendorOptionsPicklistIsActiveOnlyAndNameOrdered(t *testing.T) {
 	}
 	if anantapur := byName["Anantapur Sheep Traders"]; anantapur.VendorID == "" || anantapur.RecordType != "Sheep Agent" {
 		t.Fatalf("picklist row must carry its id and record type: %+v", anantapur)
+	}
+	salesOnly, err := repo.ListVendorOptions(ctx, testTenant, domain.VendorSideSales)
+	if err != nil {
+		t.Fatalf("list sales-side vendor options: %v", err)
+	}
+	if len(salesOnly.Vendors) != 1 || salesOnly.Vendors[0].BusinessName != "Ballari Meat House" {
+		t.Fatalf("sales-side picklist = %+v, want only the buyer-side vendor", salesOnly.Vendors)
+	}
+	supplyOnly, err := repo.ListVendorOptions(ctx, testTenant, domain.VendorSideProcurement)
+	if err != nil {
+		t.Fatalf("list procurement-side vendor options: %v", err)
+	}
+	for _, v := range supplyOnly.Vendors {
+		if v.BusinessName == "Ballari Meat House" {
+			t.Fatalf("procurement-side picklist leaked the buyer-side vendor: %+v", supplyOnly.Vendors)
+		}
 	}
 }
 

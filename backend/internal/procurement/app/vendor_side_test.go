@@ -14,8 +14,9 @@ import (
 // rest satisfy the interface.
 type sideRecordingRepo struct {
 	ports.VendorRepository
-	sawFilter domain.VendorFilter
-	entries   []domain.VendorCatalogEntry
+	sawFilter     domain.VendorFilter
+	sawOptionSide string
+	entries       []domain.VendorCatalogEntry
 }
 
 func (r *sideRecordingRepo) ListVendors(_ context.Context, _ string, filter domain.VendorFilter, _, _ int, _ bool) (ports.VendorPage, error) {
@@ -25,6 +26,11 @@ func (r *sideRecordingRepo) ListVendors(_ context.Context, _ string, filter doma
 
 func (r *sideRecordingRepo) ListVendorCatalog(context.Context, string, bool) ([]domain.VendorCatalogEntry, error) {
 	return r.entries, nil
+}
+
+func (r *sideRecordingRepo) ListVendorOptions(_ context.Context, _, side string) (domain.VendorOptions, error) {
+	r.sawOptionSide = side
+	return domain.VendorOptions{}, nil
 }
 
 func catalogFixture() []domain.VendorCatalogEntry {

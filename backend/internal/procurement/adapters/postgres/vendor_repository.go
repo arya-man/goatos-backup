@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -537,18 +538,43 @@ func (r *Repository) ListVendorCatalog(ctx context.Context, tenantID string, act
 //
 // LIMIT is MaxVendorOptions+1 so a register that has outgrown the cap is DETECTED rather than
 // silently truncated: the extra row is dropped and Truncated is reported to the caller.
-func (r *Repository) ListVendorOptions(ctx context.Context, tenantID string) (domain.VendorOptions, error) {
+func (r *Repository) ListVendorOptions(ctx context.Context, tenantID, side string) (domain.VendorOptions, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
+
+	side, ok := domain.NormalizeVendorSide(side)
+	if !ok {
+		return domain.VendorOptions{}, ports.ErrVendorNotFound
+	}
+	sideClause := ""
+	args := []any{tenantID, domain.VendorStatusActive}
+	if side != "" {
+		args = append(args, domain.VendorSideSales)
+		predicate := `EXISTS (
+				SELECT 1
+				FROM public.procurement_vendor_catalog c
+				WHERE c.tenant_id = v.tenant_id
+				  AND c.kind = 'record_type'
+				  AND c.value = v.record_type
+				  AND c.register_side = $3
+			  )`
+		if side != domain.VendorSideSales {
+			predicate = "NOT " + predicate
+		}
+		sideClause = `
+			  AND ` + predicate
+	}
+	args = append(args, domain.MaxVendorOptions+1)
+	limitParam := len(args)
 
 	rows, err := r.pool.Query(ctx, `
 		SELECT vendor_id::text, business_name, record_type,
 		       coalesce(btrim(city), ''), coalesce(btrim(state), '')
-		FROM public.procurement_vendors
-		WHERE tenant_id = $1 AND status = $2
+		FROM public.procurement_vendors v
+		WHERE tenant_id = $1 AND status = $2`+sideClause+`
 		ORDER BY lower(business_name), vendor_id
-		LIMIT $3`,
-		tenantID, domain.VendorStatusActive, domain.MaxVendorOptions+1)
+		LIMIT $`+strconv.Itoa(limitParam),
+		args...)
 	if err != nil {
 		return domain.VendorOptions{}, fmt.Errorf("list vendor options: %w", err)
 	}

@@ -52,6 +52,12 @@ func TestABuyersOnlyCallerNeverReachesASupplier(t *testing.T) {
 	if repo.sawFilter.Side != domain.VendorSideSales {
 		t.Fatalf("no side read the %q half; a buyers-only caller must get the buyers, never the whole register", repo.sawFilter.Side)
 	}
+	if _, err := svc.ListVendorOptions(ctx, "t"); err != nil {
+		t.Fatalf("listing buyer options: %v", err)
+	}
+	if repo.sawOptionSide != domain.VendorSideSales {
+		t.Fatalf("options read the %q half; a buyers-only caller must get buyer options, never the whole register", repo.sawOptionSide)
+	}
 	if _, err := svc.GetVendor(ctx, "t", "supplier", false); !errors.Is(err, ports.ErrVendorNotFound) {
 		t.Fatalf("opening a supplier: err = %v, want not found", err)
 	}

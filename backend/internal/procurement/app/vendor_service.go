@@ -323,9 +323,12 @@ func (s *VendorService) ListVendorCatalog(ctx context.Context, tenantID string, 
 // ListVendorOptions returns the ACTIVE register as a bounded picklist for a counterparty dropdown.
 //
 // Read by the Sales record-sale drawer, which must map every deal to a vendor (maintainer decision
-// 2026-08-27). It stays a procurement read served under VendorRead: the SALES module reads no
-// procurement table (the 000173 lock), so the vendor is chosen in admin-web and only the chosen id
-// travels onto the sale.
+// 2026-08-27). The request's vendor-side access narrows the picker to the caller's register half, so
+// a buyers-only caller cannot learn supplier names through the dropdown.
 func (s *VendorService) ListVendorOptions(ctx context.Context, tenantID string) (domain.VendorOptions, error) {
-	return s.repo.ListVendorOptions(ctx, tenantID)
+	side, err := resolveReadSide(ctx, "")
+	if err != nil {
+		return domain.VendorOptions{}, err
+	}
+	return s.repo.ListVendorOptions(ctx, tenantID, side)
 }
