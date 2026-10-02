@@ -77,3 +77,11 @@ test("feed-config-template-anatomy: session feeds are chips + an Add button; pla
   const action = header.slice(0, header.indexOf("/>\n"));
   assert.match(action, /action=\{[\s\S]*<SessionPlanEditor/, "SessionPlanEditor must be the session CardHeader action");
 });
+
+test("feed-config-template-anatomy: the pen's Add feed item is a named icon button, not a text button (PR #294 O2)", () => {
+  const adder = editor.slice(editor.indexOf("export function ExperimentCellAdder("), editor.indexOf("export function", editor.indexOf("export function ExperimentCellAdder(") + 10));
+  assert.match(adder, /trigger="icon"/);
+  assert.match(adder, /icon="add"/);
+  assert.match(adder, /editLabel=\{copy\(pageContract, "action\.add_experiment_item"\)\}/, "the icon is named by the contract label (tooltip + aria-label)");
+  assert.doesNotMatch(adder, /trigger="button"/);
+});
