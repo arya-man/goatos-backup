@@ -1929,6 +1929,7 @@ func pageSpecificCopy(id string) map[string]string {
 	case "action-center":
 		return map[string]string{
 			"crumb":                               "Command lens · vaccination",
+			"label.no_proof_yet":                  "No proof yet",
 			"section.verification.title":          "Awaiting verification",
 			"section.verification.aria":           "Awaiting verification",
 			"section.verification.note":           "Recorded doses awaiting review",
@@ -2099,6 +2100,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"gap.blocked":                    "blocked",
 			"gap.overdue":                    "overdue",
 			"gap.capacity_shortfall":         "capacity shortfall",
+			"gap.medical_defer":              "medical defer",
+			"gap.terminal_closed":            "terminal animal closed",
+			"label.no_proof_yet":             "No proof yet",
+			"label.of":                       "of",
+			"label.adherence_rows":           "adherence rows",
 			"vaccine.blue_tongue":            "Blue Tongue",
 			"vaccine.goat_pox":               "Goat Pox",
 			"vaccine.sheep_pox":              "Sheep Pox",
@@ -2615,6 +2621,8 @@ func pageSpecificCopy(id string) map[string]string {
 		return map[string]string{
 			// Routines desk chrome (kit filter bar, toolbar, footer, themed date picker) — 2026-09-19.
 			"date.prev_month":                 "Previous month",
+			"date.next_month":                 "Next month",
+			"date.invalid":                    "Pick a day on or before {date}",
 			"action.apply_search":             "Apply search",
 			"action.clear_all":                "Clear all",
 			"action.columns":                  "Columns",

@@ -4,7 +4,7 @@ import { Iconify } from "@/components/minimal/iconify";
 import { Label } from "@/components/minimal/label";
 import { Tag, TONE_COLOR } from "@/components/ui-primitives";
 import type { ProcessIntegrityEvidence } from "@/lib/api/server";
-import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, optionalCopy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { Tone } from "./process-integrity";
 
 type EvidenceMediaItem = {
@@ -61,5 +61,6 @@ export function EvidenceMedia({ evidence, pageContract, tone = "ok" }: { evidenc
     );
   }
 
-  return <Box component="span" sx={{ color: "text.disabled" }}>-</Box>;
+  // Words, not a bare "-" (A5, pr294): a reader cannot tell a dash from a missing cell.
+  return <Box component="span" sx={{ color: "text.disabled" }}>{optionalCopy(pageContract, "label.no_proof_yet") ?? "-"}</Box>;
 }
