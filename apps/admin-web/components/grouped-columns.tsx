@@ -14,6 +14,11 @@ import { EmptyState } from "./app/empty-state";
 import { Chart, useChart, type ChartOptions } from "./minimal/chart";
 import { niceCeiling } from "./chart-scale";
 import { CATEGORY_AXIS_LABELS } from "./chart-axis-label";
+
+/** A category label longer than this is drawn rotated (Apex turns a crowded axis 45 degrees). */
+const LONG_AXIS_LABEL_CHARS = 10;
+/** Left plot padding that keeps the first rotated label's head inside the card. */
+const ROTATED_LABEL_LEFT_PAD = 40;
 import { SeriesLegendView } from "./series-charts";
 import { inrAxisTick, numAxisTick } from "@/features/procurement/sales-format";
 
@@ -124,6 +129,9 @@ export function GroupedColumns({
       stroke: { width: 2, colors: ["transparent"] },
       // The axis keeps each label's head (the load number); the tooltip names it in full.
       xaxis: { categories: data.map((d) => d.axisLabel), labels: CATEGORY_AXIS_LABELS },
+      // A long label turns 45 degrees and its head runs down-LEFT of its tick: the first one ran
+      // past the plot's left edge and lost its load number. Room on the left keeps that head in view.
+      ...(data.some((d) => [...String(d.axisLabel)].length > LONG_AXIS_LABEL_CHARS) ? { grid: { padding: { left: ROTATED_LABEL_LEFT_PAD } } } : null),
       // Four round ticks on a nice ceiling, ONE unit per axis picked from the top.
       yaxis: { min: 0, max, tickAmount: 4, labels: { formatter: (v: number) => axisTick(v, max) } },
       tooltip: {
