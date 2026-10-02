@@ -9043,9 +9043,9 @@ export interface components {
             profit_loss?: number | null;
             /** @description sold_value - purchase_value: the part of profit_loss that actually happened. Absent when no cost is recorded. profit_loss = realised_profit_loss + assumed_value whenever both exist. */
             realised_profit_loss?: number | null;
-            /** @description The ASSUMED value of the animals still on farm, a price nobody has paid yet (maintainer decision 2026-10-02): each live animal's latest weight -- or the load's current average weight when it has none -- x the ₹/kg of its stage-and-sex bucket on Sales Config's Farm valuation. An animal whose stage has no Sales Config price is left out and named in assumed_value_basis. Absent when the load holds nothing, none of its animals is weighed, or none can be priced. */
+            /** @description The ASSUMED value of the animals still on farm, a price nobody has paid yet (maintainer decision 2026-10-02): each live animal's latest weight -- or the load's current average weight when it has none -- x the ₹/kg of its stage-and-sex bucket on Sales Config's Farm valuation. An animal whose stage has no Sales Config price is left out. Absent when the load holds nothing, none of its animals is weighed, or none can be priced. */
             assumed_value?: number | null;
-            /** @description Backend-composed sentence saying HOW assumed_value was assumed, rendered verbatim ("76 animals × latest weight × ₹/kg by stage and sex on Sales Config = ₹7,52,400 (4 not weighed yet, carried at the load's average 22 kg)", or "Not valued: none of the 5 animals on farm is weighed yet"). Empty when the load holds nothing. */
+            /** @description Backend-composed sentence saying HOW assumed_value was assumed, rendered verbatim ("76 animals × latest weight × ₹/kg by stage and sex on Sales Config = ₹7,52,400", or "Not valued: none of the 5 animals on farm is weighed yet"). Empty when the load holds nothing. */
             assumed_value_basis?: string;
             /** @description Animals of this load ALREADY SOLD before its remaining animals were tracked here — seeded history, already folded into `sold` / `purchased` / `sold_value`; shown with the dates it spans. */
             prior_sold?: components["schemas"]["LoadwisePriorOutcome"] | null;

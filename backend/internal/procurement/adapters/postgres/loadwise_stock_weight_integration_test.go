@@ -145,7 +145,7 @@ VALUES ($1::uuid, 'goat', 'K3', 'male', 9999, '2026-09-10', 'test')`, testTenant
 	if one.AssumedValue == nil || math.Abs(*one.AssumedValue-26700) > 0.01 {
 		t.Fatalf("an unweighed animal must carry the load average: value=%v basis=%q", one.AssumedValue, one.AssumedValueBasis)
 	}
-	if want := "3 animals × latest weight × ₹/kg by stage and sex on Sales Config = ₹26,700 (1 not weighed yet, carried at the load's average 19 kg)"; one.AssumedValueBasis != want {
+	if want := "3 animals × latest weight × ₹/kg by stage and sex on Sales Config = ₹26,700"; one.AssumedValueBasis != want {
 		t.Fatalf("basis = %q, want %q", one.AssumedValueBasis, want)
 	}
 
@@ -176,8 +176,8 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 22, 22, 1, $4::uuid, $5::uuid, 'lw-pen-q',
 	if unpriced.AssumedValue == nil || math.Abs(*unpriced.AssumedValue-28200) > 0.01 {
 		t.Fatalf("an unpriced animal adds nothing: value=%v", unpriced.AssumedValue)
 	}
-	if !strings.HasSuffix(unpriced.AssumedValueBasis, "(1 not valued: no Sales Config price for Warmup)") {
-		t.Fatalf("the basis must name the unpriced stage: %q", unpriced.AssumedValueBasis)
+	if unpriced.AssumedValueBasis != "3 animals × latest weight × ₹/kg by stage and sex on Sales Config = ₹28,200" {
+		t.Fatalf("the unpriced animal stays out of the count: %q", unpriced.AssumedValueBasis)
 	}
 
 	valueOf := func(l domain.LoadwiseLoad) float64 {

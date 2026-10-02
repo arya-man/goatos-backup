@@ -679,13 +679,13 @@ func TestProfitSplitsRealisedFromTheAssumedValueOfStockOnFarm(t *testing.T) {
 }
 
 // An animal not weighed yet is carried at the load's CURRENT AVERAGE weight, and an animal whose
-// stage has no Sales Config price is left out and named -- each stated in the row's sentence
-// (maintainer decision 2026-10-02). A load with no weighed animal at all has no average to carry
+// stage has no Sales Config price is left out. The sentence states only the rule and the total,
+// never how many were filled or left out (maintainer instruction 2026-10-02). A load with no weighed animal at all has no average to carry
 // its stock at and is not valued.
 func TestAssumedValueFillsUnweighedAtTheLoadAverageAndNamesUnpricedStages(t *testing.T) {
 	loads := []LoadwiseLoad{
 		{LoadID: "filled", Purchased: 76, Remaining: 76, AnimalCost: lw(700000),
-			StockWeight: &LoadStockWeight{LiveAnimals: 76, WeighedAnimals: 72, TotalKg: 1584, AvgKg: lw(22), Value: 752400, FilledAnimals: 4}},
+			StockWeight: &LoadStockWeight{LiveAnimals: 76, WeighedAnimals: 72, TotalKg: 1584, AvgKg: lw(22), Value: 752400}},
 		{LoadID: "unpriced", Purchased: 10, Remaining: 10, AnimalCost: lw(100000),
 			StockWeight: &LoadStockWeight{LiveAnimals: 10, WeighedAnimals: 10, TotalKg: 200, AvgKg: lw(20), Value: 63000,
 				UnpricedAnimals: 3, UnpricedStages: []string{"Warmup", "Flushing"}}},
@@ -696,11 +696,11 @@ func TestAssumedValueFillsUnweighedAtTheLoadAverageAndNamesUnpricedStages(t *tes
 	}
 	out := FinalizeLoadwise(loads, 4, testAsOf)
 	if r := out.Loads[0]; r.AssumedValue == nil || *r.AssumedValue != 752400 ||
-		r.AssumedValueBasis != "76 animals × latest weight × ₹/kg by stage and sex on Sales Config = ₹7,52,400 (4 not weighed yet, carried at the load's average 22 kg)" {
+		r.AssumedValueBasis != "76 animals × latest weight × ₹/kg by stage and sex on Sales Config = ₹7,52,400" {
 		t.Fatalf("filled: %v %q", r.AssumedValue, r.AssumedValueBasis)
 	}
 	if r := out.Loads[1]; r.AssumedValue == nil || *r.AssumedValue != 63000 ||
-		r.AssumedValueBasis != "7 animals × latest weight × ₹/kg by stage and sex on Sales Config = ₹63,000 (3 not valued: no Sales Config price for Flushing, Warmup)" {
+		r.AssumedValueBasis != "7 animals × latest weight × ₹/kg by stage and sex on Sales Config = ₹63,000" {
 		t.Fatalf("unpriced: %v %q", r.AssumedValue, r.AssumedValueBasis)
 	}
 	if r := out.Loads[2]; r.AssumedValue != nil || r.AssumedValueBasis != "Not valued: no Sales Config price for Warmup" {
