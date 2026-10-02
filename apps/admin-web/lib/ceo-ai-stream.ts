@@ -218,7 +218,7 @@ type AskArgs = {
   locale?: string;
   pageScope?: AskPageScope;
   signal?: AbortSignal;
-  // No-progress window (ms) after which a slow/unavailable Vertex is degraded
+  // No-progress window (ms) after which a slow/unavailable model is degraded
   // instead of hanging forever. The timer is armed before connect and re-armed
   // on every chunk, so a healthy progressive stream never trips it; only a real
   // stall (no headers, no token, no final for this long) does. Default 40s.

@@ -184,7 +184,7 @@ test("HTTP error envelope surfaces via onError with status", async () => {
 });
 
 test("a stalled stream trips the idle timeout and degrades via onError", async () => {
-  // A stream that connects but never sends a token or closes — the Vertex-slow
+  // A stream that connects but never sends a token or closes — the model-slow
   // / hung case. The idle timeout must abort and surface a degraded error
   // instead of hanging forever.
   await withFetch(

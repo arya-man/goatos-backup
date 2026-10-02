@@ -9,14 +9,14 @@ build state live in `docs/ceo-ai/ceo-chatbot-purpose-and-build-plan.md`,
 
 ```
 admin-web chat  ──HTTP/SSE──▶  backend/internal/ceoai
-                                  app/orchestrator ─▶ planner (Vertex/Gemini)
+                                  app/orchestrator ─▶ planner (Gemini Developer API)
                                   app/router (4-tier):
                                      1 cube/      → Cube Core (governed metrics)
                                      2 http/      → Mesha read APIs
                                      3 toolbox/   → MCP Toolbox (ceo_ai.* tools)
                                      4 postgres/  → read-only SQL (mesha_ceo_readonly)
                                   app/guard (injection, moderation, sqlguard)
-                                  adapters/{vertex,cube,toolbox,postgres,cache}
+                                  adapters/{gemini,cube,toolbox,postgres,cache}
                                   persistence (conversations, messages, audit)
 ```
 
@@ -30,12 +30,12 @@ admin-web chat  ──HTTP/SSE──▶  backend/internal/ceoai
 
 The multi-tool loop is bounded by `MESHA_AI_MAX_STEPS`: per-step deadline,
 deterministic stop condition, step-count metric. Prevents unbounded re-plan cost
-against Vertex + Cube + DB.
+against Gemini + Cube + DB.
 
 ## Safety layers
 
 1. Prompt-injection guard (strip/deny override patterns; enforce session scope).
-2. Vertex safety settings + pre/post moderation (off-domain → scoped refusal).
+2. Gemini safety settings + pre/post moderation (off-domain → scoped refusal).
 3. Read-only SQL guard (single SELECT, tenant predicate, `LIMIT<=100`,
    `ceo_ai.*` allowlist, no DML/DDL/multi-statement).
 4. Answer-grounding validator: every number/label in the answer must trace to a
@@ -66,7 +66,7 @@ Step traces / tool timeline are internal (admin-only debug surface).
 
 Per-dependency timeout, bounded retry+backoff, circuit breaker, fallback ladder
 (Cube down → API → Toolbox → friendly degrade — never empty-swallow). Rate limit
-+ token/cost budget per tenant/user. Concurrency semaphore on Vertex + the
++ token/cost budget per tenant/user. Concurrency semaphore on Gemini + the
 readonly pool.
 
 ## Eval & observability

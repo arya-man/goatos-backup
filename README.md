@@ -345,7 +345,7 @@ ChatGPT-style custom GPT/app clients to the staging external MCP endpoint, see
 
 ### Routing model (one paragraph)
 
-Every leadership question is planned server-side by **Vertex/Gemini**
+Every leadership question is planned server-side by **Gemini (Gemini Developer API, AI Studio key)**
 (`gemini-3.8-flash`, project `goatos-stg`, region `asia-south1`, authenticated
 via ADC — no key in env). The planner never touches the database; it only picks a
 read path in a governed hierarchy: **(1) Cube** — the governed metric layer, for
@@ -360,7 +360,7 @@ derives tenant + role from the server session, never from user text.
 
 ```bash
 gcloud auth login ravi@mesha.sg          # CLI creds (Mesha/VGoats org)
-gcloud auth application-default login    # ADC for Vertex + Secret Manager
+gcloud auth application-default login    # ADC for Secret Manager (Gemini uses MESHA_GEMINI_API_KEY)
 gcloud config set project goatos-stg
 docker info >/dev/null                   # Cube + Toolbox + local Postgres run in Docker
 ```
@@ -396,7 +396,7 @@ tools/dev/run-cube-local.sh                 # :4000  (MESHA_CUBE_URL)
 tools/dev/run-mcp-toolbox-local.sh          # :5001  (MESHA_MCP_TOOLBOX_URL)
 ```
 
-The backend (`:8080`) is the only process that calls Vertex, Cube (`:4000`), and
+The backend (`:8080`) is the only process that calls Gemini, Cube (`:4000`), and
 Toolbox (`:5001`); admin-web (`:3300`) renders the assistant contract. Health
 checks: `run-cube-local.sh status` and `run-mcp-toolbox-local.sh` (no-ops if
 already healthy).
@@ -417,7 +417,7 @@ already healthy).
 | `MESHA_MCP_TOOLSET` | curated toolset name | config | Secret Manager `mesha-mcp-toolset` |
 | `MESHA_MCP_DB_DSN` / `MESHA_MCP_DB_*` | Toolbox/SQL-fallback readonly DSN | **secret** | Secret Manager `mesha-ceo-readonly-db-url` |
 
-Vertex uses ADC — there is no Vertex API key in env.
+Gemini uses the AI Studio key `MESHA_GEMINI_API_KEY` (secret `goatos-stg-ask-mesha-gemini-api-key`); Vertex is never used.
 
 ### Staging deploy pointers
 

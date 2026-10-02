@@ -1271,18 +1271,18 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		// narrowed at all.
 		WithPersonPageAccess(accessRepo)
 
-	// Leadership read-only assistant (CEO AI). Wired end-to-end: the Vertex
-	// Gemini planner (when MESHA_AI_PROVIDER=vertex + ADC available; else the
+	// Leadership read-only assistant (CEO AI). Wired end-to-end: the Gemini
+	// planner (Gemini Developer API; MESHA_AI_PROVIDER=gemini + MESHA_GEMINI_API_KEY; else the
 	// deterministic keyword planner, mode=fallback), the Cube governed-metric
 	// service (tier 1), the MCP Toolbox curated tools (tier 3), the safety
 	// moderator, durable conversation persistence, plus the observability
 	// adapters so a live POST /ceo-ai/ask emits the assistant_* OTel metrics and
 	// persists an internal step trace the admin-only
 	// GET /ceo-ai/admin/trace/{request_id} endpoint reads back. Each port
-	// degrades independently: an unconfigured Cube/Toolbox/Vertex is nil and the
+	// degrades independently: an unconfigured Cube/Toolbox/Gemini is nil and the
 	// orchestrator falls to the tiers that are wired instead of failing boot.
 	ceoTraceStore := ceoobs.NewPostgresTraceStore(pool, cfg.Postgres.QueryTimeout)
-	ceoVertex := ceoai.NewGeminiProvider(ctx, log)
+	ceoGemini := ceoai.NewGeminiProvider(ctx, log)
 
 	// Build read tool executors. feed_direction_today does not yet have a
 	// direct DB reader in this tier, so the orchestrator's runtime fallback
@@ -1344,9 +1344,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	} else {
 		log.Warn("ceoai: sql fallback unavailable", "err", err)
 	}
-	if ceoVertex != nil {
-		ceoOpts.Provider = ceoVertex
-		ceoOpts.Critic = ceoVertex
+	if ceoGemini != nil {
+		ceoOpts.Provider = ceoGemini
+		ceoOpts.Critic = ceoGemini
 	}
 	ceoService := ceoai.Build(ceoOpts)
 

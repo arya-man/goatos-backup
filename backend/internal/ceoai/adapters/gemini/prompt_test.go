@@ -227,3 +227,16 @@ func TestGenerateUsesDeveloperAPIKeyHeaderNeverVertex(t *testing.T) {
 		t.Fatal("missing api key must fail (no credential or Vertex fallback)")
 	}
 }
+
+func TestErrorBodyIsClipped(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(strings.Repeat("x", 5000)))
+	}))
+	defer srv.Close()
+	p := &Planner{cfg: Config{APIKey: "k", Model: "m"}, http: srv.Client(), endpoint: func(Config) string { return srv.URL }}
+	_, _, err := p.RepairSQL(context.Background(), goldenQuestion(), "SELECT x", "r", "card", "")
+	if err == nil || len(err.Error()) > 600 {
+		t.Fatalf("error not clipped: len=%d", len(err.Error()))
+	}
+}

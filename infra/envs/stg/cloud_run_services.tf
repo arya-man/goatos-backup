@@ -1118,3 +1118,10 @@ resource "google_secret_manager_secret_iam_member" "api_gemini_api_key_accessor"
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.runtime["api"].email}"
 }
+
+# Ask Mesha (goatos-ask-mesha-stg, deployed by tools/ask-mesha-agent/deploy/deploy-stg.sh) reads the same key as GEMINI_API_KEY.
+resource "google_secret_manager_secret_iam_member" "ask_mesha_gemini_api_key_accessor" {
+  secret_id = "projects/${var.project_id}/secrets/${local.gemini_api_key_secret_id}"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:goatos-ask-mesha-stg@${var.project_id}.iam.gserviceaccount.com"
+}

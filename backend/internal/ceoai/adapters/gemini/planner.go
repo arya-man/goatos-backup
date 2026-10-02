@@ -218,7 +218,7 @@ func (p *Planner) generate(ctx context.Context, system, user string) (string, Us
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode != http.StatusOK {
-		return "", Usage{}, fmt.Errorf("gemini: status %d: %s", resp.StatusCode, string(body))
+		return "", Usage{}, fmt.Errorf("gemini: status %d: %s", resp.StatusCode, clipBody(body, 500))
 	}
 	var gr genContentResponse
 	if err := json.Unmarshal(body, &gr); err != nil {
@@ -240,4 +240,12 @@ func defaultSafetySettings() []safetySetting {
 		{"HARM_CATEGORY_SEXUALLY_EXPLICIT", block},
 		{"HARM_CATEGORY_DANGEROUS_CONTENT", block},
 	}
+}
+
+// clipBody bounds an error body quoted into an error/log (Gemini errors can be long JSON).
+func clipBody(b []byte, n int) string {
+	if len(b) <= n {
+		return string(b)
+	}
+	return string(b[:n]) + "…"
 }

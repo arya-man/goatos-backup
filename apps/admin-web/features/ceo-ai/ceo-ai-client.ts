@@ -2,7 +2,7 @@ import type { ConversationSummary, StoredMessage } from "./types";
 
 // Browser-side fetchers for the assistant proxy routes. Every call goes to
 // /api/ceo-ai/* (the thin authenticated proxy); the browser never talks to the
-// backend, Cube, Toolbox, Vertex, or Postgres directly. Answer streaming lives
+// backend, Cube, Toolbox, Gemini, or Postgres directly. Answer streaming lives
 // in lib/ceo-ai-stream.ts; this module covers the non-streaming REST surface:
 // leadership capability probe and thread CRUD.
 
