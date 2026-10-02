@@ -1406,9 +1406,13 @@ func weightsGainThresholdTable() domain.TableContract {
 }
 
 func vaccinationShedTable() domain.TableContract {
-	t := tableP("shed-summary", "Vaccination by pen", "/vaccination/sheds", []string{"park", "shed", "animals", "due", "done", "sessions", "next_due", "manager", "backup", "status"}, "shed", []int{25, 50, 100})
+	t := tableP("shed-summary", "Vaccination by pen", "/vaccination/sheds", []string{"park", "shed", "animals", "due", "done", "sessions", "next_due", "manager", "status"}, "shed", []int{25, 50, 100})
+	// No separate "Assignment" column (pr294 L-C10): it restated the operator names as "2 operators"
+	// and pushed Status past the 1440 card edge. The Operators column says who and how many.
 	for i := range t.Columns {
 		switch t.Columns[i].Key {
+		case "manager":
+			t.Columns[i].Label = "Operators"
 		case "due":
 			t.Columns[i].Label = "Needs action"
 		case "done":
@@ -3984,6 +3988,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.done":                                       "done",
 			"label.all_status":                                 "All status",
 			"label.all_capacity":                               "All capacity",
+			"label.strip_status":                               "Pen status",
+			"label.strip_capacity":                             "Daily capacity",
 			"label.sheds_noun":                                 "pens",
 			"label.shed_noun":                                  "pen",
 			"status.scheduled_drive":                           "Drive scheduled",

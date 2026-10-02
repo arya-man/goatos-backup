@@ -38,7 +38,6 @@ import { parseScope, scopeHref } from "@/lib/scope";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { fmtDate } from "@/lib/format";
 import { VaccinationTablePager, type VaccinationPageSize } from "@/features/preventive-care-vaccination";
-import { InfoHint } from "@/components/app/info-hint";
 import { TemplateTabs, TabPanel } from "@/components/app/template-tabs";
 import { ShedFilterBar } from "./shed-filter-bar";
 import { UrlSuspense } from "@/components/app/url-suspense";
@@ -49,7 +48,7 @@ import { penDetailParams, vaccinationCurrentViewScope } from "./shed-scope";
 // Merged CEO status headline order (highest priority first) — matches the backend headline priority and
 // the shed_status_chips contract group. Used to validate the ?sheds_status filter and render chips.
 const SHED_STATUS_ORDER: VaccinationShedStatus[] = ["overdue", "needs_review", "split", "due", "scheduled", "on_track"];
-// Capacity filter order (All / Within cap / Split / Capacity action) — capacity_chips contract group.
+// Capacity filter order (All / Fits one day / Spread over days / Past safe window) — capacity_chips contract group.
 const CAPACITY_ORDER: VaccinationCapacityStatus[] = ["within_cap", "over_cap", "capacity_breach"];
 
 const DEFAULT_PAGE_SIZE = SHED_BOARD_PAGE_SIZE;
@@ -65,7 +64,6 @@ const SKELETON_CELL_WIDTHS: Record<string, number> = {
   sessions: 32,
   next_due: 78,
   manager: 132,
-  backup: 96,
   status: 92,
 };
 
@@ -85,12 +83,6 @@ function DriveOperatorsCell({ row, pageContract }: { row: VaccinationShedSummary
       {names.join(", ")}
     </Typography>
   );
-}
-
-function assignmentLabel(row: VaccinationShedSummaryRow & { driveOperatorNames?: string[] }, pageContract: AdminUiPageContract) {
-  const operatorCount = row.driveOperatorNames?.filter(Boolean).length ?? 0;
-  if (operatorCount <= 0) return copy(pageContract, "label.no_drive");
-  return `${operatorCount} ${copy(pageContract, operatorCount === 1 ? "label.operator_count_singular" : "label.operator_count_plural")}`;
 }
 
 function shedStatusLabel(pageContract: AdminUiPageContract, status: VaccinationShedStatus): string {
@@ -203,12 +195,17 @@ export async function VaccinationShedBoard({
 
   return (
     <Card id="sheds" sx={{ scrollMarginTop: 80 }}>
-      <CardHeader title={copy(pageContract, "section.sheds.title")} action={<InfoTip title={copy(pageContract, "section.sheds.note")} />} />
+      {/* One (i) for the section (pr294 L-C10): the counts note used to sit alone in an empty band
+          between the last row and the pager. */}
+      <CardHeader title={copy(pageContract, "section.sheds.title")} action={<InfoTip title={`${copy(pageContract, "section.sheds.note")} ${copy(pageContract, "note.sheds_counts")}`} />} />
 
       <ShedFilterBar total={total} pageContract={pageContract} />
 
       {/* Status filter (merged CEO headline). Server-side via ?sheds_status. */}
+      {/* Each pill strip names what it filters (pr294 L-C10): the status headline and the capacity
+          filter both carry "Capacity action" / "Split", and unlabelled they read as one filter twice. */}
       <Box sx={{ px: 2.5, pb: 1 }}>
+        <Typography component="div" variant="overline" sx={{ color: "text.secondary", mb: 0.5 }}>{copy(pageContract, "label.strip_status")}</Typography>
         <TemplateTabs
           variant="pill"
           ariaLabel={copy(pageContract, "label.all_status")}
@@ -228,8 +225,9 @@ export async function VaccinationShedBoard({
         />
       </Box>
 
-      {/* Capacity filter (All / Within cap / Split / Capacity action). Server-side via ?sheds_capacity. */}
+      {/* Capacity filter (All / Fits one day / Spread over days / Past safe window). Server-side via ?sheds_capacity. */}
       <Box sx={{ px: 2.5, pb: 1.5 }}>
+        <Typography component="div" variant="overline" sx={{ color: "text.secondary", mb: 0.5 }}>{copy(pageContract, "label.strip_capacity")}</Typography>
         <TemplateTabs
           variant="pill"
           ariaLabel={copy(pageContract, "label.all_capacity")}
@@ -279,16 +277,18 @@ export async function VaccinationShedBoard({
                     <ShedSelectAllHeader label={copy(pageContract, "action.select_all", "Select all")} />
                   </TableCell>
                   {cols.filter((col) => col.key !== "park").map((col) => (
-                    <TableCell key={col.key} align={NUMERIC_COLUMNS.has(col.key) ? "right" : undefined} sx={{ whiteSpace: "nowrap" }}>
+                    <TableCell
+                      key={col.key}
+                      align={NUMERIC_COLUMNS.has(col.key) ? "right" : undefined}
+                      // Count headers ("Needs action", "Up to date") may take two lines so the row fits the
+                      // 1440 card without a sideways scroll (pr294 L-C10); the rest stay on one line.
+                      sx={NUMERIC_COLUMNS.has(col.key) ? { whiteSpace: "normal", maxWidth: 96 } : { whiteSpace: "nowrap" }}
+                    >
                       {col.key === "sessions" ? (
                         <Box component="span" sx={{ display: "inline-flex", alignItems: "center" }}>
                           {col.label}
                           <InfoTip title={copy(pageContract, "tooltip.sessions.body")} />
                         </Box>
-                      ) : col.key === "manager" ? (
-                        copy(pageContract, "label.operators")
-                      ) : col.key === "backup" ? (
-                        copy(pageContract, "label.assignment")
                       ) : (
                         col.label
                       )}
@@ -364,7 +364,6 @@ export async function VaccinationShedBoard({
                       {/* Operator names wrap (C10, pr294): two names on one line pushed the Assignment
                           and Status columns past the 1440 card edge. */}
                       {cell(<DriveOperatorsCell row={row} pageContract={pageContract} />, { wrap: true })}
-                      {cell(<Tag tone={row.sessions > 1 ? "warn" : "mut"}>{assignmentLabel(row, pageContract)}</Tag>)}
                       {cell(
                         <Tag tone={optionTone(pageContract, "shed_status_chips", row.status) as Tone}>
                           {shedStatusLabel(pageContract, row.status)}
@@ -390,9 +389,6 @@ export async function VaccinationShedBoard({
             </Table>
           </Scrollbar>
           </ShedSelectionProvider>
-          <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 1.25, mx: 1.75 }}>
-            <InfoHint text={copy(pageContract, "note.sheds_counts")} />
-          </Box>
           <VaccinationTablePager
             pageContract={pageContract}
             pageSizeOptions={pageSizeOptions}
