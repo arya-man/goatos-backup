@@ -11,7 +11,8 @@ export const LIVE_HEAD_CELLS = [
   { id: "vaccine", label: "Vaccine" },
   { id: "first", label: "First doses" },
   { id: "repeats", label: "Repeats" },
-  { id: "state", label: "", width: 160 },
+  // Every column is named (C11, pr294: the status column had a blank header).
+  { id: "state", label: "Status", width: 160 },
 ];
 /** The earlier-versions table's columns (TableHeadCustom). */
 export const EARLIER_HEAD_CELLS = [
