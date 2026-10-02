@@ -6,15 +6,16 @@ export const WEIGHTS_TABS = ["general", "breed", "birth", "shed", "weight", "tim
 /** Pens-table rows per page. */
 export const WEIGHTS_DEFAULT_LIMIT = 25;
 /**
- * /weighing/weights panel Grid (weights.tsx): the KpiWidget cards, the sale-ready ring beside
- * breed-wise daily gain, then breed beside the stacked sex + stage cards.
+ * /weighing/weights panel Grid (weights.tsx): the KpiWidget cards, breed-wise daily gain across the
+ * full row (eleven breeds x four bands drew hairline bars and "Ananta… 407 mal…" labels in two
+ * thirds of it), the sale-ready ring beside daily gain by breed, then sex and stage side by side.
  */
 export const KIDS_GRID = {
   kpi: { xs: 12, sm: 6, lg: 3 },
+  breedGain: { xs: 12 },
   ring: { xs: 12, md: 6, lg: 4 },
-  breedGain: { xs: 12, md: 6, lg: 8 },
-  breed: { xs: 12, lg: 6 },
-  sexStage: { xs: 12, lg: 6 },
+  breed: { xs: 12, md: 6, lg: 8 },
+  sexStage: { xs: 12 },
 } as const;
 /** The /weighing/weights KPI cards (kids, total, average, park gain). */
 export const KIDS_KPI_COUNT = 4;

@@ -1001,30 +1001,6 @@ export async function WeighingWeightsPage({
           />
         </Grid>
 
-        {/* Threshold counts carry their OWN denominator: both sale lines out of the kids the
-            counts were taken over, in one template ring card. */}
-        <Grid size={KIDS_GRID.ring}>
-          <RingCard
-            title={copy(pageContract, "assumption.sale_ready_threshold_kg.label")}
-            subheader={`${thresholdBasis.toLocaleString("en-IN")} ${copy(pageContract, "kpi.threshold.basis")} · ${copy(pageContract, "kpi.sheds.label")}: ${summary.sheds_weighed} / ${summary.sheds_in_scope} · ${fmtDate(periodStart)} – ${fmtDate(periodEnd)}`}
-            total={thresholdBasis}
-            totalLabel={copy(pageContract, "kpi.kids.label")}
-            series={[
-                {
-                  label: fillKg(copy(pageContract, "kpi.over30.label"), saleLowerKg ?? DEFAULT_SALE_READY_LOWER_KG),
-                  value: shareOf(summary.at_or_above_30kg),
-                  display: summary.at_or_above_30kg.toLocaleString("en-IN"),
-                },
-                {
-                  label: fillKg(copy(pageContract, "kpi.over35.label"), saleThresholdKg),
-                  value: shareOf(summary.at_or_above_35kg),
-                  display: summary.at_or_above_35kg.toLocaleString("en-IN"),
-                },
-              ]}
-            sx={{ height: 1 }}
-          />
-        </Grid>
-
         {/* Kids clearing each daily gain mark, by breed: the four bands are a real distribution
             that adds to the denominator (each kid counted once). Chart first; the exact counts are
             one local switch away (LocalViewToggle writes gain_view, so the choice survives a reload). */}
@@ -1124,8 +1100,32 @@ export async function WeighingWeightsPage({
           </LocalViewPane>
         </Grid>
 
-        {/* The true growth charts: same-tag-twice ADG or weight. Breed (the long list) takes half the
-            row; sex and stage, usually one or two bars, stack in the other half (side by side on sm). */}
+        {/* Threshold counts carry their OWN denominator: both sale lines out of the kids the
+            counts were taken over, in one template ring card. */}
+        <Grid size={KIDS_GRID.ring}>
+          <RingCard
+            title={copy(pageContract, "assumption.sale_ready_threshold_kg.label")}
+            subheader={`${thresholdBasis.toLocaleString("en-IN")} ${copy(pageContract, "kpi.threshold.basis")} · ${copy(pageContract, "kpi.sheds.label")}: ${summary.sheds_weighed} / ${summary.sheds_in_scope} · ${fmtDate(periodStart)} – ${fmtDate(periodEnd)}`}
+            total={thresholdBasis}
+            totalLabel={copy(pageContract, "kpi.kids.label")}
+            series={[
+                {
+                  label: fillKg(copy(pageContract, "kpi.over30.label"), saleLowerKg ?? DEFAULT_SALE_READY_LOWER_KG),
+                  value: shareOf(summary.at_or_above_30kg),
+                  display: summary.at_or_above_30kg.toLocaleString("en-IN"),
+                },
+                {
+                  label: fillKg(copy(pageContract, "kpi.over35.label"), saleThresholdKg),
+                  value: shareOf(summary.at_or_above_35kg),
+                  display: summary.at_or_above_35kg.toLocaleString("en-IN"),
+                },
+              ]}
+            sx={{ height: 1 }}
+          />
+        </Grid>
+
+        {/* The true growth charts: same-tag-twice ADG or weight. Breed (the long list) sits beside the
+            ring; sex and stage, usually one or two bars each, share the next row side by side. */}
         <Grid size={KIDS_GRID.breed}>
           <MetricChart
             initialMetric={breedMetric}
@@ -1150,7 +1150,7 @@ export async function WeighingWeightsPage({
           />
         </Grid>
         <Grid size={KIDS_GRID.sexStage}>
-          <Stack spacing={3} direction={{ xs: "column", sm: "row", lg: "column" }} sx={{ height: 1 }}>
+          <Stack spacing={3} direction={{ xs: "column", sm: "row" }} sx={{ height: 1 }}>
           <Box sx={{ flex: 1, minWidth: 0 }}>
           <MetricChart
             initialMetric={sexMetric}
