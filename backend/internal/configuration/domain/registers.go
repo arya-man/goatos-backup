@@ -337,8 +337,8 @@ var Registers = []Register{
 		// CAPACITY IS A GUIDE, NOT A LIMIT (maintainer instruction 2026-10-02): a pen may hold more
 		// animals than its capacity and nothing anywhere refuses it; the row is shown in red instead.
 		// It is set here, on the web, and nowhere on the phone.
-		Info: "Capacity is a guide, not a limit. A partition can hold more animals than its capacity and nothing is refused; when it does, its capacity and animal count show in red. Capacity is set and changed here on the web only.",
-		Filters:     []string{"park_id", "pen_id", "shed_type"},
+		Info:    "Capacity is a guide, not a limit. A partition can hold more animals than its capacity and nothing is refused; when it does, its capacity and animal count show in red. Capacity is set and changed here on the web only.",
+		Filters: []string{"park_id", "pen_id", "shed_type"},
 		Columns: []Column{
 			{Key: "park_id", Label: "Park", Type: TypeRef, Ref: RegParks, Required: true},
 			{Key: "pen_id", Label: "Pen", Type: TypeRef, Ref: RegPens, Required: true},
