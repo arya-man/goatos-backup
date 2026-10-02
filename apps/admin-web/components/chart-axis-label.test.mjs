@@ -43,3 +43,14 @@ test("every shared category-chart wrapper applies it", () => {
     assert.match(readFileSync(new URL(file, import.meta.url), "utf8"), /fullCategoryTitle\(/, file);
   }
 });
+
+test("K1: a narrow (phone) chart keeps the load number within the phone budget", async () => {
+  const { PHONE_AXIS_LABEL_MAX_CHARS, axisLabelBudget } = await import("./chart-axis-label.ts");
+  const label = "131 (CPT Castro 1, CPT Castro 2 +3)";
+  const narrow = CATEGORY_AXIS_LABELS.formatter(label, label, { w: { globals: { svgWidth: 340 } } });
+  assert.ok(narrow.startsWith("131 ("), narrow);
+  assert.ok([...narrow].length <= PHONE_AXIS_LABEL_MAX_CHARS, narrow);
+  const wide = CATEGORY_AXIS_LABELS.formatter(label, label, { w: { globals: { svgWidth: 1100 } } });
+  assert.ok([...wide].length > PHONE_AXIS_LABEL_MAX_CHARS && [...wide].length <= AXIS_LABEL_MAX_CHARS, wide);
+  assert.equal(axisLabelBudget(undefined), AXIS_LABEL_MAX_CHARS, "no chart width: the laptop budget");
+});
