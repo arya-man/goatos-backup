@@ -51,7 +51,6 @@ test("visual smoke visits every visible visual-overhaul route", () => {
     ["sales-sold", "/sales/sold?scope_mode=company"],
     ["sales-farm-value", "/sales/farm-value?scope_mode=company"],
     ["sales-loads", "/sales/loads?scope_mode=company"],
-    ["sales-loads-farm-born", "/sales/loads?scope_mode=company&view=farm_born"],
     ["sales-market-analytics", "/sales/market-analytics?scope_mode=company"],
     ["sales-buyer-analytics", "/sales/buyer-analytics?scope_mode=company"],
     ["sales-farm-born", "/sales/farm-born?scope_mode=company"],

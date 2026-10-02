@@ -453,7 +453,7 @@ export function KpiRowSkeleton({
  * optional body2 meta, subtitle2 figure; one row of dashed-divided cells up to four, rows of three or
  * four after that (the same `stripColumns` rule).
  */
-export function StatStripSkeleton({ count, meta = false, card = true, wrapBelowMd = false, minHeight = true }: { count: number; meta?: boolean; card?: boolean; /** The page's strip Scrollbar keeps its min height (false: the strip is its cells' height). */ minHeight?: boolean; /** The cells' title and meta lines wrap to two lines each on a phone (200px cells, long copy); "title" when only the title wraps. */ wrapBelowMd?: boolean | "title" }) {
+export function StatStripSkeleton({ count, meta = false, card = true, wrapBelowMd = false, minHeight = true, stackBelowSm = false }: { count: number; meta?: boolean; card?: boolean; /** The page strip stacks its cells below sm (two 200px cells do not fit a 390 phone, e.g. /procurement/feed-purchases): the twin stacks too. */ stackBelowSm?: boolean; /** The page's strip Scrollbar keeps its min height (false: the strip is its cells' height). */ minHeight?: boolean; /** The cells' title and meta lines wrap to two lines each on a phone (200px cells, long copy); "title" when only the title wraps. */ wrapBelowMd?: boolean | "title" }) {
   const cols = count <= 4 ? Math.max(count, 1) : count % 3 === 0 && count % 4 !== 0 ? 3 : 4;
   const cell = (i: number) => (
     <Box key={i} sx={{ width: 1, minWidth: 200, gap: 2.5, px: 2, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -478,7 +478,11 @@ export function StatStripSkeleton({ count, meta = false, card = true, wrapBelowM
       </Box>
     ) : (
       <Box sx={{ minHeight: minHeight ? "calc(13.5 * var(--spacing))" : 0, overflow: "hidden" }}>
-        <Stack direction="row" divider={<Divider orientation="vertical" flexItem sx={{ borderStyle: "dashed" }} />} sx={{ py: 2 }}>
+        <Stack
+          direction={stackBelowSm ? { xs: "column", sm: "row" } : "row"}
+          divider={<Divider orientation="vertical" flexItem sx={{ borderStyle: "dashed" }} />}
+          sx={{ py: 2, ...(stackBelowSm ? { rowGap: { xs: 2, sm: 0 } } : {}) }}
+        >
           {Array.from({ length: count }, (_, i) => cell(i))}
         </Stack>
       </Box>
