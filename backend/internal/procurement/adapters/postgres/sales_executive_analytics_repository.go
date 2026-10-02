@@ -49,7 +49,7 @@ WITH person AS (
     SELECT wm.user_id,
            CASE WHEN count(*) FILTER (WHERE wm.status = 'active') = 1
                     THEN max(wm.display_name) FILTER (WHERE wm.status = 'active')
-                WHEN count(DISTINCT wm.display_name) = 1
+                WHEN min(wm.display_name) = max(wm.display_name)
                     THEN min(wm.display_name)
            END AS name
     FROM public.workforce_members wm
@@ -205,35 +205,45 @@ func (r *Repository) SalesActivities(ctx context.Context, tenantID string, since
 //
 // projection-review: membership=procurement_vendors at ROW grain, one row per vendor;
 // group_key=user_id for the person name only, the vendor rows are not grouped;
-// join_cardinality=the person join is pre-aggregated to one row per user_id exactly as in
-// salesActivitiesSQL, so it is 1:1 and cannot multiply a vendor; pagination=LIMIT/OFFSET over
-// created_at DESC, vendor_id DESC -- a total order, so page 2 continues page 1 and the total is
-// VendorRegisterTotals' count, never this page's length; scope=tenant_id.
+// join_cardinality=the person join is a lateral lookup after the vendor page is cut and still
+// returns one row per user_id exactly as in salesActivitiesSQL, so it is 1:1 and cannot multiply a
+// vendor; pagination=LIMIT/OFFSET over created_at DESC, vendor_id DESC -- a total order, so page 2
+// continues page 1 and the total is VendorRegisterTotals' count, never this page's length;
+// scope=tenant_id.
 //
 // scale-guard:ignore: bounded LIMIT/OFFSET over the authored vendor register (a few hundred rows,
 // grows with vendors met, never with herd size); the service refuses an offset past
 // domain.MaxSalesExecutiveOffset. Offset rather than keyset because the page offers Back as well
 // as Next, the same reasoning as the vendor register list.
-const latestVendorsSQL = `
-WITH person AS (
-    SELECT wm.user_id,
-           CASE WHEN count(*) FILTER (WHERE wm.status = 'active') = 1
-                    THEN max(wm.display_name) FILTER (WHERE wm.status = 'active')
-                WHEN count(DISTINCT wm.display_name) = 1
-                    THEN min(wm.display_name)
-           END AS name
-    FROM public.workforce_members wm
-    WHERE wm.tenant_id = $1 AND wm.user_id IS NOT NULL
-    GROUP BY wm.user_id
+const latestVendorsSQL = /* scale-guard:ignore: bounded authored register pagination; see note above */ `
+WITH page AS (
+    SELECT v.vendor_id, v.business_name, v.record_type, v.city, v.state, v.created_by, v.created_at
+    FROM public.procurement_vendors v
+    WHERE v.tenant_id = $1
+    ORDER BY v.created_at DESC, v.vendor_id DESC
+    LIMIT $2 OFFSET $3
 )
 SELECT v.vendor_id::text, v.business_name, v.record_type,
        coalesce(nullif(btrim(v.city), ''), ''), coalesce(btrim(v.state), ''),
        v.created_by IS NOT NULL, coalesce(p.name, ''), v.created_at
-FROM public.procurement_vendors v
-LEFT JOIN person p ON p.user_id = v.created_by
-WHERE v.tenant_id = $1
-ORDER BY v.created_at DESC, v.vendor_id DESC
-LIMIT $2 OFFSET $3` // scale-guard:ignore: bounded authored register page; see note above
+FROM page v
+LEFT JOIN LATERAL (
+    SELECT CASE WHEN count(*) FILTER (WHERE wm.status = 'active') = 1
+                    THEN max(wm.display_name) FILTER (WHERE wm.status = 'active')
+                WHEN min(wm.display_name) = max(wm.display_name)
+                    THEN min(wm.display_name)
+           END AS name
+    FROM public.workforce_members wm
+    WHERE wm.tenant_id = $1 AND wm.user_id = v.created_by
+    GROUP BY wm.user_id
+) p ON true
+ORDER BY v.created_at DESC, v.vendor_id DESC`
+
+// scale-guard:ignore: one aggregate over the authored vendor register (a few hundred rows).
+const vendorRegisterTotalsSQL = `
+SELECT count(*), count(*) FILTER (WHERE created_by IS NULL)
+FROM public.procurement_vendors
+WHERE tenant_id = $1`
 
 // LatestVendors implements ports.SalesExecutiveAnalyticsRepository.
 func (r *Repository) LatestVendors(ctx context.Context, tenantID string, limit, offset int) ([]domain.LatestVendorFact, error) {
@@ -274,10 +284,7 @@ func (r *Repository) VendorRegisterTotals(ctx context.Context, tenantID string) 
 	defer cancel()
 
 	var total, imported int
-	if err := r.pool.QueryRow(ctx, `
-SELECT count(*), count(*) FILTER (WHERE created_by IS NULL)
-FROM public.procurement_vendors
-WHERE tenant_id = $1`, tenantID).Scan(&total, &imported); err != nil {
+	if err := r.pool.QueryRow(ctx, vendorRegisterTotalsSQL, tenantID).Scan(&total, &imported); err != nil {
 		return 0, 0, fmt.Errorf("procurement: vendor register totals: %w", err)
 	}
 	return total, imported, nil
