@@ -15,15 +15,15 @@ import { detailWrapSx } from "@/components/app/detail-wrap";
 import { OrderDetailsDelivery } from "@/components/app/sections/order/order-details-delivery";
 import type { LabelColor } from "@/components/minimal/label";
 import { operationalLocationLabel } from "@/lib/operational-location";
-import { getVaccinationWorkflowDrilldown, type WorkflowNode } from "@/lib/api/server";
+import { getVaccinationWorkflowDrilldown, listAnimalStages, type WorkflowNode } from "@/lib/api/server";
+import { stageNameMap } from "@/lib/stage-display";
 import { copy, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { type Tone } from "./process-integrity";
 import { Tag } from "@/components/ui-primitives";
 import { fmtDateTime } from "@/lib/format";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { parseScope, scopeHref } from "@/lib/scope";
-import { actionDriveLabel, actionWorkTitle } from "./work-board";
-import { stageLabel } from "@/lib/stage-labels";
+import { actionDriveLabel, actionWorkTitle, stageWords } from "./work-board";
 import { humanizeEnum } from "@/lib/format";
 import Alert from "@mui/material/Alert";
 
@@ -118,7 +118,8 @@ export async function VaccinationWorkflowDrilldownPage({
       : from === "action-center"
         ? copy(pageContract, "action.back_action")
         : copy(pageContract, "action.back_workflows");
-  const result = await getVaccinationWorkflowDrilldown(rowId);
+  const [result, stages] = await Promise.all([getVaccinationWorkflowDrilldown(rowId), listAnimalStages()]);
+  const stageNames = stageNameMap(stages.ok ? stages.data.items : undefined);
 
   if (!result.ok) {
     return (
@@ -161,7 +162,7 @@ export async function VaccinationWorkflowDrilldownPage({
         title={title}
         status={optionLabel(pageContract, "work_state_filter_chips", row.work_state)}
         statusColor={TONE_LABEL[workTone] ?? "default"}
-        subtitle={[drive, row.park_name, shedLine, stageLabel(row.animal_stage)].join(" · ")}
+        subtitle={[drive, row.park_name, shedLine, stageWords(row.animal_stage, stageNames)].filter(Boolean).join(" · ")}
         backHref={backHref}
         backLabel={backLabel}
         // Template order toolbar: one status Label beside the title (work state), the severity Label and
@@ -208,7 +209,7 @@ export async function VaccinationWorkflowDrilldownPage({
               rows={[
                 { key: "park", label: copy(pageContract, "label.park", "Park"), value: row.park_name },
                 { key: "pen", label: copy(pageContract, "label.pen", "Pen"), value: shedLine },
-                { key: "stage", label: copy(pageContract, "label.stage", "Stage"), value: stageLabel(row.animal_stage) },
+                { key: "stage", label: copy(pageContract, "label.stage", "Stage"), value: stageWords(row.animal_stage, stageNames) },
                 { key: "next", label: copy(pageContract, "label.next_action", "Next action"), value: row.next_action },
               ]}
             />

@@ -25,7 +25,8 @@ import { OrderDetailsHistory, type OrderHistoryItem, type OrderHistoryTone } fro
 import Link from "@/components/no-prefetch-link";
 import { redirect } from "next/navigation";
 import { PageHeader, type PageCrumb } from "@/components/app/page-header";
-import { getVaccinationActionCenter, getVaccinationActionCenterCounts } from "@/lib/api/server";
+import { getVaccinationActionCenter, getVaccinationActionCenterCounts, listAnimalStages } from "@/lib/api/server";
+import { stageNameMap } from "@/lib/stage-display";
 import type { ActionCenterObligation, WorkState } from "@/lib/api/server";
 import { copy, optionalCopy, optionGroup, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { boundedInt, hrefPreviousPagedCursor, hrefWithPagedCursor, hrefWithParams, one, type RouteSearchParams } from "@/lib/search-params";
@@ -34,9 +35,8 @@ import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import { TONE_SWATCH, type Tone } from "./process-integrity";
 import { Tag } from "@/components/ui-primitives";
 import { operationalLocationLabel } from "@/lib/operational-location.ts";
-import { actionDriveLabel, actionWorkTitle } from "./work-board";
+import { actionDriveLabel, actionWorkTitle, stageWords } from "./work-board";
 import { VaccinationFilterButton, VisibleTableSearch, VaccinationTablePager, type VaccinationPageSize } from "@/features/preventive-care-vaccination";
-import { stageLabel } from "@/lib/stage-labels";
 import { WorkflowsKpis } from "./workflows-kpis";
 import Alert from "@mui/material/Alert";
 
@@ -116,10 +116,12 @@ export async function VaccinationWorkflowsPage({
   const pageSizeOptions = tablePageSizes(pageContract, "workflow-catalog");
   const requestedPageSize = pageSizeOptions.find((size) => size === boundedInt(one(sp, "wf_limit"), 10, 1, 100)) ?? 10;
   const requestedPage = boundedInt(one(sp, "wf_page"), 1, 1, 1000000);
-  const [countsResult, result] = await Promise.all([
+  const [countsResult, result, stages] = await Promise.all([
     getVaccinationActionCenterCounts({ parkId, asOf }),
     getVaccinationActionCenter({ parkId, asOf, cursor: workflowCursor, limit: requestedPageSize }),
+    listAnimalStages(),
   ]);
+  const stageNames = stageNameMap(stages.ok ? stages.data.items : undefined);
   const totalFromBackend = countsResult.ok ? countsResult.data.total_count : 0;
   const rows: ActionCenterObligation[] = result.ok ? listOrEmpty(result.data.items) : [];
   const nextCursor = result.ok ? result.data.next_cursor : undefined;
@@ -269,7 +271,10 @@ export async function VaccinationWorkflowsPage({
                       const title = actionWorkTitle(pageContract, row);
                       const pct = row.expected_count > 0 ? Math.round((row.completed_count / row.expected_count) * 100) : 0;
                       const isActive = activeWorkflow?.row_id === row.row_id;
-                      const where = `${row.park_name} · ${locationOf(row)}`;
+                      // The drive leads the second line (A7, pr294): two "Assign operator — Godel 2 - Part 2"
+                      // rows are two different drives' work in one pen, and read as duplicates without it.
+                      const where = [actionDriveLabel(pageContract, row), row.park_name, locationOf(row)].filter(Boolean).join(" · ");
+                      const progressText = row.expected_count > 0 ? `${row.completed_count}/${row.expected_count} ${copy(pageContract, "label.done_suffix")}` : null;
                       return (
                         <TableRow key={row.row_id} hover selected={isActive}>
                           <TableCell sx={{ minWidth: 220 }}>
@@ -288,12 +293,18 @@ export async function VaccinationWorkflowsPage({
                               <Box component="span" sx={{ minWidth: 0, flexGrow: 1 }}>
                                 <Box component="span" sx={{ display: "block", typography: "subtitle2" }}>{title}</Box>
                                 <Box component="span" sx={{ display: "block", typography: "caption", color: "text.disabled", mt: 0.5 }}>{where}</Box>
-                                <LinearProgress variant="determinate" value={pct} sx={{ mt: 1, height: 4, maxWidth: 200 }} aria-hidden="true" />
+                                {/* The bar carries its value beside it (A7): an all-grey 0% bar read as "no data". */}
+                                {progressText ? (
+                                  <Box component="span" sx={{ mt: 1, display: "flex", alignItems: "center", gap: 1 }}>
+                                    <LinearProgress variant="determinate" value={pct} sx={{ flex: "1 1 auto", height: 4, maxWidth: 200 }} aria-hidden="true" />
+                                    <Box component="span" sx={{ typography: "caption", color: "text.secondary", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{progressText}</Box>
+                                  </Box>
+                                ) : null}
                               </Box>
                               </Box>
                             </Box>
                           </TableCell>
-                          <TableCell sx={{ whiteSpace: "nowrap" }}>{stageLabel(row.animal_stage)}</TableCell>
+                          <TableCell sx={{ whiteSpace: "nowrap" }}>{stageWords(row.animal_stage, stageNames)}</TableCell>
                           <TableCell sx={{ whiteSpace: "nowrap" }}>{row.owner?.operator_name || "—"}</TableCell>
                           <TableCell sx={{ minWidth: 140, color: "text.secondary", typography: "body2" }}>{row.next_action}</TableCell>
                           <TableCell>
