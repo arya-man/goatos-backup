@@ -97,8 +97,11 @@ export function paletteOf(tone: string | null | undefined): LivePaletteColor {
     case "warn":
       return "warning";
     case "dng":
-    case "live":
       return "error";
+    // A running state ("receiving", "active now") is blue, not the red of "not started" / "idle":
+    // the shed legend showed two red dots for opposite states (pr294 L-N8).
+    case "live":
+      return "info";
     case "info":
     case "teal":
       return "info";

@@ -11142,7 +11142,7 @@ func liveTrackerOptionGroups() []domain.OptionGroup {
 			Options: []domain.Option{
 				option("receiving", "receiving", "proof landing at a normal rate", "live"),
 				option("slow", "slow start", "under a quarter done well into the drive", "warn"),
-				option("review", "extra attempts", "finished, but animals were re-scanned — flagged for the verifier", "warn"),
+				option("review", "extra attempts", "finished, but animals were re-scanned — flagged for the verifier", "pur"), // not slow start's amber (pr294 L-N8)
 				option("done", "done", "every administration closed, no extra attempts", "ok"),
 				option("not_started", "not started", "no proof received yet", "dng"),
 			},
