@@ -399,6 +399,16 @@ ci_tooling_changed() {
   printf '%s\n' "$changed" | grep -Eq '^tools/ci/'
 }
 
+# android_ci_tooling_changed: true only when Android CI helpers changed. A
+# backend-only guard registration in run-local-ci.sh must not drag Android
+# self-tests into the common job.
+android_ci_tooling_changed() {
+  local changed
+  changed="$(changed_since_base 2>/dev/null)" || return 0
+  [ -n "$changed" ] || return 0
+  printf '%s\n' "$changed" | grep -Eq '^tools/ci/(android-ui-diff\.sh|android-screenshot-scope\.sh|android-gradle-scope\.mjs|check-android-ui-diff\.test\.sh|check-android-screenshot-scope\.test\.sh|check-android-screenshot-proof\.sh|check-android-screenshot-proof\.test\.sh)$'
+}
+
 # gradle_lock_lib_changed / gradle_lock_selftest_changed — same fail-open shape
 # as ci_tooling_changed above (undeterminable or empty diff => RUN).
 #
@@ -586,9 +596,6 @@ run_common() {
   # JOB=common ~59s slower than the android collapse saved.
   if ci_tooling_changed; then
     step "ci-local parallel dispatch self-test" bash tools/ci/check-run-local-ci-parallel.test.sh
-    step "android ui-diff detector self-test" bash tools/ci/check-android-ui-diff.test.sh
-    step "android screenshot scope self-test" bash tools/ci/check-android-screenshot-scope.test.sh
-    step "screenshot proof guard self-test" bash tools/ci/check-android-screenshot-proof.test.sh
     step "screenshot remediation guard self-test" bash tools/ci/check-screenshot-remediation.test.sh
     step "ci-local attribution self-test" bash tools/ci/check-run-local-ci-attribution.test.sh
     step "ci base-provenance self-test" bash tools/ci/check-ci-base-provenance.test.sh
@@ -599,12 +606,20 @@ run_common() {
     step "gradle home + machine queue self-test" bash tools/ci/gradle-home.test.sh
     step "gradle machine setup self-test" bash tools/ci/gradle-machine-setup.test.sh
     step "parallel-dispatch cleanup self-test" bash tools/ci/check-parallel-dispatch-cleanup.test.sh
-    step "android gradle scope self-test" node tools/ci/android-gradle-scope.mjs --self-test
     step "land-route self-test" bash tools/ci/land-route.test.sh
     step "ci fast-retry (step cache + fail-fast) self-test" make ci-fast-retry-guard
   else
     RESULTS+=("SKIP  ci-tooling self-tests (no tools/ci/** diff)")
     echo "── ci-local: ci-tooling self-tests SKIPPED (no tools/ci/** diff vs base)"
+  fi
+  if android_ci_tooling_changed; then
+    step "android ui-diff detector self-test" bash tools/ci/check-android-ui-diff.test.sh
+    step "android screenshot scope self-test" bash tools/ci/check-android-screenshot-scope.test.sh
+    step "screenshot proof guard self-test" bash tools/ci/check-android-screenshot-proof.test.sh
+    step "android gradle scope self-test" node tools/ci/android-gradle-scope.mjs --self-test
+  else
+    RESULTS+=("SKIP  android CI-tooling self-tests (no Android CI helper diff)")
+    echo "── ci-local: android CI-tooling self-tests SKIPPED (no Android CI helper diff vs base)"
   fi
   # NOT inside the ci_tooling_changed block above: this guard's inputs are the
   # Makefile AND tools/ci/**, and ci_tooling_changed only looks at `^tools/ci/`.
