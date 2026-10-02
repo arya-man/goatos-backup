@@ -139,7 +139,8 @@ export async function MilkPreparationPage({
     param: "mp_park",
     label: copy(pageContract, "filter.park_label"),
     value: topBarScope.parkId || localParkID,
-    options: locations.parks.map((park) => ({ value: park.id, label: park.name })),
+    // The park CODE, as every row and chip on this page names the park ("CPT", not "Channapatna").
+    options: locations.parks.map((park) => ({ value: park.id, label: park.code || park.name })),
     disabledReason: topBarScope.parkId ? copy(pageContract, "filter.scope_readonly") : undefined,
   }];
 
@@ -199,7 +200,7 @@ export async function MilkPreparationPage({
               <KpiWidget
                 title={copy(pageContract, `kpi.${kpi.key}.label`)}
                 total={{ sheds: summary.shed_count, kids: summary.head_count, milk: summary.total_required_ml / 1000, citric: summary.citric_acid_grams }[kpi.key]}
-                caption={kpi.unit ? (kpi.key === "citric" ? copy(pageContract, "label.grams") : unit) : undefined}
+                caption={copy(pageContract, `kpi.${kpi.key}.sub`)}
                 sx={{ height: 1 }}
               />
             </Grid>

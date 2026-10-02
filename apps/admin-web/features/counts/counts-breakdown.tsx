@@ -77,7 +77,10 @@ const ROW_COLORS = ["primary", "info", "warning", "success", "secondary", "error
 /** Breed rows as template EcommerceSalesOverview progress rows: count + share of the matching herd. */
 function shareRows(bars: SvgBarDatum[]): EcommerceSalesOverviewItem[] {
   const total = bars.reduce((sum, bar) => sum + Math.max(bar.value, 0), 0);
-  return bars.map((bar, i) => ({
+  // Largest share first, so the list reads as a ranking rather than in arrival order (D9); ties
+  // keep the backend's order.
+  const ranked = bars.map((bar, index) => ({ bar, index })).sort((a, b) => b.bar.value - a.bar.value || a.index - b.index).map(({ bar }) => bar);
+  return ranked.map((bar, i) => ({
     key: bar.key,
     label: bar.label,
     value: total > 0 ? Math.round((Math.max(bar.value, 0) / total) * 1000) / 10 : 0,
@@ -538,14 +541,14 @@ export async function CountsBreakdownPage({
             caption={breakdown ? undefined : copy(pageContract, "kpi.matching.unavailable")}
             sx={{ height: 1 }}
           />
+          {/* Leads with KIDS, adults in the sub-line: kids + adults is the matching count beside it,
+              so headlining the sum printed one number twice (D9). */}
           <KpiWidget
-            title={copy(pageContract, "kpi.age.label")}
-            total={breakdown ? totalKids + totalAdults : null}
+            title={splitParts(copy(pageContract, "kpi.age.label"), [totalKids, totalAdults])[0].label}
+            total={breakdown ? totalKids : null}
             caption={
               breakdown
-                ? splitParts(copy(pageContract, "kpi.age.label"), [totalKids, totalAdults])
-                    .map((part) => `${Number(part.value).toLocaleString("en-IN")} ${part.label}`)
-                    .join(" \u00b7 ")
+                ? `${totalAdults.toLocaleString("en-IN")} ${splitParts(copy(pageContract, "kpi.age.label"), [totalKids, totalAdults])[1].label}`
                 : copy(pageContract, "kpi.matching.unavailable")
             }
             sx={{ height: 1 }}
@@ -612,7 +615,7 @@ export async function CountsBreakdownPage({
                       page. Recomputing it from `rows` would silently report the page subtotal —
                       and reordering the page cannot touch it, because it is not derived from
                       the rows at all. */}
-                  <TableCell align="right" sx={TOTAL_CELL_SX}>{breakdown.total_count}</TableCell>
+                  <TableCell align="right" sx={TOTAL_CELL_SX}>{breakdown.total_count.toLocaleString("en-IN")}</TableCell>
                 </TableRow>
               ) : undefined
             }
@@ -672,7 +675,7 @@ export async function CountsBreakdownPage({
               })),
               options: { chart: { stacked: true }, plotOptions: { bar: { columnWidth: "40%" } } },
             }}
-            sx={{ height: 1 }}
+            // Hugs its chart: stretched to the breed list beside it, the card was ~600px of blank (D9).
           />
         </Grid>
         <Grid size={BD_GRID.pens}>

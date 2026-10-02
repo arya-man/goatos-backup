@@ -39,7 +39,9 @@ import {
   getFeedAnalyticsStockLoads,
   getFeedAnalyticsFollowUp,
   getFeedAnalyticsShedFeed,
+  listAnimalStages,
   type ApiResult,
+  type AnimalStageListResponse,
   type FeedAnalyticsDirectedResponse,
   type FeedAnalyticsExecutionResponse,
   type FeedAnalyticsExperimentResponse,
@@ -78,6 +80,7 @@ import { FeedFaroView } from "./feed-faro-view";
 import { completeDaySeries } from "./feed-spark-series";
 import { FeedAnalyticsExport } from "@/components/analytics-export";
 import { stageLabel } from "@/lib/stage-labels";
+import { stageNameMap, stageVocabularyLabel, type StageNameMap } from "@/lib/stage-display";
 
 // Feed -> Feed Analytics. The leadership read of the feed chain over a date
 // window: DIRECTED kg off the frozen sheet, ration per animal, execution
@@ -439,7 +442,9 @@ export async function FeedAnalyticsPage({
   const wantShedFeed = tab === "overview";
   const shedFeedTo = istDayPlus(todayIso(), -1);
   const shedFeedWindow = { date_from: istDayPlus(shedFeedTo, -6), date_to: shedFeedTo };
-  const [locations, directed, execution, experiment, stock, shedFeed, loads, followUp] = await Promise.all([
+  // Status-wise cards are titled by stage: the tenant vocabulary names "K3" (D6).
+  const wantStageNames = !stockOnly && tab === "overview";
+  const [locations, directed, execution, experiment, stock, shedFeed, loads, followUp, stages] = await Promise.all([
     wantExperiment ? getCensusLocations() : Promise.resolve({ parks: [] as { id: string; code: string | null; name: string }[], sheds: [] }),
     wantDirected
       ? getFeedAnalyticsDirected({ ...chartParams, sections: directedSections })
@@ -484,7 +489,9 @@ export async function FeedAnalyticsPage({
     wantFollowUp
       ? getFeedAnalyticsFollowUp(chartParams)
       : Promise.resolve<ApiResult<FeedAnalyticsFollowUpResponse> | null>(null),
+    wantStageNames ? listAnimalStages() : Promise.resolve<ApiResult<AnimalStageListResponse> | null>(null),
   ]);
+  const stageNames = stageNameMap(stages?.ok ? stages.data.items : undefined);
   if (!favDay && tab === "execution" && execution?.ok) {
     const measured = execution.data.consumption_trend
       .filter((d) => d.actual_kg !== "")
@@ -658,7 +665,7 @@ export async function FeedAnalyticsPage({
 
       {!stockOnly && tab === "overview" && directed?.ok ? (
         <LocalViewPane param="fc_view" value="status" current={consumptionView}>
-          <FeedStatusWise data={directed.data} pageContract={pageContract} />
+          <FeedStatusWise data={directed.data} pageContract={pageContract} stageNames={stageNames} />
         </LocalViewPane>
       ) : null}
 
@@ -807,10 +814,14 @@ function ChartCard({
 function FeedStatusWise({
   data,
   pageContract,
+  stageNames,
 }: {
   data: FeedAnalyticsDirectedResponse;
   pageContract: AdminUiPageContract;
+  stageNames: StageNameMap;
 }) {
+  // The tenant's own stage name ("K3 - Weaning"), then the fattening word; never a bare code.
+  const titleOf = (label: string) => stageLabel(stageVocabularyLabel(label, stageNames));
   const single = data.pen_tags.filter((t) => !t.mixed);
   if (single.length === 0) {
     return (
@@ -846,7 +857,7 @@ function FeedStatusWise({
           return (
             <Grid key={row.pen_tag_key} size={{ xs: 12, md: 6 }}>
             <ChartCard
-              title={stageLabel(row.pen_tag_label)}
+              title={titleOf(row.pen_tag_label)}
               subheader={fa(pageContract, "status.chart.cap").replace("{count}", animals)}
               figures={[
                 { value: row.rupees_per_day === "" ? "—" : `₹${money(num(row.rupees_per_day))}`, label: fa(pageContract, "status.spend_per_day") },
@@ -869,7 +880,7 @@ function FeedStatusWise({
                   secondary={{ series: kgSeries, valueNoun: kgNoun }}
                   dayLabels={dayLabels}
                   valueNoun={rupeeNoun}
-                  chartLabel={stageLabel(row.pen_tag_label)}
+                  chartLabel={titleOf(row.pen_tag_label)}
                   emptyLabel={fa(pageContract, "status.empty")}
                 />
               ) : (
@@ -878,7 +889,7 @@ function FeedStatusWise({
                   series={[kgSeries]}
                   dayLabels={dayLabels}
                   valueNoun={kgNoun}
-                  chartLabel={stageLabel(row.pen_tag_label)}
+                  chartLabel={titleOf(row.pen_tag_label)}
                   emptyLabel={fa(pageContract, "status.empty")}
                 />
               )}

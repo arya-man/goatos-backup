@@ -18784,6 +18784,16 @@ export interface components {
             rate_pct?: number;
             /** @enum {string} */
             basis?: "recorded" | "inferred" | "none";
+            /** @description LOAD series only. The pens the load's animals sit in (or last sat in), biggest placement first, park code and composed pen name, so a load row names where to walk. Absent when none is known; a client never invents one. */
+            pens?: components["schemas"]["MortalityLoadPen"][];
+        };
+        MortalityLoadPen: {
+            /** @description Park short code (CBE, CPT); empty when unresolved. */
+            park: string;
+            /** @description Composed operational location display ("Castro 1", "Godel 2 - Part 1"). */
+            pen: string;
+            /** Format: int64 */
+            animals: number;
         };
         MortalityMonth: {
             /** @description IST calendar month key, "2026-08". */

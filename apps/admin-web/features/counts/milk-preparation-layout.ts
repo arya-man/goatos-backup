@@ -2,9 +2,11 @@ import { FILTER_SELECT_MIN } from "@/components/app/filter-field-widths";
 // Layout constants shared by /counts/milk-preparation (milk-preparation.tsx) and its loading twin
 // (milk-preparation-skeletons.tsx), so the skeleton cannot drift from the page.
 /** The KPI cards, in order; `unit` = the card prints its unit as the KpiWidget caption line. */
+// Every tile carries its sub-line (the contract's kpi.<key>.sub); units ride in the title
+// ("Milk required (L)"), so no tile prints a lone "L" or "g" as its whole sub-line (D8).
 export const MILK_KPIS = [
-  { key: "sheds", unit: false },
-  { key: "kids", unit: false },
+  { key: "sheds", unit: true },
+  { key: "kids", unit: true },
   { key: "milk", unit: true },
   { key: "citric", unit: true },
 ] as const;

@@ -6,7 +6,7 @@ import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import { Fragment } from "react";
-import { fmtClock, fmtGrams, fmtSplit } from "./feed-config-format";
+import { fmtClock, fmtExperimentArm, fmtGrams, fmtSplit } from "./feed-config-format";
 import { redirect } from "next/navigation";
 
 import { fmtDate, istDayPlus, todayIso } from "@/lib/format";
@@ -619,8 +619,8 @@ export async function FeedConfigPage({
   const breedOptions = toOptions(uniqueSorted((rationGroups?.items ?? []).map((group) => group.breed)));
   // The arms present on the CURRENT experiment page. See the field definition for why this is
   // page-derived rather than a catalog read.
-  const experimentArmOptions = toOptions(
-    uniqueSorted(experimentRows.map((row) => row.experiment_category).filter(Boolean)),
+  const experimentArmOptions = uniqueSorted(experimentRows.map((row) => row.experiment_category).filter(Boolean)).map(
+    (value) => ({ value, label: fmtExperimentArm(value) }),
   );
   const shedTagOptions = shedTags
     ? toOptions(dedupe(byDisplayOrder(shedTags.items).map((tag) => tag.shed_tag)))
@@ -1065,7 +1065,7 @@ export async function FeedConfigPage({
                           title={copy(pageContract, "label.experiment_category_note")}
                           sx={{ maxWidth: 200, whiteSpace: "normal !important", overflowWrap: "break-word" }}
                         >
-                          {stageLabel(shed.category)}
+                          {fmtExperimentArm(shed.category)}
                         </TableCell>
                         <TableCell
                           sx={{ color: "text.secondary", fontVariantNumeric: "tabular-nums" }}

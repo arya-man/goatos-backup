@@ -1050,12 +1050,12 @@ func pages() []domain.PageContract {
 			}),
 		page("health-config", "/health/config", "/health/config", "Health Config", "Health-owned authority screen for the farm's whole clinical rulebook: which illness an animal is judged to have, and what it is then given.", "module-surface",
 			[]domain.TableContract{
-				tableP("protocol-catalog", "Treatment protocols", "/health-config/protocols", []string{"display_name", "age_band", "duration_days", "step_count", "medication_count", "critical_action_count", "published_version", "draft_state"}, "protocol_version_id", []int{10, 25, 50}),
+				columnLabelsFromCopy(tableP("protocol-catalog", "Treatment protocols", "/health-config/protocols", []string{"display_name", "age_band", "duration_days", "step_count", "medication_count", "critical_action_count", "published_version", "draft_state"}, "protocol_version_id", []int{10, 25, 50}), "health-config"),
 				// The DIAGNOSIS REGISTER, the other half of the same rulebook: the questions
 				// the observation form asks, the tokens each answer emits, and the rules
 				// those tokens fire. One row per animal class, because a milk kid is never
 				// diagnosed against the adult table.
-				table("register-catalog", "Diagnosis registers", "/health-config/registers", []string{"animal_class", "register_label", "status", "question_count", "rule_count", "published"}, "register_version_id"),
+				columnLabelsFromCopy(table("register-catalog", "Diagnosis registers", "/health-config/registers", []string{"animal_class", "register_label", "status", "question_count", "rule_count", "published"}, "register_version_id"), "health-config"),
 				// The document, in two tables because an author works on one half at a time:
 				// what the form ASKS, and what the rules MAKE of the answers.
 				table("register-questions", "Questions", "/health-config/registers", []string{"title", "kind", "section", "answers", "emits", "only_if"}, "question_id"),
@@ -1183,6 +1183,20 @@ func page(id, href, pattern, title, subtitle, kind string, tables []domain.Table
 // advertise a drawer the renderer cannot open -- the contract is what the client trusts.
 func withoutRowClick(t domain.TableContract) domain.TableContract {
 	t.RowClick = domain.RowClickRule{Enabled: false, SummaryFields: []string{}, DetailFields: []string{}}
+	return t
+}
+
+// columnLabelsFromCopy names a table's columns from its page's OWN copy map ("column.<key>"),
+// the loadwiseTable precedent generalised: humanLabel de-underscores a key, which is the
+// machine's word ("Medication count", "Critical action count") on a screen the farm reads. A key
+// with no copy entry keeps the humanised default rather than rendering blank.
+func columnLabelsFromCopy(t domain.TableContract, pageID string) domain.TableContract {
+	copy := pageCopy(pageID)
+	for i := range t.Columns {
+		if label := strings.TrimSpace(copy["column."+t.Columns[i].Key]); label != "" {
+			t.Columns[i].Label = label
+		}
+	}
 	return t
 }
 
@@ -6487,7 +6501,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.kpi.aria":     "Mortality headline figures",
 			"kpi.deaths.label":     "Deaths",
 			"kpi.deaths.sub":       "Animals recorded dead in the window",
-			"kpi.rate.label":       "Mortality rate",
+			"kpi.rate.label":       "Mortality rate (%)",
 			"kpi.rate.sub":         "Deaths in the window against every animal on the farm during it",
 			"kpi.kids.label":       "Kid deaths",
 			"kpi.kids.sub":         "Kids (K-stage or kid age band) recorded dead, with their rate",
@@ -6644,23 +6658,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.window.custom":      "Custom",
 			"filter.window.custom_hint": "Pick any two dates in the calendar beside these.",
 
-			"problems.note": "One problem is one episode of one illness in one animal. An animal treated twice is " +
-				"counted twice, because a relapse is a problem the farm had twice. Every chart below cuts this same " +
-				"total, so each one adds back up to it.",
-			"problems.chart.month.title": "Health problems by month",
-			"problems.chart.month.hint": "One column per India calendar month, so a rise or fall is read against whole " +
-				"months. A window starting or ending mid-month leaves that column covering only the days inside it.",
-			"problems.chart.breed.title": "Health problems by breed",
-			"problems.chart.breed.hint": "Which breeds the farm is treating most. Read it against how many of each breed " +
-				"the farm keeps: a breed with twice the animals will show more problems without being less healthy.",
+			"problems.chart.month.title":    "Health problems by month",
+			"problems.chart.breed.title":    "Health problems by breed",
 			"problems.chart.pen_type.title": "Health problems by pen type",
-			"problems.chart.pen_type.hint": "One bar per pen type. Pen types are set in Configuration, Items and settings, " +
-				"Pen types, and each partition is given one; problems in a pen nobody has typed are shown separately " +
-				"rather than counted into any type.",
-			"problems.chart.age.title": "Health problems by age",
-			"problems.chart.age.hint": "How old each animal was when the case was opened, not how old it is today. " +
-				"Animals with no date of birth on record are shown in their own band.",
-			"problems.capped_breeds": "Busiest 15 breeds",
+			"problems.chart.age.title":      "Health problems by age",
+			"problems.capped_breeds":        "Busiest 15 breeds",
 			// The shared bar chart draws no bar for a zero, which on a two-sided comparison
 			// would leave one bar looking like the only kind of pen the farm has. Naming the
 			// empty buckets keeps "nothing happened here" apart from "this was not measured".
@@ -6677,21 +6679,13 @@ func pageSpecificCopy(id string) map[string]string {
 			"kpi.unattributed.label": "Not attributed",
 			"kpi.unattributed.sub":   "No recorded cause or open-case link",
 
-			"chart.deaths.title": "Deaths by month",
-			"chart.deaths.hint": "One column per India calendar month. Every death falls in exactly one of the two, " +
-				"so the pair always adds to that month's total. A window that starts or ends mid-month leaves that month covering only the days inside it.",
-			"chart.diseases.title": "Cases by disease",
-			"chart.diseases.hint": "Courses started in the window, counted on the diagnosis rule. One animal treated twice " +
-				"for the same illness counts twice, because counting animals would hide a relapse.",
+			"chart.deaths.title":    "Deaths by month",
+			"chart.diseases.title":  "Cases by disease",
 			"chart.trend.title":     "New cases by month",
-			"chart.trend.hint":      "The busiest diseases, one chart each. Thirty-four rules on one axis is unreadable.",
 			"chart.fatality.title":  "Deaths among treated animals",
-			"chart.fatality.hint":   "Of the animals diagnosed with this disease in the window, the share that died. Only ever read per disease.",
 			"chart.adherence.title": "Treatment sessions",
-			"chart.adherence.hint": "One bar per outcome, over every session due in the window up to today. " +
-				"Done late is kept apart from never done: they are different failures.",
-			"chart.empty":       "Nothing recorded in this scope yet.",
-			"chart.legend_aria": "Chart series legend",
+			"chart.empty":           "Nothing recorded in this scope yet.",
+			"chart.legend_aria":     "Chart series legend",
 
 			"series.attributed":   "Attributed",
 			"series.unattributed": "Not attributed",
@@ -6700,20 +6694,12 @@ func pageSpecificCopy(id string) map[string]string {
 			"series.rework":       "Sent back",
 			"series.not_done":     "Not done",
 
-			"section.kpi.aria":       "Health headline figures",
-			"section.diseases.title": "Disease board",
-			"section.diseases.note": "One row per diagnosis rule, over the cases started in this window. " +
-				"Open counts only the cases from this window that are still running.",
-			"section.deaths.title":    "Deaths",
-			"section.deaths.note":     "The most recent deaths in the window. The counts above cover the whole window and do not change with this list.",
-			"section.medicines.title": "Medicines given",
-			"section.medicines.note":  "Doses the operator actually recorded, never what the protocol prescribed.",
-			"section.engine.title":    "Observation outcomes",
-			"section.engine.note": "What the director did with the engine's proposal. Re-observations are left out of the rate — " +
-				"a second look is not a disagreement.",
+			"section.kpi.aria":           "Health headline figures",
+			"section.diseases.title":     "Disease board",
+			"section.deaths.title":       "Deaths",
+			"section.medicines.title":    "Medicines given",
+			"section.engine.title":       "Observation outcomes",
 			"section.engine_rules.title": "Rules the engine proposed",
-			"section.engine_rules.note": "Proposed against opened. There is no per-rule decline recorded anywhere, so this shows " +
-				"what was proposed and what was actually taken up.",
 
 			"stat.observations.label": "Observations",
 			"stat.observations.sub":   "Sick-animal forms the engine judged in the window",
@@ -6771,7 +6757,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// The pen line and its drill-down. Every string the pens table renders is here.
 			"table.pens.aria":          "Head count by pen",
 			"table.pens.noun":          "pen",
-			"table.pens.total_row":     "Total · every matching pen, not just this page",
+			"table.pens.total_row":     "Total, all matching pens",
 			"action.expand.hint":       "Click a pen to see its exact stage × breed × gender split",
 			"action.expand_all":        "Open all",
 			"action.collapse_all":      "Close all",
@@ -6820,7 +6806,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// up to 463, so "Total (rows)" read as a number that did not match the table above it. The
 			// value is right and must stay whole-filter (recomputing it from the page is the banned
 			// capped read-time rollup); it was the LABEL that never said the page is not the whole set.
-			"table.breakdown.total_row": "Total · every matching row, not just this page",
+			"table.breakdown.total_row": "Total, all matching rows",
 			"table.breakdown.noun":      "row",
 			// The inline retag editor on the Stage cell. Every visible string it renders is here:
 			// the frontend composes none of it, including the default reason that lands in the
@@ -6970,9 +6956,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"kpi.sheds.sub":                     "Physical pens with milk-fed cohorts",
 			"kpi.kids.label":                    "Kids",
 			"kpi.kids.sub":                      "K1, K2 and K3 kids in the live herd",
-			"kpi.milk.label":                    "Milk required",
-			"kpi.milk.sub":                      "Total litres for all active sessions",
-			"kpi.citric.label":                  "Citric acid",
+			"kpi.milk.label":                    "Milk required (L)",
+			"kpi.milk.sub":                      "For all active sessions",
+			"kpi.citric.label":                  "Citric acid (g)",
 			"kpi.citric.sub":                    "5.5 g per litre of prepared milk",
 			"table.preparation.aria":            "Milk preparation rows",
 			"table.preparation.noun":            "cohort",
@@ -7082,7 +7068,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"consumption.view.general":       "General",
 			"consumption.view.status":        "Status-wise",
 			"status.hint":                    "Each status is the pen's tag on the feed sheet, averaged over the selected range. Spend prices every feed at the farm's latest load rate; kg is all sheet feeds for one animal. Milk and pens with mixed tags are left out.",
-			"status.chart.cap":               "₹ spent per day (solid line) and kg per animal per day (dashed) · {count} animals on average",
+			"status.chart.cap":               "Average animals fed: {count}",
 			"status.series.spend":            "₹ spent",
 			"status.series.kg":               "kg per animal",
 			"status.spend_per_day":           "₹ / day",
@@ -7610,36 +7596,51 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.history.title": "Version history",
 			"section.history.note":  "Every published version is kept. A goat pins the version it was diagnosed under and finishes its course on those dosages, so retiring a version never changes what an animal mid-treatment receives.",
 
-			"label.disease":              "Disease",
-			"label.age_band":             "Age band",
-			"label.age_band.adult":       "Adult",
-			"label.age_band.kid":         "Kid",
-			"label.duration_days":        "Days",
-			"label.duration_days_help":   "How many days the course runs.",
-			"label.step_count":           "Steps",
-			"label.medication_count":     "Medicines",
-			"label.critical_count":       "Critical actions",
-			"label.published_version":    "Live version",
-			"label.draft_state":          "Draft",
-			"label.day_no":               "Day",
-			"label.session":              "Session",
-			"label.session.morning":      "Morning",
-			"label.session.afternoon":    "Afternoon",
-			"label.session.evening":      "Evening",
-			"label.session.unscheduled":  "Any time",
-			"label.record_type":          "Step type",
-			"label.record_type.action":   "Action",
-			"label.record_type.medicine": "Medicine",
-			"label.record_type.critical": "Critical action",
-			"label.medicine_name":        "Medicine",
-			"label.dosage_text":          "Dosage",
-			"label.dosage_denominator":   "Unit",
-			"label.medicine_route":       "Route",
-			"label.instruction":          "Instruction",
-			"label.critical_action_type": "Hands off to",
-			"label.critical.quarantine":  "Quarantine or movement",
-			"label.critical.exit":        "Lifecycle exit",
-			"label.open_cases":           "Goats being treated on this version",
+			"label.disease":            "Disease",
+			"label.age_band":           "Age band",
+			"label.age_band.adult":     "Adult",
+			"label.age_band.kid":       "Kid",
+			"label.duration_days":      "Days",
+			"label.duration_days_help": "How many days the course runs.",
+			"label.step_count":         "Steps",
+			"label.medication_count":   "Medicines",
+
+			// Column headers of the protocol and register catalogues (columnLabelsFromCopy).
+			"column.display_name":          "Disease",
+			"column.age_band":              "Age band",
+			"column.duration_days":         "Days",
+			"column.step_count":            "Steps",
+			"column.medication_count":      "Medicines",
+			"column.critical_action_count": "Critical actions",
+			"column.published_version":     "Live version",
+			"column.draft_state":           "Draft",
+			"column.animal_class":          "Animals",
+			"column.register_label":        "Register",
+			"column.question_count":        "Questions",
+			"column.rule_count":            "Rules",
+			"column.published":             "Published",
+			"label.critical_count":         "Critical actions",
+			"label.published_version":      "Live version",
+			"label.draft_state":            "Draft",
+			"label.day_no":                 "Day",
+			"label.session":                "Session",
+			"label.session.morning":        "Morning",
+			"label.session.afternoon":      "Afternoon",
+			"label.session.evening":        "Evening",
+			"label.session.unscheduled":    "Any time",
+			"label.record_type":            "Step type",
+			"label.record_type.action":     "Action",
+			"label.record_type.medicine":   "Medicine",
+			"label.record_type.critical":   "Critical action",
+			"label.medicine_name":          "Medicine",
+			"label.dosage_text":            "Dosage",
+			"label.dosage_denominator":     "Unit",
+			"label.medicine_route":         "Route",
+			"label.instruction":            "Instruction",
+			"label.critical_action_type":   "Hands off to",
+			"label.critical.quarantine":    "Quarantine or movement",
+			"label.critical.exit":          "Lifecycle exit",
+			"label.open_cases":             "Goats being treated on this version",
 
 			"action.add_disease":      "Add disease",
 			"action.edit_protocol":    "Edit",

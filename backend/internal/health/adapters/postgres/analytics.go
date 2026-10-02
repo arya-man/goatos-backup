@@ -395,7 +395,7 @@ LIMIT $5
 // healthAnalyticsDeathsSQL is the bounded per-animal death list beside the
 // counts.
 //
-// projection-review: membership=goats that exited as died inside the window, optionally narrowed to one park, capped at $5 rows most-recent-first; group_key=none, one row per animal; join_cardinality=park is a LEFT JOIN on the locations primary key (1:{0,1}); the tag and case lookups are LATERAL subqueries that each return exactly ONE row by construction (LIMIT 1, and a bare aggregate over zero rows), so neither can multiply an animal; pagination=a hard LIMIT, and the whole-window counts above this list are computed by their own queries and do not move with it; scope=tenant_id plus one optional park predicate.
+// projection-review: membership=goats that exited as died inside the window, optionally narrowed to one park, capped at $5 rows most-recent-first; group_key=none, one row per animal; join_cardinality=park is a LEFT JOIN on the locations primary key (1:{0,1}); the animal's own pen is a scalar subquery on goat_shed_partitions, whose primary key is (tenant_id, goat_id), so 1:{0,1}; the tag and case lookups are LATERAL subqueries that each return exactly ONE row by construction (LIMIT 1, and a bare aggregate over zero rows), so neither can multiply an animal; pagination=a hard LIMIT, and the whole-window counts above this list are computed by their own queries and do not move with it; scope=tenant_id plus one optional park predicate.
 //
 // Expanded rationale:
 //
@@ -436,6 +436,16 @@ dead AS (
 SELECT d.goat_id::text,
        d.display_id,
        COALESCE(d.shed_id::text, ''),
+       -- The animal's OWN pen inside that shed (goat_shed_partitions is keyed on the goat, so
+       -- this is 1:{0,1}). Without it a death in Castro 1 resolved at shed grain and read as
+       -- the bare parent "Castro" whenever the shed has more than one pen.
+       COALESCE((
+         SELECT gsp.partition_label
+         FROM goat_shed_partitions gsp
+         WHERE gsp.tenant_id = $1::uuid
+           AND gsp.goat_id = d.goat_id
+           AND gsp.shed_id = d.shed_id
+       ), ''),
        COALESCE(NULLIF(btrim(pk.name), ''), pk.location_code, ''),
        d.business_date,
        d.age_band,
@@ -619,7 +629,7 @@ func (r *Repository) GetHealthAnalytics(ctx context.Context, req domain.HealthAn
 
 	results := r.pool.SendBatch(ctx, batch)
 
-	shedIDs, err := r.scanHealthAnalyticsBatch(results, &out)
+	shedIDs, deathPartitions, err := r.scanHealthAnalyticsBatch(results, &out)
 	if closeErr := results.Close(); closeErr != nil && err == nil {
 		err = fmt.Errorf("health analytics: close batch: %w", closeErr)
 	}
@@ -631,7 +641,7 @@ func (r *Repository) GetHealthAnalytics(ctx context.Context, req domain.HealthAn
 	// partition SELECT: `partition_label` not `normalized_label`, the 'whole'
 	// sentinel filtered, and agree-or-go-bare rather than a fabricated pick.
 	if len(shedIDs) > 0 {
-		if err := r.attachDeathLocations(ctx, req.TenantID, shedIDs, &out); err != nil {
+		if err := r.attachDeathLocations(ctx, req.TenantID, shedIDs, deathPartitions, &out); err != nil {
 			return domain.HealthAnalytics{}, err
 		}
 	}
@@ -643,7 +653,7 @@ func (r *Repository) GetHealthAnalytics(ctx context.Context, req domain.HealthAn
 // the distinct shed ids the death list needs pen names for. A new query is appended at the end
 // of both lists rather than inserted, because pgx hands results back positionally and an
 // insertion in one place silently shifts every scan after it onto the wrong result set.
-func (r *Repository) scanHealthAnalyticsBatch(results pgx.BatchResults, out *domain.HealthAnalytics) ([]string, error) {
+func (r *Repository) scanHealthAnalyticsBatch(results pgx.BatchResults, out *domain.HealthAnalytics) ([]string, []string, error) {
 	if err := results.QueryRow().Scan(
 		&out.Totals.OpenCases,
 		&out.Totals.OpenAdults,
@@ -652,19 +662,19 @@ func (r *Repository) scanHealthAnalyticsBatch(results pgx.BatchResults, out *dom
 		&out.Totals.ClosedCases,
 		&out.Totals.Recovered,
 	); err != nil {
-		return nil, fmt.Errorf("health analytics: case totals: %w", err)
+		return nil, nil, fmt.Errorf("health analytics: case totals: %w", err)
 	}
 
 	monthRows, err := results.Query()
 	if err != nil {
-		return nil, fmt.Errorf("health analytics: months query: %w", err)
+		return nil, nil, fmt.Errorf("health analytics: months query: %w", err)
 	}
 	for monthRows.Next() {
 		var month domain.HealthAnalyticsMonth
 		var monthStart time.Time
 		if err := monthRows.Scan(&month.Month, &monthStart, &month.NewCases, &month.Deaths, &month.DeathsAttributed); err != nil {
 			monthRows.Close()
-			return nil, fmt.Errorf("health analytics: months scan: %w", err)
+			return nil, nil, fmt.Errorf("health analytics: months scan: %w", err)
 		}
 		month.Label = monthStart.Format("Jan 2006")
 		// Derived rather than counted, so the two buckets cannot fail to sum to
@@ -677,13 +687,13 @@ func (r *Repository) scanHealthAnalyticsBatch(results pgx.BatchResults, out *dom
 	}
 	monthRows.Close()
 	if err := monthRows.Err(); err != nil {
-		return nil, fmt.Errorf("health analytics: months rows: %w", err)
+		return nil, nil, fmt.Errorf("health analytics: months rows: %w", err)
 	}
 	out.Totals.DeathsUnattributed = out.Totals.Deaths - out.Totals.DeathsAttributed
 
 	diseaseRows, err := results.Query()
 	if err != nil {
-		return nil, fmt.Errorf("health analytics: diseases query: %w", err)
+		return nil, nil, fmt.Errorf("health analytics: diseases query: %w", err)
 	}
 	for diseaseRows.Next() {
 		var row domain.HealthAnalyticsDisease
@@ -694,7 +704,7 @@ func (r *Repository) scanHealthAnalyticsBatch(results pgx.BatchResults, out *dom
 			&row.NewCases, &row.OpenCases, &row.Recovered, &row.Died,
 		); err != nil {
 			diseaseRows.Close()
-			return nil, fmt.Errorf("health analytics: diseases scan: %w", err)
+			return nil, nil, fmt.Errorf("health analytics: diseases scan: %w", err)
 		}
 		row.AgeBands = domain.AgeBandSummary(adults, kids)
 		row.CaseFatalityPct = domain.HealthAnalyticsPct(row.Died, row.NewCases)
@@ -702,7 +712,7 @@ func (r *Repository) scanHealthAnalyticsBatch(results pgx.BatchResults, out *dom
 	}
 	diseaseRows.Close()
 	if err := diseaseRows.Err(); err != nil {
-		return nil, fmt.Errorf("health analytics: diseases rows: %w", err)
+		return nil, nil, fmt.Errorf("health analytics: diseases rows: %w", err)
 	}
 
 	if err := results.QueryRow().Scan(
@@ -713,25 +723,25 @@ func (r *Repository) scanHealthAnalyticsBatch(results pgx.BatchResults, out *dom
 		&out.Adherence.NotDone,
 		&out.Adherence.AwaitingVerification,
 	); err != nil {
-		return nil, fmt.Errorf("health analytics: adherence: %w", err)
+		return nil, nil, fmt.Errorf("health analytics: adherence: %w", err)
 	}
 	out.Adherence.OnTimePct = domain.HealthAnalyticsPct(out.Adherence.OnTime, out.Adherence.SessionsDue)
 
 	medicineRows, err := results.Query()
 	if err != nil {
-		return nil, fmt.Errorf("health analytics: medicines query: %w", err)
+		return nil, nil, fmt.Errorf("health analytics: medicines query: %w", err)
 	}
 	for medicineRows.Next() {
 		var row domain.HealthAnalyticsMedicine
 		if err := medicineRows.Scan(&row.Name, &row.Route, &row.Doses, &row.Animals); err != nil {
 			medicineRows.Close()
-			return nil, fmt.Errorf("health analytics: medicines scan: %w", err)
+			return nil, nil, fmt.Errorf("health analytics: medicines scan: %w", err)
 		}
 		out.Medicines = append(out.Medicines, row)
 	}
 	medicineRows.Close()
 	if err := medicineRows.Err(); err != nil {
-		return nil, fmt.Errorf("health analytics: medicines rows: %w", err)
+		return nil, nil, fmt.Errorf("health analytics: medicines rows: %w", err)
 	}
 
 	var medianHours *float64
@@ -744,7 +754,7 @@ func (r *Repository) scanHealthAnalyticsBatch(results pgx.BatchResults, out *dom
 		&out.Engine.Invalid,
 		&medianHours,
 	); err != nil {
-		return nil, fmt.Errorf("health analytics: engine: %w", err)
+		return nil, nil, fmt.Errorf("health analytics: engine: %w", err)
 	}
 	// Decided runs only: a superseded run is a re-observation, not a director
 	// disagreeing with the engine, and a pending one has not been judged at all.
@@ -756,31 +766,32 @@ func (r *Repository) scanHealthAnalyticsBatch(results pgx.BatchResults, out *dom
 
 	ruleRows, err := results.Query()
 	if err != nil {
-		return nil, fmt.Errorf("health analytics: engine rules query: %w", err)
+		return nil, nil, fmt.Errorf("health analytics: engine rules query: %w", err)
 	}
 	for ruleRows.Next() {
 		var row domain.HealthAnalyticsEngineRule
 		if err := ruleRows.Scan(&row.Key, &row.Proposed, &row.Opened); err != nil {
 			ruleRows.Close()
-			return nil, fmt.Errorf("health analytics: engine rules scan: %w", err)
+			return nil, nil, fmt.Errorf("health analytics: engine rules scan: %w", err)
 		}
 		row.NotTakenUpPct = domain.HealthAnalyticsPct(row.Proposed-row.Opened, row.Proposed)
 		out.Engine.Rules = append(out.Engine.Rules, row)
 	}
 	ruleRows.Close()
 	if err := ruleRows.Err(); err != nil {
-		return nil, fmt.Errorf("health analytics: engine rules rows: %w", err)
+		return nil, nil, fmt.Errorf("health analytics: engine rules rows: %w", err)
 	}
 
 	deathRows, err := results.Query()
 	if err != nil {
-		return nil, fmt.Errorf("health analytics: deaths query: %w", err)
+		return nil, nil, fmt.Errorf("health analytics: deaths query: %w", err)
 	}
 	shedSeen := map[string]struct{}{}
 	shedIDs := []string{}
+	deathPartitions := []string{}
 	for deathRows.Next() {
 		var row domain.HealthAnalyticsDeath
-		var shedID string
+		var shedID, partitionLabel string
 		var businessDate time.Time
 		var diseaseLabel string
 		var caseStart *time.Time
@@ -788,13 +799,13 @@ func (r *Repository) scanHealthAnalyticsBatch(results pgx.BatchResults, out *dom
 		var causeKey, causeKind, causeCaseDiseaseName string
 		var causeCaseStart *time.Time
 		if err := deathRows.Scan(
-			&row.GoatID, &row.DisplayID, &shedID, &row.ParkLabel,
+			&row.GoatID, &row.DisplayID, &shedID, &partitionLabel, &row.ParkLabel,
 			&businessDate, &row.AgeBand, &row.Tag,
 			&diseaseLabel, &caseStart, &everHadCase,
 			&causeKey, &causeKind, &causeCaseDiseaseName, &causeCaseStart,
 		); err != nil {
 			deathRows.Close()
-			return nil, fmt.Errorf("health analytics: deaths scan: %w", err)
+			return nil, nil, fmt.Errorf("health analytics: deaths scan: %w", err)
 		}
 		row.BusinessDate = businessDate.Format(domain.HealthAnalyticsDateLayout)
 		switch {
@@ -830,6 +841,7 @@ func (r *Repository) scanHealthAnalyticsBatch(results pgx.BatchResults, out *dom
 			row.NeverDiagnosed = !everHadCase
 		}
 		out.Deaths = append(out.Deaths, row)
+		deathPartitions = append(deathPartitions, partitionLabel)
 
 		if shedID != "" {
 			if _, ok := shedSeen[shedID]; !ok {
@@ -842,13 +854,13 @@ func (r *Repository) scanHealthAnalyticsBatch(results pgx.BatchResults, out *dom
 	}
 	deathRows.Close()
 	if err := deathRows.Err(); err != nil {
-		return nil, fmt.Errorf("health analytics: deaths rows: %w", err)
+		return nil, nil, fmt.Errorf("health analytics: deaths rows: %w", err)
 	}
 
 	// Counted over the WHOLE window by its own query, never off the bounded list
 	// above: a page cap must not be able to change a headline figure.
 	if err := results.QueryRow().Scan(&out.Totals.DeathsNeverDiagnosed); err != nil {
-		return nil, fmt.Errorf("health analytics: never-diagnosed deaths: %w", err)
+		return nil, nil, fmt.Errorf("health analytics: never-diagnosed deaths: %w", err)
 	}
 
 	// HEALTH PROBLEMS -- three breakdowns arrive as one row set, told apart by the
@@ -856,7 +868,7 @@ func (r *Repository) scanHealthAnalyticsBatch(results pgx.BatchResults, out *dom
 	// three spines are FIXED (pen type, age) and one is by size (breed).
 	problemRows, err := results.Query()
 	if err != nil {
-		return nil, fmt.Errorf("health analytics: problems query: %w", err)
+		return nil, nil, fmt.Errorf("health analytics: problems query: %w", err)
 	}
 	byBreed := map[string]int64{}
 	byPenType := map[string]int64{}
@@ -866,7 +878,7 @@ func (r *Repository) scanHealthAnalyticsBatch(results pgx.BatchResults, out *dom
 		var cases int64
 		if err := problemRows.Scan(&dimension, &bucket, &cases); err != nil {
 			problemRows.Close()
-			return nil, fmt.Errorf("health analytics: problems scan: %w", err)
+			return nil, nil, fmt.Errorf("health analytics: problems scan: %w", err)
 		}
 		switch dimension {
 		case "breed":
@@ -879,13 +891,13 @@ func (r *Repository) scanHealthAnalyticsBatch(results pgx.BatchResults, out *dom
 	}
 	problemRows.Close()
 	if err := problemRows.Err(); err != nil {
-		return nil, fmt.Errorf("health analytics: problems rows: %w", err)
+		return nil, nil, fmt.Errorf("health analytics: problems rows: %w", err)
 	}
 
 	// The pen-type spine is the farm's own register, never a list in code.
 	penTypeRows, err := results.Query()
 	if err != nil {
-		return nil, fmt.Errorf("health analytics: pen types query: %w", err)
+		return nil, nil, fmt.Errorf("health analytics: pen types query: %w", err)
 	}
 	var penTypes []domain.HealthPenType
 	for penTypeRows.Next() {
@@ -893,18 +905,18 @@ func (r *Repository) scanHealthAnalyticsBatch(results pgx.BatchResults, out *dom
 		var status string
 		if err := penTypeRows.Scan(&pt.Key, &pt.Name, &status); err != nil {
 			penTypeRows.Close()
-			return nil, fmt.Errorf("health analytics: pen types scan: %w", err)
+			return nil, nil, fmt.Errorf("health analytics: pen types scan: %w", err)
 		}
 		pt.Active = status == "active"
 		penTypes = append(penTypes, pt)
 	}
 	penTypeRows.Close()
 	if err := penTypeRows.Err(); err != nil {
-		return nil, fmt.Errorf("health analytics: pen types rows: %w", err)
+		return nil, nil, fmt.Errorf("health analytics: pen types rows: %w", err)
 	}
 	out.Problems = buildHealthProblems(byBreed, byPenType, byAge, penTypes)
 
-	return shedIDs, nil
+	return shedIDs, deathPartitions, nil
 }
 
 // healthAnalyticsPenTypesSQL is the farm's Pen types register (migration 000437), every row
@@ -1023,7 +1035,7 @@ WHERE g.tenant_id = $1::uuid
 // A shed that resolves to nothing leaves the row's location EMPTY rather than
 // rendering the raw uuid it was parked as — a sibling queue once shipped
 // `Raised by <uuid>` to operators, and that is the defect being avoided.
-func (r *Repository) attachDeathLocations(ctx context.Context, tenantID string, shedIDs []string, out *domain.HealthAnalytics) error {
+func (r *Repository) attachDeathLocations(ctx context.Context, tenantID string, shedIDs, partitions []string, out *domain.HealthAnalytics) error {
 	bound := sqlbind.MustBind(oploc.ShedScopedLocationBatchSQL, tenantID, shedIDs)
 	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
@@ -1043,6 +1055,11 @@ func (r *Repository) attachDeathLocations(ctx context.Context, tenantID string, 
 		if !ok {
 			out.Deaths[i].OperationalLocationDisplay = ""
 			continue
+		}
+		// The animal's own pen wins over the shed-grain answer, which goes bare for a shed
+		// with more than one pen (agree-or-go-bare). Composed by the same helper either way.
+		if i < len(partitions) && oploc.IsPartitioned(partitions[i]) {
+			location.PartitionLabel = partitions[i]
 		}
 		out.Deaths[i].OperationalLocationDisplay = location.Display()
 	}

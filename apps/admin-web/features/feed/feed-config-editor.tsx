@@ -506,6 +506,9 @@ export function ExperimentCellAdder({
   return (
     <FeedConfigFormShell
       icon="add"
+      // A named button, not a bare "+": beside the pen's power switch an unlabelled plus read as
+      // nothing in particular (D4).
+      trigger="button"
       pageContract={pageContract}
       action={action}
       editLabel={copy(pageContract, "action.add_experiment_item")}

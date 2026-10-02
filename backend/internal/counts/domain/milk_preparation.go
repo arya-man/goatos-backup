@@ -223,8 +223,9 @@ func BuildMilkPreparationSummary(rows []MilkPreparationRow) MilkPreparationSumma
 	result := MilkPreparationSummary{Scope: "filtered", CohortCount: len(rows)}
 	sheds := make(map[string]struct{})
 	for _, row := range rows {
+		// A pen is (shed, partition): a shed split into two pens is two pens, as the worklist shows.
 		if row.ShedID != "" {
-			sheds[row.ShedID] = struct{}{}
+			sheds[row.ShedID+"|"+strings.ToLower(strings.TrimSpace(row.PartitionLabel))] = struct{}{}
 		}
 		result.HeadCount += row.HeadCount
 		result.TotalRequiredML += row.DailyRequiredML

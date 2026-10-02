@@ -166,7 +166,8 @@ export async function FeedDirectionPage({
       // it would make the control appear to come and go.
       allowAll: false,
       disabledReason: scope.parkLockedByTopBar ? copy(pageContract, "filter.scope_readonly") : undefined,
-      options: locations.parks.map((park) => ({ value: park.id, label: park.name })),
+      // The park CODE, as every row and chip on this page names the park ("CPT", not "Channapatna").
+    options: locations.parks.map((park) => ({ value: park.id, label: park.code || park.name })),
     },
     {
       kind: "select",
@@ -296,7 +297,7 @@ export async function FeedDirectionPage({
           role="group"
           aria-label={copy(pageContract, "section.direction.aria")}
         >
-          <Table sx={{ minWidth: 1080, "& td": { verticalAlign: "top" } }} aria-label={copy(pageContract, "table.direction.aria")}>
+          <Table sx={{ minWidth: 1000, "& td": { verticalAlign: "top" } }} aria-label={copy(pageContract, "table.direction.aria")}>
             <TableHead>
               <TableRow>
                 {cols.map((col) => (

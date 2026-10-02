@@ -105,8 +105,10 @@ export function FeedShedFeedCharts({
   // the dropdown never prints the same word twice and never leaves one unnamed. Under All farms
   // the list is two clusters, CBE's pens then CPT's, each A→Z.
   const inFarm = rows.filter((row) => filters.park === "" || row.park_id === filters.park);
+  // The option names the PENS it draws ("Castro 1, Castro 2, Castro 3"), never the bare parent
+  // shed name: "Castro" is storage grouping, not a pen anyone works in (D9, OL rule).
   const shedOptions = disambiguateByPark(
-    inFarm.map((row) => ({ value: row.shed_id, label: row.shed_label, park: row.park_label })),
+    inFarm.map((row) => ({ value: row.shed_id, label: pensLabel(inFarm, row.shed_id) || row.shed_label, park: row.park_label })),
     parkOrder,
   );
   // A pen name is always chosen: the section draws ONE name's pens. With none
@@ -251,6 +253,17 @@ export function FeedShedFeedCharts({
  * stops the dropdown from showing the same word twice with no way to choose between them.
  * Clustered by farm in `parkOrder`, A→Z inside each farm.
  */
+/**
+ * The pens of one physical shed as one option label, from the backend-composed displays: up to
+ * three named in full, a longer run as its first and last ("Mandela 1 - Part 1 … Mandela 1 - Part 10").
+ */
+export function pensLabel(rows: readonly { shed_id: string; operational_location_display: string }[], shedId: string): string {
+  const names = [...new Set(rows.filter((row) => row.shed_id === shedId).map((row) => row.operational_location_display.trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  if (names.length <= 3) return names.join(", ");
+  return `${names[0]} … ${names[names.length - 1]}`;
+}
+
 function disambiguateByPark(
   options: { value: string; label: string; park: string }[],
   parkOrder: readonly string[],

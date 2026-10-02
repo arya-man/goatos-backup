@@ -53,6 +53,17 @@ type MortalityBucket struct {
 	// "inferred" when an older death is attributed from a case that was open when the animal
 	// died, "none" for a death with no cause established. Empty elsewhere.
 	Basis string `json:"basis,omitempty"`
+	// Pens is set on the LOAD series only: the pens the load's animals sit in (or last sat in),
+	// biggest placement first, so a load row names where to walk. Absent when none is known.
+	Pens []MortalityLoadPen `json:"pens,omitempty"`
+}
+
+// MortalityLoadPen is one pen a load's animals are in: the park code and the composed pen name
+// (never a raw id), with how many of the load's animals in the window were there.
+type MortalityLoadPen struct {
+	Park    string `json:"park"`
+	Pen     string `json:"pen"`
+	Animals int64  `json:"animals"`
 }
 
 // MortalityMonth is one India-calendar month of deaths, kids and adults kept apart because

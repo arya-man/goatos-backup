@@ -305,12 +305,12 @@ export async function HerdAnalyticsPage({
       <Box component="section" aria-label={ha(pageContract, "section.kpi.aria")}>
         <KpiGrid>
           <KpiWidget title={ha(pageContract, "kpi.live.label")} total={totals.live_animals} sx={{ height: 1 }} />
+          {/* The split tile leads with KIDS, adults in its sub-line: headlining kids + adults printed
+              the herd total a second time beside the tile that already says it (D9). */}
           <KpiWidget
-            title={ha(pageContract, "kpi.age.label")}
-            total={totals.kids + totals.adults}
-            caption={splitParts(ha(pageContract, "kpi.age.label"), [totals.kids, totals.adults])
-              .map((part) => `${nf(Number(part.value))} ${part.label}`)
-              .join(" \u00b7 ")}
+            title={splitParts(ha(pageContract, "kpi.age.label"), [totals.kids, totals.adults])[0].label}
+            total={totals.kids}
+            caption={`${nf(totals.adults)} ${splitParts(ha(pageContract, "kpi.age.label"), [totals.kids, totals.adults])[1].label}`}
             sx={{ height: 1 }}
           />
           <KpiWidget title={ha(pageContract, "kpi.births.label")} total={totals.births} trend={monthTrend("births")} sx={{ height: 1 }} />
