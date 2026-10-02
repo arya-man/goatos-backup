@@ -5,7 +5,7 @@ import { Tag } from "@/components/ui-primitives";
 import { useCallback, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Iconify, type IconifyName } from "@/components/minimal/iconify";
-import { sopVersionCaption, type SopCardView } from "./sop-derive";
+import { sopCardCaption, sopVersionCaption, type SopCardView } from "./sop-derive";
 import { SummaryEmpty, SummaryList, SummaryMeta, SummaryRow, SummaryTitle } from "./sop-summary";
 import { FollowUpStepsSummary } from "./followup-summary";
 import { InspectionSummary } from "./inspection-summary";
@@ -80,6 +80,12 @@ const DLG_BODY_SX = {
   "& .htl > .hrow": { borderRadius: 1, transition: (t: Theme) => t.transitions.create("background-color") },
   "& .htl > .hrow:hover": { bgcolor: "action.hover" },
 } as const;
+/** A version's lifecycle in the contract's word ("Published"), never the raw value. */
+function versionStatusWord(view: SopCardView, pageContract: AdminUiPageContract): string {
+  const status = view.versionStatus ?? (view.status === "active" ? "published" : view.status);
+  return copy(pageContract, `status.${status}`, status);
+}
+
 /** The card's status Label: the contract's status word ("Published · v1"), never the raw lifecycle value. */
 function statusText(view: SopCardView, pageContract: AdminUiPageContract): string {
   if (view.status === "active") return `${copy(pageContract, "status.published", "Published")}${view.versionNumber ? ` · v${view.versionNumber}` : ""}`;
@@ -450,8 +456,7 @@ type SopItemProps = {
 // Template sections/job/job-item anatomy: ⋮ action menu pinned top-right, rounded 48px avatar,
 // subtitle1 title link + caption, primary caption line, dashed divider, 2-column caption facts.
 function SopItem({ view, facets, pageContract, justPublished, onView, onEdit }: SopItemProps) {
-  const caption = sopVersionCaption(view.name, view.versionLabel, view.versionNumber);
-  const versionCaption = view.status === "active" && view.versionNumber != null && caption === `v${view.versionNumber}` ? null : caption;
+  const versionCaption = sopCardCaption(view.name, view.versionLabel, view.versionNumber, view.status);
   const facts: JobItemFact[] = [];
   if (facets.domain) facts.push({ key: "domain", label: view.domainLabel, icon: <Iconify width={16} icon="solar:tag-horizontal-bold-duotone" sx={{ flexShrink: 0 }} /> });
   if (facets.trigger && view.trigger) facts.push({ key: "trigger", label: view.trigger, icon: <Iconify width={16} icon="solar:clock-circle-bold" sx={{ flexShrink: 0 }} /> });
@@ -562,7 +567,7 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, onEditCapture, ed
             {[
               [copy(pageContract, "label.domain"), view.domainLabel],
               [copy(pageContract, "label.trigger"), view.trigger ?? copy(pageContract, "label.placeholder")],
-              [copy(pageContract, "label.version_status"), `${sopVersionCaption(view.name, view.versionLabel, view.versionNumber) ?? copy(pageContract, "label.placeholder")} · ${view.versionStatus ?? view.status}`],
+              [copy(pageContract, "label.version_status"), `${sopVersionCaption(view.name, view.versionLabel, view.versionNumber) ?? copy(pageContract, "label.placeholder")} · ${versionStatusWord(view, pageContract)}`],
             ].map(([k, v]) => (
               <Box key={k} sx={{ minWidth: 0 }}>
                 <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{k}</Typography>

@@ -1104,3 +1104,19 @@ export function sopVersionCaption(name: string, versionLabel: string | null, ver
   if (label === "" || (title !== "" && label.toLowerCase().startsWith(title))) return short;
   return label;
 }
+
+/**
+ * The library card's sub-line: sopVersionCaption, or nothing when that caption is only the "vN" the
+ * published card's "Published · vN" status Label already prints (PR #294 S4). An authored version
+ * label that says something else ("Monsoon dosing update") is kept.
+ */
+export function sopCardCaption(
+  name: string,
+  versionLabel: string | null,
+  versionNumber: number | null,
+  status: string,
+): string | null {
+  const caption = sopVersionCaption(name, versionLabel, versionNumber);
+  if (status === "active" && versionNumber != null && caption === `v${versionNumber}`) return null;
+  return caption;
+}
