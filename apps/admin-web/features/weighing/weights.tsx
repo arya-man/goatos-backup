@@ -745,14 +745,16 @@ export async function WeighingWeightsPage({
   // load number says which invoice the animals arrived on, not where to walk. The SAME
   // `placements` the load-placements table below reads, so a bar and its row can never name
   // different pens, and a load with no placement gets no bracket rather than a guess.
-  // The pens are the TRAILING bracket, as they are on every other load chart. On the gain view
-  // that puts them AFTER the span -- "126 · Ramesh Reddy (49d) (CBE Castro 1)" -- rather than
-  // between the name and the span, which read as two competing parentheses.
-  const loadName = (load: (typeof byLoad)[number], suffix = ""): string =>
-    withLoadPens(
-      `${load.owner_name ? `${load.load_ref} · ${load.owner_name}` : load.load_ref}${suffix}`,
-      pensFromPlacements(load.placements),
-    );
+  // The axis label is the LOAD NUMBER plus its pens in the trailing bracket -- "126 (CBE Castro 1)"
+  // -- the shape every other load chart uses. The supplier and the gain span ride the bar's tooltip
+  // note instead: on the axis they pushed the bracket past the label width, so the pens were cut
+  // ("130 · Green Fresh Farm (…") and the reader lost exactly what the bracket is for.
+  const loadName = (load: (typeof byLoad)[number]): string =>
+    withLoadPens(load.load_ref, pensFromPlacements(load.placements));
+  const loadNote = (load: (typeof byLoad)[number], span?: string): string | undefined => {
+    const parts = [load.owner_name, span].filter((part): part is string => Boolean(part));
+    return parts.length > 0 ? parts.join(" · ") : undefined;
+  };
   const loadWeightBars = byLoad
     .slice()
     .sort(byParkThen(loadOrder, loadPark, (a, b) => b.average_weight_kg - a.average_weight_kg))
@@ -760,14 +762,16 @@ export async function WeighingWeightsPage({
       key: load.load_ref,
       label: loadName(load),
       value: Number(load.average_weight_kg.toFixed(1)),
+      modeLabel: loadNote(load),
     }));
   const loadGainBars = byLoad
     .filter((load) => load.gain_g_per_day != null)
     .sort(byParkThen(loadOrder, loadPark))
     .map((load) => ({
       key: load.load_ref,
-      label: loadName(load, ` (${load.gain_span_days ?? 0}d)`),
+      label: loadName(load),
       value: Math.round(load.gain_g_per_day as number),
+      modeLabel: loadNote(load, `${load.gain_span_days ?? 0}d`),
     }));
 
   // WHERE each load sits. Clustered by park like the chart above (CBE, then CPT), then
@@ -957,7 +961,9 @@ export async function WeighingWeightsPage({
             insufficient_data renders the no-data text, never 0 g/day. */}
         <Grid size={KIDS_GRID.kpi}>
           <KpiWidget
-            title={`${copy(pageContract, "kpi.kids.label")} ${copy(pageContract, "kpi.kids.sub")}`}
+            // The label alone: "Kids weighed in the selected period" was cut mid-phrase on the card, and
+            // every KPI on the page already answers for the selected period.
+            title={copy(pageContract, "kpi.kids.label")}
             total={hasSummary ? summary.animals_weighed : null}
             caption={hasSummary ? kidsSplit : noData}
             sx={{ height: 1 }}

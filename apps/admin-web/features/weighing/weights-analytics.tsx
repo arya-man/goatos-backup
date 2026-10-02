@@ -817,7 +817,7 @@ function GeneralTab({
     <Grid container spacing={3}>
       <Grid size={GENERAL_GRID.kpi}>
         <KpiWidget
-          title={`${copy(pageContract, "kpi.kids.label")} ${copy(pageContract, "kpi.kids.sub")}`}
+          title={copy(pageContract, "kpi.kids.label")}
           total={hasAnyData ? summary.animals_weighed : null}
           caption={hasAnyData ? kidsSplit : noData}
           sx={{ height: 1 }}
