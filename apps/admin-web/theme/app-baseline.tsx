@@ -85,7 +85,10 @@ export function AppBaseline() {
           [`.${layoutClasses.nav.root} .MuiButtonBase-root`]: { minHeight: 'var(--tap-min)' },
         },
         '@media (max-width: 860px)': {
-          [`${CONTENT} table`]: { minWidth: 540 },
+          // :where() keeps this floor at element specificity (0,0,1): a table that sets its own min
+          // width (sx class, 0,1,0) must win, or a 1000px ledger is squeezed to 540 and wraps one
+          // syllable per line (PR #294 L-F3 /protocol-adherence; L-N2/N3 FullCalendar on a phone).
+          [`:where(${CONTENT}) table`]: { minWidth: 540 },
         },
         // Chart legends (template ChartLegends, verbatim): an item never paints outside its own cell.
         // The template label is flexShrink 0 in an unconstrained inline-flex, so in a two-column legend
