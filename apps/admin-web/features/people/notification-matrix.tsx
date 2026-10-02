@@ -69,6 +69,8 @@ export function NotificationMatrix({
     return out;
   });
   const [, startTransition] = useTransition();
+  // Phone only: the one alert whose job-title checklist is open.
+  const [openAlert, setOpenAlert] = useState<string | null>(null);
 
   const groups = useMemo(() => groupAlertsByModule(matrix.modules, matrix.alerts), [matrix]);
 
@@ -162,9 +164,9 @@ export function NotificationMatrix({
         <Scrollbar>
           <Table
             sx={{
-              // Template table kit: every designation column keeps a readable 112px floor and the
+              // Template table kit: every designation column keeps a readable 128px floor and the
               // table scrolls sideways inside its card; the alert column stays pinned while it does.
-              minWidth: 270 + 112 * matrix.designations.length,
+              minWidth: 270 + 128 * matrix.designations.length,
               tableLayout: "fixed",
               // The pinned cell repaints the card surface it covers.
               "& tr > :first-of-type": { position: "sticky", left: 0, zIndex: 1, bgcolor: "background.paper" },
@@ -174,7 +176,7 @@ export function NotificationMatrix({
             <colgroup>
               <Box component="col" sx={{ width: 270 }} />
               {matrix.designations.map((d) => (
-                <Box component="col" key={d.code} sx={{ width: 112 }} />
+                <Box component="col" key={d.code} sx={{ width: 128 }} />
               ))}
             </colgroup>
             <TableHead>
@@ -224,8 +226,29 @@ export function NotificationMatrix({
                 <Card component="article" variant="outlined" key={alert.key} data-alert-key={alert.key}>
                   <Box sx={{ p: 2 }}>
                     <AlertSummary row={row} canEdit={canEdit} t={t} onReset={() => submit(alert.key, true)} />
+                    {/* Who hears it, as one line: on a phone the 19-row checklist under EVERY alert
+                        made this tab ~55,000px tall, so it opens one alert at a time. */}
+                    <Typography variant="body2" sx={{ mt: 1, color: "text.secondary", whiteSpace: "normal" }}>
+                      {row.draft.length === 0
+                        ? t("notifications.chip.nobody")
+                        : matrix.designations
+                            .filter((d) => row.draft.includes(d.code))
+                            .map((d) => d.label)
+                            .join(", ")}
+                    </Typography>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      color="inherit"
+                      sx={{ mt: 1.5, minHeight: TAP_MIN }}
+                      aria-expanded={openAlert === alert.key}
+                      onClick={() => setOpenAlert((current) => (current === alert.key ? null : alert.key))}
+                      endIcon={<Iconify icon={openAlert === alert.key ? "eva:arrow-ios-upward-fill" : "eva:arrow-ios-downward-fill"} width={16} />}
+                    >
+                      {openAlert === alert.key ? t("notifications.action.close_audience") : t("notifications.action.edit_audience")}
+                    </Button>
                   </Box>
-                  <Box sx={{ display: "grid" }}>
+                  <Box sx={{ display: openAlert === alert.key ? "grid" : "none" }}>
                     {matrix.designations.map((d) => {
                       const ticked = row.draft.includes(d.code);
                       return (
@@ -363,10 +386,13 @@ function GroupRows({
   );
 }
 
-/** A designation header: up to two lines broken at words (never letters), then an ellipsis. */
+/**
+ * A designation header: up to three lines broken at words (never letters), then an ellipsis. Two
+ * lines at 112px cut "Preventive Care Director" to "Preventive Car…".
+ */
 const HEADER_TWO_LINES_SX = {
   display: "-webkit-box",
-  WebkitLineClamp: 2,
+  WebkitLineClamp: 3,
   WebkitBoxOrient: "vertical",
   overflow: "hidden",
   overflowWrap: "normal",
