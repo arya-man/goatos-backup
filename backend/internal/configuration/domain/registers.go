@@ -84,6 +84,8 @@ type Register struct {
 	Columns []Column `json:"columns"`
 	// Hint explains the list to a reader in one sentence.
 	Hint string `json:"hint,omitempty"`
+	// Info is the longer note behind the small "i" beside the list's title.
+	Info string `json:"info,omitempty"`
 	// ReadOnly registers are listed here for completeness but written elsewhere (Feed Config).
 	ReadOnly bool `json:"read_only,omitempty"`
 	// EditHref is where a read-only register's rows are actually edited; EditLabel names it.
@@ -315,7 +317,7 @@ var Registers = []Register{
 		Columns: []Column{
 			{Key: "park_id", Label: "Park", Type: TypeRef, Ref: RegParks, Required: true},
 			{Key: "name", Label: "Name", Type: TypeText, Required: true},
-			// CAPACITY MOVED TO THE PARTITION (maintainer instruction 2026-09-30, migration 000457):
+			// CAPACITY MOVED TO THE PARTITION (maintainer instruction 2026-09-30, migration 000464):
 			// how many animals a pen holds is set on each partition, never on the building.
 			{Key: "notes", Label: "Notes", Type: TypeNotes, ListHidden: true},
 		},
@@ -332,6 +334,10 @@ var Registers = []Register{
 		// to their pen types at once.
 		Unversioned: true,
 		Hint:        "A partition is one section of a pen, such as Part 3 or 2. Its label is what is painted on the pen.",
+		// CAPACITY IS A GUIDE, NOT A LIMIT (maintainer instruction 2026-10-02): a pen may hold more
+		// animals than its capacity and nothing anywhere refuses it; the row is shown in red instead.
+		// It is set here, on the web, and nowhere on the phone.
+		Info: "Capacity is a guide, not a limit. A partition can hold more animals than its capacity and nothing is refused; when it does, its capacity and animal count show in red. Capacity is set and changed here on the web only.",
 		Filters:     []string{"park_id", "pen_id", "shed_type"},
 		Columns: []Column{
 			{Key: "park_id", Label: "Park", Type: TypeRef, Ref: RegParks, Required: true},
@@ -342,7 +348,7 @@ var Registers = []Register{
 				Hint: "Weighing and Health Analytics compare pens by type. Left blank, this pen is reported as unclassified rather than counted into any type."},
 			// CAPACITY IS SET PER PARTITION (maintainer instruction 2026-09-30: "it should be per
 			// partition capacity, it won't be per pen"). Castro 1 and Castro 2 hold different numbers
-			// of animals; one figure on the building could not say so. Migration 000457 moved it here.
+			// of animals; one figure on the building could not say so. Migration 000464 moved it here.
 			{Key: "capacity", Label: "Capacity", Type: TypeNumber, Min: zero(), Integer: true,
 				Hint: "How many animals this partition holds. A pen's capacity is the total of its partitions."},
 			{Key: "sort_order", Label: "Order", Type: TypeNumber, Min: zero(), Integer: true},

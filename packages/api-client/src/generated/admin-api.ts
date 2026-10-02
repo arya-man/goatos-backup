@@ -5644,6 +5644,8 @@ export interface components {
             group: string;
             columns: components["schemas"]["ConfigurationColumn"][];
             hint?: string;
+            /** @description The note behind the small "i" beside the list's title. */
+            info?: string;
             read_only?: boolean;
             /** @description Where a read-only register is actually edited. */
             edit_href?: string;
@@ -5698,6 +5700,10 @@ export interface components {
             /** @description What the row holds (a park's pens, a category's items), keyed by noun. */
             counts?: {
                 [key: string]: number;
+            };
+            /** @description A value worth a second look (a partition over its capacity), keyed by the column or count it is about, with the sentence to show. Never blocks a write. */
+            warnings?: {
+                [key: string]: string;
             };
         };
         ConfigurationListResponse: {

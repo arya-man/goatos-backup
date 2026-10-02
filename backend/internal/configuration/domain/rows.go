@@ -31,6 +31,10 @@ type Row struct {
 	Labels map[string]string `json:"labels"`
 	// Counts carries what the row holds (a category's items, a place's animals), keyed by noun.
 	Counts map[string]int `json:"counts,omitempty"`
+	// Warnings flags a value worth a second look, keyed by the column or count it is about, with the
+	// sentence to show. It never blocks anything: a partition holding more animals than its
+	// capacity is allowed and is only shown in red (maintainer instruction 2026-10-02).
+	Warnings map[string]string `json:"warnings,omitempty"`
 }
 
 // Usage answers "what would break if this row went away": every dependent noun with its count.

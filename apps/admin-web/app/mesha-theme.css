@@ -7003,6 +7003,8 @@ aside.drawer.ltd-drawer{width:min(720px,94vw);overflow-y:auto;overscroll-behavio
 .cfg-main{margin-top:0}
 .cfg-rail.card{margin-top:0}
 .cfg-count{font-size:11.5px;color:var(--muted);font-weight:600;margin-left:6px}
+/* A value over its guide (a partition holding more animals than its capacity): shown, never refused. */
+.cfg-warn,td.muted .cfg-warn{color:var(--danger);font-weight:700}
 .cfg-row-link{color:inherit;text-decoration:none}
 .cfg-row-link:hover b{color:var(--brand-d)}
 .cfg-items .tbl tr.cfg-archived td{opacity:.6}

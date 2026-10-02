@@ -1,5 +1,6 @@
 import { BookOpen, FileSpreadsheet, Plus, Search, Settings } from "lucide-react";
 
+import { InfoTip } from "@/components/info-tip";
 import Link from "@/components/no-prefetch-link";
 import { LocalOverlayDrawer, type LocalOverlayDrawerItem } from "@/components/local-overlay-drawer";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
@@ -464,6 +465,7 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
             <div>
               <h3>
                 {register?.label ?? params.register} {page ? <span className="cfg-count">{page.total}</span> : null}
+                {register?.info ? <InfoTip label={register.label} text={register.info} /> : null}
               </h3>
               {register?.hint ? <div className="muted small" style={{ marginTop: 3 }}>{register.hint}</div> : null}
             </div>
@@ -606,17 +608,25 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
                         </td>
                         {isCatalogue ? <td>{row.fields.tracking ? <Tag tone="mut">{String(row.fields.tracking)}</Tag> : null}</td> : null}
                         {(isCatalogue ? [] : listColumns).map((column) => (
-                          <td key={column.key} className={column.type === "number" ? "num" : undefined}>
+                          <td
+                            key={column.key}
+                            className={[column.type === "number" ? "num" : "", row.warnings?.[column.key] ? "cfg-warn" : ""].filter(Boolean).join(" ") || undefined}
+                            title={row.warnings?.[column.key]}
+                          >
                             {column.type === "code" || column.key === "code" ? <span className="mono muted">{fieldText(row, column, placeholder, c("value.yes"), c("value.no"))}</span> : fieldText(row, column, placeholder, c("value.yes"), c("value.no"))}
                           </td>
                         ))}
                         {hasCounts && !isCatalogue ? (
                           <td className="muted small">
-                            {row.counts
+                            {row.counts && Object.values(row.counts).some((n) => n > 0)
                               ? Object.entries(row.counts)
                                   .filter(([, n]) => n > 0)
-                                  .map(([noun, n]) => `${n} ${noun.replace(/_/g, " ")}`)
-                                  .join(" · ") || placeholder
+                                  .map(([noun, n], i) => (
+                                    <span key={noun} className={row.warnings?.[noun] ? "cfg-warn" : undefined} title={row.warnings?.[noun]}>
+                                      {i > 0 ? " · " : ""}
+                                      {`${n} ${noun.replace(/_/g, " ")}`}
+                                    </span>
+                                  ))
                               : placeholder}
                           </td>
                         ) : null}

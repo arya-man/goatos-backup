@@ -70,7 +70,7 @@ func shed(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenant, parkID,
 			id, tenant); err != nil {
 			t.Fatalf("insert shed_profile: %v", err)
 		}
-		// Capacity is per partition since migration 000457: an undivided pen is one catalogued
+		// Capacity is per partition since migration 000464: an undivided pen is one catalogued
 		// partition carrying the whole figure.
 		catalogPartition(t, ctx, pool, tenant, id, "1", capacity)
 	}
@@ -382,7 +382,7 @@ func TestAnimalCurrentScopePartitionLabel(t *testing.T) {
 
 // TestShedCapacityCurrentPartitionRows proves ceo_ai.shed_capacity_current adds distinct rows per
 // partition of a shed WITHOUT changing the bare-shed row's occupancy (Castro has 5 animals across
-// two partitions: 2 in "1", 3 in "2"), and -- since migration 000457 moved capacity to the
+// two partitions: 2 in "1", 3 in "2"), and -- since migration 000464 moved capacity to the
 // partition -- that each partition row carries ITS OWN capacity while the bare row carries the
 // total of its pens. A building with one pen still unset reports unknown rather than a total that
 // quietly leaves that pen out.

@@ -199,7 +199,7 @@ WHERE s.tenant_id = sp.tenant_id AND s.location_id = sp.shed_id
 -- moves to the partition. It is kept rather than dropped because a dozen test fixtures still insert
 -- it as part of a building profile -- the same choice 2026-09-22 made for the pen's stage and sex.
 COMMENT ON COLUMN public.shed_profiles.capacity IS
-  'RETIRED 000457: capacity is per partition (shed_partitions.capacity). Never read or write this.';
+  'RETIRED 000464: capacity is per partition (shed_partitions.capacity). Never read or write this.';
 
 -- ceo_ai.shed_capacity_current: row MEMBERSHIP is unchanged (one bare row per shed location plus one
 -- row per partition attested by animals, exactly as 000111 built it); only where CAPACITY comes from

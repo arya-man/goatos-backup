@@ -296,9 +296,34 @@ WHERE x.tenant_id = $1`}
 // decoratePartition composes the display through oploc so it reads "Godel 1 - Part 3" here
 // exactly as it does on every other surface; SQL never composes a partition name.
 func decoratePartition(row *domain.Row) {
+	flagOverCapacity(row)
 	loc := oploc.OperationalLocation{ShedID: domain.FieldString(row.Fields, "pen_id"), ShedName: domain.FieldString(row.Fields, "shed_name"), PartitionLabel: domain.FieldString(row.Fields, "label")}
 	row.Display = loc.Display()
 	delete(row.Fields, "shed_name")
+}
+
+// flagOverCapacity marks a partition holding more live animals than its capacity. Capacity is a
+// guide, never a limit (maintainer instruction 2026-10-02): this only colours the row, and no write
+// anywhere consults it. A pen with no capacity set is never flagged.
+func flagOverCapacity(row *domain.Row) {
+	capacity, ok := domain.FieldInt(row.Fields, "capacity")
+	if !ok {
+		return
+	}
+	animals := row.Counts["animals"]
+	if int64(animals) <= capacity {
+		return
+	}
+	noun := "animals"
+	if animals == 1 {
+		noun = "animal"
+	}
+	msg := fmt.Sprintf("%d %s for a capacity of %d: %d over.", animals, noun, capacity, int64(animals)-capacity)
+	if row.Warnings == nil {
+		row.Warnings = map[string]string{}
+	}
+	row.Warnings["capacity"] = msg
+	row.Warnings["animals"] = msg
 }
 
 func (partitionStore) count(ctx context.Context, q querier, t string) (int, error) {

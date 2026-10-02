@@ -3,6 +3,7 @@
 import { useSyncExternalStore, type MouseEvent } from "react";
 import { LocalOverlayLink, pushLocalOverlayUrl } from "@/components/local-overlay-link";
 import Link from "@/components/no-prefetch-link";
+import { InfoTip } from "@/components/info-tip";
 import { Tag } from "@/components/ui-primitives";
 import { useHerdSignalsNav } from "./herd-signals-nav-context";
 import { operationalLocationLabel } from "@/lib/operational-location";
@@ -537,19 +538,6 @@ export function HerdSignalsTable({
       />
       <HerdSignalsHistoryFullscreen rows={visible} closeHref={drawerCloseHref} />
     </>
-  );
-}
-
-function InfoTip({ label, text }: { label: string; text: string }) {
-  return (
-    <span className="tipwrap">
-      <button type="button" className="ihelp" aria-label={label}>
-        i
-      </button>
-      <span className="tip" role="tooltip">
-        {text}
-      </span>
-    </span>
   );
 }
 

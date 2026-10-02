@@ -13841,6 +13841,7 @@ components:
           items:
             $ref: "#/components/schemas/ConfigurationColumn"
         hint: { type: string }
+        info: { type: string, description: The note behind the small "i" beside the list's title. }
         read_only: { type: boolean }
         edit_href: { type: string, description: Where a read-only register is actually edited. }
         edit_label: { type: string, description: The name of that screen. }
@@ -13897,6 +13898,10 @@ components:
           type: object
           additionalProperties: { type: integer }
           description: What the row holds (a park's pens, a category's items), keyed by noun.
+        warnings:
+          type: object
+          additionalProperties: { type: string }
+          description: A value worth a second look (a partition over its capacity), keyed by the column or count it is about, with the sentence to show. Never blocks a write.
     ConfigurationListResponse:
       type: object
       required: [register, rows, next_cursor, total, trace_id]
