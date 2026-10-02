@@ -21,12 +21,15 @@ and update the CEO AI shed capacity reporting view.
 - Second `make land-main` attempt at `445cb7f019a1f6e437114dbd898b716c65008122`
   stopped before any push because the isolated admin-web dependency tree was incomplete:
   `eslint` and `tsc` were missing from `apps/admin-web/node_modules`.
+- Repaired `apps/admin-web/node_modules` with `npm --prefix apps/admin-web ci`.
+- Focused diagnostic reruns passed at `95762d6e257044c98021d936d054e561ba11afe1`:
+  `GOATOS_CI_ONLY_STEP='admin-web lint' tools/ci/run-local-ci.sh admin-web` and
+  `GOATOS_CI_ONLY_STEP='admin-web typecheck' tools/ci/run-local-ci.sh admin-web`.
 
 ## Pending
 
 - Rebase the candidate onto current `origin/main`.
 - Rerun the required local landing receipt with `make land-main`.
-- Repair admin-web dependencies from the committed lockfile before the next receipt run.
 - Verify local `HEAD`, `origin/main`, and remote `main` all match the certified SHA.
 
 ## Known Failures / Evidence Limits
@@ -39,6 +42,7 @@ and update the CEO AI shed capacity reporting view.
   authorize a push without the full `make land-main` gate.
 - The admin-web dependency repair is infrastructure-only; the full landing receipt must be rerun
   after it.
+- The focused admin-web lint/typecheck reruns were diagnostic only and wrote no landing receipt.
 
 ## Current State
 
