@@ -210,16 +210,30 @@ type LoadStockWeight struct {
 	Value           float64
 	UnpricedAnimals int
 	UnpricedStages  []string
+	// UnweighedPriceSum is sum(₹/kg) over the priced live animals that have no weight AND no load
+	// average to carry them at -- what the average sale weight multiplies when nothing is weighed.
+	UnweighedPriceSum float64
 }
 
 // assumed resolves the load's assumed stock value and the sentence that states it. Nothing is
-// assumed (nil, "") when the load holds nothing. A load whose animals are none of them weighed has
-// no average to carry them at, so it is not valued and the sentence says why.
-func (w *LoadStockWeight) assumed(remaining int) (*float64, string) {
+// assumed (nil, "") when the load holds nothing.
+//
+// A load NONE of whose live animals is weighed has no current average to carry them at. When it
+// has SOLD animals with a recorded sale weight, the animals left are carried at that average sale
+// weight x their own Sales Config ₹/kg (maintainer decision 2026-10-02, PR #470 review: a part-sold
+// load must not hide its sale money behind a ₹0). With no sale weight either, it is not valued and
+// the sentence says why.
+func (w *LoadStockWeight) assumed(remaining int, avgSaleWeightKg *float64) (*float64, string) {
 	if remaining <= 0 {
 		return nil, ""
 	}
 	if w == nil || w.AvgKg == nil {
+		if w != nil && avgSaleWeightKg != nil && *avgSaleWeightKg > 0 && w.UnweighedPriceSum > 0 {
+			valued := w.LiveAnimals - w.UnpricedAnimals
+			value := *avgSaleWeightKg * w.UnweighedPriceSum
+			return &value, fmt.Sprintf("%d %s × average sale weight %s kg × ₹/kg by stage and sex on Sales Config = %s",
+				valued, animalsWord(valued), strconv.FormatFloat(math.Round(*avgSaleWeightKg*10)/10, 'f', -1, 64), rupeesWhole(value))
+		}
 		return nil, fmt.Sprintf("Not valued: none of the %d %s on farm is weighed yet", remaining, animalsWord(remaining))
 	}
 	valued := w.LiveAnimals - w.UnpricedAnimals
@@ -369,7 +383,6 @@ func FinalizeLoadwise(loads []LoadwiseLoad, totalLoads int, asOf string) Loadwis
 		// THE STOCK STILL ON FARM, BY WEIGHT ON THE SALES CONFIG PRICE (maintainer decision
 		// 2026-10-02). Never a sold price spread over the animals left: one sale used to price a
 		// whole load's remaining animals at whatever that one animal fetched.
-		row.AssumedValue, row.AssumedValueBasis = row.StockWeight.assumed(row.Remaining)
 		row.LandedPricePerKg = landedPricePerKg(row.PurchaseValue, row.PurchaseWeightKg)
 		// Per-animal weights: the purchase side over the animals the load BROUGHT IN, the sale
 		// side over only the animals that were actually weighed on the way out.
@@ -377,6 +390,8 @@ func FinalizeLoadwise(loads []LoadwiseLoad, totalLoads int, asOf string) Loadwis
 		if row.SoldWeighedAnimals != nil {
 			row.AvgSaleWeightKg = perAnimal(row.SoldWeightKg, *row.SoldWeighedAnimals)
 		}
+		// After the sale weight: it is the fallback weight when none of the live animals is weighed.
+		row.AssumedValue, row.AssumedValueBasis = row.StockWeight.assumed(row.Remaining, row.AvgSaleWeightKg)
 		// Price per kg on the SAME rows the weight came from -- numerator and denominator must
 		// range over one key set, or the ratio describes no real set of sales.
 		row.SalePricePerKg = landedPricePerKg(row.SoldWeighedValue, row.SoldWeightKg)
@@ -384,10 +399,11 @@ func FinalizeLoadwise(loads []LoadwiseLoad, totalLoads int, asOf string) Loadwis
 		row.DaysOnFarmSoFar = DaysOnFarmSoFar(row.ArrivedOn, asOf, row.Remaining)
 		row.ProfitLoss = profitLoss(row.PurchaseValue, row.SoldValue, row.AssumedValue)
 		// NO CURRENT WEIGHT, NO POSITION (maintainer decision 2026-10-02). A load still holding
-		// animals that cannot be valued -- none weighed, or none priced -- would otherwise read
-		// sold value minus the whole cost: a loss nobody measured. It reads ₹0 instead, and
-		// AssumedValueBasis says why ("Not valued: ..."). The cost being unrecorded still wins
-		// (ProfitLoss stays absent then).
+		// animals that cannot be valued -- none weighed and no sale weight to carry them at, or none
+		// priced -- would otherwise read sold value minus the whole cost: a loss nobody measured.
+		// It reads ₹0 instead, and AssumedValueBasis says why ("Not valued: ..."). A part-sold load
+		// with a sale weight is valued above and never reaches this. The cost being unrecorded
+		// still wins (ProfitLoss stays absent then).
 		if row.Remaining > 0 && row.AssumedValue == nil && row.ProfitLoss != nil {
 			zero := 0.0
 			row.ProfitLoss = &zero

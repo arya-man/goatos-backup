@@ -167,7 +167,8 @@ SELECT load_id::text,
        max(load_avg)::float8 AS avg_kg,
        COALESCE(sum(COALESCE(w, load_avg) * price), 0)::float8 AS value,
        count(*) FILTER (WHERE price IS NULL)::int AS unpriced_animals,
-       COALESCE(array_agg(DISTINCT stage_label) FILTER (WHERE price IS NULL), '{}') AS unpriced_stages
+       COALESCE(array_agg(DISTINCT stage_label) FILTER (WHERE price IS NULL), '{}') AS unpriced_stages,
+       COALESCE(sum(price) FILTER (WHERE w IS NULL AND load_avg IS NULL), 0)::float8 AS unweighed_price_sum
 FROM priced
 GROUP BY load_id`
 
@@ -196,7 +197,7 @@ func (r *Repository) attachStockWeight(ctx context.Context, tenantID string, loa
 			w      domain.LoadStockWeight
 		)
 		if err := rows.Scan(&loadID, &w.LiveAnimals, &w.WeighedAnimals, &w.TotalKg, &w.AvgKg, &w.Value,
-			&w.UnpricedAnimals, &w.UnpricedStages); err != nil {
+			&w.UnpricedAnimals, &w.UnpricedStages, &w.UnweighedPriceSum); err != nil {
 			return fmt.Errorf("procurement: loadwise stock weight scan: %w", err)
 		}
 		byLoad[loadID] = &w

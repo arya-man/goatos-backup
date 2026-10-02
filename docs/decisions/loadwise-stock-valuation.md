@@ -18,9 +18,15 @@ Machine gate: `make loadwise-stock-valuation-guard`.
 - **An animal not weighed yet** carries the current average weight of **its own species** in the
   load (goats the goat average, sheep the sheep average), falling back to the whole load's average
   only when no animal of its species is weighed.
-- **No current weight at all** (none of the load's live animals weighed) → the stock is not valued,
-  and the position reads **₹0**, never "sold value minus the whole cost". The tooltip says
-  "Not valued: none of the N animals on farm is weighed yet".
+- **Part-sold, the rest unweighed** (none of the load's live animals weighed, but sold animals carry
+  a recorded sale weight) → the animals left are carried at the **sold animals' average sale weight**
+  × their own Sales Config ₹/kg (PR #470 review, maintainer decision 2026-10-02). One sale's PRICE
+  still never values the rest; its WEIGHT is the best evidence of what they weigh. Tooltip:
+  "69 animals × average sale weight 35 kg × ₹/kg by stage and sex on Sales Config = ₹10,86,750".
+- **No current weight and no sale weight** (nothing weighed, nothing sold with a weight) → the stock
+  is not valued, and the position reads **₹0**, never "sold value minus the whole cost". The tooltip
+  says "Not valued: none of the N animals on farm is weighed yet". The review proposed "not valued"
+  in place of ₹0 here; the maintainer kept ₹0 for this case.
 - **An animal whose stage Sales Config does not price** is left out of the stock value, never priced
   at a guess.
 - The bucket's "weight used (kg)" on Sales Config is a **Farm value** figure. Load wise does not use it:
@@ -43,7 +49,8 @@ still on farm are worth what they weigh today at the market rate.
 | 3 Two sold cheap (₹6,000 each) | ₹12,000 | 68 × 35 × 450 = ₹10,71,000 | +₹4,58,000 |
 | 4 Half sold | ₹5,60,000 | 35 × 35 × 450 = ₹5,51,250 | +₹4,86,250 |
 | 5 All sold | ₹11,20,000 | — | +₹4,95,000 |
-| 6 No current weight | ₹0 | not valued | **₹0** |
+| 6 No current weight, nothing sold | ₹0 | not valued | **₹0** |
+| 6b One sold for ₹10,000 at 35 kg, 69 unweighed | ₹10,000 | 69 × 35 (sale weight) × 450 = ₹10,86,750 | +₹4,71,750 |
 | 7 30 goats + 40 sheep | — | 30 × 35 × 450 + 40 × 35 × 430 = ₹10,74,500 | +₹4,49,500 |
 
 Pinned by `procurement/domain.TestLoadPositionFollowsTheFarmsSevenCases`.

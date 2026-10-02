@@ -377,6 +377,30 @@ RETURNING load_id::text`, testTenant, fx.loadA).Scan(&soldOut); err != nil {
 		if loadA.AssumedValue != nil {
 			t.Fatalf("load A assumed value = %v, want none: a sold price never values the stock", *loadA.AssumedValue)
 		}
+		// PART-SOLD, REST UNWEIGHED (PR #470 review): once that animal is in a priced stage, it is
+		// carried at the SOLD animal's average sale weight (20 kg) x its own Sales Config ₹/kg
+		// (fattening goat, ₹450) = ₹9,000 -- never the ₹10,000 the sold animal fetched, and never ₹0.
+		if _, err := pool.Exec(ctx, `
+UPDATE goats g SET management_stage = 'F2'
+FROM procurement_load_goats plg
+WHERE plg.tenant_id = $1 AND plg.load_id = $2::uuid AND plg.goat_id = g.goat_id AND g.lifecycle_status = 'alive'`, testTenant, fx.loadA); err != nil {
+			t.Fatal(err)
+		}
+		staged, err := repo.LoadwiseSales(ctx, testTenant, "", 60)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, l := range staged.Loads {
+			if l.LoadID == fx.loadA && (l.AssumedValue == nil || math.Abs(*l.AssumedValue-9000) > 0.01) {
+				t.Fatalf("part-sold, rest unweighed: assumed = %v (%q), want 20 kg x 450 = 9000", l.AssumedValue, l.AssumedValueBasis)
+			}
+		}
+		if _, err := pool.Exec(ctx, `
+UPDATE goats g SET management_stage = NULL
+FROM procurement_load_goats plg
+WHERE plg.tenant_id = $1 AND plg.load_id = $2::uuid AND plg.goat_id = g.goat_id AND g.lifecycle_status = 'alive'`, testTenant, fx.loadA); err != nil {
+			t.Fatal(err)
+		}
 		if loadA.SoldWeightKg == nil || math.Abs(*loadA.SoldWeightKg-20) > 0.01 {
 			t.Fatalf("load A tagged sale kg = %v, want 20 from its allocation", loadA.SoldWeightKg)
 		}
