@@ -300,3 +300,43 @@ VALUES ($2::uuid, $1::uuid, 'shed', 'S-Y', 'Yashoda', 'active', $3::uuid, 1) ON 
 		t.Fatalf("seed other-park shed: %v", err)
 	}
 }
+
+// Stopped by closing a FUTURE pen, restarted by planning an EARLIER pen by hand: the closed pen
+// must not keep the rotation stuck, and the stop must still hold until someone restarts it.
+func TestRotationRestartsFromAHandPlannedPenAfterAClose(t *testing.T) {
+	ctx := context.Background()
+	repo, _ := setupPCCareDB(t, ctx)
+	seedCoverageGodel(t, ctx, repo)
+	coverageResidents(t, ctx, repo, pcPark, pcShedA+"|", covShedGodel+"|Part 1", covShedGodel+"|Part 2")
+	first := rotationStart(t, ctx, repo, pcPark, []domain.RoundPen{{ShedID: pcShedA}}, []string{pcOperator1}, "rot-restart-1")
+	rotationSubmit(t, ctx, repo, first.Pens[0].TaskID)
+	if res, err := rotationService(repo, 0, istNoon(2026, 10, 1)).RunRotation(ctx, pcTenant, repo, nil, 100); err != nil || res.PensCreated != 1 {
+		t.Fatalf("first step: %+v %v", res, err)
+	}
+	var nextRound, nextTask string
+	if err := repo.pool.QueryRow(ctx, `SELECT round_id::text, task_id::text FROM pc_care_tasks WHERE repeat_of_task_id = $1::uuid`, first.Pens[0].TaskID).Scan(&nextRound, &nextTask); err != nil {
+		t.Fatalf("next pen: %v", err)
+	}
+	if err := repo.CloseRound(ctx, ports.CloseRoundParams{TenantID: pcTenant, RoundID: nextRound, Reason: "stop", ClosedBy: pcVerifier, ActorID: pcVerifier}); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	if res, _ := rotationService(repo, 0, istNoon(2026, 10, 3)).RunRotation(ctx, pcTenant, repo, nil, 100); res.PensCreated != 0 {
+		t.Fatalf("after close: %+v, want stopped", res)
+	}
+	// Restart: Godel 1 - Part 2, planned by hand for 10-01 (EARLIER than the closed 10-02 pen).
+	restart, err := repo.CreateRound(ctx, ports.CreateRoundParams{
+		TenantID: pcTenant, Category: domain.CategoryFumigation, ParkID: pcPark,
+		Pens: []domain.RoundPen{{ShedID: covShedGodel, PartitionLabel: "Part 2"}}, PlannedBusinessDate: pcBusinessDay(2026, 10, 1),
+		AssigneeUserIDs: []string{pcOperator2}, IdempotencyKey: "rot-restart-2", CreatedBy: pcVerifier, ActorID: pcVerifier,
+	})
+	if err != nil {
+		t.Fatalf("restart plan: %v", err)
+	}
+	rotationSubmit(t, ctx, repo, restart.Pens[0].TaskID)
+	if res, err := rotationService(repo, 0, istNoon(2026, 10, 3)).RunRotation(ctx, pcTenant, repo, nil, 100); err != nil || res.PensCreated != 1 {
+		t.Fatalf("restart: %+v %v, want the rotation to carry on from the hand-planned pen", res, err)
+	}
+	if label, _, n := rotationPlanned(t, ctx, repo, restart.Pens[0].TaskID); label != "Castro" || n != 1 {
+		t.Fatalf("after restart next = %q n=%d, want Castro (wrap after Part 2)", label, n)
+	}
+}

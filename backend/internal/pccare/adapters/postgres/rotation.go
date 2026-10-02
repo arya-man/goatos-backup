@@ -47,7 +47,11 @@ latest AS (
   FROM pc_care_tasks t
   JOIN cfg ON cfg.category = t.category
   WHERE t.tenant_id = $1::uuid
-    AND t.work_state <> 'canceled'
+    -- A CLOSED pen is how a planner stops a rotation, so it is never "the latest": the submitted
+    -- pen before it already has that closed pen as its follow-up (repeat_of_task_id), so nothing
+    -- is planned from it, and a pen the planner plans by hand to restart -- even for an EARLIER
+    -- date than the closed one -- becomes the latest and carries the rotation on.
+    AND t.work_state NOT IN ('canceled', 'closed')
     AND t.shed_id IS NOT NULL
     AND t.gates_round_id IS NULL
     AND t.gates_task_id IS NULL
