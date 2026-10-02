@@ -14,7 +14,7 @@ import {
   type ApiResult,
   type ProcurementVendorForm,
 } from "@/lib/api/server";
-import type { LoadCostWrite, LoadwiseSales, LoadwiseWeights, BuyerAnalytics, FarmBornSales,
+import type { LoadCostWrite, LoadwiseSales, LoadwiseWeights, BuyerAnalytics, SalesExecutiveAnalytics, FarmBornSales,
   SalesOptions,
   SalesProductOption,
   SellableProductPage,
@@ -290,6 +290,26 @@ export async function getBuyerAnalytics(
       cache: "no-store",
       // sort/dir order EVERY buyer before the page is cut, so a header sort is whole-result.
       query: compactQuery({ farm: params.farm, limit: params.limit, offset: params.offset, sort: params.sort, dir: params.dir }),
+    }),
+  );
+}
+
+// Sales executive analytics: what the sales desk recorded in the last `days` business days, per
+// person and per day, in ONE bounded request per render.
+export async function getSalesExecutiveAnalytics(
+  params: { days?: number; activityOffset?: number; vendorOffset?: number } = {},
+): Promise<ApiResult<SalesExecutiveAnalytics>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<SalesExecutiveAnalytics>("/procurement/sales-executive-analytics", {
+      cache: "no-store",
+      query: compactQuery({
+        days: params.days,
+        activity_offset: params.activityOffset,
+        vendor_offset: params.vendorOffset,
+      }),
     }),
   );
 }

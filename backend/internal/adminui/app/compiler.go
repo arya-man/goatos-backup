@@ -2630,6 +2630,10 @@ func permissionsForNav(id string) []string {
 		// carrying "your role can view sales but not record them" is an answer. The WRITES on it
 		// are separately gated (SalesWrite, and LoadCostWrite for a load's cost).
 		return []string{permissions.SalesRead}
+	case "sales-executive-analytics":
+		// Sales desk activity, including sale values -- the sales permission its data route
+		// (GET /procurement/sales-executive-analytics) requires.
+		return []string{permissions.SalesRead}
 	case "sales-buyer-analytics":
 		// Sales money per buyer, so the sales permission; the phone column on it is a separate
 		// capability-gated read control (compileBuyerAnalyticsControls) that follows VendorRead.

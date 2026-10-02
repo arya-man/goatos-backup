@@ -48,6 +48,9 @@ export type LoadCostWrite = AppApiComponents["schemas"]["LoadCostWrite"];
 export type BuyerAnalytics = AppApiComponents["schemas"]["BuyerAnalytics"];
 export type BuyerAnalyticsRow = AppApiComponents["schemas"]["BuyerAnalyticsRow"];
 export type BuyerAnalyticsSummary = AppApiComponents["schemas"]["BuyerAnalyticsSummary"];
+export type SalesExecutiveAnalytics = AppApiComponents["schemas"]["SalesExecutiveAnalytics"];
+export type SalesExecutiveCounts = AppApiComponents["schemas"]["SalesExecutiveCounts"];
+export type SalesExecutiveActivity = AppApiComponents["schemas"]["SalesExecutiveActivity"];
 
 // Farm born — the animals the register marks born here (/procurement/farm-born-sales).
 export type FarmBornSales = AppApiComponents["schemas"]["FarmBornSales"];

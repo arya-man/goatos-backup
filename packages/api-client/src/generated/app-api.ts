@@ -4383,6 +4383,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/procurement/sales-executive-analytics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the sales desk recorded, per person and per day, for the Sales > Sales executive analytics page.
+         * @description One ACTIVITY per row of the underlying read, folded per person and per IST business day over the last `days` business days ending today (and the same number of days before, as `previous`). Kinds and grain: `vendor_added` one vendor with a known adder; `vendor_edited` one (person, vendor, business day) -- several saves count once; `market_call` one (person, market city, survey day); `lead_call` one recorded buyer or farmer-group call or call outcome; `sale_recorded`, `payment_recorded` and `deal_status` one audited sales write. Buckets are DISJOINT by kind. Vendors imported from the old sheet carry no adder and are counted only in `imported_vendors`.
+         */
+        get: operations["getSalesExecutiveAnalytics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/procurement/buyer-analytics": {
         parameters: {
             query?: never;
@@ -9143,6 +9163,109 @@ export interface components {
             offset: number;
             /** @description Whether phone numbers were included at all for this caller. */
             phones_visible: boolean;
+        };
+        /** @description One set of activity counts (the period, the period before, or one person). Buckets are disjoint by kind; `calls` is `market_calls` + `lead_calls` and `total` is every activity. */
+        SalesExecutiveCounts: {
+            vendors_added: number;
+            vendors_edited: number;
+            market_calls: number;
+            lead_calls: number;
+            calls: number;
+            sales_recorded: number;
+            /** @description Rupees -- the current value of the sales recorded. */
+            sales_value: number;
+            payments_recorded: number;
+            /** @description Rupees. */
+            payments_value: number;
+            deal_status_changes: number;
+            total: number;
+        };
+        /** @description One trend bucket -- a business day, or seven business days counted forward from `period_from` (the last may be shorter), per `trend_grain`. */
+        SalesExecutiveDay: {
+            /**
+             * Format: date
+             * @description The bucket's first IST business date.
+             */
+            date: string;
+            /**
+             * Format: date
+             * @description The bucket's last IST business date; equal to `date` at the day grain.
+             */
+            date_to: string;
+            vendors_added: number;
+            vendors_edited: number;
+            calls: number;
+            sales: number;
+        };
+        SalesExecutivePerson: {
+            actor_id: string;
+            /** @description Empty when the person cannot be named. */
+            name: string;
+            counts: components["schemas"]["SalesExecutiveCounts"];
+            /** @description Business days of the period this person recorded anything. */
+            active_days: number;
+            /** Format: date-time */
+            last_active_at: string;
+            last_activity_kind: components["schemas"]["SalesExecutiveActivityKind"];
+        };
+        /** @enum {string} */
+        SalesExecutiveActivityKind: "vendor_added" | "vendor_edited" | "market_call" | "lead_call" | "sale_recorded" | "payment_recorded" | "deal_status";
+        SalesExecutiveActivity: {
+            kind: components["schemas"]["SalesExecutiveActivityKind"];
+            /** @description Empty when the person cannot be named. */
+            actor_name: string;
+            /** Format: date-time */
+            at: string;
+            /** Format: date */
+            business_date: string;
+            /** @description The vendor */
+            subject: string;
+            /** @description The vendor's category */
+            category?: string;
+            /** @description Animals on a recorded sale; prices recorded on a market call. */
+            animals: number;
+            /** @description Rupees on a recorded sale or payment. */
+            amount: number;
+        };
+        SalesExecutiveLatestVendor: {
+            vendor_id: string;
+            business_name: string;
+            category: string;
+            place?: string;
+            added_by_name: string;
+            /** @description False for a vendor imported from the old sheet. */
+            added_by_known: boolean;
+            /** Format: date-time */
+            added_at: string;
+        };
+        SalesExecutiveAnalytics: {
+            days: number;
+            days_options: number[];
+            /**
+             * @description `day` for a 7-day period, `week` for longer ones, so the whole period fits on one screen.
+             * @enum {string}
+             */
+            trend_grain: "day" | "week";
+            /** Format: date */
+            period_from: string;
+            /** Format: date */
+            period_to: string;
+            current: components["schemas"]["SalesExecutiveCounts"];
+            previous: components["schemas"]["SalesExecutiveCounts"];
+            active_people: number;
+            register_vendors: number;
+            imported_vendors: number;
+            daily: components["schemas"]["SalesExecutiveDay"][];
+            people: components["schemas"]["SalesExecutivePerson"][];
+            /** @description One page of the period's activities, newest first. */
+            recent: components["schemas"]["SalesExecutiveActivity"][];
+            /** @description Every activity of the period; `recent` is one page of it. */
+            recent_total: number;
+            activity_offset: number;
+            /** @description One page of the vendor register, newest first; `register_vendors` is its total. */
+            latest_vendors: components["schemas"]["SalesExecutiveLatestVendor"][];
+            vendor_offset: number;
+            page_size: number;
         };
         /** @description One row of a Farm born breakdown (a breed, a sex, a stage or a pen). `on_farm` is today's count; `sold`, `sold_priced` and `revenue` are the window's. */
         FarmBornBucket: {
@@ -29650,6 +29773,34 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];
+        };
+    };
+    getSalesExecutiveAnalytics: {
+        parameters: {
+            query?: {
+                /** @description The period in business days ending today. Absent is 30; any other value is refused with `invalid_days`. */
+                days?: 7 | 30 | 90;
+                /** @description Row offset into the period's activity feed (newest first, 20 a page). Out of range is refused with `invalid_offset`. */
+                activity_offset?: number;
+                /** @description Row offset into the vendor register (newest first, 20 a page). Out of range is refused with `invalid_offset`. */
+                vendor_offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sales executive analytics read. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesExecutiveAnalytics"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
         };
     };
     listBuyerAnalytics: {

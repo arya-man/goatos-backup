@@ -147,7 +147,7 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 	// directly after Load wise, because the two pages partition the herd.
 	// Nine leaves since 2026-09-19: Sales SOP (what a recorded sale owes and who does each
 	// step) closes the group after Sales Config, the /counts/sops shape.
-	if len(salesGroup.Leaves) != 9 ||
+	if len(salesGroup.Leaves) != 10 ||
 		salesGroup.Leaves[0].Href != "/sales/sold" ||
 		salesGroup.Leaves[0].Label != "Summary" ||
 		salesGroup.Leaves[1].Href != "/sales/farm-value" ||
@@ -160,12 +160,14 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 		salesGroup.Leaves[4].Label != "Market analytics" ||
 		salesGroup.Leaves[5].Href != "/sales/buyer-analytics" ||
 		salesGroup.Leaves[5].Label != "Buyer analytics" ||
-		salesGroup.Leaves[6].Href != "/sales/vendors" ||
-		salesGroup.Leaves[6].Label != "Vendors" ||
-		salesGroup.Leaves[7].Href != "/sales/config" ||
-		salesGroup.Leaves[7].Label != "Sales Config" ||
-		salesGroup.Leaves[8].Href != "/sales/sops" ||
-		salesGroup.Leaves[8].Label != "Sales SOP" {
+		salesGroup.Leaves[6].Href != "/sales/executive-analytics" ||
+		salesGroup.Leaves[6].Label != "Sales executive analytics" ||
+		salesGroup.Leaves[7].Href != "/sales/vendors" ||
+		salesGroup.Leaves[7].Label != "Vendors" ||
+		salesGroup.Leaves[8].Href != "/sales/config" ||
+		salesGroup.Leaves[8].Label != "Sales Config" ||
+		salesGroup.Leaves[9].Href != "/sales/sops" ||
+		salesGroup.Leaves[9].Label != "Sales SOP" {
 		t.Fatalf("sales group leaves = %+v", salesGroup.Leaves)
 	}
 
