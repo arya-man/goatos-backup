@@ -493,6 +493,15 @@ export function LoadwiseSection({
               "& table": { minWidth: "100%" },
               // Single-line cells: short counts and money never wrap digit by digit.
               "& th, & td, & td .cell-link": { whiteSpace: "nowrap", overflowWrap: "normal", wordBreak: "normal" },
+              // Twelve columns: one-line headings ("Tagged, sale not closed") and the load's name
+              // pushed Purchase value and everything after it past a 1440 card. Headings wrap at
+              // word breaks (bottom-aligned so the figures line up), the load name may take two
+              // lines, and the cell gutter is the template's dense one. The rest still pans inside
+              // the card on narrower screens.
+              "& th": { whiteSpace: "normal", verticalAlign: "bottom", minWidth: 64 },
+              "& th, & td": { px: 1.25 },
+              "& th:first-of-type, & td:first-of-type": { pl: 2 },
+              "& td:first-of-type, & td:first-of-type .cell-link": { whiteSpace: "normal", minWidth: 150 },
               "& td.MuiTableCell-alignRight": { fontVariantNumeric: "tabular-nums" },
             }}
           >

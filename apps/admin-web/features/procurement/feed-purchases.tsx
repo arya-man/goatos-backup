@@ -295,7 +295,10 @@ export async function FeedPurchasesPage({
         <UrlSuspense searchParams={sp} watch={LEDGER_WATCH} fallback={<FeedPurchasesRowsSkeleton columns={Math.max(columns.length, 1)} rows={limit} />}>
         <Box id="feed-purchases-ledger" tabIndex={0} role="region" aria-label={ledgerTable.title}>
           <Scrollbar>
-            <Table sx={{ minWidth: 1100 }} aria-label={ledgerTable.title}>
+            {/* An 1100px floor sat past the ~1060px card a 1440 laptop gives the page ("Remain…" cut):
+                the floor is 1000 and the headings wrap at word breaks, so all eleven columns fit a
+                laptop; a phone still pans the table inside the card. */}
+            <Table sx={{ minWidth: 1000, "& thead th": { whiteSpace: "normal", verticalAlign: "bottom" } }} aria-label={ledgerTable.title}>
               {/* Header labels come from the page contract IN ITS ORDER; the body cells below are
                   written in that same order. Both must move together if the contract's column list
                   changes. */}

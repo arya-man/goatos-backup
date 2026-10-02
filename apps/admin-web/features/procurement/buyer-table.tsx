@@ -123,9 +123,10 @@ export function BuyerTable({
           <Tag tone={row.repeat ? "ok" : "mut"}>
             {row.repeat ? labels.repeat : labels.oneTime}
           </Tag>
-          {/* One meta line, not a stacked sentence: "2 more · every 17 days". */}
+          {/* One meta line, not a stacked sentence: "2 more · every 17 days". It wraps inside its
+              fixed-width column rather than painting over the dates beside it. */}
           {row.cadence_lines.length ? (
-            <Typography variant="caption" component="div" sx={{ color: "text.secondary", whiteSpace: "nowrap" }} title={row.cadence_lines.join(" · ")}>
+            <Typography variant="caption" component="div" sx={{ color: "text.secondary", whiteSpace: "normal" }} title={row.cadence_lines.join(" · ")}>
               {row.cadence_lines.join(" · ")}
             </Typography>
           ) : null}

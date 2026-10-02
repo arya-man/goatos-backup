@@ -44,11 +44,13 @@ import { SALES_DEFAULT_LIMIT, SALES_GRID } from "./sales-layout";
 import { PageRoot } from "@/components/app/page-root";
 
 // The buyer ledger is a fixed-layout table (template invoice list density) with set column shares;
-// it scrolls inside its card from a 70rem floor (65rem on a phone).
+// it scrolls inside its card below a 62rem floor (65rem on a phone, where it always pans). The floor
+// used to be 70rem (1120px), wider than the ~1060px card a 1440 laptop gives the page, so the last
+// column ("Still owed") sat past the card edge on every laptop.
 const pct = (w: string) => ({ width: w });
 const BUYER_TABLE_SX: SxProps<Theme> = {
   ...(cardTableScrollSx as object),
-  "& table.sales-buyer-analytics-table": { minWidth: { xs: "65rem", sm: "70rem" }, tableLayout: "fixed" },
+  "& table.sales-buyer-analytics-table": { minWidth: { xs: "65rem", sm: "62rem" }, tableLayout: "fixed" },
   "& table.sales-buyer-analytics-table :is(th, td)": {
     px: { xs: 1.25, sm: 1.375 },
     fontSize: "var(--fs-caption)",
