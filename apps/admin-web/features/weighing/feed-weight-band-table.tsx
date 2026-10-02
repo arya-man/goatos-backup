@@ -121,13 +121,16 @@ const FS = {
  * never truncate on a laptop, they wrap a line more.
  */
 const COL = {
-  pen: { whiteSpace: "normal", maxWidth: "var(--fb-pen-max)", lineHeight: 1.25 },
+  // A floor as well as a ceiling: squeezed by eleven other columns the pen fell to "Castro / 2"
+  // (PR #294 W7); balanced wrapping keeps "Mandela 1 - / Part 10" from orphaning the number.
+  pen: { whiteSpace: "normal", minWidth: "var(--fb-pen-min)", maxWidth: "var(--fb-pen-max)", lineHeight: 1.25, textWrap: "balance" },
   narrow: { whiteSpace: "normal", maxWidth: "var(--fb-narrow-max)", lineHeight: 1.25 },
   breed: { whiteSpace: "normal", minWidth: "var(--fb-breed-min)", maxWidth: "var(--fb-breed-max)", lineHeight: 1.3 },
   num: { fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" },
 } as const satisfies Record<string, React.CSSProperties>;
 
 const feedBandTableSx = (theme: Theme): SystemStyleObject<Theme> => ({
+  "--fb-pen-min": theme.spacing(11),
   "--fb-pen-max": theme.spacing(16.5),
   "--fb-narrow-max": theme.spacing(10.5),
   "--fb-breed-min": theme.spacing(21.25),

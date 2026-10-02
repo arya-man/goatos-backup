@@ -56,7 +56,9 @@ export function PensTable({
 }) {
   const columns = columnsFromContract<PensTableRow>(contract, {
     park: { cell: (row) => row.park },
-    shed: { cell: (row) => <Box component="b" sx={{ fontWeight: 600, color: "text.primary" }}>{row.pen}</Box> },
+    // A pen name is one unit: "Godel 2 - Part" over a lone "1" read as two pens (PR #294 W7). The
+    // table pans inside its own scroller, so the name keeps its line.
+    shed: { cell: (row) => <Box component="b" sx={{ fontWeight: 600, color: "text.primary", whiteSpace: "nowrap" }}>{row.pen}</Box> },
     // A pen holding more than one breed reads "Mixed breeds" (backend copy) and is never split
     // across them: one pen average cannot be divided between two cohorts.
     breed: {

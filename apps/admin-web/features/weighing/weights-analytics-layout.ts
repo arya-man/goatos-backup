@@ -20,15 +20,17 @@ export const KIDS_GRID = {
 /** The /weighing/weights KPI cards (kids, total, average, park gain). */
 export const KIDS_KPI_COUNT = 4;
 /**
- * /weighing/analytics General tab Grid (GeneralTab): the KpiWidget cards, the sale-ready ring beside
- * weekly growth, the pen gain ranking beside the park gain balance card.
+ * /weighing/analytics General tab Grid (GeneralTab): the KpiWidget cards, then the sale-ready ring,
+ * weekly growth and the park gain balance card in one row, then the pen gain ranking across the
+ * full row. The ranking lists every weighed pen (~30 rows, ~1,300px tall); the short park gain
+ * card beside it left a ~1,000px empty column (PR #294 W7).
  */
 export const GENERAL_GRID = {
   kpi: { xs: 12, md: 4 },
   ring: { xs: 12, md: 6, lg: 4 },
-  weekly: { xs: 12, md: 6, lg: 8 },
-  rank: { xs: 12, md: 6, lg: 8 },
-  parkGain: { xs: 12, md: 6, lg: 4 },
+  weekly: { xs: 12, md: 6, lg: 5 },
+  parkGain: { xs: 12, lg: 3 },
+  rank: 12,
   pens: 12,
 } as const;
 /** The General tab KPI cards (kids, total, average). */

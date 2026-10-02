@@ -1557,8 +1557,11 @@ func weighingWeightsCopy() map[string]string {
 		"composition.unknown_sex":   "unknown sex",
 		// Column headers come from the table contract's own columns via tableLabels(),
 		// so they are deliberately NOT duplicated here.
-		"filter.all_option":          "All",
-		"filter.bar_aria":            "Filter pens",
+		"filter.all_option": "All",
+		"filter.bar_aria":   "Filter pens",
+		// The page-level bar's name (its phone button): it filters every card on the page, loads
+		// and breeds included, so it is not "Filter pens".
+		"filter.page_bar":            "Filters",
 		"filter.clear_all":           "Clear filters",
 		"pager.noun":                 "pen",
 		"value.weighing.individual":  "Per animal",

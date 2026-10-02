@@ -949,6 +949,7 @@ export async function WeighingWeightsPage({
         pageParam="offset"
         fields={filterFields}
         pageContract={pageContract}
+        label={copy(pageContract, "filter.page_bar")}
       />
 
       {/* Every figure below the filters (guard: url-keyed-panel): a filter / toggle / page change

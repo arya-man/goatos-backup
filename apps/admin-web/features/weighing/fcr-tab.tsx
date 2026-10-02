@@ -354,6 +354,16 @@ export function FCRTab({
                 ],
               },
             ],
+            // A pen's partition is the END of its label ("CPT · Mandela 1 - Part 5"), so the shared
+            // head-keeping 22-character trim cut exactly the part that tells two pens apart
+            // ("CPT · Mandela 1 - Par…"; PR #294 W7). These labels are at most ~25 characters: a
+            // taller band holds them whole at 45 degrees, and the tooltip names the pen in full.
+            options: {
+              xaxis: {
+                categories: moneyPens.map((pen) => pen.operational_location_display),
+                labels: { rotate: -45, rotateAlways: true, hideOverlappingLabels: false, trim: false, maxHeight: 160 },
+              },
+            },
           }}
         />
       </Grid>
