@@ -114,3 +114,11 @@ test("guard: action-center-dialog-actions - one Clear all, no lone info glyph", 
   assert.equal((filters.match(/filter\.clear_all/g) ?? []).length, 1);
   assert.match(filters, /clearLocalFilters\(\);\s*setOpen\(false\);/);
 });
+
+// pr294 L-N4: five lanes clamped into the 1440 content column were ~190px each ("Skipped — sil…").
+test("action center lanes keep a 260px width and pan in the board scroller", () => {
+  const wb = readFileSync(new URL("./work-board.tsx", import.meta.url), "utf8");
+  assert.match(wb, /export const FIVE_LANE_MIN_WIDTH = "260px"/);
+  assert.match(wb, /md: FIVE_LANE_MIN_WIDTH/);
+  assert.doesNotMatch(wb, /\/ 5\), calc\(42/);
+});

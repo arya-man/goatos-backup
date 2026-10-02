@@ -97,13 +97,15 @@ export function stageWords(code: string | null | undefined, names?: StageNameMap
   return named === code ? stageLabel(code) : named;
 }
 
-// Five lanes share a laptop row (A1, pr294): at the template's 336px column only three fit, the
-// Skipped / Deviated lanes sat off the canvas and their cards stretched the page ~1,000px under
-// the two visible ones. A phone still swipes one lane at a time.
+// Five lanes (A1, pr294; L-N4): squeezing all five into the 1,060px content column made each lane
+// ~190px -- "Skipped — sil…" cut, card titles four lines deep. Each lane keeps a readable 260px and
+// the board row pans sideways inside its own scroller (KanbanBoard overflow-x from sm), so every
+// lane stays reachable. A phone still stacks / swipes one lane at a time.
+export const FIVE_LANE_MIN_WIDTH = "260px";
 const FIVE_LANE_BOARD_SX = {
   "--kanban-column-width": {
     xs: "86vw",
-    md: "clamp(calc(22.5 * var(--spacing)), calc((100% - 4 * calc(3 * var(--spacing))) / 5), calc(42 * var(--spacing)))",
+    md: FIVE_LANE_MIN_WIDTH,
   },
 } as const;
 
