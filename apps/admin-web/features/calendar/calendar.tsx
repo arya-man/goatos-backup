@@ -179,6 +179,13 @@ export async function VaccinationCalendarPage({
     : null;
 
   const renderableEvents = events.filter(isRenderableCalendarEvent);
+  // History opens the grid on its most recent completed drive (F13, pr294): the 45-day window ends
+  // today, so the month grid opened on the current month and sat empty under "200 results found"
+  // while every completed drive was in the months before it. An explicit as_of still wins.
+  const gridAnchor =
+    historyMode && !asOf
+      ? istDay(renderableEvents.reduce<string>((latest, event) => (event.due_at && event.due_at > latest ? event.due_at : latest), "")) || anchorKey
+      : anchorKey;
   const fcEvents = toFullCalendarEvents(renderableEvents, ownerMeta);
 
   // Template calendar view (sections/calendar/view/calendar-view): heading row, the filter result
@@ -288,7 +295,7 @@ export async function VaccinationCalendarPage({
       <CalendarFullView
         filters={filters}
         events={fcEvents}
-        initialAsOf={anchorKey}
+        initialAsOf={gridAnchor}
         scope={scope}
         ownerKey={activeOwnerKey}
         status={requestedStatus}
@@ -316,4 +323,10 @@ export async function VaccinationCalendarPage({
       />
     </Stack>
   );
+}
+
+/** The Asia/Kolkata business day of an instant (YYYY-MM-DD), "" for none. */
+function istDay(instant: string): string {
+  const ms = Date.parse(instant);
+  return Number.isFinite(ms) ? new Date(ms + 330 * 60_000).toISOString().slice(0, 10) : "";
 }
