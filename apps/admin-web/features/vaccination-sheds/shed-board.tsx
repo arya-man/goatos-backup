@@ -203,7 +203,7 @@ export async function VaccinationShedBoard({
 
       {/* Status filter (merged CEO headline). Server-side via ?sheds_status. */}
       {/* Each pill strip names what it filters (pr294 L-C10): the status headline and the capacity
-          filter both carry "Capacity action" / "Split", and unlabelled they read as one filter twice. */}
+          filter both carry the capacity-action and split labels; unlabelled they read as one filter twice. */}
       <Box sx={{ px: 2.5, pb: 1 }}>
         <Typography component="div" variant="overline" sx={{ color: "text.secondary", mb: 0.5 }}>{copy(pageContract, "label.strip_status")}</Typography>
         <TemplateTabs

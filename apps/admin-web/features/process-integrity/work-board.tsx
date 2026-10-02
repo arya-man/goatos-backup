@@ -101,7 +101,7 @@ export function stageWords(code: string | null | undefined, names?: StageNameMap
 // ~190px -- "Skipped — sil…" cut, card titles four lines deep. Each lane keeps a readable 260px and
 // the board row pans sideways inside its own scroller (KanbanBoard overflow-x from sm), so every
 // lane stays reachable. A phone still stacks / swipes one lane at a time.
-export const FIVE_LANE_MIN_WIDTH = "260px";
+export const FIVE_LANE_MIN_WIDTH = "calc(32.5 * var(--spacing))"; // 260px
 const FIVE_LANE_BOARD_SX = {
   "--kanban-column-width": {
     xs: "86vw",
