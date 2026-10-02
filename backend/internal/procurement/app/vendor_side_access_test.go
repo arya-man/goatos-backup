@@ -105,3 +105,18 @@ func TestBothHalvesStillReadTheWholeRegister(t *testing.T) {
 		t.Fatalf("both halves: side %q err %v, want the whole register", repo.sawFilter.Side, err)
 	}
 }
+
+// TestTheOtherHalfsFormIsAForbiddenNotAServerError: the edge sweep (2026-10-02) caught a
+// buyers-only caller asking for the supplier form answered with a 500 -- the form route wrapped
+// every error as "form unavailable". The service refuses the side; the mapping must say 403.
+func TestTheOtherHalfsFormIsAForbiddenNotAServerError(t *testing.T) {
+	svc := NewVendorService(&formVendorRepo{}).WithVendorFormSource(formSource{})
+	ctx := WithVendorSideAccess(context.Background(), buyersOnly)
+	_, err := svc.VendorForm(ctx, "t", "procurement")
+	if !errors.Is(err, ErrVendorSideForbidden) {
+		t.Fatalf("supplier form for a buyers-only caller: err = %v, want ErrVendorSideForbidden", err)
+	}
+	if got := VendorHTTPError(err); got == nil || got.HTTPStatus != 403 {
+		t.Fatalf("mapped to %+v, want a 403", got)
+	}
+}

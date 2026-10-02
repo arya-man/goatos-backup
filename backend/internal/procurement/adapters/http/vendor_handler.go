@@ -67,7 +67,10 @@ func RegisterVendors(mux *http.ServeMux, h *VendorHandler) {
 func (h *VendorHandler) GetVendorForm(w http.ResponseWriter, r *http.Request) {
 	form, err := h.service.VendorForm(sideCtx(r), tenantID(r), r.URL.Query().Get("side"))
 	if err != nil {
-		if errors.Is(err, app.ErrVendorSideUnknown) {
+		// A side the caller does not hold is a 403, never "form unavailable" (People / HRMS fixes,
+		// 2026-10-02 -- the edge sweep caught a buyers-only caller asking for the supplier form
+		// answered with a 500).
+		if errors.Is(err, app.ErrVendorSideUnknown) || errors.Is(err, app.ErrVendorSideForbidden) {
 			h.writeErr(w, r, app.VendorHTTPError(err))
 			return
 		}

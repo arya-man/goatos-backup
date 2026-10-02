@@ -10,6 +10,9 @@
 -- male/female only; male and female results are unchanged.
 -- Re-derived 28/09/2026 after #452: the Weights export drawer now receives the dashboard Sex filter
 -- as its initial value; Breed-wise ADG source, filters, and rounding are unchanged.
+-- Re-derived 02/10/2026 (People / HRMS access fixes): weighing park scope now reads the person's own
+-- People / HRMS scope first and a count-only sale-ready read was added; Breed-wise ADG SQL, filters
+-- and rounding are unchanged.
 -- Same filters as the screen. Run: run_reference('adg-by-breed.sql', params={from_date:'2026-09-04',
 -- to_date:'2026-09-22', sex:'male'}). Display rounding: gain_g_per_day whole g, avg_weight_kg 1 dp.
 -- param: from_date date  first IST business date (default: 14 days before today = the backend's 15-day default window)
