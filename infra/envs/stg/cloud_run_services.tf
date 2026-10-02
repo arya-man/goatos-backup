@@ -295,7 +295,7 @@ resource "google_cloud_run_v2_service" "api" {
 
       resources {
         limits = {
-          cpu    = "1"
+          cpu    = "250m"
           memory = "512Mi"
         }
       }
