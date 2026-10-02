@@ -14,10 +14,13 @@
 --               only when all animal lines share ONE price (no blended mixed prices; manure/non-live lines
 --               ignored) and deal product_type is 'Mixed' or matches its single live line;
 --   NULL      = neither. sold_weighed_animals / sold_weight_kg follow the same sample (avg_sale_kg).
--- Stock valuation (not in this query): BY WEIGHT when every remaining animal has a latest weight AND every
---   (species, stage, sex) group has a Rs/kg (sum of kg x Rs/kg); else PER ANIMAL = remaining x load avg sold
---   price (sold_value/priced sold), else overall avg over every priced animal on a closed deal, else none;
---   sales_valuation_assumptions.unsold_stock_price_rupees overrides the per-animal price.
+-- Stock valuation (not in this query): sold animals are valued at their actual closed-deal value.
+--   Animals still on farm are valued at latest/current weight x the Sales Config Farm valuation Rs/kg
+--   for their stage, species and gender. An unweighed remaining animal carries its own species'
+--   current average weight inside the load, falling back to the whole-load average when needed. If
+--   no current weight exists but the load is part-sold, remaining animals carry the sold animals'
+--   average sale weight x Sales Config Rs/kg. If no current weight and no sale weight exists, the
+--   stock is not valued and position reads Rs 0 with the not-valued basis.
 -- fattening_days_final = the imported legacy span, else arrival -> the animal-weighted mean sale date of the
 --   load's animals on CLOSED deals (a span that runs backwards stays NULL);
 --   days_on_farm_so_far = today - arrived_on (NOT purchase_date) while animals remain.

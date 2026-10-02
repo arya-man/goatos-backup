@@ -93,11 +93,11 @@
       "derived_from": [
         {
           "path": "backend/internal/procurement/adapters/postgres/loadwise_repository.go",
-          "sha256": "7251f76025344165b50be35958f0b6d2518bedf8ea3eb28dfba0a5c96f04dae3"
+          "sha256": "c45b569092f0483b09ca47708bb7b765b4b82ec7bf5f256934829686d6beadf2"
         },
         {
           "path": "backend/internal/procurement/domain/loadwise.go",
-          "sha256": "b3f781a0e046218c2a4dc2a0570de50c6f2a37fd63a44b2bf0f080feb99f40cd"
+          "sha256": "27597b32c622794f8f11850e6755fb1ac949c5f697c30421fc91bef6f090942a"
         }
       ]
     },
