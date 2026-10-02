@@ -200,7 +200,20 @@ export function CalendarFullView({
         {/* The events grid (guard: url-keyed-panel): an owner / workstream / week-history choice swaps it
             to its skeleton at once; the toolbar stays on screen. */}
         <UrlSuspense searchParams={gridParams} watch={[ALL_PARAMS]} ignore={GRID_IGNORE} fallback={<BlockSkeleton card={false} height={{ xs: "60vh", md: "calc(100dvh - 320px)" }} />}>
-        <Box sx={{ flex: "1 1 auto", display: "flex", flexDirection: "column", "& .fc": { flex: "1 1 auto" } }}>
+        <Box
+          sx={{
+            flex: "1 1 auto",
+            display: "flex",
+            flexDirection: "column",
+            "& .fc": { flex: "1 1 auto" },
+            // FullCalendar's own tables (month / week grid, agenda list) size themselves to the card.
+            // AppBaseline gives every page-content table a 540px floor below 861px so data tables
+            // pan in their scroller; the calendar has no scroll owner, so that floor made the phone
+            // month grid 540px inside 390 (Sat / Sun unreachable) and pushed the history list off
+            // the body sideways (pr294 L-N2 / L-N3). (0,2,1) outranks the baseline's (0,1,1).
+            "& .fc table": { minWidth: 0 },
+          }}
+        >
           <FullCalendar
             ref={calendarRef}
             firstDay={1}
