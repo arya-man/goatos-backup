@@ -8,6 +8,7 @@ import { PendingRouteSkeleton } from "@/components/route-skeleton";
 import { ShellParksContext } from "@/components/app/shell-parks";
 import type { ElementType } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { layoutClasses } from "@/layouts/core/classes";
 import { usePopover } from "minimal-shared/hooks";
 import Box from "@mui/material/Box";
 import Divider from "@mui/material/Divider";
@@ -355,6 +356,16 @@ export function MeshaShell({
   const active = activeHref(pathname, contract);
   const fallbackGroupId = active ? null : moduleGroupForPath(pathname, contract.navigation.groups);
   const sharedNavKeysByHref = useMemo(() => sharedNavKeys(contract), [contract]);
+  // Bring the active leaf into the sidebar's own scroll view. The sidebar is viewport-high and
+  // scrolls, so on a 900px laptop a leaf low in an expanded group (People / HRMS, Procurement SOP)
+  // was highlighted but below the fold: the page looked like it had no current item (PR #294 B14/E8).
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      const leaves = document.querySelectorAll<HTMLElement>(`.${layoutClasses.nav.vertical} a.--active`);
+      leaves[leaves.length - 1]?.scrollIntoView({ block: "nearest" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [pathname, active]);
   // Single top-bar scope contract: parse the URL scope params (scope_mode/park/range/as_of) once and render
   // HUMAN labels (the park dropdown writes the backend-safe location UUID). Every screen reads the same
   // params, so the bar can never disagree with a page body.
