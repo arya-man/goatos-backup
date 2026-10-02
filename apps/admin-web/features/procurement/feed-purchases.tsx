@@ -227,8 +227,8 @@ export async function FeedPurchasesPage({
       <Card sx={{ mb: { xs: 3, md: 5 } }}>
         <Scrollbar sx={{ minHeight: 108 }}>
           {/* Each InvoiceAnalytic cell is at least 200px wide, so two side by side do not fit a
-              390 phone ("Feed bou" / "8,34,841 k" cut at the card edge): the cells stack there and
-              sit in a row from sm up. */}
+              390 phone (the second cell's title and figure were cut at the card edge): the cells
+              stack there and sit in a row from sm up. */}
           <DividedStack
             dividerOrientation="vertical"
             direction={{ xs: "column", sm: "row" }}

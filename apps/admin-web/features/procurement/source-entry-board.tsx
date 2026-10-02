@@ -463,9 +463,9 @@ function sourceLoadPageSizes(pageContract: AdminUiPageContract): number[] {
 /**
  * The status select: the template toolbar's leading field (full width on a phone). The stage names
  * ("Pre-dispatch pending", "Arrival review") do not fit the template's 160px field, which ellipsised
- * the chosen value ("Health p…"); from md it takes 240px (it still shrinks before the search).
+ * the chosen value ("Health p…"); from md it takes 15rem (it still shrinks before the search).
  */
-const SOURCE_STATUS_SELECT_SX = { ...orderToolbarFilterSx, flex: { md: "0 1 240px" }, display: "flex", "& > .MuiTextField-root": { flex: 1, minWidth: 0 } } as const;
+const SOURCE_STATUS_SELECT_SX = { ...orderToolbarFilterSx, flex: { md: "0 1 15rem" }, display: "flex", "& > .MuiTextField-root": { flex: 1, minWidth: 0 } } as const;
 
 /**
  * The loads table (TR3-P1-2): headings stay on ONE line (the template TableHeadCustom nowrap; no
