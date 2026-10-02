@@ -64,6 +64,7 @@
 ## Current SHA / Deployment State
 
 - Candidate SHA before the landing note: `90895353943177bfa98e6120a0f43c098e7cfeb8`.
-- Current candidate after second rebase, migration renumber, and plan-proof note: pending commit.
+- Current candidate after second rebase, migration renumber, and plan-proof note:
+  `e107519fab07f9b616913cedf5a4866e5e3ecb04`.
 - Base SHA: `fe22610c30e9b33027e192f2256e22132a989079`.
 - Deployment state: not deployed.
