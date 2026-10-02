@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/procurement/domain"
 	"github.com/vgoats/goatos/backend/internal/procurement/ports"
 )
@@ -207,7 +208,8 @@ func (r *Repository) ListVendors(ctx context.Context, tenantID string, filter do
 	query := fmt.Sprintf(`SELECT %s FROM public.procurement_vendors v WHERE %s ORDER BY v.business_name, v.vendor_id LIMIT %d OFFSET %d`, // scale-guard:ignore: bounded authored contact book pagination; see note above
 		vendorColumns, where, limit, offset)
 
-	rows, err := r.pool.Query(ctx, query, args...)
+	bound := sqlbind.MustBind(query, args...)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return ports.VendorPage{}, fmt.Errorf("list vendors: %w", err)
 	}
@@ -234,7 +236,8 @@ func (r *Repository) ListVendors(ctx context.Context, tenantID string, filter do
 	// two can never drift -- a hand-written second copy is how a screen reports "306 vendors" over a
 	// list filtered to 89.
 	countQuery := fmt.Sprintf(`SELECT count(*) FROM public.procurement_vendors v WHERE %s`, where)
-	if err := r.pool.QueryRow(ctx, countQuery, args...).Scan(&page.Total); err != nil {
+	countBound := sqlbind.MustBind(countQuery, args...)
+	if err := r.pool.QueryRow(ctx, countBound.SQL(), countBound.Args()...).Scan(&page.Total); err != nil {
 		return ports.VendorPage{}, fmt.Errorf("count vendors: %w", err)
 	}
 	return page, nil
@@ -246,7 +249,8 @@ func (r *Repository) GetVendor(ctx context.Context, tenantID, vendorID string, i
 	defer cancel()
 
 	query := fmt.Sprintf(`SELECT %s FROM public.procurement_vendors v WHERE v.tenant_id = $1 AND v.vendor_id = $2`, vendorColumns)
-	v, err := scanVendor(r.pool.QueryRow(ctx, query, tenantID, vendorID))
+	bound := sqlbind.MustBind(query, tenantID, vendorID)
+	v, err := scanVendor(r.pool.QueryRow(ctx, bound.SQL(), bound.Args()...))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Vendor{}, ports.ErrVendorNotFound
 	}
@@ -296,7 +300,7 @@ func (r *Repository) CreateVendor(ctx context.Context, tenantID string, write do
 		nullIf("$24"), nullIf("$25"),
 		vendorColumns)
 
-	v, err := scanVendor(r.pool.QueryRow(ctx, query,
+	bound := sqlbind.MustBind(query,
 		tenantID, w.RecordType, w.BusinessName, w.ContactPersonName, w.PhoneNumber,
 		w.Status, w.FilteredStock, w.PricePerGoat, w.ReadyToFiltered,
 		w.ETAAfterOrderDays, w.State, w.City,
@@ -305,7 +309,8 @@ func (r *Repository) CreateVendor(ctx context.Context, tenantID string, write do
 		w.Breed, w.Feed, w.Details, w.Comments,
 		w.CapacityQuantity, w.CapacityUnit, w.SupplyFrequency, w.VoiceNoteProofRef,
 		w.AverageAnimalWeightKg, vendorAnswersJSON(w.SOPAnswers), w.QuestionnaireVersion, w.QuestionnaireSOPCode,
-	))
+	)
+	v, err := scanVendor(r.pool.QueryRow(ctx, bound.SQL(), bound.Args()...))
 	if err != nil {
 		if isNaturalKeyViolation(err) {
 			return domain.Vendor{}, ports.ErrVendorDuplicate
@@ -395,7 +400,7 @@ func (r *Repository) UpdateVendor(ctx context.Context, tenantID, vendorID string
 		nullIf("$27"), nullIf("$28"),
 		vendorColumns)
 
-	v, err := scanVendor(tx.QueryRow(ctx, query,
+	bound := sqlbind.MustBind(query,
 		tenantID, vendorID, w.RecordType, w.BusinessName,
 		w.ContactPersonName, w.PhoneNumber, w.Breed, w.Feed,
 		w.Status, w.FilteredStock, w.PricePerGoat, w.ReadyToFiltered,
@@ -407,7 +412,8 @@ func (r *Repository) UpdateVendor(ctx context.Context, tenantID, vendorID string
 		// A typed-only client (nil answers) never rendered the form, so it cannot clear answers
 		// it never saw: the stored answers and their version are kept, like finance above.
 		w.SOPAnswers == nil, vendorAnswersJSON(w.SOPAnswers), w.QuestionnaireVersion, w.QuestionnaireSOPCode,
-	))
+	)
+	v, err := scanVendor(tx.QueryRow(ctx, bound.SQL(), bound.Args()...))
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Zero rows means the tenant+id+version triple did not match. Re-read without the version to
 		// tell the two cases apart, because "someone else saved first" and "this vendor is gone" need
@@ -503,9 +509,10 @@ func (r *Repository) ListVendorCatalog(ctx context.Context, tenantID string, act
 			SELECT DISTINCT btrim(city) AS city
 			FROM public.procurement_vendors
 			WHERE tenant_id = $1 AND btrim(coalesce(city, '')) <> ''
-		) c
-		ORDER BY kind, sort_order, value`
-	rows, err := r.pool.Query(ctx, query, tenantID, activeOnly)
+			) c
+			ORDER BY kind, sort_order, value`
+	bound := sqlbind.MustBind(query, tenantID, activeOnly)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("list vendor catalog: %w", err)
 	}
@@ -567,14 +574,15 @@ func (r *Repository) ListVendorOptions(ctx context.Context, tenantID, side strin
 	args = append(args, domain.MaxVendorOptions+1)
 	limitParam := len(args)
 
-	rows, err := r.pool.Query(ctx, `
+	query := `
 		SELECT vendor_id::text, business_name, record_type,
 		       coalesce(btrim(city), ''), coalesce(btrim(state), '')
 		FROM public.procurement_vendors v
-		WHERE tenant_id = $1 AND status = $2`+sideClause+`
+		WHERE tenant_id = $1 AND status = $2` + sideClause + `
 		ORDER BY lower(business_name), vendor_id
-		LIMIT $`+strconv.Itoa(limitParam),
-		args...)
+		LIMIT $` + strconv.Itoa(limitParam)
+	bound := sqlbind.MustBind(query, args...)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return domain.VendorOptions{}, fmt.Errorf("list vendor options: %w", err)
 	}
@@ -612,7 +620,8 @@ func (r *Repository) UpdateVendorStatus(ctx context.Context, tenantID, vendorID,
 		WHERE v.tenant_id = $1 AND v.vendor_id = $2 AND v.row_version = $5
 		RETURNING %s`, "$4", vendorColumns)
 
-	v, err := scanVendor(r.pool.QueryRow(ctx, query, tenantID, vendorID, status, nullableActor(actorID), rowVersion))
+	bound := sqlbind.MustBind(query, tenantID, vendorID, status, nullableActor(actorID), rowVersion)
+	v, err := scanVendor(r.pool.QueryRow(ctx, bound.SQL(), bound.Args()...))
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Same two-case split as UpdateVendor: "gone" and "someone saved first" need different words.
 		if _, getErr := r.GetVendor(ctx, tenantID, vendorID, false); errors.Is(getErr, ports.ErrVendorNotFound) {
