@@ -146,6 +146,7 @@ export function SalesRecordDrawer({
   const dealHref = deal
     ? `${listHref}${listHref.includes("?") ? "&" : "?"}deal_id=${encodeURIComponent(deal.deal_id)}`
     : listHref;
+  const showSettlementForm = Boolean(deal?.can_settle && canSettleAdvance);
 
   // ONE sale, MANY lines (maintainer decision 2026-09-12): the product/breed/animals/weight/value
   // live on the lines, one card each; the deal keeps date, farm, buyer, advance, status. Reset
@@ -757,7 +758,7 @@ export function SalesRecordDrawer({
             {/* A FAILED sale's money (2026-10-02): refunded in part or whole, the rest kept. */}
             {deal.settlement ? (
               <>
-                <div className="dgrp">{copy(pageContract, "section.settlement.title")}</div>
+                {showSettlementForm ? null : <div className="dgrp">{copy(pageContract, "section.settlement.title")}</div>}
                 <div className="metagrid">
                   {cell(copy(pageContract, "settlement.outcome"), deal.settlement.outcome_label)}
                   {cell(copy(pageContract, "settlement.refunded"), inr(deal.settlement.refunded_rupees))}
@@ -767,7 +768,7 @@ export function SalesRecordDrawer({
                 </div>
               </>
             ) : null}
-            {deal.can_settle && canSettleAdvance ? (
+            {showSettlementForm ? (
               <SettleAdvanceForm key={`${deal.deal_id}-settle`} deal={deal} dealHref={dealHref} pageContract={pageContract} />
             ) : null}
 
