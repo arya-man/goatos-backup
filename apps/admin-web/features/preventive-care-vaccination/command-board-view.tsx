@@ -43,7 +43,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import type { AppApiComponents } from "@goatos/api-client";
 import type { AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { copy, optionGroup } from "@/lib/admin-ui-contract";
-import { fmtDate } from "@/lib/format";
+import { fmtDate, todayIso } from "@/lib/format";
 import { operationalLocationLabel } from "@/lib/operational-location";
 import {
   driveSelectionValue,
@@ -613,7 +613,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     () => enrichDriveOptions(driveCatalogue.options, shedDoseMatrix, cohortMatrix, board.kpis.targets),
     [driveCatalogue.options, shedDoseMatrix, cohortMatrix, board.kpis.targets],
   );
-  const futureDrives = useMemo(() => scheduledDriveRows(driveOptions), [driveOptions]);
+  const futureDrives = useMemo(() => scheduledDriveRows(driveOptions, todayIso()), [driveOptions]);
   const executedCampaigns = useMemo(() => executedDriveCampaigns(driveOptions), [driveOptions]);
   const selectedDrive = optimisticDrive?.from === currentSearch
     ? optimisticDrive.value
@@ -746,9 +746,12 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
       addBucket("verifying", cell.verifyingAnimals);
       byShed.set(key, row);
     });
-    return Array.from(byShed.values()).sort((a, b) =>
-      `${a.park ?? ""}:${a.name}`.localeCompare(`${b.park ?? ""}:${b.name}`),
-    );
+    // Only pens that OWE something (F11, pr294): the matrix carries every pen, so every pen with
+    // nothing behind / in rework / verifying used to list with an empty "Pending vaccines" cell
+    // under a header that said "8 / 112 pens have goats pending".
+    return Array.from(byShed.values())
+      .filter((row) => row.cells.length > 0)
+      .sort((a, b) => `${a.park ?? ""}:${a.name}`.localeCompare(`${b.park ?? ""}:${b.name}`));
   }, [view.shedVaccineColumns, view.shedVaccineMatrix]);
 
   const activateStatusKpi = (key: StatusKey) => {

@@ -89,7 +89,8 @@ test("the drive selector round-trips (batch, park) through the URL", () => {
 test("command board defaults to all drives and renders the complete future programme", () => {
   assert.match(commandBoardViewSource, /params\.delete\("cb_drive"\)/);
   assert.match(commandBoardViewSource, /command_board\.filter\.all_common_drives/);
-  assert.match(commandBoardViewSource, /scheduledDriveRows\(driveOptions\)/);
+  // Future = today or later (pr294 C9); the behaviour is pinned in command-board-future-drives.test.mjs.
+  assert.match(commandBoardViewSource, /scheduledDriveRows\(driveOptions, todayIso\(\)\)/);
   assert.match(commandBoardViewSource, /command_board\.future_drives\.column\.dates/);
   assert.match(commandBoardViewSource, /command_board\.future_drives\.column\.animals/);
   assert.match(commandBoardViewSource, /command_board\.future_drives\.column\.doses/);
