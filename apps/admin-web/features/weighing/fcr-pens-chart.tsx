@@ -4,6 +4,9 @@
 import useMediaQuery from "@mui/material/useMediaQuery";
 import { useTheme } from "@mui/material/styles";
 import type { ReactNode } from "react";
+import type { ApexOptions } from "apexcharts";
+
+type ApexAnnotations = NonNullable<ApexOptions["annotations"]>;
 
 import { ConversionRatesCard, formatBarValue, wrapTooltipTitle } from "@/components/app/conversion-rates-card";
 
@@ -106,7 +109,9 @@ export function FCRPensChart({
           },
           ...(breakEven != null
             ? {
-                annotations: {
+                // Typed as a widened object: Apex honours `position: "back"` at runtime but its
+                // ApexAnnotations type omits it, so a literal here fails the excess-property check.
+                annotations: ({
                   // BEHIND the bars: a bar ending past break-even hides the dash under its own fill, so
                   // the dashed line never runs through the value label printed at the bar's end.
                   position: "back",
@@ -119,7 +124,7 @@ export function FCRPensChart({
                       label: { text: breakEvenLabel, orientation: "horizontal", position: "top", offsetY: -12 },
                     },
                   ],
-                },
+                } as ApexAnnotations),
               }
             : {}),
         },
