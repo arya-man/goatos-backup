@@ -285,7 +285,9 @@ export async function VendorBoardPage({
                   const drawerHref = hrefWithQuery(pathname, sp, { vendor: vendor.vendor_id });
                   return (
                     <TableRow key={vendor.vendor_id} hover>
-                      <TableCell>
+                      {/* The name column holds a floor so a phone (where the table pans in its own
+                          box) does not squeeze a business name onto three or four lines. */}
+                      <TableCell sx={{ minWidth: 240 }}>
                         <Box sx={{ gap: 2, display: "flex", alignItems: "center" }}>
                           <Avatar alt={vendor.business_name}>{vendor.business_name.slice(0, 1).toUpperCase()}</Avatar>
                           <Stack sx={{ typography: "body2", flex: "1 1 auto", alignItems: "flex-start", minWidth: 0 }}>
@@ -293,7 +295,11 @@ export async function VendorBoardPage({
                               {vendor.business_name}
                             </Link>
                             <Box component="span" sx={{ color: "text.disabled" }}>
-                              {vendor.contact_person_name || vendor.location_display || copy(pageContract, "value.none")}
+                              {/* A contact who IS the business ("Ajay Tomar" / "Ajay Tomar") would only
+                                  repeat the name: the location says something new instead. */}
+                              {(vendor.contact_person_name && vendor.contact_person_name.trim().toLowerCase() !== vendor.business_name.trim().toLowerCase()
+                                ? vendor.contact_person_name
+                                : "") || vendor.location_display || copy(pageContract, "value.none")}
                             </Box>
                           </Stack>
                         </Box>
