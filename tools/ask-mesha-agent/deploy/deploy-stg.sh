@@ -55,13 +55,13 @@ gcloud run deploy "$SERVICE" \
   --no-allow-unauthenticated \
   --ingress=all \
   --port=8080 \
-  --cpu=2 \
-  --memory=4Gi \
-  --min-instances=1 \
+  --cpu=1 \
+  --memory=2Gi \
+  --min-instances=0 \
   --max-instances=1 \
   --concurrency=12 \
   --timeout=3600 \
-  --no-cpu-throttling \
+  --cpu-throttling \
   --execution-environment=gen2 \
   --add-cloudsql-instances="$CLOUDSQL_INSTANCE" \
   --set-env-vars="ASK_MESHA_UPLOADS_BUCKET=${UPLOADS_BUCKET},ASK_MESHA_READONLY=1,ASK_MESHA_DB_MIGRATE=1,ASK_MESHA_MONTHLY_BUDGET_USD=${ASK_MESHA_MONTHLY_BUDGET_USD:-100},ASK_MESHA_PER_ANSWER_BUDGET_USD=${ASK_MESHA_PER_ANSWER_BUDGET_USD:-1},ASK_MESHA_DEEP_ANSWER_BUDGET_USD=${ASK_MESHA_DEEP_ANSWER_BUDGET_USD:-5},ASK_MESHA_DB_POOL=${ASK_MESHA_DB_POOL:-5},GOATOS_BASE_SHA=${COMMIT_TAG}${GEMINI_MODEL_ENV}" \
