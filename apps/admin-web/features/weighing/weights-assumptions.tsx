@@ -279,13 +279,13 @@ export function WeightsAssumptionsControl({
                     // The theme's disableGutters variant also strips the bottom border of the last
                     // accordion in its parent and zeroes the summary's side padding, which left the
                     // frame open at the foot and the green title flush against it (PR #294 W6).
-                    sx={(theme) => ({
+                    sx={{
                       borderRadius: 1,
                       overflow: "hidden",
                       "&::before": { display: "none" },
-                      "&&, &&:last-of-type": { borderBottom: `solid 1px ${theme.vars.palette.divider}` },
+                      "&&, &&:last-of-type": { borderBottom: 1, borderBottomStyle: "solid", borderBottomColor: "divider" },
                       "&& .MuiAccordionSummary-root, && .MuiAccordionDetails-root": { px: 2 },
-                    })}
+                    }}
                   >
                     <AccordionSummary expandIcon={<Iconify icon="eva:arrow-ios-downward-fill" width={18} />}>
                       <Typography variant="body2" sx={{ color: "primary.main", fontWeight: "fontWeightSemiBold" }}>

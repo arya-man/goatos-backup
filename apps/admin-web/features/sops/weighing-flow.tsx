@@ -149,13 +149,12 @@ export function WeighingFlow({
   const renderNode = (node: CanvasNode<Data>): ReactNode => {
     const d = node.data ?? {};
     if (node.kind === "start") {
+      // The ways the planner is offered, by the SHORT names the two capture columns carry: the
+      // planning sentences are four lines in an 84px node and spilled above and below it (PR #294 W5).
       return (
         <>
           <NodeKind>{copy(pc, "studio.flow.start")}</NodeKind>
           <NodeTitle>{copy(pc, "wsop.flow.start")}</NodeTitle>
-          {/* The ways the planner is offered, by the SHORT names the two capture columns carry: the
-              planning sentences ("Animal by animal — scan the tag, enter the weight, …") are four
-              lines in an 84px node and spilled above and below it (PR #294 W5). */}
           <NodeNote>{rows.modes.map((m) => copy(pc, m === "per_shed_partition" ? "wsop.flow.lump_sum" : "wsop.flow.individual")).join(" · ")}</NodeNote>
         </>
       );
