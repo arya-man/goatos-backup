@@ -125,6 +125,17 @@ func sideCtx(r *http.Request) context.Context {
 	})
 }
 
+// optionsCtx is sideCtx for the bounded counterparty picker. SalesRead may use that picker without
+// opening the full register; it resolves to the buyer side only.
+func optionsCtx(r *http.Request) context.Context {
+	return app.WithVendorSideAccess(r.Context(), app.VendorSideAccess{
+		ReadSales:   callerHolds(r, permissions.VendorSalesRead) || callerHolds(r, permissions.SalesRead),
+		ReadSupply:  callerHolds(r, permissions.VendorRead),
+		WriteSales:  callerHolds(r, permissions.VendorSalesWrite),
+		WriteSupply: callerHolds(r, permissions.VendorWrite),
+	})
+}
+
 // ListVendors serves GET /procurement/vendors.
 func (h *VendorHandler) ListVendors(w http.ResponseWriter, r *http.Request) {
 	labels := h.catalogLabels(r)
@@ -299,7 +310,7 @@ func (h *VendorHandler) ListVendorCatalog(w http.ResponseWriter, r *http.Request
 // dropdown that stops at page one silently hides buyers), and it carries five columns instead of
 // the full row, so it stays outside the VendorFinanceRead surface entirely.
 func (h *VendorHandler) ListVendorOptions(w http.ResponseWriter, r *http.Request) {
-	options, err := h.service.ListVendorOptions(sideCtx(r), tenantID(r))
+	options, err := h.service.ListVendorOptions(optionsCtx(r), tenantID(r))
 	if err != nil {
 		h.writeErr(w, r, app.VendorHTTPError(err))
 		return
