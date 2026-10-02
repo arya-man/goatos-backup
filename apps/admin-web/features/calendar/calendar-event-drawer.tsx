@@ -572,7 +572,9 @@ function CalendarEventDrawerPanel({
               />
               <MetaCell
                 k={copy(pageContract, "label.vaccine_dose")}
-                v={`${event.vaccine_name ?? copy(pageContract, "label.placeholder")} · ${event.dose_code ?? copy(pageContract, "label.placeholder")}`}
+                // vaccine_name / dose_code are the raw protocol family and config token (ui-vaccine-labels
+                // rule): the human label the backend maps lives in vaccine_labels.
+                v={event.vaccine_labels.length ? event.vaccine_labels.join(", ") : copy(pageContract, "label.placeholder")}
               />
               <MetaCell
                 k={copy(pageContract, "label.owner")}
