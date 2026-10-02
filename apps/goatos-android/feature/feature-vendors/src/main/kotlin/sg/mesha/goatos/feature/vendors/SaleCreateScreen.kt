@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -62,7 +64,11 @@ fun SaleCreateScreen(
         }
     }
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
-        MeshaScreenHeader(title = TITLE, subtitle = STEP_TITLES.getOrNull(state.step), onBack = { onEvent(SaleCreateEvent.Back) })
+        MeshaScreenHeader(
+            title = if (state.addLinesMode) TITLE_ADD_LINES else TITLE,
+            subtitle = if (state.addLinesMode) state.addLinesFor.ifBlank { null } else STEP_TITLES.getOrNull(state.step),
+            onBack = { onEvent(SaleCreateEvent.Back) },
+        )
         VendorsStepper(stepCount = state.stepCount, currentIndex = state.step, caption = "Step ${state.step + 1} of ${state.stepCount}")
         LazyColumn(
             state = rememberStepListState(state.step),
@@ -93,9 +99,17 @@ fun SaleCreateScreen(
                 }
             }
             state.message?.let { message -> item(key = "message") { VendorsResultBanner(status = VendorsWriteStatus.FAILED, message = message) } }
-            when (state.step) {
-                0 -> item(key = "sale") { SaleStep(state, onEvent) }
-                1 -> item(key = "buyer") { BuyerStep(state, onEvent) }
+            when {
+                // Adding what an advance-only sale sold: the product lines and nothing else.
+                state.addLinesMode -> item(key = "lines") {
+                    Column {
+                        Text(text = HINT_ADD_LINES, color = MeshaColors.Muted, style = MeshaType.caption)
+                        Spacer(Modifier.height(10.dp))
+                        LinesGroup(state, onEvent)
+                    }
+                }
+                state.step == 0 -> item(key = "sale") { SaleStep(state, onEvent) }
+                state.step == 1 -> item(key = "buyer") { BuyerStep(state, onEvent) }
                 else -> item(key = "money") { MoneyStep(state, onEvent) }
             }
         }
@@ -110,7 +124,7 @@ fun SaleCreateScreen(
                 if (state.step > 0) VendorsGhostButton(label = PREVIOUS, onClick = { onEvent(SaleCreateEvent.Previous) })
                 val last = state.step == state.stepCount - 1
                 VendorsPrimaryButton(
-                    label = if (last) SAVE else NEXT,
+                    label = if (last) (if (state.addLinesMode) SAVE_LINES else SAVE) else NEXT,
                     enabled = !state.submitInFlight,
                     onClick = { onEvent(if (last) SaleCreateEvent.Submit else SaleCreateEvent.Next) },
                     modifier = Modifier.weight(1f),
@@ -129,8 +143,34 @@ private fun SaleStep(state: SaleCreateUiState, onEvent: (SaleCreateEvent) -> Uni
         Text(text = LABEL_FARM, color = MeshaColors.Muted, style = MeshaType.fieldLabel)
         VendorsSegmented(options = state.farms, selectedValue = v[SaleField.FARM].orEmpty(), onSelect = { onEvent(SaleCreateEvent.FieldChanged(SaleField.FARM, it)) })
         e[SaleField.FARM]?.let { Text(it, color = MeshaColors.Danger, style = MeshaType.caption) }
+        // The buyer paid before anything was chosen (maintainer decision 2026-10-02): the sale is
+        // recorded with no product lines and they are added to it later.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(MeshaDimens.radiusInput))
+                .clickable(role = Role.Checkbox) {
+                    onEvent(SaleCreateEvent.FieldChanged(SaleField.ADVANCE_ONLY, if (state.advanceOnly) "" else "true"))
+                },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Checkbox(
+                checked = state.advanceOnly,
+                onCheckedChange = null,
+                colors = CheckboxDefaults.colors(checkedColor = MeshaColors.Brand, uncheckedColor = MeshaColors.Muted, checkmarkColor = MeshaColors.OnBrand),
+            )
+            Text(text = LABEL_ADVANCE_ONLY, color = MeshaColors.Ink, style = MeshaType.body)
+        }
+        Text(text = HINT_ADVANCE_ONLY, color = MeshaColors.Muted, style = MeshaType.caption)
     }
+    if (state.advanceOnly) return
     Spacer(Modifier.height(10.dp))
+    LinesGroup(state, onEvent)
+}
+
+/** The product lines and their running total, shared by recording a sale and adding to an advance. */
+@Composable
+private fun LinesGroup(state: SaleCreateUiState, onEvent: (SaleCreateEvent) -> Unit) {
     VendorsFormGroup(title = LABEL_WHAT_WAS_SOLD) {
         Text(text = HINT_LINES, color = MeshaColors.Muted, style = MeshaType.caption)
         state.lines.forEachIndexed { index, line ->
@@ -300,17 +340,29 @@ private fun MoneyStep(state: SaleCreateUiState, onEvent: (SaleCreateEvent) -> Un
     VendorsFormGroup(title = STEP_TITLES[2]) {
         // The sale value is the SUM of the lines entered on step 1 -- shown, never typed, so the
         // money can never disagree with what was sold.
-        VendorsTextField(state.totalValueLine, {}, LABEL_VALUE, readOnly = true, supporting = HINT_TOTAL)
+        if (!state.advanceOnly) VendorsTextField(state.totalValueLine, {}, LABEL_VALUE, readOnly = true, supporting = HINT_TOTAL)
         VendorsTextField(v[SaleField.ADVANCE_AMOUNT].orEmpty(), { onEvent(SaleCreateEvent.FieldChanged(SaleField.ADVANCE_AMOUNT, it)) }, LABEL_ADVANCE, keyboard = KeyboardType.Decimal, error = e[SaleField.ADVANCE_AMOUNT])
         Text(text = LABEL_STATUS, color = MeshaColors.Muted, style = MeshaType.fieldLabel)
-        VendorsSegmented(options = state.statuses, selectedValue = v[SaleField.STATUS].orEmpty(), onSelect = { onEvent(SaleCreateEvent.FieldChanged(SaleField.STATUS, it)) })
-        Text(text = HINT_STATUS, color = MeshaColors.Muted, style = MeshaType.caption)
+        if (state.advanceOnly) {
+            // An advance taken before anything was chosen is Advance Paid; nothing else is offered.
+            Text(text = state.statuses.firstOrNull { it.value == v[SaleField.STATUS] }?.label ?: v[SaleField.STATUS].orEmpty(), color = MeshaColors.Ink, style = MeshaType.body)
+            Text(text = HINT_STATUS_ADVANCE_ONLY, color = MeshaColors.Muted, style = MeshaType.caption)
+        } else {
+            VendorsSegmented(options = state.statuses, selectedValue = v[SaleField.STATUS].orEmpty(), onSelect = { onEvent(SaleCreateEvent.FieldChanged(SaleField.STATUS, it)) })
+            Text(text = HINT_STATUS, color = MeshaColors.Muted, style = MeshaType.caption)
+        }
         e[SaleField.STATUS]?.let { Text(it, color = MeshaColors.Danger, style = MeshaType.caption) }
         VendorsTextField(v[SaleField.COMMENTS].orEmpty(), { onEvent(SaleCreateEvent.FieldChanged(SaleField.COMMENTS, it)) }, LABEL_COMMENTS, singleLine = false, error = e[SaleField.COMMENTS])
     }
 }
 
 private const val TITLE = "Record sale"
+private const val TITLE_ADD_LINES = "Add what was sold"
+private const val SAVE_LINES = "Save what was sold"
+private const val HINT_ADD_LINES = "The buyer paid an advance before this was decided. The sale's steps start once this is saved."
+private const val LABEL_ADVANCE_ONLY = "Advance only — what is being sold is not decided yet"
+private const val HINT_ADVANCE_ONLY = "Tick this when the buyer pays before anyone has chosen the animals, feed or manure. Add what was sold to the sale later; its steps start then."
+private const val HINT_STATUS_ADVANCE_ONLY = "An advance is recorded as Advance Paid until what was sold is added."
 private val STEP_TITLES = listOf("The sale", "The buyer", "The money")
 private const val NEXT = "Next"
 private const val PREVIOUS = "Back"

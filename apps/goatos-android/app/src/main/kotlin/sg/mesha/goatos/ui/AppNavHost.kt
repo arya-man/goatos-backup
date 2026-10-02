@@ -774,6 +774,10 @@ object Routes {
     const val SALE_TAG_ANIMALS = "/sales/sale/{$SALE_ID_ARG}/tag"
     fun saleDetailRoute(dealId: String): String = "/sales/sale/${Uri.encode(dealId)}"
     fun saleTagAnimalsRoute(dealId: String): String = "/sales/sale/${Uri.encode(dealId)}/tag"
+    // What an ADVANCE-ONLY sale sold, added once (maintainer decision 2026-10-02): the record-sale
+    // form in add-lines mode, a hosted drill under the sale with Up/Back and no root chrome.
+    const val SALE_ADD_LINES = "/sales/sale/{$SALE_ID_ARG}/lines"
+    fun saleAddLinesRoute(dealId: String): String = "/sales/sale/${Uri.encode(dealId)}/lines"
 
     // The sale's SOP steps (SALES SOP, maintainer instruction 2026-09-19): one workflow per sale,
     // opened by the backend when the sale is recorded, on the shared workflow screen. A hosted L2
@@ -4259,6 +4263,33 @@ fun AppNavHost(
                             val dealId = entry.arguments?.getString(Routes.SALE_ID_ARG).orEmpty()
                             navController.navigate(Routes.saleStepsRoute(dealId, event.workflowId)) { launchSingleTop = true }
                         }
+                        SaleDetailEvent.AddLines -> {
+                            vm.onEvent(event)
+                            val dealId = entry.arguments?.getString(Routes.SALE_ID_ARG).orEmpty()
+                            navController.navigate(Routes.saleAddLinesRoute(dealId)) { launchSingleTop = true }
+                        }
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+        composable(
+            route = Routes.SALE_ADD_LINES,
+            arguments = listOf(navArgument(Routes.SALE_ID_ARG) { type = NavType.StringType }),
+        ) {
+            // Adding what was sold is recording the sale's products: the same authority as Record.
+            if (!salesAccess.allows(SalesWriteEntry.RECORD)) {
+                val (title, message) = salesWriteUnavailableCopy(SalesWriteEntry.RECORD)
+                SalesWriteUnavailableScreen(title = title, message = message, onBack = { navController.popBackStack() })
+                return@composable
+            }
+            val vm: SaleCreateViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            SaleCreateScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        SaleCreateEvent.Back -> navController.popBackStack()
                         else -> vm.onEvent(event)
                     }
                 },

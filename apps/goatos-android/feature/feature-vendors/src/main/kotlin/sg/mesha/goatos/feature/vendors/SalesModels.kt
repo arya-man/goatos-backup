@@ -137,6 +137,18 @@ data class SaleDetailUiState(
      * server refuses them without sales.write, and offering them only leads to a refused write.
      */
     val canEdit: Boolean = true,
+    /**
+     * An advance taken before the sale was decided: what was sold is added on its own form
+     * ([SaleDetailEvent.AddLines]), and the sale's steps start then. False hides the entry.
+     */
+    val canAddLines: Boolean = false,
+    /**
+     * A failed sale the buyer paid towards (BACKEND `can_settle`): the receipt editor opens in
+     * refund-or-keep mode ([SaleDetailEvent.OpenSettlement]).
+     */
+    val canSettle: Boolean = false,
+    /** What the refund-or-keep editor reopens on: the settlement already recorded, else blank. */
+    val settlementValues: Map<SalePaymentField, String> = emptyMap(),
     val isRefreshing: Boolean = false,
     val isLoading: Boolean = true,
     /** Loaded, and this phone holds no copy of the sale (not synced yet, or not in a loaded page). */
@@ -158,6 +170,10 @@ sealed interface SaleDetailEvent {
     /** Open the receipt editor blank, or on an existing receipt. */
     data class OpenPayment(val paymentId: String) : SaleDetailEvent
     data object ClosePayment : SaleDetailEvent
+    /** Add what an advance-only sale sold (opens the record form in add-lines mode). */
+    data object AddLines : SaleDetailEvent
+    /** Open the payment editor as the refund-or-keep form of a failed sale. */
+    data object OpenSettlement : SaleDetailEvent
     data class PaymentFieldChanged(val field: SalePaymentField, val value: String) : SaleDetailEvent
     data object SavePayment : SaleDetailEvent
     /** Remove the receipt the editor is open on. */
@@ -198,6 +214,12 @@ data class SalePaymentUi(
 data class SalePaymentEditorUi(
     /** Blank when adding; the receipt's id when correcting one. */
     val paymentId: String = "",
+    /**
+     * The editor is recording what became of a FAILED sale's money (2026-10-02), not a receipt:
+     * [SalePaymentField.AMOUNT] is the refund (blank = the farm keeps it all) and
+     * [SalePaymentField.RECEIVED_ON] the day it went back.
+     */
+    val settlement: Boolean = false,
     val values: Map<SalePaymentField, String> = emptyMap(),
     val fieldErrors: Map<SalePaymentField, String> = emptyMap(),
     val inFlight: Boolean = false,
@@ -212,6 +234,11 @@ enum class SaleField {
     SALE_DATE, FARM,
     BUYER_VENDOR_ID, BUYER_NAME, BUYER_PLACE,
     ADVANCE_AMOUNT, STATUS, COMMENTS,
+    /**
+     * "true" when the buyer paid before anything was chosen (maintainer decision 2026-10-02): the
+     * sale is recorded with no product lines, status Advance Paid. Blank otherwise.
+     */
+    ADVANCE_ONLY,
 }
 
 /** The fields of one product line of a sale. */
@@ -311,6 +338,15 @@ data class SaleCreateUiState(
     val closeAfterSave: Boolean = false,
     val submitInFlight: Boolean = false,
     val message: String? = null,
+    /** An advance taken before anything was chosen: the form asks for no product lines. */
+    val advanceOnly: Boolean = false,
+    /**
+     * The form is adding what an ADVANCE-ONLY sale sold (maintainer decision 2026-10-02): one step,
+     * the product lines only, saved onto that sale.
+     */
+    val addLinesMode: Boolean = false,
+    /** "Kumar Traders · ₹50,000 advance" -- the sale the lines are being added to. */
+    val addLinesFor: String = "",
 )
 
 sealed interface SaleCreateEvent {

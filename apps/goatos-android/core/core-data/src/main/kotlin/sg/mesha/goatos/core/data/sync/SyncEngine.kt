@@ -1289,6 +1289,12 @@ class SyncEngine(
                 requireNotNull(payload.request) { "payment update carries no body" },
             )
             SalesPaymentOp.DELETE -> api.deleteSalesDealPayment(payload.dealId, payload.paymentId, item.idempotencyKey)
+            SalesPaymentOp.ADD_LINES -> api.addSalesDealLines(
+                payload.dealId, item.idempotencyKey, requireNotNull(payload.lines) { "add lines carries no lines" },
+            )
+            SalesPaymentOp.SETTLE -> api.settleSalesDealAdvance(
+                payload.dealId, item.idempotencyKey, requireNotNull(payload.settlement) { "settlement carries no body" },
+            )
             else -> error("unknown sales payment op ${payload.op}")
         }
         return syncJson.encodeToString(deal)

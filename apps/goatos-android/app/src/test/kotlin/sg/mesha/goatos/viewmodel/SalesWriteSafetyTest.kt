@@ -160,6 +160,107 @@ class SalesWriteSafetyTest {
         assertEquals(stepBefore, second.state.value.step)
     }
 
+    // ------------------------------------------- an advance before anything is chosen (2026-10-02)
+
+    @Test
+    fun `an advance-only sale sends no lines, says Advance Paid and needs the advance`() = runTest(dispatcher) {
+        val sync = SalesSync()
+        val vm = createVm(sync)
+        backgroundScope.launch { vm.state.collect {} }
+        vm.onEvent(SaleCreateEvent.FieldChanged(SaleField.FARM, "CPT"))
+        vm.onEvent(SaleCreateEvent.FieldChanged(SaleField.ADVANCE_ONLY, "true"))
+        assertTrue(vm.state.value.advanceOnly)
+        assertEquals("Advance Paid", vm.state.value.values[SaleField.STATUS])
+        vm.onEvent(SaleCreateEvent.BuyerPicked("v-1"))
+        // No line was typed, and none is asked for.
+        vm.onEvent(SaleCreateEvent.Submit)
+        assertEquals("an advance with no amount is not queued", 0, sync.creates.size)
+        assertTrue(vm.state.value.fieldErrors.containsKey(SaleField.ADVANCE_AMOUNT))
+        vm.onEvent(SaleCreateEvent.FieldChanged(SaleField.ADVANCE_AMOUNT, "50000"))
+        vm.onEvent(SaleCreateEvent.Submit)
+        assertEquals(1, sync.creates.size)
+        val body = sync.creates.single().second
+        assertTrue(body.advanceOnly)
+        assertTrue("an advance names no products", body.lines.isEmpty())
+        assertEquals("Advance Paid", body.status)
+        assertEquals(50000.0, body.advanceAmount!!, 0.0)
+    }
+
+    @Test
+    fun `with the tick off a sale is recorded exactly as before`() = runTest(dispatcher) {
+        val sync = SalesSync()
+        val vm = createVm(sync)
+        backgroundScope.launch { vm.state.collect {} }
+        vm.fillFeedSale(rate = "5")
+        vm.onEvent(SaleCreateEvent.Submit)
+        val body = sync.creates.single().second
+        assertTrue(!body.advanceOnly)
+        assertEquals(1, body.lines.size)
+        assertEquals("Deal Closed", body.status)
+    }
+
+    @Test
+    fun `adding what was sold sends the lines onto the advance and nothing else`() = runTest(dispatcher) {
+        val sync = SalesSync()
+        val vm = SaleCreateViewModel(SavedStateHandle(mapOf(Routes.SALE_ID_ARG to "deal-9")), FakeSales(), sync, NoAnalytics, NoCrash)
+        backgroundScope.launch { vm.state.collect {} }
+        assertTrue(vm.state.value.addLinesMode)
+        assertEquals(1, vm.state.value.stepCount)
+        val lineId = vm.state.value.lines.first().id
+        vm.onEvent(SaleCreateEvent.LineChanged(lineId, SaleLineField.PRODUCT_TYPE, "Goat"))
+        vm.onEvent(SaleCreateEvent.LineChanged(lineId, SaleLineField.BREED, "Osmanabadi"))
+        vm.onEvent(SaleCreateEvent.LineChanged(lineId, SaleLineField.ANIMAL_COUNT, "4"))
+        vm.onEvent(SaleCreateEvent.Submit)
+        assertEquals("a line with no value is not queued", 0, sync.lineAdds.size)
+        vm.onEvent(SaleCreateEvent.LineChanged(lineId, SaleLineField.SALES_VALUE, "60000"))
+        vm.onEvent(SaleCreateEvent.Submit)
+        assertEquals(0, sync.creates.size)
+        val (dealId, body) = sync.lineAdds.single()
+        assertEquals("deal-9", dealId)
+        assertEquals(60000.0, body.lines.single().salesValue, 0.0)
+    }
+
+    @Test
+    fun `an advance-only sale offers its products, not tagging, and reads not decided`() = runTest(dispatcher) {
+        val repo = FakeSales(deal = { SalesDealDto(dealId = it, buyerName = "Ramesh Traders", status = "Advance Paid", advanceOnly = true, advanceAmount = 50000.0) })
+        val vm = SaleDetailViewModel(SavedStateHandle(mapOf(Routes.SALE_ID_ARG to "deal-1")), repo, SalesSync(), NoWorkflows, NoAnalytics, NoCrash)
+        backgroundScope.launch { vm.state.collect {} }
+        val state = vm.state.value
+        assertTrue(state.canAddLines)
+        assertTrue(!state.canTagAnimals)
+        val sale = state.sections.first { it.title == "The sale" }.rows
+        assertEquals("Not decided yet", sale.first { it.label == "Product" }.value)
+    }
+
+    @Test
+    fun `a failed sale's money is refunded on a day or kept with no day`() = runTest(dispatcher) {
+        val sync = SalesSync()
+        val repo = FakeSales(deal = { SalesDealDto(dealId = it, buyerName = "Ramesh Traders", status = "Deal Failed", paymentReceived = 30000.0, canSettle = true) })
+        val vm = SaleDetailViewModel(SavedStateHandle(mapOf(Routes.SALE_ID_ARG to "deal-1")), repo, sync, NoWorkflows, NoAnalytics, NoCrash)
+        backgroundScope.launch { vm.state.collect {} }
+        assertTrue(vm.state.value.canSettle)
+        vm.onEvent(SaleDetailEvent.OpenSettlement)
+        assertTrue(vm.state.value.paymentEditor!!.settlement)
+        // A refund with no day is held on the phone.
+        vm.onEvent(SaleDetailEvent.PaymentFieldChanged(SalePaymentField.AMOUNT, "10000"))
+        vm.onEvent(SaleDetailEvent.SavePayment)
+        assertEquals(0, sync.settlements.size)
+        assertTrue(vm.state.value.paymentEditor!!.fieldErrors.containsKey(SalePaymentField.RECEIVED_ON))
+        vm.onEvent(SaleDetailEvent.PaymentFieldChanged(SalePaymentField.RECEIVED_ON, "2026-10-01"))
+        vm.onEvent(SaleDetailEvent.SavePayment)
+        assertEquals(10000.0, sync.settlements.single().refundedRupees, 0.0)
+        assertEquals("2026-10-01", sync.settlements.single().refundedOn)
+        sync.succeed("row-1")
+        // Keeping it all: a blank refund, and no day sent even if one is still in the box.
+        vm.onEvent(SaleDetailEvent.OpenSettlement)
+        vm.onEvent(SaleDetailEvent.PaymentFieldChanged(SalePaymentField.AMOUNT, ""))
+        vm.onEvent(SaleDetailEvent.PaymentFieldChanged(SalePaymentField.RECEIVED_ON, "2026-10-01"))
+        vm.onEvent(SaleDetailEvent.SavePayment)
+        assertEquals(0.0, sync.settlements[1].refundedRupees, 0.0)
+        assertEquals(null, sync.settlements[1].refundedOn)
+        assertEquals("no receipt was recorded by either", 0, sync.payments.size)
+    }
+
     // ---------------------------------------------------------------- payments on a sale
 
     private fun detailVm(sync: SalesSync) = SaleDetailViewModel(
@@ -520,6 +621,19 @@ private class SalesSync : SyncRepository by RecordingToxinSyncRepository() {
     val pendingPayments = MutableStateFlow<List<sg.mesha.goatos.core.data.sync.SalesDealPaymentPayload>>(emptyList())
 
     override fun observePendingSalesPayments(): Flow<List<sg.mesha.goatos.core.data.sync.SalesDealPaymentPayload>> = pendingPayments
+
+    val lineAdds = mutableListOf<Pair<String, sg.mesha.goatos.core.network.dto.SalesDealLinesWriteDto>>()
+    val settlements = mutableListOf<sg.mesha.goatos.core.network.dto.SalesDealSettlementWriteDto>()
+
+    override suspend fun enqueueSalesDealLinesAdd(clientId: String, dealId: String, request: sg.mesha.goatos.core.network.dto.SalesDealLinesWriteDto): AppResult<String> {
+        lineAdds += dealId to request
+        return queued()
+    }
+
+    override suspend fun enqueueSalesDealSettlement(clientId: String, dealId: String, request: sg.mesha.goatos.core.network.dto.SalesDealSettlementWriteDto): AppResult<String> {
+        settlements += request
+        return queued()
+    }
 
     override suspend fun enqueueSalesDealStatusSet(clientId: String, dealId: String, status: String, acknowledgeStock: Boolean): AppResult<String> {
         statuses += status

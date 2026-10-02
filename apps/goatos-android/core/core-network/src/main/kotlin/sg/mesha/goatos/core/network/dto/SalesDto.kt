@@ -64,6 +64,45 @@ data class SalesDealDto(
     @SerialName("comments") val comments: String? = null,
     @SerialName("created_at") val createdAt: String = "",
     @SerialName("updated_at") val updatedAt: String = "",
+    /**
+     * An ADVANCE taken before the sale was decided (maintainer decision 2026-10-02): no lines,
+     * product and breed "", value 0, never closable. Its products are added later. False on an
+     * older server.
+     */
+    @SerialName("advance_only") val advanceOnly: Boolean = false,
+    /** BACKEND-decided: a failed sale the buyer paid towards, whose money can be refunded or kept. */
+    @SerialName("can_settle") val canSettle: Boolean = false,
+    /** What became of a failed sale's money; null until recorded. */
+    @SerialName("settlement") val settlement: SalesDealSettlementDto? = null,
+)
+
+/** What became of a failed sale's money. [outcomeLabel] is farm wording, rendered verbatim. */
+@Serializable
+data class SalesDealSettlementDto(
+    @SerialName("outcome") val outcome: String = "",
+    @SerialName("outcome_label") val outcomeLabel: String = "",
+    @SerialName("refunded_rupees") val refundedRupees: Double = 0.0,
+    @SerialName("refunded_on") val refundedOn: String? = null,
+    @SerialName("kept_rupees") val keptRupees: Double = 0.0,
+    @SerialName("note") val note: String = "",
+    @SerialName("updated_at") val updatedAt: String = "",
+)
+
+/** `POST /sales/deals/{deal_id}/lines`: what an advance-only sale sold, added once. */
+@Serializable
+data class SalesDealLinesWriteDto(
+    @SerialName("lines") val lines: List<SalesDealLineWriteDto>,
+)
+
+/**
+ * `PUT /sales/deals/{deal_id}/advance-settlement`. [refundedRupees] 0 keeps it all and carries no
+ * [refundedOn]; more than 0 needs the day the money went back.
+ */
+@Serializable
+data class SalesDealSettlementWriteDto(
+    @SerialName("refunded_rupees") val refundedRupees: Double,
+    @SerialName("refunded_on") val refundedOn: String? = null,
+    @SerialName("note") val note: String? = null,
 )
 
 @Serializable
@@ -169,6 +208,11 @@ data class SalesDealWriteDto(
      * it comes back with this set.
      */
     @SerialName("stock_shortfall_acknowledged") val stockShortfallAcknowledged: Boolean = false,
+    /**
+     * Money taken before the sale is decided (2026-10-02): no [lines], status Advance Paid, an
+     * [advanceAmount] above zero. The server refuses a body with no lines that does not say so.
+     */
+    @SerialName("advance_only") val advanceOnly: Boolean = false,
 )
 
 @Serializable

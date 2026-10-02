@@ -85,9 +85,14 @@ import sg.mesha.goatos.feature.vendors.VendorsTone
 import sg.mesha.goatos.feature.vendors.VendorsWriteStatus
 import sg.mesha.goatos.ui.Routes
 
+/** What an advance taken before the sale was decided shows for its product and value. */
+internal const val ADVANCE_NOT_DECIDED = "Not decided yet"
+
 /** The recorded line kind survives catalog renames and kind changes; old cached rows lack it. */
 internal fun SalesDealDto.hasAnimalsToTag(): Boolean {
     fun legacyAnimal(product: String) = product == "Sheep" || product == "Goat"
+    // An advance whose products are not added yet has nothing to tag (2026-10-02).
+    if (advanceOnly) return false
     return if (lines.isEmpty()) legacyAnimal(productType) else lines.any { line ->
         if (line.productKind.isBlank()) legacyAnimal(line.productType) else line.productKind == "animal"
     }
@@ -284,6 +289,7 @@ internal fun SalesDealDto.toCardUi(options: SalesOptionsDto? = null): SaleCardUi
  * so cards and subtitles say what was actually sold instead.
  */
 internal fun SalesDealDto.soldSummary(): String {
+    if (advanceOnly) return ADVANCE_NOT_DECIDED
     if (lines.size <= 1) return productAndBreed(productType, breed)
     val products = lines.map { it.productType }.distinct().joinToString(" + ")
     return dotJoin(products, "${lines.size} lines")
@@ -343,10 +349,16 @@ internal fun pendingReceiptLines(payloads: List<sg.mesha.goatos.core.data.sync.S
     payloads.filter { it.dealId == dealId && it.op == sg.mesha.goatos.core.data.sync.SalesPaymentOp.CREATE }
         .mapNotNull { p -> p.request?.let { r -> dotJoin(rupees(r.amountRupees), farmDate(r.receivedOn)) } }
 
+/** How a queued advance-only sale reads on its pending card. */
+internal const val ADVANCE_ONLY_LINE = "Advance only"
+
 /** Sales still on this phone for [farm] (blank = every farm), newest first as the ledger reads. */
 internal fun pendingSaleCards(payloads: List<sg.mesha.goatos.core.data.sync.SalesDealCreatePayload>, farm: String): List<SalePendingUi> =
     payloads.filter { farm.isBlank() || it.request.farm == farm }.reversed().map { p ->
         val r = p.request
+        if (r.advanceOnly) {
+            return@map SalePendingUi(key = p.clientId, buyer = r.buyerName, line = dotJoin(ADVANCE_ONLY_LINE, r.farm, r.advanceAmount?.let(::rupees)))
+        }
         val sold = if (r.lines.size > 1) "${r.lines.size} lines" else r.lines.firstOrNull()?.let { productAndBreed(it.productType, it.breed) }.orEmpty()
         SalePendingUi(key = p.clientId, buyer = r.buyerName, line = dotJoin(sold, r.farm, rupees(if (r.lines.isEmpty()) r.salesValue else r.lines.sumOf { l -> l.quantity?.let { q -> l.ratePerUnit?.let { q * it } } ?: l.salesValue })))
     }
@@ -372,7 +384,7 @@ internal fun SalesDealDto.sections(): List<VendorsDetailSectionUi> {
         saleDateWord(status).detail to farmDate(saleDate),
         "Planned for" to plannedSaleDateIfDifferent()?.let(::farmDate),
         "Farm" to farm,
-        "Product" to productType.takeIf { single },
+        "Product" to if (advanceOnly) ADVANCE_NOT_DECIDED else productType.takeIf { single },
         "Breed" to breed.takeIf { single && !it.equals(productType, ignoreCase = true) },
         "Animals" to animalCount?.let { indianNumber(it, 0) },
         "Total weight" to totalWeightKg?.let(::kilograms),
@@ -386,17 +398,28 @@ internal fun SalesDealDto.sections(): List<VendorsDetailSectionUi> {
     }
     val buyer = rows("Buyer" to buyerName, "Place" to buyerPlace)
     val money = rows(
-        "Sale value" to rupees(salesValue),
+        "Sale value" to if (advanceOnly) ADVANCE_NOT_DECIDED else rupees(salesValue),
         "Advance" to advanceAmount?.let(::rupees),
         "Received so far" to paymentReceived?.let(::rupees),
         "Balance" to rupees(paymentBalance),
     )
     val notes = rows("Comments" to comments, "Feedback" to feedback)
+    // A failed sale's money (2026-10-02): the outcome sentence is the backend's, verbatim.
+    val settled = settlement?.let { st ->
+        rows(
+            "What happened to it" to st.outcomeLabel,
+            "Refunded to the buyer" to rupees(st.refundedRupees),
+            "Refunded on" to st.refundedOn?.let(::farmDate),
+            "Kept by the farm" to rupees(st.keptRupees),
+            "Note" to st.note,
+        )
+    }.orEmpty()
     return listOfNotNull(
         VendorsDetailSectionUi("The sale", sale).takeIf { sale.isNotEmpty() },
         VendorsDetailSectionUi("What was sold", sold).takeIf { sold.isNotEmpty() },
         VendorsDetailSectionUi("The buyer", buyer).takeIf { buyer.isNotEmpty() },
         VendorsDetailSectionUi("The money", money).takeIf { money.isNotEmpty() },
+        VendorsDetailSectionUi("Money from this failed sale", settled).takeIf { settled.isNotEmpty() },
         VendorsDetailSectionUi("Notes", notes).takeIf { notes.isNotEmpty() },
     )
 }
@@ -505,7 +528,17 @@ class SaleDetailViewModel @Inject constructor(
                 stockConfirmMessage = l.stockConfirmMessage,
                 finalStatusPending = l.finalStatusPending,
                 canTagAnimals = live,
+                canAddLines = deal.advanceOnly && deal.status != "Deal Failed",
+                canSettle = deal.canSettle,
+                settlementValues = deal.settlement?.let { st ->
+                    mapOf(
+                        SalePaymentField.AMOUNT to if (st.refundedRupees % 1.0 == 0.0) st.refundedRupees.toLong().toString() else st.refundedRupees.toString(),
+                        SalePaymentField.RECEIVED_ON to st.refundedOn.orEmpty(),
+                        SalePaymentField.NOTE to st.note,
+                    )
+                }.orEmpty(),
                 tagDisabledReason = when {
+                    deal.advanceOnly -> TAG_ADVANCE_ONLY
                     !hasAnimals -> TAG_NON_ANIMAL
                     deal.status == "Deal Failed" -> TAG_FAILED
                     complete -> "All $declared ${if (declared == 1) "animal is" else "animals are"} tagged. Tag more on the web if the count changes."
@@ -532,6 +565,8 @@ class SaleDetailViewModel @Inject constructor(
             SaleDetailEvent.Back -> Unit
             is SaleDetailEvent.OpenPayment -> openPaymentEditor(event.paymentId)
             SaleDetailEvent.ClosePayment -> local.update { it.copy(paymentEditor = null) }
+            SaleDetailEvent.AddLines -> analytics.track(AnalyticsEventsVendors.VENDORS_SALE_ADD_LINES_OPENED)
+            SaleDetailEvent.OpenSettlement -> openSettlementEditor()
             is SaleDetailEvent.PaymentFieldChanged -> local.update { l ->
                 val editor = l.paymentEditor ?: return@update l
                 l.copy(
@@ -601,11 +636,59 @@ class SaleDetailViewModel @Inject constructor(
         }
     }
 
+    /**
+     * The refund-or-keep form of a FAILED sale (maintainer decision 2026-10-02), in the receipt
+     * editor's three boxes: how much went back, on which day, and a note. Reopens on what was
+     * recorded, so a correction starts from it.
+     */
+    private fun openSettlementEditor() {
+        val recorded = state.value.settlementValues
+        analytics.track(AnalyticsEventsVendors.VENDORS_SALE_SETTLEMENT_OPENED)
+        local.update {
+            it.copy(
+                editMessage = "",
+                paymentSaveKey = UUID.randomUUID().toString(),
+                paymentEditor = SalePaymentEditorUi(settlement = true, values = recorded),
+            )
+        }
+    }
+
+    private fun saveSettlement(current: Local, editor: SalePaymentEditorUi) {
+        val errors = validateSettlement(editor.values)
+        if (errors.isNotEmpty()) {
+            local.update { it.copy(paymentEditor = editor.copy(fieldErrors = errors)) }
+            return
+        }
+        val refunded = editor.values[SalePaymentField.AMOUNT].orEmpty().trim().toDoubleOrNull() ?: 0.0
+        val request = sg.mesha.goatos.core.network.dto.SalesDealSettlementWriteDto(
+            refundedRupees = refunded,
+            // Keeping it all has no day the money went back; the server refuses one.
+            refundedOn = editor.values[SalePaymentField.RECEIVED_ON].orEmpty().trim().takeIf { refunded > 0.0 && it.isNotBlank() },
+            note = editor.values[SalePaymentField.NOTE].orEmpty().trim().ifBlank { null },
+        )
+        enqueueEdit(editor = editor, done = MESSAGE_SETTLEMENT_SAVED, failure = "sale settlement enqueue failed") {
+            syncRepository.enqueueSalesDealSettlement(clientId = current.paymentSaveKey, dealId = dealId, request = request)
+        }
+    }
+
+    private fun validateSettlement(values: Map<SalePaymentField, String>): Map<SalePaymentField, String> {
+        val errors = mutableMapOf<SalePaymentField, String>() // mobile-guard:ignore: at most one entry per form field, returned and dropped
+        val raw = values[SalePaymentField.AMOUNT].orEmpty().trim()
+        val refunded = if (raw.isBlank()) 0.0 else raw.toDoubleOrNull()
+        when {
+            refunded == null -> errors[SalePaymentField.AMOUNT] = NOT_A_NUMBER
+            refunded < 0.0 -> errors[SalePaymentField.AMOUNT] = ZERO_OR_MORE
+            refunded > 0.0 && values[SalePaymentField.RECEIVED_ON].orEmpty().isBlank() -> errors[SalePaymentField.RECEIVED_ON] = REQUIRED
+        }
+        return errors
+    }
+
     private fun savePayment() {
         val current = local.value
         val editor = current.paymentEditor ?: return
         // A second tap while the first is still on its way is the same save, not another receipt.
         if (current.editInFlight || editor.inFlight) return
+        if (editor.settlement) return saveSettlement(current, editor)
         val errors = validatePayment(editor.values)
         if (errors.isNotEmpty()) {
             local.update { it.copy(paymentEditor = editor.copy(fieldErrors = errors)) }
@@ -825,6 +908,9 @@ class SaleDetailViewModel @Inject constructor(
         /** tasks/domain.TemplateKeySalesDeal -- the sale workflow's template key. */
         const val SALE_WORKFLOW_TEMPLATE_KEY = "sales_deal"
         const val TAG_NON_ANIMAL = "This sale has no animals to tag."
+        const val TAG_ADVANCE_ONLY = "Add what was sold to this sale first."
+        const val ZERO_OR_MORE = "Zero or more"
+        const val MESSAGE_SETTLEMENT_SAVED = "Saved what happened to the money."
         const val TAG_FAILED = "A failed deal has no animals to tag."
         const val TAGGED_UNREAD = "Tagged animals show when the phone is online."
         /** The feed store's own refusal, which the screen offers to answer. */
@@ -865,6 +951,13 @@ class SaleCreateViewModel @Inject constructor(
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
 ) : ViewModel() {
+
+    /**
+     * Set when this form is ADDING WHAT WAS SOLD to an advance-only sale (maintainer decision
+     * 2026-10-02): one step, the product lines only, saved onto that sale. Blank when recording.
+     */
+    private val addLinesDealId: String = savedStateHandle.get<String>(Routes.SALE_ID_ARG).orEmpty()
+    private val addLinesMode: Boolean get() = addLinesDealId.isNotBlank()
 
     /** One product line as typed; validation errors ride on it so the card shows its own. */
     private data class LineDraft(
@@ -956,7 +1049,7 @@ class SaleCreateViewModel @Inject constructor(
         viewModelScope.launch {
             local.map(::encodeDraft).distinctUntilChanged().collect { savedStateHandle[KEY_DRAFT] = it }
         }
-        analytics.track(AnalyticsEventsVendors.VENDORS_ADD_OPENED)
+        if (!addLinesMode) analytics.track(AnalyticsEventsVendors.VENDORS_ADD_OPENED)
         viewModelScope.launch {
             repository.refreshOptions()
             repository.refreshVendorOptions()
@@ -964,9 +1057,17 @@ class SaleCreateViewModel @Inject constructor(
         }
     }
 
-    val state: StateFlow<SaleCreateUiState> = combine(local, repository.observeOptions(), repository.observeVendorOptions()) { l, options, vendors ->
+    private val addLinesDeal: Flow<SalesDealDto?> = if (addLinesDealId.isBlank()) flowOf(null) else repository.observeDeal(addLinesDealId)
+
+    val state: StateFlow<SaleCreateUiState> = combine(local, repository.observeOptions(), repository.observeVendorOptions(), addLinesDeal) { l, options, vendors, target ->
         val o = options ?: SalesOptionsDto()
-        val values = if (l.values[SaleField.STATUS].isNullOrBlank() && o.defaultStatus.isNotBlank()) l.values + (SaleField.STATUS to o.defaultStatus) else l.values
+        val advanceOnly = !addLinesMode && l.values[SaleField.ADVANCE_ONLY] == "true"
+        val values = when {
+            // An advance taken before anything was chosen is Advance Paid; nothing else is offered.
+            advanceOnly -> l.values + (SaleField.STATUS to STATUS_ADVANCE_PAID)
+            l.values[SaleField.STATUS].isNullOrBlank() && o.defaultStatus.isNotBlank() -> l.values + (SaleField.STATUS to o.defaultStatus)
+            else -> l.values
+        }
         // A line with no product yet is offered the first product, so the common one-product
         // sale needs no tap on the product row.
         val defaultProduct = o.productTypes.firstOrNull().orEmpty()
@@ -1002,8 +1103,11 @@ class SaleCreateViewModel @Inject constructor(
             .take(if (search.length < 2) BUYER_LIST_PREVIEW else BUYER_LIST_MAX)
             .map { SaleBuyerOptionUi(it.vendorId, it.businessName, listOf(it.city, it.state).filter { s -> s.isNotBlank() }.joinToString(", ")) }
         SaleCreateUiState(
-            step = l.step,
-            stepCount = STEP_COUNT,
+            step = if (addLinesMode) 0 else l.step,
+            stepCount = if (addLinesMode) 1 else STEP_COUNT,
+            advanceOnly = advanceOnly,
+            addLinesMode = addLinesMode,
+            addLinesFor = target?.let { dotJoin(it.buyerName, it.advanceAmount?.let { a -> "${rupees(a)} advance" }) }.orEmpty(),
             values = values,
             farms = o.farms.map { VendorsOptionUi(it, it) },
             productTypes = o.productTypes.map { VendorsOptionUi(it, it) },
@@ -1022,7 +1126,11 @@ class SaleCreateViewModel @Inject constructor(
             },
             buyersTruncated = vendors?.truncated == true,
             fieldErrors = l.fieldErrors,
-            contextLine = dotJoin(values[SaleField.FARM], linesSummary(lines), values[SaleField.BUYER_NAME], totals.value.takeIf { it > 0 }?.let(::rupees)),
+            contextLine = when {
+                addLinesMode -> dotJoin(target?.buyerName, linesSummary(lines), totals.value.takeIf { it > 0 }?.let(::rupees))
+                advanceOnly -> dotJoin(values[SaleField.FARM], ADVANCE_ONLY_LINE, values[SaleField.BUYER_NAME], values[SaleField.ADVANCE_AMOUNT]?.trim()?.toDoubleOrNull()?.let(::rupees))
+                else -> dotJoin(values[SaleField.FARM], linesSummary(lines), values[SaleField.BUYER_NAME], totals.value.takeIf { it > 0 }?.let(::rupees))
+            },
             today = todayIst(),
             maxDate = LocalDate.now(VENDORS_IST).plusDays(o.maxSaleDateDaysAhead.toLong()).toString(),
             writeStatus = l.writeStatus,
@@ -1123,7 +1231,7 @@ class SaleCreateViewModel @Inject constructor(
 
     private fun next() {
         val errors = validate(local.value.step, state.value.values)
-        val lineErrors = if (local.value.step == 0) validateLines(state.value.lines) else emptyMap()
+        val lineErrors = if (local.value.step == 0 && !state.value.advanceOnly) validateLines(state.value.lines) else emptyMap()
         if (errors.isNotEmpty() || lineErrors.isNotEmpty()) {
             local.update { it.copy(fieldErrors = errors, lines = it.lines.withErrors(lineErrors)) }
             return
@@ -1131,10 +1239,36 @@ class SaleCreateViewModel @Inject constructor(
         local.update { it.copy(step = (it.step + 1).coerceAtMost(STEP_COUNT - 1), fieldErrors = emptyMap()) }
     }
 
+    /** Adds the typed lines to the advance-only sale this form was opened on. */
+    private fun submitLines() {
+        val lineErrors = validateLines(state.value.lines)
+        if (lineErrors.isNotEmpty()) {
+            local.update { it.copy(lines = it.lines.withErrors(lineErrors)) }
+            return
+        }
+        viewModelScope.launch {
+            local.update { it.copy(submitInFlight = true, message = null) }
+            val request = sg.mesha.goatos.core.network.dto.SalesDealLinesWriteDto(lines = state.value.lines.map(::lineWrite))
+            when (val result = syncRepository.enqueueSalesDealLinesAdd(clientId, addLinesDealId, request)) {
+                is AppResult.Ok -> {
+                    analytics.track(AnalyticsEventsVendors.VENDORS_SALE_LINES_QUEUED)
+                    local.update { it.copy(submitInFlight = false, writeStatus = VendorsWriteStatus.QUEUED, writeMessage = MESSAGE_SAVING) }
+                    followWrite(result.value)
+                }
+                is AppResult.Err -> {
+                    result.cause?.let { crashReporter.recordException(it, "sale lines enqueue failed") }
+                    analytics.track(AnalyticsEventsVendors.VENDORS_FAILURE, mapOf(AnalyticsEvents.Params.REASON to result.message.take(120)))
+                    local.update { it.copy(submitInFlight = false, writeStatus = VendorsWriteStatus.FAILED, writeMessage = MESSAGE_NOT_SAVED) }
+                }
+            }
+        }
+    }
+
     private fun submit(acknowledgeStock: Boolean = false) {
+        if (addLinesMode) return submitLines()
         val values = state.value.values
         val errors = (0 until STEP_COUNT).fold(emptyMap<SaleField, String>()) { acc, step -> acc + validate(step, values) }
-        val lineErrors = validateLines(state.value.lines)
+        val lineErrors = if (state.value.advanceOnly) emptyMap() else validateLines(state.value.lines)
         if (errors.isNotEmpty() || lineErrors.isNotEmpty()) {
             val firstStep = if (lineErrors.isNotEmpty()) 0 else (0 until STEP_COUNT).first { validate(it, values).isNotEmpty() }
             local.update { it.copy(step = firstStep, fieldErrors = errors, lines = it.lines.withErrors(lineErrors)) }
@@ -1246,7 +1380,10 @@ class SaleCreateViewModel @Inject constructor(
                 val value = lineTotals(local.value.lines).value
                 nonNegative(SaleField.ADVANCE_AMOUNT)
                 val advance = v[SaleField.ADVANCE_AMOUNT].orEmpty().trim().toDoubleOrNull()
-                if (advance != null && value > 0.0 && advance > value) errors[SaleField.ADVANCE_AMOUNT] = ADVANCE_OVER
+                if (v[SaleField.ADVANCE_ONLY] == "true") {
+                    // An advance taken before anything was chosen IS the money; it must be real.
+                    if (advance == null || advance <= 0.0) errors[SaleField.ADVANCE_AMOUNT] = ADVANCE_REQUIRED
+                } else if (advance != null && value > 0.0 && advance > value) errors[SaleField.ADVANCE_AMOUNT] = ADVANCE_OVER
                 if (v[SaleField.STATUS].isNullOrBlank()) errors[SaleField.STATUS] = REQUIRED
                 if (v[SaleField.COMMENTS].orEmpty().length > MAX_COMMENTS) errors[SaleField.COMMENTS] = TOO_LONG
             }
@@ -1316,43 +1453,48 @@ class SaleCreateViewModel @Inject constructor(
         else -> "${lines.size} lines"
     }
 
+    private fun number(raw: String): Double? = raw.trim().ifBlank { null }?.toDoubleOrNull()
+
     private fun Map<SaleField, String>.toWrite(lines: List<SaleLineDraftUi>, acknowledgeStock: Boolean = false): SalesDealWriteDto {
-        fun number(raw: String): Double? = raw.trim().ifBlank { null }?.toDoubleOrNull()
         fun number(f: SaleField): Double? = number(get(f).orEmpty())
+        val advanceOnly = get(SaleField.ADVANCE_ONLY) == "true"
         return SalesDealWriteDto(
             saleDate = get(SaleField.SALE_DATE).orEmpty(),
             farm = get(SaleField.FARM).orEmpty(),
-            lines = lines.map { line ->
-                // A line priced by the unit sends its quantity and rate and NO value: the backend
-                // works the money out, so a figure this screen computed can never be what is
-                // recorded. An animal line sends its counts and the price agreed for the lot.
-                if (line.pricedPerUnit) {
-                    SalesDealLineWriteDto(
-                        productType = line.product,
-                        breed = line.breed,
-                        quantity = number(line.quantity),
-                        ratePerUnit = number(line.rate),
-                        salesValue = 0.0,
-                    )
-                } else {
-                    SalesDealLineWriteDto(
-                        productType = line.product,
-                        breed = line.breed,
-                        animalCount = number(line.animals),
-                        totalWeightKg = number(line.weightKg),
-                        salesValue = line.value.trim().toDouble(),
-                    )
-                }
-            },
+            // An advance-only sale sends NO lines: its products are added to it later.
+            lines = if (advanceOnly) emptyList() else lines.map(::lineWrite),
             buyerName = get(SaleField.BUYER_NAME).orEmpty().trim(),
             buyerPlace = get(SaleField.BUYER_PLACE).orEmpty().trim(),
             buyerVendorId = get(SaleField.BUYER_VENDOR_ID).orEmpty(),
             advanceAmount = number(SaleField.ADVANCE_AMOUNT),
             comments = get(SaleField.COMMENTS).orEmpty().trim(),
-            status = get(SaleField.STATUS).orEmpty(),
+            status = if (advanceOnly) STATUS_ADVANCE_PAID else get(SaleField.STATUS).orEmpty(),
             stockShortfallAcknowledged = acknowledgeStock,
+            advanceOnly = advanceOnly,
         )
     }
+
+    private fun lineWrite(line: SaleLineDraftUi): SalesDealLineWriteDto =
+        // A line priced by the unit sends its quantity and rate and NO value: the backend works the
+        // money out, so a figure this screen computed can never be what is recorded. An animal
+        // line sends its counts and the price agreed for the lot.
+        if (line.pricedPerUnit) {
+            SalesDealLineWriteDto(
+                productType = line.product,
+                breed = line.breed,
+                quantity = number(line.quantity),
+                ratePerUnit = number(line.rate),
+                salesValue = 0.0,
+            )
+        } else {
+            SalesDealLineWriteDto(
+                productType = line.product,
+                breed = line.breed,
+                animalCount = number(line.animals),
+                totalWeightKg = number(line.weightKg),
+                salesValue = line.value.trim().toDouble(),
+            )
+        }
 
     private companion object {
         const val KEY_CLIENT_ID = "sale_create_client_id"
@@ -1379,6 +1521,8 @@ class SaleCreateViewModel @Inject constructor(
         const val AMOUNT = "Enter an amount, zero or more"
         const val WHOLE_NUMBER = "Whole number, zero or more"
         const val ADVANCE_OVER = "Cannot be more than the sale value"
+        const val ADVANCE_REQUIRED = "Enter the advance the buyer paid"
+        const val STATUS_ADVANCE_PAID = "Advance Paid"
         const val TOO_FAR = "Too far ahead — within 60 days of today"
         const val TOO_LONG = "Too long"
         const val MESSAGE_SAVING = "Saving sale…"

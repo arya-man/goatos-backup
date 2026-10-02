@@ -140,6 +140,8 @@ import sg.mesha.goatos.core.network.dto.SalesBuyerLeadWriteDto
 import sg.mesha.goatos.core.network.dto.SalesDealDto
 import sg.mesha.goatos.core.network.dto.SalesDealPaymentDto
 import sg.mesha.goatos.core.network.dto.SalesDealPaymentWriteDto
+import sg.mesha.goatos.core.network.dto.SalesDealLinesWriteDto
+import sg.mesha.goatos.core.network.dto.SalesDealSettlementWriteDto
 import sg.mesha.goatos.core.network.dto.SalesDealStatusWriteDto
 import sg.mesha.goatos.core.network.dto.SalesFpoLeadDto
 import sg.mesha.goatos.core.network.dto.SalesFpoLeadPageDto
@@ -1833,6 +1835,26 @@ interface AppApi {
 
     /** GET /sales/deals/{deal_id} — one sale in the ledger-row shape; 404 when it no longer exists. */
     suspend fun getSalesDeal(dealId: String): SalesDealDto
+
+    /**
+     * POST /sales/deals/{deal_id}/lines — what an ADVANCE-ONLY sale sold, added once (maintainer
+     * decision 2026-10-02). The sale's steps open on the server when it lands. Idempotency-Key.
+     */
+    suspend fun addSalesDealLines(
+        dealId: String,
+        idempotencyKey: String,
+        request: SalesDealLinesWriteDto,
+    ): SalesDealDto = throw UnsupportedOperationException("addSalesDealLines")
+
+    /**
+     * PUT /sales/deals/{deal_id}/advance-settlement — a FAILED sale's money refunded in part or
+     * whole, the rest kept by the farm. Idempotency-Key.
+     */
+    suspend fun settleSalesDealAdvance(
+        dealId: String,
+        idempotencyKey: String,
+        request: SalesDealSettlementWriteDto,
+    ): SalesDealDto = throw UnsupportedOperationException("settleSalesDealAdvance")
 
     /** POST /sales/deals/{deal_id}/status — moves the deal's status word. */
     suspend fun setSalesDealStatus(
@@ -3621,6 +3643,21 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         fakeSalesDeal().copy(dealId = dealId, payments = emptyList(), paymentReceived = 0.0, paymentBalance = 150000.0)
 
     override suspend fun getSalesDeal(dealId: String): SalesDealDto = fakeSalesDeal().copy(dealId = dealId)
+
+    override suspend fun addSalesDealLines(dealId: String, idempotencyKey: String, request: SalesDealLinesWriteDto): SalesDealDto =
+        fakeSalesDeal().copy(dealId = dealId, advanceOnly = false, salesValue = request.lines.sumOf { it.salesValue })
+
+    override suspend fun settleSalesDealAdvance(dealId: String, idempotencyKey: String, request: SalesDealSettlementWriteDto): SalesDealDto =
+        fakeSalesDeal().copy(
+            dealId = dealId,
+            status = "Deal Failed",
+            canSettle = true,
+            settlement = sg.mesha.goatos.core.network.dto.SalesDealSettlementDto(
+                outcome = if (request.refundedRupees > 0) "part_refunded" else "kept",
+                refundedRupees = request.refundedRupees,
+                refundedOn = request.refundedOn,
+            ),
+        )
 
     override suspend fun setSalesDealStatus(dealId: String, idempotencyKey: String, request: SalesDealStatusWriteDto): SalesDealDto =
         fakeSalesDeal().copy(dealId = dealId, status = request.status)

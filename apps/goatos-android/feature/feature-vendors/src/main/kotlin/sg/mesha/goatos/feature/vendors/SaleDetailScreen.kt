@@ -119,6 +119,12 @@ fun SaleDetailScreen(
             VendorsWizardBar(contextLine = "") {
                 VendorsPrimaryButton(label = TAG_ANIMALS, enabled = true, onClick = { onEvent(SaleDetailEvent.TagAnimals) }, modifier = Modifier.weight(1f))
             }
+        } else if (state.canAddLines && state.canEdit) {
+            // An advance taken before the sale was decided (2026-10-02): what was sold is added
+            // here, and the sale's steps start once it is saved.
+            VendorsWizardBar(contextLine = ADD_LINES_HINT) {
+                VendorsPrimaryButton(label = ADD_LINES, enabled = !state.editInFlight, onClick = { onEvent(SaleDetailEvent.AddLines) }, modifier = Modifier.weight(1f))
+            }
         }
     }
 }
@@ -185,6 +191,15 @@ private fun MoneyCard(state: SaleDetailUiState, onEvent: (SaleDetailEvent) -> Un
                 enabled = !state.editInFlight,
                 modifier = Modifier.fillMaxWidth(),
             )
+            // A failed sale the buyer paid towards: refund some or all of it, the rest is kept.
+            if (state.canSettle) {
+                VendorsGhostButton(
+                    label = SETTLE,
+                    onClick = { onEvent(SaleDetailEvent.OpenSettlement) },
+                    enabled = !state.editInFlight,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         } else {
             PaymentEditor(state, editor, onEvent)
         }
@@ -203,15 +218,21 @@ private fun PaymentEditor(state: SaleDetailUiState, editor: SalePaymentEditorUi,
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(
-            text = if (editor.paymentId.isBlank()) ADD_PAYMENT else EDIT_PAYMENT,
+            text = when {
+                editor.settlement -> SETTLE
+                editor.paymentId.isBlank() -> ADD_PAYMENT
+                else -> EDIT_PAYMENT
+            },
             color = MeshaColors.Muted,
             style = MeshaType.sectionLabel,
         )
+        if (editor.settlement) Text(text = SETTLE_HINT, color = MeshaColors.Muted, style = MeshaType.caption)
         VendorsDateField(
-            label = LABEL_RECEIVED_ON,
+            label = if (editor.settlement) LABEL_REFUNDED_ON else LABEL_RECEIVED_ON,
             valueIso = editor.values[SalePaymentField.RECEIVED_ON].orEmpty(),
             onValueChange = { onEvent(SaleDetailEvent.PaymentFieldChanged(SalePaymentField.RECEIVED_ON, it)) },
-            required = true,
+            // A refund carries the day it went back; keeping it all has none.
+            required = !editor.settlement,
             error = editor.fieldErrors[SalePaymentField.RECEIVED_ON],
             // Money cannot be received tomorrow; the picker refuses a future day rather than
             // letting the ledger carry one.
@@ -220,8 +241,8 @@ private fun PaymentEditor(state: SaleDetailUiState, editor: SalePaymentEditorUi,
         VendorsTextField(
             value = editor.values[SalePaymentField.AMOUNT].orEmpty(),
             onValueChange = { onEvent(SaleDetailEvent.PaymentFieldChanged(SalePaymentField.AMOUNT, it)) },
-            label = LABEL_AMOUNT,
-            required = true,
+            label = if (editor.settlement) LABEL_REFUNDED else LABEL_AMOUNT,
+            required = !editor.settlement,
             keyboard = KeyboardType.Decimal,
             error = editor.fieldErrors[SalePaymentField.AMOUNT],
         )
@@ -234,13 +255,13 @@ private fun PaymentEditor(state: SaleDetailUiState, editor: SalePaymentEditorUi,
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             VendorsGhostButton(label = CANCEL, onClick = { onEvent(SaleDetailEvent.ClosePayment) }, enabled = !editor.inFlight)
             VendorsPrimaryButton(
-                label = SAVE_PAYMENT,
+                label = if (editor.settlement) SAVE_SETTLEMENT else SAVE_PAYMENT,
                 enabled = !editor.inFlight,
                 onClick = { onEvent(SaleDetailEvent.SavePayment) },
                 modifier = Modifier.weight(1f),
             )
         }
-        if (editor.paymentId.isNotBlank()) {
+        if (editor.paymentId.isNotBlank() && !editor.settlement) {
             VendorsGhostButton(
                 label = REMOVE_PAYMENT,
                 onClick = { onEvent(SaleDetailEvent.DeletePayment) },
@@ -376,3 +397,12 @@ private const val FINAL_STATUS_CONFIRM = "Yes, mark it"
 private const val SALE_NOT_FOUND = "This sale is not on this phone yet"
 private const val SALE_NOT_FOUND_HINT = "Open the sales list while online so it can load, then try again."
 private const val SALE_GONE = "This sale no longer exists"
+
+// An advance taken before the sale was decided, and a failed sale's money (2026-10-02).
+private const val ADD_LINES = "Add what was sold"
+private const val ADD_LINES_HINT = "Only the advance is recorded so far."
+private const val SETTLE = "Refund or keep the money"
+private const val SETTLE_HINT = "This sale fell through. Enter what was handed back to the buyer and on which day; the rest is kept by the farm. Leave the refund blank if the farm keeps it all."
+private const val LABEL_REFUNDED = "Refunded to the buyer (₹)"
+private const val LABEL_REFUNDED_ON = "Refunded on"
+private const val SAVE_SETTLEMENT = "Save"

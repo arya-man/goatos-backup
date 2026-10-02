@@ -145,6 +145,8 @@ import sg.mesha.goatos.core.network.dto.SalesBuyerLeadPageDto
 import sg.mesha.goatos.core.network.dto.SalesBuyerLeadWriteDto
 import sg.mesha.goatos.core.network.dto.SalesDealDto
 import sg.mesha.goatos.core.network.dto.SalesDealPaymentWriteDto
+import sg.mesha.goatos.core.network.dto.SalesDealLinesWriteDto
+import sg.mesha.goatos.core.network.dto.SalesDealSettlementWriteDto
 import sg.mesha.goatos.core.network.dto.SalesDealStatusWriteDto
 import sg.mesha.goatos.core.network.dto.SalesFpoLeadDto
 import sg.mesha.goatos.core.network.dto.SalesFpoLeadPageDto
@@ -1258,6 +1260,21 @@ interface AppApiService {
 
     @GET("sales/deals/{deal_id}")
     suspend fun getSalesDeal(@Path("deal_id") dealId: String): SalesDealDto
+
+    // An advance-only sale's products, and a failed sale's money (maintainer decision 2026-10-02).
+    @POST("sales/deals/{deal_id}/lines")
+    suspend fun addSalesDealLines(
+        @Path("deal_id") dealId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: SalesDealLinesWriteDto,
+    ): SalesDealDto
+
+    @PUT("sales/deals/{deal_id}/advance-settlement")
+    suspend fun settleSalesDealAdvance(
+        @Path("deal_id") dealId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: SalesDealSettlementWriteDto,
+    ): SalesDealDto
 
     @POST("sales/deals/{deal_id}/status")
     suspend fun setSalesDealStatus(
@@ -2630,6 +2647,12 @@ class RetrofitAppApi(
 
     override suspend fun deleteSalesDealPayment(dealId: String, paymentId: String, idempotencyKey: String): SalesDealDto =
         service.deleteSalesDealPayment(dealId, paymentId, idempotencyKey)
+
+    override suspend fun addSalesDealLines(dealId: String, idempotencyKey: String, request: SalesDealLinesWriteDto): SalesDealDto =
+        service.addSalesDealLines(dealId, idempotencyKey, request)
+
+    override suspend fun settleSalesDealAdvance(dealId: String, idempotencyKey: String, request: SalesDealSettlementWriteDto): SalesDealDto =
+        service.settleSalesDealAdvance(dealId, idempotencyKey, request)
 
     override suspend fun getSalesDeal(dealId: String): SalesDealDto = service.getSalesDeal(dealId)
 

@@ -10,6 +10,8 @@ import sg.mesha.goatos.core.network.dto.FeedPurchaseWriteDto
 import sg.mesha.goatos.core.network.dto.SalesBenchmarkWriteDto
 import sg.mesha.goatos.core.network.dto.SalesBuyerLeadWriteDto
 import sg.mesha.goatos.core.network.dto.SalesDealPaymentWriteDto
+import sg.mesha.goatos.core.network.dto.SalesDealLinesWriteDto
+import sg.mesha.goatos.core.network.dto.SalesDealSettlementWriteDto
 import sg.mesha.goatos.core.network.dto.SalesDealStatusWriteDto
 import sg.mesha.goatos.core.network.dto.SalesDealWriteDto
 import sg.mesha.goatos.core.network.dto.SalesFpoLeadWriteDto
@@ -141,6 +143,16 @@ object SalesPaymentOp {
     const val CREATE = "create"
     const val UPDATE = "update"
     const val DELETE = "delete"
+
+    /**
+     * What an ADVANCE-ONLY sale sold, added once (maintainer decision 2026-10-02). It rides the
+     * receipt lane because it changes the same deal's money (the balance appears with the value),
+     * so it must land in order with the receipts entered around it. Carries [SalesDealPaymentPayload.lines].
+     */
+    const val ADD_LINES = "add_lines"
+
+    /** A FAILED sale's money refunded or kept. Carries [SalesDealPaymentPayload.settlement]. */
+    const val SETTLE = "settle"
 }
 
 /**
@@ -155,6 +167,10 @@ data class SalesDealPaymentPayload(
     @SerialName("op") val op: String,
     @SerialName("payment_id") val paymentId: String = "",
     @SerialName("request") val request: SalesDealPaymentWriteDto? = null,
+    /** [SalesPaymentOp.ADD_LINES] only. */
+    @SerialName("lines") val lines: SalesDealLinesWriteDto? = null,
+    /** [SalesPaymentOp.SETTLE] only. */
+    @SerialName("settlement") val settlement: SalesDealSettlementWriteDto? = null,
 )
 
 /** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.SALES_DEAL_STATUS_SET]. */

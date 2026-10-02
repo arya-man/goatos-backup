@@ -816,6 +816,20 @@ interface SyncRepository {
         request: sg.mesha.goatos.core.network.dto.SalesDealPaymentWriteDto? = null,
     ): AppResult<String> = AppResult.Err("sales sync is not configured")
 
+    /** What an ADVANCE-ONLY sale sold (`POST /sales/deals/{id}/lines`), on the deal's lane. */
+    suspend fun enqueueSalesDealLinesAdd(
+        clientId: String,
+        dealId: String,
+        request: sg.mesha.goatos.core.network.dto.SalesDealLinesWriteDto,
+    ): AppResult<String> = AppResult.Err("sales sync is not configured")
+
+    /** A FAILED sale's money refunded or kept (`PUT /sales/deals/{id}/advance-settlement`). */
+    suspend fun enqueueSalesDealSettlement(
+        clientId: String,
+        dealId: String,
+        request: sg.mesha.goatos.core.network.dto.SalesDealSettlementWriteDto,
+    ): AppResult<String> = AppResult.Err("sales sync is not configured")
+
     /** The deal's status word (`POST /sales/deals/{id}/status`). */
     suspend fun enqueueSalesDealStatusSet(
         clientId: String,
@@ -2152,6 +2166,38 @@ class DefaultSyncRepository(
             SalesDealPaymentPayload(
                 clientId = clientId.trim(), dealId = dealId.trim(), op = op,
                 paymentId = paymentId.trim(), request = request,
+            ),
+        ),
+        maxAttempts = SALES_WRITE_MAX_ATTEMPTS,
+    )
+
+    override suspend fun enqueueSalesDealLinesAdd(
+        clientId: String,
+        dealId: String,
+        request: sg.mesha.goatos.core.network.dto.SalesDealLinesWriteDto,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.SALES_DEAL_PAYMENT_WRITE,
+        groupKey = salesDealEditGroupKey(dealId.trim()),
+        idempotencyKey = salesDealPaymentIdempotencyKey(clientId.trim()),
+        payloadJson = syncJson.encodeToString(
+            SalesDealPaymentPayload(
+                clientId = clientId.trim(), dealId = dealId.trim(), op = SalesPaymentOp.ADD_LINES, lines = request,
+            ),
+        ),
+        maxAttempts = SALES_WRITE_MAX_ATTEMPTS,
+    )
+
+    override suspend fun enqueueSalesDealSettlement(
+        clientId: String,
+        dealId: String,
+        request: sg.mesha.goatos.core.network.dto.SalesDealSettlementWriteDto,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.SALES_DEAL_PAYMENT_WRITE,
+        groupKey = salesDealEditGroupKey(dealId.trim()),
+        idempotencyKey = salesDealPaymentIdempotencyKey(clientId.trim()),
+        payloadJson = syncJson.encodeToString(
+            SalesDealPaymentPayload(
+                clientId = clientId.trim(), dealId = dealId.trim(), op = SalesPaymentOp.SETTLE, settlement = request,
             ),
         ),
         maxAttempts = SALES_WRITE_MAX_ATTEMPTS,

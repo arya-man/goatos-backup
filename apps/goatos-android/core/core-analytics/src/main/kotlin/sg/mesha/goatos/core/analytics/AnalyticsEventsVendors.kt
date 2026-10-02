@@ -82,6 +82,17 @@ object AnalyticsEventsVendors {
     const val VENDORS_SALE_PAYMENT_OPENED = "vendors_sale_payment_opened"
     const val VENDORS_SALE_EDITED = "vendors_sale_edited"
 
+    // An advance taken before the sale is decided (maintainer decision 2026-10-02).
+
+    /** The add-what-was-sold form was opened on an advance-only sale. */
+    const val VENDORS_SALE_ADD_LINES_OPENED = "vendors_sale_add_lines_opened"
+
+    /** What an advance-only sale sold was durably queued on the outbox. */
+    const val VENDORS_SALE_LINES_QUEUED = "vendors_sale_lines_queued"
+
+    /** The refund-or-keep editor was opened on a failed sale's money. */
+    const val VENDORS_SALE_SETTLEMENT_OPENED = "vendors_sale_settlement_opened"
+
     /** The sale's SOP steps opened from the sale detail (SALES SOP, 2026-09-19). */
     const val VENDORS_SALE_STEPS_OPENED = "vendors_sale_steps_opened"
 
