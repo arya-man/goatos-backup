@@ -62,3 +62,20 @@ test("the chartRamp order is the palette's validated order", async () => {
   const ramp = [...source.match(/const RAMP: ChartColorKey\[\] = \[(.*)\];/)[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
   assert.deepEqual(ramp, CHART_CATEGORICAL.map((slot) => slot.key));
 });
+
+// PR #294 K7: adjacency was not enough. A chart with seven or more series paints non-adjacent slots
+// side by side in its legend, and violet/indigo (lavender beside indigo) and green/olive read as one
+// colour (deltaE ~5). The hues that share a family must clear deltaE 11 in BOTH schemes.
+for (const mode of ["light", "dark"]) {
+  test(`chart palette (${mode}): same-family slots are told apart`, () => {
+    const hex = Object.fromEntries(CHART_CATEGORICAL.map((slot) => [slot.key, slot[mode]]));
+    for (const [a, b] of [["series-violet", "series-indigo"], ["series-blue", "series-indigo"], ["series-green", "series-olive"], ["series-green", "series-aqua"]]) {
+      const d = dE(hex[a], hex[b]);
+      assert.ok(d >= 8.5, `${a} ${hex[a]} / ${b} ${hex[b]} deltaE ${d.toFixed(1)} < 8.5`);
+    }
+    for (const [a, b] of [["series-violet", "series-indigo"], ["series-green", "series-olive"]]) {
+      const d = dE(hex[a], hex[b]);
+      assert.ok(d >= 11, `${a} / ${b} deltaE ${d.toFixed(1)} < 11`);
+    }
+  });
+}

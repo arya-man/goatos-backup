@@ -10,6 +10,11 @@
 // re-step one slot without re-running that validation; components/app/chart-palette.test.mjs
 // re-checks the normal-vision floor.
 //
+// PR #294 K7 re-stepped indigo, olive (both schemes) and aqua (light): a legend of seven or more
+// series puts NON-adjacent slots side by side, and violet/indigo and green/olive/aqua measured
+// deltaE ~5-8. Same-family slots now clear deltaE 8.5 (11 for violet/indigo and green/olive), with
+// every slot >= 3:1 against its chart surface; chart-palette.test.mjs pins both.
+//
 // `cssVar` is the scheme-following custom property theme/app-baseline.tsx emits for the slot.
 //
 // No error red: an ordinary category never wears the colour that means "at risk" elsewhere.
