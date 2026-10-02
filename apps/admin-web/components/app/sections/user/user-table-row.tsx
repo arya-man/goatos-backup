@@ -90,6 +90,7 @@ export function UserTableRow({ id, name, nameHref, nameLinkComponent, nameLinkPr
 
   return (
     <>
+      {/* interaction-guard:ignore: template-derived UserTableRow markup (anatomy-locked); the tick is the real MUI Checkbox in the first cell */}
       <TableRow hover selected={selected} aria-checked={selected} tabIndex={-1}>
         {onSelectRow ? (
           <TableCell padding="checkbox">

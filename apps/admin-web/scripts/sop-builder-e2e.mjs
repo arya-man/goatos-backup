@@ -111,7 +111,7 @@ try {
 
   // ============ 2. TRIGGER CHIPS ============
   await gotoBuilder();
-  for (const label of ["Form", "Schedule / cron", "Sensor", "Manual"]) {
+  for (const label of ["Form", "Schedule", "Sensor", "Manual"]) {
     // The trigger is a template pill TemplateTabs strip (role tab, aria-selected), not the legacy chip set.
     const chip = page.locator("[data-testid=builder-main] [role=tab]", { hasText: new RegExp(`^${label.replace(/\//g, "\\/")}$`) }).first();
     await chip.click();

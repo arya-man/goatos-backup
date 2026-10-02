@@ -1,6 +1,7 @@
 import type { Theme } from "@mui/material/styles";
 import { useSyncExternalStore } from "react";
 import { useColorScheme, useTheme } from "@mui/material/styles";
+import { CHART_CATEGORICAL, type ChartCategoricalKey } from "@/theme/chart-palette";
 
 const noSubscribe = () => () => {};
 
@@ -20,8 +21,14 @@ type Key = "primary" | "secondary" | "info" | "success" | "warning" | "error";
 type Shade = "lighter" | "light" | "main" | "dark" | "darker";
 type GreyShade = "300" | "400" | "500" | "600" | "700";
 
-/** A palette channel: `"info"` (= info.main), `"info.dark"`, `"grey.500"`. */
-export type ChartColorKey = Key | `${Key}.${Shade}` | `grey.${GreyShade}`;
+/**
+ * A palette channel: `"info"` (= info.main), `"info.dark"`, `"grey.500"`; or a categorical chart
+ * slot (`"series-blue"`, theme/chart-palette.ts) for a chart that names more series than the theme
+ * has hues.
+ */
+export type ChartColorKey = Key | `${Key}.${Shade}` | `grey.${GreyShade}` | ChartCategoricalKey;
+
+const CATEGORICAL = new Map<string, (typeof CHART_CATEGORICAL)[number]>(CHART_CATEGORICAL.map((slot) => [slot.key, slot]));
 
 /** Mesha token name (inside `var(--…)`) -> palette channel. */
 const TOKEN_CHANNEL: Record<string, ChartColorKey> = {
@@ -87,6 +94,10 @@ export function useChartTheme(): Theme {
 export function chartColor(theme: Theme, token: string): string {
   // Already a resolved theme value (a caller that read theme.palette itself).
   if (/^(#|rgb)/.test(token)) return token;
+  // A categorical slot: the step for the active scheme, or its scheme-following variable
+  // (theme/app-baseline emits `--chart-series-*` per scheme) until the scheme is known.
+  const slot = CATEGORICAL.get(token.trim());
+  if (slot) return (theme as ChartTheme).chartSchemeUnresolved ? `var(${slot.cssVar})` : slot[theme.palette.mode === "light" ? "light" : "dark"];
   // `theme.vars.palette.info.main` is `var(--palette-info-main)`: read back as its channel.
   const vars = /^var\(--palette-(primary|secondary|info|success|warning|error|grey)-(\w+)\)$/.exec(token.trim());
   const legacy = vars ? null : /^var\(--([\w-]+)\)$/.exec(token.trim());
@@ -102,12 +113,11 @@ export function chartColor(theme: Theme, token: string): string {
 }
 
 /**
- * Categorical series, in order. No error red and no second green: an ordinary category is never
- * painted in the colours that mean "at risk" elsewhere. Bars lead with primary.dark (template
- * AppAreaInstalled / BankingBalanceStatistics); lines and areas with primary.main
- * (EcommerceYearlySales).
+ * Categorical series, in order: the twelve validated hues of theme/chart-palette.ts (one hue per
+ * series, never two shades of one hue side by side; no error red). Bars lead with primary.dark
+ * (template AppAreaInstalled / BankingBalanceStatistics); lines and areas with the brand green.
  */
-const RAMP: ChartColorKey[] = ["primary", "warning", "info", "secondary", "grey.500", "primary.darker", "warning.light", "info.dark", "secondary.light"];
+const RAMP: ChartColorKey[] = ["series-green", "series-blue", "series-orange", "series-violet", "series-magenta", "series-olive", "series-teal", "series-yellow", "series-indigo", "series-aqua", "series-plum", "series-brown"];
 
 export function chartRamp(theme: Theme, kind: "bar" | "line" = "line"): string[] {
   return RAMP.map((key, i) => chartColor(theme, i === 0 && kind === "bar" ? "primary.dark" : key));

@@ -19,23 +19,25 @@
 // Series colours reuse the exact ordering of components/svg-bars.tsx so an entity keeps the same
 // colour on every chart of a page (colour follows the entity, never its rank on one chart).
 
-// Twelve series colours, every one a theme PALETTE CHANNEL (components/app/chart-colors resolves
-// it to the active scheme's colour for ApexCharts): the order an entity keeps on every chart of a
-// page. No error red: an ordinary category never wears the colour that means "at risk". Past
-// twelve series the ramp wraps.
+// Twelve series colours, one HUE each (theme/chart-palette.ts, validated for colour-blind and
+// normal-vision separation in both schemes; components/app/chart-colors resolves each to the active
+// scheme's step for ApexCharts): the order an entity keeps on every chart of a page. The theme has
+// only six hues, and the palette-channel ramp this replaced painted eleven feeds or breeds in three
+// greens, two blues and two purples (PR #294 D2/E4). No error red: an ordinary category never wears
+// the colour that means "at risk". Past twelve series the ramp wraps.
 export const SERIES_VARS = [
-  "primary",
-  "info",
-  "warning",
-  "secondary",
-  "info.light",
-  "grey.500",
-  "info.dark",
-  "warning.dark",
-  "success.dark",
-  "secondary.light",
-  "primary.darker",
-  "warning.light",
+  "series-green",
+  "series-blue",
+  "series-orange",
+  "series-violet",
+  "series-magenta",
+  "series-olive",
+  "series-teal",
+  "series-yellow",
+  "series-indigo",
+  "series-aqua",
+  "series-plum",
+  "series-brown",
 ] as const;
 
 import { EmptyState } from "./app/empty-state";

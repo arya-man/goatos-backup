@@ -29,6 +29,21 @@ const MuiDrawer: Components<Theme>['MuiDrawer'] = {
             }),
           }),
         },
+        {
+          // Light scheme: every temporary drawer / sheet is a SOLID paper surface. The template's
+          // 90% paper + 20px backdrop blur + corner glows read as frosted grey on white, with the
+          // error-red glow as a pink blush bottom-left and the page showing through a phone sheet
+          // (PR #294 L4). Dark keeps the template look, where the glass reads as intended.
+          props: (props) => props.variant === 'temporary',
+          style: ({ theme }) => ({
+            ...theme.applyStyles('light', {
+              backgroundColor: theme.vars.palette.background.paper,
+              backgroundImage: 'none',
+              backdropFilter: 'none',
+              WebkitBackdropFilter: 'none',
+            }),
+          }),
+        },
       ],
     },
   },

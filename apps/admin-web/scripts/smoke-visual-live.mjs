@@ -200,7 +200,7 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     { name: "calendar-history", path: "/calendar?scope_mode=company&status=completed" },
     { name: "calendar-owner-pc", path: "/calendar?scope_mode=company&day=week&owner_key=pc" },
     { name: "protocol-adherence", path: "/protocol-adherence?scope_mode=company" },
-    { name: "protocol-adherence-high", path: "/protocol-adherence?scope_mode=company&severity=high" },
+    { name: "protocol-adherence-at-risk", path: "/protocol-adherence?scope_mode=company&severity=at_risk" },
     { name: "protocol-adherence-overdue", path: "/protocol-adherence?scope_mode=company&state=overdue" },
     { name: "workflows", path: "/workflows?scope_mode=company" },
     { name: "workflow-record", path: `/workflows/${encodeURIComponent(workflowRowId)}?scope_mode=company` },
@@ -265,7 +265,6 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     // Sale-ready tolerance slider state (sales-farm-value.tsx: sale_ready_tolerance_g, 0..1000).
     { name: "sales-farm-value-tolerance", path: "/sales/farm-value?scope_mode=company&sale_ready_tolerance_g=500" },
     { name: "sales-loads", path: "/sales/loads?scope_mode=company" },
-    { name: "sales-loads-farm-born", path: "/sales/loads?scope_mode=company&view=farm_born" },
     { name: "sales-market-analytics", path: "/sales/market-analytics?scope_mode=company" },
     { name: "sales-buyer-analytics", path: "/sales/buyer-analytics?scope_mode=company" },
     { name: "sales-farm-born", path: "/sales/farm-born?scope_mode=company" },

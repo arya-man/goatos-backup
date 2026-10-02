@@ -6,7 +6,7 @@ import { varTap, varHover, transitionTap } from "@/layouts/template/animate";
 import SvgIcon from "@mui/material/SvgIcon";
 import { settingIcons } from "@/layouts/template/settings/drawer/icons";
 import { AppIcon } from "@/components/app/app-icon";
-import { useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { applyTheme, readTheme, type ThemeMode } from "@/lib/theme";
 
 function subscribeTheme(onChange: () => void): () => void {
@@ -26,7 +26,11 @@ export type ThemeToggleProps = {
 
 export function ThemeToggle({ labelToLight, labelToDark, className, onChange }: ThemeToggleProps) {
   const mode = useSyncExternalStore(subscribeTheme, readTheme, serverTheme);
-  const reduce = useReducedMotion();
+  // Animate only a swap the person asked for. Hydration corrects the server's "dark" guess on a light
+  // page; animating THAT ran a 250ms sun-out / moon-in on every light page load, so a light page could
+  // still be showing the sun (PR #294 L3). Until the first click the glyph simply is the mode's.
+  const [toggled, setToggled] = useState(false);
+  const reduce = useReducedMotion() || !toggled;
   const isLight = mode === "light";
   const label = isLight ? labelToDark : labelToLight;
   // Template header IconButton idiom (layouts/components/settings-button: tap/hover motion, 24px icon);
@@ -43,6 +47,7 @@ export function ThemeToggle({ labelToLight, labelToDark, className, onChange }: 
       aria-label={label}
       onClick={() => {
         const next: ThemeMode = isLight ? "dark" : "light";
+        setToggled(true);
         applyTheme(next);
         onChange?.(next);
       }}
@@ -52,7 +57,7 @@ export function ThemeToggle({ labelToLight, labelToDark, className, onChange }: 
           key={mode}
           initial={reduce ? false : { rotate: -90, opacity: 0, scale: 0.8 }}
           animate={{ rotate: 0, opacity: 1, scale: 1 }}
-          exit={reduce ? undefined : { rotate: 90, opacity: 0, scale: 0.8 }}
+          exit={reduce ? { opacity: 0, transition: { duration: 0 } } : { rotate: 90, opacity: 0, scale: 0.8 }}
           transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
         >
           {/* Moon = go dark: the template settings-drawer glyph (verbatim settingIcons). Sun = go light:

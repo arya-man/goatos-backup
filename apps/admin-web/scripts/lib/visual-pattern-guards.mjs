@@ -70,6 +70,16 @@ export function collectVisualPatternFindings({ minChartAxisPx = 11, viewport = "
     const y = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
     return x > 0 && y > 0 ? Math.min(x, y) : 0;
   };
+  const contentBox = (el) => {
+    const r = el.getBoundingClientRect();
+    const cs = getComputedStyle(el);
+    const px = (v) => Number.parseFloat(v) || 0;
+    const left = r.left + px(cs.paddingLeft) + px(cs.borderLeftWidth);
+    const right = r.right - px(cs.paddingRight) - px(cs.borderRightWidth);
+    const top = r.top + px(cs.paddingTop) + px(cs.borderTopWidth);
+    const bottom = r.bottom - px(cs.paddingBottom) - px(cs.borderBottomWidth);
+    return { left, right: Math.max(left, right), top, bottom: Math.max(top, bottom) };
+  };
   const scrollXAncestor = (el) => {
     for (let n = el.parentElement; n && n !== document.documentElement; n = n.parentElement) {
       const cs = getComputedStyle(n);
@@ -108,7 +118,11 @@ export function collectVisualPatternFindings({ minChartAxisPx = 11, viewport = "
     for (const t of texts) {
       for (const icon of icons) {
         if (t === icon || t.contains(icon) || icon.contains(t)) continue;
-        const o = overlapPx(t.getBoundingClientRect(), icon.getBoundingClientRect());
+        // The text's CONTENT box, not its border box: padding is space the control reserves for its
+        // own adornment. A MUI Select's value box pads 32px on the right and its chevron sits in
+        // that padding, so the border boxes always intersect and every select on every route was
+        // reported (PR #294 F9). Text that really runs over an icon still lands inside the content box.
+        const o = overlapPx(contentBox(t), icon.getBoundingClientRect());
         if (o > 4) push("P-text-icon-overlap", describe(t), `overlaps ${describe(icon)} by ${Math.round(o)}px`);
       }
     }

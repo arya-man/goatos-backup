@@ -24,6 +24,12 @@ type AvatarGroupVariants = ComponentsVariants<Theme>['MuiAvatarGroup'];
 
 const baseColors = ['default', 'inherit'] as const;
 const allColors = [...baseColors, ...colorKeys.palette] as const;
+/**
+ * The colours a NAME may be hashed to. Not `inherit`: that is the template's ink fill (grey 800 in
+ * light, white in dark), so every person whose initial landed on it rendered as a solid black square
+ * on the light theme (PR #294 L5). `color="inherit"` passed explicitly still works.
+ */
+const nameColors = allColors.filter((color) => color !== 'inherit');
 
 export function getAvatarColor(
   inputValue?: string,
@@ -41,9 +47,9 @@ export function getAvatarColor(
   }
 
   const alphabetIndex = firstChar.charCodeAt(0) - 'a'.charCodeAt(0); // 0 for 'a', 25 for 'z'
-  const colorIndex = alphabetIndex % allColors.length;
+  const colorIndex = alphabetIndex % nameColors.length;
 
-  return allColors[colorIndex] || fallback;
+  return nameColors[colorIndex] || fallback;
 }
 
 const customRenderSurplus = (surplus: number) => (

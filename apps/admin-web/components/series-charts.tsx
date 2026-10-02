@@ -264,7 +264,12 @@ export function SeriesLinesChart({ categories, series, max, yTicks, secondary, h
           s.data.flatMap((_, k) => (has(s, k) && !has(s, k - 1) && !has(s, k + 1) ? [{ seriesIndex: i, dataPointIndex: k, size: 5, fillColor: colors[i], strokeColor: colors[i] }] : [])),
         ),
       },
-      xaxis: { categories, tooltip: { enabled: false }, ...(phone ? PHONE_DAY_AXIS_LABELS : {}) },
+      // A day axis on a half-width laptop card (the per-item feed charts) printed every date and the
+      // DD/MM/YYYY labels ran into one block (PR #294 D2): at most six labelled days, Apex hiding any
+      // that would still touch, and room on the left so the first date is not clipped. Phones keep
+      // their own five short dd/mm ticks (spread last, so they win).
+      grid: { padding: { left: 12, right: 12 } },
+      xaxis: { categories, tooltip: { enabled: false }, tickAmount: Math.min(Math.max(categories.length - 1, 1), 6), labels: { hideOverlappingLabels: true }, ...(phone ? PHONE_DAY_AXIS_LABELS : {}) },
       tooltip: {
         shared: true,
         intersect: false,

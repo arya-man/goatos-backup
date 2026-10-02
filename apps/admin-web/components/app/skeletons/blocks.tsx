@@ -453,7 +453,7 @@ export function KpiRowSkeleton({
  * optional body2 meta, subtitle2 figure; one row of dashed-divided cells up to four, rows of three or
  * four after that (the same `stripColumns` rule).
  */
-export function StatStripSkeleton({ count, meta = false, card = true, wrapBelowMd = false, minHeight = true }: { count: number; meta?: boolean; card?: boolean; /** The page's strip Scrollbar keeps its min height (false: the strip is its cells' height). */ minHeight?: boolean; /** The cells' title and meta lines wrap to two lines each on a phone (200px cells, long copy); "title" when only the title wraps. */ wrapBelowMd?: boolean | "title" }) {
+export function StatStripSkeleton({ count, meta = false, card = true, wrapBelowMd = false, minHeight = true, stackBelowSm = false }: { count: number; meta?: boolean; card?: boolean; /** The page strip stacks its cells below sm (two 200px cells do not fit a 390 phone, e.g. /procurement/feed-purchases): the twin stacks too. */ stackBelowSm?: boolean; /** The page's strip Scrollbar keeps its min height (false: the strip is its cells' height). */ minHeight?: boolean; /** The cells' title and meta lines wrap to two lines each on a phone (200px cells, long copy); "title" when only the title wraps. */ wrapBelowMd?: boolean | "title" }) {
   const cols = count <= 4 ? Math.max(count, 1) : count % 3 === 0 && count % 4 !== 0 ? 3 : 4;
   const cell = (i: number) => (
     <Box key={i} sx={{ width: 1, minWidth: 200, gap: 2.5, px: 2, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -478,7 +478,11 @@ export function StatStripSkeleton({ count, meta = false, card = true, wrapBelowM
       </Box>
     ) : (
       <Box sx={{ minHeight: minHeight ? "calc(13.5 * var(--spacing))" : 0, overflow: "hidden" }}>
-        <Stack direction="row" divider={<Divider orientation="vertical" flexItem sx={{ borderStyle: "dashed" }} />} sx={{ py: 2 }}>
+        <Stack
+          direction={stackBelowSm ? { xs: "column", sm: "row" } : "row"}
+          divider={<Divider orientation="vertical" flexItem sx={{ borderStyle: "dashed" }} />}
+          sx={{ py: 2, ...(stackBelowSm ? { rowGap: { xs: 2, sm: 0 } } : {}) }}
+        >
           {Array.from({ length: count }, (_, i) => cell(i))}
         </Stack>
       </Box>
@@ -1004,7 +1008,8 @@ export function KanbanSkeleton({
         borderRadius: 2,
         bgcolor: "background.neutral",
         minWidth: 0,
-        ...(layout === "kanban" ? { width: laneWidth ? capLane(laneWidth) : "min(calc(42 * var(--spacing)), calc(100vw - calc(6 * var(--spacing))))" } : {}),
+        // Phone: the loaded board stacks its lanes full width (KanbanBoard), so the skeleton does too.
+        ...(layout === "kanban" ? { width: phoneFullLane(laneWidth ? capLane(laneWidth) : "min(calc(42 * var(--spacing)), calc(100vw - calc(6 * var(--spacing))))") } : {}),
         ...(minHeight ? { minHeight } : {}),
       }}
     >
@@ -1032,13 +1037,18 @@ export function KanbanSkeleton({
       data-skel="board"
       sx={
         layout === "kanban"
-          ? { pb: 2, columnGap: 3, display: "flex", alignItems: "flex-start", overflow: "hidden", maxWidth: 1 }
+          ? { pb: 2, columnGap: 3, rowGap: 3, display: "flex", flexDirection: { xs: "column", sm: "row" }, alignItems: { xs: "stretch", sm: "flex-start" }, overflow: "hidden", maxWidth: 1 }
           : { display: "grid", gap: 1.5, alignItems: "start", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))", lg: `repeat(${lanes.length}, minmax(0, 1fr))` } }
       }
     >
       {lanes.map((cards, i) => lane(cards, i))}
     </Box>
   );
+}
+
+/** A lane width with the phone override: stacked lanes fill the board below sm. */
+function phoneFullLane(width: string | Record<string, string>): Record<string, string> {
+  return typeof width === "string" ? { xs: "100%", sm: width } : { ...width, xs: "100%" };
 }
 
 /** The template ColumnRoot width rule: the board's column width, never wider than the phone less its gutters. */

@@ -52,7 +52,11 @@ const navigationTimeoutMs = Number(process.env.GOATOS_SMOKE_NAVIGATION_TIMEOUT_M
 // Current key plus the pre-rename key, so the lane can drive a build from either side of the
 // brand storage-key change (a gate server may run an older SHA than this script).
 const THEME_STORAGE_KEYS = ["mesha.shell.theme", "goatos-theme"];
-const ROUTE_FONTS = ["Public Sans", "Barlow"];
+// The fonts the APP renders with. theme-config names Barlow as `fontFamily.secondary`, but no app
+// surface reads fontSecondaryFamily and the app never loads Barlow (only Storybook does, for the
+// template stories), so requiring it flagged `font-not-loaded Barlow` on every route (PR #294 F9).
+// The story lane (smoke-stories-visual.mjs) still requires both. Pinned by route-fonts.test.mjs.
+const ROUTE_FONTS = ["Public Sans"];
 
 const PROFILES = {
   desktop: { label: "desktop", viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 },

@@ -1,5 +1,6 @@
 "use client";
 
+import { CATEGORY_AXIS_LABELS } from "@/components/chart-axis-label";
 // Bar charts on the licensed MUI Minimal template's ApexCharts `Chart` + `useChart`, with the base
 // options untouched: no data labels (figures live in the tooltip and on the value axis), no
 // hover-state override, the template tooltip, palette colours (components/app/chart-colors). The
@@ -196,7 +197,7 @@ export function ColumnBars({
       colors,
       stroke: { width: 2, colors: ["transparent"] },
       legend: { show: series.length > 1 },
-      xaxis: { categories },
+      xaxis: { categories, labels: CATEGORY_AXIS_LABELS },
       yaxis: { min: 0, labels: { formatter: (v: number) => (Number.isFinite(v) ? Math.round(v).toLocaleString("en-IN") : "") } },
       tooltip: {
         shared: true,

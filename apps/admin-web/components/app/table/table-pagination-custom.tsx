@@ -13,7 +13,10 @@ export type { TablePaginationCustomProps };
 
 const PHONE_FIT = {
   "& .MuiTablePagination-root": { overflow: { xs: "visible", sm: "auto" } },
+  // Inner padding both sides: MUI's toolbar keeps only 2px on the right, so on a phone the range
+  // text and the last arrow sat flush on the card edge (PR #294 pager-flush).
   "& .MuiTablePagination-toolbar": {
+    px: 2,
     flexWrap: { xs: "wrap", sm: "nowrap" },
     justifyContent: "flex-end",
     rowGap: 0.5,

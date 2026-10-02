@@ -14,6 +14,7 @@
 //    plot height through `sx` (`& .minimal__chart__root`), which wins over the default;
 //  - `empty` renders instead of the chart when there are no categories; `children` render at the foot.
 
+import { cardSubheader } from "@/components/app/caption";
 import type { ReactNode } from "react";
 import type { CardProps } from "@mui/material/Card";
 import type { SxProps, Theme } from "@mui/material/styles";
@@ -116,7 +117,7 @@ export function ConversionRatesCard({ title, subheader, action, empty, chart, sx
 
   return (
     <Card sx={[{ [`& .${chartClasses.root}`]: { height: plotHeight } }, ...(sx == null ? [] : Array.isArray(sx) ? sx : [sx])]} {...other}>
-      <CardHeader title={title} subheader={subheader} action={action} />
+      <CardHeader title={title} subheader={cardSubheader(subheader)} action={action} />
       {rows > 0 ? (
         <AnalyticsConversionRates
           sx={bodySx}
