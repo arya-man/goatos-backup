@@ -25,12 +25,17 @@ and update the CEO AI shed capacity reporting view.
 - Focused diagnostic reruns passed at `95762d6e257044c98021d936d054e561ba11afe1`:
   `GOATOS_CI_ONLY_STEP='admin-web lint' tools/ci/run-local-ci.sh admin-web` and
   `GOATOS_CI_ONLY_STEP='admin-web typecheck' tools/ci/run-local-ci.sh admin-web`.
+- Third `make land-main` attempt at `3a9e81a65e10daee329c2dc3febeff2d262c1d58`
+  stopped before any push because `admin-web unit tests` could not launch Playwright Chromium
+  (`chromium_headless_shell-1228` missing from the local Playwright cache). The same receipt passed
+  required PostgreSQL query plans and command-board query plans.
 
 ## Pending
 
 - Rebase the candidate onto current `origin/main`.
 - Rerun the required local landing receipt with `make land-main`.
 - Verify local `HEAD`, `origin/main`, and remote `main` all match the certified SHA.
+- Install the Playwright Chromium browser cache required by admin-web unit tests.
 
 ## Known Failures / Evidence Limits
 
@@ -43,6 +48,7 @@ and update the CEO AI shed capacity reporting view.
 - The admin-web dependency repair is infrastructure-only; the full landing receipt must be rerun
   after it.
 - The focused admin-web lint/typecheck reruns were diagnostic only and wrote no landing receipt.
+- The Playwright browser install is local test infrastructure only; rerun the full receipt after it.
 
 ## Current State
 
