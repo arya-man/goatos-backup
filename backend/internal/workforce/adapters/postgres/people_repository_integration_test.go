@@ -418,7 +418,7 @@ func TestCreatePersonAcceptsTheBreedingDirectorRoleHintWithDockerPostgres(t *tes
 
 // TestCreatePersonGrantsASalesDirectorFromTheDesignationCatalogWithDockerPostgres: the Add Person
 // role list is the designation catalog (People / HRMS fixes, 2026-10-02). A Sales Director --
-// a catalog row since 000464, a composite org-role key since the baseline -- is created at
+// a catalog row since 000467, a composite org-role key since the baseline -- is created at
 // TENANT scope in one write, their access header records the designation, and a known role that
 // is NOT an active designation is refused before anything is written.
 func TestCreatePersonGrantsASalesDirectorFromTheDesignationCatalogWithDockerPostgres(t *testing.T) {

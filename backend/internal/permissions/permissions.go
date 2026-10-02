@@ -382,7 +382,7 @@ const (
 	// and served them through the API (`?side=procurement`, or no side at all). The side of a
 	// vendor is its record type's catalog `register_side`; the vendor handler checks it on every
 	// read and write. Every role and person that held VendorRead/VendorWrite was given these too
-	// (the role maps below, migration 000465), so nobody lost a buyer they could see.
+	// (the role maps below, migration 000468), so nobody lost a buyer they could see.
 	VendorSalesRead  = "procurement.vendor.sales.read"
 	VendorSalesWrite = "procurement.vendor.sales.write"
 	// VendorFinanceRead gates the PAYMENT INSTRUMENTS on a vendor row -- bank name, account number,

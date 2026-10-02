@@ -22,7 +22,7 @@ Manager and HR — all `designation_catalog` rows — could not be chosen.
   parks"), so creating one failed on `origin/main`. HR and every composite `director_*` key are
   farm-wide.
 - The person's access header records the designation they started as.
-- Migration `000464` adds the `director_sales` / `manager_sales` designation rows (already on STG by
+- Migration `000467` adds the `director_sales` / `manager_sales` designation rows (already on STG by
   hand).
 
 ## 2–3. Screens offered from the ticks on screen; one save
@@ -69,7 +69,7 @@ which showed — and served through the API — every supplier.
   record type's catalog `register_side`; uncatalogued is procurement (the complementary rule).
 - Buyer phone numbers (Buyer analytics) follow `VendorSalesRead`.
 - The vendor finance check now reads the per-person permission set too (it read role grants only).
-- Migration `000465` writes `vendors_sales` exactly where a person could reach the buyers before —
+- Migration `000468` writes `vendors_sales` exactly where a person could reach the buyers before —
   web: Vendors + Sales with Sales > Vendors ticked (or all pages); phone: Sales + Vendors anywhere —
   removes the stale `sales-vendors` page tick from Sales rows, retires a web Sales row narrowed to
   that one page, and does the same for designation pre-fills. Ledgered; the Down path is exact.

@@ -17,7 +17,7 @@ func migrationDownSection(sqlText string) string {
 	return sqlText[i+len("-- +goose Down"):]
 }
 
-// TestBuyersModuleBackfillKeepsEveryoneOnTheScreensTheyHad pins 000465 (People / HRMS fixes,
+// TestBuyersModuleBackfillKeepsEveryoneOnTheScreensTheyHad pins 000468 (People / HRMS fixes,
 // 2026-10-02): the buyers half of the vendor register moved onto its own module, and nobody may
 // gain or lose a screen in the move.
 func TestBuyersModuleBackfillKeepsEveryoneOnTheScreensTheyHad(t *testing.T) {

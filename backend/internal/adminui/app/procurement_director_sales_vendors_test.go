@@ -20,7 +20,7 @@ func TestProcurementDirectorSalesVendorsFollowsTheHrmsTick(t *testing.T) {
 		},
 	}
 	// Since 2026-10-02 Sales > Vendors is ticked on the BUYERS half of the register
-	// (vendors_sales); migration 000465 wrote that row for everyone who had the leaf.
+	// (vendors_sales); migration 000468 wrote that row for everyone who had the leaf.
 	rows := func(buyers bool, salesPages ...string) permissions.PageAccess {
 		extra := []permissions.ModuleAssignment{}
 		if buyers {
