@@ -306,6 +306,10 @@ export async function HealthAnalyticsPage({
     { key: "unattributed", label: ha(pageContract, "series.unattributed"), color: SERIES_COLOR.unattributed },
   ];
   const newCaseRowsByMonth = data.months.map((m) => ({ month: m.label, new_cases: m.new_cases }));
+  // A spine of zero months is "nothing recorded", not a chart: drawing it leaves a bare 0-4 axis
+  // frame with no bars and no words (C1).
+  const newCasesAllZero = newCaseRowsByMonth.every((m) => m.new_cases === 0);
+  const deathsAllZero = deathRowsByMonth.every((m) => m.attributed + m.unattributed === 0);
 
   const diseaseBars: SvgBarDatum[] = data.diseases.map((row) => ({
     key: row.key,
@@ -490,7 +494,7 @@ export async function HealthAnalyticsPage({
           label={ha(pageContract, "kpi.recovery.label")}
           // Of the cases CLOSED in the window: a still-open course has no outcome yet, and
           // counting it against recovery would drag a long supportive case down forever.
-          value={round1(totals.closed_cases === 0 ? 0 : (totals.recovered / totals.closed_cases) * 100)}
+          value={totals.closed_cases === 0 ? null : round1((totals.recovered / totals.closed_cases) * 100)}
           unit="%"
           sub={ha(pageContract, "kpi.recovery.sub")}
         />
@@ -507,7 +511,7 @@ export async function HealthAnalyticsPage({
           tile={4}
           accent="var(--amber)"
           label={ha(pageContract, "kpi.unattributed.label")}
-          value={round1(totals.deaths === 0 ? 0 : (totals.deaths_unattributed / totals.deaths) * 100)}
+          value={totals.deaths === 0 ? null : round1((totals.deaths_unattributed / totals.deaths) * 100)}
           unit="%"
           sub={ha(pageContract, "kpi.unattributed.sub")}
         />
@@ -538,8 +542,8 @@ export async function HealthAnalyticsPage({
       {tab === "overview" ? (
         <>
           <Card aria-label={ha(pageContract, "chart.deaths.title")}>
-            <CardHeader title={ha(pageContract, "chart.deaths.title")} subheader={ha(pageContract, "chart.deaths.hint")} />
-            <Box sx={{ p: 3 }}>            {deathRowsByMonth.length === 0 ? (
+            <CardHeader title={ha(pageContract, "chart.deaths.title")} />
+            <Box sx={{ p: 3 }}>            {deathsAllZero ? (
               <Typography variant="body2" sx={{ color: "text.secondary" }}>{emptyChart}</Typography>
             ) : (
               // Monthly counts are discrete: columns, not an area. A two-point area drew one straight
@@ -549,7 +553,7 @@ export async function HealthAnalyticsPage({
           </Card>
 
           <Card aria-label={ha(pageContract, "chart.diseases.title")}>
-            <CardHeader title={ha(pageContract, "chart.diseases.title")} subheader={ha(pageContract, "chart.diseases.hint")} />
+            <CardHeader title={ha(pageContract, "chart.diseases.title")} />
             <Box sx={{ p: 3 }}>            <SvgBars
               data={diseaseBars}
               maxBars={diseaseBars.length}
@@ -569,13 +573,9 @@ export async function HealthAnalyticsPage({
               asserts they are equal -- so the KPI strip above the tabs is showing it as "New
               cases". A second tile would be the same figure twice under two names, which is the
               cross-surface disagreement this repo bans, one card apart. */}
-          <Typography variant="body2" sx={{ color: "text.secondary" }}>
-            {ha(pageContract, "problems.note")}
-          </Typography>
-
           <Card aria-label={ha(pageContract, "problems.chart.month.title")}>
-            <CardHeader title={ha(pageContract, "problems.chart.month.title")} subheader={ha(pageContract, "problems.chart.month.hint")} />
-            <Box sx={{ p: 3 }}>            {newCaseRowsByMonth.length === 0 ? (
+            <CardHeader title={ha(pageContract, "problems.chart.month.title")} />
+            <Box sx={{ p: 3 }}>            {newCasesAllZero ? (
               <EmptyState title={emptyChart} />
             ) : (
               <TrendChart
@@ -590,7 +590,7 @@ export async function HealthAnalyticsPage({
           </Card>
 
           <Card aria-label={ha(pageContract, "problems.chart.breed.title")}>
-            <CardHeader title={ha(pageContract, "problems.chart.breed.title")} subheader={ha(pageContract, "problems.chart.breed.hint")} />
+            <CardHeader title={ha(pageContract, "problems.chart.breed.title")} />
             <Box sx={{ p: 3 }}>            <SvgBars
               data={breedBars}
               maxBars={breedBars.length}
@@ -602,7 +602,7 @@ export async function HealthAnalyticsPage({
           </Card>
 
           <Card aria-label={ha(pageContract, "problems.chart.pen_type.title")}>
-            <CardHeader title={ha(pageContract, "problems.chart.pen_type.title")} subheader={ha(pageContract, "problems.chart.pen_type.hint")} />
+            <CardHeader title={ha(pageContract, "problems.chart.pen_type.title")} />
             <Box sx={{ p: 3 }}>            <SvgBars
               data={penTypeBars}
               maxBars={penTypeBars.length}
@@ -614,7 +614,7 @@ export async function HealthAnalyticsPage({
           </Card>
 
           <Card aria-label={ha(pageContract, "problems.chart.age.title")}>
-            <CardHeader title={ha(pageContract, "problems.chart.age.title")} subheader={ha(pageContract, "problems.chart.age.hint")} />
+            <CardHeader title={ha(pageContract, "problems.chart.age.title")} />
             <Box sx={{ p: 3 }}>            <SvgBars
               data={ageBars}
               maxBars={ageBars.length}
@@ -630,7 +630,7 @@ export async function HealthAnalyticsPage({
       {tab === "diseases" ? (
         <>
           <Card>
-            <CardHeader title={ha(pageContract, "section.diseases.title")} subheader={ha(pageContract, "section.diseases.note")} />
+            <CardHeader title={ha(pageContract, "section.diseases.title")} />
             <Box sx={{ p: 3 }}>            <DiseaseBoardTable
               contract={table(pageContract, "health-disease-board")}
               rows={diseaseRows}
@@ -640,8 +640,8 @@ export async function HealthAnalyticsPage({
           </Card>
 
           <Card aria-label={ha(pageContract, "chart.trend.title")}>
-            <CardHeader title={ha(pageContract, "chart.trend.title")} subheader={ha(pageContract, "chart.trend.hint")} />
-            <Box sx={{ p: 3 }}>            {newCaseRowsByMonth.length === 0 ? (
+            <CardHeader title={ha(pageContract, "chart.trend.title")} />
+            <Box sx={{ p: 3 }}>            {newCasesAllZero ? (
               <Typography variant="body2" sx={{ color: "text.secondary" }}>{emptyChart}</Typography>
             ) : (
               <TrendChart
@@ -683,7 +683,7 @@ export async function HealthAnalyticsPage({
           </section>
 
           <Card aria-label={ha(pageContract, "chart.fatality.title")}>
-            <CardHeader title={ha(pageContract, "chart.fatality.title")} subheader={ha(pageContract, "chart.fatality.hint")} />
+            <CardHeader title={ha(pageContract, "chart.fatality.title")} />
             <Box sx={{ p: 3 }}>            <SvgBars
               data={fatalityBars}
               maxBars={fatalityBars.length}
@@ -694,7 +694,7 @@ export async function HealthAnalyticsPage({
           </Card>
 
           <Card>
-            <CardHeader title={ha(pageContract, "section.deaths.title")} subheader={ha(pageContract, "section.deaths.note")} />
+            <CardHeader title={ha(pageContract, "section.deaths.title")} />
             <Box sx={{ p: 3 }}>            <DeathsTable
               contract={table(pageContract, "health-deaths")}
               rows={deathRows}
@@ -729,7 +729,7 @@ export async function HealthAnalyticsPage({
           </section>
 
           <Card aria-label={ha(pageContract, "chart.adherence.title")}>
-            <CardHeader title={ha(pageContract, "chart.adherence.title")} subheader={ha(pageContract, "chart.adherence.hint")} />
+            <CardHeader title={ha(pageContract, "chart.adherence.title")} />
             <Box sx={{ p: 3 }}>            <SvgBars
               data={adherenceBars}
               maxBars={adherenceBars.length}
@@ -742,7 +742,7 @@ export async function HealthAnalyticsPage({
           </Card>
 
           <Card>
-            <CardHeader title={ha(pageContract, "section.medicines.title")} subheader={ha(pageContract, "section.medicines.note")} />
+            <CardHeader title={ha(pageContract, "section.medicines.title")} />
             <Box sx={{ p: 3 }}>            <MedicinesTable
               contract={table(pageContract, "health-medicines")}
               rows={medicineRows}
@@ -755,10 +755,6 @@ export async function HealthAnalyticsPage({
 
       {tab === "engine" ? (
         <>
-          {/* What the engine tab measures (a3fef7bd2) -- kept above the KPIs. */}
-          <Typography variant="body2" sx={{ color: "text.secondary" }}>
-            {ha(pageContract, "section.engine.note")}
-          </Typography>
           <section aria-label={ha(pageContract, "section.engine.title")}>
             <Grid container spacing={3}>
             <Kpi
@@ -796,7 +792,7 @@ export async function HealthAnalyticsPage({
           </section>
 
           <Card>
-            <CardHeader title={ha(pageContract, "section.engine_rules.title")} subheader={ha(pageContract, "section.engine_rules.note")} />
+            <CardHeader title={ha(pageContract, "section.engine_rules.title")} />
             <Box sx={{ p: 3 }}>            <EngineRulesTable
               contract={table(pageContract, "health-engine-rules")}
               rows={engineRuleRows}

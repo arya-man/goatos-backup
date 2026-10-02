@@ -32,7 +32,28 @@ const TABLE_REGION_SX: SxProps<Theme> = {
 /** Machine keys (disease / rule codes) in the template monospace caption. */
 const MONO_SX = { fontFamily: "monospace" } as const;
 
-function TableRegion({ ariaLabel, children }: { ariaLabel: string; children: React.ReactNode }) {
+/**
+ * An empty table renders its empty state OUTSIDE the scroller (C4): inside it, the message sat
+ * centred on the table's 680px floor and a 390px phone cut it to "Nothing recor…".
+ */
+function TableRegion({
+  ariaLabel,
+  isEmpty,
+  empty,
+  children,
+}: {
+  ariaLabel: string;
+  isEmpty: boolean;
+  empty: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  if (isEmpty) {
+    return (
+      <Typography role="status" aria-label={ariaLabel} variant="body2" sx={{ color: "text.secondary", py: 2, textAlign: "center" }}>
+        {empty}
+      </Typography>
+    );
+  }
   return (
     <Box tabIndex={0} role="region" aria-label={ariaLabel} sx={TABLE_REGION_SX}>
       {children}
@@ -94,7 +115,7 @@ export function DiseaseBoardTable({
   });
 
   return (
-    <TableRegion ariaLabel={ariaLabel}>
+    <TableRegion ariaLabel={ariaLabel} isEmpty={rows.length === 0} empty={empty}>
       <DataTable
         columns={columns}
         data={rows}
@@ -144,7 +165,8 @@ export function DeathsTable({
     animal: {
       cell: (row) => (
         <div>
-          <Typography variant="body2" component="span" sx={MONO_SX}>{row.animalLabel}</Typography>
+          {/* An RFID is one token: never broken mid-number by the lead column's wrap (C13). */}
+          <Typography variant="body2" component="span" sx={{ ...MONO_SX, whiteSpace: "nowrap" }}>{row.animalLabel}</Typography>
           <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{row.displayId}</Typography>
         </div>
       ),
@@ -181,7 +203,7 @@ export function DeathsTable({
   });
 
   return (
-    <TableRegion ariaLabel={ariaLabel}>
+    <TableRegion ariaLabel={ariaLabel} isEmpty={rows.length === 0} empty={empty}>
       <DataTable
         columns={columns}
         data={rows}
@@ -220,7 +242,7 @@ export function MedicinesTable({
   });
 
   return (
-    <TableRegion ariaLabel={ariaLabel}>
+    <TableRegion ariaLabel={ariaLabel} isEmpty={rows.length === 0} empty={empty}>
       <DataTable
         columns={columns}
         data={rows}
@@ -266,7 +288,7 @@ export function EngineRulesTable({
   });
 
   return (
-    <TableRegion ariaLabel={ariaLabel}>
+    <TableRegion ariaLabel={ariaLabel} isEmpty={rows.length === 0} empty={empty}>
       <DataTable
         columns={columns}
         data={rows}
