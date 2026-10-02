@@ -20,7 +20,15 @@ export function applyTheme(mode: ThemeMode) {
   window.setTimeout(() => root.classList.remove("theme-switching"), 320);
 }
 
+/**
+ * The mode in force. `data-theme` is what MUI's CSS variables follow (theme-config
+ * colorSchemeSelector) and what MUI itself may write, so it wins; the `light` class is the
+ * fallback. Reading the class alone let the toggle disagree with the painted page (PR #294 L3).
+ */
 export function readTheme(): ThemeMode {
   if (typeof document === "undefined") return "dark";
-  return document.documentElement.classList.contains("light") ? "light" : "dark";
+  const root = document.documentElement;
+  const attr = root.getAttribute("data-theme");
+  if (attr === "light" || attr === "dark") return attr;
+  return root.classList.contains("light") ? "light" : "dark";
 }

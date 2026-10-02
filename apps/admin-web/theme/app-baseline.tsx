@@ -47,7 +47,10 @@ export function AppBaseline() {
     <GlobalStyles
       styles={(theme) => ({
         ':root': { ...MESHA_TOKENS_DARK, ...chartSeriesVars('dark'), colorScheme: 'dark' },
+        // The attribute too: MUI writes `data-theme` itself (colorSchemeSelector), so the Mesha tokens
+        // follow the same switch as MUI's own variables even if the class lags.
         ':root.light': { ...MESHA_TOKENS_LIGHT, ...chartSeriesVars('light'), colorScheme: 'light' },
+        ':root[data-theme="light"]': { ...MESHA_TOKENS_LIGHT, ...chartSeriesVars('light'), colorScheme: 'light' },
         '*, *::before, *::after': { boxSizing: 'border-box' },
         'strong, b': { fontWeight: 'bolder' },
         'html, body': { maxWidth: '100%', overflowX: 'hidden' },
@@ -84,6 +87,13 @@ export function AppBaseline() {
         '@media (max-width: 860px)': {
           [`${CONTENT} table`]: { minWidth: 540 },
         },
+        // Light top bar: the header icons are duotone (a solid layer plus a ~40% layer) on
+        // action.active grey, so on white the dominant layer measured ~1.7:1 (PR #294 L2). Ink one
+        // step darker and the soft layer lifted keep both layers >= 3:1; the white assistant goat
+        // (a fixed-colour mascot) gets a hairline outline so it does not vanish on white.
+        [`:root[data-theme="light"] .${layoutClasses.header} .MuiIconButton-root`]: { color: theme.vars.palette.grey[700] },
+        [`:root[data-theme="light"] .${layoutClasses.header} .MuiIconButton-root svg [opacity]`]: { opacity: 0.64 },
+        [`:root[data-theme="light"] #topbar-ai-slot :is(img, svg)`]: { filter: `drop-shadow(0 0 0.5px ${theme.vars.palette.grey[700]}) drop-shadow(0 0 0.5px ${theme.vars.palette.grey[700]})` },
         ...phoneStickyEdges(`${CONTENT} table`, theme),
         '[data-dense] .MuiTableCell-body.MuiTableCell-body': { paddingTop: 6, paddingBottom: 6 },
         'html.route-busy, html.route-busy body': { cursor: 'progress' },
