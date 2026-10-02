@@ -80,8 +80,10 @@ const DLG_BODY_SX = {
   "& .htl > .hrow": { borderRadius: 1, transition: (t: Theme) => t.transitions.create("background-color") },
   "& .htl > .hrow:hover": { bgcolor: "action.hover" },
 } as const;
-function statusText(view: SopCardView): string {
-  return view.status === "active" ? `published${view.versionNumber ? ` · v${view.versionNumber}` : ""}` : view.status;
+/** The card's status Label: the contract's status word ("Published · v1"), never the raw lifecycle value. */
+function statusText(view: SopCardView, pageContract: AdminUiPageContract): string {
+  if (view.status === "active") return `${copy(pageContract, "status.published", "Published")}${view.versionNumber ? ` · v${view.versionNumber}` : ""}`;
+  return copy(pageContract, `status.${view.status}`, view.status);
 }
 
 export interface SopLibraryProps {
@@ -448,6 +450,8 @@ type SopItemProps = {
 // Template sections/job/job-item anatomy: ⋮ action menu pinned top-right, rounded 48px avatar,
 // subtitle1 title link + caption, primary caption line, dashed divider, 2-column caption facts.
 function SopItem({ view, facets, pageContract, justPublished, onView, onEdit }: SopItemProps) {
+  const caption = sopVersionCaption(view.name, view.versionLabel, view.versionNumber);
+  const versionCaption = view.status === "active" && view.versionNumber != null && caption === `v${view.versionNumber}` ? null : caption;
   const facts: JobItemFact[] = [];
   if (facets.domain) facts.push({ key: "domain", label: view.domainLabel, icon: <Iconify width={16} icon="solar:tag-horizontal-bold-duotone" sx={{ flexShrink: 0 }} /> });
   if (facets.trigger && view.trigger) facts.push({ key: "trigger", label: view.trigger, icon: <Iconify width={16} icon="solar:clock-circle-bold" sx={{ flexShrink: 0 }} /> });
@@ -482,10 +486,12 @@ function SopItem({ view, facets, pageContract, justPublished, onView, onEdit }: 
           {view.name}
         </Link>
       }
-      secondary={sopVersionCaption(view.name, view.versionLabel, view.versionNumber) ?? undefined}
+      // A caption that is only "v1" repeats the "Published · v1" Label beside it (PR #294 S4); an
+      // authored version label ("Monsoon dosing update") still says something the Label does not.
+      secondary={versionCaption ?? undefined}
       meta={
         <Label variant="soft" color={STATUS_COLOR[view.status]}>
-          {statusText(view)}
+          {statusText(view, pageContract)}
         </Label>
       }
       facts={facts}

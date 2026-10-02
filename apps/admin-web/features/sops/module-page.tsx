@@ -1,4 +1,5 @@
 import { listOrEmpty } from "@/lib/list-or-empty";
+import { copy } from "@/lib/admin-ui-contract";
 import { SopBuilder, SopLibrary, builderInitialFromVersion, isVersionFaithfullyEditable, sopScopeKey, toSopView } from "@/features/sops";
 import { FollowUpEditor } from "./followup-editor";
 import { parseFollowUp } from "./followup-model";
@@ -96,6 +97,9 @@ async function SopModuleBody({
         // The editor opens the version IN FORCE (what the phone runs); an abandoned draft or a
         // retired version above it is never the base of the next publish.
         const version = detail.data.published_version ?? detail.data.latest_version;
+        // "Gate visitor check v1 · Published": the status by the contract's word, never the raw
+        // lifecycle value ("v1 · published" read as a code on every editor chip; PR #294 P5).
+        const versionLabel = `${version.version_label} · ${copy(pageContract, `status.${version.status}`, version.status)}`;
         // HERD OPERATIONS CAPTURE CARD (maintainer decision 4, 2026-09-16): `&part=capture` opens
         // the Add birth / Add death form's SOP extras; the operator steps ride along verbatim.
         if (sp.part === "capture") {
@@ -109,7 +113,7 @@ async function SopModuleBody({
                 sopId={editId}
                 sopName={detail.data.sop.name}
                 sopCode={detail.data.sop.code}
-                versionLabel={`${version.version_label} · ${version.status}`}
+                versionLabel={versionLabel}
                 initial={capture}
               />
             );
@@ -133,7 +137,7 @@ async function SopModuleBody({
               sopId={editId}
               sopName={detail.data.sop.name}
               sopCode={detail.data.sop.code}
-              versionLabel={`${version.version_label} · ${version.status}`}
+              versionLabel={versionLabel}
               initial={shifting}
             />
           );
@@ -152,7 +156,7 @@ async function SopModuleBody({
               sopId={editId}
               sopName={detail.data.sop.name}
               sopCode={detail.data.sop.code}
-              versionLabel={`${version.version_label} · ${version.status}`}
+              versionLabel={versionLabel}
               initial={toxin}
               initialView={sp.view === "flow" ? "flow" : "list"}
             />
@@ -168,7 +172,7 @@ async function SopModuleBody({
               sopId={editId}
               sopName={detail.data.sop.name}
               sopCode={detail.data.sop.code}
-              versionLabel={`${version.version_label} · ${version.status}`}
+              versionLabel={versionLabel}
               initial={followUp}
               initialView={sp.view === "flow" ? "flow" : "list"}
             />
@@ -187,7 +191,7 @@ async function SopModuleBody({
               sopId={editId}
               sopName={detail.data.sop.name}
               sopCode={detail.data.sop.code}
-              versionLabel={`${version.version_label} · ${version.status}`}
+              versionLabel={versionLabel}
               initial={vendorForm}
               profile="vendor_form"
             />
@@ -207,7 +211,7 @@ async function SopModuleBody({
               sopId={editId}
               sopName={detail.data.sop.name}
               sopCode={detail.data.sop.code}
-              versionLabel={`${version.version_label} · ${version.status}`}
+              versionLabel={versionLabel}
               initial={feedPurchaseForm}
               profile="feed_purchase_form"
             />
@@ -226,7 +230,7 @@ async function SopModuleBody({
               sopId={editId}
               sopName={detail.data.sop.name}
               sopCode={detail.data.sop.code}
-              versionLabel={`${version.version_label} · ${version.status}`}
+              versionLabel={versionLabel}
               initial={inspection}
             />
           );
@@ -244,7 +248,7 @@ async function SopModuleBody({
               sopId={editId}
               sopName={detail.data.sop.name}
               sopCode={detail.data.sop.code}
-              versionLabel={`${version.version_label} · ${version.status}`}
+              versionLabel={versionLabel}
               initial={pcCare}
               initialView={sp.view === "flow" ? "flow" : "list"}
             />
@@ -263,7 +267,7 @@ async function SopModuleBody({
               sopId={editId}
               sopName={detail.data.sop.name}
               sopCode={detail.data.sop.code}
-              versionLabel={`${version.version_label} · ${version.status}`}
+              versionLabel={versionLabel}
               initial={feed}
               initialView={sp.view === "flow" ? "flow" : "list"}
             />
@@ -282,7 +286,7 @@ async function SopModuleBody({
               sopId={editId}
               sopName={detail.data.sop.name}
               sopCode={detail.data.sop.code}
-              versionLabel={`${version.version_label} · ${version.status}`}
+              versionLabel={versionLabel}
               initial={weighing}
               initialView={sp.view === "flow" ? "flow" : "list"}
             />
