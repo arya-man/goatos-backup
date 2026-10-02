@@ -49,7 +49,7 @@ func (s *Service) RunRotation(ctx context.Context, tenantID string, store ports.
 	cfg := []ports.RotationConfig{}
 	for _, category := range domain.PlannerCategories {
 		if gap, ok := rules.RotationGapDays(category); ok {
-			cfg = append(cfg, ports.RotationConfig{Category: category, GapDays: gap})
+			cfg = append(cfg, ports.RotationConfig{Category: category, GapDays: gap, SOPVersion: rules.Version})
 		}
 	}
 	if len(cfg) == 0 {

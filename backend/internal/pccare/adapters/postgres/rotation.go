@@ -22,7 +22,8 @@ var _ ports.RotationStore = (*Repository)(nil)
 var rotationTaskPenSortSQL = `(` + naturalSortKeySQL("ts.name") + ` || chr(1) || ` + naturalSortKeySQL("t.partition_label") + `) COLLATE "C"`
 
 // rotationCandidatesSQL ($1 tenant, $2 true, $3 empty parks, $4 ” -- the catalog CTE's own
-// parameters, asking for every park -- $5 categories, $6 gaps, $7 today, $8 horizon, $9 limit).
+// parameters, asking for every park -- $5 categories, $6 gaps, $7 SOP versions, $8 today,
+// $9 horizon, $10 limit).
 //
 // projection-review: membership=pc_care_tasks of the tenant in a rotating category, not
 // canceled, pen-grain, not a removal card; group_key=(category, park_id) for "the latest task"
@@ -38,8 +39,8 @@ var rotationTaskPenSortSQL = `(` + naturalSortKeySQL("ts.name") + ` || chr(1) ||
 // scale-guard:ignore: one bounded set-based read per kernel tick over a tenant's PC Care tasks (a few thousand rows at the 5k-50k envelope) and its pen catalog (physical infrastructure, a few hundred rows), LIMIT per tick.
 var rotationCandidatesSQL = `
 WITH cfg AS (
-  SELECT c.category, c.gap_days
-  FROM unnest($5::text[], $6::int[]) AS c(category, gap_days)
+  SELECT c.category, c.gap_days, c.sop_version
+  FROM unnest($5::text[], $6::int[], $7::int[]) AS c(category, gap_days, sop_version)
 ),
 latest AS (
   SELECT DISTINCT ON (t.category, t.park_id)
@@ -47,6 +48,10 @@ latest AS (
   FROM pc_care_tasks t
   JOIN cfg ON cfg.category = t.category
   WHERE t.tenant_id = $1::uuid
+    -- Publishing rotation must not wake historical no-repeat / interval tasks. The first pen is a
+    -- planner action under the rotating published card, and from then on each rotated pen inherits
+    -- that same SOP version.
+    AND COALESCE(t.sop_version, 0) = cfg.sop_version
     -- A CLOSED pen is how a planner stops a rotation, so it is never "the latest": the submitted
     -- pen before it already has that closed pen as its follow-up (repeat_of_task_id), so nothing
     -- is planned from it, and a pen the planner plans by hand to restart -- even for an EARLIER
@@ -89,7 +94,7 @@ pens AS (
 due AS (
   SELECT r.*, nxt.shed_id AS next_shed_id, nxt.shed_name AS next_shed_name,
          nxt.partition_label AS next_partition_label, nxt.wrapped,
-         greatest(r.last_day + 1 + CASE WHEN nxt.wrapped THEN r.gap_days ELSE 0 END, $7::date) AS next_date
+         greatest(r.last_day + 1 + CASE WHEN nxt.wrapped THEN r.gap_days ELSE 0 END, $8::date) AS next_date
   FROM rounds r
   CROSS JOIN LATERAL (
     SELECT p.shed_id, p.shed_name, p.partition_label,
@@ -111,11 +116,11 @@ SELECT d.source_task_id::text, d.category, d.park_id::text, COALESCE(park.name, 
        d.next_date, d.next_shed_id::text, d.next_shed_name, d.next_partition_label, d.wrapped
 FROM due d
 LEFT JOIN locations park ON park.tenant_id = $1::uuid AND park.location_id = d.park_id
-WHERE d.next_date <= $8::date
+WHERE d.next_date <= $9::date
   AND NOT EXISTS (SELECT 1 FROM pc_care_tasks x WHERE x.tenant_id = $1::uuid AND x.repeat_of_task_id = d.source_task_id)
   AND NOT EXISTS (SELECT 1 FROM pc_care_repeat_skips k WHERE k.tenant_id = $1::uuid AND k.source_task_id = d.source_task_id)
 ORDER BY d.next_date, d.source_task_id
-LIMIT $9`
+LIMIT $10`
 
 // ListRotationCandidates returns the parks whose rotating work is ready for its next pen.
 func (r *Repository) ListRotationCandidates(ctx context.Context, tenantID string, cfg []ports.RotationConfig, today, through time.Time, limit int) ([]ports.RotationCandidate, error) {
@@ -126,12 +131,14 @@ func (r *Repository) ListRotationCandidates(ctx context.Context, tenantID string
 	defer cancel()
 	categories := make([]string, 0, len(cfg))
 	gaps := make([]int32, 0, len(cfg))
+	versions := make([]int32, 0, len(cfg))
 	for _, c := range cfg {
 		categories = append(categories, c.Category)
 		gaps = append(gaps, int32(c.GapDays))
+		versions = append(versions, int32(c.SOPVersion))
 	}
 	bound := sqlbind.MustBind(rotationCandidatesSQL, tenantID, true, []string{}, "",
-		categories, gaps, today.Format("2006-01-02"), through.Format("2006-01-02"), limit)
+		categories, gaps, versions, today.Format("2006-01-02"), through.Format("2006-01-02"), limit)
 	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("pccare: list rotation candidates: %w", err)

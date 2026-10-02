@@ -20,12 +20,14 @@ func rotationService(repo *Repository, gap int, now time.Time) *pccareapp.Servic
 	cats[domain.CategoryFumigation].RepeatMode = domain.RepeatModeRotation
 	cats[domain.CategoryFumigation].RotationGapDays = gap
 	seed.Categories = cats
-	seed.Version = 9
+	seed.Version = rotationSOPVersion
 	return pccareapp.NewService(repo).
 		WithRoundStore(repo).
 		WithSOPRules(ports.StaticRules{Rules: seed}, repo).
 		WithNow(func() time.Time { return now })
 }
+
+const rotationSOPVersion = 9
 
 // PC CARE ROTATION (maintainer instruction 2026-10-02) against the real schema. CPT holds Castro
 // (undivided) and Godel 1 with Part 1, Part 2, Part 3 (EMPTY) and Part 10. The rotation goes
@@ -49,6 +51,7 @@ ON CONFLICT DO NOTHING`, pcTenant, covShedGodel); err != nil {
 		Pens:                []domain.RoundPen{{ShedID: pcShedA}},
 		PlannedBusinessDate: pcBusinessDay(2026, 10, 1),
 		AssigneeUserIDs:     []string{pcOperator1, pcOperator2},
+		SOPVersion:          rotationSOPVersion,
 		IdempotencyKey:      "fum-rotation-start", CreatedBy: pcVerifier, ActorID: pcVerifier, ActorType: "human",
 	})
 	if err != nil {
@@ -142,6 +145,58 @@ WHERE tenant_id = $1::uuid AND task_id = $2::uuid`, pcTenant, taskID, istNoon(y,
 	}
 }
 
+func TestRotationDoesNotWakeTasksFromBeforeTheRotatingSOPVersion(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupPCCareDB(t, ctx)
+	seedCoverageGodel(t, ctx, repo)
+	coverageResidents(t, ctx, repo, pcPark, pcShedA+"|", covShedGodel+"|Part 1")
+
+	old, err := repo.CreateRound(ctx, ports.CreateRoundParams{
+		TenantID: pcTenant, Category: domain.CategoryFumigation, ParkID: pcPark,
+		Pens: []domain.RoundPen{{ShedID: pcShedA}}, PlannedBusinessDate: pcBusinessDay(2026, 9, 30),
+		AssigneeUserIDs: []string{pcOperator1}, SOPVersion: rotationSOPVersion - 1,
+		IdempotencyKey: "fum-before-rotation", CreatedBy: pcVerifier, ActorID: pcVerifier, ActorType: "human",
+	})
+	if err != nil {
+		t.Fatalf("CreateRound old: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE pc_care_tasks SET status = 'pending_verification', submitted_at = $3 WHERE tenant_id = $1::uuid AND task_id = $2::uuid`,
+		pcTenant, old.Pens[0].TaskID, istNoon(2026, 9, 30)); err != nil {
+		t.Fatalf("submit old: %v", err)
+	}
+	count := func() int {
+		t.Helper()
+		var n int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM pc_care_tasks WHERE tenant_id = $1::uuid AND category = 'fumigation'`, pcTenant).Scan(&n); err != nil {
+			t.Fatalf("count tasks: %v", err)
+		}
+		return n
+	}
+	if res, err := rotationService(repo, 0, istNoon(2026, 10, 1)).RunRotation(ctx, pcTenant, repo, nil, 100); err != nil || res.PensCreated != 0 {
+		t.Fatalf("old task tick: %+v %v, want nothing until a planner starts the rotation", res, err)
+	}
+	if count() != 1 {
+		t.Fatalf("tasks after old task tick = %d, want 1", count())
+	}
+
+	start, err := repo.CreateRound(ctx, ports.CreateRoundParams{
+		TenantID: pcTenant, Category: domain.CategoryFumigation, ParkID: pcPark,
+		Pens: []domain.RoundPen{{ShedID: pcShedA}}, PlannedBusinessDate: pcBusinessDay(2026, 10, 1),
+		AssigneeUserIDs: []string{pcOperator1}, SOPVersion: rotationSOPVersion,
+		IdempotencyKey: "fum-rotation-version-start", CreatedBy: pcVerifier, ActorID: pcVerifier, ActorType: "human",
+	})
+	if err != nil {
+		t.Fatalf("CreateRound start: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE pc_care_tasks SET status = 'pending_verification', submitted_at = $3 WHERE tenant_id = $1::uuid AND task_id = $2::uuid`,
+		pcTenant, start.Pens[0].TaskID, istNoon(2026, 10, 1)); err != nil {
+		t.Fatalf("submit start: %v", err)
+	}
+	if res, err := rotationService(repo, 0, istNoon(2026, 10, 1)).RunRotation(ctx, pcTenant, repo, nil, 100); err != nil || res.PensCreated != 1 {
+		t.Fatalf("fresh start tick: %+v %v, want the hand-started rotating pen to continue", res, err)
+	}
+}
+
 // Nobody left to do it: the rotation stops, the planner is alerted ONCE naming the pen it would
 // have gone to, and nobody is substituted.
 func TestRotationStopsAndAlertsOnceWhenNoOperatorIsLeft(t *testing.T) {
@@ -152,7 +207,7 @@ func TestRotationStopsAndAlertsOnceWhenNoOperatorIsLeft(t *testing.T) {
 	first, err := repo.CreateRound(ctx, ports.CreateRoundParams{
 		TenantID: pcTenant, Category: domain.CategoryFumigation, ParkID: pcPark,
 		Pens: []domain.RoundPen{{ShedID: pcShedA}}, PlannedBusinessDate: pcBusinessDay(2026, 10, 1),
-		AssigneeUserIDs: []string{pcOperator1}, IdempotencyKey: "fum-rotation-alone", CreatedBy: pcVerifier, ActorID: pcVerifier,
+		AssigneeUserIDs: []string{pcOperator1}, SOPVersion: rotationSOPVersion, IdempotencyKey: "fum-rotation-alone", CreatedBy: pcVerifier, ActorID: pcVerifier,
 	})
 	if err != nil {
 		t.Fatalf("CreateRound: %v", err)
@@ -183,7 +238,7 @@ func rotationStart(t *testing.T, ctx context.Context, repo *Repository, parkID s
 	t.Helper()
 	round, err := repo.CreateRound(ctx, ports.CreateRoundParams{
 		TenantID: pcTenant, Category: domain.CategoryFumigation, ParkID: parkID, Pens: pens,
-		PlannedBusinessDate: pcBusinessDay(2026, 10, 1), AssigneeUserIDs: operators,
+		PlannedBusinessDate: pcBusinessDay(2026, 10, 1), AssigneeUserIDs: operators, SOPVersion: rotationSOPVersion,
 		IdempotencyKey: key, CreatedBy: pcVerifier, ActorID: pcVerifier, ActorType: "human",
 	})
 	if err != nil {
@@ -327,7 +382,7 @@ func TestRotationRestartsFromAHandPlannedPenAfterAClose(t *testing.T) {
 	restart, err := repo.CreateRound(ctx, ports.CreateRoundParams{
 		TenantID: pcTenant, Category: domain.CategoryFumigation, ParkID: pcPark,
 		Pens: []domain.RoundPen{{ShedID: covShedGodel, PartitionLabel: "Part 2"}}, PlannedBusinessDate: pcBusinessDay(2026, 10, 1),
-		AssigneeUserIDs: []string{pcOperator2}, IdempotencyKey: "rot-restart-2", CreatedBy: pcVerifier, ActorID: pcVerifier,
+		AssigneeUserIDs: []string{pcOperator2}, SOPVersion: rotationSOPVersion, IdempotencyKey: "rot-restart-2", CreatedBy: pcVerifier, ActorID: pcVerifier,
 	})
 	if err != nil {
 		t.Fatalf("restart plan: %v", err)

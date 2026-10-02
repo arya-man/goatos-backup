@@ -352,8 +352,9 @@ type RepeatStore interface {
 // SOP (2026-10-02): GapDays is the wait after the last pen of a round before the first pen of
 // the next.
 type RotationConfig struct {
-	Category string
-	GapDays  int
+	Category   string
+	GapDays    int
+	SOPVersion int
 }
 
 // RotationCandidate is one (category, park) whose latest task is fully SUBMITTED and whose next
