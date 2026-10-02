@@ -5994,7 +5994,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.feed_band.pen":            "Pen",
 			"filter.feed_band.group":          "Group",
 			"filter.feed_band.animals":        "Animals",
-			"filter.feed_band.search":         "Search pen, group, breed or feed",
+			"filter.feed_band.search":         "Search pens or feed",
 			"filter.feed_band.search_aria":    "Search the feed by weight band table",
 			"value.feed_band.type.normal":     "Normal",
 			"value.feed_band.type.experiment": "Experiment",

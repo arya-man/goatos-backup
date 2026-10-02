@@ -712,13 +712,22 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
                               </TableCell>
                             ))}
                             {hasCounts && !isCatalogue ? (
+                              // One count per line, each kept whole ("856 animals" / "10 pens"): joined
+                              // into one string it wrapped a word a line on a phone ("856 / animals /
+                              // · 10 / pens").
                               <TableCell sx={{ color: "text.secondary" }}>
-                                {row.counts
-                                  ? Object.entries(row.counts)
-                                      .filter(([, n]) => n > 0)
-                                      .map(([noun, n]) => `${n} ${noun.replace(/_/g, " ")}`)
-                                      .join(" · ") || placeholder
-                                  : placeholder}
+                                {(() => {
+                                  const parts = Object.entries(row.counts ?? {})
+                                    .filter(([, n]) => n > 0)
+                                    .map(([noun, n]) => `${n.toLocaleString("en-IN")} ${noun.replace(/_/g, " ")}`);
+                                  return parts.length === 0
+                                    ? placeholder
+                                    : parts.map((part) => (
+                                        <Box component="span" key={part} sx={{ display: "block", whiteSpace: "nowrap" }}>
+                                          {part}
+                                        </Box>
+                                      ));
+                                })()}
                               </TableCell>
                             ) : null}
                             <TableCell>

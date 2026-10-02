@@ -1073,6 +1073,9 @@ function BirthTab({ pageContract, demo }: { pageContract: AdminUiPageContract; d
     ORIGIN_KEYS.map((key) => [key, new Map(buckets.filter((b) => b.origin === key).map((b) => [b.label, b]))] as const),
   );
   const breeds = [...new Set(buckets.map((b) => b.label))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  // Only the origins the farm has a weighed kid of get a legend entry and a series: a legend naming
+  // "Procured (no load)" over a chart with no such bar promised data that is not there.
+  const origins = ORIGIN_KEYS.filter((key) => (byOrigin.get(key)?.size ?? 0) > 0);
 
   // All three origins share the g/day scale, unlike Breed-wise: these bars ARE the same measure
   // over three cohorts, which is the entire comparison. A breed the farm has no such kid of gets
@@ -1089,7 +1092,7 @@ function BirthTab({ pageContract, demo }: { pageContract: AdminUiPageContract; d
             name: copy(pageContract, "series.gain"),
             categories: breeds,
             unit: "g",
-            data: ORIGIN_KEYS.map((key) => ({
+            data: origins.map((key) => ({
               name: copy(pageContract, `view.origin.${key}`),
               data: breeds.map((breed) => {
                 const bucket = byOrigin.get(key)?.get(breed);
