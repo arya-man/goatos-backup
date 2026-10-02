@@ -26,21 +26,21 @@ export function WeightsFilterSkeleton() {
 
 /**
  * /weighing/weights panel (the Grid under the filters): four KpiWidget cards (lg 3, captions wrap to
- * two lines there), the sale-ready ring (lg 4) beside breed-wise daily gain (lg 8), then breed (lg 6)
- * beside sex + stage stacked (lg 6).
+ * two lines there), breed-wise daily gain across the row, the sale-ready ring (lg 4) beside breed
+ * (lg 8), then sex + stage side by side.
  */
 export function WeightsKidsPanelSkeleton() {
   return (
     <GridSkeleton
       items={[
         ...Array.from({ length: KIDS_KPI_COUNT }, () => ({ size: KIDS_GRID.kpi, node: <KpiCardSkeleton hint hintLines={KIDS_KPI_CAPTION_LINES} /> })),
-        { size: KIDS_GRID.ring, node: <ChartCardSkeleton height={KIDS_CHART_PLOT.ring} subheader /> },
         { size: KIDS_GRID.breedGain, node: <ChartCardSkeleton height={KIDS_CHART_PLOT.breedGain} subheader legend /> },
+        { size: KIDS_GRID.ring, node: <ChartCardSkeleton height={KIDS_CHART_PLOT.ring} subheader /> },
         { size: KIDS_GRID.breed, node: <ChartCardSkeleton height={KIDS_CHART_PLOT.breed} action /> },
         {
           size: KIDS_GRID.sexStage,
           node: (
-            <Stack spacing={3} direction={{ xs: "column", sm: "row", lg: "column" }}>
+            <Stack spacing={3} direction={{ xs: "column", sm: "row" }}>
               <ChartCardSkeleton height={KIDS_CHART_PLOT.sexStage} action />
               <ChartCardSkeleton height={KIDS_CHART_PLOT.sexStage} action />
             </Stack>
@@ -53,8 +53,8 @@ export function WeightsKidsPanelSkeleton() {
 
 /**
  * /weighing/analytics General tab (GeneralTab's Grid): three KpiWidget cards (md 4), the sale-ready
- * ring (lg 4) beside weekly growth (lg 8), pen gain ranking (lg 8) beside the park gain balance card
- * (lg 4), then the pens table card (count Label, the staged pens WorklistFilters, 9 columns).
+ * ring (lg 4), weekly growth (lg 5) and the park gain balance card (lg 3), the pen gain ranking
+ * across the row, then the pens table card (count Label, the staged pens WorklistFilters, 9 columns).
  */
 export function WeightsGeneralPanelSkeleton() {
   return (
@@ -63,8 +63,8 @@ export function WeightsGeneralPanelSkeleton() {
         ...Array.from({ length: GENERAL_KPI_COUNT }, () => ({ size: GENERAL_GRID.kpi, node: <KpiCardSkeleton hint /> })),
         { size: GENERAL_GRID.ring, node: <ChartCardSkeleton height={GENERAL_CHART_PLOT.ring} subheader /> },
         { size: GENERAL_GRID.weekly, node: <ChartCardSkeleton height={GENERAL_CHART_PLOT.weekly} subheader /> },
-        { size: GENERAL_GRID.rank, node: <ChartCardSkeleton height={GENERAL_CHART_PLOT.rank} subheader /> },
         { size: GENERAL_GRID.parkGain, node: <ChartCardSkeleton height={GENERAL_CHART_PLOT.parkGain} /> },
+        { size: GENERAL_GRID.rank, node: <ChartCardSkeleton height={GENERAL_CHART_PLOT.rank} subheader /> },
         { size: GENERAL_GRID.pens, node: <TableSkeleton columns={PENS_TABLE_COLUMNS} rows={WEIGHTS_DEFAULT_LIMIT} headerAction toolbar={<FilterCardSkeleton inCard fold fields={PENS_FILTER_FIELDS} />} /> },
       ]}
     />

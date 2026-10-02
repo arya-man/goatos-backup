@@ -81,7 +81,9 @@ test("Activity and Pattern info copy explains the non-contradiction", () => {
 
 test("Quiet KPI copy matches its movement-state filter", () => {
   const kpis = read("./herd-signals-kpi-defs.tsx");
-  assert.match(kpis, /detail: \(\) => "motion-count delta 1 to 9 in last 15 min"/, "Quiet card must describe quiet only, not low or zero deltas");
+  // Farm words since PR #294 round 2 (the caption read "motion-count delta 1 to 9"); the meaning is
+  // unchanged: some movement, never none.
+  assert.match(kpis, /detail: \(\) => "moved a little, but not still, in the last 15 min"/, "Quiet card must describe quiet only, not low or zero deltas");
   assert.doesNotMatch(kpis, /detail: \(\) => "low or zero delta this window"/, "Quiet card must not describe states outside movement_state=quiet");
 });
 

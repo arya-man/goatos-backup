@@ -5,7 +5,7 @@ import { Tag } from "@/components/ui-primitives";
 import { useCallback, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Iconify, type IconifyName } from "@/components/minimal/iconify";
-import { sopVersionCaption, type SopCardView } from "./sop-derive";
+import { sopCardCaption, sopVersionCaption, type SopCardView } from "./sop-derive";
 import { SummaryEmpty, SummaryList, SummaryMeta, SummaryRow, SummaryTitle } from "./sop-summary";
 import { FollowUpStepsSummary } from "./followup-summary";
 import { InspectionSummary } from "./inspection-summary";
@@ -80,8 +80,16 @@ const DLG_BODY_SX = {
   "& .htl > .hrow": { borderRadius: 1, transition: (t: Theme) => t.transitions.create("background-color") },
   "& .htl > .hrow:hover": { bgcolor: "action.hover" },
 } as const;
-function statusText(view: SopCardView): string {
-  return view.status === "active" ? `published${view.versionNumber ? ` · v${view.versionNumber}` : ""}` : view.status;
+/** A version's lifecycle in the contract's word ("Published"), never the raw value. */
+function versionStatusWord(view: SopCardView, pageContract: AdminUiPageContract): string {
+  const status = view.versionStatus ?? (view.status === "active" ? "published" : view.status);
+  return copy(pageContract, `status.${status}`, status);
+}
+
+/** The card's status Label: the contract's status word ("Published · v1"), never the raw lifecycle value. */
+function statusText(view: SopCardView, pageContract: AdminUiPageContract): string {
+  if (view.status === "active") return `${copy(pageContract, "status.published", "Published")}${view.versionNumber ? ` · v${view.versionNumber}` : ""}`;
+  return copy(pageContract, `status.${view.status}`, view.status);
 }
 
 export interface SopLibraryProps {
@@ -448,14 +456,16 @@ type SopItemProps = {
 // Template sections/job/job-item anatomy: ⋮ action menu pinned top-right, rounded 48px avatar,
 // subtitle1 title link + caption, primary caption line, dashed divider, 2-column caption facts.
 function SopItem({ view, facets, pageContract, justPublished, onView, onEdit }: SopItemProps) {
+  const versionCaption = sopCardCaption(view.name, view.versionLabel, view.versionNumber, view.status);
   const facts: JobItemFact[] = [];
   if (facets.domain) facts.push({ key: "domain", label: view.domainLabel, icon: <Iconify width={16} icon="solar:tag-horizontal-bold-duotone" sx={{ flexShrink: 0 }} /> });
   if (facets.trigger && view.trigger) facts.push({ key: "trigger", label: view.trigger, icon: <Iconify width={16} icon="solar:clock-circle-bold" sx={{ flexShrink: 0 }} /> });
-  // A SOP that ALSO carries operator steps (birth, death, shifting) counts two different things: the
-  // capture form's questions (form_dsl.fields) and the follow-up steps. Both used to say "steps"
-  // ("12 steps" beside "16 operator steps" on Birth Recording), so the form count is named for what
-  // it is there.
-  const formNoun = view.followUpStepCount > 0 ? ["label.form_question", "label.form_questions"] : ["label.step", "label.steps"];
+  // Two different things are counted and each has ONE name on every module's library: the capture
+  // form's questions (form_dsl.fields) are "form questions", the follow-up track is "operator steps".
+  // Naming the form count "steps" only where no operator steps existed made Milk read "14 steps"
+  // beside Herd Operations' "12 form questions" for the same kind of count. Only the aflatoxin
+  // procedure, whose authored section IS a list of steps, keeps "steps".
+  const formNoun = view.stepCountIsProcedure ? ["label.step", "label.steps"] : ["label.form_question", "label.form_questions"];
   if (facets.counts && view.stepCount !== null)
     facts.push({ key: "steps", label: `${view.stepCount} ${view.stepCount === 1 ? copy(pageContract, formNoun[0], copy(pageContract, formNoun[1])) : copy(pageContract, formNoun[1])}`, icon: <Iconify width={16} icon="solar:list-bold" sx={{ flexShrink: 0 }} /> });
   if (facets.counts && view.inspectionQuestionCount > 0)
@@ -481,10 +491,12 @@ function SopItem({ view, facets, pageContract, justPublished, onView, onEdit }: 
           {view.name}
         </Link>
       }
-      secondary={sopVersionCaption(view.name, view.versionLabel, view.versionNumber) ?? undefined}
+      // A caption that is only "v1" repeats the "Published · v1" Label beside it (PR #294 S4); an
+      // authored version label ("Monsoon dosing update") still says something the Label does not.
+      secondary={versionCaption ?? undefined}
       meta={
         <Label variant="soft" color={STATUS_COLOR[view.status]}>
-          {statusText(view)}
+          {statusText(view, pageContract)}
         </Label>
       }
       facts={facts}
@@ -555,7 +567,7 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, onEditCapture, ed
             {[
               [copy(pageContract, "label.domain"), view.domainLabel],
               [copy(pageContract, "label.trigger"), view.trigger ?? copy(pageContract, "label.placeholder")],
-              [copy(pageContract, "label.version_status"), `${sopVersionCaption(view.name, view.versionLabel, view.versionNumber) ?? copy(pageContract, "label.placeholder")} · ${view.versionStatus ?? view.status}`],
+              [copy(pageContract, "label.version_status"), `${sopVersionCaption(view.name, view.versionLabel, view.versionNumber) ?? copy(pageContract, "label.placeholder")} · ${versionStatusWord(view, pageContract)}`],
             ].map(([k, v]) => (
               <Box key={k} sx={{ minWidth: 0 }}>
                 <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{k}</Typography>

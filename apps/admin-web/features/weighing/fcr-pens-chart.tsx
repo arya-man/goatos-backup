@@ -74,8 +74,10 @@ export function FCRPensChart({
         options: {
           xaxis: {
             categories,
-            // Four ticks at every width: at 390 the default count printed "200 kg/kg400 kg/kg".
-            tickAmount: 4,
+            // A ratio is never below zero, so the axis starts there (Apex padded it to "-5 kg/kg"). Four
+            // ticks on a laptop; two on a phone, where four "25 kg/kg" labels ran into one another.
+            min: 0,
+            tickAmount: phone ? 2 : 4,
             ...(ceiling !== undefined ? { max: ceiling } : {}),
             labels: { formatter: (value: string) => formatBarValue(Number(value), unit, 0) },
           },
@@ -105,6 +107,9 @@ export function FCRPensChart({
           ...(breakEven != null
             ? {
                 annotations: {
+                  // BEHIND the bars: a bar ending past break-even hides the dash under its own fill, so
+                  // the dashed line never runs through the value label printed at the bar's end.
+                  position: "back",
                   // The line's label sits ABOVE the plot (horizontal, offset up), clear of every bar's
                   // value label; drawn along the line it painted over "8.13" so it read ".13".
                   xaxis: [

@@ -84,7 +84,14 @@ export function FCRPensTable({
         row.rounds < 2 ? (
           <Box component="span" sx={{ color: "text.secondary" }}>{fmtDate(row.last_weigh_date)}</Box>
         ) : (
-          `${fmtDate(row.first_weigh_date)} → ${fmtDate(row.last_weigh_date)}`
+          // First and last weigh on two lines: on one line the span was the table's widest cell and
+          // pushed fifteen columns ~250px past a 1440 card (PR #294 W7).
+          <span>
+            {fmtDate(row.first_weigh_date)} →
+            <Box component="span" sx={{ display: "block" }}>
+              {fmtDate(row.last_weigh_date)}
+            </Box>
+          </span>
         ),
     },
     daily_gain: {

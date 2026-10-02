@@ -1557,8 +1557,11 @@ func weighingWeightsCopy() map[string]string {
 		"composition.unknown_sex":   "unknown sex",
 		// Column headers come from the table contract's own columns via tableLabels(),
 		// so they are deliberately NOT duplicated here.
-		"filter.all_option":          "All",
-		"filter.bar_aria":            "Filter pens",
+		"filter.all_option": "All",
+		"filter.bar_aria":   "Filter pens",
+		// The page-level bar's name (its phone button): it filters every card on the page, loads
+		// and breeds included, so it is not "Filter pens".
+		"filter.page_bar":            "Filters",
 		"filter.clear_all":           "Clear filters",
 		"pager.noun":                 "pen",
 		"value.weighing.individual":  "Per animal",
@@ -1731,8 +1734,11 @@ func weighingWeightsCopy() map[string]string {
 		// tiles left — and without this tile the three movement figures added up to a number the
 		// card never showed, which reads as an error. The maintainer checked the arithmetic and
 		// asked why (2026-09-01). Now moved up + held + slipped back equals this exactly.
-		"growth_director.road.pairs.sub":      "of them weighed twice, so able to move a band",
-		"growth_director.road.moved_up":       "moved up a band since their last weigh",
+		// Tile captions are one line on a six-tile row (~160px at 1440): the "so able to move a band"
+		// clause and "since their last weigh" were cut mid-word (PR #294 W4). road.note.pairs, under
+		// the band card, carries the why.
+		"growth_director.road.pairs.sub":      "of them weighed twice",
+		"growth_director.road.moved_up":       "moved up a band",
 		"growth_director.road.held":           "held their band",
 		"growth_director.road.moved_down":     "slipped back",
 		"growth_director.road.sale_marker":    "sale",
@@ -8923,11 +8929,14 @@ func pageSpecificCopy(id string) map[string]string {
 			// Clock In / Out tab (maintainer decisions 2026-08-27/28). The chip
 			// templates keep composition backend-owned: the client substitutes
 			// the backend-composed time label into %s and nothing else.
-			"clock.tab.title":                     "Clock In / Out",
-			"clock.summary.working":               "Working now",
-			"clock.summary.worked":                "Worked",
-			"clock.summary.clocked_out":           "Clocked out",
-			"clock.summary.not_clocked_in":        "Not clocked in",
+			"clock.tab.title":              "Clock In / Out",
+			"clock.summary.working":        "Working now",
+			"clock.summary.worked":         "Worked",
+			"clock.summary.clocked_out":    "Clocked out",
+			"clock.summary.not_clocked_in": "Not clocked in",
+			// Suffix on the list's count Label when the list is paged: the count is this page's rows,
+			// the tiles above are the whole filter's.
+			"clock.summary.on_page":               "on this page",
 			"clock.summary.flagged":               "Flagged",
 			"clock.column.person":                 "Person",
 			"clock.column.park":                   "Park",
@@ -9091,9 +9100,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"empty.no_published_fields":               "No published version yet — this SOP has no form_dsl fields to show. Open the builder to author a draft version.",
 			"auth.sign_in":                            "Sign in with Google to load the SOP Library — the admin SOP engine is tenant-scoped.",
 			"error.load":                              "Could not load the SOPs. Refresh to try again.",
-			"status.published":                        "published",
-			"status.draft":                            "draft",
-			"status.retired":                          "retired",
+			"status.published":                        "Published",
+			"status.draft":                            "Draft",
+			"status.retired":                          "Retired",
 			"label.steps":                             "steps",
 			"label.form_questions":                    "form questions",
 			"label.form_question":                     "form question",
@@ -9123,7 +9132,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.builder.field.name":                "SOP name",
 			"modal.builder.placeholder.name":          "Vaccination session",
 			"modal.builder.domain_locked":             "set by this page",
-			"modal.builder.policy_label":              "vaccination drive/session policy",
+			"modal.builder.policy_label":              "Vaccination drive / session policy",
 			"modal.builder.field.trigger":             "Trigger — what starts it?",
 			"modal.builder.field.steps":               "Steps & questions — add/remove, pick a type, set conditional rules",
 			"modal.builder.step_type_aria_prefix":     "Step",
@@ -9140,8 +9149,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.builder.logic_title":               "Conditional logic:",
 			"modal.builder.logic_body":                "a step can show only if a previous step was answered, and an answer can require this step, require proof, or block submission — emitted as declarative visible_if / required_if / proof_required_if / block_submission_if rules. Cross-domain actions are routed through Action Center ownership and verification.",
 			"modal.builder.field.proof_policy":        "Proof policy",
-			"modal.builder.label.proof_required":      "proof required",
-			"modal.builder.label.verify_before_apply": "verify before apply",
+			"modal.builder.label.proof_required":      "Proof required",
+			"modal.builder.label.verify_before_apply": "A verifier approves the proof before it applies",
 			"modal.builder.field.proof_type":          "Proof type",
 			"modal.builder.field.min_count":           "Minimum proof count",
 			"modal.builder.field.subject_scope":       "Subject scope",
@@ -9216,7 +9225,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"builder.scan.single_hint":          "Operator scans / selects one goat.",
 			"builder.scan.multi_hint":           "Operator scans every goat in the pen — one batched session.",
 			"builder.preview.scan_add":          "Scan goat",
-			"builder.gates.subject_hint":        "Batch = one proof for the whole pen session. Per-goat = a proof per animal.",
+			"builder.gates.subject_hint":        "One proof for the whole pen covers the session; one proof per animal asks for a capture of each animal.",
 			"builder.boolean.note":              "Yes / No answer.",
 			"builder.logic.title":               "Conditional logic",
 			"builder.logic.add":                 "Only show this question when…",
@@ -9236,7 +9245,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"builder.preview.conditional_badge": "conditional",
 			"builder.summary.fields":            "questions",
 			"builder.summary.rules":             "conditional rules",
-			"builder.summary.proof":             "proof gate",
+			"builder.summary.proof":             "required",
 			// Follow-up (operator steps) editor -- SOP-driven herd operations, 2026-09-13.
 			"followup.title":               "Operator steps",
 			"followup.subtitle":            "What the operator does after the event, in order. Each step names its type, the proof it needs, and when it is due. Publishing applies to workflows opened from then on; open workflows keep the steps they started with.",
@@ -9368,7 +9377,7 @@ func pageSpecificCopy(id string) map[string]string {
 			m["modal.builder.domain_aria"] = "Domain — locked to Counts / Herd Operations"
 			m["modal.builder.domain_title"] = "Domain is locked to Counts / Herd Operations on this page"
 			m["modal.builder.domain_label"] = "Counts / Herd Operations"
-			m["modal.builder.policy_label"] = "herd operations policy"
+			m["modal.builder.policy_label"] = "Herd operations policy"
 			m["modal.builder.default_name"] = "Herd operation"
 			m["modal.builder.placeholder.name"] = "Herd operation"
 			m["modal.builder.eyebrow"] = "SOP · COUNTS / HERD OPERATIONS"
@@ -9389,7 +9398,7 @@ func pageSpecificCopy(id string) map[string]string {
 			m["modal.builder.domain_label"] = "Sales"
 			m["modal.builder.default_name"] = "Sale"
 			m["modal.builder.placeholder.name"] = "Sale"
-			m["modal.builder.policy_label"] = "sales policy"
+			m["modal.builder.policy_label"] = "Sales policy"
 			m["modal.builder.eyebrow"] = "SOP · SALES"
 			m["empty.title"] = "No sales SOP yet"
 			m["empty.body"] = "Publish the Sale SOP to drive the steps the phone runs after a sale is recorded."
@@ -9407,7 +9416,7 @@ func pageSpecificCopy(id string) map[string]string {
 			m["modal.builder.domain_label"] = "General"
 			m["modal.builder.default_name"] = "Work instruction"
 			m["modal.builder.placeholder.name"] = "Work instruction"
-			m["modal.builder.policy_label"] = "general work instruction"
+			m["modal.builder.policy_label"] = "General work instruction"
 			m["modal.builder.eyebrow"] = "SOP · GENERAL"
 			m["followup.subtitle"] = "What the operator does once they start this work instruction, in order. Each step names its type, the proof it needs, and when it is due. Publishing applies to runs started from then on; a run already started keeps the steps it started with."
 			m["followup.notice.capture_kept"] = "Started by hand from the phone; every run is its own record."
@@ -9424,7 +9433,7 @@ func pageSpecificCopy(id string) map[string]string {
 			m["modal.builder.domain_label"] = "Preventive Care"
 			m["modal.builder.default_name"] = "Preventive Care task"
 			m["modal.builder.placeholder.name"] = "Preventive Care task"
-			m["modal.builder.policy_label"] = "preventive care policy"
+			m["modal.builder.policy_label"] = "Preventive care policy"
 			m["modal.builder.eyebrow"] = "SOP · PREVENTIVE CARE"
 			m["empty.title"] = "No preventive care SOPs yet"
 			m["empty.body"] = "Publish the document that says what the operator captures on a deworming, ticks removal or trimming task."
@@ -9438,7 +9447,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// "Vaccination session" under a "vaccination drive/session policy".
 			m["modal.builder.default_name"] = "Feed session"
 			m["modal.builder.placeholder.name"] = "Feed session"
-			m["modal.builder.policy_label"] = "feed chain policy"
+			m["modal.builder.policy_label"] = "Feed chain policy"
 			m["modal.builder.eyebrow"] = "SOP · FEED"
 			m["empty.title"] = "No feed SOPs yet"
 			m["empty.body"] = "Publish a distribution, packing or transport SOP for the feed chain."
@@ -9453,7 +9462,7 @@ func pageSpecificCopy(id string) map[string]string {
 			m["modal.builder.domain_label"] = "Procurement"
 			m["modal.builder.default_name"] = "Animal purchase inspection"
 			m["modal.builder.placeholder.name"] = "Animal purchase inspection"
-			m["modal.builder.policy_label"] = "procurement policy"
+			m["modal.builder.policy_label"] = "Procurement policy"
 			m["modal.builder.eyebrow"] = "SOP · PROCUREMENT"
 			m["empty.title"] = "No procurement SOPs yet"
 			for k, v := range inspectionEditorCopy() {
@@ -9478,7 +9487,7 @@ func pageSpecificCopy(id string) map[string]string {
 			m["modal.builder.domain_label"] = "Milk"
 			m["modal.builder.default_name"] = "Milk round"
 			m["modal.builder.placeholder.name"] = "Milk round"
-			m["modal.builder.policy_label"] = "kid-milk policy"
+			m["modal.builder.policy_label"] = "Kid milk policy"
 			m["modal.builder.eyebrow"] = "SOP · MILK"
 			m["empty.title"] = "No milk SOPs yet"
 			m["empty.body"] = "Publish a preparation or feeding SOP for the kid-milk round."
@@ -9497,7 +9506,7 @@ func pageSpecificCopy(id string) map[string]string {
 			m["modal.builder.domain_label"] = "Weighing"
 			m["modal.builder.default_name"] = "Weighing session"
 			m["modal.builder.placeholder.name"] = "Weighing session"
-			m["modal.builder.policy_label"] = "weighing session policy"
+			m["modal.builder.policy_label"] = "Weighing session policy"
 			m["modal.builder.eyebrow"] = "SOP · WEIGHING"
 			m["empty.title"] = "No weighing SOPs yet"
 			m["empty.body"] = "Publish the scan-and-submit weighing session SOP."
@@ -9888,7 +9897,9 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 			{
 				ID: "people_designation_grades",
 				Options: []domain.Option{
-					option("cxo", "CXO", "", ""),
+					// The grade reads as the designation that carries it: "CEO / CXO" on every People surface,
+					// never "CXO" beside "CEO / CXO" (PR #294 P7).
+					option("cxo", "CEO / CXO", "", ""),
 					option("director", "Director", "", ""),
 					option("manager", "Manager", "", ""),
 					option("assistant_manager", "Assistant Manager", "", ""),
@@ -11047,8 +11058,9 @@ func sopOptionGroups() []domain.OptionGroup {
 			// session) — the real vaccination drive is grouped by shed, never random goats.
 			ID: "sop_scan_modes",
 			Options: []domain.Option{
-				option("single", "Single goat", "", ""),
-				option("multi", "Multiple goats (whole pen / batch)", "", ""),
+				// Short enough to sit whole in a 390 select ("Multiple goats (whole pen /…" was cut).
+				option("single", "One animal", "", ""),
+				option("multi", "Every animal in the pen", "", ""),
 			},
 		},
 	}
@@ -12629,7 +12641,7 @@ func weighingSOPEditorCopy() map[string]string {
 		"wsop.capture.individual.locked_short":  "fixed",
 		"wsop.capture.lump_sum.video_min":       "Whole pen — videos at least",
 		"wsop.capture.lump_sum.video_max":       "Whole pen — videos at most",
-		"wsop.capture.locked_rules":             "Not authored here, by decision: the RFID scan and the weight entry, scanning is free-flow (a tag is stored as scanned and never checked against a pen or roster), an animal cannot be scanned twice in the same pen before submit, the verifier reviews every capture and may correct a weight on Approve, and a pen closes only once nothing is pending review.",
+		"wsop.capture.locked_rules":             "Not authored here, by decision: the RFID scan and the weight entry, scanning is free-flow (a tag is stored as scanned and never checked against a pen or roster), an animal cannot be scanned twice in the same pen before submit, the verifier reviews every capture and types her own weight reading on Approve without seeing the operator's (that reading is the final weight), and a pen closes only once nothing is pending review.",
 		"wsop.summary.lump_sum_videos":          "whole pen: {min}–{max} videos",
 		// THE WEIGH CAPTURES ARE AUTHORED (maintainer decision 2026-09-16): two SEPARATE
 		// sections, each with its own captures and questions, shown as two titled blocks.

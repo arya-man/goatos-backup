@@ -185,7 +185,9 @@ export function NotificationMatrix({
                 {matrix.designations.map((d) => (
                   <TableCell component="th"
                     key={d.code}
-                    sx={{ textAlign: "center", px: 1, verticalAlign: "bottom" }}
+                    // The kit's head cells are nowrap, which the clamp inherited: the label never broke
+                    // and read "Preventive Care [" / "Breeding Directo" (PR #294 P2).
+                    sx={{ textAlign: "center", px: 1, verticalAlign: "bottom", whiteSpace: "normal" }}
                   >
                     {/* Two lines at word breaks, then ellipsis ("CEO / C…" / "Prevent…" read as broken on
                         one line, J2 P2-11); the Tooltip keeps the whole label + grade. */}
@@ -395,6 +397,7 @@ const HEADER_TWO_LINES_SX = {
   WebkitLineClamp: 3,
   WebkitBoxOrient: "vertical",
   overflow: "hidden",
+  whiteSpace: "normal",
   overflowWrap: "normal",
   wordBreak: "normal",
 } as const;

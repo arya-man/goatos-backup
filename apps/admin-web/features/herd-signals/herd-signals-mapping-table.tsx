@@ -143,12 +143,9 @@ function AnimalCell({ item }: { item: HerdSignalItem }) {
       </>
     );
   }
-  return (
-    <>
-      <b>{item.display_id}</b>
-      <Box component="small" sx={HS_SUBLINE}>{MAPPING_LABEL[item.mapping_state].toLowerCase()}</Box>
-    </>
-  );
+  // The mapping state is the row's own Status chip; a lowercase "mapped" under the id repeated it
+  // a few columns early (PR #294 P3).
+  return <b>{item.display_id}</b>;
 }
 
 // ---------------------------------------------------------------------------
@@ -595,9 +592,10 @@ export function HerdSignalsMappingTable({
     const reason = reasonFor(action);
     return (
       // A disabled button swallows hover, so the reason rides on a wrapping span's title.
-      <Box component="span" title={reason ?? ACTION_TITLE[action]} sx={{ display: "inline-flex" }}>
+      <Box component="span" title={reason ?? ACTION_TITLE[action]} sx={{ display: "inline-flex", minWidth: 0 }}>
         <Button
           size="small"
+          sx={{ width: { xs: 1, sm: "auto" } }}
           variant={primary ? "contained" : "outlined"}
           color={primary ? "primary" : "inherit"}
           disabled={reason !== null || busy}
@@ -694,28 +692,43 @@ export function HerdSignalsMappingTable({
   // Template list toolbar row inside the card: the mapping-state filters, the selection readout and
   // the three write actions.
   const toolbar = (
-    <Box aria-busy={busy} sx={{ p: 2.5, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 1 }}>
+    <Box aria-busy={busy} sx={{ p: 2.5, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 1.5 }}>
       {/* "All" is the unfiltered default, not an explicit selection — the mock (which never
           highlights any filter button) renders it as a plain neutral button. Only the two explicit
           filters (Unmapped/Conflict) get the primary highlight when chosen. */}
-      {filterButton("All", undefined, false)}
-      {filterButton("Unmapped only", "unmapped", params.mappingState === "unmapped")}
-      {filterButton("Conflicts only", "conflict", params.mappingState === "conflict")}
+      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+        {filterButton("All", undefined, false)}
+        {filterButton("Unmapped only", "unmapped", params.mappingState === "unmapped")}
+        {filterButton("Conflicts only", "conflict", params.mappingState === "conflict")}
+      </Box>
       <Box sx={{ flex: 1 }} />
-      <Typography variant="caption" sx={{ color: "text.secondary" }}>
-        {selectionVisible ? (
-          <>
-            Selected <Box component="span" sx={HS_MONO}>{selected?.tag_id}</Box>
-          </>
-        ) : (
-          "Select a tag to act on it"
-        )}
-      </Typography>
-      {/* "Map to animal" is the PRIMARY verb here: on a farm where nothing is mapped yet it is the
-          only action that makes this screen useful at all. */}
-      {actionButton("map", "Map to animal", true)}
-      {actionButton("replace", "Replace tag", false)}
-      {actionButton("unmap", "Unmap", false)}
+      {/* The selection readout and the three verbs as one group: on a phone the readout takes its own
+          line and the verbs share the next one in three equal columns, where they used to wrap one
+          by one wherever the line ran out (PR #294 P3). */}
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: { xs: "repeat(3, minmax(0, 1fr))", sm: "auto auto auto auto" },
+          alignItems: "center",
+          gap: 1,
+          width: { xs: 1, sm: "auto" },
+        }}
+      >
+        <Typography variant="caption" sx={{ color: "text.secondary", gridColumn: { xs: "1 / -1", sm: "auto" } }}>
+          {selectionVisible ? (
+            <>
+              Selected <Box component="span" sx={HS_MONO}>{selected?.tag_id}</Box>
+            </>
+          ) : (
+            "Select a tag to act on it"
+          )}
+        </Typography>
+        {/* "Map to animal" is the PRIMARY verb here: on a farm where nothing is mapped yet it is the
+            only action that makes this screen useful at all. */}
+        {actionButton("map", "Map to animal", true)}
+        {actionButton("replace", "Replace tag", false)}
+        {actionButton("unmap", "Unmap", false)}
+      </Box>
     </Box>
   );
 

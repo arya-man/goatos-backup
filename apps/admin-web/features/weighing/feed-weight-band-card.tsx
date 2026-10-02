@@ -324,7 +324,8 @@ export function FeedWeightBandCard({
       label={label}
       value={options.some((option) => option.value === value) ? value : ""}
       onChange={({ target: { value: next } }) => update({ [param]: next } as Partial<State>)}
-      sx={{ minWidth: { xs: 0, sm: 140 }, flexShrink: 0, maxWidth: 1 }}
+      // Two to a row on a phone: shrunk to their "All" value the labels read "Feed …" / "Weig…".
+      sx={(theme) => ({ flex: { xs: `1 1 calc(50% - ${theme.spacing(1)})`, sm: "0 0 auto" }, minWidth: { xs: 0, sm: 140 }, maxWidth: 1 })}
       slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
     >
       <MenuItem value="">{copy(pageContract, "filter.all_option")}</MenuItem>

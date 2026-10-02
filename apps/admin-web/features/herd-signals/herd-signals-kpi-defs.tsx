@@ -65,7 +65,7 @@ export const KPI_DEFS: KpiDef[] = [
     tone: "primary",
     icon: IC.activity,
     value: (s) => s.active_1m,
-    detail: () => "motion-count delta above 0 in last 1 min",
+    detail: () => "tag moved at least once in the last minute",
   },
   {
     key: "moving_15m",
@@ -74,7 +74,7 @@ export const KPI_DEFS: KpiDef[] = [
     tone: "info",
     icon: IC.activity,
     value: (s) => s.moving,
-    detail: () => "sustained activity: delta ≥ 100 in last 15 min",
+    detail: () => "kept moving steadily over the last 15 min",
   },
   {
     key: "quiet",
@@ -85,7 +85,9 @@ export const KPI_DEFS: KpiDef[] = [
     // Matches the click filter exactly (movement_state=quiet) — summing in not_moving here would
     // make this number disagree with what clicking the card actually filters to.
     value: (s) => s.quiet,
-    detail: () => "motion-count delta 1 to 9 in last 15 min",
+    // Farm words for movement_state=quiet: a motion-count delta of 1 to 9 in 15 min -- some movement,
+    // never none (a still tag is not quiet, it is not moving).
+    detail: () => "moved a little, but not still, in the last 15 min",
   },
   {
     key: "weak_signal",

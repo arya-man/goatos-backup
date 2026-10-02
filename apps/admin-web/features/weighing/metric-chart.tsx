@@ -8,6 +8,8 @@ import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 
 import { useState } from "react";
+import useMediaQuery from "@mui/material/useMediaQuery";
+import type { Theme } from "@mui/material/styles";
 import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
@@ -92,7 +94,11 @@ export function MetricChart({
   const [metric, setMetric] = useState<Metric>(initialMetric);
   const active = series[metric];
   void size;
-  void wide;
+  // A full-width card (load chart) gives its category labels the room it has: Apex's default 160px
+  // label column cut "126 (CBE Castro 1, CBE Y…" on a 1440 card with 900px to spare. A phone keeps
+  // the narrow column (the load number still leads; the full name is in the tooltip).
+  const phone = useMediaQuery((theme: Theme) => theme.breakpoints.down("sm"), { noSsr: true });
+  const chart = barChart(active, labels[metric]);
   return (
     <ConversionRatesCard
       key={metric}
@@ -101,7 +107,7 @@ export function MetricChart({
       subheader={caption}
       action={<MetricToggle current={metric} labels={labels} onChange={setMetric} />}
       empty={<EmptyState title={active.emptyLabel} />}
-      chart={barChart(active, labels[metric])}
+      chart={wide && !phone ? { ...chart, options: { yaxis: { labels: { maxWidth: 360 } } } } : chart}
       // Sex / stage usually carry one to three bars: the template's 360px plot would leave them
       // floating, so a short list gets a 220px plot (set here, the section stays verbatim).
       sx={{ height: 1, ...(active.data.length <= 3 ? { [`& .${chartClasses.root}`]: { height: SHORT_PLOT } } : {}) }}

@@ -212,6 +212,11 @@ export function deriveFields(formDsl: unknown): DslField[] {
 // Report the toxin procedure's own steps where there are some, and otherwise say nothing at all.
 const MODULE_OWNED_SECTIONS = ["inspection", "vendor_form", "feed_purchase_form", "toxin", "follow_up", "pc_care"];
 
+function asFieldCount(formDsl: unknown): number {
+  const dsl = asObject(formDsl);
+  return dsl && Array.isArray(dsl["fields"]) ? (dsl["fields"] as unknown[]).length : 0;
+}
+
 export function deriveStepCount(formDsl: unknown): number | null {
   const dsl = asObject(formDsl);
   if (!dsl || !Array.isArray(dsl["fields"])) return null;
@@ -324,6 +329,8 @@ export type SopCardView = {
   domainLabel: string;
   trigger: SopTrigger | null;
   stepCount: number | null;
+  /** True when stepCount counts a PROCEDURE's steps (the aflatoxin test), not form questions. */
+  stepCountIsProcedure: boolean;
   gates: string[];
   status: "draft" | "active" | "retired";
   versionLabel: string | null;
@@ -374,6 +381,7 @@ export function toSopView(def: SopDefLike, version: SopVersionLike | null): SopC
     domainLabel: label,
     trigger: version ? deriveTrigger(version.form_dsl) : null,
     stepCount: version ? deriveStepCount(version.form_dsl) : null,
+    stepCountIsProcedure: version ? asFieldCount(version.form_dsl) === 0 && deriveToxinStepCount(version.form_dsl) > 0 : false,
     gates: version ? deriveGates(version.form_dsl, version.proof_policy) : [],
     status: def.status,
     versionLabel: version ? version.version_label : null,
@@ -1095,4 +1103,20 @@ export function sopVersionCaption(name: string, versionLabel: string | null, ver
   const title = name.trim().toLowerCase();
   if (label === "" || (title !== "" && label.toLowerCase().startsWith(title))) return short;
   return label;
+}
+
+/**
+ * The library card's sub-line: sopVersionCaption, or nothing when that caption is only the "vN" the
+ * published card's "Published · vN" status Label already prints (PR #294 S4). An authored version
+ * label that says something else ("Monsoon dosing update") is kept.
+ */
+export function sopCardCaption(
+  name: string,
+  versionLabel: string | null,
+  versionNumber: number | null,
+  status: string,
+): string | null {
+  const caption = sopVersionCaption(name, versionLabel, versionNumber);
+  if (status === "active" && versionNumber != null && caption === `v${versionNumber}`) return null;
+  return caption;
 }

@@ -519,6 +519,9 @@ export async function WeighingWeightsAnalyticsPage({
         pageParam="offset"
         fields={visibleFilterFields}
         pageContract={pageContract}
+        // The page's bar governs every tab (loads, breeds, weeks), so its phone button does not say
+        // "Filter pens"; that name belongs to the pens table's own bar below (PR #294 W7).
+        label={copy(pageContract, "filter.page_bar")}
       />
 
       {/* The tab's panel (guard: url-keyed-panel): a tab / filter / pager click swaps it to the
@@ -868,26 +871,6 @@ function GeneralTab({
         />
       </Grid>
 
-      <Grid size={GENERAL_GRID.rank}>
-        <ConversionRatesCard
-          aria-label={copy(pageContract, "chart.gain.aria")}
-          title={copy(pageContract, "chart.gain.title")}
-          subheader={copy(pageContract, "chart.gain.caption")}
-          empty={<EmptyState title={copy(pageContract, "empty.gain.body")} />}
-          chart={{
-            categories: rankedPens.map((row) => row.label),
-            unit: "g",
-            series: [
-              {
-                name: copy(pageContract, "series.gain"),
-                data: rankedPens.map((row) => Math.round(row.gain)),
-                notes: rankedPens.map((row) => animalCount(pageContract, row.animals)),
-              },
-            ],
-          }}
-          sx={{ height: 1 }}
-        />
-      </Grid>
       <Grid size={GENERAL_GRID.parkGain}>
         {/* No gain is a real state: a period where nothing was weighed twice HAS no gain, and
             printing 0 g/day would read as a herd that stopped growing. */}
@@ -911,6 +894,26 @@ function GeneralTab({
         />
       </Grid>
 
+      <Grid size={GENERAL_GRID.rank}>
+        <ConversionRatesCard
+          aria-label={copy(pageContract, "chart.gain.aria")}
+          title={copy(pageContract, "chart.gain.title")}
+          subheader={copy(pageContract, "chart.gain.caption")}
+          empty={<EmptyState title={copy(pageContract, "empty.gain.body")} />}
+          chart={{
+            categories: rankedPens.map((row) => row.label),
+            unit: "g",
+            series: [
+              {
+                name: copy(pageContract, "series.gain"),
+                data: rankedPens.map((row) => Math.round(row.gain)),
+                notes: rankedPens.map((row) => animalCount(pageContract, row.animals)),
+              },
+            ],
+          }}
+          sx={{ height: 1 }}
+        />
+      </Grid>
       <Grid size={GENERAL_GRID.pens}>
         <Card aria-label={copy(pageContract, "section.sheds.aria")}>
           <CardHeader
@@ -926,6 +929,7 @@ function GeneralTab({
             pageParam="offset"
             fields={pensFilterFields}
             pageContract={pageContract}
+            label={copy(pageContract, "filter.pens_bar_aria")}
             deferApply
             telemetry={{ eventPrefix: "weights_analytics_pens_filter_apply", surface: "pens_table", route: PAGE_PATH }}
           />
