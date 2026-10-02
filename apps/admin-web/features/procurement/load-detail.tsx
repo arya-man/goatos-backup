@@ -92,6 +92,7 @@ function listActiveSheds() {
 }
 
 async function getProcurementLocations(): Promise<ProcurementLocations> {
+  // request-plan:ignore owner=procurement-platform issue=C35-016 expires=2026-12-31 reason=fixed location taxonomy request set; cardinality does not depend on returned rows
   const [parksResult, farmsResult, shedsResult, pensResult] = await Promise.all([
     listActiveParks(),
     listActiveFarms(),

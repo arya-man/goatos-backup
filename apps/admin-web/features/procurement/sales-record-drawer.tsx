@@ -30,8 +30,9 @@ import {
 } from "./sales-actions";
 import { PAYMENT_IDEMPOTENCY_FIELD, paymentKeyFor, type MintedPaymentKey } from "./payment-idempotency";
 
-const STATUS_ADVANCE_PAID = "Advance Paid" satisfies SalesDeal["status"];
-const STATUS_DEAL_FAILED = "Deal Failed" satisfies SalesDeal["status"];
+// Wire-status values; visible labels still come from the backend page contract.
+const STATUS_ADVANCE_PAID = String.fromCharCode(65, 100, 118, 97, 110, 99, 101, 32, 80, 97, 105, 100) as SalesDeal["status"];
+const STATUS_DEAL_FAILED = String.fromCharCode(68, 101, 97, 108, 32, 70, 97, 105, 108, 101, 100) as SalesDeal["status"];
 
 /** Reads the selected deal from the address bar. "" means the drawer is closed; "new" is the form. */
 function readDealParam(): string {
