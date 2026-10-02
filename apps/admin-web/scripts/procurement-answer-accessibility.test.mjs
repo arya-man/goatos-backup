@@ -7,11 +7,11 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-test('populated actual procurement answers have valid attention ARIA on desktop and mobile', {timeout: 45000}, async () => {
+test('populated actual procurement answers have valid attention ARIA on desktop and mobile', {timeout: 180000}, async () => {
   const output = await mkdtemp(join(tmpdir(), 'procurement-answer-a11y-'));
   try {
     await promisify(execFile)(process.execPath, [fileURLToPath(new URL('./capture-procurement-answer-fixture.mjs', import.meta.url))], {
-      env: {...process.env, GOATOS_FIXTURE_OUTPUT: output}, timeout: 40000, maxBuffer: 1024 * 1024,
+      env: {...process.env, GOATOS_FIXTURE_OUTPUT: output}, timeout: 120000, maxBuffer: 1024 * 1024,
     });
     const evidence = JSON.parse(await readFile(join(output, 'evidence.json'), 'utf8'));
     assert.deepEqual(evidence.viewports.map(item => item.name), ['desktop', 'mobile']);

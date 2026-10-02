@@ -29,13 +29,23 @@ and update the CEO AI shed capacity reporting view.
   stopped before any push because `admin-web unit tests` could not launch Playwright Chromium
   (`chromium_headless_shell-1228` missing from the local Playwright cache). The same receipt passed
   required PostgreSQL query plans and command-board query plans.
+- Installed the local Playwright Chromium cache with `npm --prefix apps/admin-web exec playwright
+  install chromium` and recorded the repair at
+  `7071951e13dd79311c4ea29f42e63ca77d8b912d`.
+- Focused admin-web unit rerun at `7071951e13dd79311c4ea29f42e63ca77d8b912d` launched the
+  browser tests, then stopped before any push because two browser fixtures exceeded hardcoded
+  per-test timeouts on this local runner:
+  `features/notifications/notification-bell-browser.test.mjs` and
+  `scripts/procurement-answer-accessibility.test.mjs`.
+- Applied a narrow test-only timeout adjustment for those browser fixtures so the local CI lane can
+  complete after Playwright startup instead of terminating the test process early.
 
 ## Pending
 
+- Rerun the focused `admin-web unit tests` lane after the timeout adjustment.
 - Rebase the candidate onto current `origin/main`.
 - Rerun the required local landing receipt with `make land-main`.
 - Verify local `HEAD`, `origin/main`, and remote `main` all match the certified SHA.
-- Install the Playwright Chromium browser cache required by admin-web unit tests.
 
 ## Known Failures / Evidence Limits
 
@@ -49,8 +59,10 @@ and update the CEO AI shed capacity reporting view.
   after it.
 - The focused admin-web lint/typecheck reruns were diagnostic only and wrote no landing receipt.
 - The Playwright browser install is local test infrastructure only; rerun the full receipt after it.
+- The focused admin-web unit rerun after browser install was diagnostic only and wrote no landing
+  receipt.
 
 ## Current State
 
-- Candidate with this progress note: `940b38336b4505fd5388199a8b5c08600fc95a2e`.
+- Candidate with this progress note: `7071951e13dd79311c4ea29f42e63ca77d8b912d`.
 - Deployment state: not deployed; this request is only for main landing.

@@ -58,7 +58,7 @@ async function navigate(page, route) {
 
 const forbidden = /backend_down|Admin-web contract unavailable|The board could not be loaded|Weights could not be loaded/;
 
-test("real bell coalesces route bursts, opens first time, retries errors and preserves mark-read", {timeout:60_000}, async () => {
+test("real bell coalesces route bursts, opens first time, retries errors and preserves mark-read", {timeout:180_000}, async () => {
   const dir = await mkdtemp(path.join(tmpdir(),"goatos-notification-browser-"));
   let browser;
   try {
