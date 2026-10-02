@@ -50,7 +50,7 @@ value, remaining estimated value) with the counts readable beside them.
    animal with no tagged deal contributes nothing and is counted as unpriced (`sold_priced` <
    `sold` shows an asterisk + hint). Imported sheet-history deals have no allocations, so their
    revenue stays unattributed rather than guessed onto loads.
-4. **Stock still on farm = latest weight × Sales Config ₹/kg** (maintainer decision 2026-10-02,
+4. **Stock still on farm = latest weight × Sales Config ₹/kg by stage, species and gender** — full rule in `docs/decisions/loadwise-stock-valuation.md` (maintainer decision 2026-10-02,
    SUPERSEDING the original "remaining × average sold price" rule, its 2026-09-19 Sales Config
    per-animal price and the 2026-09-25 "by weight only when every animal is weighed" rule). Each
    live animal is valued at its latest weight (its own latest scan, or the latest whole-pen weigh

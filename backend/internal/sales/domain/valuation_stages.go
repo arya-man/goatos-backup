@@ -36,7 +36,7 @@ import (
 // a farm value that changes when someone reorders the screen.
 
 // ValuationStage is one authored stage: the words for it, the register entries it covers, and its
-// place on the screen. Its two gendered rates live in Buckets, keyed `<stage>_female` / `<stage>_male`.
+// place on the screen. Its four rates live in Buckets, keyed `<stage>_<species>_<gender>`.
 type ValuationStage struct {
 	// Stage is the stable key. It is derived from the label ONCE, when the row is added, and never
 	// again: the bucket keys, the stored figures and every audit row are keyed on it, so a rename
@@ -84,22 +84,24 @@ func ValuationStageKeyFromLabel(label string) string {
 }
 
 // BucketKeysForStages is the closed set of bucket keys an authored stage list implies: every stage
-// against every gender, in screen order. It replaces the fixed twelve-key list -- the SET is still
-// closed and still checked, it is just the farm that decides how long it is.
+// against every species and gender, in screen order. The SET is closed and checked; the farm
+// decides how long it is.
 func BucketKeysForStages(stages []ValuationStage) []string {
-	out := make([]string, 0, len(stages)*len(ValuationGenders))
+	out := make([]string, 0, len(stages)*len(ValuationSpecies)*len(ValuationGenders))
 	for _, s := range stages {
-		for _, g := range ValuationGenders {
-			out = append(out, ValuationBucketKey(s.Stage, g.Key))
+		for _, sp := range ValuationSpecies {
+			for _, g := range ValuationGenders {
+				out = append(out, ValuationBucketKey(s.Stage, sp.Key, g.Key))
+			}
 		}
 	}
 	return out
 }
 
-// BucketLabel is the words on the card, composed from the stage's own label and the gender, so a
-// stage renamed on the screen renames both its cards and nothing else has to be kept in step.
-func BucketLabel(stageLabel, genderLabel string) string {
-	return stageLabel + " · " + genderLabel
+// BucketLabel is the words on the card, composed from the stage's own label, the species and the
+// gender, so a stage renamed on the screen renames all its cards and nothing else is kept in step.
+func BucketLabel(stageLabel, speciesLabel, genderLabel string) string {
+	return stageLabel + " · " + speciesLabel + " · " + genderLabel
 }
 
 // NormalizeValuationAssumptions assigns a key to every stage being added, orders both lists the way
@@ -128,23 +130,26 @@ func NormalizeValuationAssumptions(v *ValuationAssumptions) {
 		b := &v.Buckets[i]
 		b.Bucket = strings.TrimSpace(b.Bucket)
 		b.DisplayOrder = i + 1
-		stage, gender, ok := splitBucketKey(b.Bucket)
+		stage, species, gender, ok := splitBucketKey(b.Bucket)
 		if !ok {
 			continue
 		}
 		if s, found := byStage[stage]; found {
-			b.Label = BucketLabel(s.Label, gender.Label)
+			b.Label = BucketLabel(s.Label, species.Label, gender.Label)
 		}
 	}
 }
 
-func splitBucketKey(key string) (string, struct{ Key, Label string }, bool) {
-	for _, g := range ValuationGenders {
-		if suffix := "_" + g.Key; strings.HasSuffix(key, suffix) {
-			return strings.TrimSuffix(key, suffix), g, true
+func splitBucketKey(key string) (string, struct{ Key, Label string }, struct{ Key, Label string }, bool) {
+	none := struct{ Key, Label string }{}
+	for _, sp := range ValuationSpecies {
+		for _, g := range ValuationGenders {
+			if suffix := "_" + sp.Key + "_" + g.Key; strings.HasSuffix(key, suffix) {
+				return strings.TrimSuffix(key, suffix), sp, g, true
+			}
 		}
 	}
-	return "", struct{ Key, Label string }{}, false
+	return "", none, none, false
 }
 
 // validateValuationStages is the stage half of ValidateValuationAssumptions.
@@ -193,4 +198,45 @@ type StageRegisterEntry struct {
 	Code        string `json:"code"`
 	Label       string `json:"label"`
 	LiveAnimals int    `json:"live_animals"`
+}
+
+// UpgradeLegacyValuationBuckets rewrites a bucket list stored before the species split
+// (`<stage>_<gender>`, pre-000470) into species keys, copying each figure to both species. A list
+// already keyed by species is left untouched. Labels are recomposed from the stages.
+func UpgradeLegacyValuationBuckets(v *ValuationAssumptions) {
+	legacy := false
+	for _, b := range v.Buckets {
+		if _, _, _, ok := splitBucketKey(b.Bucket); !ok {
+			legacy = true
+			break
+		}
+	}
+	if !legacy {
+		return
+	}
+	stageLabel := map[string]string{}
+	for _, s := range v.Stages {
+		stageLabel[s.Stage] = s.Label
+	}
+	out := make([]ValuationBucketRate, 0, len(v.Buckets)*len(ValuationSpecies))
+	for _, s := range v.Stages {
+		for _, sp := range ValuationSpecies {
+			for _, g := range ValuationGenders {
+				for _, b := range v.Buckets {
+					if b.Bucket != s.Stage+"_"+g.Key && b.Bucket != ValuationBucketKey(s.Stage, sp.Key, g.Key) {
+						continue
+					}
+					out = append(out, ValuationBucketRate{
+						Bucket:        ValuationBucketKey(s.Stage, sp.Key, g.Key),
+						Label:         BucketLabel(stageLabel[s.Stage], sp.Label, g.Label),
+						FixedWeightKg: b.FixedWeightKg,
+						PricePerKg:    b.PricePerKg,
+						DisplayOrder:  len(out) + 1,
+					})
+					break
+				}
+			}
+		}
+	}
+	v.Buckets = out
 }

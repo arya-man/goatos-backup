@@ -383,6 +383,15 @@ func FinalizeLoadwise(loads []LoadwiseLoad, totalLoads int, asOf string) Loadwis
 		row.DaysSincePurchase = DaysSincePurchase(row.PurchaseDate, asOf)
 		row.DaysOnFarmSoFar = DaysOnFarmSoFar(row.ArrivedOn, asOf, row.Remaining)
 		row.ProfitLoss = profitLoss(row.PurchaseValue, row.SoldValue, row.AssumedValue)
+		// NO CURRENT WEIGHT, NO POSITION (maintainer decision 2026-10-02). A load still holding
+		// animals that cannot be valued -- none weighed, or none priced -- would otherwise read
+		// sold value minus the whole cost: a loss nobody measured. It reads ₹0 instead, and
+		// AssumedValueBasis says why ("Not valued: ..."). The cost being unrecorded still wins
+		// (ProfitLoss stays absent then).
+		if row.Remaining > 0 && row.AssumedValue == nil && row.ProfitLoss != nil {
+			zero := 0.0
+			row.ProfitLoss = &zero
+		}
 		row.RealisedProfitLoss = profitLoss(row.PurchaseValue, row.SoldValue, nil)
 
 		out.Summary.Purchased += row.Purchased

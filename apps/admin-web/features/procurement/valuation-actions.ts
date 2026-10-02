@@ -2,7 +2,7 @@
 
 // Server action for the FARM VALUATION section on /sales/config (maintainer instruction
 // 2026-09-19; the stage list became authored on 2026-09-24). One whole-set PUT: the stages the herd
-// is valued in, every stage's two gendered rows, and the unsold-stock price, fenced on the
+// is valued in and every stage's four species x gender rows (2026-10-02), fenced on the
 // row_version the form loaded. Lands in place (useActionState): the SAVED ROW comes back on the
 // state and the section applies it -- new row_version, stored figures, the stage keys the backend
 // assigned to rows that were added -- so the next save is fenced on what was just written without a
@@ -41,22 +41,23 @@ export async function saveValuationAction(previous: ValuationActionState, formDa
     return { status: "error", code: "failed", message: "The stages could not be read.", ticket };
   }
   const buckets: ValuationBucket[] = [];
-  stages.forEach((stage, si) => {
-    ["female", "male"].forEach((gender, gi) => {
+  stages.forEach((stage) => {
+    // Species x gender, in the order the backend lists them (domain.BucketKeysForStages).
+    ["goat_female", "goat_male", "sheep_female", "sheep_male"].forEach((group) => {
       // The inputs are NAMED after the row's field key, which for a stage being added is its row
       // id; the bucket is KEYED by the stage key it will be stored under. Reading by one and
       // posting by the other is what lets a new stage be typed without its inputs being renamed
       // mid-keystroke.
       const fieldKey = (stage as { field_key?: string }).field_key || stage.stage;
-      const key = `${stage.stage}_${gender}`;
+      const key = `${stage.stage}_${group}`;
       buckets.push({
         bucket: key,
         // The card's words are composed by the backend from the stage's own label, so a stage
         // renamed here renames both its cards and nothing has to be kept in step.
         label: "",
-        fixed_weight_kg: num(formData.get(`weight_${fieldKey}_${gender}`)),
-        price_per_kg: num(formData.get(`price_${fieldKey}_${gender}`)) ?? Number.NaN,
-        display_order: si * 2 + gi + 1,
+        fixed_weight_kg: num(formData.get(`weight_${fieldKey}_${group}`)),
+        price_per_kg: num(formData.get(`price_${fieldKey}_${group}`)) ?? Number.NaN,
+        display_order: buckets.length + 1,
       });
     });
   });

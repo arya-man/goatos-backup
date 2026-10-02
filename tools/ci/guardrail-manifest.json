@@ -1022,6 +1022,17 @@
       "notes": "Maintainer decision 2026-09-14: the animal purchase inspection (pages, questions, proof, compulsory flags) is compiled from the PUBLISHED procurement.animal_purchase SOP version; no production Go reads the legacy catalog, the seed is embedded verbatim in migration 000307, and the phone hardcodes no question title."
     },
     {
+      "id": "loadwise-stock-valuation",
+      "script": "tools/agent-hooks/check-loadwise-stock-valuation.mjs",
+      "makeTarget": "loadwise-stock-valuation-guard",
+      "realCheck": "node tools/agent-hooks/check-loadwise-stock-valuation.mjs",
+      "selfTest": "node tools/agent-hooks/check-loadwise-stock-valuation.mjs --self-test",
+      "owningDoc": "docs/decisions/loadwise-stock-valuation.md",
+      "requiredInCI": true,
+      "ciStep": "loadwise-stock-valuation-guard",
+      "notes": "Maintainer decision 2026-10-02: Load wise values animals still on farm at latest weight x the Sales Config ₹/kg of their stage, species and gender (never a load's average sold price); no current weight reads ₹0; Farm value and Load wise share one pricing SQL (backend/internal/farmvaluation)."
+    },
+    {
       "id": "weighing-sop",
       "script": "tools/agent-hooks/check-weighing-sop-guard.mjs",
       "makeTarget": "weighing-sop-guard",

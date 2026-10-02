@@ -710,3 +710,52 @@ func TestAssumedValueFillsUnweighedAtTheLoadAverageAndNamesUnpricedStages(t *tes
 		t.Fatalf("none weighed: %v %q", r.AssumedValue, r.AssumedValueBasis)
 	}
 }
+
+// THE SEVEN CASES the farm's owners set out (maintainer, 2026-10-02): sold animals are what they
+// sold for; animals still on farm are current weight x ₹/kg; the position is sold + stock - cost.
+// Cost ₹6,25,000, ₹450/kg, 35 kg each. Case 7 (sheep and goats at their own ₹/kg) is priced in SQL
+// and pinned by the Postgres test; here its stock arrives as one Value like any other.
+func TestLoadPositionFollowsTheFarmsSevenCases(t *testing.T) {
+	cost := 625000.0
+	weighed := func(n int, value float64) *LoadStockWeight {
+		avg := 35.0
+		return &LoadStockWeight{LiveAnimals: n, WeighedAnimals: n, TotalKg: float64(n) * 35, AvgKg: &avg, Value: value}
+	}
+	cases := []struct {
+		name       string
+		sold       int
+		soldValue  float64
+		remain     int
+		stock      *LoadStockWeight
+		wantStock  *float64
+		wantProfit float64
+	}{
+		{"1 nothing sold", 0, 0, 70, weighed(70, 70*35*450), lw(1102500), 477500},
+		{"2 one sold for 10k never prices the rest", 1, 10000, 69, weighed(69, 69*35*450), lw(1086750), 471750},
+		{"3 two sold cheap never drag the batch", 2, 12000, 68, weighed(68, 68*35*450), lw(1071000), 458000},
+		{"4 half sold", 35, 560000, 35, weighed(35, 35*35*450), lw(551250), 486250},
+		{"5 all sold", 70, 1120000, 0, nil, nil, 495000},
+		{"6 no current weight reads zero, not minus the cost", 0, 0, 70, &LoadStockWeight{LiveAnimals: 70}, nil, 0},
+		{"6b one sold, the rest unweighed, still zero", 1, 10000, 69, &LoadStockWeight{LiveAnimals: 69}, nil, 0},
+		{"7 sheep and goats each at their own rate", 0, 0, 70, weighed(70, 30*35*450+40*35*430), lw(1074500), 449500},
+	}
+	for _, c := range cases {
+		out := FinalizeLoadwise([]LoadwiseLoad{{LoadID: "x", DeclaredCount: 70, Purchased: 70, Sold: c.sold, SoldPriced: c.sold,
+			SoldValue: c.soldValue, Remaining: c.remain, AnimalCost: &cost, StockWeight: c.stock}}, 1, testAsOf)
+		l := out.Loads[0]
+		if (c.wantStock == nil) != (l.AssumedValue == nil) || (c.wantStock != nil && *c.wantStock != *l.AssumedValue) {
+			t.Fatalf("%s: stock = %v, want %v", c.name, l.AssumedValue, c.wantStock)
+		}
+		if l.ProfitLoss == nil || *l.ProfitLoss != c.wantProfit {
+			t.Fatalf("%s: position = %v, want %v", c.name, l.ProfitLoss, c.wantProfit)
+		}
+		if out.Summary.ProfitLoss != c.wantProfit {
+			t.Fatalf("%s: summary position = %v, want %v", c.name, out.Summary.ProfitLoss, c.wantProfit)
+		}
+	}
+	// An unrecorded cost still wins: no position at all, never a ₹0 that reads like break-even.
+	out := FinalizeLoadwise([]LoadwiseLoad{{LoadID: "y", Purchased: 70, Remaining: 70, StockWeight: &LoadStockWeight{LiveAnimals: 70}}}, 1, testAsOf)
+	if out.Loads[0].ProfitLoss != nil {
+		t.Fatalf("no cost recorded must stay absent, got %v", *out.Loads[0].ProfitLoss)
+	}
+}

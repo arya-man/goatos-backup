@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/vgoats/goatos/backend/internal/farmvaluation"
 	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/sales/domain"
 )
@@ -197,7 +198,12 @@ func farmValuationQuery(farm string) string {
 	if farm != "" {
 		farmPredicate = "AND (upper(park.location_code) = upper($2) OR (park.location_code IS NULL AND upper(farm.location_code) = upper($2)))"
 	}
-	return fmt.Sprintf(farmValuationSQL, farmPredicate)
+	// The shared pricing fragments go in as ARGUMENTS, never concatenated into the format string,
+	// so a '%' an authored label might one day carry cannot be read as a verb.
+	return fmt.Sprintf(farmValuationSQL, farmPredicate,
+		farmvaluation.PricingCTEs,
+		farmvaluation.BucketKeySQL(farmvaluation.NormSQL("g.management_stage"), "g.species", "g.sex"),
+		farmvaluation.StageJoinsSQL(farmvaluation.NormSQL("g.milk_cohort"), farmvaluation.NormSQL("g.management_stage")))
 }
 
 // queueClosedDeals loads every closed deal in the filter -- the ONE bounded read behind the
@@ -520,148 +526,62 @@ const farmValuationSQL = `
 		JOIN latest_weight w ON w.tenant_id = i.tenant_id AND w.scanned_identifier = i.identifier
 		ORDER BY i.tenant_id, i.goat_id, w.accepted_at DESC
 	),
-	-- THE STAGES ARE AUTHORED (maintainer instruction 2026-09-24, migration 000425). A valuation
-	-- stage names the register entries it covers; an animal is filed by its own management stage
-	-- or, when the register lost that, its milk cohort. Both sides are normalized the one way
-	-- (upper, strip non-alphanumerics) that domain.NormalizeStageMatch normalizes the authored
-	-- side, because this herd carries both 'ICU- kid' and 'ICU-Kid'.
-	--
-	-- An animal in no named stage is 'unmapped' and stands in the not-valued breakdown under its
-	-- own stage name -- which is how 58 Warmup kids asked to be priced. There is deliberately no
-	-- fallback bucket.
-	--
-	-- A tenant with no authored row reads the seeded six, the retired CASE written out.
-	stage_rules AS (
-		SELECT st.stage, st.display_order,
-			upper(regexp_replace(btrim(m.match), '[^A-Za-z0-9]+', '', 'g')) AS match_norm
-		FROM public.sales_valuation_assumptions a
-		CROSS JOIN LATERAL jsonb_to_recordset(a.stages) AS st(stage text, display_order int, matches jsonb)
-		CROSS JOIN LATERAL jsonb_array_elements_text(st.matches) AS m(match)
-		WHERE a.tenant_id = $1::uuid
-		UNION ALL
-		SELECT * FROM (VALUES
-			('fattening', 1, 'F2'), ('fattening', 1, 'F2MALE'), ('fattening', 1, 'F2FEMALE'),
-			('adult', 2, 'BUCK'), ('adult', 2, 'MOTHER'), ('adult', 2, 'MILKING'), ('adult', 2, 'M0'),
-			('adult', 2, 'PREGNANT'), ('adult', 2, 'NONPREGNANT'), ('adult', 2, 'ICU'),
-			('K0', 3, 'K0'), ('K1', 4, 'K1'),
-			('K2', 5, 'K2'), ('K2', 5, 'ICUKID'), ('K3', 6, 'K3')
-		) d(stage, display_order, match_norm)
-		WHERE NOT EXISTS (SELECT 1 FROM public.sales_valuation_assumptions a WHERE a.tenant_id = $1::uuid)
-	),
-	-- One row per register entry, so the two joins below cannot fan an animal out. A register entry
-	-- claimed by two valuation stages is REFUSED at the write; this keeps the read total even
-	-- against a row written before that rule existed, and never picks between two live answers.
-	stage_by_match AS (
-		SELECT DISTINCT ON (match_norm) match_norm, stage
-		FROM stage_rules
-		ORDER BY match_norm, display_order, stage
-	),
+	-- THE PRICING RULE IS SHARED (2026-10-02): the authored stages, the species x gender buckets and
+	-- their rates come from farmvaluation.PricingCTEs, the same fragments Load wise splices, so one
+	-- animal cannot be priced two ways. An animal in no authored stage, or of a species that is
+	-- neither goat nor sheep, is 'unmapped' and stands in the not-valued breakdown under its own
+	-- name -- there is deliberately no fallback bucket.
+	` + "%[2]s" + `,
 	classified AS (
 		SELECT
-				-- EVERY STAGE IS PRICED BY GENDER (maintainer instruction 2026-09-23). The stage is
-				-- decided first, exactly as before, and the animal's gender is appended -- so an
-				-- animal that used to land in 'K2' now lands in 'K2_female' or 'K2_male' and is
-				-- carried at that row's own weight and rate.
-				--
-				-- A MOTHER is female by definition and stays so whatever the register says; every
-				-- other stage takes the animal's own gender, and one that is NOT RECORDED is
-				-- valued on the FEMALE row (maintainer decision, same day: females are the larger
-				-- share, so it is the closer guess). The sex_missing count below counts those animals, so
-				-- the guess is visible on the page rather than silent in the total.
-				CASE WHEN coalesce(sc.stage, sm.stage) IS NULL THEN 'unmapped' ELSE coalesce(sc.stage, sm.stage) || '_' || CASE WHEN s.stage_norm = 'MOTHER' THEN 'female' ELSE s.sex_norm END END AS bucket,
+			` + "%[3]s" + ` AS bucket,
 			gw.weight_kg,
 			g.management_stage,
 			g.milk_cohort,
+			g.species,
 			lower(btrim(coalesce(g.sex, ''))) AS sex
-			FROM public.goats g
-			CROSS JOIN LATERAL (
-				SELECT upper(regexp_replace(btrim(coalesce(g.management_stage, '')), '[^A-Za-z0-9]+', '', 'g')) AS stage_norm,
-					upper(regexp_replace(btrim(coalesce(g.milk_cohort, '')), '[^A-Za-z0-9]+', '', 'g')) AS cohort_norm,
-					-- The gender half of the bucket key. Anything that is not plainly male reads as
-					-- female, which is the recorded decision for an animal with no gender on file.
-					CASE WHEN lower(btrim(coalesce(g.sex, ''))) = 'male' THEN 'male' ELSE 'female' END AS sex_norm
-			) s
-			-- The stage half, read from the farm's authored rows instead of a CASE. Both joins are
-			-- 1:0..1 BY CONSTRUCTION -- stage_by_match holds one row per register entry -- so no
-			-- animal can be counted twice however the farm writes its stages.
-			--
-			-- THE MILK COHORT WINS, which is the order the retired CASE read them in and is not an
-			-- arbitrary tie-break. Its K1/K2/K3/K0 arms were tested BEFORE its clinical arms, so a
-			-- kid whose management stage had been changed to ICU while the register still knew its
-			-- milk band was valued as that band. Reading the stage first flipped exactly that
-			-- animal from a 3-15 kg kid row to a 40-60 kg adult one -- on a herd where no animal
-			-- carries both today, so nothing would have shown it.
-			--
-			-- A cohort is only ever a milk band, so it can only pull an animal towards a kid
-			-- stage; an animal past milk carries none and is filed by its stage as before.
-			LEFT JOIN stage_by_match sc ON s.cohort_norm <> '' AND sc.match_norm = s.cohort_norm
-			LEFT JOIN stage_by_match sm ON sm.match_norm = s.stage_norm
-			LEFT JOIN goat_weight gw ON gw.tenant_id = g.tenant_id AND gw.goat_id = g.goat_id
+		FROM public.goats g
+		` + "%[4]s" + `
+		LEFT JOIN goat_weight gw ON gw.tenant_id = g.tenant_id AND gw.goat_id = g.goat_id
 		LEFT JOIN public.locations park ON park.tenant_id = g.tenant_id AND park.location_id = g.park_id
 		LEFT JOIN public.locations farm ON farm.tenant_id = g.tenant_id AND farm.location_id = g.farm_id
 		WHERE g.tenant_id = $1
 			AND g.lifecycle_status NOT IN ('dead', 'sold', 'culled', 'transferred', 'lost', 'merged', 'inactive')
 			AND g.merged_into_goat_id IS NULL
-			%s
-		),
-		not_valued AS (
-			SELECT coalesce(
-				jsonb_agg(jsonb_build_object('label', label, 'count', animal_count) ORDER BY animal_count DESC, label),
-				'[]'::jsonb
-			) AS breakdown
-			FROM (
-				SELECT
-					coalesce(nullif(btrim(management_stage), ''), nullif(btrim(milk_cohort), ''), 'Unmapped') AS label,
-					count(*)::int AS animal_count
-				FROM classified
-				WHERE bucket = 'unmapped'
-				GROUP BY label
-			) x
-		),
-		-- The measured weight a bucket left BLANK prices at, per BUCKET rather than once for the
-		-- whole herd. It used to be one average over every fattening animal, which was right while
-		-- fattening was one row; split by gender (2026-09-23) that same average would have priced
-		-- the male and female rows identically and undone the split the farm asked for. Each row
-		-- now weighs its own animals.
-		measured_weight AS (
+			%[1]s
+	),
+	not_valued AS (
+		SELECT coalesce(
+			jsonb_agg(jsonb_build_object('label', label, 'count', animal_count) ORDER BY animal_count DESC, label),
+			'[]'::jsonb
+		) AS breakdown
+		FROM (
+			SELECT
+				CASE WHEN lower(btrim(coalesce(species, ''))) NOT IN ('goat', 'sheep') THEN 'No species recorded'
+					ELSE coalesce(nullif(btrim(management_stage), ''), nullif(btrim(milk_cohort), ''), 'Unmapped') END AS label,
+				count(*)::int AS animal_count
+			FROM classified
+			WHERE bucket = 'unmapped'
+			GROUP BY label
+		) x
+	),
+	-- The measured weight a bucket left BLANK prices at, per BUCKET: each species x gender row
+	-- weighs its own animals, so a split row is never priced at the other half's average.
+	measured_weight AS (
 		SELECT bucket, avg(weight_kg) AS avg_weight_kg, count(weight_kg)::int AS weighed_animals
 		FROM classified
 		WHERE bucket <> 'unmapped'
 		GROUP BY bucket
 	),
-	-- FARM VALUATION ASSUMPTIONS ARE DATA (maintainer instruction 2026-09-19, migration 000367):
-	-- the bucket rates are the tenant's authored row, re-read per request; a tenant without a row
-	-- (created after the migration) values on the seeded defaults, the same figures the VALUES
-	-- table here used to carry.
-	rates AS (
-		SELECT b.bucket, b.label, b.fixed_weight_kg::float8, b.price_per_kg::float8, b.display_order
-		FROM public.sales_valuation_assumptions a
-		CROSS JOIN LATERAL jsonb_to_recordset(a.buckets) AS b(bucket text, label text, fixed_weight_kg float8, price_per_kg float8, display_order int)
-		WHERE a.tenant_id = $1::uuid
-		UNION ALL
-		SELECT * FROM (VALUES
-			('fattening_female', 'Fattening · Female', NULL::float8, 450::float8, 1),
-			('fattening_male', 'Fattening · Male', NULL::float8, 450::float8, 2),
-			('adult_female', 'Adult · Female', 40::float8, 600::float8, 3),
-			('adult_male', 'Adult · Male', 60::float8, 500::float8, 4),
-			('K0_female', 'K0 · Female', 3::float8, 500::float8, 5),
-			('K0_male', 'K0 · Male', 3::float8, 500::float8, 6),
-			('K1_female', 'K1 · Female', 3::float8, 500::float8, 7),
-			('K1_male', 'K1 · Male', 3::float8, 500::float8, 8),
-			('K2_female', 'K2 · Female', 8::float8, 500::float8, 9),
-			('K2_male', 'K2 · Male', 8::float8, 500::float8, 10),
-			('K3_female', 'K3 · Female', 15::float8, 500::float8, 11),
-			('K3_male', 'K3 · Male', 15::float8, 500::float8, 12)
-		) d(bucket, label, fixed_weight_kg, price_per_kg, display_order)
-		WHERE NOT EXISTS (SELECT 1 FROM public.sales_valuation_assumptions a WHERE a.tenant_id = $1::uuid)
-	),
 	-- projection-review: membership=classified, one row per current live goat (goats filtered to
-	-- non-terminal and non-merged, weight joined 1:1 after idmap is reduced to one row per goat);
-	-- group_key=the mutually-exclusive CASE bucket, and the three sex FILTER counts ride the SAME
-	-- GROUP BY so male + female + missing == animal_count row for row; join_cardinality=none inside
-	-- this rollup -- rates is joined 1:1 on bucket by the outer SELECT, measured_weight is LEFT
-	-- JOINed 1:0..1 on that same bucket key and total_inventory is a one-row CROSS JOIN; pagination=none, whole-current-inventory card;
-	-- scope=tenant_id and the optional CBE/CPT farm code applied in classified before any count.
+	-- non-terminal and non-merged, weight joined 1:1 after idmap is reduced to one row per goat, the
+	-- two stage joins 1:0..1 through fv_stage_by_match); group_key=the mutually-exclusive bucket,
+	-- and the three sex FILTER counts ride the SAME GROUP BY so male + female + missing ==
+	-- animal_count row for row; join_cardinality=none inside this rollup -- fv_rates is joined 1:1
+	-- on bucket by the outer SELECT (DISTINCT ON bucket), measured_weight is LEFT JOINed 1:0..1 on
+	-- that same bucket key and total_inventory is a one-row CROSS JOIN; pagination=none,
+	-- whole-current-inventory card; scope=tenant_id and the optional CBE/CPT farm code applied in
+	-- classified before any count.
 	counts AS (
 		SELECT
 			bucket,
@@ -693,13 +613,13 @@ const farmValuationSQL = `
 		coalesce(c.male_count, 0) AS male_count,
 		coalesce(c.female_count, 0) AS female_count,
 		coalesce(c.sex_missing_count, 0) AS sex_missing_count,
-			ti.live_animals,
-			ti.valued_animals,
-			ti.excluded_animals,
-			nv.breakdown
-		FROM rates r
-		LEFT JOIN counts c ON c.bucket = r.bucket
-		LEFT JOIN measured_weight fw ON fw.bucket = r.bucket
-		CROSS JOIN total_inventory ti
-		CROSS JOIN not_valued nv
-		ORDER BY r.display_order`
+		ti.live_animals,
+		ti.valued_animals,
+		ti.excluded_animals,
+		nv.breakdown
+	FROM fv_rates r
+	LEFT JOIN counts c ON c.bucket = r.bucket
+	LEFT JOIN measured_weight fw ON fw.bucket = r.bucket
+	CROSS JOIN total_inventory ti
+	CROSS JOIN not_valued nv
+	ORDER BY r.display_order`

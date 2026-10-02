@@ -26,7 +26,7 @@ farm's valuation moved on deploy, re-read per request:
 
 | figure | key |
 |---|---|
-| per bucket: label, weight used (blank = measured), ₹ per kg | `buckets` (jsonb; the seven bucket KEYS are the classification the SQL files animals into and are fixed) |
+| per bucket: label, weight used (blank = measured), ₹ per kg | `buckets` (jsonb; keyed `<stage>_<species>_<gender>` since 2026-10-02, four rows per stage — see `docs/decisions/loadwise-stock-valuation.md`) |
 | ~~price every unsold animal is carried at on Load wise~~ | `unsold_stock_price_rupees` — RETIRED 2026-10-02: Load wise now values each unsold animal at its latest weight × its bucket's ₹/kg; the input is removed and a save clears the column |
 
 - **Edited on Sales Config**, a "Farm valuation" section beside the market survey: one form, one
