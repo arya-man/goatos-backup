@@ -49,6 +49,17 @@ import { PageHeader } from "@/components/app/page-header";
 import { DEFAULT_DELIVERY, DEFAULT_LIMIT, FEED_STRIP_CELLS, FEED_TOOLBAR_FILTERS } from "./feed-purchases-layout";
 import { PageRoot } from "@/components/app/page-root";
 
+/** The ledger's figure columns (contract order: quantity, landed cost, per kg, remaining). */
+const FEED_LEDGER_NUM_COLUMNS = new Set([4, 6, 7, 10]);
+const FEED_LEDGER_TABLE_SX = {
+  minWidth: 1000,
+  "& thead th": { whiteSpace: "normal", verticalAlign: "bottom" },
+  "& th, & td": { px: 1 },
+  "& th:first-of-type, & td:first-of-type": { pl: 2 },
+  "& th:last-of-type, & td:last-of-type": { pr: 2 },
+  "& td.MuiTableCell-alignRight": { fontVariantNumeric: "tabular-nums" },
+} as const;
+
 const PATHNAME = "/procurement/feed-purchases";
 const DEFAULT_FARM = "all";
 
@@ -297,12 +308,15 @@ export async function FeedPurchasesPage({
           <Scrollbar>
             {/* An 1100px floor sat past the ~1060px card a 1440 laptop gives the page ("Remain…" cut):
                 the floor is 1000 and the headings wrap at word breaks, so all eleven columns fit a
-                laptop; a phone still pans the table inside the card. */}
-            <Table sx={{ minWidth: 1000, "& thead th": { whiteSpace: "normal", verticalAlign: "bottom" } }} aria-label={ledgerTable.title}>
+                laptop; a phone still pans the table inside the card. The cell gutter is the dense
+                one so the feed and vendor names get real width: squeezed to ~120px a vendor ran to
+                four lines and every row stood ~120px tall, on a laptop and on a phone alike (PR #294
+                S7). */}
+            <Table sx={FEED_LEDGER_TABLE_SX} aria-label={ledgerTable.title}>
               {/* Header labels come from the page contract IN ITS ORDER; the body cells below are
                   written in that same order. Both must move together if the contract's column list
-                  changes. */}
-              <TableHeadCustom headCells={columns.map((label) => ({ id: label, label, sortable: false }))} />
+                  changes. Figure columns head the edge their numbers sit on. */}
+              <TableHeadCustom headCells={columns.map((label, index) => ({ id: label, label, sortable: false, align: FEED_LEDGER_NUM_COLUMNS.has(index) ? "right" : undefined }))} />
               <TableBody>
                 {purchases.map((purchase) => {
                   const drawerHref = hrefWithQuery(sp, { purchase_id: purchase.feed_purchase_id });
@@ -315,7 +329,7 @@ export async function FeedPurchasesPage({
                           across two lines reads as a different farm). */}
                       <TableCell sx={{ whiteSpace: "nowrap" }}>{fmtDate(purchase.purchase_date)}</TableCell>
                       <TableCell sx={{ whiteSpace: "nowrap" }}>{purchase.farm}</TableCell>
-                      <TableCell>
+                      <TableCell sx={{ minWidth: 120 }}>
                         <Stack sx={{ typography: "body2", alignItems: "flex-start", minWidth: 0 }}>
                           <Link component={LocalOverlayLink} href={drawerHref} scroll={false} color="inherit" sx={{ cursor: "pointer" }}>
                             {purchase.feed_item}
@@ -323,7 +337,7 @@ export async function FeedPurchasesPage({
                         </Stack>
                       </TableCell>
                       <TableCell sx={{ whiteSpace: "nowrap" }}>{purchase.batch_no}</TableCell>
-                      <TableCell sx={{ whiteSpace: "nowrap" }}>{num(purchase.quantity_kg, 0)}</TableCell>
+                      <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>{num(purchase.quantity_kg, 0)}</TableCell>
                       <TableCell sx={{ whiteSpace: "nowrap" }}>
                         {/* Colour AND label are backend option metadata. A reached load also shows
                             the day it came in: "Reached" alone does not say when stock started. */}
@@ -336,15 +350,15 @@ export async function FeedPurchasesPage({
                           ) : null}
                         </Stack>
                       </TableCell>
-                      <TableCell sx={{ whiteSpace: "nowrap" }}>{purchase.total_cost == null ? none : inr(purchase.total_cost)}</TableCell>
-                      <TableCell sx={{ whiteSpace: "nowrap" }}>{purchase.per_kg_cost == null ? none : inr(purchase.per_kg_cost, 2)}</TableCell>
-                      <TableCell>{purchase.vendor || none}</TableCell>
+                      <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>{purchase.total_cost == null ? none : inr(purchase.total_cost)}</TableCell>
+                      <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>{purchase.per_kg_cost == null ? none : inr(purchase.per_kg_cost, 2)}</TableCell>
+                      <TableCell sx={{ minWidth: 150 }}>{purchase.vendor || none}</TableCell>
                       <TableCell>
                         {/* Colour AND label are backend-owned option metadata, not a comparison
                             against a hardcoded payment word. */}
                         <Tag tone={paid.tone}>{paid.label}</Tag>
                       </TableCell>
-                      <TableCell sx={{ whiteSpace: "nowrap" }}>
+                      <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
                         {/* BACKEND-derived money still owed (total minus instalments, floored at
                             zero); "—" while the landed cost is unknown. The page never subtracts
                             anything itself. */}
