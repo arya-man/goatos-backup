@@ -199,7 +199,7 @@ export async function MilkPreparationPage({
               <KpiWidget
                 title={copy(pageContract, `kpi.${kpi.key}.label`)}
                 total={{ sheds: summary.shed_count, kids: summary.head_count, milk: summary.total_required_ml / 1000, citric: summary.citric_acid_grams }[kpi.key]}
-                caption={kpi.unit ? (kpi.key === "citric" ? copy(pageContract, "label.grams") : unit) : undefined}
+                caption={copy(pageContract, `kpi.${kpi.key}.sub`)}
                 sx={{ height: 1 }}
               />
             </Grid>

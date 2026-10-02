@@ -218,7 +218,9 @@ export function CountsBreakdownPensTable({
                 </IconButton>
                 <Stack sx={{ minWidth: 0 }}>
                   <Typography variant="subtitle2" component="span" sx={{ whiteSpace: "nowrap" }}>{penLabel(pen)}</Typography>
-                  <Typography variant="caption" component="span" sx={{ color: "text.secondary" }}>
+                  {/* One line, like the pen name above it: the cell's anywhere-wrap broke "combinations"
+                      letter by letter at phone width (D7). */}
+                  <Typography variant="caption" component="span" sx={{ color: "text.secondary", whiteSpace: "nowrap" }}>
                     {combos} {copy(pageContract, combos === 1 ? "detail.combinations_one" : "detail.combinations_many")}
                   </Typography>
                 </Stack>

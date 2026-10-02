@@ -169,7 +169,10 @@ page_window AS (
 ),
 summary AS (
   SELECT
-    count(DISTINCT NULLIF(shed_id, ''))::integer AS shed_count,
+    -- PENS, at the pen grain the worklist rows carry: (shed, partition), read off grouped -- the
+    -- partition-complete CTE -- not off grouped_by_shed, which re-rolls partitions away and made a
+    -- shed split into two pens count once above a worklist that lists both (D8).
+    (SELECT count(DISTINCT shed_id || '|' || partition_key)::integer FROM grouped WHERE shed_id <> '') AS shed_count,
     count(*)::integer AS cohort_count,
     COALESCE(sum(head_count), 0)::integer AS head_count,
     COALESCE(sum(head_count) FILTER (WHERE management_stage = 'K1'), 0)::integer AS k1_heads,
