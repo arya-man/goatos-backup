@@ -10,15 +10,30 @@
   execute, run the SAME affected-component gates LOCALLY via `make ci-local`.
   The default classifier compares the candidate to `origin/main`, always runs
   common repository guards, and adds backend, admin-web, and/or Android jobs only
-  when their owned paths or shared contracts changed. Unmapped paths and changes
-  to CI workflows, CI scripts, agent hooks, or the Makefile force the full suite;
-  `make ci-local MODE=all` is the explicit full-suite command. Treat a green
+  when their owned paths or shared contracts changed. `make ci-local MODE=all`
+  is the explicit full-suite command. Treat a green
   `make ci-local` on the exact pushed SHA as the authoritative ordinary
   deterministic CI gate. It does not replace applicable PostgreSQL, migration,
   device, browser, deploy, or live-state certification lanes; those remain
   closure blockers. Record the `make ci-local` SHA + result as current-SHA
   ordinary-CI proof. Restoring org Actions billing stays a separate maintainer
   task, tracked but never blocking closure.
+
+- **CI scope changes require history first.** Before changing
+  `tools/ci/component-paths.json`, `tools/ci/ci-scope.mjs`,
+  `tools/ci/run-local-ci.sh`, `tools/ci/guardrail-manifest.json`, or a
+  Makefile target that affects local CI, inspect the recent commit history for
+  those same files and preserve the latest intent. Do not loop from "unmapped
+  path => full suite" to "put it in common" without evidence. A file may be
+  common-only only when local CI executes only common guards/self-tests for it;
+  build helpers sourced by component jobs, Gradle/JDK/dispatch helpers, package
+  roots, `go.work*`, and unknown runtime-affecting paths must still force the
+  full suite. The Makefile is not automatically Android scope: inspect the
+  actual target diff. Adding or registering a backend/admin-web guard must not
+  select Android unless Android-owned files, Android tooling, Gradle/build
+  logic, or an explicit Android fan-out contract changed. If a change is meant
+  to keep Android out, add/extend a `ci-scope.mjs --self-test` case for that
+  exact diff shape before landing.
 
 - **Postgres tests are explicit opt-in only**: Default `make ci-local`, every
   `JOB=...`/`MODE=all` invocation, pull-request workflow, push workflow, and

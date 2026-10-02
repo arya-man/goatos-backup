@@ -267,6 +267,14 @@ function selfTest() {
     common: true, backend: true, adminWeb: false, android: false, full: false,
     selectedJobs: ["common", "backend"],
   });
+  assert.deepEqual(pick([
+    "Makefile",
+    "tools/agent-hooks/check-loadwise-stock-valuation.mjs",
+    "tools/ci/guardrail-manifest.json",
+  ]), {
+    common: true, backend: true, adminWeb: false, android: false, full: false,
+    selectedJobs: ["common", "backend"],
+  });
   assert.equal(pick(["tools/agent-hooks/check-postgres-bind-contract.mjs"]).full, true);
   assert.deepEqual(pick(["cloudbuild.stg.yaml"]), {
     common: true, backend: false, adminWeb: false, android: false, full: false,

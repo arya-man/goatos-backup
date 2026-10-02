@@ -46,7 +46,7 @@ them away: `docs/architecture/operational-read-model-contract.md`
 - "Test it" / "check it" / "verify" from the maintainer -> `docs/agent-rules/testing.md` FIRST: brand-new user, one action, lists from data, every surface agrees, every role branch, forbidden calls against the API, inner widths at 1440 + 390, migrations both ways, red before green; report every section in the handoff.
 - E2E tests/seeds/migrations/projection closeout -> `docs/agent-rules/e2e-seeds-projections.md`.
 - RBAC/scopes/logins/leadership assistant -> `docs/agent-rules/rbac-seeds-access.md`.
-- CI/push gate/landing/releases -> `docs/agent-rules/ci-landing-release.md`: CI outage never blocks closure, exact-SHA push gate, main landing, `make release-tag`.
+- CI/push gate/landing/releases -> `docs/agent-rules/ci-landing-release.md`: CI outage never blocks closure, exact-SHA push gate, main landing, `make release-tag`, and CI-scope edits must inspect recent classifier history before changing Makefile/tools/ci/agent-hook mappings or pulling Android into unrelated work.
 - Cloud/GCP/Google auth/GitHub/repos -> `docs/agent-rules/cloud-org-github.md`: billing console, account selection, Codex auth, sibling repos. (Org boundaries, token path and commit identity are in core below.)
 - Read-first list/code navigation tools -> `docs/agent-rules/code-navigation-tooling.md`.
 - Defect/audit-ledger closure -> `docs/agent-rules/defect-ledgers.md`.
