@@ -18,11 +18,15 @@ and update the CEO AI shed capacity reporting view.
 - Started the approved OCI tunnel on `127.0.0.1:15432`; focused diagnostic rerun
   `GOATOS_CI_ONLY_STEP='required PostgreSQL query plans' tools/ci/run-local-ci.sh
   query-plans` passed at `940b38336b4505fd5388199a8b5c08600fc95a2e`.
+- Second `make land-main` attempt at `445cb7f019a1f6e437114dbd898b716c65008122`
+  stopped before any push because the isolated admin-web dependency tree was incomplete:
+  `eslint` and `tsc` were missing from `apps/admin-web/node_modules`.
 
 ## Pending
 
 - Rebase the candidate onto current `origin/main`.
 - Rerun the required local landing receipt with `make land-main`.
+- Repair admin-web dependencies from the committed lockfile before the next receipt run.
 - Verify local `HEAD`, `origin/main`, and remote `main` all match the certified SHA.
 
 ## Known Failures / Evidence Limits
@@ -33,6 +37,8 @@ and update the CEO AI shed capacity reporting view.
   run typecheck` could not start because `tsc` was missing.
 - The focused query-plan rerun was diagnostic only and wrote no landing receipt; it does not
   authorize a push without the full `make land-main` gate.
+- The admin-web dependency repair is infrastructure-only; the full landing receipt must be rerun
+  after it.
 
 ## Current State
 
