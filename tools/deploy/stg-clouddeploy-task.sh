@@ -632,9 +632,9 @@ deploy() {
       --project="$PROJECT_ID" \
       --region="$REGION" \
       --image="$BACKEND_IMAGE" \
-      --min=2 \
+      --min=1 \
       --max=2 \
-      --min-instances=2 \
+      --min-instances=1 \
       --max-instances=2 \
       --no-cpu-throttling \
       --update-env-vars="GOATOS_WORKER_STAGES_ENABLED=true,GOATOS_ANALYTICS_ROLLUP_JOB=projects/${PROJECT_ID}/locations/${REGION}/jobs/goatos-stg-analytics-rollup" \
