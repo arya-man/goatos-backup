@@ -489,6 +489,10 @@ export async function SalesSoldPage({
                       {dealCell(deal.animal_count == null ? none : num(deal.animal_count), "num")}
                       {dealCell(deal.total_weight_kg == null ? none : num(deal.total_weight_kg, 1), "num")}
                       {dealCell(deal.advance_only ? none : inr(deal.sales_value), "num")}
+                      {/* Backend-derived per-sale rates (domain.Deal.Rates), never divided here. */}
+                      {dealCell(deal.price_per_kg == null ? none : num(deal.price_per_kg), "num")}
+                      {dealCell(deal.weight_per_animal_kg == null ? none : num(deal.weight_per_animal_kg, 1), "num")}
+                      {dealCell(deal.price_per_animal == null ? none : num(deal.price_per_animal), "num")}
                       {dealCell(<Tag tone={dealStatusTone(deal.status)}>{deal.status}</Tag>)}
                     </tr>
                   );

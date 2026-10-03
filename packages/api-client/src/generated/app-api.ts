@@ -10931,6 +10931,12 @@ export interface components {
             payment_received?: number | null;
             /** @description BACKEND-derived money the buyer still owes -- sales_value minus payment_received, floored at zero. Clients render this figure and never derive their own. */
             payment_balance: number;
+            /** @description BACKEND-derived live price per kg: the value of the sale's live lines that recorded a weight, divided by that weight. Null when no live line recorded one (a manure sale). */
+            price_per_kg: number | null;
+            /** @description BACKEND-derived average live weight per animal over the live lines that recorded both a weight and a count. Null when none did. */
+            weight_per_animal_kg: number | null;
+            /** @description BACKEND-derived value per animal over the live lines that recorded a count. Null when none did. */
+            price_per_animal: number | null;
             /** @description Receipts recorded against this deal, oldest first. Empty for sheet history. */
             payments: components["schemas"]["SalesDealPayment"][];
             /** @enum {string} */

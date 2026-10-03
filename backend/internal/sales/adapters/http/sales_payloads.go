@@ -66,6 +66,11 @@ type dealPayload struct {
 	PaymentReceived *float64             `json:"payment_received"`
 	PaymentBalance  float64              `json:"payment_balance"`
 	Payments        []dealPaymentPayload `json:"payments"`
+	// The sale's live price per kg, weight per animal and price per animal, BACKEND-derived over
+	// its live lines (domain.Deal.Rates). Null when there is nothing to divide by.
+	PricePerKg      *float64 `json:"price_per_kg"`
+	WeightPerAnimal *float64 `json:"weight_per_animal_kg"`
+	PricePerAnimal  *float64 `json:"price_per_animal"`
 
 	Status string `json:"status"`
 	// StatusOptions is what the status editor may offer for THIS deal: every status for a live
@@ -407,7 +412,9 @@ func toDealPayload(d domain.Deal) dealPayload {
 			TotalWeightKg: line.TotalWeightKg, SalesValue: line.SalesValue,
 		})
 	}
+	rates := d.Rates()
 	return dealPayload{
+		PricePerKg: rates.PricePerKg, WeightPerAnimal: rates.WeightPerAnimal, PricePerAnimal: rates.PricePerAnimal,
 		DealID: d.DealID, SaleDate: d.SaleDate, Farm: d.Farm, Lines: lines,
 		SourceSalesID: d.SourceSalesID, SourcePurchaseID: d.SourcePurchaseID,
 		BuyerName: d.BuyerName, BuyerPlace: d.BuyerPlace, BuyerVendorID: d.BuyerVendorID,

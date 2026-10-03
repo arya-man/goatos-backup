@@ -626,7 +626,7 @@ func pages() []domain.PageContract {
 		// Both stay read-only by contract; entry is still /sales/config alone.
 		page("sales-sold", "/sales/sold", "/sales/sold", "Summary", "What has sold across every park — revenue, animals, price per kg, buyers and the deals ledger.", "module-surface",
 			[]domain.TableContract{
-				tableP("sales-deals", "Deals", "/sales/deals", []string{"sale_date", "farm", "buyer_name", "product_type", "breed", "animal_count", "total_weight_kg", "sales_value", "status"}, "deal_id", []int{25, 50, 100}),
+				tableP("sales-deals", "Deals", "/sales/deals", []string{"sale_date", "farm", "buyer_name", "product_type", "breed", "animal_count", "total_weight_kg", "sales_value", "price_per_kg", "weight_per_animal_kg", "price_per_animal", "status"}, "deal_id", []int{25, 50, 100}),
 				withoutRowClick(tableP("sales-buyers", "Buyers", "/sales/overview", []string{"buyer_name", "buyer_place", "product_types", "deals", "animals", "revenue", "share_pct"}, "", []int{10, 25, 50})),
 			}),
 		page("sales-farm-value", "/sales/farm-value", "/sales/farm-value", "Farm value", "What the live herd is worth today at Sales target rates, and how much of it is ready to sell.", "module-surface",
@@ -12125,6 +12125,14 @@ func humanLabel(key string) string {
 	// A chip column's key names the widget, not the fact: /routines' Today table read "State chip".
 	case "state_chip":
 		return "Status"
+	// The deals ledger's per-sale rates (2026-10-03). The derived forms would read "Price per
+	// kg" / "Weight per animal kg"; the farm writes them the way its sales sheet does.
+	case "price_per_kg":
+		return "₹/kg"
+	case "weight_per_animal_kg":
+		return "Kg each"
+	case "price_per_animal":
+		return "₹/animal"
 	// The diagnosis-routing columns. humanLabel DERIVES a label from the column key, and the
 	// derivations here would be the machine's words on a screen a vet reads -- "Has published
 	// register", "Route count", "Type key". The farm's words are what the rest of this screen
