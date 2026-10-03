@@ -125,3 +125,19 @@ test("one press of Play video plays it, on an item reached without ?vi_play=1", 
   assert.match(tile[0], /resolveActiveMedia\(\)/);
   assert.match(drawerSource, /autoPlay=\{playIntent\}/);
 });
+
+test("Next/Prev and Accept land on the next video already playing", () => {
+  // Moving on is the verifier continuing to watch, so it plays like a row click (vi_play=1)
+  // rather than stopping on the Play video tile (maintainer ask 2026-10-03).
+  const actionsSource = readFileSync(new URL("./actions.ts", import.meta.url), "utf8");
+  const approvedBranch = actionsSource.slice(actionsSource.indexOf('if (decision === "approved")'));
+  assert.match(approvedBranch.slice(0, 900), /url\.searchParams\.set\("vi_play", "1"\)/);
+  const step = drawerSource.slice(drawerSource.indexOf("const stepItem = useCallback"));
+  assert.match(step.slice(0, 700), /replaceLocalOverlayUrl\(`\$\{hrefWithRow\(searchParams, nextItem\.item_id\)\}&vi_play=1`\)/);
+});
+
+test("choosing a video proof tab plays it in one click", () => {
+  // Feed distribution opens on its weight photo; its video tab is the verifier asking to watch.
+  const strip = drawerSource.slice(drawerSource.indexOf('className="vr-proofstrip"'));
+  assert.match(strip.slice(0, 900), /if \(media\.mime_type\?\.startsWith\("video\/"\)\) setPlayIntent\(true\);/);
+});

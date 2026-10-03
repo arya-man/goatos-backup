@@ -210,6 +210,9 @@ export async function recordVerificationVerdictAction(formData: FormData): Promi
     const nextCursor = String(formData.get("next_cursor") ?? "").trim();
     const nextTrail = String(formData.get("next_trail") ?? "").trim();
     url.searchParams.delete("vi_open_first");
+    // The next video plays on arrival, as a row click does, instead of waiting on the Play video
+    // tile (maintainer ask 2026-10-03). Only the one video the drawer lands on is fetched.
+    url.searchParams.set("vi_play", "1");
     if (nextRow) url.searchParams.set("vi_row", nextRow);
     else {
       url.searchParams.delete("vi_row");

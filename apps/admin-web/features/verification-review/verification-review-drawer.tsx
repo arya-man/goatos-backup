@@ -155,7 +155,9 @@ export function VerificationReviewDrawer({
     if (nextIndex < 0 || nextIndex >= items.length) return;
     const nextItem = items[nextIndex];
     if (nextItem) {
-      replaceLocalOverlayUrl(hrefWithRow(searchParams, nextItem.item_id));
+      // Stepping is the verifier moving on to watch the next video, so it plays like a row click
+      // does (vi_play=1) instead of stopping on the Play video tile (maintainer ask 2026-10-03).
+      replaceLocalOverlayUrl(`${hrefWithRow(searchParams, nextItem.item_id)}&vi_play=1`);
     }
   }, [item, currentIndex, items, searchParams]);
 
@@ -733,7 +735,13 @@ function VerificationReviewDrawerPanel({
                   key={media.proof_id}
                   type="button"
                   className={`vr-pthumb${index === mediaIndex ? " on" : ""}`}
-                  onClick={() => setMediaIndex(index)}
+                  onClick={() => {
+                    // Choosing a VIDEO proof is choosing to watch it: feed distribution opens on
+                    // its weight photo, and its video tab used to stop on the Play video tile
+                    // (maintainer ask 2026-10-03). Only that one clip is fetched.
+                    if (media.mime_type?.startsWith("video/")) setPlayIntent(true);
+                    setMediaIndex(index);
+                  }}
                 >
                   {/* The icon states what the chip switches TO. A play badge on a photo
                       proof promises a clip that does not exist. */}
