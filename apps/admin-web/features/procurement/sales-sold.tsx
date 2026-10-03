@@ -28,6 +28,7 @@ import {
   humanDate,
   inr,
   inrCompact,
+  kgCompact,
   monthLabel,
   monthlyAnimalRevenueTotal,
   monthlyAnimalsTotal,
@@ -233,8 +234,8 @@ function SoldSections({
                 axisLabel: monthLabel(month.month),
                 label: monthLabel(month.month),
                 value: month.manure_kg,
-                // The whole figure with its unit: "27k" read as a mystery letter (2026-10-03).
-                display: `${num(month.manure_kg)} ${kgSuffix}`,
+                // Thousands of kg with the unit (2026-10-03): "27.1k kg" -- a bare "27k" was a mystery letter.
+                display: kgCompact(month.manure_kg, kgSuffix),
                 subDisplay: month.manure_revenue > 0 ? inrCompact(month.manure_revenue) : "",
               }))}
               chartLabel={copy(pageContract, "chart.monthly_manure.title")}
@@ -253,7 +254,7 @@ function SoldSections({
                     axisLabel: monthLabel(month.month),
                     label: monthLabel(month.month),
                     value: month.feed_kg,
-                    display: `${num(month.feed_kg)} ${kgSuffix}`,
+                    display: kgCompact(month.feed_kg, kgSuffix),
                     subDisplay: month.feed_revenue > 0 ? inrCompact(month.feed_revenue) : "",
                   }))}
                   chartLabel={copy(pageContract, "chart.monthly_feed.title")}

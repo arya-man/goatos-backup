@@ -133,6 +133,22 @@ export function numCompactWhole(value: number): string {
   return `${sign}${Math.floor(abs + 0.5)}`;
 }
 
+/**
+ * Compact kilograms for a bar label (maintainer choice 2026-10-03): 94750 -> "94.8k kg",
+ * 10200 -> "10.2k kg", 850 -> "850 kg". Thousands only -- never "L", which reads as rupees on a
+ * weight. The exact figure stays in the tooltip. `kgSuffix` is the contract's own unit word.
+ */
+export function kgCompact(value: number, kgSuffix: string): string {
+  const abs = Math.abs(value);
+  // Round on whole hundreds of kg, not toFixed on a float: 14450 / 1000 is 14.4499.. in binary,
+  // which toFixed(1) prints as "14.4".
+  if (abs >= 1_000) {
+    const tenths = Math.round(value / 100) / 10;
+    return `${Number.isInteger(tenths) ? tenths : tenths.toFixed(1)}k ${kgSuffix}`;
+  }
+  return `${num(Math.round(value))} ${kgSuffix}`;
+}
+
 function trimZero(value: number): string {
   const fixed = value.toFixed(1);
   return fixed.endsWith(".0") ? fixed.slice(0, -2) : fixed;

@@ -6,6 +6,7 @@ import {
   humanDate,
   inr,
   inrCompact,
+  kgCompact,
   marketLossPerKg,
   monthLabel,
   monthlyAnimalRevenueTotal,
@@ -127,8 +128,9 @@ test("sales chart bar labels stay whole and suffix-free", () => {
   const salesSource = readFileSync(new URL("./sales-sold.tsx", import.meta.url), "utf8");
   const loadwiseSource = readFileSync(new URL("./loadwise-section.tsx", import.meta.url), "utf8");
   // EXCEPT manure (maintainer, 2026-10-03): "27k" read as a letter nobody could explain, so the
-  // manure bars carry the whole kilograms with the unit.
-  assert.match(salesSource, /display: `\$\{num\(month\.manure_kg\)\} \$\{kgSuffix\}`/);
+  // manure and feed bars carry thousands of kg WITH the unit ("94.8k kg").
+  assert.match(salesSource, /display: kgCompact\(month\.manure_kg, kgSuffix\)/);
+  assert.match(salesSource, /display: kgCompact\(month\.feed_kg, kgSuffix\)/);
   assert.doesNotMatch(salesSource, /display: numCompactWhole\(month\.manure_kg\)/);
   assert.match(salesSource, /display: inr\(Math\.round\(band\.avg_price_per_kg\)\)/);
   assert.doesNotMatch(salesSource, /display: `\$\{inr\(Math\.round\(band\.avg_price_per_kg\)\)\} \$\{perKgSuffix\}`/);
@@ -294,4 +296,15 @@ test("a count of exactly one reads singular (1 line, 1 live animal, about every 
       assert.doesNotMatch(src, new RegExp(`copy\\(pageContract, "${key.replace(/\./g, "\\.")}"\\)`), `${file} prints ${key} without a singular`);
     }
   }
+});
+
+test("kgCompact writes thousands of kg with the unit, never lakhs", () => {
+  assert.equal(kgCompact(94750, "kg"), "94.8k kg");
+  assert.equal(kgCompact(10200, "kg"), "10.2k kg");
+  assert.equal(kgCompact(26000, "kg"), "26k kg");
+  assert.equal(kgCompact(120000, "kg"), "120k kg");
+  assert.equal(kgCompact(14450, "kg"), "14.5k kg");
+  assert.equal(kgCompact(999.6, "kg"), "1,000 kg");
+  assert.equal(kgCompact(850, "kg"), "850 kg");
+  assert.equal(kgCompact(0, "kg"), "0 kg");
 });
