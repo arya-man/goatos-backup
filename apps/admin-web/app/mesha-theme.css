@@ -4837,6 +4837,9 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
 .main table.sales-deals-table th,.main table.sales-deals-table td,.main table.sales-deals-table td .celllink,
 .main table.sales-load-entry-table th,.main table.sales-load-entry-table td,.main table.sales-load-entry-table td .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}
 .main table.sales-deals-table td .celllink,.main table.sales-load-entry-table td .celllink{max-width:none;min-width:max-content}
+/* Twelve columns since the per-sale rates (2026-10-03): tighter side padding keeps Status inside
+   the card at 1440 with staging's longest buyer names; the feed-mismatch table's precedent. */
+.main table.sales-deals-table th,.main table.sales-deals-table td{padding-left:9px;padding-right:9px}
 
 /* Market check is wider than the sales card once the left nav is open. Let the table own horizontal
    scroll and keep the loss signal pinned instead of clipping it at the card edge. */
