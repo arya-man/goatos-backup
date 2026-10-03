@@ -29,25 +29,22 @@ test("every visible word is a copy key, never a literal", () => {
     "sold_weight.source.measured",
     "sold_weight.source.load_average",
     "sold_weight.source.estimated",
-    "sold_weight.estimated.note",
   ]) {
     assert.ok(source.includes(key), `missing backend-owned copy key ${key}`);
   }
   // Words a page must never compose for itself. "estimated" reaches the screen only through
-  // sold_weight.source.estimated / sold_weight.estimated.note above.
+  // sold_weight.source.estimated above.
   for (const literal of ["weighed<", "at load average", ">Estimated", "kg and above"]) {
     assert.ok(!source.includes(literal), `page hardcodes the visible words ${literal}`);
   }
 });
 
-test("a provenance is named only where it exists, and the note only where something is estimated", () => {
+test("a provenance is named only where it exists, and the estimate note is gone", () => {
   // Each of the three parts is guarded on its own count, so a band whose animals were all
   // weighed the same way does not print "0 at load average" beside the number.
   for (const guard of ["band.measured > 0", "band.load_average > 0", "band.estimated > 0"]) {
     assert.ok(source.includes(guard), `missing the ${guard} guard`);
   }
-  assert.ok(
-    source.includes("overview.sold_weight_bands.estimated > 0"),
-    "the estimate note must be hidden when nothing on the page is estimated",
-  );
+  // The estimate note under the tiles was removed (maintainer, 2026-10-03).
+  assert.ok(!source.includes("sold_weight.estimated.note"), "the estimate note is gone");
 });

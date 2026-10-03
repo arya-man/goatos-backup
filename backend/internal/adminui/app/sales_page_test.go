@@ -844,11 +844,11 @@ func TestSoldWeightBandCopyExistsForEveryBandTheBackendCanEmit(t *testing.T) {
 			t.Fatalf("no copy for band %q (key %q)", band.Band, key)
 		}
 	}
-	// The three provenances the tile names under the count, and the note that explains an
-	// estimate. Same reason: the page composes none of these words itself.
+	// The three provenances the tile names under the count. Same reason: the page composes none
+	// of these words itself. (The estimate note under the tiles was removed, 2026-10-03.)
 	for _, key := range []string{
 		"sold_weight.source.measured", "sold_weight.source.load_average",
-		"sold_weight.source.estimated", "sold_weight.estimated.note",
+		"sold_weight.source.estimated",
 		"sold_weight.total", "sold_weight.unweighed",
 	} {
 		if copyMap[key] == "" {

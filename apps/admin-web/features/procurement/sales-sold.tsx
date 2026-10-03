@@ -183,11 +183,6 @@ function SoldSections({
                     </div>
                   ))}
                 </div>
-                {overview.sold_weight_bands.estimated > 0 ? (
-                  <p className="muted small" style={{ marginTop: 8 }}>
-                    {copy(pageContract, "sold_weight.estimated.note")}
-                  </p>
-                ) : null}
               </>
             )}
           </section>
@@ -247,6 +242,27 @@ function SoldSections({
               subValueNoun={copy(pageContract, "chart.monthly_manure.sub")}
               emptyLabel={copy(pageContract, "chart.monthly_manure.empty")}
             />
+            {/* Feed sold off the store (2026-10-03), the manure chart's twin: its kilograms are the
+                lines' QUANTITY, never live weight. Shown only once some feed has been sold. */}
+            {overview.monthly.some((month) => month.feed_kg > 0 || month.feed_revenue > 0) ? (
+              <>
+                <div className="mt">{copy(pageContract, "chart.monthly_feed.title")}</div>
+                <MonthColumns
+                  data={trimEmptyMonthlyStart(overview.monthly, (month) => month.feed_kg).map((month) => ({
+                    key: month.month,
+                    axisLabel: monthLabel(month.month),
+                    label: monthLabel(month.month),
+                    value: month.feed_kg,
+                    display: `${num(month.feed_kg)} ${kgSuffix}`,
+                    subDisplay: month.feed_revenue > 0 ? inrCompact(month.feed_revenue) : "",
+                  }))}
+                  chartLabel={copy(pageContract, "chart.monthly_feed.title")}
+                  valueNoun={copy(pageContract, "chart.monthly_feed.value")}
+                  subValueNoun={copy(pageContract, "chart.monthly_feed.sub")}
+                  emptyLabel={copy(pageContract, "chart.monthly_feed.empty")}
+                />
+              </>
+            ) : null}
           </section>
 
           {/* 3 — realized price per kg by breed, ordered as served (highest first). */}
