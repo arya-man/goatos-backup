@@ -664,7 +664,18 @@ function VerificationReviewDrawerPanel({
 	                    autoPlay={playIntent}
 	                  />
 	                ) : (
-	                  <button type="button" className="vr-media-open" onClick={resolveActiveMedia} disabled={mediaPending}>
+	                  // Pressing Play IS the play intent. Resolving the URL alone mounted the player
+	                  // paused, so every item reached without ?vi_play=1 -- Next/Prev, and the Accept
+	                  // that advances to the next video -- took two clicks to start (2026-10-03).
+	                  <button
+	                    type="button"
+	                    className="vr-media-open"
+	                    onClick={() => {
+	                      setPlayIntent(true);
+	                      resolveActiveMedia();
+	                    }}
+	                    disabled={mediaPending}
+	                  >
 	                    <span className="vr-media-open-mark"><PlayCircle className="ic" aria-hidden="true" /></span>
 	                    {text("drawer.media.play_video")}
 	                  </button>

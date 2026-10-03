@@ -114,3 +114,14 @@ test("the drawer is keyed on the server-selected row so an approve advances to t
   assert.match(drawerSource, /useState\(initialItem\?\.item_id\)/);
   assert.match(pageSource, /<VerificationReviewDrawer\s+key=\{selectedId \?\? "none"\}/);
 });
+
+test("one press of Play video plays it, on an item reached without ?vi_play=1", () => {
+  // Next/Prev and the Accept that advances to the next video build the URL with hrefWithRow, which
+  // drops vi_play, so the drawer lands on the Play video tile. That press must carry the play
+  // intent: resolving the URL alone mounted the player paused and took a second click (2026-10-03).
+  const tile = drawerSource.match(/<button[\s\S]*?className="vr-media-open"[\s\S]*?drawer\.media\.play_video/);
+  assert.ok(tile, "the Play video tile is a button");
+  assert.match(tile[0], /setPlayIntent\(true\)/);
+  assert.match(tile[0], /resolveActiveMedia\(\)/);
+  assert.match(drawerSource, /autoPlay=\{playIntent\}/);
+});
