@@ -419,6 +419,7 @@ export async function SalesSoldPage({
   const none = copy(pageContract, "value.none");
   const advanceOnlyLabel = copy(pageContract, "value.advance_only");
   const dealColumns = tableLabels(pageContract, "sales-deals");
+  const noRate = copy(pageContract, "value.no_rate");
   const listHref = hrefWithQuery(PAGE_PATH, sp, { deal_id: null });
 
   return (
@@ -506,9 +507,9 @@ export async function SalesSoldPage({
                       {dealCell(deal.total_weight_kg == null ? none : num(deal.total_weight_kg, 1), "num")}
                       {dealCell(deal.advance_only ? none : inr(deal.sales_value), "num")}
                       {/* Backend-derived per-sale rates (domain.Deal.Rates), never divided here. */}
-                      {dealCell(deal.price_per_kg == null ? none : num(deal.price_per_kg), "num")}
-                      {dealCell(deal.weight_per_animal_kg == null ? none : num(deal.weight_per_animal_kg, 1), "num")}
-                      {dealCell(deal.price_per_animal == null ? none : num(deal.price_per_animal), "num")}
+                      {dealCell(deal.price_per_kg == null ? noRate : num(deal.price_per_kg), "num")}
+                      {dealCell(deal.weight_per_animal_kg == null ? noRate : num(deal.weight_per_animal_kg, 1), "num")}
+                      {dealCell(deal.price_per_animal == null ? noRate : num(deal.price_per_animal), "num")}
                       {dealCell(<Tag tone={dealStatusTone(deal.status)}>{deal.status}</Tag>)}
                     </tr>
                   );

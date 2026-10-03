@@ -626,7 +626,7 @@ func pages() []domain.PageContract {
 		// Both stay read-only by contract; entry is still /sales/config alone.
 		page("sales-sold", "/sales/sold", "/sales/sold", "Summary", "What has sold across every park — revenue, animals, price per kg, buyers and the deals ledger.", "module-surface",
 			[]domain.TableContract{
-				tableP("sales-deals", "Deals", "/sales/deals", []string{"sale_date", "farm", "buyer_name", "product_type", "breed", "animal_count", "total_weight_kg", "sales_value", "price_per_kg", "weight_per_animal_kg", "price_per_animal", "status"}, "deal_id", []int{25, 50, 100}),
+				soldDealsTable(),
 				withoutRowClick(tableP("sales-buyers", "Buyers", "/sales/overview", []string{"buyer_name", "buyer_place", "product_types", "deals", "animals", "revenue", "share_pct"}, "", []int{10, 25, 50})),
 			}),
 		page("sales-farm-value", "/sales/farm-value", "/sales/farm-value", "Farm value", "What the live herd is worth today at Sales target rates, and how much of it is ready to sell.", "module-surface",
@@ -1205,6 +1205,23 @@ func sortable(t domain.TableContract, keys ...string) domain.TableContract {
 		}
 		if !found {
 			panic(fmt.Sprintf("adminui: table %q has no column %q to mark sortable", t.ID, key))
+		}
+	}
+	return t
+}
+
+// soldDealsTable is the deals ledger on Sold. Its headers come from the page's OWN copy map (the
+// loadwiseTable precedent): with the per-sale rate columns added (2026-10-03) the humanised
+// "Animal Count" / "Total Weight Kg" / "Product Type" headers pushed Status off a laptop screen,
+// and the copy map already names those columns the way the farm does.
+func soldDealsTable() domain.TableContract {
+	t := tableP("sales-deals", "Deals", "/sales/deals",
+		[]string{"sale_date", "farm", "buyer_name", "product_type", "breed", "animal_count", "total_weight_kg", "sales_value", "price_per_kg", "weight_per_animal_kg", "price_per_animal", "status"},
+		"deal_id", []int{25, 50, 100})
+	copy := pageCopy("sales-sold")
+	for i := range t.Columns {
+		if label := strings.TrimSpace(copy["column."+t.Columns[i].Key]); label != "" {
+			t.Columns[i].Label = label
 		}
 	}
 	return t
@@ -5332,10 +5349,17 @@ func pageSpecificCopy(id string) map[string]string {
 			"column.total_weight_kg": "Weight (kg)",
 			"column.sales_value":     "Value",
 			"column.status":          "Status",
-			"empty.deals":            "No sales match this view.",
-			"empty.deals.unset":      "No sales recorded yet. Record the first sale to start the ledger.",
-			"summary.count":          "deals",
-			"summary.buyers":         "buyers",
+			// Per-sale rates (2026-10-03), the way the farm's sales sheet writes them. A sale with
+			// nothing to divide (manure, feed, unweighed) shows value.no_rate, not "Not recorded":
+			// a ratio is never recorded, and the long phrase three times over widened the table.
+			"column.price_per_kg":         "₹/kg",
+			"column.weight_per_animal_kg": "Kg each",
+			"column.price_per_animal":     "₹/animal",
+			"value.no_rate":               "—",
+			"empty.deals":                 "No sales match this view.",
+			"empty.deals.unset":           "No sales recorded yet. Record the first sale to start the ledger.",
+			"summary.count":               "deals",
+			"summary.buyers":              "buyers",
 
 			// "Tag animals to sale": pick the real animals a recorded sale is made of.
 			// The blockers' own sentences are composed by the identity module and rendered
@@ -12128,14 +12152,6 @@ func humanLabel(key string) string {
 	// A chip column's key names the widget, not the fact: /routines' Today table read "State chip".
 	case "state_chip":
 		return "Status"
-	// The deals ledger's per-sale rates (2026-10-03). The derived forms would read "Price per
-	// kg" / "Weight per animal kg"; the farm writes them the way its sales sheet does.
-	case "price_per_kg":
-		return "₹/kg"
-	case "weight_per_animal_kg":
-		return "Kg each"
-	case "price_per_animal":
-		return "₹/animal"
 	// The diagnosis-routing columns. humanLabel DERIVES a label from the column key, and the
 	// derivations here would be the machine's words on a screen a vet reads -- "Has published
 	// register", "Route count", "Type key". The farm's words are what the rest of this screen
