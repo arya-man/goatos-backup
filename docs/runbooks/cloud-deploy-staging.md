@@ -64,7 +64,7 @@ list; the rollout discovers existing backend-image jobs and updates them.
 ## Create A Release
 
 Normal staging releases originate from the `#goatos-stg-deploy` Slack button.
-The button invokes Cloud Build manual trigger `goatos-stg-deploy-main`, which
+The button invokes Cloud Build regional trigger `goatos-stg-deploy-main-slack`, which
 reads latest approved `origin/main` and runs `cloudbuild.stg.yaml`. Do not
 create or wait for a `main -> stg` pull request, GitHub Actions workflow, or
 remote `stg` branch update as part of staging deployment.
@@ -91,7 +91,12 @@ automation posts a fresh panel again so no one has to scroll channel history to
 find the next button. Pressing
 `Deploy main to STG` calls the Cloud Run Slack bot
 `goatos-stg-slack-deploy-bot`, which starts Cloud Build trigger
-`goatos-stg-deploy-main`.
+`goatos-stg-deploy-main-slack` in `asia-south1`.
+
+The Slack bot source and bot-only image deploy live in `vgoats/mesha-ops` under
+`slack-stg-deploy-bot/`. Goat OS keeps the product deploy DAG and the
+`tools/deploy/slack-stg-deploy-bot/deploy-card.json` idle-panel fixture used by
+the product deploy scripts.
 
 The trigger points at GitHub repo `vgoats/goatos`, branch `main`, and uses
 `cloudbuild.stg.yaml`. It runs as:
@@ -106,8 +111,9 @@ waits for Cloud Deploy rollout/image verification.
 
 Codex/Claude/agent-triggered staging deploys must use the same remote build
 authority. Do not require or assume Docker on a laptop. If an agent is driving a
-deploy outside Slack, it should start the `goatos-stg-deploy-main` Cloud Build
-trigger when the trigger can resolve `main`; otherwise submit the checked-out
+deploy outside Slack, it should use the guarded local launcher or start the
+documented Goat OS STG Cloud Build trigger when the trigger can resolve `main`;
+otherwise submit the checked-out
 `origin/main` source to Cloud Build with `cloudbuild.stg.yaml` and an explicit
 `_COMMIT_SHA=<12-char-main-sha>` substitution. The local
 `tools/deploy/stg-clouddeploy-release.sh` path is break-glass only for an OCI or

@@ -103,6 +103,12 @@ resource "google_project_iam_member" "slack_deploy_bot_logging_writer" {
   member  = "serviceAccount:${google_service_account.slack_deploy_bot.email}"
 }
 
+resource "google_service_account_iam_member" "github_deployer_act_as_slack_deploy_bot" {
+  service_account_id = google_service_account.slack_deploy_bot.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${google_service_account.github_deployer.email}"
+}
+
 resource "google_service_account_iam_member" "github_deployer_act_as_runtime" {
   for_each = google_service_account.runtime
 

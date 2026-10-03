@@ -76,7 +76,7 @@ landed PR only when you want to jump the floor.
 For Codex/Claude, prefer the Cloud Build path:
 
 ```bash
-gcloud builds triggers run goatos-stg-deploy-main --project=goatos-stg
+gcloud builds triggers run goatos-stg-deploy-main-slack --project=goatos-stg --region=asia-south1
 ```
 
 If the trigger API cannot resolve the GitHub ref, submit the already-pushed

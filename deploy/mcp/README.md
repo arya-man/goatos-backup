@@ -32,7 +32,7 @@ Upstream:          GOATOS API /ceo-ai/ask
 ## Normal release path
 
 The regular staging release remains the Slack button in `#goatos-stg-deploy`,
-backed by Cloud Build trigger `goatos-stg-deploy-main` and Cloud Deploy. That
+backed by regional Cloud Build trigger `goatos-stg-deploy-main-slack` and Cloud Deploy. That
 release already builds and pushes the backend image used by `goatos-mcp-stg`.
 
 Before any direct cloud command, verify:

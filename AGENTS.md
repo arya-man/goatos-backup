@@ -389,7 +389,7 @@ Authoritative STG deploy path:
 1. Read `docs/runbooks/stg-deploy.md` (short contract) →
    `docs/runbooks/cloud-deploy-staging.md` (full Cloud Deploy mechanics).
 2. Use the Slack deploy button in `#goatos-stg-deploy`. The button triggers the
-   Google Cloud Build manual trigger `goatos-stg-deploy-main`, which reads
+   Google Cloud Build regional Slack trigger `goatos-stg-deploy-main-slack`, which reads
    `cloudbuild.stg.yaml` and creates the Cloud Deploy release from `origin/main`.
 3. Verify active account is `ravi@mesha.sg`.
 4. Verify target org is `vgoats.com` and environment is Goat OS STG
@@ -499,7 +499,7 @@ Purpose:
   not create or wait for a `main -> stg` pull request, GitHub Actions workflow,
   or direct `stg` branch push as a deployment mechanism. Agents must use the
   `#goatos-stg-deploy` Slack button, which runs Cloud Build trigger
-  `goatos-stg-deploy-main` from latest approved `origin/main`; manual scripts
+  `goatos-stg-deploy-main-slack` from latest approved `origin/main`; manual scripts
   under `tools/deploy/stg-clouddeploy-*.sh` are break-glass/repair mechanics.
   Never push any local ref, local `stg`, `main`, `HEAD`, agent branch, or
   refspec directly to remote `stg`; the branch is not deployment authority. Run

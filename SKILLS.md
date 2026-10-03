@@ -360,8 +360,8 @@ staging", or similar:
 - load `docs/runbooks/stg-deploy.md` (canonical contract) and
   `context/deploy-contract.json`
 - follow `docs/runbooks/cloud-deploy-staging.md` for full Cloud Deploy mechanics
-- deploy is the **Slack button in `#goatos-stg-deploy`**, backed by Cloud Build
-  trigger `goatos-stg-deploy-main` and Cloud Deploy, from latest approved
+- deploy is the **Slack button in `#goatos-stg-deploy`**, backed by regional
+  Cloud Build trigger `goatos-stg-deploy-main-slack` and Cloud Deploy, from latest approved
   `origin/main`
 - do NOT use generic GitHub/CI assumptions
 - do NOT offer GitHub Actions or PR-driven deploy options

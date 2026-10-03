@@ -79,7 +79,7 @@ main production-facing release gate:
   production-facing Android release APK build/unit/Paparazzi checks.
 
 operator-triggered deployment:
-  cloudbuild.stg.yaml / goatos-stg-deploy-main
+  cloudbuild.stg.yaml / goatos-stg-deploy-main-slack (Slack) and goatos-stg-deploy-main (manual/global)
   Builds backend/migrate/admin-web images in the reused `goatos-stg` project and
   creates a Cloud Deploy release. Cloud Deploy then runs migrations, updates
   services/jobs, verifies image skew, and smokes /livez, /readyz, and

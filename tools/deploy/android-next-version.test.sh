@@ -30,7 +30,6 @@ if printf '' | android_next_version_code abc 2>/dev/null; then echo "FAIL: accep
 
 # Precheck: no deploy path may commit to main via the GitHub contents API.
 if grep -nE 'api\.github\.com/repos/[^ ]*/contents|bump-android-version|bumpAndroidReleaseVersion|GOATOS_GITHUB_PAT' \
-  "$root/tools/deploy/slack-stg-deploy-bot/main.go" \
   "$root/tools/deploy/stg-mobile-distribution.sh" "$root/cloudbuild.stg.yaml"; then
   echo "FAIL: a deploy path still commits a version bump to main" >&2; fail=1
 else

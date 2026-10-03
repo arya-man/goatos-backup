@@ -137,7 +137,7 @@ Staging deployment authority:
 Cloud Deploy pipeline: deploy/clouddeploy/stg/clouddeploy.yaml
 Release helper:        tools/deploy/stg-clouddeploy-release.sh
 Detailed runbook:      docs/runbooks/cloud-deploy-staging.md
-Default trigger:       Slack #goatos-stg-deploy -> Cloud Build goatos-stg-deploy-main
+Default trigger:       Slack #goatos-stg-deploy -> Cloud Build goatos-stg-deploy-main-slack
 ```
 
 Staging-backed releases are the unit of change while `goatos-stg` remains the
@@ -155,8 +155,8 @@ Staging deploy automation:
 
 ```text
 Slack #goatos-stg-deploy button
-  -> Cloud Run Slack bot goatos-stg-slack-deploy-bot
-  -> Cloud Build trigger goatos-stg-deploy-main on origin/main
+  -> Cloud Run Slack bot goatos-stg-slack-deploy-bot (source: vgoats/mesha-ops slack-stg-deploy-bot/)
+  -> Cloud Build regional trigger goatos-stg-deploy-main-slack on origin/main
   -> cloudbuild.stg.yaml
   -> Cloud Deploy release and rollout
 ```

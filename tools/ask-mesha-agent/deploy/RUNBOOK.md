@@ -256,7 +256,8 @@ gcloud run services add-iam-policy-binding goatos-ask-mesha-stg --project=$PROJE
 Order from zero: §0 → §1 → §2 → §3 → §3b → §3c → §3d → §3e → §4 → §5 (deployer part) → first
 run below → §5 invoker grant → verify → second run → verify in admin-web → §3f Grafana.
 
-Trigger the normal `goatos-stg-deploy-main` build (launcher / Slack) with the
+Trigger the normal Goat OS STG build (launcher or Slack; Slack uses
+`goatos-stg-deploy-main-slack`) with the
 extra substitutions:
 
 1. First run: `_ASK_MESHA_DEPLOY=true` (service only). Grant `run.invoker` (§5).
