@@ -126,7 +126,10 @@ test("sales chart bar labels stay whole and suffix-free", () => {
   // The monthly and price-band charts live on Sold since the 2026-09-11 split.
   const salesSource = readFileSync(new URL("./sales-sold.tsx", import.meta.url), "utf8");
   const loadwiseSource = readFileSync(new URL("./loadwise-section.tsx", import.meta.url), "utf8");
-  assert.match(salesSource, /display: numCompactWhole\(month\.manure_kg\)/);
+  // EXCEPT manure (maintainer, 2026-10-03): "27k" read as a letter nobody could explain, so the
+  // manure bars carry the whole kilograms with the unit.
+  assert.match(salesSource, /display: `\$\{num\(month\.manure_kg\)\} \$\{kgSuffix\}`/);
+  assert.doesNotMatch(salesSource, /display: numCompactWhole\(month\.manure_kg\)/);
   assert.match(salesSource, /display: inr\(Math\.round\(band\.avg_price_per_kg\)\)/);
   assert.doesNotMatch(salesSource, /display: `\$\{inr\(Math\.round\(band\.avg_price_per_kg\)\)\} \$\{perKgSuffix\}`/);
   assert.match(loadwiseSource, /barLabels:\s*\[\s*load\.avg_purchase_weight_kg == null \? null : numCompactWhole\(load\.avg_purchase_weight_kg\)/s);

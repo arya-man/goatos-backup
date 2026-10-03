@@ -33,7 +33,6 @@ import {
   monthlyAnimalsTotal,
   monthlyRevenueTotal,
   num,
-  numCompactWhole,
   trimEmptyMonthlyStart,
   breedBeyondProduct,
 } from "./sales-format";
@@ -239,7 +238,8 @@ function SoldSections({
                 axisLabel: monthLabel(month.month),
                 label: monthLabel(month.month),
                 value: month.manure_kg,
-                display: numCompactWhole(month.manure_kg),
+                // The whole figure with its unit: "27k" read as a mystery letter (2026-10-03).
+                display: `${num(month.manure_kg)} ${kgSuffix}`,
                 subDisplay: month.manure_revenue > 0 ? inrCompact(month.manure_revenue) : "",
               }))}
               chartLabel={copy(pageContract, "chart.monthly_manure.title")}
